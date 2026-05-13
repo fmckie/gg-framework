@@ -2600,6 +2600,7 @@ export function App(props: AppProps) {
       "research",
       "scan",
       "verify",
+      "bullet-proof",
       "simplify",
       "compare",
       "batch",
