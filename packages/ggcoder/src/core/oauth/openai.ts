@@ -7,7 +7,7 @@ const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const REDIRECT_URI = "http://localhost:1455/auth/callback";
-const SCOPE = "openid profile email offline_access";
+const SCOPE = "openid profile email offline_access api.connectors.read api.connectors.invoke";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth";
 
 export async function loginOpenAI(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {

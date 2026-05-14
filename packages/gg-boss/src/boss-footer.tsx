@@ -14,7 +14,6 @@ const SHORT_MODELS: Record<string, string> = {
   "claude-haiku-4-5": "Haiku",
   "claude-haiku-4-5-20251001": "Haiku",
   "gpt-5.5": "GPT-5.5",
-  "gpt-5.5-pro": "GPT-5.5 Pro",
   "gpt-5.4": "GPT-5.4",
   "gpt-5.4-mini": "GPT-5.4 Mini",
   "gpt-5.3-codex": "GPT-5.3 Codex",

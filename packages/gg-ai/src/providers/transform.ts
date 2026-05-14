@@ -552,19 +552,10 @@ export function toOpenAIToolChoice(choice: ToolChoice): OpenAI.ChatCompletionToo
   return { type: "function", function: { name: choice.name } };
 }
 
-// GPT-5.5-era Pro variants ("gpt-5.5-pro", "gpt-5.4-pro", …) only accept
-// medium / high / xhigh — they reject `low` and `none`. Standard models
-// (gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex) accept the full range.
-// Reference: https://developers.openai.com/api/docs/models/gpt-5.5
-function isOpenAIProVariant(model: string): boolean {
-  return /^gpt-5\.\d+-pro$/i.test(model);
-}
-
 export function toOpenAIReasoningEffort(
   level: ThinkingLevel,
-  model: string,
+  _model: string,
 ): "low" | "medium" | "high" | "xhigh" {
-  if (isOpenAIProVariant(model) && level === "low") return "medium";
   return level;
 }
 

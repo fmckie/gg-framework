@@ -89,14 +89,17 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
 
     let hint: string | undefined;
     if (response.status === 400 && text.includes("not supported")) {
-      hint =
-        "Codex models require a ChatGPT Plus ($20/mo) or Pro ($200/mo) subscription. " +
-        'The "codex-spark" variants require ChatGPT Pro. ' +
-        "Check your subscription at https://chatgpt.com/settings.";
+      if (options.model === "gpt-5.5-pro") {
+        hint = "Use gpt-5.5 instead. OpenAI's Codex model catalog does not list gpt-5.5-pro.";
+      } else {
+        hint =
+          "This model is not available through Codex for the authenticated account. " +
+          "Run /model and choose a model listed for OpenAI Codex, or check your Codex model picker/usage limits.";
+      }
     } else if (response.status === 404 && text.includes("does not exist")) {
       hint =
-        "codex-mini-latest requires an OpenAI Pro ($200/mo) or Max subscription. " +
-        "GPT-5.4 and GPT-5.4 Mini work with any active ChatGPT plan.";
+        "This model is not in the current OpenAI Codex catalog for this account. " +
+        "Try gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5.3-codex.";
     }
 
     throw new ProviderError("openai", message, {

@@ -73,17 +73,6 @@ export const MODELS: ModelInfo[] = [
     maxThinkingLevel: "xhigh",
   },
   {
-    id: "gpt-5.5-pro",
-    name: "GPT-5.5 Pro",
-    provider: "openai",
-    contextWindow: 1_050_000,
-    maxOutputTokens: 128_000,
-    supportsThinking: true,
-    supportsImages: true,
-    costTier: "high",
-    maxThinkingLevel: "xhigh",
-  },
-  {
     id: "gpt-5.4",
     name: "GPT-5.4",
     provider: "openai",
