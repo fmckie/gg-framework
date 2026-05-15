@@ -166,16 +166,16 @@ Do not start fixing until the user chooses.`,
   {
     name: "bullet-proof",
     aliases: ["bp"],
-    description: "Adversarial security review — think like an attacker, harden the project",
-    prompt: `# Bullet-Proof: Adversarial Security Review
+    description: "Defensive security review — audit the project for exploitable weaknesses",
+    prompt: `# Bullet-Proof: Defensive Security Review
 
-You are a red-team operator hired to find every realistic way a real attacker could get into, damage, or exfiltrate from this codebase. Think adversarially — bypasses, edge cases, race conditions, trust assumptions, supply-chain hops, agent-mediated paths.
+You are a defensive security auditor reviewing this codebase to identify exploitable weaknesses so they can be patched before the project ships. Think rigorously about realistic threat scenarios — boundary checks, edge cases, race conditions, trust assumptions, supply-chain risks, agent-mediated paths.
 
-Goal: harden this project as close to hack-proof as possible. **Report only HIGH CONFIDENCE findings (≥0.8) with a concrete exploit path.** Better to miss theoretical issues than flood the report with noise.
+Goal: harden this project against realistic threats. **Report only HIGH CONFIDENCE findings (≥0.8) with a concrete data-flow path that demonstrates exposure.** Better to miss theoretical issues than flood the report with noise.
 
 This command is **dynamic and project-agnostic**. Recon drives everything. Do not assume the stack, the language, the deploy target, or that there is an LLM/agent layer. Read first, decide second.
 
-## Phase 1: Recon — Understand THIS project before hunting anything
+## Phase 1: Recon — Understand THIS project before auditing anything
 
 Spawn **FOUR recon subagents in parallel** using the subagent tool (call the subagent tool 4 times in a single response). Each has a narrow, independent slice so they can all run at once. **No vulnerabilities flagged in this phase.**
 
@@ -195,52 +195,52 @@ Spawn **FOUR recon subagents in parallel** using the subagent tool (call the sub
 
 **After all four return, the main agent synthesizes:**
 1. Assemble the four tables (Stack/Deploy, Sources, Sinks, Assets) into the recon report
-2. Add the **Adversary profile** — concrete to THIS project, derived from the four agents' outputs. Who would attack it and what for? (Examples: supply-chain attacker hitting downstream users of a library; multi-tenant abuse on a SaaS; malicious user on a CLI/mobile app; insider with repo access; phishing-based account takeover; coding-agent hijack via injected web content; on-chain attacker reentering a contract.) Be specific.
+2. Add the **Threat model** — concrete to THIS project, derived from the four agents' outputs. Who would realistically target it and what for? (Examples: supply-chain risks affecting downstream users of a library; multi-tenant abuse on a SaaS; untrusted user input on a CLI/mobile app; insider risk with repo access; phishing-based account takeover; coding-agent risks from injected web content; on-chain reentrancy risks for a smart contract.) Be specific.
 3. Note any obvious gaps the four recon agents flagged (areas that need a deeper look in Phase 3)
 
-## Phase 2: Plan the hunt — recon drives this
+## Phase 2: Plan the audit — recon drives this
 
-From the recon output, decide which attack classes apply to THIS project. **Skip hunters with no entry surface.** A static documentation site does not get a SQLi hunter. A Rust embedded firmware project does not get a prompt-injection hunter. A Python ML pipeline does get pickle/yaml hunters. A library that ships to others gets supply-chain weighted heavily.
+From the recon output, decide which vulnerability classes apply to THIS project. **Skip audits with no entry surface.** A static documentation site does not get a SQLi audit. A Rust embedded firmware project does not get a prompt-injection audit. A Python ML pipeline does get pickle/yaml audits. A library that ships to others gets supply-chain weighted heavily.
 
-Default catalog — pick what applies, drop what doesn't, add stack-specific hunters where recon shows a unique surface:
+Default catalog — pick what applies, drop what doesn't, add stack-specific audits where recon shows a unique surface:
 
-| Hunter | Fires when | Hunts for |
+| Audit | Fires when | Audits for |
 |---|---|---|
 | **Injection** | unsanitized input reaches an interpreter | SQLi, command injection, template injection, eval/Function/exec, pickle/yaml.load, NoSQL/LDAP/XPath injection, prompt injection |
 | **AuthN/AuthZ/Session** | any auth, session, or access-control logic exists | broken access control (IDOR, BOLA), JWT alg confusion / alg:none, OAuth state/PKCE/redirect-uri abuse, session fixation, missing rate limit on credential checks, MFA bypass, TOCTOU races |
-| **Secrets & exfil paths** | any secret/credential/token exists | hardcoded keys, logs/errors/debug-file leakage, source maps in published artifacts, telemetry leakage, prototype pollution exposing secrets, \`JSON.stringify(err)\` shapes, env dump in error pages, exposed \`.git\`/\`.env\`/\`.map\` |
-| **Supply chain** | any dependency manager or external code | unpinned deps/actions, postinstall scripts, typosquats, **slopsquats (AI-hallucinated package names registered by attackers)**, dependency confusion, lockfile drift, install-time \`curl \\| sh\`, unsigned releases, unverified maintainer takeovers, self-spreading worms (Shai-Hulud family) |
+| **Secrets & exposure paths** | any secret/credential/token exists | hardcoded keys, logs/errors/debug-file leakage, source maps in published artifacts, telemetry leakage, prototype pollution exposing secrets, \`JSON.stringify(err)\` shapes, env dump in error pages, exposed \`.git\`/\`.env\`/\`.map\` |
+| **Supply chain** | any dependency manager or external code | unpinned deps/actions, postinstall scripts, typosquats, **slopsquats (AI-hallucinated package names registered by malicious parties)**, dependency confusion, lockfile drift, install-time \`curl \\| sh\`, unsigned releases, unverified maintainer takeovers, self-spreading worms (Shai-Hulud family) |
 | **CI/CD & build integrity** | any CI workflow, release pipeline | \`pull_request_target\` + checkout of PR HEAD (Pwn Request), Actions cache poisoning, OIDC token theft from \`/proc\`, self-hosted runner reuse, secret echoes, missing \`permissions:\` block |
 | **SSRF, path traversal, file ops** | any URL/path/file built from input | SSRF to metadata endpoints (IMDSv1), path traversal, zip-slip, symlink races, unrestricted upload, archive extraction outside target dir |
 | **Cloud/infra & misconfig** | any IaC, container, cloud SDK use | overpermissive IAM (\`Action:*\`, \`iam:PassRole:*\`), public buckets, IMDSv1, exposed K8s API/kubelet, presigned URLs without expiry, default creds, debug endpoints in prod, CORS \`origin:*\` + \`credentials:true\` |
 | **Crypto** | any crypto/hashing/signing | weak algos (MD5/SHA1 for auth), missing IV, ECB mode, hardcoded keys, JWT \`alg:none\`, non-constant-time compare on secrets, predictable PRNG for tokens |
-| **Agent attack surface** | only if recon detected LLM/AI/MCP/coding-agent/tool-calling code | indirect prompt injection via fetched content, MCP tool poisoning, tool-description injection (ToolLeak), system-prompt exfil via tool args, **Rules-File Backdoor (Unicode bidi / zero-width chars hiding instructions in CLAUDE.md / .cursorrules / AGENTS.md)**, malicious CLAUDE.md walking up parent dirs, DNS-exfil via coerced tool calls, RAG / memory / context poisoning, vector-store embedding attacks |
+| **Agent surface** | only if recon detected LLM/AI/MCP/coding-agent/tool-calling code | indirect prompt injection via fetched content, MCP tool poisoning, tool-description injection (ToolLeak), system-prompt exposure via tool args, **Rules-File Backdoor (Unicode bidi / zero-width chars hiding instructions in CLAUDE.md / .cursorrules / AGENTS.md)**, malicious CLAUDE.md walking up parent dirs, DNS-exfil via coerced tool calls, RAG / memory / context poisoning, vector-store embedding risks |
 | **Dangerous-sink dataflow (taint)** | Sources × Sinks tables are non-empty | trace each Source through the codebase to every reachable Sink; flag reachable paths with no sanitization between |
 
-**Add stack-specific hunters when recon surfaces them**: smart-contract reentrancy/oracle manipulation; mobile IPC / deep links / pasteboard / WebView \`addJavascriptInterface\`; embedded firmware update integrity, debug interfaces left enabled; ML model deserialization, training-data poisoning, MLflow/Triton config exposure.
+**Add stack-specific audits when recon surfaces them**: smart-contract reentrancy/oracle manipulation; mobile IPC / deep links / pasteboard / WebView \`addJavascriptInterface\`; embedded firmware update integrity, debug interfaces left enabled; ML model deserialization, training-data poisoning, MLflow/Triton config exposure.
 
-## Phase 3: Parallel hunters
+## Phase 3: Parallel audits
 
-Spawn one subagent per active hunter **in a single response** (call the subagent tool N times **with \`agent: "redteam"\`**, where N is whatever Phase 2 picked — do not pad to a fixed number, do not drop hunters Phase 2 selected). The \`redteam\` agent has the adversarial-mindset persona and exclusion list baked in, so your task description only needs the attack-class scope. Each hunter receives:
-- The full recon output (Sources, Sinks, Assets, Adversary)
-- Its specific attack-class scope
+Spawn one subagent per active audit **in a single response** (call the subagent tool N times **with \`agent: "auditor"\`**, where N is whatever Phase 2 picked — do not pad to a fixed number, do not drop audits Phase 2 selected). The \`auditor\` agent has the defensive-review persona and exclusion list baked in, so your task description only needs the vulnerability-class scope. Each auditor receives:
+- The full recon output (Sources, Sinks, Assets, Threat model)
+- Its specific vulnerability-class scope
 - The 2026 threat reference at the bottom of this prompt
 
-Each hunter must:
+Each auditor must:
 1. **Trace data flow** from Sources to Sinks for its class. Not pattern matching.
-2. For every candidate, apply the **attacker-controlled vs server-controlled** decision: is the input *actually reachable* by an attacker, or is it a settings constant / build-time string / hard-coded value?
-3. Construct a concrete **exploit scenario** — the steps an attacker takes. If you can't write the steps, don't flag it.
+2. For every candidate, apply the **untrusted-input vs trusted-input** decision: is the input *actually reachable* by an untrusted source, or is it a settings constant / build-time string / hard-coded value?
+3. Construct a concrete **vulnerability scenario** — describe how the weakness would be triggered (input → system response → resulting exposure). If you can't describe the steps, don't flag it.
 4. Assign **confidence 0.0–1.0**. Drop anything <0.8 before returning.
 5. Be framework-aware: ORM parameterization, auto-escape, memory-safe languages, JSX/template escaping all eliminate entire vuln classes. Don't flag what the framework already handles.
 
 ## Phase 4: False-positive filter
 
-After hunters complete, spawn one verification subagent per surviving finding **in parallel with \`agent: "skeptic"\`** (call the subagent tool once per finding in a single response). The \`skeptic\` agent starts from "this is a false positive" and tries to disprove the finding — only confirmed findings survive. Pass each verifier the full hunter finding (location, source/sink, exploit scenario, claimed confidence). Drop anything the skeptic returns as DROP; lower severity for DOWNGRADE.
+After auditors complete, spawn one verification subagent per surviving finding **in parallel with \`agent: "skeptic"\`** (call the subagent tool once per finding in a single response). The \`skeptic\` agent starts from "this is a false positive" and tries to disprove the finding — only confirmed findings survive. Pass each verifier the full audit finding (location, source/sink, vulnerability scenario, claimed confidence). Drop anything the skeptic returns as DROP; lower severity for DOWNGRADE.
 
 **Hard exclusions — do NOT report these, even if real:**
 - DOS / rate-limiting / memory exhaustion without a clear amplification primitive
-- Theoretical race conditions without a demonstrable exploit window
-- Regex-DOS without attacker-supplied regex
+- Theoretical race conditions without a demonstrable trigger window
+- Regex-DOS without untrusted-supplied regex
 - Log spoofing / log injection (cosmetic)
 - SSRF where the URL is a settings constant or build-time string
 - Env-var trust (env is server-controlled by definition)
@@ -249,7 +249,7 @@ After hunters complete, spawn one verification subagent per surviving finding **
 - Shell-script command injection without an untrusted input path
 - Findings in documentation files, example code, or test fixtures
 - Insecure-by-design dev tooling that doesn't ship to users
-- "Could be improved" style preferences or hardening-best-practice nudges with no exploit path
+- "Could be improved" style preferences or hardening-best-practice nudges with no demonstrable path
 
 ## Phase 5: Report
 
@@ -258,10 +258,10 @@ Output one report. No code edits in this phase.
 \`\`\`
 # Bullet-Proof Report — [Project name from recon]
 Date: [today's date]
-Adversary model: [from recon]
+Threat model: [from recon]
 
-## Attack Surface Summary
-[1-paragraph summary of how an attacker would realistically approach this project]
+## Exposure Surface Summary
+[1-paragraph summary of the project's realistic exposure profile and where untrusted data enters]
 
 ## Sources / Sinks / Assets
 [Compact tables from recon]
@@ -270,7 +270,7 @@ Adversary model: [from recon]
 | Severity | Count | Definition |
 |---|---|---|
 | Critical | N | RCE, full auth bypass, credential theft, fund loss |
-| High     | N | privilege escalation, data exfiltration with auth, supply-chain compromise |
+| High     | N | privilege escalation, data exposure with auth, supply-chain compromise |
 | Medium   | N | limited-scope info disclosure, weakened crypto, partial bypass |
 
 ## Findings
@@ -278,19 +278,19 @@ Adversary model: [from recon]
 ### [BP-001] <title> — Critical
 - Location: path:line
 - Category: <slug>   CWE: CWE-XXX   Confidence: 0.95
-- Attack surface: <entry point from Sources>
+- Exposure surface: <entry point from Sources>
 - Source → Sink: <e.g. \`POST /api/foo body.userId\` → \`subprocess.run(..., shell=True)\`>
-- Exploit scenario:
-  1. Attacker sends <specific payload>
-  2. Server <does what>
-  3. Attacker achieves <what — RCE / data / auth bypass>
-- Impact: <blast radius — what they get, how far it spreads>
+- Vulnerability scenario:
+  1. Untrusted input <specific payload> reaches <source>
+  2. Server processes it as <what>
+  3. Result: <RCE / data exposure / auth bypass>
+- Impact: <blast radius — what is exposed, how far it spreads>
 - Fix: <concrete remediation, code-level>
 
 […repeat per finding, ordered Critical → High → Medium…]
 
 ## What was not flagged
-[1-paragraph: which attack classes returned zero findings, and how many findings the FP filter dropped — so the user sees the work, not just the survivors]
+[1-paragraph: which vulnerability classes returned zero findings, and how many findings the FP filter dropped — so the user sees the work, not just the survivors]
 \`\`\`
 
 ## Phase 6: Ask before fixing
@@ -307,7 +307,7 @@ After the report, ask:
 
 ## Threat reference (May 2026)
 
-Cite these as needed per hunter. Do not dump them into the report — use them to verify exploitability.
+Cite these as needed per audit. Do not dump them into the report — use them to verify whether a candidate is actually reachable.
 
 **OWASP Top 10:2025** — A01 Broken Access Control (now includes SSRF), A02 Misconfig, **A03 Supply Chain Failures (new)**, A05 Injection (now includes prompt injection), **A10 Mishandling Exceptional Conditions (new — fail-open patterns)**.
 
@@ -320,7 +320,7 @@ Cite these as needed per hunter. Do not dump them into the report — use them t
 **Real 2024-2026 incidents — use as grep templates:**
 - tj-actions/changed-files (Mar 14-15 2025, CVE-2025-30066, 23k repos) → unpinned GH Actions, \`uses: foo/bar@main\` / mutable tags, runner-memory secret dumps
 - TanStack Mini Shai-Hulud (May 11 2026, CVE-2026-45321, CVSS 9.6 — 84 versions across 42 \`@tanstack/*\` + UiPath/Mistral/Guardrails/OpenSearch, 169+ packages total, "TeamPCP") → self-spreading npm worm, \`pull_request_target\` + cache poisoning + OIDC token extraction from \`/proc/<pid>/mem\`, persistent \`gh-token-monitor\` daemon
-- Slopsquatting (ongoing 2025-2026, \`react-codeshift\` Jan 2026) → AI coding assistants hallucinate ~20% non-existent package names (open-source models ~21.7%, GPT-4 ~5.2%); attackers register the hallucinated names on npm/PyPI. **Verify every package actually existed BEFORE the agent suggested it** — check registry age, download history, author identity
+- Slopsquatting (ongoing 2025-2026, \`react-codeshift\` Jan 2026) → AI coding assistants hallucinate ~20% non-existent package names (open-source models ~21.7%, GPT-4 ~5.2%); malicious parties register the hallucinated names on npm/PyPI. **Verify every package actually existed BEFORE the agent suggested it** — check registry age, download history, author identity
 - XZ Utils (CVE-2024-3094) → unverified maintainer takeovers, multi-year backdoor injection in install scripts
 - Invariant Labs MCP hijack (May 2025) → MCP server returns malicious tool descriptions / crafted issue content
 - Claude Code source-map leak (Mar 2026, 513k LOC) → \`*.map\` files in \`npm pack\` / shipped artifacts
@@ -342,11 +342,11 @@ Cite these as needed per hunter. Do not dump them into the report — use them t
 
 ## Rules
 
-- **Recon first, hunters second.** No hunter fires without a recon-identified entry surface to justify it.
+- **Recon first, audits second.** No audit fires without a recon-identified entry surface to justify it.
 - **No pattern-only findings.** Every flag must have a Sources → Sinks path traced through the code.
 - **No "could be improved" recommendations.** Either it's exploitable or it's not in scope.
 - **Strict confidence gate (≥0.8).** Drop everything else, even if it looks suspicious.
-- **Adapt to the stack, always.** The hunters and threat catalog above are a reference, not a checklist to apply uniformly.
+- **Adapt to the stack, always.** The audit catalog and threat reference above are guidance, not a checklist to apply uniformly.
 - **Report only.** Wait for the user to pick what to fix in Phase 6.`,
   },
   {
