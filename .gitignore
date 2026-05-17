@@ -20,6 +20,19 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Local tool locks
+.claude/*.lock
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Rust / Swift build outputs
+target/
+.build/
+
 # npm
 .npmrc
 
