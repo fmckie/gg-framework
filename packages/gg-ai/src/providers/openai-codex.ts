@@ -19,6 +19,21 @@ import { downgradeUnsupportedImages } from "./transform.js";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseToolArguments(argsJson: string): Record<string, unknown> {
+  if (!argsJson) return {};
+  try {
+    const parsed = JSON.parse(argsJson) as unknown;
+    const unwrapped = typeof parsed === "string" ? (JSON.parse(parsed) as unknown) : parsed;
+    return isJsonObject(unwrapped) ? unwrapped : {};
+  } catch {
+    return {};
+  }
+}
+
 export function streamOpenAICodex(options: StreamOptions): StreamResult {
   return new StreamResult(runStream(options));
 }
@@ -265,12 +280,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
         const id = `${callId}|${itemId}`;
         const tc = toolCalls.get(id);
         if (tc) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(tc.argsJson) as Record<string, unknown>;
-          } catch {
-            /* malformed JSON */
-          }
+          const args = parseToolArguments(tc.argsJson);
           yield {
             type: "toolcall_done",
             id: tc.id,
@@ -303,12 +313,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   }
 
   for (const [, tc] of toolCalls) {
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(tc.argsJson) as Record<string, unknown>;
-    } catch {
-      /* malformed JSON */
-    }
+    const args = parseToolArguments(tc.argsJson);
     const toolCall: ToolCall = {
       type: "tool_call",
       id: tc.id,

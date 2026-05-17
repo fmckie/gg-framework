@@ -20,6 +20,10 @@ import {
   toAnthropicTools,
 } from "./transform.js";
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
 function createClient(options: StreamOptions): Anthropic {
   const isOAuth = options.apiKey?.startsWith("sk-ant-oat");
   return new Anthropic({
@@ -245,6 +249,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
           if (block.type === "tool_use") {
             accum.toolId = block.id;
             accum.toolName = block.name;
+            accum.input = (block as unknown as { input?: unknown }).input;
           } else if (block.type === "server_tool_use") {
             accum.toolId = (block as unknown as { id: string }).id;
             accum.toolName = (block as unknown as { name: string }).name;
@@ -311,11 +316,14 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
             });
             yield keepalive;
           } else if (accum.type === "tool_use") {
-            let args: Record<string, unknown> = {};
-            try {
-              args = JSON.parse(accum.argsJson) as Record<string, unknown>;
-            } catch {
-              // malformed JSON — keep empty
+            let args: Record<string, unknown> = isJsonObject(accum.input) ? accum.input : {};
+            if (accum.argsJson) {
+              try {
+                const parsed = JSON.parse(accum.argsJson) as unknown;
+                args = isJsonObject(parsed) ? parsed : {};
+              } catch {
+                // malformed JSON — keep start-block input fallback when available
+              }
             }
             const tc: ToolCall = {
               type: "tool_call",

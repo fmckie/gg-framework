@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { z } from "zod";
 import { ProviderError } from "@kenkaiiii/gg-ai";
 import { agentLoop, classifyOverload, isContextOverflow } from "./agent-loop.js";
 import type { AgentEvent, AgentResult } from "./types.js";
@@ -466,6 +467,67 @@ describe("agentLoop", () => {
     expect(events.some((e) => e.type === "agent_done")).toBe(true);
     expect(result.totalTurns).toBe(1); // stall retries don't count as turns
   }, 30_000);
+
+  it("stops after repeated invalid tool arguments", async () => {
+    const toolResponse = (id: string) => ({
+      message: {
+        role: "assistant" as const,
+        content: [{ type: "tool_call" as const, id, name: "bash", args: {} }],
+      },
+      stopReason: "tool_use",
+      usage: { inputTokens: 50, outputTokens: 25 },
+    });
+
+    mockStream
+      .mockReturnValueOnce({
+        [Symbol.asyncIterator]: async function* () {
+          yield* [];
+        },
+        response: Promise.resolve(toolResponse("t1")),
+      } as unknown as ReturnType<typeof stream>)
+      .mockReturnValueOnce({
+        [Symbol.asyncIterator]: async function* () {
+          yield* [];
+        },
+        response: Promise.resolve(toolResponse("t2")),
+      } as unknown as ReturnType<typeof stream>)
+      .mockReturnValueOnce({
+        [Symbol.asyncIterator]: async function* () {
+          yield* [];
+        },
+        response: Promise.resolve(toolResponse("t3")),
+      } as unknown as ReturnType<typeof stream>);
+
+    const messages: Message[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "test" },
+    ];
+
+    const { events, result } = await collectLoop(messages, {
+      provider: "anthropic",
+      model: "test",
+      tools: [
+        {
+          name: "bash",
+          description: "test",
+          parameters: z.object({ command: z.string() }),
+          execute: () => "should not execute",
+        },
+      ],
+    });
+
+    expect(mockStream).toHaveBeenCalledTimes(3);
+    expect(events.filter((e) => e.type === "tool_call_end" && e.isError)).toHaveLength(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        error: expect.objectContaining({
+          message: expect.stringContaining("repeatedly issued invalid arguments"),
+        }),
+      }),
+    );
+    expect(result.totalTurns).toBe(3);
+  });
 
   it("respects maxTurns", async () => {
     // Return tool_use to force looping, but cap at 2 turns

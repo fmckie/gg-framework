@@ -27,14 +27,23 @@ vi.mock("@anthropic-ai/sdk", () => {
   class AnthropicMock {
     static APIError = APIError;
     static nextError: Error | null = null;
+    static nextEvents: unknown[] | null = null;
     messages = {
       stream: () => {
         const error = AnthropicMock.nextError;
-        if (!error) throw new Error("test did not configure AnthropicMock.nextError");
-        return (async function* () {
+        const events = AnthropicMock.nextEvents;
+        if (!error && !events) {
+          throw new Error("test did not configure AnthropicMock.nextError or nextEvents");
+        }
+        const iterator = (async function* () {
+          if (events) {
+            for (const event of events) yield event;
+            return;
+          }
           yield* [];
           throw error;
         })();
+        return Object.assign(iterator, { currentMessage: null });
       },
     };
   }
@@ -54,7 +63,9 @@ describe("streamAnthropic error normalization", () => {
         type?: string | null,
       ) => Error;
       nextError: Error | null;
+      nextEvents: unknown[] | null;
     };
+    AnthropicMock.nextEvents = null;
     AnthropicMock.nextError = new AnthropicMock.APIError(
       undefined,
       {
@@ -83,5 +94,65 @@ describe("streamAnthropic error normalization", () => {
       message: "api_error: Internal server error",
       requestId: "req_011Cb6hYLp9bbMmkqdo2yTWL",
     } satisfies Partial<ProviderError>);
+  });
+
+  it("preserves tool arguments carried on the streamed content block start", async () => {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const AnthropicMock = Anthropic as unknown as {
+      nextError: Error | null;
+      nextEvents: unknown[] | null;
+    };
+    AnthropicMock.nextError = null;
+    AnthropicMock.nextEvents = [
+      {
+        type: "message_start",
+        message: { usage: { input_tokens: 7 } },
+      },
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "toolu_123",
+          name: "bash",
+          input: { command: "echo ok" },
+        },
+      },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } },
+      { type: "message_stop" },
+    ];
+
+    const result = streamAnthropic({
+      provider: "anthropic",
+      model: "claude-test",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "sk-ant-test",
+    });
+
+    const events = [];
+    for await (const event of result) {
+      events.push(event);
+    }
+
+    await expect(result.response).resolves.toMatchObject({
+      message: {
+        content: [
+          {
+            type: "tool_call",
+            id: "toolu_123",
+            name: "bash",
+            args: { command: "echo ok" },
+          },
+        ],
+      },
+      stopReason: "tool_use",
+    });
+    expect(events).toContainEqual({
+      type: "toolcall_done",
+      id: "toolu_123",
+      name: "bash",
+      args: { command: "echo ok" },
+    });
   });
 });

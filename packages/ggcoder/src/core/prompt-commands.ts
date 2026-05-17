@@ -164,6 +164,111 @@ C) Skip
 Do not start fixing until the user chooses.`,
   },
   {
+    name: "expand",
+    aliases: [],
+    description: "Find high-value gaps by comparing this project to current alternatives",
+    prompt: `# Expand: Current Competitive Gap Review
+
+Find high-value gaps by comparing this project to similar, adjacent, and best-in-class repositories/tools/websites/services. This command is project-agnostic: infer what THIS project is before choosing comparisons. This command is report-first: do not edit, install, or implement anything until the user chooses an option at the end.
+
+## Phase 0: Profile this project first
+
+Before external research, inspect the local project and write a private working profile:
+
+- What the project does, who it serves, and how it ships/runs.
+- Core workflows, entrypoints, packages/modules, integrations, and user-facing surfaces.
+- Existing features, security controls, developer tooling, docs, tests, release/ops setup, and architecture patterns.
+- The most relevant comparison categories for THIS project. Do not assume this is an AI-agent app unless the repo proves it.
+
+Use this profile to decide what kinds of external projects are relevant. If the user passed arguments to /expand, treat them as a focus area and prioritize that lens while still validating project relevance.
+
+## Phase 1: Parallel expansion research
+
+Spawn exactly 5 sub-agents in parallel using the subagent tool (call the subagent tool 5 times in a single response). Give each sub-agent the project profile and a different comparison lens. Adapt the lenses to the project, but cover these defaults unless clearly irrelevant:
+
+**Agent 1 - Direct peers & product features**: Find actively maintained projects/tools/services closest to this project. Look for user-facing capabilities, workflows, integrations, onboarding, and monetizable/retention-driving features they have that this project lacks.
+
+**Agent 2 - Security, privacy & recent incidents**: Find recent security/privacy hardening, dependency ecosystem changes, advisories, exploit mitigations, auth/session patterns, sandboxing, supply-chain defenses, and issue/PR fixes from comparable projects that this project should consider.
+
+**Agent 3 - Architecture, code quality & implementation shape**: Compare code organization, APIs, extensibility, agent/runtime loops, data models, concurrency, error handling, configuration, plugin systems, and maintainability patterns. Include cleaner implementation ideas only when they produce concrete user/developer value.
+
+**Agent 4 - Developer experience, ops & release maturity**: Compare tests, CI/CD, docs, examples, templates, telemetry/observability, migrations, upgrade paths, packaging, installation, local dev, debugging, and support workflows.
+
+**Agent 5 - Ecosystem, trends & adjacent inspiration**: Look beyond direct peers to adjacent current tools, libraries, SaaS products, standards, RFCs, framework releases, and recent commits/releases that suggest important missing directions.
+
+Each sub-agent must:
+
+1. Use current sources: prefer repos/releases/commits/docs/articles updated within the last 6 months. Drop old or stale sources unless they are canonical and still actively maintained.
+2. Return only candidates that appear absent or materially weaker in this project.
+3. Include source names/URLs, freshness date (commit/release/article/doc date), and the local search anchors they used or recommend to verify absence.
+4. Separate findings into useful categories for the final report, such as Security, Product, Architecture, Developer Experience, Operations, or Ecosystem.
+5. Avoid generic wishlist items. Every candidate must be grounded in an external comparison and relevant to this project profile.
+
+## Phase 2: Main-agent validation against this repo
+
+For every candidate from the sub-agents, validate it yourself before reporting:
+
+1. Confirm the external source is relevant to this project and fresh enough (normally within 6 months).
+2. Search this repo with grep/find and language-aware anchors to check whether the feature/pattern/control already exists under another name.
+3. Check manifests, docs, configs, package exports, routes, CLI commands, tests, CI, examples, and framework conventions before calling something missing.
+4. Use mcp__kencode-search__searchCode when code-level comparison would clarify whether the external implementation is materially cleaner or more complete. Use literal imports, functions, config keys, CLI flags, route names, or package names — not conceptual phrases.
+5. Drop anything already present, not applicable, too vague, too stale, or unsupported by evidence.
+6. Keep the report short: prioritize the highest-value gaps over completeness.
+
+## What counts as a reportable gap
+
+Report only gaps that are:
+
+- **Missing capability**: A relevant current peer has a feature, integration, workflow, or user-facing behavior this project lacks.
+- **Security/privacy hardening**: A current source addressed a meaningful risk this project has not addressed.
+- **Operational maturity**: A relevant project has CI, release, observability, packaging, migration, or support practices this project lacks.
+- **Developer experience**: A relevant project has docs, examples, tests, debugging, local dev, extension points, or generated commands that would materially improve this project.
+- **Implementation quality**: A comparable codebase handles a shared concern more simply, safely, extensibly, or robustly, and this repo lacks that pattern.
+- **Ecosystem alignment**: A recent framework/API/standard/release changed expectations and this project has not caught up.
+
+Do not report:
+
+- Ideas not tied to a real current source.
+- Things this repo already has, even if named differently.
+- Stale comparisons with no activity in the last 6 months unless canonical and still relevant.
+- Pure taste or style preferences.
+- Massive rewrites unless there is a specific incremental gap to implement.
+- Low-confidence guesses.
+
+## Priority levels
+
+- **P0**: Critical gap: security exposure, data loss risk, broken compatibility, major missing core workflow, or urgent ecosystem change.
+- **P1**: High-value gap: important feature/hardening/DX/ops improvement with strong external evidence and clear fit.
+- **P2**: Useful gap: meaningful but not urgent, or requires a scoped design decision before implementation.
+- **P3**: Exploratory gap: promising but lower confidence or lower immediate impact. Use sparingly.
+
+## Final output
+
+Output separate category sections only for categories with findings. No prose before the first section. Each section must use a table with exactly these 3 columns:
+
+| Repo/tool/source | Feature or gap | Priority |
+|---|---|---|
+| name + fresh date | concise gap, evidence, and why this repo lacks it | P0/P1/P2/P3 |
+
+Rules:
+
+- The table must have exactly 3 columns. Put source URL/date/evidence and local absence proof inside the first two cells, not extra columns.
+- Sort rows by priority within each category: P0, then P1, then P2, then P3.
+- Keep each cell concise but specific enough to be actionable.
+- If no validated gaps are found, output one table row saying no fresh validated gaps were found.
+- Do not include implementation prose after the tables except the options below.
+
+After the tables, ask exactly:
+
+What should I do?
+A) Add all P0/P1 gaps
+B) Add only the top priority gap from each category
+C) Create an implementation plan first
+D) Skip
+
+Do not start implementing until the user chooses.`,
+  },
+  {
     name: "bullet-proof",
     aliases: ["bp"],
     description: "Defensive security review — audit the project for exploitable weaknesses",

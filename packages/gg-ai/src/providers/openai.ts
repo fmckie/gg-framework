@@ -17,6 +17,21 @@ import {
   toOpenAITools,
 } from "./transform.js";
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseToolArguments(argsJson: string): Record<string, unknown> {
+  if (!argsJson) return {};
+  try {
+    const parsed = JSON.parse(argsJson) as unknown;
+    const unwrapped = typeof parsed === "string" ? (JSON.parse(parsed) as unknown) : parsed;
+    return isJsonObject(unwrapped) ? unwrapped : {};
+  } catch {
+    return {};
+  }
+}
+
 function createClient(options: StreamOptions): OpenAI {
   return new OpenAI({
     apiKey: options.apiKey,
@@ -254,12 +269,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
 
   // Finalize tool calls
   for (const [, tc] of toolCallAccum) {
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(tc.argsJson) as Record<string, unknown>;
-    } catch {
-      // malformed JSON — keep empty
-    }
+    const args = parseToolArguments(tc.argsJson);
     const toolCall: ToolCall = {
       type: "tool_call",
       id: tc.id,
@@ -333,12 +343,7 @@ function* synthesizeEventsFromCompletion(
           argsJson,
         };
       }
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(argsJson) as Record<string, unknown>;
-      } catch {
-        // malformed JSON -- keep empty
-      }
+      const args = parseToolArguments(argsJson);
       yield {
         type: "toolcall_done",
         id: tc.id,
@@ -376,12 +381,7 @@ function completionToResponse(completion: OpenAI.ChatCompletion): StreamResponse
       | undefined;
     if (toolCalls) {
       for (const tc of toolCalls) {
-        let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(tc.function?.arguments ?? "{}") as Record<string, unknown>;
-        } catch {
-          // malformed JSON -- keep empty
-        }
+        const args = parseToolArguments(tc.function?.arguments ?? "");
         const toolCall: ToolCall = {
           type: "tool_call",
           id: tc.id,

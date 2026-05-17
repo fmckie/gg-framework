@@ -277,6 +277,7 @@ export async function* agentLoop(
   let emptyResponseRetries = 0;
   let stallRetries = 0;
   let overflowCompactionAttempts = 0;
+  const invalidToolArgumentCounts = new Map<string, number>();
   // Non-streaming fallback mode. After repeated stream stalls, flip to a
   // plain non-streaming request/response -- often survives broken SSE
   // connections (transient CDN / proxy issues) that streaming retries cannot.
@@ -965,6 +966,7 @@ export async function* agentLoop(
         }
       }
       const eventStream = new EventStream<AgentEvent>();
+      let fatalToolArgumentError: Error | null = null;
 
       // Launch all tool calls in parallel
       const executions = toolCalls.map(async (toolCall) => {
@@ -1003,16 +1005,30 @@ export async function* agentLoop(
             const normalized = normalizeToolResult(raw);
             resultContent = normalized.content;
             details = normalized.details;
+            for (const key of invalidToolArgumentCounts.keys()) {
+              if (key.startsWith(`${toolCall.name}:`)) invalidToolArgumentCounts.delete(key);
+            }
           } catch (err) {
             isError = true;
             if (err instanceof ZodError) {
               // Zod v4's default `.message` is a JSON dump of `.issues`, which
               // the model can't act on. Prettify into "field X: expected Y,
               // received Z" lines so the next call comes back with valid args.
+              const prettyError = prettifyError(err);
+              const failureKey = `${toolCall.name}:${prettyError}`;
+              const failureCount = (invalidToolArgumentCounts.get(failureKey) ?? 0) + 1;
+              invalidToolArgumentCounts.set(failureKey, failureCount);
               resultContent =
                 `Invalid arguments for tool \`${toolCall.name}\`:\n` +
-                prettifyError(err) +
+                prettyError +
                 "\nRe-issue the call with each field as the correct type.";
+              if (failureCount >= 3) {
+                fatalToolArgumentError = new Error(
+                  `The model repeatedly issued invalid arguments for tool \`${toolCall.name}\`. ` +
+                    `This is usually an upstream model/tool-calling bug. Your conversation is preserved; ` +
+                    `send another message or switch models to continue.`,
+                );
+              }
             } else {
               resultContent = err instanceof Error ? err.message : String(err);
             }
@@ -1118,6 +1134,11 @@ export async function* agentLoop(
         }
 
         messages.push({ role: "tool", content: toolResults });
+      }
+
+      if (fatalToolArgumentError) {
+        yield { type: "error" as const, error: fatalToolArgumentError };
+        break;
       }
 
       // Exit loop after cleaning up aborted tools

@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { PROMPT_COMMANDS } from "./prompt-commands.js";
 
 describe("prompt commands", () => {
+  it("defines /expand as a fresh, repo-validated comparison command", () => {
+    const expand = PROMPT_COMMANDS.find((command) => command.name === "expand");
+
+    expect(expand).toBeDefined();
+    expect(expand?.prompt).toContain("Spawn exactly 5 sub-agents in parallel");
+    expect(expand?.prompt).toContain("updated within the last 6 months");
+    expect(expand?.prompt).toContain("validate it yourself before reporting");
+    expect(expand?.prompt).toContain("The table must have exactly 3 columns");
+    expect(expand?.prompt).toContain("Do not start implementing until the user chooses");
+  });
+
   it("keeps /init focused on project-specific CLAUDE.md content", () => {
     const init = PROMPT_COMMANDS.find((command) => command.name === "init");
 
