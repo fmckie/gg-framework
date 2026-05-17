@@ -32,6 +32,30 @@ interface SearchResult {
   snippet: string;
 }
 
+const AD_URL_PATTERNS = [
+  /(?:^|\.)googleadservices\.com$/i,
+  /(?:^|\.)doubleclick\.net$/i,
+  /(?:^|\.)googlesyndication\.com$/i,
+  /(?:^|\.)adsystem\.com$/i,
+  /(?:^|\.)adnxs\.com$/i,
+  /(?:^|\.)taboola\.com$/i,
+  /(?:^|\.)outbrain\.com$/i,
+];
+
+const AD_QUERY_KEYS = new Set([
+  "ad_domain",
+  "ad_provider",
+  "ad_type",
+  "adurl",
+  "adurlurl",
+  "gclid",
+  "gbraid",
+  "wbraid",
+  "msclkid",
+]);
+
+const AD_PATH_PATTERNS = [/^\/y\.js$/i, /^\/aclk$/i, /^\/aclick$/i, /^\/pagead\//i];
+
 // ── HTML helpers ──────────────────────────────────────────
 
 function decodeHTMLEntities(text: string): string {
@@ -51,6 +75,51 @@ function cleanHTML(text: string): string {
   return decodeHTMLEntities(text.replace(/<[^>]+>/g, ""))
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function isAdSearchResultUrl(rawURL: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawURL, "https://duckduckgo.com");
+  } catch {
+    return true;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (AD_URL_PATTERNS.some((pattern) => pattern.test(hostname))) return true;
+  if (AD_PATH_PATTERNS.some((pattern) => pattern.test(parsed.pathname))) return true;
+
+  for (const key of parsed.searchParams.keys()) {
+    if (AD_QUERY_KEYS.has(key.toLowerCase())) return true;
+  }
+
+  const nestedURL = parsed.searchParams.get("u3") ?? parsed.searchParams.get("adurl");
+  if (nestedURL && isAdSearchResultUrl(nestedURL)) return true;
+
+  return false;
+}
+
+function isAdSearchResult(result: SearchResult): boolean {
+  if (isAdSearchResultUrl(result.url)) return true;
+  const combinedText = `${result.title} ${result.snippet}`.toLowerCase();
+  return /\b(sponsored|advertisement|promoted result|exclusive discounts|limited-time offer)\b/.test(
+    combinedText,
+  );
+}
+
+function filterSearchResults(results: SearchResult[], maxResults: number): SearchResult[] {
+  const filtered: SearchResult[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const result of results) {
+    if (isAdSearchResult(result)) continue;
+    if (seenUrls.has(result.url)) continue;
+    seenUrls.add(result.url);
+    filtered.push(result);
+    if (filtered.length >= maxResults) break;
+  }
+
+  return filtered;
 }
 
 // ── Request building ─────────────────────────────────────
@@ -257,8 +326,9 @@ async function performSearch(
           break;
       }
 
-      if (results.length > 0) {
-        return { results: results.slice(0, maxResults), engine };
+      const filteredResults = filterSearchResults(results, maxResults);
+      if (filteredResults.length > 0) {
+        return { results: filteredResults, engine };
       }
     } catch {
       // try next engine
