@@ -35,11 +35,12 @@ Each sub-agent must return only candidates with file:line ranges, estimated line
 
 For every candidate, validate it yourself before reporting it:
 
-1. Search for references with grep/find and language-aware patterns where possible.
+1. Search for references with grep/find and language-aware patterns where possible, including exact symbol names, filenames, route names, config keys, CLI command names, test names, and documented examples.
 2. Check exports and package/public entrypoints before marking anything removable.
-3. Check framework conventions and dynamic lookup risks before marking anything removable.
+3. Check framework conventions and dynamic lookup risks before marking anything removable. Use official docs when a framework/tool convention could imply usage without direct imports.
 4. Check whether removing it would change public API, CLI behavior, routes, config support, migration behavior, generated artifacts, docs examples, tests, or side effects.
-5. If evidence is incomplete, mark safety as Low or drop the finding.
+5. For code-level removal tasks, kencode search is secondary: use it only to verify framework/tool conventions or common generated-code patterns that could make code appear unused locally. Do not treat absence from public code search as proof that local code is dead.
+6. If evidence is incomplete, mark safety as Low or drop the finding.
 
 ## What counts as dead code
 
@@ -92,7 +93,7 @@ C) Skip
 
 Do not start deleting or editing until the user chooses.
 
-If the user chooses A or B, do not remove code directly. Instead, use the tasks tool to create one task per selected removal or tightly coupled removal group, ordered by dependency and risk. Each task prompt must be standalone and include the exact locations, safety evidence, reference-search requirements, removal instructions, project verification commands, and instructions to compare with kencode search before marking the task complete. After creating tasks, tell the user exactly: "Tasks created. Press CTRL + T to open the Tasks Pane and press R to run all tasks." Do not begin executing them unless the user explicitly starts a task.`,
+If the user chooses A or B, do not remove code directly. Instead, use the tasks tool to create one task per selected removal or tightly coupled removal group, ordered by dependency and risk. Each task prompt must be standalone and include the exact locations, safety evidence, reference-search requirements, removal instructions, project verification commands, and instructions to prove the removal did not delete used code before marking the task complete. That proof must include fresh local reference searches after editing, relevant project checks/tests, and official-docs or kencode comparison only where framework/tool conventions or generated-code patterns could imply hidden usage. After creating tasks, tell the user exactly: "Tasks created. Press CTRL + T to open the Tasks Pane and press R to run all tasks." Do not begin executing them unless the user explicitly starts a task.`,
   },
   {
     name: "verify",
@@ -482,7 +483,7 @@ Cite these as needed per audit. Do not dump them into the report — use them to
 
 First, if it's not clear what the project is building, ask me to describe the features, target platform, and any constraints. If you can infer this from the codebase, proceed directly.
 
-Then spawn 6 sub-agents in parallel using the subagent tool (call the subagent tool 6 times in a single response, each with a different task). Every agent must verify ALL recommendations - no training-data assumptions allowed.
+Then spawn 6 sub-agents in parallel using the subagent tool (call the subagent tool 6 times in a single response, each with a different task). Every agent must verify ALL recommendations with current official docs, package registries, releases, or maintained source repositories - no training-data assumptions allowed. Use kencode search for architecture and implementation-shape comparisons where real code examples matter.
 
 **Agent 1 - Project Scan**: Read the current working directory. Catalog what already exists: config files, installed deps, directory structure, language/framework already chosen. Report exactly what's in place.
 
@@ -498,10 +499,11 @@ Then spawn 6 sub-agents in parallel using the subagent tool (call the subagent t
 
 ## Agent Rules
 
-1. Every recommendation MUST be verified - no guessing
-2. Confirm latest stable versions - do not assume version numbers
-3. Pick ONE best option per category - no "you could also use X"
-4. No prose, no hedging, no alternatives lists - decisive answers only
+1. Every recommendation MUST be verified with a source URL/date - no guessing
+2. Confirm latest stable versions from official registries or release pages - do not assume version numbers
+3. Verify CLI flags, config keys, and file formats against official docs before recommending them
+4. Pick ONE best option per category - no "you could also use X"
+5. No prose, no hedging, no alternatives lists - decisive answers only
 
 ## Output
 
@@ -539,7 +541,7 @@ Stack: [framework + language + runtime]
 [URLs used for verification]
 \`\`\`
 
-Write the file, then summarize what was researched.`,
+Write the file, then summarize what was researched and list the verification sources used. If any recommendation could not be verified from current official sources or maintained repos, omit it rather than guessing.`,
   },
   {
     name: "init",
@@ -578,7 +580,7 @@ Check for config files:
 - go.mod -> Go
 - Cargo.toml -> Rust
 
-Extract exact commands that are useful project facts. Do not restate generic "run checks after edits" behavior unless this project requires a stricter command sequence than the system prompt's Verification section.
+Extract exact commands that are useful project facts. Verify commands against local package scripts, manifests, Makefiles, CI, or documented project workflows; do not invent commands from convention alone. Do not restate generic "run checks after edits" behavior unless this project requires a stricter command sequence than the system prompt's Verification section.
 
 ## Step 4: Generate Project Tree
 
@@ -596,7 +598,7 @@ Create CLAUDE.md with only sections that add project-specific value. Prefer this
 
 Avoid generic sections named "Code Quality", "Organization Rules", or "How to Work" unless every bullet is specific to this project. Do not duplicate language style packs or generic verification rules.
 
-Keep total file under 100 lines. If updating, preserve any custom sections the user added.
+Keep total file under 100 lines. If updating, preserve any custom sections the user added. After writing, re-read CLAUDE.md and confirm it contains only project-specific facts supported by local files.
 
 ## Step 6: Restart Notice
 
@@ -632,7 +634,7 @@ Based on the project type, check if linting/typechecking tools are already confi
 
 ## Step 3: Install Missing Tools (if needed)
 
-Only install what's missing. Use the detected package manager.
+Only install what's missing. Use the detected package manager. Before installing or writing config, verify current recommended setup, CLI flags, and config filenames against official docs for the selected tools.
 
 ## Step 4: Generate /fix Command
 
@@ -670,7 +672,7 @@ Replace [INSERT PROJECT-SPECIFIC COMMANDS] with the actual commands for the dete
 
 ## Step 5: Confirm
 
-Report what was detected, what was installed, and that /fix is now available.`,
+Report what was detected, what official docs or local configs were used to verify it, what was installed, and that /fix is now available.`,
   },
   {
     name: "setup-commit",
@@ -682,9 +684,11 @@ Report what was detected, what was installed, and that /fix is now available.`,
 
 Check for config files and extract the lint/typecheck commands:
 - package.json -> Extract lint, typecheck scripts
-- pyproject.toml -> Use mypy, pylint/ruff
-- go.mod -> Use go vet, gofmt
-- Cargo.toml -> Use cargo clippy, cargo fmt --check
+- pyproject.toml -> Use configured mypy, pylint/ruff commands
+- go.mod -> Use configured go vet/gofmt/staticcheck commands
+- Cargo.toml -> Use configured cargo clippy/fmt commands
+
+Prefer existing project scripts. If you must synthesize a command from tool conventions, verify the current CLI flags against official docs first.
 
 ## Step 2: Generate /commit Command
 
@@ -719,7 +723,7 @@ Keep the command file under 20 lines.
 
 ## Step 3: Confirm
 
-Report that /commit is now available with quality checks and AI-generated commit messages.`,
+Report that /commit is now available with quality checks and AI-generated commit messages, and mention which local scripts/docs verified the commands.`,
   },
   {
     name: "setup-tests",
@@ -733,7 +737,7 @@ Detect the project type, framework, and architecture. Identify all critical busi
 
 ## Step 2: Determine Testing Strategy
 
-Use these tools based on project type (2025-2026 best practices):
+Use these tools based on project type (2025-2026 best practices), but verify current versions, install commands, config files, and runner flags against official docs before installing anything:
 
 | Language | Unit/Integration | E2E | Notes |
 |----------|------------------|-----|-------|
@@ -752,7 +756,7 @@ Spawn 4 sub-agents in parallel using the subagent tool (call the subagent tool 4
 **Agent 3 - Integration Tests**: Create integration tests for APIs, database operations, and service interactions
 **Agent 4 - E2E Tests** (if applicable): Create end-to-end tests for critical user flows
 
-Each agent should create COMPREHENSIVE tests covering all critical code paths - not just samples.
+Each agent should create COMPREHENSIVE tests covering all critical code paths - not just samples. Each agent must verify test framework APIs and helper patterns against official docs or current maintained examples before adding tests.
 
 ## Step 4: Verify and Generate /test Command
 
@@ -785,7 +789,7 @@ Replace placeholders with the actual test commands for this project.
 
 ## Step 5: Report
 
-Summarize what was set up, how many tests were created, and that /test is now available.`,
+Summarize what was set up, how many tests were created, what official docs/current examples verified the setup, and that /test is now available.`,
   },
   {
     name: "setup-update",
@@ -833,7 +837,7 @@ Run a clean install and read ALL output carefully. Look for:
 ## Step 4: Fix Issues
 
 For each warning/deprecation:
-1. Research the recommended replacement or fix
+1. Research the recommended replacement or fix using official changelogs, migration guides, advisories, or package docs
 2. Update code/dependencies accordingly
 3. Re-run installation
 4. Verify no warnings remain
@@ -853,7 +857,7 @@ Replace all placeholders with the actual commands for the detected project type 
 
 ## Step 3: Confirm
 
-Report that /update is now available with dependency updates, security audits, and deprecation fixes.`,
+Report that /update is now available with dependency updates, security audits, and deprecation fixes, and mention that generated update steps require official changelog/migration-guide verification before applying changes.`,
   },
   {
     name: "setup-eyes",
@@ -867,7 +871,7 @@ Build the perception probes this project needs and document them in CLAUDE.md so
 
 1. \`ggcoder eyes list\` — see what's already installed/verified. **Resume**, don't restart. Skip verified probes; re-run failed ones.
 2. \`ggcoder eyes detect\` — emits JSON of \`{capability: {candidates, primary}}\` for this project.
-3. **Pick 3–8 capabilities to install this run.** Heuristics:
+3. **Pick 3–8 capabilities to install this run.** Verify any capability assumptions against \`ggcoder eyes\` help output or official/local CLI docs before installing. Heuristics:
    - Universal: \`http\` for any API/backend, \`runtime_logs\` for anything with a server.
    - UI: \`visual\` — for multi-stack projects (e.g. React Native), install all primary candidates with distinct names: \`install visual --impl playwright --as visual-web\`, \`install visual --impl adb --as visual-android\`, \`install visual --impl simctl --as visual-ios\`.
    - Backend with email/webhooks: \`capture_email\`, \`capture_webhook\`.
@@ -875,7 +879,7 @@ Build the perception probes this project needs and document them in CLAUDE.md so
 4. For each pick: \`ggcoder eyes install <cap> [--impl <name>] [--as <name>]\`. On failure: retry once, then mark and continue — don't abort the whole run.
 5. \`ggcoder eyes verify\` — runs every installed probe's self-test. Some failures (\`adb\` no device, \`simctl\` no booted simulator) are expected; they get recorded.
 6. **Write/update the \`## Eyes\` section in CLAUDE.md** (create CLAUDE.md if missing; do NOT clobber other sections). Use the template below. The triggers are the load-bearing piece — make them project-specific and actionable.
-7. **Report**: list verified ✓ / failed ✗ / deferred. End with the restart notice.
+7. **Report**: list verified ✓ / failed ✗ / deferred, and note which probe self-tests or docs verified the setup. End with the restart notice.
 
 ## CLAUDE.md \`## Eyes\` template
 
@@ -959,9 +963,9 @@ Read the open signals in \`.gg/eyes/journal.jsonl\`, group related ones, propose
    - **New/updated trigger**: bullet added under \`## Eyes → When to use\` in CLAUDE.md.
 5. Present all proposals as a numbered list with diffs inline. Ask: **"Accept which? Reply with numbers (e.g. '1, 3') or 'none'."**
 6. On user reply:
-   - For accepted: apply the change. Then \`ggcoder eyes log ack <id>\` for every journal entry the proposal covers.
+   - For accepted: apply the change. Then run the relevant probe self-test or a focused command that exercises the changed probe/trigger. Then \`ggcoder eyes log ack <id>\` for every journal entry the proposal covers.
    - For unmentioned / rejected: \`ggcoder eyes log defer <id>\` so they stop appearing in context every turn. The user can resurrect deferred entries later.
-7. **Report**: applied changes (one line each), entries acked, entries deferred.
+7. **Report**: applied changes (one line each), verification run, entries acked, entries deferred.
 
 ## Rules
 
@@ -1023,7 +1027,9 @@ Review the same changes for efficiency:
 
 Wait for all three agents to complete. Aggregate their findings and fix each issue directly. If a finding is a false positive or not worth addressing, note it and move on — do not argue with the finding, just skip it.
 
-When done, briefly summarize what was fixed (or confirm the code was already clean).`,
+Before making any non-trivial pattern/API change, verify the intended approach against local neighboring code first; use kencode search or official docs when the change touches framework APIs, lifecycle behavior, concurrency, cleanup, or other conventions where real-world practice matters.
+
+When done, run relevant project checks/tests, then briefly summarize what was fixed (or confirm the code was already clean) and what verification ran.`,
   },
   {
     name: "batch",
@@ -1085,11 +1091,12 @@ For each worker, the task must be fully self-contained. Include:
 \`\`\`
 After you finish implementing the change:
 1. Self-review your diff for code reuse, quality, and efficiency. Search the codebase for existing utilities that could replace new code. Fix any issues found.
-2. Run the project's test suite (check for package.json scripts, Makefile targets, or common commands like npm test, pnpm test, pytest, go test). If tests fail, fix them.
-3. Follow the e2e test recipe above. If it says to skip e2e, skip it.
-4. Commit all changes with a clear message, push the branch, and create a PR with gh pr create. Use a descriptive title.
-5. Switch back to the original branch with git checkout -.
-6. End with exactly: PR: <url> or PR: none — <reason>
+2. For framework/API/config changes, compare the approach with official docs or kencode search examples before finalizing. Do not use kencode for purely local renames or mechanical edits.
+3. Run the project's test suite (check for package.json scripts, Makefile targets, or common commands like npm test, pnpm test, pytest, go test). If tests fail, fix them.
+4. Follow the e2e test recipe above. If it says to skip e2e, skip it.
+5. Commit all changes with a clear message, push the branch, and create a PR with gh pr create. Use a descriptive title.
+6. Switch back to the original branch with git checkout -.
+7. End with exactly: PR: <url> or PR: none — <reason>
 \`\`\`
 
 ## Phase 4: Track Results
@@ -1185,7 +1192,7 @@ Don't invent. Don't pad.
 
 After all sub-agents complete, use the **skill** tool to invoke the \`find-skills\` skill. Feed it the aggregated candidate list with search terms. Let find-skills drive discovery across skills.sh, vercel-labs/agent-skills, and anthropics/skills.
 
-For each candidate, record the best 0–1 ecosystem match: skill name, source repo URL. If no fit exists, record "no match". **Do NOT install anything yet.**
+For each candidate, record the best 0–1 ecosystem match: skill name, source repo URL, and enough evidence from the skill README/source to prove it fits this project. If no fit exists, record "no match". **Do NOT install anything yet.**
 
 ## Phase 5: Prioritized recommendation
 
@@ -1268,7 +1275,7 @@ Report which are present, missing, or configured below the pack's strictness rec
 
 "Active style packs" refers specifically to the per-language sub-sections inside the **Language Style Packs** section in your system prompt (e.g. \`### TypeScript\`, \`### Python\`, \`### Go\`). It does **NOT** include the cross-cutting \`### Agent-Written Code\` preamble that sits above them — those are guidelines for how code is *written*, not project-scaffolding to audit. It also does **NOT** include Skills (\`.gg/skills/\`) or any other extension category. If the Language Style Packs section is absent or empty, **skip this entire section entirely** — do not substitute Skills or any other concept.
 
-When per-language packs are present, compare the project against each pack's **Tooling** bullet and the system prompt's **Verification** commands:
+When per-language packs are present, compare the project against each pack's **Tooling** bullet and the system prompt's **Verification** commands. For tool recommendations or config semantics, verify against official docs when local files are ambiguous:
 - Tooling: which strict-mode flags or lint-rule presets does the pack recommend that the project is missing? (e.g. \`tsconfig\` missing \`noUncheckedIndexedAccess\`, \`pyproject\` missing \`[tool.ruff]\`, Go project missing \`golangci-lint\` config).
 - Dependencies: list which pack-mentioned libs (Zod, Pydantic, thiserror, anyhow, etc.) the project uses, has an equivalent for, or lacks. **Observation only — no recommendation to install.**
 
@@ -1312,7 +1319,7 @@ Which (if any) would you like me to fix? Options:
 ## Rules
 
 - **Report only.** No edits, no installs, no commits without explicit user confirmation after the report.
-- **Task handoff for fixes.** If the user chooses A, B, or C, do not fix directly. Use the tasks tool to create one standalone task per selected gap or tightly coupled gap group. Each task must include the gap, affected files/configs, safe-additive constraints, implementation instructions, project verification commands, and instructions to compare with kencode search before marking the task complete. After creating tasks, tell the user exactly: "Tasks created. Press CTRL + T to open the Tasks Pane and press R to run all tasks." Do not begin executing them unless the user explicitly starts a task.
+- **Task handoff for fixes.** If the user chooses A, B, or C, do not fix directly. Use the tasks tool to create one standalone task per selected gap or tightly coupled gap group. Each task must include the gap, affected files/configs, safe-additive constraints, implementation instructions, project verification commands, and instructions to verify relevant tool/config semantics against official docs before marking the task complete. Use kencode search only for code-level examples, not as proof of scaffolding requirements. After creating tasks, tell the user exactly: "Tasks created. Press CTRL + T to open the Tasks Pane and press R to run all tasks." Do not begin executing them unless the user explicitly starts a task.
 - **No code refactors recommended.** This audit is about scaffolding/tooling, not code review. Use \`/scan\` or \`/verify\` for code-level findings.
 - **No dependency installations in the report.** Listing them as observations is fine; recommending installation is not — that's the user's call.
 - **Skip empty categories.** If a category has no findings, omit it.
