@@ -4,21 +4,117 @@ import {
   goalHasBlockingPrerequisites,
   type GoalRun,
 } from "../core/goal-store.js";
-import type { GoalWorkerCompletion } from "../core/goal-worker.js";
+import type { GoalWorkerCompletion, GoalWorkerToolUse } from "../core/goal-worker.js";
 
 export const GOAL_WORKER_EVENT_PREFIX = "[event:goal_worker_complete]";
 export const GOAL_VERIFIER_EVENT_PREFIX = "[event:goal_verifier_complete]";
+export const GOAL_EVENT_PAYLOAD_PREFIX = "goal_event_payload: ";
+export const GOAL_EVENT_PAYLOAD_VERSION = 1;
 
 export type GoalSyntheticEventKind = "worker" | "verifier";
+
+export interface GoalTaskStateSnapshot {
+  id: string;
+  title: string;
+  status: GoalRun["tasks"][number]["status"];
+  attempts: number;
+  workerId?: string;
+}
+
+export interface GoalPrerequisiteStateSnapshot {
+  id: string;
+  label: string;
+  status: GoalRun["prerequisites"][number]["status"];
+  instructions?: string;
+  evidence?: string;
+}
+
+export interface GoalEvidencePlanStateSnapshot {
+  id: string;
+  label: string;
+  status: GoalRun["evidencePlan"][number]["status"];
+  mechanism: GoalRun["evidencePlan"][number]["mechanism"];
+  command?: string;
+  path?: string;
+  evidence?: string;
+}
+
+export interface GoalVerifierStateSnapshot {
+  description: string;
+  command?: string;
+  lastStatus?: NonNullable<NonNullable<GoalRun["verifier"]>["lastResult"]>["status"];
+  outputPath?: string;
+}
+
+export interface GoalEvidenceStateSnapshot {
+  label: string;
+  kind: GoalRun["evidence"][number]["kind"];
+  path?: string;
+}
+
+export interface GoalStateSnapshot {
+  status: GoalRun["status"];
+  userPrerequisites: string;
+  verifier: GoalVerifierStateSnapshot | null;
+  blockers: string[];
+  prerequisites: GoalPrerequisiteStateSnapshot[];
+  evidencePlan: GoalEvidencePlanStateSnapshot[];
+  tasks: GoalTaskStateSnapshot[];
+  evidenceCount: number;
+  latestEvidence?: GoalEvidenceStateSnapshot;
+}
+
+export interface GoalSyntheticEventPayloadBase {
+  version: typeof GOAL_EVENT_PAYLOAD_VERSION;
+  kind: GoalSyntheticEventKind;
+  runId: string;
+  goal: string;
+  status: string;
+  exitCode: number;
+  summary: string;
+  goalState: GoalStateSnapshot;
+}
+
+export interface GoalWorkerSyntheticEventPayload extends GoalSyntheticEventPayloadBase {
+  kind: "worker";
+  taskId: string;
+  task: string;
+  worker: string;
+  workerLogFile: string;
+  toolsUsed: GoalWorkerToolUse[];
+  reason?: GoalWorkerCompletion["reason"];
+}
+
+export interface GoalVerifierSyntheticEventPayload extends GoalSyntheticEventPayloadBase {
+  kind: "verifier";
+  command: string;
+  outputPath?: string;
+  fixAttempts: number;
+  fixLimit: number;
+  completionGuidance: string;
+}
+
+export type GoalSyntheticEventPayload =
+  | GoalWorkerSyntheticEventPayload
+  | GoalVerifierSyntheticEventPayload;
 
 export interface GoalSyntheticEventInfo {
   kind: GoalSyntheticEventKind;
   runId?: string;
   goal?: string;
+  taskId?: string;
   task?: string;
   worker?: string;
   status?: string;
   exitCode?: number;
+  summary?: string;
+  command?: string;
+  outputPath?: string;
+  toolsUsed?: GoalWorkerToolUse[];
+  fixAttempts?: number;
+  fixLimit?: number;
+  goalState?: GoalStateSnapshot;
+  payload?: GoalSyntheticEventPayload;
 }
 
 const GOAL_ORCHESTRATOR_INSTRUCTIONS = `orchestrator_instructions:
@@ -28,31 +124,123 @@ const GOAL_ORCHESTRATOR_INSTRUCTIONS = `orchestrator_instructions:
 4. Take exactly one next control-loop action: add/update the next Goal task, run/record verification, pause/block with evidence, or complete only if verifier evidence proves the success criteria.
 5. Do not merely narrate and do not ask the user to open the Goal pane.`;
 
-function formatGoalState(run: GoalRun): string {
+function headerValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\s+/g, " ");
+}
+
+function formatPayloadLine(payload: GoalSyntheticEventPayload): string {
+  return `${GOAL_EVENT_PAYLOAD_PREFIX}${JSON.stringify(payload)}`;
+}
+
+export function buildGoalStateSnapshot(run: GoalRun): GoalStateSnapshot {
+  const latestEvidence = run.evidence.at(-1);
+  return {
+    status: run.status,
+    userPrerequisites: goalHasBlockingPrerequisites(run)
+      ? formatGoalBlockingPrerequisites(run)
+      : "(none)",
+    verifier: run.verifier
+      ? {
+          description: run.verifier.description,
+          ...(run.verifier.command ? { command: run.verifier.command } : {}),
+          ...(run.verifier.lastResult
+            ? {
+                lastStatus: run.verifier.lastResult.status,
+                ...(run.verifier.lastResult.outputPath
+                  ? { outputPath: run.verifier.lastResult.outputPath }
+                  : {}),
+              }
+            : {}),
+        }
+      : null,
+    blockers: [...run.blockers],
+    prerequisites: run.prerequisites.map((item) => ({
+      id: item.id,
+      label: item.label,
+      status: item.status,
+      ...(item.instructions ? { instructions: item.instructions } : {}),
+      ...(item.evidence ? { evidence: item.evidence } : {}),
+    })),
+    evidencePlan: run.evidencePlan.map((item) => ({
+      id: item.id,
+      label: item.label,
+      status: item.status,
+      mechanism: item.mechanism,
+      ...(item.command ? { command: item.command } : {}),
+      ...(item.path ? { path: item.path } : {}),
+      ...(item.evidence ? { evidence: item.evidence } : {}),
+    })),
+    tasks: run.tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      attempts: task.attempts,
+      ...(task.workerId ? { workerId: task.workerId } : {}),
+    })),
+    evidenceCount: run.evidence.length,
+    ...(latestEvidence
+      ? {
+          latestEvidence: {
+            label: latestEvidence.label,
+            kind: latestEvidence.kind,
+            ...(latestEvidence.path ? { path: latestEvidence.path } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+function formatGoalState(snapshot: GoalStateSnapshot): string {
   const tasks =
-    run.tasks
+    snapshot.tasks
       .map((task) => `- ${task.id}: ${task.status}; attempts=${task.attempts}; title=${task.title}`)
       .join("\n") || "(none)";
   const blockers =
-    run.blockers.length > 0 ? run.blockers.map((b) => `- ${b}`).join("\n") : "(none)";
-  const verifier = run.verifier?.command
-    ? `${run.verifier.command}; last=${run.verifier.lastResult?.status ?? "none"}; output=${run.verifier.lastResult?.outputPath ?? "none"}`
+    snapshot.blockers.length > 0
+      ? snapshot.blockers.map((blocker) => `- ${blocker}`).join("\n")
+      : "(none)";
+  const verifier = snapshot.verifier?.command
+    ? `${snapshot.verifier.command}; last=${snapshot.verifier.lastStatus ?? "none"}; output=${snapshot.verifier.outputPath ?? "none"}`
     : "(none - define an exact verifier before completion)";
-  const prerequisites = run.prerequisites.length
-    ? run.prerequisites
+  const prerequisites = snapshot.prerequisites.length
+    ? snapshot.prerequisites
         .map(
           (item) =>
             `- ${item.id}: ${item.status}; ${item.label}${item.instructions ? `; instructions=${item.instructions}` : ""}${item.evidence ? `; evidence=${item.evidence}` : ""}`,
         )
         .join("\n")
     : "(none)";
-  const userPrerequisites = goalHasBlockingPrerequisites(run)
-    ? formatGoalBlockingPrerequisites(run)
+  const evidencePlan = snapshot.evidencePlan.length
+    ? snapshot.evidencePlan.map((item) => `- ${item.id}: ${item.status}; ${item.label}`).join("\n")
     : "(none)";
-  const evidencePlan = run.evidencePlan.length
-    ? run.evidencePlan.map((item) => `- ${item.id}: ${item.status}; ${item.label}`).join("\n")
+  const latestEvidence = snapshot.latestEvidence
+    ? `${snapshot.latestEvidence.label}${snapshot.latestEvidence.path ? ` (${snapshot.latestEvidence.path})` : ""}`
     : "(none)";
-  return `current_goal_state:\nstatus: ${run.status}\nuser_prerequisites: ${userPrerequisites}\nverifier: ${verifier}\nblockers:\n${blockers}\nprerequisites:\n${prerequisites}\nevidence_plan:\n${evidencePlan}\ntasks:\n${tasks}`;
+  return `current_goal_state:\nstatus: ${snapshot.status}\nuser_prerequisites: ${snapshot.userPrerequisites}\nverifier: ${verifier}\nevidence_count: ${snapshot.evidenceCount}\nlatest_evidence: ${latestEvidence}\nblockers:\n${blockers}\nprerequisites:\n${prerequisites}\nevidence_plan:\n${evidencePlan}\ntasks:\n${tasks}`;
+}
+
+export function buildGoalWorkerSyntheticEventPayload(
+  run: GoalRun,
+  taskTitle: string,
+  completion: GoalWorkerCompletion,
+): GoalWorkerSyntheticEventPayload {
+  const summary = completion.summary.trim() || "(empty)";
+  return {
+    version: GOAL_EVENT_PAYLOAD_VERSION,
+    kind: "worker",
+    runId: run.id,
+    goal: run.title,
+    taskId: completion.worker.goalTaskId,
+    task: taskTitle,
+    worker: completion.worker.id,
+    workerLogFile: completion.worker.logFile,
+    status: completion.status,
+    exitCode: completion.exitCode,
+    toolsUsed: [...completion.toolsUsed],
+    summary,
+    goalState: buildGoalStateSnapshot(run),
+    ...(completion.reason ? { reason: completion.reason } : {}),
+  };
 }
 
 export function formatGoalWorkerCompletionEvent(
@@ -60,19 +248,49 @@ export function formatGoalWorkerCompletionEvent(
   taskTitle: string,
   completion: GoalWorkerCompletion,
 ): string {
-  const summary = completion.summary.trim() || "(empty)";
+  const payload = buildGoalWorkerSyntheticEventPayload(run, taskTitle, completion);
   const toolsUsed =
-    completion.toolsUsed.length > 0
-      ? completion.toolsUsed.map((tool) => `${tool.ok ? "✓" : "✗"}${tool.name}`).join(", ")
+    payload.toolsUsed.length > 0
+      ? payload.toolsUsed.map((tool) => `${tool.ok ? "✓" : "✗"}${tool.name}`).join(", ")
       : "(none)";
-  const reason = completion.reason ? ` reason=${completion.reason}` : "";
-  return `${GOAL_WORKER_EVENT_PREFIX} run_id="${run.id}" goal="${run.title}" task_id="${completion.worker.goalTaskId}" task="${taskTitle}" worker="${completion.worker.id}" status=${completion.status} exit_code=${completion.exitCode}${reason}
+  const reason = payload.reason ? ` reason=${payload.reason}` : "";
+  return `${GOAL_WORKER_EVENT_PREFIX} run_id="${headerValue(payload.runId)}" goal="${headerValue(payload.goal)}" task_id="${headerValue(payload.taskId)}" task="${headerValue(payload.task)}" worker="${headerValue(payload.worker)}" status=${payload.status} exit_code=${payload.exitCode}${reason}
+${formatPayloadLine(payload)}
 tools_used: ${toolsUsed}
-${formatGoalState(run)}
+${formatGoalState(payload.goalState)}
 summary:
-${summary}
+${payload.summary}
 
 ${GOAL_ORCHESTRATOR_INSTRUCTIONS}`;
+}
+
+export function buildGoalVerifierSyntheticEventPayload(
+  run: GoalRun,
+  status: "pass" | "fail",
+  command: string,
+  exitCode: number,
+  summary: string,
+): GoalVerifierSyntheticEventPayload {
+  const fixAttempts = run.tasks.filter((task) => task.title === "Fix verifier failure").length;
+  const outputPath = run.verifier?.lastResult?.outputPath;
+  return {
+    version: GOAL_EVENT_PAYLOAD_VERSION,
+    kind: "verifier",
+    runId: run.id,
+    goal: run.title,
+    status,
+    exitCode,
+    command,
+    ...(outputPath ? { outputPath } : {}),
+    fixAttempts,
+    fixLimit: DEFAULT_GOAL_VERIFIER_FIX_LIMIT,
+    completionGuidance:
+      status === "pass"
+        ? "Complete only if goals(status) shows success criteria, required evidence, and verifier output match the original objective exactly."
+        : "Create one bounded fix task with the verifier command, exit code, output path, and failure summary unless the limit or repeated-failure guard is reached.",
+    summary: summary.trim() || "(empty)",
+    goalState: buildGoalStateSnapshot(run),
+  };
 }
 
 export function formatGoalVerifierCompletionEvent(
@@ -82,22 +300,96 @@ export function formatGoalVerifierCompletionEvent(
   exitCode: number,
   summary: string,
 ): string {
-  const fixCount = run.tasks.filter((task) => task.title === "Fix verifier failure").length;
-  const outputPath = run.verifier?.lastResult?.outputPath ?? "not recorded";
-  return `${GOAL_VERIFIER_EVENT_PREFIX} run_id="${run.id}" goal="${run.title}" status=${status} exit_code=${exitCode}
-command: ${command}
-output_path: ${outputPath}
-fix_attempts: ${fixCount}/${DEFAULT_GOAL_VERIFIER_FIX_LIMIT}
-completion_guidance: ${status === "pass" ? "Complete only if goals(status) shows success criteria, required evidence, and verifier output match the original objective exactly." : "Create one bounded fix task with the verifier command, exit code, output path, and failure summary unless the limit or repeated-failure guard is reached."}
-${formatGoalState(run)}
+  const payload = buildGoalVerifierSyntheticEventPayload(run, status, command, exitCode, summary);
+  return `${GOAL_VERIFIER_EVENT_PREFIX} run_id="${headerValue(payload.runId)}" goal="${headerValue(payload.goal)}" status=${payload.status} exit_code=${payload.exitCode}
+${formatPayloadLine(payload)}
+command: ${payload.command}
+output_path: ${payload.outputPath ?? "not recorded"}
+fix_attempts: ${payload.fixAttempts}/${payload.fixLimit}
+completion_guidance: ${payload.completionGuidance}
+${formatGoalState(payload.goalState)}
 summary:
-${summary.trim() || "(empty)"}
+${payload.summary}
 
 ${GOAL_ORCHESTRATOR_INSTRUCTIONS}`;
 }
 
 export function isGoalSyntheticEvent(text: string): boolean {
   return text.startsWith(GOAL_WORKER_EVENT_PREFIX) || text.startsWith(GOAL_VERIFIER_EVENT_PREFIX);
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isGoalWorkerToolUse(value: unknown): value is GoalWorkerToolUse {
+  return isObject(value) && typeof value.name === "string" && typeof value.ok === "boolean";
+}
+
+function isGoalWorkerToolUseArray(value: unknown): value is GoalWorkerToolUse[] {
+  return Array.isArray(value) && value.every(isGoalWorkerToolUse);
+}
+
+function isGoalStateSnapshot(value: unknown): value is GoalStateSnapshot {
+  if (!isObject(value)) return false;
+  if (typeof value.status !== "string") return false;
+  if (typeof value.userPrerequisites !== "string") return false;
+  if (!isStringArray(value.blockers)) return false;
+  if (!Array.isArray(value.prerequisites)) return false;
+  if (!Array.isArray(value.evidencePlan)) return false;
+  if (!Array.isArray(value.tasks)) return false;
+  if (typeof value.evidenceCount !== "number") return false;
+  if (value.verifier !== null && value.verifier !== undefined && !isObject(value.verifier)) {
+    return false;
+  }
+  if (value.latestEvidence !== undefined && !isObject(value.latestEvidence)) return false;
+  return true;
+}
+
+function isGoalSyntheticEventPayload(value: unknown): value is GoalSyntheticEventPayload {
+  if (!isObject(value)) return false;
+  if (value.version !== GOAL_EVENT_PAYLOAD_VERSION) return false;
+  if (value.kind !== "worker" && value.kind !== "verifier") return false;
+  if (typeof value.runId !== "string") return false;
+  if (typeof value.goal !== "string") return false;
+  if (typeof value.status !== "string") return false;
+  if (typeof value.exitCode !== "number") return false;
+  if (typeof value.summary !== "string") return false;
+  if (!isGoalStateSnapshot(value.goalState)) return false;
+
+  if (value.kind === "worker") {
+    return (
+      typeof value.taskId === "string" &&
+      typeof value.task === "string" &&
+      typeof value.worker === "string" &&
+      typeof value.workerLogFile === "string" &&
+      isGoalWorkerToolUseArray(value.toolsUsed) &&
+      (value.reason === undefined || typeof value.reason === "string")
+    );
+  }
+
+  return (
+    typeof value.command === "string" &&
+    typeof value.fixAttempts === "number" &&
+    typeof value.fixLimit === "number" &&
+    typeof value.completionGuidance === "string" &&
+    (value.outputPath === undefined || typeof value.outputPath === "string")
+  );
+}
+
+function parsePayload(text: string): GoalSyntheticEventPayload | null {
+  const payloadLine = text.split("\n").find((line) => line.startsWith(GOAL_EVENT_PAYLOAD_PREFIX));
+  if (!payloadLine) return null;
+  try {
+    const parsed: unknown = JSON.parse(payloadLine.slice(GOAL_EVENT_PAYLOAD_PREFIX.length));
+    return isGoalSyntheticEventPayload(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function quotedField(text: string, field: string): string | undefined {
@@ -110,6 +402,39 @@ function tokenField(text: string, field: string): string | undefined {
   return match?.[1];
 }
 
+function goalSyntheticEventInfoFromPayload(
+  payload: GoalSyntheticEventPayload,
+): GoalSyntheticEventInfo {
+  const base = {
+    kind: payload.kind,
+    runId: payload.runId,
+    goal: payload.goal,
+    status: payload.status,
+    exitCode: payload.exitCode,
+    summary: payload.summary,
+    goalState: payload.goalState,
+    payload,
+  };
+
+  if (payload.kind === "worker") {
+    return {
+      ...base,
+      taskId: payload.taskId,
+      task: payload.task,
+      worker: payload.worker,
+      toolsUsed: payload.toolsUsed,
+    };
+  }
+
+  return {
+    ...base,
+    command: payload.command,
+    ...(payload.outputPath ? { outputPath: payload.outputPath } : {}),
+    fixAttempts: payload.fixAttempts,
+    fixLimit: payload.fixLimit,
+  };
+}
+
 export function parseGoalSyntheticEvent(text: string): GoalSyntheticEventInfo | null {
   const kind = text.startsWith(GOAL_WORKER_EVENT_PREFIX)
     ? "worker"
@@ -118,12 +443,16 @@ export function parseGoalSyntheticEvent(text: string): GoalSyntheticEventInfo | 
       : null;
   if (kind === null) return null;
 
+  const payload = parsePayload(text);
+  if (payload) return goalSyntheticEventInfoFromPayload(payload);
+
   const exitCodeRaw = tokenField(text, "exit_code");
   const exitCode = exitCodeRaw === undefined ? undefined : Number(exitCodeRaw);
   return {
     kind,
     ...(quotedField(text, "run_id") ? { runId: quotedField(text, "run_id") } : {}),
     ...(quotedField(text, "goal") ? { goal: quotedField(text, "goal") } : {}),
+    ...(quotedField(text, "task_id") ? { taskId: quotedField(text, "task_id") } : {}),
     ...(quotedField(text, "task") ? { task: quotedField(text, "task") } : {}),
     ...(quotedField(text, "worker") ? { worker: quotedField(text, "worker") } : {}),
     ...(tokenField(text, "status") ? { status: tokenField(text, "status") } : {}),

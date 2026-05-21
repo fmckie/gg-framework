@@ -49,6 +49,7 @@ The user's objective is in the command arguments. If the arguments are absent or
 8. Add Goal tasks with \`goals({ action: "task", ... })\`. Do not use the normal tasks tool for this workflow. Each Goal task prompt must be standalone, mention the same project cwd, the specific files/scripts/commands to use, evidence to record, and verification expectations. Avoid pure "investigate and report" tasks unless their prompt explicitly requires persisting concrete findings with \`goals({ action: "evidence", ... })\` and creating or updating the next implementation task from those findings.
 9. Persist evidence with \`goals({ action: "evidence", ... })\` whenever you create diagnostics, run harnesses, capture logs/screenshots, record controller decisions, attach verifier artifact paths, or learn a blocker.
 10. Completion means verifier evidence satisfies the original success criteria. Do not call \`goals({ action: "complete" })\` merely because tasks are done; only complete after verification passes.
+11. When the Goal reaches a terminal state, give the user a concise final summary in chat. Use a compact 3–4 column table with columns that fit what happened, such as outcome, evidence/verifier, changed work, blockers, or next action. Do not dump worker logs; point to artifact paths when useful.
 
 ## Loop semantics
 
@@ -60,7 +61,7 @@ If no verifier command exists yet, create a task to define one. If the verifier 
 
 ## Final response
 
-Keep the response short. Say whether the Goal was created, ready, or blocked; mention the exact missing prerequisite if blocked; and tell the user they can press Ctrl+G to view it. If they ask how to start it, tell them the Goal pane keybind is (R) to run it.`,
+When initially creating the Goal, keep the response short: say whether the Goal was created, ready, or blocked; mention the exact missing prerequisite if blocked; and tell the user they can press Ctrl+G to view it. If they ask how to start it, tell them the Goal pane keybind is (R) to run it. When auto-continuation eventually passes, fails, blocks, or pauses the Goal, provide the compact final summary table described above.`,
   },
   {
     name: "scan",

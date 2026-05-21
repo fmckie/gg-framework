@@ -95,15 +95,38 @@ afterEach(async () => {
 });
 
 describe("goal worker failure propagation", () => {
-  it("prompts workers to build or request real evidence paths before claiming verification", async () => {
+  it("prompts workers with explicit durable Goal context before claiming verification", async () => {
     await start();
     const args = spawnMock.mock.calls[0]?.[1] as string[];
     const systemPromptIndex = args.indexOf("--system-prompt") + 1;
     const prompt = args[systemPromptIndex];
 
+    expect(prompt).toContain(`cwd=${tmpProject}`);
+    expect(prompt).toContain("run_id=goal-a");
+    expect(prompt).toContain("task_id=task-a");
     expect(prompt).toContain("create needed scripts/fixtures/harnesses");
     expect(prompt).toContain("source_path/docs/kencode real-code research when relevant");
     expect(prompt).toContain("command/file evidence");
+    expect(prompt).toContain(
+      'goals({ action: "evidence" | "task", run_id: "goal-a", task_id: "task-a"',
+    );
+  });
+
+  it("exports a testable worker system prompt/context helper", async () => {
+    const mod = await import("./goal-worker.js");
+
+    const prompt = mod.buildGoalWorkerSystemPrompt({
+      cwd: "/repo",
+      goalRunId: "goal-123",
+      goalTaskId: "task-456",
+      taskTitle: "Implement typed handoff",
+    });
+
+    expect(prompt).toContain("cwd=/repo");
+    expect(prompt).toContain("run_id=goal-123");
+    expect(prompt).toContain("task_id=task-456");
+    expect(prompt).toContain("Implement typed handoff");
+    expect(prompt).toContain("Do not mark the whole goal complete");
   });
 
   it("marks the task done, persists evidence, and notifies callbacks/subscribers for worker success", async () => {

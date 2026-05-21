@@ -148,6 +148,7 @@ import {
   updateGoalTask,
   upsertGoalRun,
   type GoalRun,
+  type GoalTask,
 } from "../core/goal-store.js";
 import {
   canCompleteGoalRun,
@@ -249,6 +250,12 @@ export function routePromptCommandInput(
   };
 }
 
+export interface GoalSummaryRow {
+  label: string;
+  value: string;
+  detail?: string;
+}
+
 export interface GoalProgressItem {
   kind: "goal_progress";
   phase:
@@ -262,6 +269,7 @@ export interface GoalProgressItem {
     | "terminal";
   title: string;
   detail?: string;
+  summaryRows?: GoalSummaryRow[];
   workerId?: string;
   status?: string;
   id: string;
@@ -549,6 +557,73 @@ function formatGoalWorkerFinishedTitle(
     : `Worker failed: ${taskTitle}. Reporting back.`;
 }
 
+function countGoalTasksByStatus(tasks: readonly GoalTask[], status: GoalTask["status"]): number {
+  return tasks.filter((task) => task.status === status).length;
+}
+
+function firstText(values: readonly (string | undefined)[]): string | undefined {
+  return values.find((value) => value !== undefined && value.trim().length > 0)?.trim();
+}
+
+function truncateGoalSummary(value: string, maxLength = 90): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+export function buildGoalSummaryRows(run: GoalRun): GoalSummaryRow[] {
+  const rows: GoalSummaryRow[] = [];
+  const doneTasks = countGoalTasksByStatus(run.tasks, "done");
+  const failedTasks = countGoalTasksByStatus(run.tasks, "failed");
+  const blockedTasks = countGoalTasksByStatus(run.tasks, "blocked");
+  const taskSuffix = [
+    failedTasks > 0 ? `${failedTasks} failed` : undefined,
+    blockedTasks > 0 ? `${blockedTasks} blocked` : undefined,
+  ].filter((item): item is string => item !== undefined);
+  rows.push({
+    label: "Tasks",
+    value: run.tasks.length > 0 ? `${doneTasks}/${run.tasks.length} done` : "none",
+    ...(taskSuffix.length > 0 ? { detail: taskSuffix.join(", ") } : {}),
+  });
+
+  const verifierResult = run.verifier?.lastResult;
+  const verifierDetail = firstText([verifierResult?.outputPath, run.verifier?.command]);
+  rows.push({
+    label: "Verifier",
+    value: verifierResult?.status ?? (run.verifier?.command ? "ready" : "missing"),
+    ...(verifierDetail ? { detail: truncateGoalSummary(verifierDetail) } : {}),
+  });
+
+  const latestEvidence = run.evidence.at(-1);
+  rows.push({
+    label: "Evidence",
+    value: `${run.evidence.length} recorded`,
+    ...(latestEvidence
+      ? { detail: truncateGoalSummary(latestEvidence.path ?? latestEvidence.label) }
+      : {}),
+  });
+
+  if (run.status === "blocked" || run.status === "paused" || run.blockers.length > 0) {
+    rows.push({
+      label: run.status === "paused" ? "Paused on" : "Blocked on",
+      value: truncateGoalSummary(
+        goalHasBlockingPrerequisites(run)
+          ? formatGoalBlockingPrerequisites(run)
+          : (run.blockers[0] ?? "manual review"),
+        110,
+      ),
+    });
+  } else if (run.successCriteria.length > 0) {
+    rows.push({
+      label: "Criteria",
+      value: `${run.successCriteria.length} checked`,
+      detail: truncateGoalSummary(run.successCriteria[0] ?? "", 80),
+    });
+  }
+
+  return rows.slice(0, 4);
+}
+
 export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | null {
   switch (run.status) {
     case "passed":
@@ -557,6 +632,7 @@ export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | nu
         phase: "terminal",
         title: `Goal passed: ${run.title}`,
         detail: "Verifier evidence is recorded; auto-continuation stopped.",
+        summaryRows: buildGoalSummaryRows(run),
         status: run.status,
       };
     case "failed":
@@ -565,6 +641,7 @@ export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | nu
         phase: "terminal",
         title: `Goal failed: ${run.title}`,
         detail: "Auto-continuation stopped. Check Goal tasks for the failing step.",
+        summaryRows: buildGoalSummaryRows(run),
         status: run.status,
       };
     case "blocked":
@@ -575,6 +652,7 @@ export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | nu
         detail: goalHasBlockingPrerequisites(run)
           ? formatGoalBlockingPrerequisites(run)
           : (run.blockers[0] ?? "A prerequisite or missing verifier blocked progress."),
+        summaryRows: buildGoalSummaryRows(run),
         status: run.status,
       };
     case "paused":
@@ -583,6 +661,7 @@ export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | nu
         phase: "terminal",
         title: `Goal paused: ${run.title}`,
         detail: run.blockers[0] ?? "Auto-continuation paused.",
+        summaryRows: buildGoalSummaryRows(run),
         status: run.status,
       };
     case "draft":
@@ -3361,6 +3440,17 @@ export function App(props: AppProps) {
                 {`  ${item.detail}`}
               </Text>
             ) : null}
+            {item.summaryRows && item.summaryRows.length > 0 ? (
+              <Box flexDirection="column" marginTop={1} marginLeft={2} flexShrink={1}>
+                {item.summaryRows.map((row) => (
+                  <Text key={row.label} wrap="truncate">
+                    <Text color={theme.textDim}>{row.label.padEnd(10)}</Text>
+                    <Text color={theme.text}>{row.value}</Text>
+                    {row.detail ? <Text color={theme.textDim}> · {row.detail}</Text> : null}
+                  </Text>
+                ))}
+              </Box>
+            ) : null}
           </Box>
         );
       }
@@ -4128,6 +4218,7 @@ export function App(props: AppProps) {
           model: currentModel,
           goalRunId: run.id,
           goalTaskId: decision.task.id,
+          taskTitle: decision.task.title,
           prompt: decision.task.prompt,
         });
         await upsertGoalRun(props.cwd, {

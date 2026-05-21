@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildGoalSummaryRows,
   formatGoalTerminalProgress,
   routePromptCommandInput,
   shouldHideHistoryForOverlayView,
@@ -94,12 +95,69 @@ describe("App TUI state persistence helpers", () => {
   });
 
   it("formats terminal goal progress as durable history-safe rows", () => {
-    expect(formatGoalTerminalProgress(goalRun({ status: "passed" }))).toMatchObject({
+    expect(
+      formatGoalTerminalProgress(
+        goalRun({
+          status: "passed",
+          successCriteria: ["Verifier proves the Goal end-to-end"],
+          tasks: [
+            { id: "task-1", title: "Implement", prompt: "Do it", status: "done", attempts: 1 },
+          ],
+          evidence: [
+            {
+              id: "evidence-1",
+              kind: "command",
+              label: "Verifier pass",
+              path: "artifacts/goal-pass.log",
+              createdAt: "2024-01-01T00:00:00.000Z",
+            },
+          ],
+          verifier: {
+            description: "Goal verifier",
+            command: "pnpm test",
+            lastResult: {
+              status: "pass",
+              summary: "passed",
+              command: "pnpm test",
+              exitCode: 0,
+              outputPath: "artifacts/goal-pass.log",
+              checkedAt: "2024-01-01T00:00:00.000Z",
+            },
+          },
+        }),
+      ),
+    ).toMatchObject({
       kind: "goal_progress",
       phase: "terminal",
       title: "Goal passed: Persist goal output",
       status: "passed",
+      summaryRows: [
+        { label: "Tasks", value: "1/1 done" },
+        { label: "Verifier", value: "pass", detail: "artifacts/goal-pass.log" },
+        { label: "Evidence", value: "1 recorded", detail: "artifacts/goal-pass.log" },
+        { label: "Criteria", value: "1 checked" },
+      ],
     });
     expect(formatGoalTerminalProgress(goalRun({ status: "running" }))).toBeNull();
+  });
+
+  it("builds a compact terminal Goal summary with blocker context", () => {
+    expect(
+      buildGoalSummaryRows(
+        goalRun({
+          status: "blocked",
+          blockers: ["Connect an unlocked iPhone with Developer Mode enabled."],
+          tasks: [
+            { id: "task-1", title: "Implement", prompt: "Do it", status: "done", attempts: 1 },
+            { id: "task-2", title: "Capture", prompt: "Capture", status: "blocked", attempts: 0 },
+          ],
+        }),
+      ),
+    ).toEqual([
+      { label: "Tasks", value: "1/2 done", detail: "1 blocked" },
+      { label: "Verifier", value: "missing" },
+      { label: "Evidence", value: "0 recorded" },
+      { label: "Blocked on", value: "Connect an unlocked iPhone with Developer Mode enabled." },
+    ]);
   });
 });

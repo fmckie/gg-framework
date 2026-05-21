@@ -28,6 +28,8 @@ describe("prompt commands", () => {
       "take the next durable control-loop action rather than merely narrating",
     );
     expect(goal?.prompt).toContain("only complete after verification passes");
+    expect(goal?.prompt).toContain("give the user a concise final summary in chat");
+    expect(goal?.prompt).toContain("compact 3–4 column table");
   });
 
   it("defines /source as a plan-research-adjust-verify command", () => {
