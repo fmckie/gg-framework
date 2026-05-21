@@ -85,9 +85,127 @@ export function formatGoalVerifierSummary(run: GoalRun): string {
   return "no verifier";
 }
 
+export function getGoalReadinessText(run: GoalRun): string {
+  if (goalHasBlockingPrerequisites(run)) return "needs user input";
+  if (run.status === "running" || run.status === "verifying") return "work in progress";
+  if (run.status === "passed") return "verified";
+  if (run.verifier?.command) return "ready to verify";
+  if (run.tasks.length > 0) return "ready to run";
+  return "drafting plan";
+}
+
+export function formatGoalProgressText(run: GoalRun): string {
+  const prereqTotal = run.prerequisites.length;
+  const prereqMet = run.prerequisites.filter((item) => item.status === "met").length;
+  const taskTotal = run.tasks.length;
+  const taskDone = run.tasks.filter((item) => item.status === "done").length;
+  const prereq = prereqTotal > 0 ? `prereqs ${prereqMet}/${prereqTotal}` : "no prereqs";
+  const tasks = taskTotal > 0 ? `tasks ${taskDone}/${taskTotal}` : "no tasks";
+  return `${prereq} · ${tasks}`;
+}
+
 export function getGoalStatusCountsText(runs: readonly GoalRun[]): string {
   const counts = summarizeGoalCountsFromRuns(runs);
   return `${counts.passed} passed · ${counts.running} running · ${counts.pending} pending · ${counts.blocked} blocked`;
+}
+
+export function clampGoalScrollOffset(
+  offset: number,
+  itemCount: number,
+  viewportRows: number,
+): number {
+  const visibleRows = Math.max(1, Math.floor(viewportRows));
+  const maxOffset = Math.max(0, itemCount - visibleRows);
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(0, Math.floor(offset)), maxOffset);
+}
+
+export function getGoalOverlayViewportRows(terminalRows: number, reservedRows = 10): number {
+  if (!Number.isFinite(terminalRows)) return 8;
+  return Math.max(4, Math.floor(terminalRows) - reservedRows);
+}
+
+export function getGoalScrollOffsetForSelection({
+  selectedIndex,
+  currentOffset,
+  itemCount,
+  viewportRows,
+}: {
+  selectedIndex: number;
+  currentOffset: number;
+  itemCount: number;
+  viewportRows: number;
+}): number {
+  const selected = clampGoalSelectedIndex(selectedIndex, itemCount);
+  const offset = clampGoalScrollOffset(currentOffset, itemCount, viewportRows);
+  const rows = Math.max(1, Math.floor(viewportRows));
+  if (selected < offset) return selected;
+  if (selected >= offset + rows) return clampGoalScrollOffset(selected - rows + 1, itemCount, rows);
+  return offset;
+}
+
+export function getGoalDetailRowCount(run: GoalRun): number {
+  let count = 1;
+
+  if (run.prerequisites.length > 0) {
+    count += 1;
+    for (const prerequisite of run.prerequisites) {
+      count += 1;
+      if (isBlockingGoalPrerequisite(prerequisite) || prerequisite.evidence) count += 1;
+    }
+  }
+
+  count += 1;
+  if (run.tasks.length === 0) {
+    count += 1;
+  } else {
+    for (const task of run.tasks) {
+      count += 1;
+      if (task.lastSummary) count += 1;
+    }
+  }
+
+  if (run.verifier) count += 2;
+  return count;
+}
+
+export function clampGoalDetailScrollOffset(
+  offset: number,
+  detailRowCount: number,
+  viewportRows: number,
+): number {
+  const visibleRows = Math.max(1, Math.floor(viewportRows));
+  const scrolledBodyRows = Math.max(1, visibleRows - 1);
+  const maxOffset = Math.max(0, detailRowCount - scrolledBodyRows);
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(0, Math.floor(offset)), maxOffset);
+}
+
+export function getGoalDetailScrollWindow({
+  detailRowCount,
+  scrollOffset,
+  viewportRows,
+}: {
+  detailRowCount: number;
+  scrollOffset: number;
+  viewportRows: number;
+}): { start: number; end: number; hiddenBefore: number; hiddenAfter: number } {
+  const rows = Math.max(1, Math.floor(viewportRows));
+  const start = clampGoalDetailScrollOffset(scrollOffset, detailRowCount, rows);
+  const topIndicatorRows = start > 0 && rows > 2 ? 1 : 0;
+  let bodyRows = Math.max(1, rows - topIndicatorRows);
+  let hiddenAfter = Math.max(0, detailRowCount - start - bodyRows);
+  if (hiddenAfter > 0 && bodyRows > 1) {
+    bodyRows -= 1;
+    hiddenAfter = Math.max(0, detailRowCount - start - bodyRows);
+  }
+
+  return {
+    start,
+    end: Math.min(detailRowCount, start + bodyRows),
+    hiddenBefore: start,
+    hiddenAfter,
+  };
 }
 
 export function sortGoalRunsForOverlay(runs: readonly GoalRun[]): GoalRun[] {
@@ -272,65 +390,134 @@ function GoalHeader({
   );
 }
 
-function GoalDetail({ run }: { run: GoalRun }) {
-  const theme = useTheme();
+function StatusChip({ label, color }: { label: string; color: string }) {
   return (
-    <Box flexDirection="column" marginTop={1} paddingLeft={2}>
-      {run.prerequisites.length > 0 ? (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text color={theme.textDim} bold>
-            {getGoalUserPrerequisiteHeading(run)}
+    <Text color={color} bold>
+      ◖ {label} ◗
+    </Text>
+  );
+}
+
+function GoalDetail({
+  run,
+  maxRows,
+  scrollOffset,
+}: {
+  run: GoalRun;
+  maxRows: number;
+  scrollOffset: number;
+}) {
+  const theme = useTheme();
+  const rows: React.ReactNode[] = [
+    <Text key="summary" color={theme.textDim}>
+      Detail · {getGoalReadinessText(run)} · {formatGoalProgressText(run)}
+    </Text>,
+  ];
+
+  if (run.prerequisites.length > 0) {
+    rows.push(
+      <Text key="prereq-heading" color={theme.primary} bold>
+        {getGoalUserPrerequisiteHeading(run)}
+      </Text>,
+    );
+    for (const prerequisite of run.prerequisites) {
+      rows.push(
+        <Text key={`prereq-${prerequisite.id}`}>
+          <Text color={prerequisiteStatusColor(prerequisite.status)}>● {prerequisite.status}</Text>
+          <Text color={theme.text} bold={isBlockingGoalPrerequisite(prerequisite)}>
+            {" "}
+            {prerequisite.label}
           </Text>
-          {run.prerequisites.map((prerequisite) => (
-            <Box key={prerequisite.id} flexDirection="column">
-              <Text>
-                <Text color={prerequisiteStatusColor(prerequisite.status)}>
-                  [{prerequisite.status}]
-                </Text>
-                <Text color={theme.text}> {prerequisite.label}</Text>
-                {isBlockingGoalPrerequisite(prerequisite) ? (
-                  <Text color={theme.warning}> · required from user</Text>
-                ) : null}
-              </Text>
-              {isBlockingGoalPrerequisite(prerequisite) ? (
-                <Text color={theme.textDim} wrap="wrap">
-                  {"  "}
-                  {formatGoalPrerequisiteInstruction(prerequisite)}
-                </Text>
-              ) : prerequisite.evidence ? (
-                <Text color={theme.textDim} wrap="wrap">
-                  {"  "}
-                  {prerequisite.evidence}
-                </Text>
-              ) : null}
-            </Box>
-          ))}
-        </Box>
+          {isBlockingGoalPrerequisite(prerequisite) ? (
+            <Text color={theme.warning}> · user action required</Text>
+          ) : null}
+        </Text>,
+      );
+      if (isBlockingGoalPrerequisite(prerequisite)) {
+        rows.push(
+          <Text key={`prereq-${prerequisite.id}-instruction`} color={theme.textDim} wrap="truncate">
+            └─ {formatGoalPrerequisiteInstruction(prerequisite)}
+          </Text>,
+        );
+      } else if (prerequisite.evidence) {
+        rows.push(
+          <Text key={`prereq-${prerequisite.id}-evidence`} color={theme.textDim} wrap="truncate">
+            └─ {prerequisite.evidence}
+          </Text>,
+        );
+      }
+    }
+  }
+
+  rows.push(
+    <Text key="task-heading" color={theme.primary} bold>
+      {getGoalDetailTaskHeading(run)}
+    </Text>,
+  );
+  if (run.tasks.length === 0) {
+    rows.push(
+      <Text key="no-tasks" color={theme.textDim}>
+        {goalHasBlockingPrerequisites(run)
+          ? "⏸ Waiting for prerequisites before workers can start."
+          : "✨ No worker tasks yet — run the goal to generate focused work."}
+      </Text>,
+    );
+  } else {
+    for (const task of run.tasks) {
+      rows.push(
+        <Text key={`task-${task.id}`}>
+          <Text color={taskStatusColor(task.status)}>● {task.status}</Text>
+          <Text color={theme.text}> {task.title}</Text>
+          <Text color={theme.textDim}> · try {task.attempts}</Text>
+          {task.workerId ? <Text color={theme.textDim}> · {task.workerId}</Text> : null}
+        </Text>,
+      );
+      if (task.lastSummary) {
+        rows.push(
+          <Text key={`task-${task.id}-summary`} color={theme.textDim} wrap="truncate">
+            └─ {formatGoalTaskDetailSummary(task.lastSummary)}
+          </Text>,
+        );
+      }
+    }
+  }
+
+  if (run.verifier) {
+    rows.push(
+      <Text key="verifier-heading" color={theme.primary} bold>
+        Verifier
+      </Text>,
+      <Text key="verifier-summary" color={theme.textDim} wrap="truncate">
+        {formatGoalVerifierSummary(run)}
+        {run.verifier.command ? ` · ${run.verifier.command}` : ""}
+      </Text>,
+    );
+  }
+
+  const window = getGoalDetailScrollWindow({
+    detailRowCount: rows.length,
+    scrollOffset,
+    viewportRows: maxRows,
+  });
+
+  return (
+    <Box
+      flexDirection="column"
+      marginTop={1}
+      paddingLeft={3}
+      borderStyle="round"
+      borderColor={theme.textDim}
+      paddingX={1}
+      height={Math.max(3, maxRows + 2)}
+      overflowY="hidden"
+    >
+      {window.hiddenBefore > 0 ? (
+        <Text color={theme.textDim}>↑ {window.hiddenBefore} detail row(s) above · PgUp</Text>
       ) : null}
-      <Text color={theme.textDim} bold>
-        {getGoalDetailTaskHeading(run)}
-      </Text>
-      {run.tasks.length === 0 ? (
-        <Text color={theme.textDim}>
-          {goalHasBlockingPrerequisites(run)
-            ? "Waiting for user prerequisites before worker tasks can begin."
-            : "No worker tasks yet."}
-        </Text>
-      ) : (
-        run.tasks.map((task) => (
-          <Box key={task.id} flexDirection="column">
-            <Text>
-              <Text color={taskStatusColor(task.status)}>[{task.status}]</Text>
-              <Text color={theme.text}> {task.title}</Text>
-              <Text color={theme.textDim}> · attempts {task.attempts}</Text>
-              {task.workerId ? <Text color={theme.textDim}> · worker {task.workerId}</Text> : null}
-            </Text>
-            {task.lastSummary ? (
-              <Text color={theme.textDim}> {formatGoalTaskDetailSummary(task.lastSummary)}</Text>
-            ) : null}
-          </Box>
-        ))
-      )}
+      {rows.slice(window.start, window.end)}
+      {window.hiddenAfter > 0 ? (
+        <Text color={theme.textDim}>↓ {window.hiddenAfter} more detail row(s) · PgDn</Text>
+      ) : null}
     </Box>
   );
 }
@@ -351,6 +538,7 @@ export function GoalOverlay({
   const [mode, setMode] = useState<"normal" | "adding" | "confirmDelete">("normal");
   const [inputText, setInputText] = useState("");
   const [status, setStatus] = useState("");
+  const [detailScrollOffset, setDetailScrollOffset] = useState(0);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPersistedRunsRef = useRef<GoalRun[]>([]);
@@ -406,8 +594,36 @@ export function GoalOverlay({
     }, 100);
   }, [cwd, loaded, runs]);
 
+  const { rows } = useTerminalSize();
+  const viewportRows = getGoalOverlayViewportRows(rows);
   const selectedRun = runs[selectedIndex];
   const expandedRun = selectedRun && selectedRun.id === expandedRunId ? selectedRun : null;
+  const listViewportGoalCount = Math.max(1, Math.floor(viewportRows / 4));
+  const scrollOffset = expandedRun
+    ? selectedIndex
+    : getGoalScrollOffsetForSelection({
+        selectedIndex,
+        currentOffset: 0,
+        itemCount: runs.length,
+        viewportRows: listViewportGoalCount,
+      });
+  const visibleRuns = expandedRun
+    ? [expandedRun]
+    : runs.slice(scrollOffset, scrollOffset + listViewportGoalCount);
+  const hiddenBefore = scrollOffset;
+  const hiddenAfter = Math.max(0, runs.length - scrollOffset - visibleRuns.length);
+  const detailViewportRows = Math.max(1, viewportRows - 8);
+  const detailRowCount = expandedRun ? getGoalDetailRowCount(expandedRun) : 0;
+
+  useEffect(() => {
+    setDetailScrollOffset(0);
+  }, [expandedRunId]);
+
+  useEffect(() => {
+    setDetailScrollOffset((offset) =>
+      clampGoalDetailScrollOffset(offset, detailRowCount, detailViewportRows),
+    );
+  }, [detailRowCount, detailViewportRows]);
 
   useInput((input, key) => {
     if (mode === "adding") {
@@ -466,6 +682,36 @@ export function GoalOverlay({
       onClose();
       return;
     }
+    if (expandedRun && (key.pageUp || input === "[")) {
+      setDetailScrollOffset((offset) =>
+        clampGoalDetailScrollOffset(
+          offset - Math.max(1, detailViewportRows - 1),
+          detailRowCount,
+          detailViewportRows,
+        ),
+      );
+      return;
+    }
+    if (expandedRun && (key.pageDown || input === "]")) {
+      setDetailScrollOffset((offset) =>
+        clampGoalDetailScrollOffset(
+          offset + Math.max(1, detailViewportRows - 1),
+          detailRowCount,
+          detailViewportRows,
+        ),
+      );
+      return;
+    }
+    if (expandedRun && key.home) {
+      setDetailScrollOffset(0);
+      return;
+    }
+    if (expandedRun && key.end) {
+      setDetailScrollOffset(
+        clampGoalDetailScrollOffset(detailRowCount, detailRowCount, detailViewportRows),
+      );
+      return;
+    }
     if (key.upArrow || input === "k") {
       setSelectedIndex((index) => clampGoalSelectedIndex(index - 1, runs.length));
       return;
@@ -502,7 +748,7 @@ export function GoalOverlay({
   });
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={rows} overflow="hidden">
       <GoalHeader cwd={cwd} runs={runs} agentRunning={agentRunning} />
 
       {agentRunning ? (
@@ -514,48 +760,105 @@ export function GoalOverlay({
       ) : null}
 
       {!loaded ? (
-        <Text color={theme.textDim}>Loading goals…</Text>
+        <Box borderStyle="round" borderColor={theme.textDim} paddingX={1}>
+          <Text color={theme.textDim}>Loading goals…</Text>
+        </Box>
       ) : runs.length === 0 ? (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.textDim}>No goals. Run /goal &lt;objective&gt; or press (a)dd.</Text>
-          {mode === "adding" ? <Text color={theme.primary}>New goal: {inputText}</Text> : null}
+        <Box
+          flexDirection="column"
+          marginTop={1}
+          borderStyle="round"
+          borderColor={theme.primary}
+          paddingX={1}
+          paddingY={1}
+        >
+          <Text color={theme.primary} bold>
+            Start a durable Goal run
+          </Text>
+          <Text color={theme.textDim}>
+            No goals yet. Run /goal &lt;objective&gt; or press a to draft one here.
+          </Text>
+          <Text color={theme.textDim}>
+            Prerequisites, worker tasks, evidence, and verifier results will appear in this pane.
+          </Text>
+          {mode === "adding" ? <Text color={theme.primary}>New goal › {inputText}</Text> : null}
         </Box>
       ) : (
-        <Box flexDirection="column">
-          {runs.map((run, index) => {
+        <Box flexDirection="column" height={viewportRows} overflowY="hidden">
+          <Text color={theme.textDim} bold>
+            Goals
+          </Text>
+          {hiddenBefore > 0 ? (
+            <Text color={theme.textDim}>
+              ↑ {hiddenBefore} earlier goal{hiddenBefore === 1 ? "" : "s"}
+            </Text>
+          ) : null}
+          {visibleRuns.map((run, visibleIndex) => {
+            const index = scrollOffset + visibleIndex;
             const selected = index === selectedIndex;
             const blocked = goalHasBlockingPrerequisites(run);
             return (
-              <Box key={run.id} flexDirection="column" marginBottom={1}>
+              <Box
+                key={run.id}
+                flexDirection="column"
+                marginBottom={1}
+                borderStyle={selected ? "round" : undefined}
+                borderColor={selected ? theme.primary : undefined}
+                paddingX={selected ? 1 : 0}
+              >
                 <Text>
                   <Text color={selected ? theme.primary : theme.textDim}>
                     {selected ? "❯ " : "  "}
                   </Text>
-                  <Text color={statusColor(run.status) || (selected ? theme.primary : theme.text)}>
-                    [{run.status}]
-                  </Text>
+                  <StatusChip
+                    label={run.status}
+                    color={statusColor(run.status) || (selected ? theme.primary : theme.textDim)}
+                  />
                   <Text color={selected ? theme.primary : theme.text} bold={selected}>
                     {" "}
                     {run.title}
                   </Text>
                   <Text color={theme.textDim}> · {run.id.slice(0, 8)}</Text>
-                  {blocked ? <Text color={theme.warning}> · blocked</Text> : null}
                 </Text>
                 <Text color={theme.textDim}>
-                  {"    "}
-                  {formatGoalPrerequisiteSummary(run)} · {formatGoalTaskSummary(run)} ·{" "}
+                  {selected ? "  " : "    "}
+                  {getGoalReadinessText(run)} · {formatGoalProgressText(run)} ·{" "}
                   {formatGoalVerifierSummary(run)}
                 </Text>
-                {run.blockers.length > 0 ? (
+                <Text color={theme.textDim}>
+                  {selected ? "  " : "    "}
+                  {formatGoalPrerequisiteSummary(run)} · {formatGoalTaskSummary(run)}
+                </Text>
+                {blocked ? (
                   <Text color={theme.warning}>
-                    {"    "}blocker: {run.blockers[0]}
+                    {selected ? "  " : "    "}⚠ prerequisite needed before workers continue
+                  </Text>
+                ) : run.status === "running" || run.status === "verifying" ? (
+                  <Text color={GOAL_ACTIVE}>
+                    {selected ? "  " : "    "}● active — watching worker/verifier progress
                   </Text>
                 ) : null}
-                {expandedRun?.id === run.id ? <GoalDetail run={run} /> : null}
+                {run.blockers.length > 0 ? (
+                  <Text color={theme.warning}>
+                    {selected ? "  " : "    "}blocker: {run.blockers[0]}
+                  </Text>
+                ) : null}
+                {expandedRun?.id === run.id ? (
+                  <GoalDetail
+                    run={run}
+                    maxRows={detailViewportRows}
+                    scrollOffset={detailScrollOffset}
+                  />
+                ) : null}
               </Box>
             );
           })}
-          {mode === "adding" ? <Text color={theme.primary}>New goal: {inputText}</Text> : null}
+          {hiddenAfter > 0 ? (
+            <Text color={theme.textDim}>
+              ↓ {hiddenAfter} later goal{hiddenAfter === 1 ? "" : "s"}
+            </Text>
+          ) : null}
+          {mode === "adding" ? <Text color={theme.primary}>New goal › {inputText}</Text> : null}
         </Box>
       )}
 
@@ -571,21 +874,27 @@ export function GoalOverlay({
           </Text>
         ) : (
           <Text color={theme.textDim}>
-            <Text color={theme.primary}>↑↓</Text>
-            {" move · ("}
-            <Text color={theme.primary}>d</Text>
-            {")etail · ("}
+            <Text color={theme.primary}>↑↓/jk</Text>
+            {" select · "}
+            <Text color={theme.primary}>Enter/d</Text>
+            {" detail · "}
+            {expandedRun ? (
+              <>
+                <Text color={theme.primary}>PgUp/PgDn</Text>
+                {" scroll detail · "}
+              </>
+            ) : null}
             <Text color={theme.primary}>r</Text>
-            {")un · ("}
+            {" run · "}
             <Text color={theme.primary}>v</Text>
-            {")erify · ("}
+            {" verify · "}
             <Text color={theme.primary}>p</Text>
-            {")ause · ("}
+            {" pause · "}
             <Text color={theme.primary}>a</Text>
-            {")dd · ("}
+            {" add · "}
             <Text color={theme.primary}>x</Text>
-            {")archive · "}
-            <Text color={theme.primary}>ESC</Text>
+            {" archive · "}
+            <Text color={theme.primary}>Esc</Text>
             {" close"}
           </Text>
         )}

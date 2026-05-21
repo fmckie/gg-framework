@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { GoalRun } from "../core/goal-store.js";
 import {
+  clampGoalDetailScrollOffset,
+  clampGoalScrollOffset,
   clampGoalSelectedIndex,
+  getGoalDetailRowCount,
+  getGoalDetailScrollWindow,
+  getGoalOverlayViewportRows,
+  getGoalScrollOffsetForSelection,
   formatGoalPrerequisiteSummary,
+  formatGoalProgressText,
   formatGoalTaskDetailSummary,
   formatGoalTaskSummary,
   formatGoalVerifierSummary,
+  getGoalReadinessText,
   getGoalDetailTaskHeading,
   getGoalStatusCountsText,
   getGoalUserPrerequisiteHeading,
@@ -46,6 +54,85 @@ describe("goal overlay helpers", () => {
     expect(clampGoalSelectedIndex(-1, 3)).toBe(0);
     expect(clampGoalSelectedIndex(4, 3)).toBe(2);
     expect(clampGoalSelectedIndex(1, 3)).toBe(1);
+  });
+
+  it("clamps bounded Goal viewport scroll offsets", () => {
+    expect(clampGoalScrollOffset(-2, 20, 5)).toBe(0);
+    expect(clampGoalScrollOffset(99, 20, 5)).toBe(15);
+    expect(clampGoalScrollOffset(4.8, 20, 5)).toBe(4);
+    expect(clampGoalScrollOffset(Number.NaN, 20, 5)).toBe(0);
+    expect(clampGoalScrollOffset(5, 3, 8)).toBe(0);
+  });
+
+  it("derives conservative internal viewport limits from terminal rows", () => {
+    expect(getGoalOverlayViewportRows(30)).toBe(20);
+    expect(getGoalOverlayViewportRows(8)).toBe(4);
+    expect(getGoalOverlayViewportRows(Number.NaN)).toBe(8);
+  });
+
+  it("keeps expanded selection visible without growing terminal scrollback", () => {
+    expect(
+      getGoalScrollOffsetForSelection({
+        selectedIndex: 12,
+        currentOffset: 0,
+        itemCount: 30,
+        viewportRows: 5,
+      }),
+    ).toBe(8);
+    expect(
+      getGoalScrollOffsetForSelection({
+        selectedIndex: 4,
+        currentOffset: 8,
+        itemCount: 30,
+        viewportRows: 5,
+      }),
+    ).toBe(4);
+    expect(
+      getGoalScrollOffsetForSelection({
+        selectedIndex: 10,
+        currentOffset: 8,
+        itemCount: 30,
+        viewportRows: 5,
+      }),
+    ).toBe(8);
+  });
+
+  it("counts and clamps expanded detail rows for an internal detail viewport", () => {
+    const run = goalRun({
+      prerequisites: [
+        { id: "cli", label: "CLI", status: "met", evidence: "available" },
+        { id: "token", label: "Token", status: "missing", instructions: "Provide token." },
+      ],
+      tasks: [
+        {
+          id: "task-a",
+          title: "Task A",
+          prompt: "Do A",
+          status: "done",
+          attempts: 1,
+          lastSummary: "Implemented A.",
+        },
+        { id: "task-b", title: "Task B", prompt: "Do B", status: "pending", attempts: 0 },
+      ],
+      verifier: { description: "Run tests", command: "pnpm test" },
+    });
+
+    expect(getGoalDetailRowCount(run)).toBe(12);
+    expect(clampGoalDetailScrollOffset(-1, 12, 5)).toBe(0);
+    expect(clampGoalDetailScrollOffset(99, 12, 5)).toBe(8);
+    expect(clampGoalDetailScrollOffset(Number.NaN, 12, 5)).toBe(0);
+  });
+
+  it("reserves fixed rows for detail scroll indicators instead of growing terminal scrollback", () => {
+    expect(
+      getGoalDetailScrollWindow({ detailRowCount: 12, scrollOffset: 0, viewportRows: 5 }),
+    ).toEqual({ start: 0, end: 4, hiddenBefore: 0, hiddenAfter: 8 });
+    expect(
+      getGoalDetailScrollWindow({ detailRowCount: 12, scrollOffset: 4, viewportRows: 5 }),
+    ).toEqual({ start: 4, end: 7, hiddenBefore: 4, hiddenAfter: 5 });
+    expect(
+      getGoalDetailScrollWindow({ detailRowCount: 12, scrollOffset: 99, viewportRows: 5 }),
+    ).toEqual({ start: 8, end: 12, hiddenBefore: 8, hiddenAfter: 0 });
   });
 
   it("summarizes prerequisites including blocking states", () => {
@@ -97,6 +184,37 @@ describe("goal overlay helpers", () => {
     );
     expect(formatGoalTaskDetailSummary("\n\n")).toBe("");
     expect(formatGoalTaskDetailSummary("x".repeat(220))).toBe(`${"x".repeat(177)}…`);
+  });
+
+  it("formats concise progress and readiness affordances", () => {
+    expect(formatGoalProgressText(goalRun({}))).toBe("no prereqs · no tasks");
+    expect(
+      formatGoalProgressText(
+        goalRun({
+          prerequisites: [
+            { id: "a", label: "A", status: "met" },
+            { id: "b", label: "B", status: "missing" },
+          ],
+          tasks: [
+            { id: "t1", title: "T1", prompt: "Do it", status: "done", attempts: 1 },
+            { id: "t2", title: "T2", prompt: "Do more", status: "pending", attempts: 0 },
+          ],
+        }),
+      ),
+    ).toBe("prereqs 1/2 · tasks 1/2");
+
+    expect(
+      getGoalReadinessText(
+        goalRun({ prerequisites: [{ id: "token", label: "Token", status: "missing" }] }),
+      ),
+    ).toBe("needs user input");
+    expect(getGoalReadinessText(goalRun({ status: "running" }))).toBe("work in progress");
+    expect(getGoalReadinessText(goalRun({ status: "passed" }))).toBe("verified");
+    expect(
+      getGoalReadinessText(
+        goalRun({ verifier: { description: "Run tests", command: "pnpm test" } }),
+      ),
+    ).toBe("ready to verify");
   });
 
   it("summarizes verifier state", () => {

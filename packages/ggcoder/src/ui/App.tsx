@@ -571,7 +571,15 @@ export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | nu
   }
 }
 
-export type OverlayPaneKind = "tasks" | "goal" | "skills" | "plan" | "eyes" | "pixel";
+export type OverlayPaneKind =
+  | "model"
+  | "tasks"
+  | "goal"
+  | "skills"
+  | "plan"
+  | "theme"
+  | "eyes"
+  | "pixel";
 
 export function shouldHideHistoryForOverlayView(
   isOverlayView: boolean,
@@ -582,6 +590,16 @@ export function shouldHideHistoryForOverlayView(
   // remains in sessionStore and is reprinted after the pane closes. While the
   // agent is running we keep Static mounted because resetUI would abort the run.
   return isOverlayView && !isAgentRunning;
+}
+
+export function shouldStabilizeOverlayPaneRerender({
+  overlayPane,
+  isAgentRunning,
+}: {
+  overlayPane: OverlayPaneKind | null;
+  isAgentRunning: boolean;
+}): boolean {
+  return isAgentRunning && (overlayPane === "goal" || overlayPane === "plan");
 }
 
 export interface ScrollStabilizationDecision {
@@ -4471,13 +4489,17 @@ export function App(props: AppProps) {
     isOverlayView,
     agentLoop.isRunning,
   );
+  const stabilizeOverlayPaneRerender = shouldStabilizeOverlayPaneRerender({
+    overlayPane: overlay,
+    isAgentRunning: agentLoop.isRunning,
+  });
 
   return (
     <Box flexDirection="column" width={columns}>
       {/* History — scrolled up, managed by Ink Static. */}
       <Static
-        key={`${resizeKey}-${staticKey}`}
-        items={shouldHideHistoryForOverlay ? [] : history}
+        key={stabilizeOverlayPaneRerender ? "overlay-stable-static" : `${resizeKey}-${staticKey}`}
+        items={stabilizeOverlayPaneRerender || shouldHideHistoryForOverlay ? [] : history}
         style={{ width: "100%" }}
       >
         {(item) => (

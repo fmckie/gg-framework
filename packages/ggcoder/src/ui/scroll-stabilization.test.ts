@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getScrollStabilizationDecision } from "./App.js";
+import { getScrollStabilizationDecision, shouldStabilizeOverlayPaneRerender } from "./App.js";
 
 describe("getScrollStabilizationDecision", () => {
   it("preserves Static and disables auto-follow when the user is intentionally scrolled and output arrives", () => {
@@ -27,5 +27,20 @@ describe("getScrollStabilizationDecision", () => {
         hasNewOutput: false,
       }),
     ).toEqual({ preserveStatic: false, autoFollow: false });
+  });
+
+  it("identifies long polling overlay panes that need rerender stabilization while an agent runs", () => {
+    expect(shouldStabilizeOverlayPaneRerender({ overlayPane: "goal", isAgentRunning: true })).toBe(
+      true,
+    );
+    expect(shouldStabilizeOverlayPaneRerender({ overlayPane: "plan", isAgentRunning: true })).toBe(
+      true,
+    );
+    expect(
+      shouldStabilizeOverlayPaneRerender({ overlayPane: "skills", isAgentRunning: true }),
+    ).toBe(false);
+    expect(shouldStabilizeOverlayPaneRerender({ overlayPane: "goal", isAgentRunning: false })).toBe(
+      false,
+    );
   });
 });
