@@ -680,6 +680,16 @@ function goalProgressMatchesDraft(item: GoalProgressItem, draft: GoalProgressDra
   );
 }
 
+/**
+ * Reconcile terminal Goal cards that are already visible in this UI session.
+ *
+ * This intentionally does not synthesize missing cards from durable GoalRun
+ * state. Goal terminal cards are event notifications: they should appear when
+ * the terminal event happens in the current UI, not whenever a fresh session
+ * polls old Goal runs from the Goal pane. Callers that just observed a terminal
+ * event append that card first, then use this helper to tombstone stale older
+ * cards for the same run.
+ */
 export function completedItemsWithDurableGoalTerminalProgress(
   items: readonly CompletedItem[],
   runs: readonly GoalRun[],
@@ -692,30 +702,19 @@ export function completedItemsWithDurableGoalTerminalProgress(
   );
   if (runIds.size === 0) return items as CompletedItem[];
 
-  const upToDateRunIds = new Set<string>();
   let changed = false;
   const reconciled = items.map((item, index): CompletedItem => {
     const runId = goalTerminalRunIdFromItem(item);
     if (!runId || !runIds.has(runId)) return item;
 
     const draft = terminalByRun.get(runId);
-    if (draft && goalProgressMatchesDraft(item as GoalProgressItem, draft)) {
-      upToDateRunIds.add(runId);
-      return item;
-    }
+    if (draft && goalProgressMatchesDraft(item as GoalProgressItem, draft)) return item;
 
     changed = true;
     return { kind: "tombstone", id: `tombstone-${item.id}-${index}` };
   });
 
-  const additions: CompletedItem[] = [];
-  for (const [runId, progress] of terminalByRun) {
-    if (upToDateRunIds.has(runId)) continue;
-    additions.push({ ...progress, id: goalTerminalProgressId({ id: runId } as GoalRun) });
-  }
-
-  if (!changed && additions.length === 0) return items as CompletedItem[];
-  return [...reconciled, ...additions];
+  return changed ? reconciled : (items as CompletedItem[]);
 }
 
 export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | null {

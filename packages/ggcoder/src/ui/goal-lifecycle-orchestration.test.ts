@@ -185,7 +185,7 @@ describe("/goal UI orchestration lifecycle", () => {
     );
   });
 
-  it("derives terminal Goal messages into restored UI state without stale duplicates", () => {
+  it("does not synthesize old terminal Goal messages into fresh UI state", () => {
     const blocked = goalRun({
       id: "goal-blocked",
       status: "blocked",
@@ -196,49 +196,37 @@ describe("/goal UI orchestration lifecycle", () => {
         lastResult: { status: "fail", summary: "failed", checkedAt: "2024-01-01T00:00:00.000Z" },
       },
     });
-    const restoredHistory: CompletedItem[] = [];
+    const freshHistory: CompletedItem[] = [];
 
-    const withBlocker = completedItemsWithDurableGoalTerminalProgress(restoredHistory, [blocked]);
-    expect(withBlocker).toHaveLength(1);
-    expect(withBlocker[0]).toMatchObject({
-      kind: "goal_progress",
-      id: "goal-terminal-goal-blocked",
-      phase: "terminal",
-      title: "Goal blocked: Pane restore blocker",
-      detail: "GOAL BLOCKER survived remount",
-    });
+    const afterPoll = completedItemsWithDurableGoalTerminalProgress(freshHistory, [blocked]);
 
-    const afterPaneSwitch = completedItemsWithDurableGoalTerminalProgress(withBlocker, [blocked]);
-    expect(afterPaneSwitch).toBe(withBlocker);
-    expect(afterPaneSwitch).toHaveLength(1);
-
-    const passed = { ...blocked, status: "passed" as const, blockers: [] };
-    const afterResolved = completedItemsWithDurableGoalTerminalProgress(afterPaneSwitch, [passed]);
-    expect(afterResolved).toHaveLength(2);
-    expect(afterResolved[0]).toMatchObject({ kind: "tombstone" });
-    expect(afterResolved[1]).toMatchObject({
-      id: "goal-terminal-goal-blocked",
-      title: "Goal passed: Pane restore blocker",
-      status: "passed",
-    });
-    expect(afterResolved[1]).not.toMatchObject({ detail: "GOAL BLOCKER survived remount" });
+    expect(afterPoll).toBe(freshHistory);
+    expect(afterPoll).toHaveLength(0);
   });
 
-  it("does not rewrite Static history during periodic durable Goal reconciliation", () => {
+  it("reconciles terminal Goal messages that were already visible in this UI session", () => {
     const blocked = goalRun({
       id: "goal-scroll",
       status: "blocked",
       title: "Scroll-safe blocker",
       blockers: ["GOAL BLOCKER should not pin scroll"],
     });
-    const withBlocker = completedItemsWithDurableGoalTerminalProgress([], [blocked]);
+    const terminalProgress = formatGoalTerminalProgress(blocked);
+    if (!terminalProgress) throw new Error("expected terminal progress");
+    const withBlocker: CompletedItem[] = [{ ...terminalProgress, id: "goal-terminal-goal-scroll" }];
 
     const repeatedPoll = completedItemsWithDurableGoalTerminalProgress(withBlocker, [blocked]);
     expect(repeatedPoll).toBe(withBlocker);
 
     const passed = { ...blocked, status: "passed" as const, blockers: [] };
-    const afterPassed = completedItemsWithDurableGoalTerminalProgress(repeatedPoll, [passed]);
-    expect(afterPassed).not.toBe(repeatedPoll);
+    const passedProgress = formatGoalTerminalProgress(passed);
+    if (!passedProgress) throw new Error("expected passed progress");
+    const afterEventAppend = [
+      ...repeatedPoll,
+      { ...passedProgress, id: "goal-terminal-goal-scroll" },
+    ];
+    const afterPassed = completedItemsWithDurableGoalTerminalProgress(afterEventAppend, [passed]);
+    expect(afterPassed).not.toBe(afterEventAppend);
     expect(afterPassed).toHaveLength(2);
     expect(afterPassed[0]).toMatchObject({ kind: "tombstone" });
     expect(afterPassed[1]).toMatchObject({ title: "Goal passed: Scroll-safe blocker" });
