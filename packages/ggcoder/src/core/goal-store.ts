@@ -59,6 +59,7 @@ export type GoalEvidenceMechanism =
   | "browser"
   | "device"
   | "source"
+  | "file"
   | "manual";
 
 export interface GoalEvidencePlan {
@@ -194,6 +195,42 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function mergeGoalTasks(existing: GoalTask[], input: GoalTask[] | undefined): GoalTask[] {
+  if (!input) return existing;
+  const byId = new Map(input.map((task) => [task.id, task]));
+  const merged = existing.map((task) => {
+    const next = byId.get(task.id);
+    if (!next) return task;
+    return {
+      ...task,
+      ...next,
+      status:
+        task.status !== next.status || task.attempts > next.attempts ? task.status : next.status,
+      attempts: Math.max(task.attempts, next.attempts),
+      workerId: task.workerId ?? next.workerId,
+      verification: task.verification ?? next.verification,
+      lastSummary: task.lastSummary ?? next.lastSummary,
+    };
+  });
+  for (const task of input) {
+    if (!existing.some((item) => item.id === task.id)) merged.push(task);
+  }
+  return merged;
+}
+
+function mergeGoalEvidence(
+  existing: GoalEvidence[],
+  input: GoalEvidence[] | undefined,
+): GoalEvidence[] {
+  if (!input) return existing;
+  const byId = new Map(existing.map((item) => [item.id, item]));
+  const merged = [...existing];
+  for (const item of input) {
+    if (!byId.has(item.id)) merged.push(item);
+  }
+  return merged;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -258,6 +295,7 @@ function isEvidenceMechanism(value: unknown): value is GoalEvidenceMechanism {
     value === "browser" ||
     value === "device" ||
     value === "source" ||
+    value === "file" ||
     value === "manual"
   );
 }
@@ -749,8 +787,8 @@ export async function upsertGoalRun(cwd: string, input: GoalRun | GoalRunInput):
           prerequisites: input.prerequisites ?? existing.prerequisites,
           harness: input.harness ?? existing.harness,
           evidencePlan: input.evidencePlan ?? existing.evidencePlan,
-          tasks: input.tasks ?? existing.tasks,
-          evidence: input.evidence ?? existing.evidence,
+          tasks: mergeGoalTasks(existing.tasks, input.tasks),
+          evidence: mergeGoalEvidence(existing.evidence, input.evidence),
           blockers: input.blockers ?? existing.blockers,
           status: deriveRunnableStatus(
             input.status ?? existing.status,

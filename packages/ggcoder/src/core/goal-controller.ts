@@ -72,9 +72,9 @@ function buildHarnessTaskPrompt(run: GoalRun): string {
     .join("\n");
   return (
     `Goal: ${run.goal}\n\n` +
-    `Build the missing local/free harness instrumentation needed before verification. Translate the user's requested outcome into observable proof: ask what artifact would prove this actually worked end-to-end, then build the simplest reliable local/free path to observe it.\n` +
+    `Build only the missing local/free harness instrumentation needed before verification. Start by restating the intended experience, the relevant failure modes, and the senses/signals this harness must observe; do not default to generic tests, scripts, screenshots, benchmarks, or simulations unless that signal is required for this specific goal.\n` +
     `${harnessItems}\n\n` +
-    `Inventory domain-appropriate local capabilities before blocking: existing tests and CLIs, fixtures or seeded data, dev servers, browser automation, simulator/device screenshots, video/frame inspection, logs, generated assets, protocol traces, database assertions, API probes, contract tests, performance measurements, source/docs/code-search comparison, or other artifacts that directly measure the outcome. For mobile/UI goals, prefer local simulator/browser screenshots (for example iOS Simulator tooling when available) before requiring a physical phone. Create any scripts, fixtures, or test helpers in the repository, update the Goal harness/verifier metadata with the goals tool, and record command/file/screenshot/log evidence. Do not require paid services or signups; block only with exact user instructions if a true external prerequisite is missing.`
+    `Inventory available local capabilities just deeply enough to choose a proportional instrument, then build it. Update the Goal harness/verifier metadata with the goals tool and record durable evidence showing the instrument exists and works. Do not require paid services or signups; block only with exact user instructions if a true external prerequisite is missing.`
   );
 }
 
@@ -143,16 +143,16 @@ function buildEvidencePlanTaskPrompt(run: GoalRun): string {
     .join("\n");
   return (
     `Goal: ${run.goal}\n\n` +
-    `Turn the planned proof paths below into real local/free verification capability before the Goal verifier runs. Translate success criteria and outcome requirements into observable proof paths: ask what would prove this goal actually worked end-to-end, then build the simplest reliable local/free way to capture that proof.\n` +
+    `Turn the planned proof paths below into real local/free verification capability before the Goal verifier runs. For each path, preserve the orchestrator's goal-specific sensory intent: what experience is being observed, what failure it catches, and what signal proves it.\n` +
     `${plannedItems}\n\n` +
-    `Inventory domain-appropriate capabilities deeply enough for this task before blocking: existing tests/CLIs, generated fixtures, seeded data, scripts, dev servers, browser automation, simulator/browser/device screenshots, video/frame inspection, logs, generated assets, protocol traces, database assertions, API probes, contract tests, performance measurements, source/docs/code-search comparison, or other artifacts that directly measure the requested outcome. For mobile/UI goals, screenshots are examples rather than the whole solution: prefer local simulator/browser tooling (for example iOS Simulator screenshots when available) before requiring a physical phone, and add image/frame checks when visual correctness matters. Build what is missing, update the Goal evidence_plan/harness/verifier metadata with the goals tool, and persist command/file/screenshot/log evidence, not narrative-only verification or human visual inspection. Only block with exact user instructions for inputs that cannot be generated or checked locally, such as credentials, paid services, physical devices, or unavailable source assets.`
+    `Inventory available local capabilities without anchoring on any fixed tool category. Build only the proportional instrument needed for this proof path, update the Goal evidence_plan/harness/verifier metadata with the goals tool, and persist concrete command/file/artifact/log evidence that the instrument works. Do not use narrative-only verification or human visual inspection as completion evidence. Only block with exact user instructions for inputs that cannot be generated or checked locally.`
   );
 }
 
 function buildVerifierTaskPrompt(run: GoalRun): string {
   return (
     `Goal: ${run.goal}\n\n` +
-    `Define and build a real end-to-end verifier for this Goal. Translate the objective into observable proof: what command, artifact, trace, screenshot, log, fixture, database assertion, API probe, contract test, performance measurement, source/docs comparison, or other domain-appropriate signal would prove the requested outcome with near-100% confidence? Create the simplest reliable local/free scripts, fixtures, harnesses, or test commands needed, then update the Goal with a verifier_command and verifier_description using the goals tool. For mobile/UI goals, prefer local simulator/browser evidence such as iOS Simulator screenshots when available before requiring a physical phone. The verifier must be runnable locally/free and produce command or file evidence, not narrative or human visual inspection. If an external prerequisite is missing, mark it missing with exact user instructions.`
+    `Define and build a real end-to-end verifier for this Goal. Begin from the intended experience and required senses/signals already implied by the success criteria and evidence plan. Choose a proportional local/free verifier that observes those signals and catches the important goal-specific failures; do not add generic simulations, screenshots, benchmarks, or scripts unless they directly support that proof. Update the Goal with a verifier_command and verifier_description using the goals tool. The verifier must be runnable locally/free and produce durable command or file evidence, not narrative or human visual inspection. If an external prerequisite is missing, mark it missing with exact user instructions.`
   );
 }
 
@@ -269,6 +269,11 @@ export function decideGoalNextAction(
   run: GoalRun,
   options: GoalControllerOptions = {},
 ): GoalControllerDecision {
+  const completion = canCompleteGoalRun(run);
+  if (completion.ok) {
+    return { kind: "complete", reason: completion.reason };
+  }
+
   if (
     run.status === "blocked" ||
     run.status === "failed" ||
@@ -317,11 +322,6 @@ export function decideGoalNextAction(
       attempts,
       reason: `Goal task "${task.title}" is ready for worker attempt ${attempts}.`,
     };
-  }
-
-  const completion = canCompleteGoalRun(run);
-  if (completion.ok) {
-    return { kind: "complete", reason: completion.reason };
   }
 
   const blockedEvidence = blockedEvidencePlanReason(run);

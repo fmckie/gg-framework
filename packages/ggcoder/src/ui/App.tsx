@@ -149,11 +149,7 @@ import {
   type GoalRun,
   type GoalTask,
 } from "../core/goal-store.js";
-import {
-  canCompleteGoalRun,
-  decideGoalNextAction,
-  shouldCreateVerifierFixTask,
-} from "../core/goal-controller.js";
+import { canCompleteGoalRun, decideGoalNextAction } from "../core/goal-controller.js";
 import { runGoalVerifierCommand } from "../core/goal-verifier.js";
 import {
   listGoalWorkers,
@@ -665,6 +661,63 @@ export function buildGoalSummaryRows(run: GoalRun): GoalSummaryRow[] {
   return rows.slice(0, 4);
 }
 
+function goalTerminalProgressId(run: GoalRun): string {
+  return `goal-terminal-${run.id}`;
+}
+
+function goalTerminalRunIdFromItem(item: CompletedItem): string | undefined {
+  if (item.kind !== "goal_progress" || item.phase !== "terminal") return undefined;
+  if (!item.id.startsWith("goal-terminal-")) return undefined;
+  return item.id.slice("goal-terminal-".length);
+}
+
+function goalProgressMatchesDraft(item: GoalProgressItem, draft: GoalProgressDraft): boolean {
+  return (
+    item.title === draft.title &&
+    item.detail === draft.detail &&
+    item.status === draft.status &&
+    JSON.stringify(item.summaryRows ?? []) === JSON.stringify(draft.summaryRows ?? [])
+  );
+}
+
+export function completedItemsWithDurableGoalTerminalProgress(
+  items: readonly CompletedItem[],
+  runs: readonly GoalRun[],
+): CompletedItem[] {
+  const runIds = new Set(runs.map((run) => run.id));
+  const terminalByRun = new Map(
+    runs
+      .map((run) => [run.id, formatGoalTerminalProgress(run)] as const)
+      .filter((entry): entry is readonly [string, GoalProgressDraft] => entry[1] !== null),
+  );
+  if (runIds.size === 0) return items as CompletedItem[];
+
+  const upToDateRunIds = new Set<string>();
+  let changed = false;
+  const reconciled = items.map((item, index): CompletedItem => {
+    const runId = goalTerminalRunIdFromItem(item);
+    if (!runId || !runIds.has(runId)) return item;
+
+    const draft = terminalByRun.get(runId);
+    if (draft && goalProgressMatchesDraft(item as GoalProgressItem, draft)) {
+      upToDateRunIds.add(runId);
+      return item;
+    }
+
+    changed = true;
+    return { kind: "tombstone", id: `tombstone-${item.id}-${index}` };
+  });
+
+  const additions: CompletedItem[] = [];
+  for (const [runId, progress] of terminalByRun) {
+    if (upToDateRunIds.has(runId)) continue;
+    additions.push({ ...progress, id: goalTerminalProgressId({ id: runId } as GoalRun) });
+  }
+
+  if (!changed && additions.length === 0) return items as CompletedItem[];
+  return [...reconciled, ...additions];
+}
+
 export function formatGoalTerminalProgress(run: GoalRun): GoalProgressDraft | null {
   switch (run.status) {
     case "passed":
@@ -793,10 +846,11 @@ export function getStaticHistoryKey({ resizeKey }: { resizeKey: number }): strin
 // flushOnTurnText, flushOnTurnEnd are imported from ./live-item-flush.ts
 
 /** Check whether an item is still active (running spinner, pending result). */
-function isActiveItem(item: CompletedItem): boolean {
+export function isActiveItem(item: CompletedItem): boolean {
   switch (item.kind) {
     case "tool_start":
     case "server_tool_start":
+    case "queued":
     case "compacting":
       return true;
     case "tool_group":
@@ -1346,6 +1400,7 @@ export function App(props: AppProps) {
         const counts = summarizeGoalCountsFromRuns(runs);
         if (cancelled) return;
         setGoalCount(counts.active);
+        setHistory((prev) => completedItemsWithDurableGoalTerminalProgress(prev, runs));
         setGoalStatusEntries((prev) => {
           const next = reconcileGoalStatusEntriesWithRuns(prev, runs, {
             isWorkerActive: (workerId, run) =>
@@ -3735,9 +3790,10 @@ export function App(props: AppProps) {
       case "queued":
         return (
           <Box key={item.id} marginTop={1}>
-            <Text color={theme.accent} bold>
-              {"⏳ Queued: "}
+            <Text color={theme.warning} bold>
+              {"• "}
             </Text>
+            <Text color={theme.textDim}>Queued: </Text>
             <Text color={theme.text} wrap="wrap">
               {item.text}
               {item.imageCount
@@ -3965,7 +4021,12 @@ export function App(props: AppProps) {
             content: `terminal=${status}`,
           });
           const terminalProgress = formatGoalTerminalProgress(nextRun);
-          if (terminalProgress) appendGoalProgress(terminalProgress);
+          if (terminalProgress) {
+            const item = { ...terminalProgress, id: goalTerminalProgressId(nextRun) };
+            setLiveItems((prev) =>
+              completedItemsWithDurableGoalTerminalProgress([...prev, item], [nextRun]),
+            );
+          }
           runningGoalIdsRef.current.delete(runId);
           clearGoalStatusEntry(runId);
           return;
@@ -4107,7 +4168,12 @@ export function App(props: AppProps) {
         await appendGoalDecision(props.cwd, run.id, decision);
         if (decision.kind === "terminal") {
           const terminalProgress = formatGoalTerminalProgress(run);
-          if (terminalProgress) appendGoalProgress(terminalProgress);
+          if (terminalProgress) {
+            const item = { ...terminalProgress, id: goalTerminalProgressId(run) };
+            setLiveItems((prev) =>
+              completedItemsWithDurableGoalTerminalProgress([...prev, item], [run]),
+            );
+          }
           runningGoalIdsRef.current.delete(run.id);
           clearGoalStatusEntry(run.id);
           return;
@@ -4180,20 +4246,23 @@ export function App(props: AppProps) {
           return;
         }
         if (decision.kind === "pause") {
-          await updateGoalTask(props.cwd, run.id, decision.task.id, {
-            status: "blocked",
-            attempts: decision.attempts,
-            lastSummary: "Paused after worker attempt limit.",
-          });
+          const runWithBlockedTask =
+            (await updateGoalTask(props.cwd, run.id, decision.task.id, {
+              status: "blocked",
+              attempts: decision.attempts,
+              lastSummary: "Paused after worker attempt limit.",
+            })) ?? run;
+          const runWithPauseEvidence =
+            (await appendGoalEvidence(props.cwd, run.id, {
+              kind: "summary",
+              label: "Goal paused",
+              content: decision.reason,
+            })) ?? runWithBlockedTask;
           await upsertGoalRun(props.cwd, {
-            ...run,
+            ...runWithPauseEvidence,
             status: "paused",
-            blockers: [...run.blockers, decision.reason],
-          });
-          await appendGoalEvidence(props.cwd, run.id, {
-            kind: "summary",
-            label: "Goal paused",
-            content: decision.reason,
+            continueRequestedAt: undefined,
+            blockers: Array.from(new Set([...runWithPauseEvidence.blockers, decision.reason])),
           });
           setGoalCount((await summarizeGoalCounts(props.cwd)).active);
           appendGoalProgress({
@@ -4208,7 +4277,10 @@ export function App(props: AppProps) {
           return;
         }
 
-        await updateGoalTask(props.cwd, run.id, decision.task.id, { attempts: decision.attempts });
+        const runWithAttempt =
+          (await updateGoalTask(props.cwd, run.id, decision.task.id, {
+            attempts: decision.attempts,
+          })) ?? run;
         const worker = await startGoalWorker({
           cwd: props.cwd,
           provider: currentProvider,
@@ -4218,11 +4290,18 @@ export function App(props: AppProps) {
           taskTitle: decision.task.title,
           prompt: decision.task.prompt,
         });
+        const latestRun =
+          (await loadGoalRuns(props.cwd)).find((item) => item.id === run.id) ?? runWithAttempt;
         await upsertGoalRun(props.cwd, {
-          ...run,
+          ...latestRun,
           status: "running",
           activeWorkerId: worker.id,
           continueRequestedAt: undefined,
+          tasks: latestRun.tasks.map((item) =>
+            item.id === decision.task.id
+              ? { ...item, status: "running", workerId: worker.id, attempts: decision.attempts }
+              : item,
+          ),
         });
         setOverlay(null);
         setGoalCount((await summarizeGoalCounts(props.cwd)).active);
@@ -4334,13 +4413,9 @@ export function App(props: AppProps) {
           const completionCheck = canCompleteGoalRun(runWithVerifier);
           const verifiedRun = await upsertGoalRun(props.cwd, {
             ...runWithVerifier,
-            continueRequestedAt: undefined,
-            status:
-              status === "pass" && completionCheck.ok
-                ? "passed"
-                : status === "pass"
-                  ? "ready"
-                  : "failed",
+            continueRequestedAt:
+              status === "pass" && completionCheck.ok ? undefined : latestRun.continueRequestedAt,
+            status: status === "pass" && completionCheck.ok ? "passed" : "ready",
           });
           await appendGoalEvidence(props.cwd, run.id, {
             kind: "command",
@@ -4353,19 +4428,6 @@ export function App(props: AppProps) {
             reason: `${failureClass}: verifier exited with code ${verification.exitCode ?? 1}.`,
             content: `outputPath=${outputPath ?? ""}; durationMs=${durationMs}`,
           });
-          if (status === "fail" && shouldCreateVerifierFixTask(latestRun)) {
-            await updateGoalTask(props.cwd, run.id, `fix-${Date.now()}`, {
-              title: "Fix verifier failure",
-              prompt:
-                `Goal verifier failed after ${durationMs}ms. Original goal: ${run.goal}\n\n` +
-                `Verifier command: ${run.verifier?.command}\n\n` +
-                `Failure output:\n${summary.slice(-6000)}\n\nFix the cause, record evidence with the goals tool, and rerun relevant verification.`,
-              status: "pending",
-            });
-            const runWithPendingFix =
-              (await loadGoalRuns(props.cwd)).find((item) => item.id === run.id) ?? latestRun;
-            await upsertGoalRun(props.cwd, { ...runWithPendingFix, status: "ready" });
-          }
           setGoalCount((await summarizeGoalCounts(props.cwd)).active);
           appendGoalProgress({
             kind: "goal_progress",
@@ -4393,7 +4455,7 @@ export function App(props: AppProps) {
           const continuationRun = (await loadGoalRuns(props.cwd)).find(
             (item) => item.id === run.id,
           );
-          if (continuationRun?.continueRequestedAt && status === "pass") {
+          if (continuationRun?.continueRequestedAt || status === "fail") {
             setTimeout(() => continueGoalRun(run.id), 500);
           }
         })
@@ -4419,7 +4481,12 @@ export function App(props: AppProps) {
       void (async () => {
         runningGoalIdsRef.current.delete(run.id);
         if (run.activeWorkerId) await stopGoalWorker(run.activeWorkerId);
-        await upsertGoalRun(props.cwd, { ...run, status: "paused", activeWorkerId: undefined });
+        const latestRun = (await loadGoalRuns(props.cwd)).find((item) => item.id === run.id) ?? run;
+        await upsertGoalRun(props.cwd, {
+          ...latestRun,
+          status: "paused",
+          activeWorkerId: undefined,
+        });
         setGoalCount((await summarizeGoalCounts(props.cwd)).active);
         appendGoalProgress({
           kind: "goal_progress",
@@ -4914,8 +4981,10 @@ export function App(props: AppProps) {
           {/* Queue indicator */}
           {agentLoop.queuedCount > 0 && (
             <Box marginTop={1}>
-              <Text color={theme.accent}>
-                {"⏳ "}
+              <Text color={theme.warning} bold>
+                {"• "}
+              </Text>
+              <Text color={theme.textDim}>
                 {agentLoop.queuedCount} message{agentLoop.queuedCount > 1 ? "s" : ""} queued
               </Text>
             </Box>

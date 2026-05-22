@@ -69,6 +69,69 @@ describe("goal controller", () => {
     ).toMatchObject({ kind: "wait", workerId: "worker-a" });
   });
 
+  it("reproduces blocked-after-pass shape by completing from durable evidence despite stale blocked status and planned items", () => {
+    const run = goalRun({
+      status: "blocked",
+      blockers: ["Verifier was interrupted"],
+      tasks: [{ id: "task-a", title: "Done", prompt: "Done", status: "done", attempts: 1 }],
+      evidencePlan: [
+        {
+          id: "targeted-tests",
+          label: "Targeted regression tests",
+          mechanism: "test",
+          description: "Run the focused local regression command.",
+          status: "planned",
+          command: "pnpm vitest run src/core/goal-controller.test.ts",
+        },
+        {
+          id: "verifier-log",
+          label: "Verifier log artifact",
+          mechanism: "log",
+          description: "Persist the verifier output log.",
+          status: "planned",
+          path: ".goal-evidence/blocked-after-pass.log",
+        },
+      ],
+      evidence: [
+        {
+          id: "evidence-targeted-tests",
+          createdAt: "2024-01-01T00:00:00.000Z",
+          kind: "command",
+          label: "Targeted regression tests",
+          content: "pnpm vitest run src/core/goal-controller.test.ts passed",
+        },
+        {
+          id: "evidence-verifier-log",
+          createdAt: "2024-01-01T00:00:01.000Z",
+          kind: "log",
+          label: "Verifier log artifact",
+          path: ".goal-evidence/blocked-after-pass.log",
+          content: "Verifier passed after interruption.",
+        },
+      ],
+      verifier: {
+        description: "Full check",
+        command: "pnpm vitest run src/core/goal-controller.test.ts",
+        lastResult: {
+          status: "pass",
+          summary: "Verifier passed after earlier interruption.",
+          command: "pnpm vitest run src/core/goal-controller.test.ts",
+          outputPath: ".goal-evidence/blocked-after-pass.log",
+          checkedAt: "2024-01-01T00:00:02.000Z",
+        },
+      },
+    });
+
+    expect(canCompleteGoalRun(run)).toEqual({
+      ok: true,
+      reason: "All tasks are done and verifier evidence passed.",
+    });
+    expect(decideGoalNextAction(run)).toEqual({
+      kind: "complete",
+      reason: "All tasks are done and verifier evidence passed.",
+    });
+  });
+
   it("treats closure evidence and ready evidence-plan items as satisfied after verifier pass", () => {
     const run = goalRun({
       evidencePlan: [
@@ -215,16 +278,12 @@ describe("goal controller", () => {
     });
     const prompt = decision.kind === "create_task" ? decision.prompt : "";
     expect(prompt).toContain("iOS simulator screenshot comparison (screenshot)");
-    expect(prompt).toContain("what would prove this goal actually worked end-to-end");
-    expect(prompt).toContain("observable proof paths");
-    expect(prompt).toContain("not narrative-only verification or human visual inspection");
-    expect(prompt).toContain("dev servers");
-    expect(prompt).toContain("browser automation");
-    expect(prompt).toContain("logs");
-    expect(prompt).toContain("generated fixtures");
-    expect(prompt).toContain("source/docs/code-search comparison");
-    expect(prompt).toContain("iOS Simulator screenshots when available");
-    expect(prompt).toContain("image/frame checks");
+    expect(prompt).toContain("goal-specific sensory intent");
+    expect(prompt).toContain("what experience is being observed");
+    expect(prompt).toContain("what failure it catches");
+    expect(prompt).toContain("what signal proves it");
+    expect(prompt).toContain("Build only the proportional instrument needed");
+    expect(prompt).toContain("not use narrative-only verification or human visual inspection");
   });
 
   it("blocks when an evidence plan item requires a true external prerequisite", () => {
@@ -252,19 +311,25 @@ describe("goal controller", () => {
   });
 
   it("creates a harness-building task before verifier execution when instrumentation is missing", () => {
-    expect(
-      decideGoalNextAction(
-        goalRun({
-          tasks: [{ id: "task-a", title: "Done", prompt: "Done", status: "done", attempts: 1 }],
-          harness: [{ id: "harness-a", label: "Browser fixture", description: "Create fixture" }],
-          verifier: { description: "Full check", command: "pnpm test:e2e" },
-        }),
-      ),
-    ).toMatchObject({
+    const decision = decideGoalNextAction(
+      goalRun({
+        tasks: [{ id: "task-a", title: "Done", prompt: "Done", status: "done", attempts: 1 }],
+        harness: [{ id: "harness-a", label: "Browser fixture", description: "Create fixture" }],
+        verifier: { description: "Full check", command: "pnpm test:e2e" },
+      }),
+    );
+
+    expect(decision).toMatchObject({
       kind: "create_task",
       title: "Build Goal verification harness",
       reason: "Goal harness requires local instrumentation before verification.",
     });
+    const prompt = decision.kind === "create_task" ? decision.prompt : "";
+    expect(prompt).toContain("Build only the missing local/free harness instrumentation");
+    expect(prompt).toContain("intended experience");
+    expect(prompt).toContain("relevant failure modes");
+    expect(prompt).toContain("senses/signals this harness must observe");
+    expect(prompt).toContain("do not default to generic tests");
   });
 
   it("blocks missing prerequisites with exact user instructions", () => {

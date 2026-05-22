@@ -8,6 +8,8 @@ import {
   buildFallbackSummary,
   extractSummaryText,
   compact,
+  SUMMARY_ATTEMPT_TIMEOUT_MS,
+  MAX_SUMMARY_RETRIES,
 } from "./compactor.js";
 import { estimateConversationTokens } from "./token-estimator.js";
 import { getContextWindow } from "../model-registry.js";
@@ -692,6 +694,27 @@ describe("compact", () => {
 
     const lastMsg = result.messages[result.messages.length - 1];
     expect(lastMsg.role).not.toBe("assistant");
+  });
+
+  it("uses fallback summary when summary response wait times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const mockStream = vi.mocked(stream);
+      mockStream.mockClear();
+      mockStream.mockReturnValue(mockStreamResult(new Promise(() => {})) as never);
+
+      const messages = buildConversation(30);
+      const promise = compact(messages, baseOptions);
+      await vi.advanceTimersByTimeAsync((SUMMARY_ATTEMPT_TIMEOUT_MS + 1) * 3);
+      const result = await promise;
+
+      expect(mockStream).toHaveBeenCalledTimes(MAX_SUMMARY_RETRIES + 1);
+      const summaryMsg = result.messages[1];
+      expect(summaryMsg.role).toBe("user");
+      expect(summaryMsg.content as string).toContain("## Goal");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("passes AbortSignal to summary stream and rejects without compacting on abort", async () => {

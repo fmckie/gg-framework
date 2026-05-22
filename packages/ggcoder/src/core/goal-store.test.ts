@@ -150,6 +150,44 @@ describe("goal store persistence", () => {
     expect(counts.active).toBe(1);
   });
 
+  it("merges stale run snapshots without dropping fresher task and evidence writes", async () => {
+    const run = await upsertGoalRun(tmpProject, {
+      id: "stale-merge-run",
+      title: "Stale merge",
+      goal: "Keep fresh task metadata",
+      status: "ready",
+      tasks: [createGoalTask({ id: "task-a", title: "Task A", prompt: "Do A" })],
+    });
+    const stale = { ...run, tasks: run.tasks.map((item) => ({ ...item })) };
+
+    await updateGoalTask(tmpProject, run.id, "task-a", {
+      status: "blocked",
+      attempts: 2,
+      lastSummary: "Paused after worker attempt limit.",
+    });
+    await appendGoalEvidence(tmpProject, run.id, {
+      kind: "summary",
+      label: "Goal paused",
+      content: "Attempt limit reached",
+    });
+
+    const persisted = await upsertGoalRun(tmpProject, {
+      ...stale,
+      status: "paused",
+      blockers: ["Attempt limit reached"],
+    });
+
+    expect(persisted.tasks[0]).toMatchObject({
+      id: "task-a",
+      status: "blocked",
+      attempts: 2,
+      lastSummary: "Paused after worker attempt limit.",
+    });
+    expect(persisted.evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "Goal paused" })]),
+    );
+  });
+
   it("updates task state and appends a new task if given a task input", async () => {
     const task = createGoalTask({
       id: "task-a",

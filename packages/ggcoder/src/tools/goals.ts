@@ -56,6 +56,7 @@ const EvidencePlanInput = z.object({
       "browser",
       "device",
       "source",
+      "file",
       "manual",
     ])
     .describe("How this proof will be gathered"),
@@ -179,6 +180,7 @@ function asEvidenceMechanism(value: string | undefined): GoalEvidenceMechanism {
     value === "browser" ||
     value === "device" ||
     value === "source" ||
+    value === "file" ||
     value === "manual"
   ) {
     return value;
@@ -455,10 +457,16 @@ export function createGoalsTool(cwd: string): AgentTool<typeof GoalsParams> {
               result.status === "pass" && completion.ok
                 ? "passed"
                 : result.status === "pass"
-                  ? "ready"
+                  ? goalHasBlockingPrerequisites(runWithVerifier)
+                    ? "blocked"
+                    : "ready"
                   : result.status === "fail"
-                    ? "ready"
+                    ? goalHasBlockingPrerequisites(runWithVerifier)
+                      ? "blocked"
+                      : "ready"
                     : "verifying",
+            blockers: result.status === "pass" ? [] : run.blockers,
+            activeWorkerId: undefined,
           });
           return `Verifier recorded for "${updated.title}": ${result.status}.`;
         }

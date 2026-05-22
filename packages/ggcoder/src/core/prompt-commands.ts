@@ -17,51 +17,71 @@ export const PROMPT_COMMANDS: PromptCommand[] = [
     description: "Create a programmatic goal loop",
     prompt: `# Goal: Programmatic Goal Loop
 
-You are creating a durable Goal run: a programmatic control loop that should keep the main orchestrator focused on the user's objective while workers/harnesses/diagnostics produce evidence.
+You are creating a durable Goal run: a programmatic control loop that lets the user rely on the agent while they are not watching. The run should keep the main orchestrator focused on the objective while workers build, instrument, diagnose, and gather evidence.
 
 ## User objective
 
 The user's objective is in the command arguments. If the arguments are absent or too vague to identify an actionable objective, ask exactly one concise clarifying question and do not create a Goal run yet.
 
-## Required behavior
+## Non-negotiable boundary: /goal creates a run, it does not do the work
+
+The initial /goal invocation is setup/orchestration only. During this turn:
+
+- Create or update the durable run and Goal tasks, then stop.
+- Do not implement, fix, refactor, edit, or generate project artifacts for the objective yourself.
+- Do not call subagent, the normal tasks tool, goals resume, or any action that starts workers, verifiers, or auto-continuation.
+- Do not run the verifier or "just start" any task. Worker agents do implementation after the user explicitly starts the Goal from the Goal pane with (R).
+- The only non-goals tools allowed before stopping are cheap local prerequisite checks needed to know whether the run is blocked. If a check would mutate files, start a service, run a long process, launch a worker, or begin implementation, make it a Goal task instead.
+
+## Core mindset: goal-specific sensory proof
+
+Do not default to ordinary tests, generic scripts, or broad simulations. First model what must be experienced for this specific goal to be trusted without the human present.
+
+For each Goal, identify:
+
+1. Intended experience — who or what must experience the result: user, customer, operator, developer, attacker, browser, device, API client, database, model, downstream system, or another relevant perspective.
+2. Failure imagination — the goal-specific ways the result could appear done while still failing in reality.
+3. Required senses/signals — the observations needed to detect those failures. Think in capabilities, not fixed tools: perception of rendered output, interaction, timing, persistence/state, external boundaries, adversarial/social pressure, generated artifacts, traces, comparisons, or other signals relevant to this objective.
+4. Proportional instruments — local/free ways workers can capture those signals. The evidence portfolio should be as small as possible while still removing the important assumptions; do not simulate, script, screenshot, benchmark, or red-team anything unless that signal is relevant to this goal.
+5. Completion rule — why the planned evidence would be enough to claim success, and what remains unproven or blocked.
+
+Any examples you consider are inspiration, not a checklist. Borrow verification ideas from any domain when useful, but choose only the senses/signals that fit the user's actual objective.
+
+## Orchestrator responsibilities
 
 1. Translate the user's objective into:
    - a short title,
    - the original goal text,
    - concrete success criteria that can be verified,
    - prerequisite checks,
-   - an evidence plan: the simplest proof paths that would demonstrate success end-to-end,
-   - the local/free harness or observability you can build,
-   - a verifier command or verifier description.
-2. Build a capability/evidence plan before implementation: decide what would actually prove the goal works, such as scripts, tests, fixtures, seeded data, app/dev servers, browser automation, screenshots, logs, video/frame inspection, source/docs/code-search comparison, local CLIs, or generated assets. Do not require a script for every task; choose the simplest reliable proof that removes assumptions.
-3. Before doing implementation work or launching workers, identify prerequisites and check the ones you can check locally. Examples:
-   - model/API/OAuth credentials exist for simulated-agent testing,
-   - required local CLIs exist (ffmpeg, expo, adb, xcrun, playwright, etc.),
-   - required app/dev server can start or is already running,
-   - required fixture files, assets, devices, emulators, or test data exist or can be generated locally.
-4. Prefer local/free tools: scripts, shell commands, existing CLIs, test runners, logs, screenshots/images, existing dependencies, source_path, web docs, kencode search, and disposable workers/subagents. Do not require paid services, signups, or new external accounts unless unavoidable.
-5. Only ask the user for true external blockers after checking what you can do yourself. If a missing input cannot be generated or verified locally (credentials, paid services, physical devices, private assets, permissions), record the exact minimal prerequisite and ask once in chat; do not ask for broad lists of things you could inspect or create yourself.
+   - an evidence plan describing the goal-specific sensory proof required,
+   - harness or observability items that workers may need to build,
+   - a verifier command when already obvious, otherwise a verifier description or task to define one.
+2. Plan first; do not build during initial Goal creation. The orchestrator may do cheap local prerequisite checks needed to determine whether the Goal is blocked, but worker agents should build instruments, implementation changes, harnesses, diagnostics, and verifier commands after the user starts the Goal. If implementation work is needed, capture it as a Goal task instead of doing it yourself.
+3. Before launching workers, identify prerequisites and check the ones you can check locally. Examples are non-exhaustive and should not anchor the plan: required credentials or permissions, local capabilities, app/runtime availability, fixture/assets/test data, devices/emulators, network or service access, or domain-specific inputs.
+4. Prefer local/free capabilities already available in the project or environment. Do not require paid services, signups, new external accounts, private assets, or physical access unless unavoidable for this specific objective.
+5. Only ask the user for true external blockers after checking what you can do yourself. If a missing input cannot be generated or verified locally, record the exact minimal prerequisite and ask once in chat; do not ask for broad lists of things you could inspect or create yourself.
 6. Treat user-provided prerequisites as the first Goal item, named "User prerequisites" in the pane. The user may provide the missing value or instructions in chat. After they do, verify it locally without revealing secrets, then update the matching prerequisite to \`met\` with short evidence before any worker task runs.
 7. Persist the run with the goals tool:
    - call \`goals({ action: "create", ... })\` once the objective is understood,
    - include success criteria, prerequisites, evidence_plan items, harness items, and verifier info,
    - if any prerequisite is missing or unknown and cannot be automatically checked, persist the run as blocked and ask the user for the exact missing thing once.
-8. Add Goal tasks with \`goals({ action: "task", ... })\`. Do not use the normal tasks tool for this workflow. Each Goal task prompt must be standalone, mention the same project cwd, the specific files/scripts/commands to use, evidence to record, and verification expectations. Avoid pure "investigate and report" tasks unless their prompt explicitly requires persisting concrete findings with \`goals({ action: "evidence", ... })\` and creating or updating the next implementation task from those findings.
-9. Persist evidence with \`goals({ action: "evidence", ... })\` whenever you create diagnostics, run harnesses, capture logs/screenshots, record controller decisions, attach verifier artifact paths, or learn a blocker.
-10. Completion means verifier evidence satisfies the original success criteria. Do not call \`goals({ action: "complete" })\` merely because tasks are done; only complete after verification passes.
-11. When the Goal reaches a terminal state, give the user a concise final summary in chat. Use a compact 3–4 column table with columns that fit what happened, such as outcome, evidence/verifier, changed work, blockers, or next action. Do not dump worker logs; point to artifact paths when useful.
+8. Add Goal tasks with \`goals({ action: "task", ... })\`. Do not use the normal tasks tool for this workflow. Each Goal task prompt must be standalone, mention the same project cwd, the specific goal slice, the sensory signals or evidence it must produce, any existing instruments it should reuse, and verification expectations. Avoid pure "investigate and report" tasks unless their prompt explicitly requires persisting concrete findings with \`goals({ action: "evidence", ... })\` and creating or updating the next implementation task from those findings.
+9. Persist evidence with \`goals({ action: "evidence", ... })\` whenever workers create diagnostics, build or run instruments, capture artifacts, record controller decisions, attach verifier output, or learn a blocker.
+10. Completion means verifier evidence satisfies the original success criteria and the required sensory proof. Do not call \`goals({ action: "complete" })\` merely because tasks are done; only complete after verification passes.
+11. When the Goal reaches a terminal state, give the user a specific final summary in chat. Do not collapse the outcome into one generic row or say only that it "verified." Use a compact 3–4 column table with one row per substantive Goal task, evidence path, success criterion, verifier result, blocker, or decision. For bug/fix/audit goals, include the problem, how it was proven real or wrong, what fixed it, and the exact verification. For creation/improvement/non-problem goals, substitute the requested outcome or gap, what was delivered or decided, and the exact proof that the intended experience now exists. Include small snippets when useful: file:line references, command names and exit codes, short before/after text, log excerpts, artifact paths, or verifier output summaries. Do not dump worker logs; quote only the few details needed to make the conclusion auditable.
 
 ## Loop semantics
 
-Think in this order: observe → instrument → automate → run → inspect evidence → fix → rerun until verified or blocked.
+Initial /goal turn order: understand intended experience → imagine relevant failures → choose required senses/signals → plan proportional instruments → persist the run/tasks/evidence plan → stop.
 
-After the user starts a Goal from the Goal pane with (R), worker and verifier completions are sent back to you as hidden synthetic events. On each event, call \`goals({ action: "status", run_id })\`, inspect current state, briefly say what the orchestrator is doing so the chat shows progress, and take the next durable control-loop action rather than merely narrating. The UI keeps auto-continuing until the run is passed, blocked, paused, or failed.
+After the user starts a Goal from the Goal pane with (R), worker and verifier completions are sent back to you as hidden synthetic events. On each event, call \`goals({ action: "status", run_id })\`, inspect current state, briefly say what the orchestrator is doing so the chat shows progress, and take the next durable control-loop action rather than merely narrating. The UI keeps auto-continuing until the run is passed, blocked, paused, or failed. Even during auto-continuation, do not switch into hands-on implementation; if work is needed, create or update Goal tasks and let workers/verifiers do it.
 
-If no verifier command exists yet, create a task to define one. If the verifier fails, persist the failure evidence and add the next Goal task that addresses the failure. Cap runaway loops by pausing and recording evidence when repeated attempts stop making progress.
+If no verifier command exists yet, create a task to define one. If an evidence path or harness is only planned, create a worker task to build the missing instrument, then later workers can reuse that instrument for subsequent slices. If the verifier fails, persist the failure evidence and add the next Goal task that addresses the failure. Cap runaway loops by pausing and recording evidence when repeated attempts stop making progress.
 
 ## Final response
 
-When initially creating the Goal, keep the response short: say whether the Goal was created, ready, or blocked; mention the exact missing prerequisite if blocked; and tell the user they can press Ctrl+G to view it. If they ask how to start it, tell them the Goal pane keybind is (R) to run it. When auto-continuation eventually passes, fails, blocks, or pauses the Goal, provide the compact final summary table described above.`,
+When initially creating the Goal, keep the response short: say whether the Goal was created, ready, or blocked; mention the exact missing prerequisite if blocked; and tell the user they can press Ctrl+G to view it. Then stop. Do not continue into implementation, worker startup, verifier execution, or Goal resume. If they ask how to start it, tell them the Goal pane keybind is (r) to run it. When auto-continuation eventually passes, fails, blocks, or pauses the Goal, provide the specific multi-row final summary table described above, with concrete proof snippets instead of a generic "verified" claim.`,
   },
   {
     name: "scan",

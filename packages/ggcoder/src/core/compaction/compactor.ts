@@ -13,10 +13,45 @@ import { log } from "../logger.js";
 const TOOL_RESULT_MAX_CHARS = 2000;
 
 /** Max retries for empty LLM responses during summarization. */
-const MAX_SUMMARY_RETRIES = 2;
+export const MAX_SUMMARY_RETRIES = 2;
 
 /** Max output tokens for the summary response. */
 const MAX_SUMMARY_OUTPUT_TOKENS = 4096;
+
+/** Local deadline for each compaction summary LLM attempt. */
+export const SUMMARY_ATTEMPT_TIMEOUT_MS = 30_000;
+
+class SummaryTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Summary LLM response timed out after ${timeoutMs}ms`);
+    this.name = "SummaryTimeoutError";
+  }
+}
+
+async function awaitSummaryResponseWithTimeout<T>(
+  response: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<T> {
+  signal?.throwIfAborted();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timeout = setTimeout(() => reject(new SummaryTimeoutError(timeoutMs)), timeoutMs);
+      if (typeof timeout.unref === "function") timeout.unref();
+
+      abortListener = () => reject(new DOMException("Aborted", "AbortError"));
+      signal?.addEventListener("abort", abortListener, { once: true });
+
+      response.then(resolve, reject);
+    });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (abortListener) signal?.removeEventListener("abort", abortListener);
+  }
+}
 
 const COMPACTION_SYSTEM_PROMPT =
   "You are a conversation compaction assistant. Your job is to create a concise summary of a conversation " +
@@ -669,7 +704,11 @@ export async function compact(
         signal: options.signal,
       });
 
-      const response = await result.response;
+      const response = await awaitSummaryResponseWithTimeout(
+        result.response,
+        SUMMARY_ATTEMPT_TIMEOUT_MS,
+        options.signal,
+      );
       options.signal?.throwIfAborted();
 
       log("INFO", "compaction", `Summary LLM response received`, {
@@ -710,8 +749,10 @@ export async function compact(
       log(
         "WARN",
         "compaction",
-        `Summary LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
-        { attempt: String(attempt) },
+        err instanceof SummaryTimeoutError
+          ? `Summary LLM call timed out after ${SUMMARY_ATTEMPT_TIMEOUT_MS}ms — using fallback if no later attempt succeeds`
+          : `Summary LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+        { attempt: String(attempt), timeoutMs: String(SUMMARY_ATTEMPT_TIMEOUT_MS) },
       );
     }
   }

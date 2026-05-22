@@ -210,9 +210,8 @@ describe("goal lifecycle smoke", () => {
     persisted = await run();
     expect(persisted.status).toBe("passed");
     expect(decideGoalNextAction(persisted)).toEqual({
-      kind: "terminal",
-      status: "passed",
-      reason: "Goal is passed.",
+      kind: "complete",
+      reason: "All tasks are done and verifier evidence passed.",
     });
     expect(persisted.evidence).toEqual(
       expect.arrayContaining([

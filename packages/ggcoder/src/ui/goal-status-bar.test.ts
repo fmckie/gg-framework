@@ -117,6 +117,42 @@ describe("GoalStatusBar helpers", () => {
     ).toEqual([]);
   });
 
+  it("keeps the same entry array when active reconciliation is a no-op", () => {
+    const entries: GoalStatusEntry[] = [
+      {
+        runId: "run-worker",
+        label: "Active worker goal",
+        phase: "worker",
+        workerId: "worker-1",
+        startedAt: Date.now(),
+      },
+    ];
+
+    const reconciled = reconcileGoalStatusEntriesWithRuns(
+      entries,
+      [
+        goalRun({
+          id: "run-worker",
+          status: "running",
+          activeWorkerId: "worker-1",
+          tasks: [
+            {
+              id: "task-1",
+              title: "Task",
+              prompt: "Do it",
+              status: "running",
+              attempts: 1,
+              workerId: "worker-1",
+            },
+          ],
+        }),
+      ],
+      { isWorkerActive: (workerId) => workerId === "worker-1" },
+    );
+
+    expect(reconciled).toBe(entries);
+  });
+
   it("preserves legitimate active worker and verifier entries", () => {
     const entries: GoalStatusEntry[] = [
       {

@@ -126,12 +126,13 @@ export function reconcileGoalStatusEntriesWithRuns(
   options: ReconcileGoalStatusEntriesOptions = {},
 ): GoalStatusEntry[] {
   const runsById = new Map(runs.map((run) => [run.id, run]));
-  return previous.filter((entry) => {
+  const next = previous.filter((entry) => {
     const run = runsById.get(entry.runId);
     if (!run) return false;
     if (hasActiveGoalProcess(entry, run, options)) return true;
     return run.status === "running" || run.status === "verifying";
   });
+  return next.length === previous.length ? (previous as GoalStatusEntry[]) : next;
 }
 
 function GoalStatusSlot({ entry, tick }: { entry: GoalStatusEntry; tick: number }) {

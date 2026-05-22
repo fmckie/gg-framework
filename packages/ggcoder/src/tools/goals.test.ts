@@ -171,6 +171,15 @@ describe("goals tool state guards", () => {
           description: "Run Playwright locally and capture screenshot/log evidence.",
           status: "planned",
         },
+        {
+          id: "file-proof",
+          label: "File artifact proof",
+          mechanism: "file",
+          description: "Inspect a durable generated artifact file.",
+          status: "ready",
+          path: "artifacts/proof.json",
+          evidence: "artifact schema captured",
+        },
       ],
     });
     await executeGoals({
@@ -191,6 +200,12 @@ describe("goals tool state guards", () => {
           id: "browser-proof",
           mechanism: "browser",
           status: "planned",
+        }),
+        expect.objectContaining({
+          id: "file-proof",
+          mechanism: "file",
+          status: "ready",
+          path: "artifacts/proof.json",
         }),
       ]),
     );
@@ -244,6 +259,79 @@ describe("goals tool state guards", () => {
 
     expect(run?.status).toBe("ready");
     expect(run?.verifier?.lastResult?.status).toBe("pass");
+  });
+
+  it("clears stale transient blockers and marks passed when verifier pass satisfies planned evidence", async () => {
+    await executeGoals({
+      action: "create",
+      run_id: "goal-blocked-after-pass",
+      title: "Blocked after pass",
+      goal: "Recover from stale verifier interruption",
+      success_criteria: ["Verifier pass with durable evidence completes"],
+      prerequisites: [],
+      evidence_plan: [
+        {
+          id: "planned-command-proof",
+          label: "Targeted regression tests",
+          mechanism: "test",
+          description: "Run the focused local regression command.",
+          status: "planned",
+          command: "pnpm vitest run src/core/goal-controller.test.ts",
+        },
+        {
+          id: "planned-log-proof",
+          label: "Verifier log artifact",
+          mechanism: "log",
+          description: "Persist the verifier output log.",
+          status: "planned",
+          path: ".goal-evidence/blocked-after-pass.log",
+        },
+      ],
+      verifier_command: "pnpm vitest run src/core/goal-controller.test.ts",
+    });
+    await executeGoals({
+      action: "task",
+      run_id: "goal-blocked-after-pass",
+      task_id: "task-a",
+      task_title: "Done work",
+      task_prompt: "Do the work",
+      task_status: "done",
+    });
+    await upsertGoalRun(tmpProject, {
+      id: "goal-blocked-after-pass",
+      title: "Blocked after pass",
+      goal: "Recover from stale verifier interruption",
+      status: "blocked",
+      blockers: ["Verifier was interrupted; rerun or continue the Goal to verify again."],
+    });
+    await executeGoals({
+      action: "evidence",
+      run_id: "goal-blocked-after-pass",
+      evidence_kind: "log",
+      evidence_label: "Verifier log artifact",
+      evidence_path: ".goal-evidence/blocked-after-pass.log",
+      evidence_content: "Verifier passed after interruption.",
+    });
+
+    const result = await executeGoals({
+      action: "verify",
+      run_id: "goal-blocked-after-pass",
+      verification_status: "pass",
+      summary: "Targeted regression tests passed and wrote Verifier log artifact.",
+      verifier_command: "pnpm vitest run src/core/goal-controller.test.ts",
+      exit_code: 0,
+      output_path: ".goal-evidence/blocked-after-pass.log",
+    });
+    const run = await getGoalRun(tmpProject, "goal-blocked-after-pass");
+
+    expect(result).toBe('Verifier recorded for "Blocked after pass": pass.');
+    expect(run?.status).toBe("passed");
+    expect(run?.blockers).toEqual([]);
+    expect(run?.evidencePlan.map((item) => item.status)).toEqual(["planned", "planned"]);
+    expect(run ? decideGoalNextAction(run) : null).toEqual({
+      kind: "complete",
+      reason: "All tasks are done and verifier evidence passed.",
+    });
   });
 
   it("records verifier failure as persisted command evidence and keeps the run recoverable", async () => {

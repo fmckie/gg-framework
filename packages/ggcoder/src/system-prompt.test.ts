@@ -31,11 +31,41 @@ function toolsSection(prompt: string): string {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
-function promptSize(prompt: string): { characters: number; lines: number } {
+function promptSize(prompt: string): { characters: number; lines: number; sections: number } {
   return {
     characters: prompt.length,
     lines: prompt.split("\n").length,
+    sections: prompt.match(/^## /gm)?.length ?? 0,
   };
+}
+
+function promptAudit(prompt: string): { size: ReturnType<typeof promptSize>; flags: string[] } {
+  const flags: string[] = [];
+  const obsoleteOrContradictory = [
+    "## Goal Auto-Continuation Events",
+    "[event:goal_worker_complete]",
+    "what observable artifact would prove the requested outcome worked end-to-end",
+    "the simplest reliable local/free proof path",
+    "generic tests, scripts, screenshots, benchmarks, or simulations; use them by default",
+  ];
+
+  for (const phrase of obsoleteOrContradictory) {
+    if (prompt.includes(phrase)) flags.push(`obsolete/contradictory guidance: ${phrase}`);
+  }
+
+  const repeatedSentences = new Map<string, number>();
+  for (const sentence of prompt
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 80)) {
+    repeatedSentences.set(sentence, (repeatedSentences.get(sentence) ?? 0) + 1);
+  }
+  for (const [sentence, count] of repeatedSentences) {
+    if (count > 1) flags.push(`duplicate sentence x${count}: ${sentence}`);
+  }
+
+  return { size: promptSize(prompt), flags };
 }
 
 afterEach(async () => {
@@ -71,6 +101,11 @@ describe("buildSystemPrompt", () => {
     );
     expect(prompt).not.toContain("## Goal Auto-Continuation Events");
     expect(prompt).not.toContain("[event:goal_worker_complete]");
+    expect(prompt).toContain("model the intended experience");
+    expect(prompt).toContain("choose the required senses/signals");
+    expect(prompt).toContain(
+      "Do not default to generic tests, scripts, screenshots, benchmarks, or simulations",
+    );
     expect(sectionIndex(prompt, "## Code Quality")).toBeLessThan(sectionIndex(prompt, "## Tools"));
     expect(sectionIndex(prompt, "## Tools")).toBeLessThan(
       sectionIndex(prompt, "## Project Context"),
@@ -293,5 +328,42 @@ describe("buildSystemPrompt", () => {
     expect(measurements.typescriptProjectContextToolsSkills.characters).toBeGreaterThan(
       measurements.normal.characters,
     );
+  });
+
+  it("audits representative prompts for obsolete, duplicate, or contradictory guidance", async () => {
+    const cwd = await makeProject({
+      "AGENTS.md": "Prefer project-specific rules.",
+      "package.json": JSON.stringify({ scripts: { test: "vitest" } }),
+      "tsconfig.json": "{}",
+    });
+    const prompt = await buildSystemPrompt(
+      cwd,
+      [{ name: "find-skills", description: "Find skills.", content: "", source: "test" }],
+      false,
+      undefined,
+      [
+        "read",
+        "edit",
+        "write",
+        "bash",
+        "web_search",
+        "web_fetch",
+        "source_path",
+        "skill",
+        "mcp__kencode-search__referenceSources",
+        "mcp__kencode-search__discoverRepos",
+        "mcp__kencode-search__searchCode",
+        "enter_plan",
+        "exit_plan",
+      ],
+      new Set<LanguageId>(["typescript"]),
+    );
+
+    const audit = promptAudit(prompt);
+    console.info(`system prompt audit: ${JSON.stringify(audit)}`);
+
+    expect(audit.flags).toEqual([]);
+    expect(audit.size.characters).toBeLessThan(9_500);
+    expect(audit.size.sections).toBeGreaterThanOrEqual(8);
   });
 });
