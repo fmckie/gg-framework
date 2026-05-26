@@ -13,6 +13,7 @@ import {
 export const DEFAULT_GOAL_TASK_ATTEMPT_LIMIT = 5;
 export const DEFAULT_GOAL_VERIFIER_FIX_LIMIT = 5;
 
+export const APPLY_INTEGRATION_TO_MAIN_TASK_TITLE = "Apply integrated worktree to main";
 const FINAL_COMPLETION_AUDIT_TASK_TITLE = "Audit Goal completion evidence";
 const DEFAULT_GOAL_COMPLETION_AUDIT_LIMIT = 3;
 
@@ -234,6 +235,33 @@ function finalAuditTaskCount(run: GoalRun): number {
   return run.tasks.filter((task) => task.title === FINAL_COMPLETION_AUDIT_TASK_TITLE).length;
 }
 
+function hasApplyIntegrationTask(run: GoalRun): boolean {
+  return run.tasks.some((task) => task.title === APPLY_INTEGRATION_TO_MAIN_TASK_TITLE);
+}
+
+function pendingAfterDependenciesImplementationTasks(run: GoalRun): GoalTask[] {
+  return run.tasks.filter(
+    (task) =>
+      task.status === "done" && task.mergeStrategy === "after_dependencies" && !!task.worktree,
+  );
+}
+
+function appliedIntegrationEvidence(run: GoalRun): boolean {
+  return run.evidence.some(
+    (item) =>
+      item.label === "Integrated worktree applied to main" ||
+      item.label === "Goal decision: apply_integration_to_main",
+  );
+}
+
+function needsMainIntegrationApplyTask(run: GoalRun): boolean {
+  return (
+    pendingAfterDependenciesImplementationTasks(run).length > 0 &&
+    !hasApplyIntegrationTask(run) &&
+    !appliedIntegrationEvidence(run)
+  );
+}
+
 function shouldCreateFinalAuditTask(
   run: GoalRun,
   limit = DEFAULT_GOAL_COMPLETION_AUDIT_LIMIT,
@@ -373,6 +401,22 @@ function buildVerifierTaskPrompt(run: GoalRun): string {
     `Goal: ${run.goal}\n\n` +
     referencePromptSection(run.references) +
     `Define and build a real end-to-end verifier for this Goal. Begin from the intended experience and required senses/signals already implied by the success criteria and evidence plan, including mandatory Goal references. Choose a proportional local/free verifier that observes those signals and catches the important goal-specific failures; do not add generic simulations, screenshots, benchmarks, or scripts unless they directly support that proof. Update the Goal with a verifier_command and verifier_description using the goals tool. The verifier must be runnable locally/free and produce durable command or file evidence, not narrative or human visual inspection. If an external prerequisite is missing, mark it missing with exact user instructions.`
+  );
+}
+
+function buildApplyIntegrationToMainTaskPrompt(run: GoalRun): string {
+  const integrationTasks = pendingAfterDependenciesImplementationTasks(run)
+    .map(
+      (task) =>
+        `- ${task.id} / ${task.title}: worktree=${task.worktree?.path ?? "unknown"}; branch=${task.worktree?.branchName ?? "unknown"}; base=${task.worktree?.baseRef ?? "unknown"}; summary=${task.lastSummary?.slice(0, 600) ?? "none"}`,
+    )
+    .join("\n");
+  return (
+    `Goal: ${run.goal}\n\n` +
+    referencePromptSection(run.references) +
+    `Apply accepted integration worktree changes into the user's main checkout before any release, verifier, final audit, or completion. This task intentionally runs in the main checkout, not a new isolated worktree.\n\n` +
+    `Integrated/after-dependencies worker outputs to apply:\n${integrationTasks || "- none recorded"}\n\n` +
+    `For each integrated worktree, inspect its candidate packet, patch, diffstat, changed files, base SHA, verification logs, and risk notes. Apply or port only accepted changes to the main checkout; reject stale/risky/unrelated artifacts with durable evidence. Preserve user work. Run targeted checks in the main checkout after applying. Record durable evidence with label "Integrated worktree applied to main" containing the source worktree(s), accepted/rejected artifacts, changed files, diffstat, commands/results, commit-needed note, and restart-needed note. Do not mark the whole Goal complete.`
   );
 }
 
@@ -661,6 +705,16 @@ export function decideGoalNextAction(
   const blockedEvidence = blockedEvidencePlanReason(run);
   if (blockedEvidence) {
     return { kind: "blocked", reason: blockedEvidence };
+  }
+
+  if (needsMainIntegrationApplyTask(run)) {
+    return {
+      kind: "create_task",
+      title: APPLY_INTEGRATION_TO_MAIN_TASK_TITLE,
+      prompt: buildApplyIntegrationToMainTaskPrompt(run),
+      reason:
+        "Accepted integration worktree changes must be applied to the user's main checkout before verifier, final audit, release, or completion.",
+    };
   }
 
   if (

@@ -20,6 +20,7 @@ import {
   type GoalWorktreeCommandRunner,
   type GoalWorktreeCandidate,
 } from "./goal-worktree.js";
+import { APPLY_INTEGRATION_TO_MAIN_TASK_TITLE } from "./goal-controller.js";
 
 const DEFAULT_GOAL_WORKER_MAX_TURNS = 12;
 export const DEFAULT_GOAL_WORKER_TIMEOUT_MS = 30 * 60 * 1000;
@@ -104,7 +105,9 @@ export function buildGoalWorkerSystemPrompt(context: GoalWorkerContext): string 
     "Follow only the assigned Goal task prompt, which is passed as this worker's user message. Keep changes focused, use local/free tools, source_path/docs/kencode real-code research when relevant, and translate the requested outcome into observable proof: model the intended experience, identify goal-specific failure modes, choose the required senses/signals, then create the simplest reliable local/free proof path for this domain. " +
     "Create needed scripts/fixtures/harnesses only when they directly observe those signals. Use tests, local CLIs, dev servers, browser/simulator/device screenshots, video/frame inspection, logs, generated assets, protocol traces, database assertions, API probes, contract tests, performance measurements, source/docs comparison, or other artifacts as appropriate; do not default to generic tests, scripts, screenshots, benchmarks, or simulations, and do not rely on narrative or human visual inspection. For mobile/UI, prefer local simulator/browser evidence such as iOS Simulator screenshots when available before requiring a physical phone. " +
     "Run requested verification and update durable Goal state with the goals tool using command/file evidence, screenshot/log evidence, not narrative or human visual inspection. Worker-started background processes, including dev servers, are worker-owned and are cleaned up when this worker CLI exits; if a later worker/verifier needs a persistent server, record instructions or metadata for the orchestrator to start/provide the localhost URL instead of relying on your background process. " +
-    "Your cwd is the worker candidate checkout. For implementation tasks the launcher should provide an isolated git worktree, so do not merge or touch the main checkout. At completion, record a candidate packet with base SHA, branch/worktree path, changed files, diffstat, patch path or how to reproduce the patch, verifier command/result, evidence paths, and risk notes. " +
+    (context.taskTitle === APPLY_INTEGRATION_TO_MAIN_TASK_TITLE
+      ? "Your cwd is the user's main checkout. This apply-integration task is the controlled exception to worker isolation: inspect accepted candidate packets/worktrees, apply or port only approved changes into main, verify, and record durable evidence before release. "
+      : "Your cwd is the worker candidate checkout. For implementation tasks the launcher should provide an isolated git worktree, so do not merge or touch the main checkout. At completion, record a candidate packet with base SHA, branch/worktree path, changed files, diffstat, patch path or how to reproduce the patch, verifier command/result, evidence paths, and risk notes. ") +
     "Preserve and report any task-graph metadata from the assigned prompt, including depends_on, parallel_group, expected_changed_scope, and merge_strategy, so the coordinator can parallelize independent tasks and hold dependent work until prerequisites are integrated. " +
     `Record evidence and task status with goals({ action: "evidence" | "task", run_id: "${context.goalRunId}", task_id: "${context.goalTaskId}", ... }) for goal ${context.goalRunId}, task ${context.goalTaskId}. ` +
     "Do not mark the whole goal complete; only the orchestrator/verifier can complete it."

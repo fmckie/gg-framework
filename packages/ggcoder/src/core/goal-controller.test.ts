@@ -623,12 +623,54 @@ describe("goal controller", () => {
     });
   });
 
-  it("runs the verifier only after all tasks are done", () => {
+  it("creates a main-checkout apply task before verifier when integration worktree changes exist", () => {
+    expect(
+      decideGoalNextAction(
+        goalRun({
+          tasks: [
+            {
+              id: "integrate",
+              title: "Integrate candidates and verify",
+              prompt: "Integrate accepted candidates",
+              status: "done",
+              attempts: 1,
+              mergeStrategy: "after_dependencies",
+              worktree: {
+                baseRef: "base-sha",
+                branchName: "goal/a/integrate-worker",
+                path: "/tmp/worktrees/integrate-worker",
+                status: "created",
+              },
+              lastSummary: "Integrated accepted candidate patches and wrote integration.patch.",
+            },
+          ],
+          verifier: { description: "Full check", command: "pnpm test" },
+        }),
+      ),
+    ).toMatchObject({
+      kind: "create_task",
+      title: "Apply integrated worktree to main",
+      reason:
+        "Accepted integration worktree changes must be applied to the user's main checkout before verifier, final audit, release, or completion.",
+    });
+  });
+
+  it("runs the verifier only after all tasks are done and integration is applied to main", () => {
     expect(
       decideGoalNextAction(
         goalRun({
           tasks: [{ id: "task-a", title: "Done", prompt: "Done", status: "done", attempts: 1 }],
           verifier: { description: "Full check", command: "pnpm test" },
+          evidence: [
+            durablePlanEvidence,
+            {
+              id: "applied",
+              kind: "summary",
+              label: "Integrated worktree applied to main",
+              content: "Accepted integration diff applied to main and checks passed.",
+              createdAt: "2024-01-01T00:00:01.000Z",
+            },
+          ],
         }),
       ),
     ).toEqual({

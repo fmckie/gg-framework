@@ -259,6 +259,41 @@ describe("goal worker failure propagation", () => {
     ).toBe(true);
   });
 
+  it("launches the apply-integration task in the main checkout", async () => {
+    const worktreeCalls: Array<readonly string[]> = [];
+    const runner: GoalWorktreeCommandRunner = {
+      execFile: vi.fn(async (_file, args) => {
+        worktreeCalls.push(args);
+        return { stdout: "", stderr: "" };
+      }),
+    };
+    const mod = await import("./goal-worker.js");
+
+    const record = await mod.startGoalWorker({
+      cwd: tmpProject,
+      provider: "anthropic",
+      model: "claude-test",
+      goalRunId: "goal-a",
+      goalTaskId: "task-a",
+      taskTitle: "Apply integrated worktree to main",
+      prompt: "Apply accepted integration worktree changes",
+      isolateWorktree: false,
+      worktreeCommandRunner: runner,
+    });
+
+    const spawnOptions = spawnMock.mock.calls[0]?.[2] as { cwd: string };
+    const args = spawnMock.mock.calls[0]?.[1] as string[];
+    const systemPrompt = args[args.indexOf("--system-prompt") + 1];
+    const run = await getGoalRun(tmpProject, "goal-a");
+    expect(record.cwd).toBe(tmpProject);
+    expect(record.worktree).toBeUndefined();
+    expect(spawnOptions.cwd).toBe(tmpProject);
+    expect(worktreeCalls).toEqual([]);
+    expect(run?.tasks[0]?.worktree).toBeUndefined();
+    expect(systemPrompt).toContain("controlled exception to worker isolation");
+    expect(systemPrompt).toContain("main checkout");
+  });
+
   it("blocks a task instead of launching when isolated worktree creation is unsafe", async () => {
     const runner: GoalWorktreeCommandRunner = {
       execFile: vi.fn(async (_file, args) =>

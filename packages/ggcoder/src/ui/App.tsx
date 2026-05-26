@@ -153,7 +153,11 @@ import {
   saveTasksSync,
   type TaskRecord,
 } from "../core/tasks-store.js";
-import { canCompleteGoalRun, decideGoalNextAction } from "../core/goal-controller.js";
+import {
+  APPLY_INTEGRATION_TO_MAIN_TASK_TITLE,
+  canCompleteGoalRun,
+  decideGoalNextAction,
+} from "../core/goal-controller.js";
 import { runGoalPrerequisiteChecks } from "../core/goal-prerequisites.js";
 import { runGoalVerifierCommand } from "../core/goal-verifier.js";
 import {
@@ -3837,6 +3841,8 @@ export function App(props: AppProps) {
           goalTaskId: decision.task.id,
           taskTitle: decision.task.title,
           prompt: buildGoalTaskPromptWithReferences(checkedRun, decision.task.prompt),
+          isolateWorktree:
+            decision.task.title === APPLY_INTEGRATION_TO_MAIN_TASK_TITLE ? false : undefined,
         });
         const latestRun =
           (await loadGoalRuns(props.cwd)).find((item) => item.id === checkedRun.id) ??
