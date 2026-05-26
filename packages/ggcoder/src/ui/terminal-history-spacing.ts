@@ -4,6 +4,7 @@ export function isAgentSpacingKind(kind: CompletedItem["kind"]): boolean {
   return [
     "assistant",
     "queued",
+    "task",
     "goal_progress",
     "tool_start",
     "tool_done",

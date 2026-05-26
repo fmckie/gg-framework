@@ -64,7 +64,7 @@ const GRADIENT = [
 ];
 const GAP = "   ";
 const LOGO_WIDTH = 9;
-const SIDE_BY_SIDE_MIN = LOGO_WIDTH + GAP.length + 20;
+const SIDE_BY_SIDE_MIN = LOGO_WIDTH + GAP.length + 62;
 const COMPACT_TOOLS = new Set(["read", "grep", "find", "ls", "source_path"]);
 const STATE_TOOLS = new Set(["tasks", "goals"]);
 const SERVER_STYLE_TOOLS = new Set(["web_search"]);
@@ -167,6 +167,15 @@ export function serializeCompletedItemToTerminalHistory(
       return renderSubAgentGroup(item.agents, item.aborted, context);
     case "goal":
       return renderGoal(item.title, item.workerId, context);
+    case "task":
+      return renderStatusLine(
+        "▸",
+        `${dim(context, "Task: ")}${color(context.theme.commandColor, item.title, true)}`,
+        context,
+        context.theme.commandColor,
+        true,
+        true,
+      );
     case "goal_progress":
       return renderGoalProgress(item, context);
     case "error":
@@ -259,6 +268,8 @@ function renderBanner(context: TerminalHistoryContext): string {
     home && context.cwd.startsWith(home) ? `~${context.cwd.slice(home.length)}` : context.cwd;
   const logo = LOGO_LINES.map((lineText) => gradientLine(lineText, GRADIENT));
 
+  const shortcuts = `${color(context.theme.primary, "/goal")} ${dim(context, "start goal · ")}${color(context.theme.primary, "Ctrl+T")} ${dim(context, "tasks · ")}${color(context.theme.primary, "Shift+Tab")} ${dim(context, "toggle thinking")}`;
+
   if (context.columns < SIDE_BY_SIDE_MIN) {
     return block([
       "",
@@ -266,7 +277,7 @@ function renderBanner(context: TerminalHistoryContext): string {
       "",
       `${color(context.theme.primary, "GG Coder", true)}${dim(context, ` v${context.version}`)}`,
       `${color(context.theme.secondary, modelName)}  ${dim(context, truncatePlain(displayPath, context.columns))}`,
-      `${color(context.theme.primary, "/goal")} ${dim(context, "start goal · ")}${color(context.theme.primary, "Shift+Tab")} ${dim(context, "toggle thinking")}`,
+      shortcuts,
       "",
     ]);
   }
@@ -275,7 +286,7 @@ function renderBanner(context: TerminalHistoryContext): string {
     "",
     `${logo[0]}${GAP}${color(context.theme.primary, "GG Coder", true)}${dim(context, ` v${context.version} · By `)}${color(context.theme.text, "Ken Kai", true)}`,
     `${logo[1]}${GAP}${color(context.theme.secondary, modelName)}  ${dim(context, truncatePlain(displayPath, Math.max(10, context.columns - LOGO_WIDTH - GAP.length - stringWidth(modelName) - 2)))}`,
-    `${logo[2]}${GAP}${color(context.theme.primary, "/goal")} ${dim(context, "start goal · ")}${color(context.theme.primary, "Shift+Tab")} ${dim(context, "toggle thinking")}`,
+    `${logo[2]}${GAP}${shortcuts}`,
     "",
   ]);
 }

@@ -31,6 +31,25 @@ export function getNextGeneratedItemId(items: readonly Pick<CompletedItem, "id">
   return max + 1;
 }
 
+export function removeItemsWithIds<T extends Pick<CompletedItem, "id">>(
+  items: readonly T[],
+  removedIds: ReadonlySet<string>,
+): T[] {
+  if (removedIds.size === 0) return [...items];
+  return items.filter((item) => !removedIds.has(item.id));
+}
+
+export function uniqueItemsById<T extends Pick<CompletedItem, "id">>(items: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    unique.push(item);
+  }
+  return unique;
+}
+
 /** Check whether an item is still active (running spinner, pending result). */
 export function isActiveItem(item: CompletedItem): boolean {
   switch (item.kind) {

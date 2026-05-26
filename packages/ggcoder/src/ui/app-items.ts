@@ -18,6 +18,12 @@ export interface GoalItem {
   id: string;
 }
 
+export interface TaskItem {
+  kind: "task";
+  title: string;
+  id: string;
+}
+
 export interface GoalProgressItem {
   kind: "goal_progress";
   phase:
@@ -245,6 +251,7 @@ export interface ToolGroupItem {
 export type CompletedItem =
   | UserItem
   | GoalItem
+  | TaskItem
   | GoalProgressItem
   | AssistantItem
   | ToolStartItem

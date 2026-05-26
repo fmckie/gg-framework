@@ -287,6 +287,19 @@ describe("streaming assistant spacing", () => {
     ).toBe(false);
   });
 
+  it("top-spaces streaming text after a finalized task row", () => {
+    expect(
+      shouldTopSpaceStreamingAssistant({
+        visibleStreamingText: "Now I’ll work through the task output.",
+        lastHistoryItem: {
+          kind: "task",
+          id: "task-1",
+          title: "Restore task pane",
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("top-spaces streaming text after finalized notice rows", () => {
     expect(
       shouldTopSpaceStreamingAssistant({

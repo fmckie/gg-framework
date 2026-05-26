@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CompletedItem, GoalProgressItem } from "./app-items.js";
 import { routePromptCommandInput } from "./prompt-routing.js";
 import { formatGoalTerminalProgress, getGoalContinuationChoiceKey } from "./goal-progress.js";
-import { getNextGeneratedItemId } from "./item-helpers.js";
+import { getNextGeneratedItemId, removeItemsWithIds, uniqueItemsById } from "./item-helpers.js";
 import {
   getDoneFlushDecision,
   getGoalActivationPaneTransition,
@@ -181,6 +181,28 @@ describe("App TUI state persistence helpers", () => {
     const firstFreshItem = `ui-${getNextGeneratedItemId([{ id: "banner" }])}`;
 
     expect(firstFreshItem).toBe("ui-0");
+  });
+
+  it("dedupes restored live rows by id before rendering", () => {
+    const restoredLiveItems: CompletedItem[] = [
+      { kind: "info", text: "first", id: "ui-0" },
+      { kind: "info", text: "duplicate", id: "ui-0" },
+      { kind: "info", text: "second", id: "ui-1" },
+    ];
+
+    expect(uniqueItemsById(restoredLiveItems).map((item) => item.id)).toEqual(["ui-0", "ui-1"]);
+  });
+
+  it("drops restored live rows that were already finalized into history", () => {
+    const restoredLiveItems: CompletedItem[] = [
+      { kind: "info", text: "already printed", id: "ui-0" },
+      { kind: "info", text: "still live", id: "ui-1" },
+    ];
+    const historyIds = new Set(["banner", "ui-0"]);
+
+    expect(removeItemsWithIds(restoredLiveItems, historyIds).map((item) => item.id)).toEqual([
+      "ui-1",
+    ]);
   });
 
   it("models the regression: goal progress history is hidden while a pane is open", () => {

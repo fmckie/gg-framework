@@ -7,6 +7,10 @@ import { useTerminalSize } from "../hooks/useTerminalSize.js";
 import type { ImageAttachment } from "../../utils/image.js";
 import { extractImagePaths, readImageFile, getClipboardImage } from "../../utils/image.js";
 import { SlashCommandMenu, filterCommands, type SlashCommandInfo } from "./SlashCommandMenu.js";
+import { TaskPickerMenu } from "./TaskPickerMenu.js";
+import { GoalPickerMenu } from "./GoalPickerMenu.js";
+import type { TaskRecord } from "../../core/tasks-store.js";
+import type { GoalRun } from "../../core/goal-store.js";
 import { log } from "../../core/logger.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -206,6 +210,19 @@ interface InputAreaProps {
   isActive?: boolean;
   onDownAtEnd?: () => void;
   onShiftTab?: () => void;
+  onToggleTasks?: () => void;
+  taskPickerOpen?: boolean;
+  tasks?: readonly TaskRecord[];
+  onCloseTaskPicker?: () => void;
+  onStartTask?: (task: TaskRecord) => void;
+  onRunAllTasks?: (task?: TaskRecord) => void;
+  onDeleteTask?: (task: TaskRecord) => void;
+  goalPickerOpen?: boolean;
+  goals?: readonly GoalRun[];
+  onCloseGoalPicker?: () => void;
+  onRunGoal?: (goal: GoalRun) => void;
+  onDeleteGoal?: (goal: GoalRun) => void;
+  onPauseGoal?: (goal: GoalRun) => void;
   onToggleGoal?: () => void;
   onToggleSkills?: () => void;
   onTogglePixel?: () => void;
@@ -295,6 +312,19 @@ export function InputArea({
   isActive = true,
   onDownAtEnd,
   onShiftTab,
+  onToggleTasks,
+  taskPickerOpen = false,
+  tasks = [],
+  onCloseTaskPicker,
+  onStartTask,
+  onRunAllTasks,
+  onDeleteTask,
+  goalPickerOpen = false,
+  goals = [],
+  onCloseGoalPicker,
+  onRunGoal,
+  onDeleteGoal,
+  onPauseGoal,
   onToggleGoal,
   onToggleSkills,
   onTogglePixel,
@@ -342,6 +372,8 @@ export function InputArea({
   const lastEscRef = useRef(0);
   const { columns } = useTerminalSize();
   const [menuIndex, setMenuIndex] = useState(0);
+  const [taskPickerIndex, setTaskPickerIndex] = useState(0);
+  const [goalPickerIndex, setGoalPickerIndex] = useState(0);
   const [pasteText, setPasteText] = useState(""); // accumulated pasted content
   const [pasteOffset, setPasteOffset] = useState(0); // where in value the paste starts
   const pasteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -353,11 +385,21 @@ export function InputArea({
     () => (isSlashMode ? filterCommands(commands, slashFilter) : []),
     [isSlashMode, commands, slashFilter],
   );
+  const runnableTasks = useMemo(() => tasks.filter((task) => task.status !== "done"), [tasks]);
+  const selectableGoals = useMemo(() => [...goals], [goals]);
 
   // Reset menu index when filter changes
   useEffect(() => {
     setMenuIndex(0);
   }, [slashFilter]);
+
+  useEffect(() => {
+    setTaskPickerIndex((index) => Math.min(index, Math.max(0, runnableTasks.length - 1)));
+  }, [runnableTasks.length]);
+
+  useEffect(() => {
+    setGoalPickerIndex((index) => Math.min(index, Math.max(0, selectableGoals.length - 1)));
+  }, [selectableGoals.length]);
 
   // Border color pulse (when idle/waiting for input)
   const borderPulseColors = useMemo(
@@ -831,7 +873,73 @@ export function InputArea({
         return; // absorb all other keys during search
       }
 
-      // Ctrl+G toggles goal overlay in normal input mode. In search mode it cancels search above.
+      if (taskPickerOpen) {
+        if (key.escape || (key.ctrl && input === "t")) {
+          onCloseTaskPicker?.();
+          return;
+        }
+        if (key.upArrow) {
+          setTaskPickerIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setTaskPickerIndex((i) => Math.min(runnableTasks.length - 1, i + 1));
+          return;
+        }
+        if (input.toLowerCase() === "r") {
+          const task = runnableTasks[Math.min(taskPickerIndex, runnableTasks.length - 1)];
+          onRunAllTasks?.(task);
+          return;
+        }
+        if (input.toLowerCase() === "d") {
+          const task = runnableTasks[Math.min(taskPickerIndex, runnableTasks.length - 1)];
+          if (task) onDeleteTask?.(task);
+          return;
+        }
+        if (key.return) {
+          const task = runnableTasks[Math.min(taskPickerIndex, runnableTasks.length - 1)];
+          if (task) onStartTask?.(task);
+          return;
+        }
+        return;
+      }
+
+      // Ctrl+T toggles task picker
+      if (key.ctrl && input === "t") {
+        onToggleTasks?.();
+        return;
+      }
+
+      if (goalPickerOpen) {
+        if (key.escape || (key.ctrl && input === "g")) {
+          onCloseGoalPicker?.();
+          return;
+        }
+        if (key.upArrow) {
+          setGoalPickerIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setGoalPickerIndex((i) => Math.min(selectableGoals.length - 1, i + 1));
+          return;
+        }
+        const goal = selectableGoals[Math.min(goalPickerIndex, selectableGoals.length - 1)];
+        if (input.toLowerCase() === "d") {
+          if (goal) onDeleteGoal?.(goal);
+          return;
+        }
+        if (input.toLowerCase() === "p") {
+          if (goal) onPauseGoal?.(goal);
+          return;
+        }
+        if (key.return) {
+          if (goal) onRunGoal?.(goal);
+          return;
+        }
+        return;
+      }
+
+      // Ctrl+G toggles goal picker in normal input mode. In search mode it cancels search above.
       if (key.ctrl && input === "g") {
         onToggleGoal?.();
         return;
@@ -1040,6 +1148,11 @@ export function InputArea({
       }
 
       if (key.upArrow) {
+        if (taskPickerOpen) {
+          setTaskPickerIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+
         // If slash menu is open, navigate it
         if (isSlashMode && filteredCommands.length > 0) {
           setMenuIndex((i) => Math.max(0, i - 1));
@@ -1085,6 +1198,11 @@ export function InputArea({
       }
 
       if (key.downArrow) {
+        if (taskPickerOpen) {
+          setTaskPickerIndex((i) => Math.min(runnableTasks.length - 1, i + 1));
+          return;
+        }
+
         // If slash menu is open, navigate it
         if (isSlashMode && filteredCommands.length > 0) {
           setMenuIndex((i) => Math.min(filteredCommands.length - 1, i + 1));
@@ -1771,7 +1889,23 @@ export function InputArea({
         })()}
       </Box>
       {renderInputEdge(backgroundColor ? INPUT_BOTTOM_FILL : "─")}
-      {isSlashMode && filteredCommands.length > 0 && (
+      {goalPickerOpen ? (
+        <Box paddingRight={2}>
+          <GoalPickerMenu
+            goals={goals}
+            selectedIndex={goalPickerIndex}
+            width={Math.max(20, columns)}
+          />
+        </Box>
+      ) : taskPickerOpen ? (
+        <Box paddingRight={2}>
+          <TaskPickerMenu
+            tasks={tasks}
+            selectedIndex={taskPickerIndex}
+            width={Math.max(20, columns)}
+          />
+        </Box>
+      ) : isSlashMode && filteredCommands.length > 0 ? (
         <Box paddingRight={2}>
           <SlashCommandMenu
             commands={filteredCommands}
@@ -1779,7 +1913,7 @@ export function InputArea({
             width={Math.max(20, columns)}
           />
         </Box>
-      )}
+      ) : null}
     </Box>
   );
 }

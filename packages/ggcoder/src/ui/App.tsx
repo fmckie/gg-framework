@@ -53,7 +53,6 @@ import {
 import { Banner } from "./components/Banner.js";
 import { PlanOverlay } from "./components/PlanOverlay.js";
 import { ModelSelector } from "./components/ModelSelector.js";
-import { GoalOverlay } from "./components/GoalOverlay.js";
 import { PixelOverlay } from "./components/PixelOverlay.js";
 import type { PreparedPixelFix } from "../core/pixel-fix.js";
 import { SkillsOverlay } from "./components/SkillsOverlay.js";
@@ -140,12 +139,21 @@ import {
   formatGoalBlockingPrerequisites,
   goalHasBlockingPrerequisites,
   loadGoalRuns,
+  loadGoalRunsSync,
   reconcileActiveGoalRuns,
+  saveGoalRunsSync,
   updateGoalTask,
   upsertGoalRun,
   type GoalReference,
   type GoalRun,
 } from "../core/goal-store.js";
+import {
+  getNextPendingTask,
+  loadTasksSync,
+  markTaskInProgress,
+  saveTasksSync,
+  type TaskRecord,
+} from "../core/tasks-store.js";
 import { canCompleteGoalRun, decideGoalNextAction } from "../core/goal-controller.js";
 import { runGoalPrerequisiteChecks } from "../core/goal-prerequisites.js";
 import { runGoalVerifierCommand } from "../core/goal-verifier.js";
@@ -185,13 +193,10 @@ import {
 import {
   getChatControlsLayoutDecision,
   getDoneFlushDecision,
-  getGoalActivationPaneTransition,
-  getGoalSetupFinishedPaneTransition,
   getGoalSetupPaneTransitionAfterRun,
   isAgentSpacingItem,
   MIN_LIVE_AREA_ROWS,
   nextGoalModeAfterAgentDone,
-  shouldResetUIForGoalSetupPaneTransition,
   shouldTopSpaceAfterPrintedAgentBoundary,
   shouldTopSpaceAssistantAfterToolBoundary,
   shouldTopSpaceStreamingAssistant,
@@ -205,6 +210,8 @@ import {
   normalizeAssistantText,
   partitionCompleted,
   pinStreamingTextBeforeToolBoundary,
+  removeItemsWithIds,
+  uniqueItemsById,
 } from "./item-helpers.js";
 import type {
   CompletedItem,
@@ -214,6 +221,7 @@ import type {
   GoalProgressDraft,
   GoalProgressItem,
   QueuedItem,
+  TaskItem,
   ServerToolDoneItem,
   ServerToolStartItem,
   SubAgentGroupItem,
@@ -513,6 +521,7 @@ export interface AppProps {
     pendingGoalRun?: GoalRun;
     isAgentRunning?: boolean;
     pendingResetUI?: boolean;
+    runAllTasks?: boolean;
     runAllPixel?: boolean;
     goalStatusEntries?: GoalStatusEntry[];
     goalMode?: GoalMode;
@@ -560,9 +569,11 @@ export function App(props: AppProps) {
   // Items from the current/last turn — rendered in the live area so they stay visible.
   // Seed from sessionStore so Goal progress/completion rows and other live output
   // survive pane/overlay/resize remounts before they are finalized.
-  const [liveItems, setLiveItems] = useState<CompletedItem[]>(
-    () => props.sessionStore?.liveItems ?? [],
-  );
+  const [liveItems, setLiveItems] = useState<CompletedItem[]>(() => {
+    const restoredLiveItems = uniqueItemsById(props.sessionStore?.liveItems ?? []);
+    const restoredHistoryIds = new Set(history.map((item) => item.id));
+    return removeItemsWithIds(restoredLiveItems, restoredHistoryIds);
+  });
   // overlay seeded from sessionStore (lives across remount). Falls back to
   // props.initialOverlay (CLI launched with one), then null.
   const [overlay, setOverlay] = useState<
@@ -581,6 +592,17 @@ export function App(props: AppProps) {
   const goalContinuationFlightsRef = useRef<Set<string>>(new Set());
   const goalContinuationRecentChoicesRef = useRef<Map<string, number>>(new Map());
   const startGoalRunRef = useRef<(run: GoalRun) => void>(() => {});
+  const [runAllTasks, setRunAllTasks] = useState(props.sessionStore?.runAllTasks ?? false);
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false);
+  const [taskPickerTasks, setTaskPickerTasks] = useState<TaskRecord[]>(() =>
+    loadTasksSync(props.cwd),
+  );
+  const [goalPickerOpen, setGoalPickerOpen] = useState(false);
+  const [goalPickerGoals, setGoalPickerGoals] = useState<GoalRun[]>(() =>
+    loadGoalRunsSync(props.cwd),
+  );
+  const runAllTasksRef = useRef(props.sessionStore?.runAllTasks ?? false);
+  const startTaskRef = useRef<(title: string, prompt: string, taskId: string) => void>(() => {});
   const runAllPixelRef = useRef(props.sessionStore?.runAllPixel ?? false);
   const currentPixelFixRef = useRef<PreparedPixelFix | null>(null);
   const startPixelFixRef = useRef<(errorId: string) => void>(() => {});
@@ -741,8 +763,9 @@ export function App(props: AppProps) {
       pendingHistoryFlushRef.current = [...pendingHistoryFlushRef.current, ...flushed];
       if (sessionStore) {
         const queuedIds = new Set(items.map((item) => item.id));
-        sessionStore.liveItems = (sessionStore.liveItems ?? []).filter(
-          (item) => !queuedIds.has(item.id),
+        sessionStore.liveItems = removeItemsWithIds(
+          uniqueItemsById(sessionStore.liveItems ?? []),
+          queuedIds,
         );
       }
       setHistoryFlushGeneration((generation) => generation + 1);
@@ -814,7 +837,9 @@ export function App(props: AppProps) {
     if (sessionStore) sessionStore.history = history;
   }, [history, sessionStore]);
   useEffect(() => {
-    if (sessionStore) sessionStore.liveItems = liveItems;
+    if (!sessionStore) return;
+    const historyIds = new Set(historyRef.current.map((item) => item.id));
+    sessionStore.liveItems = removeItemsWithIds(uniqueItemsById(liveItems), historyIds);
   }, [liveItems, sessionStore]);
   useEffect(() => {
     if (sessionStore) sessionStore.doneStatus = doneStatus;
@@ -2038,6 +2063,21 @@ export function App(props: AppProps) {
             void setGoalModeAndPrompt(nextGoalMode);
           }
 
+          // Run-all: auto-start next pending task after a short delay.
+          if (runAllTasksRef.current) {
+            setTimeout(() => {
+              const cwd = cwdRef.current;
+              const next = getNextPendingTask(cwd);
+              if (next) {
+                markTaskInProgress(cwd, next.id);
+                startTaskRef.current(next.title, next.prompt, next.id);
+              } else {
+                setRunAllTasks(false);
+                log("INFO", "tasks", "Run-all complete — no more pending tasks");
+              }
+            }, 500);
+          }
+
           // Goal loop: after the orchestrator handles a worker/verifier event,
           // continue the same Goal automatically until it reaches a terminal state.
           for (const runId of [...runningGoalIdsRef.current]) {
@@ -2485,24 +2525,11 @@ export function App(props: AppProps) {
         return;
       }
 
-      // Handle /goals — open goal pane
+      // Handle /goals — open the input-area goal picker.
       if (trimmed === "/goals") {
-        if (props.resetUI && props.sessionStore && !agentLoop.isRunning) {
-          props.sessionStore.overlay = "goal";
-          props.sessionStore.planAutoExpand = false;
-          props.sessionStore.goalAutoExpand = false;
-          props.resetUI();
-        } else {
-          if (props.sessionStore) {
-            props.sessionStore.overlay = "goal";
-            props.sessionStore.planAutoExpand = false;
-            props.sessionStore.goalAutoExpand = false;
-            if (agentLoop.isRunning) props.sessionStore.pendingResetUI = true;
-          }
-          setPlanAutoExpand(false);
-          setGoalAutoExpand(false);
-          setOverlay("goal");
-        }
+        setGoalPickerGoals(loadGoalRunsSync(displayedCwd));
+        setTaskPickerOpen(false);
+        setGoalPickerOpen(true);
         return;
       }
 
@@ -2587,28 +2614,11 @@ export function App(props: AppProps) {
               await setGoalModeAndPrompt("off");
             }
             if (paneTransition) {
-              goalAutoExpandRef.current = paneTransition.goalAutoExpand;
-              setTimeout(() => {
-                const resetUI = props.resetUI;
-                const sessionStore = props.sessionStore;
-                if (
-                  shouldResetUIForGoalSetupPaneTransition({
-                    hasResetUI: resetUI !== undefined,
-                    hasSessionStore: sessionStore !== undefined,
-                  }) &&
-                  resetUI &&
-                  sessionStore
-                ) {
-                  sessionStore.overlay = paneTransition.overlay;
-                  sessionStore.goalAutoExpand = paneTransition.goalAutoExpand;
-                  sessionStore.planAutoExpand = paneTransition.planAutoExpand;
-                  resetUI();
-                  return;
-                }
-                setGoalAutoExpand(paneTransition.goalAutoExpand);
-                setPlanAutoExpand(paneTransition.planAutoExpand);
-                setOverlay(paneTransition.overlay);
-              }, 300);
+              goalAutoExpandRef.current = false;
+              setGoalAutoExpand(false);
+              setPlanAutoExpand(false);
+              setGoalPickerGoals(loadGoalRunsSync(displayedCwd));
+              setGoalPickerOpen(true);
             }
           }
         }
@@ -3270,6 +3280,21 @@ export function App(props: AppProps) {
           theme.commandColor,
           { bold: true },
         );
+      case "task":
+        return withPrintedBoundarySpacing(
+          renderStatusMessage(
+            item.id,
+            "▸ ",
+            <>
+              <Text color={theme.textDim}>{"Task: "}</Text>
+              <Text color={theme.commandColor} bold>
+                {item.title}
+              </Text>
+            </>,
+            theme.commandColor,
+            { bold: true },
+          ),
+        );
       case "model_transition":
         return renderStatusMessage(
           item.id,
@@ -3415,18 +3440,6 @@ export function App(props: AppProps) {
     },
     [agentLoop.isRunning, props],
   );
-
-  const closeOverlay = useCallback(() => {
-    if (props.resetUI && props.sessionStore && !agentLoop.isRunning) {
-      props.sessionStore.overlay = null;
-      props.resetUI();
-    } else {
-      if (props.sessionStore) {
-        props.sessionStore.overlay = null;
-      }
-      setOverlay(null);
-    }
-  }, [agentLoop.isRunning, overlay, props]);
 
   const runGoalSyntheticEvent = useCallback(
     (eventText: string) => {
@@ -4064,8 +4077,78 @@ export function App(props: AppProps) {
     [appendGoalProgress, clearGoalModeIfIdle, clearGoalStatusEntry, props.cwd],
   );
 
+  const startTask = useCallback(
+    (title: string, prompt: string, taskId: string) => {
+      const taskCwd = cwdRef.current;
+      const shortId = taskId.slice(0, 8);
+      const completionHint =
+        `\n\n---\nWhen you have fully completed this task, call the tasks tool to mark it done:\n` +
+        `tasks({ action: "done", id: "${shortId}" })`;
+      const fullPrompt = prompt + completionHint;
+
+      if (props.resetUI && props.sessionStore) {
+        const sysMsg = messagesRef.current[0];
+        const newMessages: Message[] =
+          sysMsg && sysMsg.role === "system" ? [sysMsg] : messagesRef.current.slice(0, 1);
+        const taskItem: TaskItem = { kind: "task", title, id: getId() };
+        const sm = sessionManagerRef.current;
+
+        void (async () => {
+          let newSessionPath: string | undefined;
+          if (sm) {
+            try {
+              const session = await sm.create(taskCwd, currentProvider, currentModel);
+              newSessionPath = session.path;
+              log("INFO", "tasks", "New session for task", { path: session.path });
+            } catch {
+              // Session creation is best-effort.
+            }
+          }
+          if (props.sessionStore) props.sessionStore.overlay = null;
+          props.resetUI?.({
+            wipeSession: true,
+            messages: newMessages,
+            history: [{ kind: "banner", id: "banner" }, taskItem],
+            sessionPath: newSessionPath,
+            pendingAction: { prompt: fullPrompt },
+          });
+        })();
+        return;
+      }
+
+      pendingHistoryFlushRef.current = [];
+      props.terminalHistoryPrinter?.clear();
+      setHistory([{ kind: "banner", id: "banner" }]);
+      setLiveItems([]);
+      messagesRef.current = messagesRef.current.slice(0, 1);
+      agentLoop.reset();
+      persistedIndexRef.current = messagesRef.current.length;
+      const sm = sessionManagerRef.current;
+      if (sm) {
+        void sm.create(taskCwd, currentProvider, currentModel).then((session) => {
+          sessionPathRef.current = session.path;
+          log("INFO", "tasks", "New session for task", { path: session.path });
+        });
+      }
+      const taskItem: TaskItem = { kind: "task", title, id: getId() };
+      setLastUserMessage(title);
+      setDoneStatus(null);
+      setLiveItems([taskItem]);
+      void agentLoop.run(fullPrompt).catch((err: unknown) => {
+        setLiveItems((prev) => [...prev, toErrorItem(err, getId())]);
+      });
+    },
+    [agentLoop, currentModel, currentProvider, props],
+  );
+
   // Keep refs in sync for access from stale closures (onDone)
+  startTaskRef.current = startTask;
   startGoalRunRef.current = startGoalRun;
+
+  useEffect(() => {
+    runAllTasksRef.current = runAllTasks;
+    if (props.sessionStore) props.sessionStore.runAllTasks = runAllTasks;
+  }, [runAllTasks, props.sessionStore]);
 
   useEffect(() => {
     agentRunningRef.current = agentLoop.isRunning;
@@ -4173,7 +4256,6 @@ export function App(props: AppProps) {
     if (props.sessionStore) props.sessionStore.runAllPixel = runAllPixel;
   }, [runAllPixel, props.sessionStore]);
 
-  const isGoalView = overlay === "goal";
   const isSkillsView = overlay === "skills";
   const isPlanView = overlay === "plan";
   const footerStatusLayout = getFooterStatusLayoutDecision({
@@ -4292,83 +4374,7 @@ export function App(props: AppProps) {
 
   return (
     <Box flexDirection="column" width={columns} flexShrink={0} flexGrow={0}>
-      {isGoalView ? (
-        <GoalOverlay
-          cwd={props.cwd}
-          agentRunning={agentLoop.isRunning}
-          autoExpandNewest={goalAutoExpand}
-          onClose={() => {
-            goalAutoExpandRef.current = false;
-            setGoalAutoExpand(false);
-            if (props.sessionStore) props.sessionStore.goalAutoExpand = false;
-            closeOverlay();
-          }}
-          onRunGoal={(run) => {
-            const paneTransition = getGoalActivationPaneTransition();
-            goalAutoExpandRef.current = paneTransition.goalAutoExpand;
-            setGoalAutoExpand(paneTransition.goalAutoExpand);
-            setPlanAutoExpand(paneTransition.planAutoExpand);
-            if (props.sessionStore) {
-              props.sessionStore.overlay = paneTransition.overlay;
-              props.sessionStore.goalAutoExpand = paneTransition.goalAutoExpand;
-              props.sessionStore.planAutoExpand = paneTransition.planAutoExpand;
-            }
-            if (paneTransition.resetReviewScreen && props.resetUI && props.sessionStore) {
-              props.sessionStore.pendingGoalRun = run;
-              props.resetUI();
-              return;
-            }
-            setOverlay(paneTransition.overlay);
-            startGoalRun(run);
-          }}
-          onVerifyGoal={(run) => {
-            void verifyGoalRun(run);
-          }}
-          onPauseGoal={(run) => {
-            pauseGoalRun(run);
-          }}
-          onRefineGoal={(run, feedback) => {
-            goalAutoExpandRef.current = true;
-            setGoalAutoExpand(true);
-            void (async () => {
-              try {
-                await setGoalModeAndPrompt("setup");
-                await agentLoop.run(
-                  `Refine Goal run ${run.id} (${run.title}) based on this user feedback. Update durable Goal setup only, then stop and reopen the Goal pane for review.\n\nFeedback: ${feedback}`,
-                );
-              } catch (err) {
-                log("ERROR", "goal", err instanceof Error ? err.message : String(err));
-                setLiveItems((prev) => [...prev, toErrorItem(err, getId(), "Goal")]);
-              } finally {
-                await setGoalModeAndPrompt("off");
-                const paneTransition = getGoalSetupFinishedPaneTransition();
-                goalAutoExpandRef.current = paneTransition.goalAutoExpand;
-                setTimeout(() => {
-                  const resetUI = props.resetUI;
-                  const sessionStore = props.sessionStore;
-                  if (
-                    shouldResetUIForGoalSetupPaneTransition({
-                      hasResetUI: resetUI !== undefined,
-                      hasSessionStore: sessionStore !== undefined,
-                    }) &&
-                    resetUI &&
-                    sessionStore
-                  ) {
-                    sessionStore.overlay = paneTransition.overlay;
-                    sessionStore.goalAutoExpand = paneTransition.goalAutoExpand;
-                    sessionStore.planAutoExpand = paneTransition.planAutoExpand;
-                    resetUI();
-                    return;
-                  }
-                  setGoalAutoExpand(paneTransition.goalAutoExpand);
-                  setPlanAutoExpand(paneTransition.planAutoExpand);
-                  setOverlay(paneTransition.overlay);
-                }, 300);
-              }
-            })();
-          }}
-        />
-      ) : isPixelView ? (
+      {isPixelView ? (
         <PixelOverlay
           version={props.version}
           agentRunning={agentLoop.isRunning}
@@ -4549,7 +4555,7 @@ export function App(props: AppProps) {
         <Box flexDirection="column" width={columns} flexShrink={0} flexGrow={0}>
           {/* MainContent */}
           <Box flexDirection="column" flexGrow={0} flexShrink={1} overflowY="hidden">
-            {liveItems.map((item, index, items) => renderItem(item, index, items))}
+            {uniqueItemsById(liveItems).map((item, index, items) => renderItem(item, index, items))}
             <StreamingArea
               isRunning={agentLoop.isRunning}
               streamingText={visibleStreamingText}
@@ -4650,8 +4656,65 @@ export function App(props: AppProps) {
               isActive={!taskBarFocused && !overlay}
               onDownAtEnd={handleFocusTaskBar}
               onShiftTab={handleToggleThinking}
+              onToggleTasks={() => {
+                setGoalPickerOpen(false);
+                setTaskPickerTasks(loadTasksSync(displayedCwd));
+                setTaskPickerOpen((open) => !open);
+              }}
+              taskPickerOpen={taskPickerOpen}
+              tasks={taskPickerTasks}
+              onCloseTaskPicker={() => setTaskPickerOpen(false)}
+              onStartTask={(task) => {
+                setTaskPickerOpen(false);
+                markTaskInProgress(displayedCwd, task.id);
+                setTaskPickerTasks(loadTasksSync(displayedCwd));
+                startTask(task.title, task.prompt, task.id);
+              }}
+              onRunAllTasks={(task) => {
+                setTaskPickerOpen(false);
+                setRunAllTasks(true);
+                const selected = task
+                  ? {
+                      id: task.id,
+                      title: task.title,
+                      prompt: task.prompt || task.text || task.title,
+                    }
+                  : getNextPendingTask(displayedCwd);
+                if (selected) {
+                  markTaskInProgress(displayedCwd, selected.id);
+                  setTaskPickerTasks(loadTasksSync(displayedCwd));
+                  startTask(selected.title, selected.prompt, selected.id);
+                }
+              }}
+              onDeleteTask={(task) => {
+                const nextTasks = loadTasksSync(displayedCwd).filter(
+                  (candidate) => candidate.id !== task.id,
+                );
+                saveTasksSync(displayedCwd, nextTasks);
+                setTaskPickerTasks(nextTasks);
+              }}
+              goalPickerOpen={goalPickerOpen}
+              goals={goalPickerGoals}
+              onCloseGoalPicker={() => setGoalPickerOpen(false)}
+              onRunGoal={(run) => {
+                setGoalPickerOpen(false);
+                startGoalRun(run);
+              }}
+              onDeleteGoal={(run) => {
+                const nextGoals = loadGoalRunsSync(displayedCwd).filter(
+                  (candidate) => candidate.id !== run.id,
+                );
+                saveGoalRunsSync(displayedCwd, nextGoals);
+                setGoalPickerGoals(nextGoals);
+              }}
+              onPauseGoal={(run) => {
+                setGoalPickerOpen(false);
+                pauseGoalRun(run);
+              }}
               onToggleGoal={() => {
-                openOverlay("goal");
+                setTaskPickerOpen(false);
+                setGoalPickerGoals(loadGoalRunsSync(displayedCwd));
+                setGoalPickerOpen((open) => !open);
               }}
               onToggleSkills={() => {
                 openOverlay("skills");

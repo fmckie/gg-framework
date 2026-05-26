@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -889,8 +890,34 @@ export async function loadGoalRuns(cwd: string): Promise<GoalRun[]> {
   return readGoalRunsFile(cwd);
 }
 
+export function loadGoalRunsSync(cwd: string): GoalRun[] {
+  const normalizedCwd = normalizeProjectPath(cwd);
+  try {
+    const data = readFileSync(join(projectDir(normalizedCwd), "goals.json"), "utf-8");
+    const parsed: unknown = JSON.parse(data);
+    if (!Array.isArray(parsed)) return [];
+    return sortNewestFirst(
+      parsed
+        .map((item) => normalizeRun(item, normalizedCwd))
+        .filter((run): run is GoalRun => run !== null),
+    );
+  } catch {
+    return [];
+  }
+}
+
 export async function saveGoalRuns(cwd: string, runs: readonly GoalRun[]): Promise<void> {
   return enqueueWrite(() => writeGoalRunsFile(cwd, runs));
+}
+
+export function saveGoalRunsSync(cwd: string, runs: readonly GoalRun[]): void {
+  const normalizedCwd = normalizeProjectPath(cwd);
+  const sorted = sortNewestFirst([...runs]);
+  writeFileSync(
+    join(projectDir(normalizedCwd), "goals.json"),
+    JSON.stringify(sorted, null, 2) + "\n",
+    "utf-8",
+  );
 }
 
 export async function reconcileActiveGoalRuns(

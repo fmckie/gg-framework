@@ -330,6 +330,19 @@ function liveElementFor(item: CompletedItem): React.ReactElement | null {
           </Text>
         </Box>
       );
+    case "task":
+      return renderStatusLive(
+        "▸ ",
+        <>
+          <Text color={theme.textDim}>{"Task: "}</Text>
+          <Text color={theme.commandColor} bold>
+            {item.title}
+          </Text>
+        </>,
+        theme.commandColor,
+        theme,
+        { bold: true },
+      );
     case "queued":
       return renderQueuedLiveItem(item, theme);
     case "tool_start":
@@ -528,6 +541,7 @@ const parityCaseByKind = {
   user: { kind: "user", id: "user-1", text: "hello from user", imageCount: 1 },
   assistant: { kind: "assistant", id: "assistant-1", text: "Hello **world** from assistant" },
   goal: { kind: "goal", id: "goal-1", title: "Ship the TUI polish", workerId: "worker-1" },
+  task: { kind: "task", id: "task-1", title: "Restore task pane" },
   queued: { kind: "queued", id: "queued-1", text: "next prompt with wrapping words" },
   tool_start: {
     kind: "tool_start",
