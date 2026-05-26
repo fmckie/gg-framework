@@ -581,6 +581,13 @@ export function decideGoalNextAction(
 ): GoalControllerDecision {
   const completion = canCompleteGoalRun(run);
   if (completion.ok) {
+    if (run.continueRequestedAt && run.verifier?.command) {
+      return {
+        kind: "run_verifier",
+        command: run.verifier.command,
+        reason: "Goal rerun requested; rerunning configured verifier before any new final audit.",
+      };
+    }
     return { kind: "complete", reason: completion.reason };
   }
 

@@ -3711,8 +3711,10 @@ export function App(props: AppProps) {
             phase: "worker_started",
             title: decision.workerId
               ? `Goal working: ${checkedRun.title}`
-              : `Goal active: ${checkedRun.title}`,
-            detail: decision.reason,
+              : `Goal needs orchestration: ${checkedRun.title}`,
+            detail: decision.workerId
+              ? decision.reason
+              : `${decision.reason} Asking the orchestrator to unblock or revise the Goal plan.`,
             workerId: decision.workerId,
           });
           upsertGoalStatusEntry({
@@ -3724,6 +3726,15 @@ export function App(props: AppProps) {
             workerId: decision.workerId,
             goalNumber: goalNumberForRun(checkedRun.id),
           });
+          if (!decision.workerId) {
+            const eventText =
+              `Goal continuation is waiting with no active worker for Goal ${checkedRun.id} (${checkedRun.title}).\n` +
+              `Reason: ${decision.reason}\n\n` +
+              `Inspect the durable Goal state with the goals tool, resolve blocked dependencies by creating or updating concrete worker tasks, and then continue the Goal. If no local/free action can proceed, record an explicit blocker with exact user instructions. Do not stop after only explaining the state.`;
+            setLastUserMessage("");
+            setDoneStatus(null);
+            await agentLoop.run(eventText);
+          }
           return;
         }
         if (decision.kind === "complete") {
@@ -3752,8 +3763,15 @@ export function App(props: AppProps) {
           });
           const latestRun =
             (await loadGoalRuns(props.cwd)).find((item) => item.id === checkedRun.id) ?? checkedRun;
-          await upsertGoalRun(props.cwd, { ...latestRun, status: "ready" });
-          setTimeout(() => continueGoalRun(checkedRun.id), 250);
+          const runWithTask = await upsertGoalRun(props.cwd, { ...latestRun, status: "ready" });
+          appendGoalProgress({
+            kind: "goal_progress",
+            phase: "continuing",
+            title: `Goal task created: ${decision.title}`,
+            detail: "Starting the new Goal task now.",
+            status: "ready",
+          });
+          startGoalRunRef.current(runWithTask);
           return;
         }
         if (decision.kind === "blocked") {
@@ -4710,13 +4728,50 @@ export function App(props: AppProps) {
               onCloseGoalPicker={() => setGoalPickerOpen(false)}
               onRunGoal={(run) => {
                 setGoalPickerOpen(false);
-                startGoalRun(run);
+                setDoneStatus(null);
+                appendGoalProgress({
+                  kind: "goal_progress",
+                  phase: "continuing",
+                  title: `Goal run requested: ${run.title}`,
+                  detail: "Enter pressed in Ctrl+G; starting the Goal orchestrator.",
+                  status: run.status,
+                });
+                log("INFO", "goal", `Goal run requested from Ctrl+G: ${run.title}`, { id: run.id });
+                void (async () => {
+                  const latestRun =
+                    (await loadGoalRuns(props.cwd)).find((item) => item.id === run.id) ?? run;
+                  const requestedAt = new Date().toISOString();
+                  const runWithContinuation = await upsertGoalRun(props.cwd, {
+                    ...latestRun,
+                    status:
+                      latestRun.status === "running" || latestRun.status === "verifying"
+                        ? latestRun.status
+                        : "ready",
+                    continueRequestedAt: requestedAt,
+                    blockers: goalHasBlockingPrerequisites(latestRun) ? latestRun.blockers : [],
+                    evidence: [
+                      ...latestRun.evidence,
+                      {
+                        id: `goal-rerun-${requestedAt}`,
+                        kind: "summary" as const,
+                        label: "Goal rerun requested",
+                        content:
+                          "Continuation requested from Ctrl+G; the orchestrator will choose the next eligible Goal action.",
+                        createdAt: requestedAt,
+                      },
+                    ],
+                  });
+                  startGoalRun(runWithContinuation);
+                })().catch((err: unknown) => {
+                  log("ERROR", "goal", err instanceof Error ? err.message : String(err));
+                  setLiveItems((prev) => [...prev, toErrorItem(err, getId(), "Goal")]);
+                });
               }}
               onDeleteGoal={(run) => {
-                const nextGoals = loadGoalRunsSync(displayedCwd).filter(
+                const nextGoals = loadGoalRunsSync(props.cwd).filter(
                   (candidate) => candidate.id !== run.id,
                 );
-                saveGoalRunsSync(displayedCwd, nextGoals);
+                saveGoalRunsSync(props.cwd, nextGoals);
                 setGoalPickerGoals(nextGoals);
               }}
               onPauseGoal={(run) => {
@@ -4725,7 +4780,7 @@ export function App(props: AppProps) {
               }}
               onToggleGoal={() => {
                 setTaskPickerOpen(false);
-                setGoalPickerGoals(loadGoalRunsSync(displayedCwd));
+                setGoalPickerGoals(loadGoalRunsSync(props.cwd));
                 setGoalPickerOpen((open) => !open);
               }}
               onToggleSkills={() => {

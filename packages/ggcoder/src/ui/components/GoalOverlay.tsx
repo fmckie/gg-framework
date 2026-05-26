@@ -902,7 +902,7 @@ export function GoalOverlay({
       }
       return;
     }
-    if (expandedRun && input === "a") {
+    if (expandedRun && (key.return || input === "a")) {
       onRunGoal(expandedRun);
       return;
     }
@@ -911,7 +911,7 @@ export function GoalOverlay({
       setRefineFeedback("");
       return;
     }
-    if (expandedRun && (input === "q" || key.return)) {
+    if (expandedRun && input === "q") {
       collapseGoal();
       return;
     }
@@ -924,7 +924,11 @@ export function GoalOverlay({
       setSelectedIndex((index) => clampGoalSelectedIndex(index + 1, runs.length));
       return;
     }
-    if ((key.return || input === "d") && selectedRun) {
+    if (key.return && selectedRun) {
+      onRunGoal(selectedRun);
+      return;
+    }
+    if (input === "d" && selectedRun) {
       expandGoal(selectedRun);
       return;
     }
@@ -976,7 +980,7 @@ export function GoalOverlay({
             </Box>
           ) : (
             <Text color={theme.textDim}>
-              <Text color={theme.success}>a</Text>
+              <Text color={theme.success}>Enter/a</Text>
               {" approve/run · "}
               <Text color={theme.error}>r</Text>
               {" refine · "}
@@ -1134,10 +1138,10 @@ export function GoalOverlay({
           <Text color={theme.textDim}>
             <Text color={theme.primary}>↑↓/jk</Text>
             {" select · "}
-            <Text color={theme.primary}>Enter/d</Text>
-            {" detail · "}
-            <Text color={theme.primary}>a</Text>
+            <Text color={theme.primary}>Enter/a</Text>
             {" run · "}
+            <Text color={theme.primary}>d</Text>
+            {" detail · "}
             <Text color={theme.primary}>v</Text>
             {" verify · "}
             <Text color={theme.primary}>p</Text>

@@ -436,6 +436,13 @@ describe("/goal UI orchestration lifecycle", () => {
       kind: "complete",
       reason: "All tasks are done, verifier evidence passed, and final completion audit passed.",
     });
+    expect(
+      decideGoalNextAction({ ...passed, continueRequestedAt: "2024-01-01T00:00:02.000Z" }),
+    ).toEqual({
+      kind: "run_verifier",
+      command: "pnpm test",
+      reason: "Goal rerun requested; rerunning configured verifier before any new final audit.",
+    });
   });
 
   it("verifier failure creates exactly one bounded fix task and queued continuation starts it", () => {

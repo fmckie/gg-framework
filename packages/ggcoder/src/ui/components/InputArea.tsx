@@ -797,6 +797,7 @@ export function InputArea({
 
       // Reset kill ring accumulation for non-kill keys
       input = inputWithoutFocusReports;
+      const isReturnKey = key.return || input === "\r" || input === "\n";
 
       const isKillKey = key.ctrl && (input === "k" || input === "u" || input === "w");
       if (!isKillKey) lastActionWasKill = false;
@@ -834,7 +835,7 @@ export function InputArea({
           setCursor(savedCursorRef.current);
           return;
         }
-        if (key.return) {
+        if (isReturnKey) {
           // Accept match and submit
           setSearchMode(false);
           return; // fall through to normal submit handling
@@ -896,7 +897,7 @@ export function InputArea({
           if (task) onDeleteTask?.(task);
           return;
         }
-        if (key.return) {
+        if (isReturnKey) {
           const task = runnableTasks[Math.min(taskPickerIndex, runnableTasks.length - 1)];
           if (task) onStartTask?.(task);
           return;
@@ -932,7 +933,7 @@ export function InputArea({
           if (goal) onPauseGoal?.(goal);
           return;
         }
-        if (key.return) {
+        if (isReturnKey) {
           if (goal) onRunGoal?.(goal);
           return;
         }
@@ -972,7 +973,7 @@ export function InputArea({
         // Submitted messages will be queued by the parent component.
       }
 
-      if (key.return && (key.shift || key.meta)) {
+      if (isReturnKey && (key.shift || key.meta)) {
         // If there's a selection, replace it with the newline
         const sel = deleteSelection();
         if (sel) {
@@ -986,7 +987,7 @@ export function InputArea({
         return;
       }
 
-      if (key.return) {
+      if (isReturnKey) {
         // If slash menu is open and a command is selected, fill it in
         if (isSlashMode && filteredCommands.length > 0) {
           const selected = filteredCommands[Math.min(menuIndex, filteredCommands.length - 1)];
