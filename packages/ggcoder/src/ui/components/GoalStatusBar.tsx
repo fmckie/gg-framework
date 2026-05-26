@@ -15,6 +15,8 @@ export interface GoalStatusEntry {
   detail?: string;
   workerId?: string;
   goalNumber?: number;
+  taskNumber?: number;
+  taskTotal?: number;
 }
 
 const SHIMMER_WIDTH = 3;
@@ -76,8 +78,16 @@ function getPhaseColor(phase: GoalStatusPhase, theme: ReturnType<typeof useTheme
   }
 }
 
+function formatTaskProgress(entry: GoalStatusEntry): string | undefined {
+  if (entry.taskNumber == null || entry.taskTotal == null) return undefined;
+  if (entry.taskNumber <= 0 || entry.taskTotal <= 0) return undefined;
+  return `(${entry.taskNumber}/${entry.taskTotal})`;
+}
+
 export function formatGoalStatusActiveText(entry: GoalStatusEntry): string {
-  return `Goal ${PHASE_LABELS[entry.phase]} · ${truncateLabel(entry.label, 24)}`;
+  const progress = formatTaskProgress(entry);
+  const prefix = progress ? `${progress} ` : "";
+  return `${prefix}Goal in progress: ${truncateLabel(entry.label, 24)}`;
 }
 
 export function syncGoalStatusEntries(
@@ -149,8 +159,10 @@ function GoalStatusSlot({
   const phaseColor = getPhaseColor(entry.phase, theme);
   const phaseLabel = PHASE_LABELS[entry.phase];
   const elapsed = formatGoalElapsed(Date.now() - entry.startedAt);
-  const prefix = entry.phase === "failed" ? `✗ Goal ${phaseLabel}` : `Goal ${phaseLabel}`;
-  const reserved = prefix.length + elapsed.length + 4;
+  const progress = formatTaskProgress(entry);
+  const activePrefix = "Goal in progress:";
+  const prefix = entry.phase === "failed" ? `✗ Goal ${phaseLabel}` : activePrefix;
+  const reserved = prefix.length + (progress ? progress.length + 1 : 0) + elapsed.length + 3;
   const label = truncateLabel(entry.label, Math.max(1, maxWidth - reserved));
 
   if (entry.phase === "failed") {
@@ -165,8 +177,16 @@ function GoalStatusSlot({
 
   return (
     <Text>
+      {progress ? (
+        <>
+          <Text color={theme.accent} bold>
+            {progress}
+          </Text>
+          <Text> </Text>
+        </>
+      ) : null}
       <ShimmerText text={prefix} color={phaseColor} tick={tick} />
-      <Text color={theme.textDim}> · </Text>
+      <Text> </Text>
       <Text color={theme.text}>{label}</Text>
       <Text color={theme.textDim}> {elapsed}</Text>
     </Text>

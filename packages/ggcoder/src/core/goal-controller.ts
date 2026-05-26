@@ -194,6 +194,25 @@ export function unsatisfiedGoalEvidencePlanItems(run: GoalRun): GoalRun["evidenc
   return run.evidencePlan.filter((item) => !evidencePlanItemSatisfiedByDurableEvidence(run, item));
 }
 
+function unsatisfiedEvidencePlanItemReason(
+  run: GoalRun,
+  item: GoalRun["evidencePlan"][number],
+): string {
+  if (item.status === "ready" && !item.evidence?.trim() && !item.path && !item.command) {
+    return `${item.label} (ready but no durable evidence, path, or command recorded)`;
+  }
+  if (item.path && !run.evidence.some((evidence) => evidence.path === item.path)) {
+    return `${item.label} (missing durable evidence for path ${item.path})`;
+  }
+  if (
+    item.command &&
+    !run.evidence.some((evidence) => exactTokenReferenced(evidence.content, item.command))
+  ) {
+    return `${item.label} (missing durable evidence for command ${item.command})`;
+  }
+  return item.label;
+}
+
 function exactTokenReferenced(content: string | undefined, token: string | undefined): boolean {
   return !!content?.trim() && !!token?.trim() && content.includes(token);
 }
@@ -223,7 +242,7 @@ export function hasRequiredGoalEvidence(run: GoalRun): GoalCompletionCheck {
   if (missing.length > 0) {
     return {
       ok: false,
-      reason: `Goal evidence plan is not satisfied: ${missing.map((item) => item.label).join(", ")}.`,
+      reason: `Goal evidence plan is not satisfied: ${missing.map((item) => unsatisfiedEvidencePlanItemReason(run, item)).join(", ")}.`,
     };
   }
   return {

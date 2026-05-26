@@ -222,6 +222,7 @@ import {
   removeItemsWithIds,
   uniqueItemsById,
 } from "./item-helpers.js";
+import { UPDATE_NOTICE_TEXT } from "./app-items.js";
 import type {
   CompletedItem,
   CompactedItem,
@@ -350,6 +351,16 @@ export function shouldRunGoalTaskInMainCheckout(taskTitle: string): boolean {
     taskTitle === APPLY_INTEGRATION_TO_MAIN_TASK_TITLE ||
     taskTitle === COMMIT_INTEGRATED_GOAL_CHANGES_TASK_TITLE
   );
+}
+
+function goalTaskProgress(
+  run: GoalRun,
+  task: GoalRun["tasks"][number] | undefined,
+): { taskNumber: number; taskTotal: number } | undefined {
+  if (!task) return undefined;
+  const taskIndex = run.tasks.findIndex((item) => item.id === task.id);
+  if (taskIndex < 0 || run.tasks.length === 0) return undefined;
+  return { taskNumber: taskIndex + 1, taskTotal: run.tasks.length };
 }
 
 export function buildGoalDirtyWorktreeUserPrompt(error: GoalWorktreeDirtyError): string {
@@ -3238,8 +3249,7 @@ export function App(props: AppProps) {
           <Box key={item.id} paddingLeft={1} marginTop={1} flexShrink={1}>
             <Box flexShrink={1} borderStyle="round" borderColor={theme.commandColor} paddingX={1}>
               <Text color={theme.commandColor} bold wrap="wrap">
-                {"✨ "}
-                {item.text}
+                {UPDATE_NOTICE_TEXT}
               </Text>
             </Box>
           </Box>
@@ -3601,14 +3611,19 @@ export function App(props: AppProps) {
         workerId: completion.worker.id,
         status: completion.status,
       });
+      const taskProgress = goalTaskProgress(
+        run,
+        run.tasks.find((task) => task.id === completion.worker.goalTaskId),
+      );
       upsertGoalStatusEntry({
         runId: run.id,
-        label: taskTitle,
+        label: run.title,
         phase: completion.status === "done" ? "reviewing" : "failed",
         startedAt: Date.now(),
         detail: completion.status === "done" ? "reviewing result" : "task failed",
         workerId: completion.worker.id,
         goalNumber: goalNumberForRun(run.id),
+        ...taskProgress,
       });
       runGoalSyntheticEvent(eventText);
       void (async () => {
@@ -3875,12 +3890,13 @@ export function App(props: AppProps) {
         });
         upsertGoalStatusEntry({
           runId: checkedRun.id,
-          label: decision.task.title,
+          label: checkedRun.title,
           phase: "worker",
           startedAt: Date.now(),
           detail: "background worker running",
           workerId: worker.id,
           goalNumber: goalNumberForRun(checkedRun.id),
+          ...goalTaskProgress(checkedRun, decision.task),
         });
       })().catch((err: unknown) => {
         clearGoalStatusEntry(run.id);

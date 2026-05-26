@@ -218,10 +218,11 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
       });
     }
 
-    // Text delta. Codex mostly sends response.output_item.added before
-    // output_text, but the ordering is not guaranteed. Treat unknown item IDs
-    // as hidden until metadata proves they belong to a visible message item;
-    // otherwise reasoning summaries can intermittently leak as assistant text.
+    // Text delta. OpenAI documents response.output_text.* as output content
+    // text, while reasoning has separate response.reasoning*_text.delta events.
+    // The ChatGPT Codex transport can occasionally attach output_text chunks to
+    // reasoning or send text before item metadata. Never expose output_text unless
+    // the item is positively identified as a visible assistant message.
     if (type === "response.output_text.delta") {
       const delta = event.delta as string;
       const itemId = event.item_id as string | undefined;
@@ -239,13 +240,12 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
           contentIndex: contentIndex ?? 0,
           text: `${pending?.text ?? ""}${delta}`,
         });
-      } else if (options.thinking) {
-        yield { type: "thinking_delta", text: delta };
       }
     }
 
     // Text done. The final event can contain text not seen in deltas; emit only
-    // the missing suffix so consumers don't see duplicate visible output.
+    // the missing suffix so consumers don't see duplicate visible output, and
+    // only after item metadata proves the part belongs to a message.
     if (type === "response.output_text.done") {
       const fullText = event.text as string | undefined;
       if (fullText) {
@@ -267,8 +267,6 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
               contentIndex: contentIndex ?? 0,
               text: `${pending?.text ?? ""}${missingText}`,
             });
-          } else if (options.thinking) {
-            yield { type: "thinking_delta", text: missingText };
           }
         }
       }
@@ -309,8 +307,6 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
           if (isVisibleOutputItem(itemType)) {
             textAccum += pendingPart.text;
             yield { type: "text_delta", text: pendingPart.text };
-          } else if (options.thinking) {
-            yield { type: "thinking_delta", text: pendingPart.text };
           }
         }
       }

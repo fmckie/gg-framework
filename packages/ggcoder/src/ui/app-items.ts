@@ -114,6 +114,8 @@ export interface SetupHintItem {
   id: string;
 }
 
+export const UPDATE_NOTICE_TEXT = "KEN HAS PUSHED A NEW GG CODER UPDATE";
+
 export interface UpdateNoticeItem {
   kind: "update_notice";
   text: string;

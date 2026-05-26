@@ -840,6 +840,43 @@ describe("goals tool state guards", () => {
     });
   });
 
+  it("persists evidence-plan evidence and path aliases used by coordinator calls", async () => {
+    await executeGoals({
+      action: "create",
+      run_id: "goal-evidence-aliases",
+      title: "Alias reconciliation",
+      goal: "Persist coordinator evidence-plan aliases",
+      success_criteria: ["Evidence plan is durable"],
+      prerequisites: [],
+      evidence_plan: [
+        {
+          id: "setup-plan",
+          label: "GOAL_PLAN setup evidence",
+          mechanism: "log",
+          description: "Planner output must be durable.",
+          status: "planned",
+        },
+      ],
+      verifier_command: "pnpm test",
+    });
+
+    await executeGoals({
+      action: "evidence_plan",
+      run_id: "goal-evidence-aliases",
+      evidence_plan_item_id: "setup-plan",
+      evidence_plan_status: "ready",
+      evidence: "Exact GOAL_PLAN evidence was recorded.",
+      path: "artifacts/goal-plan.log",
+    });
+    const run = await getGoalRun(tmpProject, "goal-evidence-aliases");
+
+    expect(run?.evidencePlan[0]).toMatchObject({
+      status: "ready",
+      evidence: "Exact GOAL_PLAN evidence was recorded.",
+      path: "artifacts/goal-plan.log",
+    });
+  });
+
   it("does not complete without passing verifier evidence", async () => {
     await executeGoals({
       action: "create",

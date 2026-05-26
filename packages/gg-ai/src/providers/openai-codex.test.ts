@@ -285,7 +285,7 @@ describe("streamOpenAICodex", () => {
     });
   });
 
-  it("routes reasoning item output text to thinking deltas when thinking is on", async () => {
+  it("suppresses reasoning item output text when thinking is on", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -297,7 +297,12 @@ describe("streamOpenAICodex", () => {
           {
             type: "response.output_text.delta",
             item_id: "rs_1",
-            delta: "private reasoning",
+            delta: "private reasoning delta",
+          },
+          {
+            type: "response.output_text.done",
+            item_id: "rs_1",
+            text: "private reasoning delta plus done",
           },
           {
             type: "response.output_item.added",
@@ -334,8 +339,11 @@ describe("streamOpenAICodex", () => {
       unknown
     >;
     expect(body.reasoning).toEqual({ effort: "high", summary: "auto" });
-    expect(events).toContainEqual({ type: "thinking_delta", text: "private reasoning" });
-    expect(events).not.toContainEqual({ type: "text_delta", text: "private reasoning" });
+    expect(events).toContainEqual({ type: "thinking_delta", text: "" });
+    expect(events).not.toContainEqual({ type: "thinking_delta", text: "private reasoning delta" });
+    expect(events).not.toContainEqual({ type: "thinking_delta", text: " plus done" });
+    expect(events).not.toContainEqual({ type: "text_delta", text: "private reasoning delta" });
+    expect(events).not.toContainEqual({ type: "text_delta", text: " plus done" });
     expect(events).toContainEqual({ type: "text_delta", text: "visible answer" });
     await expect(result.response).resolves.toMatchObject({
       message: { content: [{ type: "text", text: "visible answer" }] },
@@ -390,7 +398,7 @@ describe("streamOpenAICodex", () => {
     const events = [];
     for await (const event of result) events.push(event);
 
-    expect(events).toContainEqual({
+    expect(events).not.toContainEqual({
       type: "thinking_delta",
       text: "private reasoning before item metadata",
     });
@@ -486,6 +494,108 @@ describe("streamOpenAICodex", () => {
     expect(events).toContainEqual({ type: "text_delta", text: " world" });
     await expect(result.response).resolves.toMatchObject({
       message: { content: [{ type: "text", text: "hello world" }] },
+    });
+  });
+
+  it("keeps reasoning output_text.done hidden with late reasoning metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        createSseResponse([
+          {
+            type: "response.output_text.done",
+            item_id: "rs_late",
+            content_index: 0,
+            text: "private done-only reasoning",
+          },
+          {
+            type: "response.output_item.added",
+            item: { type: "reasoning", id: "rs_late" },
+          },
+          {
+            type: "response.output_text.done",
+            item_id: "msg_late",
+            content_index: 0,
+            text: "visible done-only answer",
+          },
+          {
+            type: "response.output_item.added",
+            item: { type: "message", id: "msg_late" },
+          },
+          {
+            type: "response.completed",
+            response: { usage: { input_tokens: 10, output_tokens: 5 } },
+          },
+        ]),
+      ),
+    );
+
+    const result = streamOpenAICodex({
+      provider: "openai",
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "token",
+      accountId: "acct",
+      thinking: "high",
+    });
+
+    const events = [];
+    for await (const event of result) events.push(event);
+
+    expect(events).not.toContainEqual({ type: "text_delta", text: "private done-only reasoning" });
+    expect(events).not.toContainEqual({
+      type: "thinking_delta",
+      text: "private done-only reasoning",
+    });
+    expect(events).toContainEqual({ type: "text_delta", text: "visible done-only answer" });
+    await expect(result.response).resolves.toMatchObject({
+      message: { content: [{ type: "text", text: "visible done-only answer" }] },
+    });
+  });
+
+  it("keeps output_text hidden forever when item metadata never arrives", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        createSseResponse([
+          {
+            type: "response.output_text.delta",
+            item_id: "unknown_1",
+            content_index: 0,
+            delta: "unclassified text",
+          },
+          {
+            type: "response.output_text.done",
+            item_id: "unknown_1",
+            content_index: 0,
+            text: "unclassified text plus done",
+          },
+          {
+            type: "response.completed",
+            response: { usage: { input_tokens: 10, output_tokens: 5 } },
+          },
+        ]),
+      ),
+    );
+
+    const result = streamOpenAICodex({
+      provider: "openai",
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "token",
+      accountId: "acct",
+      thinking: "high",
+    });
+
+    const events = [];
+    for await (const event of result) events.push(event);
+
+    expect(events).not.toContainEqual({ type: "text_delta", text: "unclassified text" });
+    expect(events).not.toContainEqual({ type: "text_delta", text: " plus done" });
+    expect(events).not.toContainEqual({ type: "thinking_delta", text: "unclassified text" });
+    expect(events).not.toContainEqual({ type: "thinking_delta", text: " plus done" });
+    await expect(result.response).resolves.toMatchObject({
+      message: { content: "" },
     });
   });
 

@@ -354,7 +354,8 @@ describe("terminal history", () => {
     const rendered = stripAnsi(output);
     expect(rendered).toMatch(/4\.3\.215\.\n\n │ ⟳ Conversation compacted/);
     expect(rendered).toMatch(/86% reduction\n\n ╭─+/);
-    expect(rendered).toContain(" │ ✨ Ken just pushed a fresh update");
+    expect(rendered).toContain(" │ KEN HAS PUSHED A NEW GG CODER UPDATE");
+    expect(rendered).not.toContain("Ken just pushed a fresh update");
     expect(rendered).toMatch(/╰─+╯\n$/);
   });
 

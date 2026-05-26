@@ -37,20 +37,22 @@ describe("GoalStatusBar helpers", () => {
     expect(formatGoalElapsed(65_400)).toBe("1:05");
   });
 
-  it("formats active worker text with concise task-aware copy and no ids", () => {
+  it("formats active worker text with the running task number and goal title", () => {
     expect(
       formatGoalStatusActiveText({
         runId: "run-1",
-        label: "Verify footer behavior",
+        label: "Fix Codex reasoning leaks",
         phase: "worker",
         startedAt: 0,
         workerId: "worker-secret",
         goalNumber: 1,
+        taskNumber: 2,
+        taskTotal: 3,
       }),
-    ).toBe("Goal working · Verify footer behavior");
+    ).toBe("(2/3) Goal in progress: Fix Codex reasoning lea…");
   });
 
-  it("formats verifier text with concise task-aware copy", () => {
+  it("formats verifier text with goal-in-progress copy", () => {
     expect(
       formatGoalStatusActiveText({
         runId: "run-2",
@@ -60,7 +62,7 @@ describe("GoalStatusBar helpers", () => {
         detail: "pnpm test",
         goalNumber: 2,
       }),
-    ).toBe("Goal verifying · Long verification title");
+    ).toBe("Goal in progress: Long verification title");
   });
 
   it("mirrors upsert and clear changes through a sessionStore-shaped snapshot", () => {
@@ -211,7 +213,7 @@ describe("GoalStatusBar helpers", () => {
     const remountedEntries = sessionStore.goalStatusEntries ?? [];
     expect(remountedEntries).toHaveLength(1);
     expect(remountedEntries.map(formatGoalStatusActiveText)).toContain(
-      "Goal working · Implement status persis…",
+      "Goal in progress: Implement status persis…",
     );
   });
 });

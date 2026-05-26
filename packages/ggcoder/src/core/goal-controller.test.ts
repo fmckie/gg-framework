@@ -442,6 +442,26 @@ describe("goal controller", () => {
     );
   });
 
+  it("explains ready evidence-plan items that have no durable proof anchor", () => {
+    const run = goalRun({
+      evidencePlan: [
+        {
+          id: "plan",
+          label: "GOAL_PLAN setup evidence",
+          mechanism: "log",
+          description: "The exact planner output must be durable.",
+          status: "ready",
+        },
+      ],
+    });
+
+    expect(hasRequiredGoalEvidence(run)).toEqual({
+      ok: false,
+      reason:
+        "Goal evidence plan is not satisfied: GOAL_PLAN setup evidence (ready but no durable evidence, path, or command recorded).",
+    });
+  });
+
   it("rejects evidence-plan false positives before final audit", () => {
     const run = goalRun({
       tasks: [{ id: "task-a", title: "Done", prompt: "Done", status: "done", attempts: 1 }],
@@ -478,7 +498,8 @@ describe("goal controller", () => {
 
     expect(hasRequiredGoalEvidence(run)).toEqual({
       ok: false,
-      reason: "Goal evidence plan is not satisfied: Screenshot proof.",
+      reason:
+        "Goal evidence plan is not satisfied: Screenshot proof (missing durable evidence for path artifacts/screenshot.png).",
     });
     expect(decideGoalNextAction(run)).toMatchObject({
       kind: "create_task",

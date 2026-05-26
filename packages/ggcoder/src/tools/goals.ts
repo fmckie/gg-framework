@@ -122,6 +122,8 @@ const GoalsParams = z.object({
     .enum(["planned", "ready", "blocked"])
     .optional()
     .describe("Updated evidence-plan item status"),
+  evidence: z.string().optional().describe("Observed evidence summary for an evidence-plan update"),
+  path: z.string().optional().describe("Artifact path for an evidence-plan update"),
   verifier_command: z.string().optional().describe("Command that verifies the goal end-to-end"),
   verifier_description: z.string().optional().describe("Natural-language verifier description"),
   task_id: z.string().optional().describe("Goal task id to update"),
@@ -812,14 +814,14 @@ export function createGoalsTool(
           }
           const existing = evidencePlan[index];
           const status = asEvidencePlanStatus(args.evidence_plan_status);
+          const evidence = args.evidence ?? args.evidence_content ?? args.summary;
+          const path = args.path ?? args.evidence_path;
           evidencePlan[index] = {
             ...existing,
             status,
             ...(args.instructions ? { instructions: args.instructions } : {}),
-            ...(args.evidence_content || args.summary
-              ? { evidence: args.evidence_content ?? args.summary }
-              : {}),
-            ...(args.evidence_path ? { path: args.evidence_path } : {}),
+            ...(evidence ? { evidence } : {}),
+            ...(path ? { path } : {}),
           };
           const canRecoverBlockedRun =
             run.status === "blocked" && status === "ready" && !goalHasBlockingPrerequisites(run);

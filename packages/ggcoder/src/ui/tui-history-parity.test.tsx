@@ -3,7 +3,7 @@ import { Box, Text, renderToString } from "ink";
 import { describe, expect, it } from "vitest";
 import stripAnsi from "strip-ansi";
 import stringWidth from "string-width";
-import type { CompletedItem } from "./app-items.js";
+import { UPDATE_NOTICE_TEXT, type CompletedItem } from "./app-items.js";
 import { serializeCompletedItemToTerminalHistory } from "./terminal-history.js";
 import { loadTheme, ThemeContext } from "./theme/theme.js";
 import type { Theme } from "./theme/theme.js";
@@ -279,15 +279,14 @@ function renderSetupHintLive(itemTheme: Theme) {
 }
 
 function renderUpdateNoticeLive(
-  item: Extract<CompletedItem, { kind: "update_notice" }>,
+  _item: Extract<CompletedItem, { kind: "update_notice" }>,
   itemTheme: Theme,
 ) {
   return (
     <Box paddingLeft={1} marginTop={1} flexShrink={1}>
       <Box flexShrink={1} borderStyle="round" borderColor={itemTheme.commandColor} paddingX={1}>
         <Text color={itemTheme.commandColor} bold wrap="wrap">
-          {"✨ "}
-          {item.text}
+          {UPDATE_NOTICE_TEXT}
         </Text>
       </Box>
     </Box>

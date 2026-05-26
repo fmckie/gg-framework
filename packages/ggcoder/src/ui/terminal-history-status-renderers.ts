@@ -1,4 +1,5 @@
 import { LANGUAGE_DISPLAY_NAMES, type LanguageId } from "../core/language-detector.js";
+import { UPDATE_NOTICE_TEXT } from "./app-items.js";
 import type { TerminalHistoryContext } from "./terminal-history.js";
 import { BLACK_CIRCLE } from "./constants/figures.js";
 import {
@@ -85,9 +86,9 @@ export function renderSetupHint(context: TerminalHistoryContext): string {
   );
 }
 
-export function renderUpdateNotice(text: string, context: TerminalHistoryContext): string {
+export function renderUpdateNotice(_text: string, context: TerminalHistoryContext): string {
   return renderRoundBorderBox(
-    [color(context.theme.commandColor, `✨ ${text}`, true)],
+    [color(context.theme.commandColor, UPDATE_NOTICE_TEXT, true)],
     context,
     context.theme.commandColor,
   );

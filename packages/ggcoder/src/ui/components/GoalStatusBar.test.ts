@@ -12,8 +12,8 @@ describe("GoalStatusBar formatting", () => {
       startedAt,
     });
 
-    expect(text).toBe("Goal working · A very long Goal title …");
+    expect(text).toBe("Goal in progress: A very long Goal title …");
     expect(text).not.toContain("\n");
-    expect(text.length).toBeLessThanOrEqual(40);
+    expect(text.length).toBeLessThanOrEqual(44);
   });
 });
