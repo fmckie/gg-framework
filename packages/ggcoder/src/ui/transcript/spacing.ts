@@ -32,17 +32,24 @@ export const TRANSCRIPT_SPACING_KINDS = [
 
 const TRANSCRIPT_SPACING_KIND_SET = new Set<CompletedItem["kind"]>(TRANSCRIPT_SPACING_KINDS);
 
-const LIVE_ASSISTANT_BOUNDARY_KINDS = new Set<CompletedItem["kind"]>([
-  "goal_progress",
-  "tool_start",
-  "tool_done",
-  "tool_group",
-  "server_tool_start",
-  "server_tool_done",
-  "subagent_group",
-  "plan_transition",
-  "goal_agent_transition",
+const COMPACT_TRANSCRIPT_BOUNDARIES = new Set<string>([
+  "user→assistant",
+  "assistant→user",
+  "user→queued",
+  "assistant→assistant",
 ]);
+
+export function shouldSeparateTranscriptItems({
+  previousKind,
+  currentKind,
+}: {
+  previousKind?: CompletedItem["kind"];
+  currentKind: CompletedItem["kind"];
+}): boolean {
+  if (previousKind === undefined) return false;
+  if (!isTranscriptSpacingKind(previousKind) || !isTranscriptSpacingKind(currentKind)) return false;
+  return !COMPACT_TRANSCRIPT_BOUNDARIES.has(`${previousKind}→${currentKind}`);
+}
 
 export function isTranscriptSpacingKind(kind: CompletedItem["kind"]): boolean {
   return TRANSCRIPT_SPACING_KIND_SET.has(kind);
@@ -63,10 +70,9 @@ export function shouldTopSpaceAfterPrintedTranscriptBoundary({
   lastPendingHistoryItem?: CompletedItem;
   lastHistoryItem?: CompletedItem;
 }): boolean {
-  if (!isTranscriptSpacingKind(currentKind)) return false;
   if (previousLiveItem !== undefined) return false;
   const previousKind = lastPendingHistoryItem?.kind ?? lastHistoryItem?.kind;
-  return previousKind !== undefined && isTranscriptSpacingKind(previousKind);
+  return shouldSeparateTranscriptItems({ previousKind, currentKind });
 }
 
 export function shouldTopSpaceAssistantAfterToolBoundary({
@@ -81,18 +87,9 @@ export function shouldTopSpaceAssistantAfterToolBoundary({
   lastHistoryItem?: CompletedItem;
 }): boolean {
   if (text.trim().length === 0) return false;
-  if (
-    shouldTopSpaceAfterPrintedTranscriptBoundary({
-      currentKind: "assistant",
-      previousLiveItem,
-      lastPendingHistoryItem,
-      lastHistoryItem,
-    })
-  ) {
-    return true;
-  }
-  const previousKind = previousLiveItem?.kind;
-  return previousKind !== undefined && LIVE_ASSISTANT_BOUNDARY_KINDS.has(previousKind);
+  const previousKind =
+    previousLiveItem?.kind ?? lastPendingHistoryItem?.kind ?? lastHistoryItem?.kind;
+  return shouldSeparateTranscriptItems({ previousKind, currentKind: "assistant" });
 }
 
 export function getTranscriptItemMarginTop({
@@ -106,6 +103,8 @@ export function getTranscriptItemMarginTop({
   lastPendingHistoryItem?: CompletedItem;
   lastHistoryItem?: CompletedItem;
 }): number {
+  const previousKind =
+    previousLiveItem?.kind ?? lastPendingHistoryItem?.kind ?? lastHistoryItem?.kind;
   if (item.kind === "assistant") {
     return shouldTopSpaceAssistantAfterToolBoundary({
       text: item.text,
@@ -116,7 +115,7 @@ export function getTranscriptItemMarginTop({
       ? 1
       : 0;
   }
-  return isTranscriptSpacingItem(item) ? 1 : 0;
+  return shouldSeparateTranscriptItems({ previousKind, currentKind: item.kind }) ? 1 : 0;
 }
 
 export function shouldTopSpaceStreamingAssistant({

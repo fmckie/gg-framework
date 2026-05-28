@@ -32,7 +32,9 @@ export function ChatLivePane({
 }: ChatLivePaneProps) {
   return (
     <ChatLiveArea>
-      {liveItems.map((item, index, items) => renderItem(item, index, items))}
+      {liveItems.map((item, index, items) => (
+        <React.Fragment key={item.id}>{renderItem(item, index, items)}</React.Fragment>
+      ))}
       <StreamingArea
         isRunning={isRunning}
         streamingText={visibleStreamingText}

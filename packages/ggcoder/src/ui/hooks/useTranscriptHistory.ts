@@ -123,11 +123,17 @@ export function useTranscriptHistory({
     (item: CompletedItem) => {
       streamedAssistantFlushRef.current = { flushedChars: 0, text: "" };
       setLiveItems((prev) => {
-        if (prev.length > 0) queueFlush(prev);
-        return [item];
+        const finalizedItems = [...prev, item];
+        queueFlush(finalizedItems);
+        // Print synchronously so the submitted prompt is anchored in terminal
+        // scrollback before assistant streaming starts. The queued flush still
+        // persists it and updates React history; the printer dedupes by id when
+        // the effect drains the queue.
+        printHistoryItems(finalizedItems);
+        return [];
       });
     },
-    [queueFlush, setLiveItems],
+    [printHistoryItems, queueFlush, setLiveItems],
   );
 
   const clearPendingHistory = useCallback(() => {

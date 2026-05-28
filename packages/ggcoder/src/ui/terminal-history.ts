@@ -11,7 +11,7 @@ import type { Theme } from "./theme/theme.js";
 import { getUserMessageDisplayParts } from "./utils/user-message-display.js";
 import { buildToolGroupSummary } from "./tool-group-summary.js";
 import { renderMarkdownToAnsiLines } from "./utils/markdown-renderer.js";
-import { isAgentSpacingKind } from "./terminal-history-spacing.js";
+import { shouldSeparateTranscriptItems } from "./transcript/spacing.js";
 import {
   MAX_OUTPUT_LINES,
   RESPONSE_LEFT_PADDING,
@@ -118,12 +118,12 @@ export function createTerminalHistoryPrinter({
         const output = serializeCompletedItemToTerminalHistory(item, context);
         const endsWithBlankLine = item.kind === "banner";
         const formatted = formatHistoryWrite(output, {
-          leadingSeparator:
-            previousPrintedKind !== null &&
-            isAgentSpacingKind(previousPrintedKind) &&
-            isAgentSpacingKind(item.kind),
+          leadingSeparator: shouldSeparateTranscriptItems({
+            previousKind: previousPrintedKind ?? undefined,
+            currentKind: item.kind,
+          }),
           trailingBlankLine: endsWithBlankLine,
-          trailingNewlines: item.kind === "user" ? 0 : undefined,
+          trailingNewlines: item.kind === "user" ? 1 : undefined,
         });
         if (formatted.length === 0) continue;
         printed.add(item.id);
