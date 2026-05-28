@@ -71,7 +71,7 @@ describe("boss terminal history", () => {
     expect(toolOutput).toContain("  ⎿  hi");
   });
 
-  it("does not add blank separators between assistant and boss tool rows", () => {
+  it("matches gg-coder spacing between assistant and boss tool rows", () => {
     const writes: string[] = [];
     const printer = createBossTerminalHistoryPrinter();
     const items: BossDisplayItem[] = [
@@ -90,11 +90,24 @@ describe("boss terminal history", () => {
     printer.print(items, context, { write: (data) => writes.push(data) });
 
     const output = stripAnsi(writes.join(""));
-    expect(output).toMatch(new RegExp("list the workers\\.\\n [⏺●] List Workers"));
-    expect(output).not.toMatch(new RegExp("list the workers\\.\\n\\n [⏺●] List Workers"));
+    expect(output).toMatch(new RegExp("list the workers\\.\\n\\n [⏺●] List Workers"));
   });
 
-  it("separates Boss-only worker events from compact user to assistant boundary", () => {
+  it("spaces consecutive boss assistant responses", () => {
+    const writes: string[] = [];
+    const printer = createBossTerminalHistoryPrinter();
+    const items: BossDisplayItem[] = [
+      { kind: "assistant", id: "a1", text: "First response.", durationMs: 1 },
+      { kind: "assistant", id: "a2", text: "Second response.", durationMs: 1 },
+    ];
+
+    printer.print(items, context, { write: (data) => writes.push(data) });
+
+    const output = stripAnsi(writes.join(""));
+    expect(output).toMatch(new RegExp("First response\\.\\n\\n [⏺●] Second response\\."));
+  });
+
+  it("separates Boss-only worker events and keeps them to one header line", () => {
     const writes: string[] = [];
     const printer = createBossTerminalHistoryPrinter();
     const items: BossDisplayItem[] = [
@@ -114,10 +127,10 @@ describe("boss terminal history", () => {
 
     printer.print(items, context, { write: (data) => writes.push(data) });
 
-    const output = writes.join("");
+    const output = stripAnsi(writes.join(""));
     expect(output).toContain("Starting.");
-    expect(output).toContain("app");
-    expect(output).toContain("turn 1");
-    expect(output).toContain("  ⎿  ");
+    expect(output).toMatch(new RegExp("Starting\\.\\n\\n [⏺●] app {2}turn 1 {2}· {2}DONE"));
+    expect(output).not.toContain("  ⎿  ");
+    expect(output).not.toContain("Changed:");
   });
 });

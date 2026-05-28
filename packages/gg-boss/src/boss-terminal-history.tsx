@@ -20,11 +20,7 @@ import type { BossDisplayItem } from "./boss-ui-items.js";
 import { bossToolGroupRenderers } from "./boss-tool-group-summary.js";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";
 import { AUTHOR, BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./branding.js";
-import {
-  parseStatusGrade,
-  parseWorkerTrailer,
-  summarizeFinalText,
-} from "./boss-transcript-rows.js";
+import { parseStatusGrade } from "./boss-transcript-rows.js";
 import { projectColor } from "./colors.js";
 
 type GGCoderCompletedItem = Parameters<typeof serializeCompletedItemToTerminalHistory>[0];
@@ -184,42 +180,18 @@ function renderWorkerEvent(
 ): string {
   const theme = context.theme;
   const failedCount = item.toolsUsed.filter((tool) => !tool.ok).length;
-  const total = item.toolsUsed.length;
   const grade = parseStatusGrade(item.finalText);
   const isError = grade === "BLOCKED" || failedCount > 0;
   const isWarning = grade === "UNVERIFIED" || grade === "PARTIAL";
   const statusColor = isError ? theme.error : isWarning ? theme.warning : theme.success;
   const headerColor = isError ? theme.error : projectColor(item.project);
-  const toolSummary =
-    total === 0
-      ? "no tools"
-      : failedCount > 0
-        ? `${total} tools (${failedCount} failed)`
-        : `${total} tool${total === 1 ? "" : "s"}`;
-  const header = `${toolStatusHeader({
+  return toolStatusHeader({
     status: isError ? "error" : isWarning ? "queued" : "done",
     label: color(headerColor, item.project, true),
-    suffix: `${color(theme.text, `  turn ${item.turnIndex}`)}${dim(context, `  ·  ${toolSummary}`)}${grade ? `${dim(context, "  ·  ")}${color(statusColor, grade, true)}` : ""}`,
+    suffix: `${color(theme.text, `  turn ${item.turnIndex}`)}${grade ? `${dim(context, "  ·  ")}${color(statusColor, grade, true)}` : ""}`,
     context,
     labelAlreadyStyled: true,
-  })}`;
-  const trailer = parseWorkerTrailer(item.finalText);
-  const fieldMaxLen = Math.max(20, context.columns - 14);
-  const rows: string[] = [];
-  if (trailer.changed) rows.push(messageResponseLine("Changed", trailer.changed, context));
-  if (trailer.verified)
-    rows.push(messageResponseLine("Verified", trailer.verified, context, theme.success));
-  if (trailer.skipped)
-    rows.push(messageResponseLine("Skipped", trailer.skipped, context, theme.warning));
-  if (trailer.notes) rows.push(messageResponseLine("Notes", trailer.notes, context));
-  if (rows.length === 0) {
-    const fallback = summarizeFinalText(item.finalText, fieldMaxLen);
-    if (fallback)
-      rows.push(
-        messageResponseText(color(theme.textDim, truncatePlain(fallback, fieldMaxLen)), context),
-      );
-  }
-  return [header, ...rows].join("\n");
+  });
 }
 
 function renderWorkerError(
@@ -411,19 +383,6 @@ function toolStatusHeader({
   const indicator = status === "running" ? "⠋" : "⏺";
   const labelText = labelAlreadyStyled ? label : color(context.theme.toolName, label, true);
   return `${RESPONSE_LEFT_PADDING}${color(resolvedDotColor, indicator)} ${labelText}${suffix}`;
-}
-
-function messageResponseLine(
-  label: string,
-  value: string,
-  context: TerminalHistoryContext,
-  labelColor = context.theme.textDim,
-): string {
-  const text = `${color(labelColor, `${label}:`, true)} ${color(
-    context.theme.text,
-    truncatePlain(value, Math.max(10, context.columns - label.length - 10)),
-  )}`;
-  return messageResponseText(text, context);
 }
 
 function messageResponseText(text: string, context: TerminalHistoryContext): string {

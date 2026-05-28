@@ -16,7 +16,6 @@ import {
   getTranscriptItemMarginTop,
   shouldTopSpaceStreamingAssistant,
 } from "@kenkaiiii/ggcoder/ui/transcript/spacing";
-import { useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
 import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
 import { BossBanner } from "./banner.js";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";
@@ -246,7 +245,9 @@ export function parseStatusGrade(text: string): WorkerStatusGrade | null {
   // mid-text and re-emit it in the trailer). Also accept anything after the
   // grade word — workers occasionally write "Status: INFO — trailing comment"
   // which the previous end-of-line anchor would have rejected.
-  const matches = [...text.matchAll(/^\s*Status:\s*(DONE|UNVERIFIED|PARTIAL|BLOCKED|INFO)\b/gim)];
+  const matches = [
+    ...text.matchAll(/(?:^|\b)Status:\s*(DONE|UNVERIFIED|PARTIAL|BLOCKED|INFO)\b/gim),
+  ];
   const last = matches[matches.length - 1];
   if (!last) return null;
   return last[1]!.toUpperCase() as WorkerStatusGrade;
@@ -346,9 +347,7 @@ function statusGradeColor(
 
 function WorkerEventRow({ item }: { item: WorkerEventItem }): React.ReactElement {
   const theme = useTheme();
-  const { columns } = useTerminalSize();
   const failedCount = item.toolsUsed.filter((t) => !t.ok).length;
-  const total = item.toolsUsed.length;
   const grade = parseStatusGrade(item.finalText);
   // Loader status: prefer the worker's self-reported grade. Fall back to
   // tool-error count if the worker omitted Status (older runs / non-conforming).
@@ -361,100 +360,26 @@ function WorkerEventRow({ item }: { item: WorkerEventItem }): React.ReactElement
   // Errors override the project hue with red; otherwise the project gets its
   // stable color so successive turns from the same worker visually cluster.
   const headerColor = loaderStatus === "error" ? theme.toolError : projectColor(item.project);
-  const toolSummary =
-    total === 0
-      ? "no tools"
-      : failedCount > 0
-        ? `${total} tools (${failedCount} failed)`
-        : `${total} tool${total === 1 ? "" : "s"}`;
-  // MessageResponse uses 6 chars for "  ⎿  " gutter; reserve a few more for
-  // safety. Each trailer field renders on its own line so users can scan
-  // Changed / Verified / Notes independently rather than a single squished line.
-  const fieldMaxLen = Math.max(20, columns - 14);
-  const trailer = parseWorkerTrailer(item.finalText);
-  const hasTrailer = !!(trailer.changed || trailer.skipped || trailer.verified || trailer.notes);
-  const fallbackSummary = hasTrailer ? "" : summarizeFinalText(item.finalText, fieldMaxLen);
   return (
-    <Box flexDirection="column">
-      <Box flexDirection="row">
-        <ToolUseLoader status={loaderStatus} />
-        <Box flexGrow={1}>
-          <Text wrap="wrap">
-            <Text color={headerColor} bold>
-              {item.project}
-            </Text>
-            <Text color={theme.text}>{`  turn ${item.turnIndex}`}</Text>
-            <Text color={theme.textDim}>{`  ·  ${toolSummary}`}</Text>
-            {grade && (
-              <>
-                <Text color={theme.textDim}>{"  ·  "}</Text>
-                <Text color={statusGradeColor(grade, theme)} bold>
-                  {grade}
-                </Text>
-              </>
-            )}
+    <Box flexDirection="row">
+      <ToolUseLoader status={loaderStatus} />
+      <Box flexGrow={1}>
+        <Text wrap="wrap">
+          <Text color={headerColor} bold>
+            {item.project}
           </Text>
-        </Box>
-      </Box>
-      {hasTrailer ? (
-        <>
-          {trailer.changed && (
-            <TrailerLine label="Changed" value={trailer.changed} maxLen={fieldMaxLen} />
+          <Text color={theme.text}>{`  turn ${item.turnIndex}`}</Text>
+          {grade && (
+            <>
+              <Text color={theme.textDim}>{"  ·  "}</Text>
+              <Text color={statusGradeColor(grade, theme)} bold>
+                {grade}
+              </Text>
+            </>
           )}
-          {trailer.verified && (
-            <TrailerLine
-              label="Verified"
-              value={trailer.verified}
-              maxLen={fieldMaxLen}
-              labelColor={theme.success}
-            />
-          )}
-          {trailer.skipped && (
-            <TrailerLine
-              label="Skipped"
-              value={trailer.skipped}
-              maxLen={fieldMaxLen}
-              labelColor={theme.warning}
-            />
-          )}
-          {trailer.notes && (
-            <TrailerLine label="Notes" value={trailer.notes} maxLen={fieldMaxLen} />
-          )}
-        </>
-      ) : (
-        fallbackSummary && (
-          <MessageResponse>
-            <Text color={theme.textDim} wrap="truncate">
-              {fallbackSummary}
-            </Text>
-          </MessageResponse>
-        )
-      )}
-    </Box>
-  );
-}
-
-function TrailerLine({
-  label,
-  value,
-  maxLen,
-  labelColor,
-}: {
-  label: string;
-  value: string;
-  maxLen: number;
-  labelColor?: string;
-}): React.ReactElement {
-  const theme = useTheme();
-  return (
-    <MessageResponse>
-      <Text wrap="truncate">
-        <Text color={labelColor ?? theme.textDim} bold>
-          {label}:
         </Text>
-        <Text color={theme.text}>{` ${clip(value, maxLen - label.length - 2)}`}</Text>
-      </Text>
-    </MessageResponse>
+      </Box>
+    </Box>
   );
 }
 

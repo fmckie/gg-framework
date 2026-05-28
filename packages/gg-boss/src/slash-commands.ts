@@ -59,7 +59,7 @@ export function buildHelpText(): string {
   lines.push("**Global keybindings**");
   lines.push("- `Ctrl+T` — open the Tasks pane");
   lines.push("- `Tab` — switch project scope (All / per-project pill in the input)");
-  lines.push("- `Shift+Tab` — toggle the boss's extended thinking on/off");
+  lines.push("- `Shift+Tab` — cycle the boss's thinking level, then off");
   lines.push("- `Esc` — interrupt the boss while it's running");
   lines.push("- `Ctrl+C` (twice) — exit");
   lines.push("");

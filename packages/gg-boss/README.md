@@ -74,7 +74,7 @@ ggboss --project ../api --project ../web   # explicit project list
 | Key | What it does |
 |---|---|
 | <kbd>Tab</kbd> | Cycle the project scope pill (All / per-project) on your next message |
-| <kbd>Shift+Tab</kbd> | Toggle the boss's extended thinking |
+| <kbd>Shift+Tab</kbd> | Cycle the boss's thinking level (Anthropic/OpenAI tiers, then off) |
 | <kbd>Esc</kbd> | Interrupt the boss mid-turn (workers keep running) |
 | <kbd>Ctrl+T</kbd> | Open the Tasks pane |
 | <kbd>Ctrl+C</kbd> ×2 | Exit gg-boss |

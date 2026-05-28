@@ -4,6 +4,7 @@ import { ThemeContext, loadTheme, useTheme } from "@kenkaiiii/ggcoder/ui/theme";
 import { AnimationProvider } from "@kenkaiiii/ggcoder/ui";
 import { useDoublePress } from "@kenkaiiii/ggcoder/ui/hooks/double-press";
 import type { Provider } from "@kenkaiiii/gg-ai";
+import { getNextThinkingLevel } from "@kenkaiiii/ggcoder";
 import { TerminalSizeProvider, useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
 import { BossChatScreen } from "./boss-chat-screen.js";
 import { bossStore, getBossState, useBossState } from "./boss-store.js";
@@ -392,7 +393,11 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
       onAbort={handleAbort}
       onTab={() => bossStore.cycleScope()}
       onShiftTab={() => {
-        const next = state.bossThinkingLevel ? undefined : "medium";
+        const next = getNextThinkingLevel(
+          state.bossProvider,
+          state.bossModel,
+          state.bossThinkingLevel,
+        );
         void boss.setBossThinking(next);
       }}
       commands={BOSS_SLASH_COMMANDS}
