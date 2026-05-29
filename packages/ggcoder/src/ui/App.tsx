@@ -401,6 +401,12 @@ export function App(props: AppProps) {
   const [updatePending, setUpdatePending] = useState<boolean>(
     () => getPendingUpdate(props.version) !== null,
   );
+  // Signal that pushes text into the InputArea composer (e.g. restoring queued
+  // messages after an interrupt). Bumping `nonce` triggers the injection even
+  // when the text is identical to a prior restore.
+  const [composerInject, setComposerInject] = useState<{ text: string; nonce: number } | null>(
+    null,
+  );
   const agentRunningRef = useRef(false);
   const runningGoalIdsRef = useRef<Set<string>>(new Set());
   const activeVerifierRunIdsRef = useRef<Set<string>>(new Set());
@@ -2041,7 +2047,7 @@ export function App(props: AppProps) {
           "queue",
           `Queued message: ${trimmed.length > 80 ? trimmed.slice(0, 80) + "..." : trimmed}`,
         );
-        agentLoop.queueMessage(userContent);
+        agentLoop.queueMessage(userContent, input);
         let displayText = input;
         if (hasImages) {
           const { cleanText } = await extractImagePaths(input, props.cwd);
@@ -2118,14 +2124,20 @@ export function App(props: AppProps) {
 
   const handleAbort = useCallback(() => {
     if (agentLoop.isRunning) {
-      agentLoop.clearQueue();
+      // Restore any unsent queued messages to the composer instead of dropping
+      // them, so an interrupt never silently discards what the user typed.
+      const queuedText = agentLoop.drainQueuedText();
+      if (queuedText) {
+        setLiveItems((prev) => prev.filter((item) => item.kind !== "queued"));
+        setComposerInject({ text: queuedText, nonce: nextIdRef.current++ });
+      }
       agentLoop.abort();
     } else if (compactionAbortRef.current) {
       compactionAbortRef.current.abort();
     } else {
       handleDoubleExit();
     }
-  }, [agentLoop, handleDoubleExit]);
+  }, [agentLoop, handleDoubleExit, setLiveItems]);
 
   const handleToggleThinking = useCallback(() => {
     setThinkingLevel((prev) => {
@@ -2880,6 +2892,7 @@ export function App(props: AppProps) {
           inputControls={{
             onSubmit: handleSubmit,
             onAbort: handleAbort,
+            injectText: composerInject,
             inputActive: !taskBarFocused && !overlay,
             onDownAtEnd: handleFocusTaskBar,
             onShiftTab: handleToggleThinking,

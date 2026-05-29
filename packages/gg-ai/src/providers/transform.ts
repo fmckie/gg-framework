@@ -17,6 +17,23 @@ import { zodToJsonSchema } from "../utils/zod-to-json-schema.js";
 
 // ── Shared helpers ─────────────────────────────────────────
 
+/**
+ * True for content parts that Anthropic treats as position-sensitive reasoning
+ * blocks in the latest assistant message: SIGNED `thinking` blocks and
+ * `redacted_thinking` blocks (round-tripped as opaque `raw`). Unsigned thinking
+ * (e.g. from GLM/OpenAI or an aborted stream) is excluded — it is converted to a
+ * text block on the way out, so it carries no signature for Anthropic to validate
+ * and imposes no positional constraint.
+ */
+function isPositionSensitiveThinking(part: ContentPart): boolean {
+  if (part.type === "thinking") return !!part.signature;
+  if (part.type === "raw") {
+    const t = part.data.type;
+    return t === "thinking" || t === "redacted_thinking";
+  }
+  return false;
+}
+
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
 
@@ -181,24 +198,51 @@ export function toAnthropicMessages(
       continue;
     }
     if (msg.role === "assistant") {
+      // Anthropic validates that thinking/redacted_thinking blocks in the latest
+      // assistant message are byte-identical AND at their original content
+      // positions (interleaved-thinking-2025-05-14). Dropping a block that
+      // precedes a thinking block shifts that thinking block's index, which the
+      // API rejects with "`thinking` or `redacted_thinking` blocks in the latest
+      // assistant message cannot be modified." So we must NOT strip empty text
+      // blocks that sit before a thinking block. Empty text blocks after the
+      // last thinking block can still be dropped safely.
+      const lastThinkingIdx =
+        typeof msg.content === "string"
+          ? -1
+          : msg.content.reduce(
+              (last, part, idx) => (isPositionSensitiveThinking(part) ? idx : last),
+              -1 as number,
+            );
       const content =
         typeof msg.content === "string"
           ? msg.content
           : msg.content
-              .filter((part) => {
-                // Strip thinking blocks without a valid signature (e.g. from GLM/OpenAI)
-                // — Anthropic rejects empty signatures
-                if (part.type === "thinking" && !part.signature) return false;
+              .filter((part, idx) => {
+                // Drop unsigned thinking blocks ONLY when they carry no text — an
+                // empty, signature-less thinking block has nothing to preserve.
+                // Signed and non-empty unsigned thinking are handled in the map
+                // below (kept verbatim / converted to text respectively).
+                if (part.type === "thinking" && !part.signature && !part.text) return false;
                 // Strip empty text blocks — Anthropic rejects text content blocks
                 // with empty strings (can happen when the model returns tool_use
-                // with an empty companion text block)
-                if (part.type === "text" && !part.text) return false;
+                // with an empty companion text block). Keep them when a signed
+                // thinking/redacted_thinking block follows, since removal would
+                // reposition it (see above).
+                if (part.type === "text" && !part.text && idx > lastThinkingIdx) return false;
                 return true;
               })
               .map((part): Anthropic.ContentBlockParam => {
                 if (part.type === "text") return { type: "text", text: part.text };
-                if (part.type === "thinking")
-                  return { type: "thinking", thinking: part.text, signature: part.signature! };
+                if (part.type === "thinking") {
+                  // Signed thinking round-trips verbatim. Unsigned thinking (GLM/
+                  // OpenAI, or an aborted Anthropic stream) has no signature for
+                  // Anthropic to validate and would be rejected as a thinking
+                  // block, so preserve its reasoning as a text block instead of
+                  // discarding it — this also keeps block positions stable.
+                  return part.signature
+                    ? { type: "thinking", thinking: part.text, signature: part.signature }
+                    : { type: "text", text: part.text };
+                }
                 if (part.type === "tool_call")
                   return {
                     type: "tool_use",

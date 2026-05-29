@@ -84,6 +84,139 @@ describe("Anthropic transform", () => {
 
     expect(tools.map((tool) => tool.eager_input_streaming)).toEqual([true, true]);
   });
+
+  it("preserves empty text blocks that precede a thinking block (no position shift)", () => {
+    // Anthropic rejects the request if a thinking block in the latest assistant
+    // message moves position. Dropping the leading empty text block would shift
+    // the signed thinking block from index 1 to 0 -> "thinking blocks ... cannot
+    // be modified". The empty text block must be kept.
+    const messages: Message[] = [
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "thinking", text: "reasoning", signature: "sig-abc" },
+          { type: "tool_call", id: "toolu_1", name: "read_file", args: { filePath: "a.ts" } },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[1]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content.map((b) => b.type)).toEqual(["text", "thinking", "tool_use"]);
+    expect(content[1]).toEqual({ type: "thinking", thinking: "reasoning", signature: "sig-abc" });
+  });
+
+  it("keeps empty text before a redacted_thinking (raw) block", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "raw", data: { type: "redacted_thinking", data: "encrypted" } },
+          { type: "tool_call", id: "toolu_2", name: "read_file", args: { filePath: "b.ts" } },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content.map((b) => b.type)).toEqual(["text", "redacted_thinking", "tool_use"]);
+  });
+
+  it("still strips empty text blocks when no thinking block is present", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "text", text: "real answer" },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content).toEqual([{ type: "text", text: "real answer" }]);
+  });
+
+  it("strips empty text blocks that come after the last thinking block", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "reasoning", signature: "sig-xyz" },
+          { type: "text", text: "answer" },
+          { type: "text", text: "" },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content.map((b) => b.type)).toEqual(["thinking", "text"]);
+  });
+
+  it("converts unsigned thinking blocks to text instead of dropping them", () => {
+    // Cross-provider (GLM/OpenAI) or aborted-stream thinking has no signature.
+    // Anthropic rejects empty signatures, so preserve the reasoning as text
+    // rather than discarding the content.
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "unsigned reasoning" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content).toEqual([
+      { type: "text", text: "unsigned reasoning" },
+      { type: "text", text: "answer" },
+    ]);
+  });
+
+  it("drops unsigned thinking blocks that carry no text", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    expect(content).toEqual([{ type: "text", text: "answer" }]);
+  });
+
+  it("does not treat unsigned thinking as position-sensitive (empty text still stripped)", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "" },
+          { type: "thinking", text: "unsigned" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ];
+
+    const { messages: out } = toAnthropicMessages(messages);
+    const content = out[0]?.content as unknown as Array<Record<string, unknown>>;
+    // Leading empty text is dropped because the following thinking block is
+    // unsigned (becomes text) and imposes no positional constraint.
+    expect(content).toEqual([
+      { type: "text", text: "unsigned" },
+      { type: "text", text: "answer" },
+    ]);
+  });
 });
 
 describe("OpenAI transform", () => {

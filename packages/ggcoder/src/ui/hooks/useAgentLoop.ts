@@ -49,6 +49,15 @@ function mergeUserContent(items: UserContent[]): UserContent {
   return parts;
 }
 
+/** Extract the plain-text portion of a UserContent value (drops images). */
+function textFromUserContent(content: UserContent): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((part): part is TextContent => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
 export function shouldRetainThinkingDelta(): boolean {
   return false;
 }
@@ -110,12 +119,18 @@ export interface UseAgentLoopReturn {
   run: (userContent: UserContent) => Promise<void>;
   abort: () => void;
   reset: () => void;
-  /** Queue a message to be processed after the current run completes. */
-  queueMessage: (content: UserContent) => void;
+  /** Queue a message to be processed after the current run completes.
+   *  `text` is the original typed text, retained so it can be restored to the
+   *  composer if the run is interrupted before the queue drains. */
+  queueMessage: (content: UserContent, text?: string) => void;
   /** Number of messages currently waiting in the queue. */
   queuedCount: number;
   /** Clear all queued messages. */
   clearQueue: () => void;
+  /** Pop every queued message, clear the queue, and return the combined
+   *  original text (joined with blank lines). Empty string when nothing was
+   *  queued. Used to restore unsent input to the composer on interrupt. */
+  drainQueuedText: () => string;
   isRunning: boolean;
   streamingText: string;
   streamingThinking: string;
@@ -218,7 +233,7 @@ export function useAgentLoop(
   const [linesChanged, setLinesChanged] = useState({ added: 0, removed: 0 });
 
   const abortRef = useRef<AbortController | null>(null);
-  const queueRef = useRef<UserContent[]>([]);
+  const queueRef = useRef<{ content: UserContent; text: string }[]>([]);
   const [queuedCount, setQueuedCount] = useState(0);
   const activeToolCallsRef = useRef<ActiveToolCall[]>([]);
   const textVisibleRef = useRef("");
@@ -286,14 +301,25 @@ export function useAgentLoop(
     setQueuedCount(0);
   }, []);
 
-  const queueMessage = useCallback((content: UserContent) => {
-    queueRef.current.push(content);
+  const queueMessage = useCallback((content: UserContent, text?: string) => {
+    queueRef.current.push({ content, text: text ?? textFromUserContent(content) });
     setQueuedCount(queueRef.current.length);
   }, []);
 
   const clearQueue = useCallback(() => {
     queueRef.current = [];
     setQueuedCount(0);
+  }, []);
+
+  const drainQueuedText = useCallback((): string => {
+    if (queueRef.current.length === 0) return "";
+    const text = queueRef.current
+      .map((q) => q.text)
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+    queueRef.current = [];
+    setQueuedCount(0);
+    return text;
   }, []);
 
   const run = useCallback(
@@ -471,7 +497,7 @@ export function useAgentLoop(
               if (queueRef.current.length === 0) return null;
               const batch = queueRef.current.splice(0);
               setQueuedCount(0);
-              const merged = mergeUserContent(batch);
+              const merged = mergeUserContent(batch.map((q) => q.content));
               onQueuedStart?.(merged);
               return [{ role: "user" as const, content: merged }];
             },
@@ -834,7 +860,7 @@ export function useAgentLoop(
       if (!aborted && queueRef.current.length > 0) {
         const batch = queueRef.current.splice(0);
         setQueuedCount(0);
-        const merged = mergeUserContent(batch);
+        const merged = mergeUserContent(batch.map((q) => q.content));
         // Let React process the onDone state updates before starting next run
         await new Promise((r) => setTimeout(r, 100));
         onQueuedStart?.(merged);
@@ -877,6 +903,7 @@ export function useAgentLoop(
     queueMessage,
     queuedCount,
     clearQueue,
+    drainQueuedText,
     isRunning,
     streamingText,
     streamingThinking,

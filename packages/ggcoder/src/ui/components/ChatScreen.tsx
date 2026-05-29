@@ -24,6 +24,7 @@ import type { BackgroundProcess } from "../../core/process-manager.js";
 interface ChatInputControls {
   onSubmit: (value: string, images: ImageAttachment[], paste?: PasteInfo) => void;
   onAbort: () => void;
+  injectText?: { text: string; nonce: number } | null;
   inputActive: boolean;
   onDownAtEnd: () => void;
   onShiftTab: () => void;
@@ -237,6 +238,7 @@ export function ChatScreen({
         <InputArea
           onSubmit={inputControls.onSubmit}
           onAbort={inputControls.onAbort}
+          injectText={inputControls.injectText}
           disabled={isRunning}
           isActive={inputControls.inputActive}
           onDownAtEnd={inputControls.onDownAtEnd}

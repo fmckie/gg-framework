@@ -203,6 +203,12 @@ export interface PasteInfo {
 interface InputAreaProps {
   onSubmit: (value: string, images: ImageAttachment[], paste?: PasteInfo) => void;
   onAbort: () => void;
+  /**
+   * Text to push into the composer from outside (e.g. queued messages restored
+   * after an interrupt). Bumping `nonce` re-triggers injection even when the
+   * text is unchanged. Injected text is appended after any existing draft.
+   */
+  injectText?: { text: string; nonce: number } | null;
   disabled?: boolean;
   isActive?: boolean;
   onDownAtEnd?: () => void;
@@ -305,6 +311,7 @@ function getVisualLines(text: string, columns: number): string[] {
 export function InputArea({
   onSubmit,
   onAbort,
+  injectText,
   disabled = false,
   isActive = true,
   onDownAtEnd,
@@ -343,6 +350,21 @@ export function InputArea({
   const historyRef = useRef<string[]>(loadHistory());
   const historyIndexRef = useRef(-1);
   const draftRef = useRef("");
+
+  // ── External text injection (e.g. queued messages restored on interrupt) ──
+  // Append injected text to any existing draft and move the cursor to the end.
+  // Keyed on nonce so repeated injections of identical text still fire.
+  const lastInjectNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!injectText || injectText.text.length === 0) return;
+    if (lastInjectNonceRef.current === injectText.nonce) return;
+    lastInjectNonceRef.current = injectText.nonce;
+    setValue((prev) => {
+      const next = prev.length > 0 ? `${prev}\n\n${injectText.text}` : injectText.text;
+      setCursor(next.length);
+      return next;
+    });
+  }, [injectText]);
 
   // ── Ctrl+R history search state ──────────────────────────
   const [searchMode, setSearchMode] = useState(false);
