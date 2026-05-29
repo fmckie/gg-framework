@@ -6,6 +6,7 @@ import {
   classifyOverload,
   extractContextOverflowDetails,
   isContextOverflow,
+  isUsageLimitError,
 } from "./agent-loop.js";
 import type { AgentEvent, AgentResult, AgentTool } from "./types.js";
 import type { Message, StreamOptions } from "@kenkaiiii/gg-ai";
@@ -159,6 +160,40 @@ describe("classifyOverload", () => {
     expect(
       classifyOverload(new ProviderError("anthropic", "overloaded_error", { statusCode: 529 })),
     ).toBe("overloaded");
+  });
+
+  it("does not treat a usage-window 429 as a retriable rate limit", () => {
+    expect(
+      classifyOverload(
+        new ProviderError("anthropic", "Claude usage limit reached", {
+          statusCode: 429,
+          resetsAt: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("isUsageLimitError", () => {
+  it("matches the canonical usage-limit message", () => {
+    expect(
+      isUsageLimitError(
+        new ProviderError("anthropic", "Claude usage limit reached", { statusCode: 429 }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match a transient rate-limit error", () => {
+    expect(
+      isUsageLimitError(
+        new ProviderError("anthropic", "rate_limit_error: Rate limited.", { statusCode: 429 }),
+      ),
+    ).toBe(false);
+  });
+
+  it("returns false for non-Error values", () => {
+    expect(isUsageLimitError("Claude usage limit reached")).toBe(false);
+    expect(isUsageLimitError(null)).toBe(false);
   });
 });
 
@@ -366,6 +401,25 @@ describe("agentLoop", () => {
     await expect(collectLoop(messages, { provider: "anthropic", model: "test" })).rejects.toThrow(
       "prompt is too long",
     );
+  });
+
+  it("surfaces a usage-window 429 immediately without retrying", async () => {
+    const usageErr = new ProviderError("anthropic", "Claude usage limit reached", {
+      statusCode: 429,
+      resetsAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+    mockStream.mockReturnValue(mockErrorResult(usageErr) as unknown as ReturnType<typeof stream>);
+
+    const messages: Message[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "test" },
+    ];
+
+    await expect(collectLoop(messages, { provider: "anthropic", model: "test" })).rejects.toThrow(
+      "Claude usage limit reached",
+    );
+    // No retry bucket — the stream is attempted exactly once.
+    expect(mockStream).toHaveBeenCalledTimes(1);
   });
 
   it("polls getSteeringMessages before the first LLM call", async () => {

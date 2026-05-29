@@ -152,6 +152,18 @@ export function isBillingError(err: unknown): boolean {
 }
 
 /**
+ * Detect subscription/plan usage-window exhaustion (e.g. an Anthropic OAuth
+ * plan running out of usage). Unlike a transient per-minute 429, this does NOT
+ * clear with a quick retry — the user must wait for the window to reset — so the
+ * loop surfaces it immediately instead of retrying for minutes. Matches the
+ * canonical message gg-ai stamps onto the provider error.
+ */
+export function isUsageLimitError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /usage limit reached/i.test(err.message);
+}
+
+/**
  * Detect overloaded/rate-limit errors from LLM providers.
  * HTTP 429 (rate limit) or 529/503 (overloaded).
  * Excludes billing/quota errors which won't resolve with a retry.
@@ -183,6 +195,8 @@ export function classifyOverload(
 ): "rate_limit" | "overloaded" | "provider_error" | null {
   if (!(err instanceof Error)) return null;
   if (isBillingError(err)) return null;
+  // Usage-window exhaustion is not retriable — keep it out of the backoff bucket.
+  if (isUsageLimitError(err)) return null;
   const msg = err.message.toLowerCase();
   const errorWithStatus = err as Error & { statusCode?: unknown };
   const statusCode =
@@ -694,6 +708,18 @@ export async function* agentLoop(
           provider: options.provider,
           model: options.model,
         });
+        // Subscription/plan usage-window exhaustion (e.g. Anthropic OAuth plan
+        // out of usage). Not a transient throttle — retrying just burns minutes
+        // before failing, which looks like a hang. Surface immediately so the
+        // host UI shows a clear "usage finished" message. The conversation in
+        // `messages` is left intact so the user can resume once it resets.
+        if (isUsageLimitError(err)) {
+          diag("usage_limit_reached", {
+            provider: options.provider,
+            model: options.model,
+          });
+          throw err;
+        }
         // Context overflow: try a forced compaction before giving up.
         // The pre-turn transformContext check uses estimated tokens, which can
         // underestimate code-heavy content. When the API confirms overflow we
