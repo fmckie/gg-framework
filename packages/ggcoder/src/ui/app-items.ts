@@ -284,6 +284,32 @@ export interface ToolGroupItem {
   id: string;
 }
 
+/**
+ * Tool-activity item kinds whose transcript rendering is REPLACED by the pinned
+ * LiveToolPanel. These items still flow through live/history state (so flush,
+ * overflow, and persistence logic is unchanged) but render to nothing in the
+ * transcript — the panel above the activity bar is now their sole display.
+ *
+ * Server tools and sub-agent groups are intentionally excluded: they keep their
+ * own richer transcript rows.
+ */
+const PANEL_REPLACED_TOOL_KINDS = new Set<string>(["tool_start", "tool_done", "tool_group"]);
+
+/**
+ * True when an item's transcript row is replaced by the LiveToolPanel.
+ *
+ * Image-bearing tool results (read/screenshot) are an exception: the inline
+ * image is real content the user asked to see, so those items keep rendering
+ * in the transcript. Only the text-only activity rows are suppressed.
+ */
+export function isPanelReplacedToolItem(item: {
+  kind: string;
+  imagePreviews?: readonly unknown[];
+}): boolean {
+  if (!PANEL_REPLACED_TOOL_KINDS.has(item.kind)) return false;
+  return !(item.imagePreviews && item.imagePreviews.length > 0);
+}
+
 export type CompletedItem =
   | UserItem
   | GoalItem

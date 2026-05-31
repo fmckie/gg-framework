@@ -19,6 +19,7 @@ import { QueueIndicator } from "./QueueIndicator.js";
 import { InputArea, type PasteInfo } from "./InputArea.js";
 import { type GoalStatusEntry } from "./GoalStatusBar.js";
 import { FooterStatusRow } from "./FooterStatusRow.js";
+import type { LiveToolEntry } from "./LiveToolPanel.js";
 import type { ActivityPhase, RetryInfo } from "../hooks/useAgentLoop.js";
 import type { BackgroundProcess } from "../../core/process-manager.js";
 
@@ -89,6 +90,7 @@ interface ChatScreenProps {
   statusSlotVisible: boolean;
   activityVisible: boolean;
   stallStatusVisible: boolean;
+  liveToolFeed: readonly LiveToolEntry[];
   doneStatus: { verb: string; durationMs: number } | null;
   activityPhase: ActivityPhase;
   elapsedMs: number;
@@ -160,6 +162,7 @@ export function ChatScreen({
   statusSlotVisible,
   activityVisible,
   stallStatusVisible,
+  liveToolFeed,
   doneStatus,
   activityPhase,
   elapsedMs,
@@ -239,6 +242,7 @@ export function ChatScreen({
           statusSlotVisible={statusSlotVisible}
           activityVisible={activityVisible}
           stallStatusVisible={stallStatusVisible}
+          liveToolFeed={liveToolFeed}
           doneStatus={doneStatus}
           activityPhase={activityPhase}
           elapsedMs={elapsedMs}

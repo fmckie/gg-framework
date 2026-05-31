@@ -47,8 +47,16 @@ const COMPACT_TRANSCRIPT_BOUNDARIES = new Set<string>([
   "user→assistant",
   "assistant→user",
   "user→queued",
-  "assistant→assistant",
 ]);
+
+// NOTE: `assistant→assistant` is intentionally NOT compact. Two consecutive
+// assistant items are separate responses (e.g. across tool turns, now that tool
+// rows render in the pinned LiveToolPanel instead of the transcript) and need a
+// blank-line separator. Continuation paragraphs of a SINGLE streamed response
+// are handled earlier via the `continuation` flag, which re-inserts the same
+// blank line before reaching this compact check — so paragraph breaks are not
+// affected by this exclusion.
+
 
 export function shouldSeparateTranscriptItems({
   previousKind,
@@ -162,11 +170,13 @@ export function getTranscriptItemMarginTop({
   const previousKind =
     previousLiveItem?.kind ?? lastPendingHistoryItem?.kind ?? lastHistoryItem?.kind;
   if (item.kind === "assistant") {
-    // A continuation chunk is the next paragraph of a response whose earlier
-    // paragraphs were already flushed mid-stream. assistant→assistant is
-    // otherwise compact (0 margin), but the paragraphs were separated by a
-    // blank line in the original response, so re-insert it. Mirrors the
-    // fullscreen serializer's `leadingSeparator: true` for continuations.
+    // A continuation chunk is the next paragraph of a SINGLE response whose
+    // earlier paragraphs were already flushed mid-stream. It always gets the
+    // blank line that separated the paragraphs in the original response, even
+    // when the text is empty. Mirrors the serializer's `leadingSeparator: true`
+    // for continuations. (Separate assistant responses are also separated below
+    // via the standard boundary rule, now that assistant→assistant is no longer
+    // a compact boundary.)
     if (item.continuation === true && previousKind === "assistant") return 1;
     return shouldTopSpaceAssistantAfterToolBoundary({
       text: typeof item.text === "string" ? item.text : "",

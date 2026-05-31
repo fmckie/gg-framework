@@ -4,6 +4,7 @@ import wrapAnsi from "wrap-ansi";
 import type { Provider } from "@kenkaiiii/gg-ai";
 import { getModel } from "../core/model-registry.js";
 import type { CompletedItem } from "./App.js";
+import { isPanelReplacedToolItem } from "./app-items.js";
 import type { PasteInfo } from "./components/InputArea.js";
 import { BLACK_CIRCLE, RETURN_SYMBOL } from "./constants/figures.js";
 import { SPINNER_FRAMES } from "./spinner-frames.js";
@@ -134,6 +135,10 @@ export function createTerminalHistoryPrinter({
       const writeOutput = options?.write ?? ((data: string) => void stream.write(data));
       for (const item of items) {
         if (!options?.force && printed.has(item.id)) continue;
+        // Tool activity is shown live in the pinned LiveToolPanel, not the
+        // scrollback transcript. Skip without touching spacing state so the
+        // surrounding non-tool rows keep their separators.
+        if (isPanelReplacedToolItem(item)) continue;
         const output = serializeCompletedItemToTerminalHistory(item, context);
         const endsWithBlankLine = item.kind === "banner";
         // A continuation assistant chunk is the next paragraph of a response

@@ -1,4 +1,5 @@
 import type { CompletedItem } from "../app-items.js";
+import { isPanelReplacedToolItem } from "../app-items.js";
 import {
   serializeCompletedItemToTerminalHistory,
   type TerminalHistoryContext,
@@ -24,6 +25,8 @@ export function buildTranscriptLines(
   let previousPrintedKind: CompletedItem["kind"] | null = null;
 
   for (const item of items) {
+    // Tool activity renders in the pinned LiveToolPanel, not the transcript.
+    if (isPanelReplacedToolItem(item)) continue;
     const output = serializeCompletedItemToTerminalHistory(item, context);
     const endsWithBlankLine = item.kind === "banner";
     // A continuation assistant chunk is the next paragraph of a response whose

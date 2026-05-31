@@ -184,7 +184,8 @@ describe("TUI simulation", () => {
     const compact = frame.filter((line) => line.length > 0);
 
     expect(compact).toContain(" ⏺ I’ll inspect the renderer first.");
-    expect(compact.some((line) => line.includes("Read") && line.includes("App.tsx"))).toBe(true);
+    // Tool rows now render in the pinned LiveToolPanel, not the transcript.
+    expect(compact.some((line) => line.includes("Read") && line.includes("App.tsx"))).toBe(false);
     expect(compact).toContain(" ⏺ Now I’ll patch the layout.");
     expect(countLineContaining(frame, "Now I’ll patch the layout.")).toBe(1);
   });

@@ -465,7 +465,7 @@ describe("terminal history", () => {
     expect(stripAnsi(output)).toContain(" ⏺ First chunk.\n\n   Second chunk.");
   });
 
-  it("adds a blank separator between assistant and tool rows", () => {
+  it("omits tool rows from scrollback (shown in the live tool panel instead)", () => {
     let output = "";
     const stream = {
       write(chunk: string) {
@@ -495,10 +495,12 @@ describe("terminal history", () => {
       context,
     );
 
-    expect(stripAnsi(output)).toMatch(new RegExp("inspect the files\\.\\n\\n [⏺●] Read"));
+    const text = stripAnsi(output);
+    expect(text).toContain("inspect the files.");
+    expect(text).not.toContain("Read");
   });
 
-  it("adds blank separators between consecutive tool rows", () => {
+  it("omits consecutive tool_done rows from scrollback", () => {
     let output = "";
     const stream = {
       write(chunk: string) {
@@ -532,7 +534,7 @@ describe("terminal history", () => {
       context,
     );
 
-    expect(stripAnsi(output)).toMatch(new RegExp("Read src/a\\.ts\\n\\n [⏺●] Searched"));
+    expect(output).toBe("");
   });
 
   it("does not add a blank separator above the next user row after an assistant", () => {

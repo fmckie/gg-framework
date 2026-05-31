@@ -203,7 +203,10 @@ describe("transcript spacing", () => {
     ).toBe(1);
   });
 
-  it("keeps non-continuation stacked assistant rows compact", () => {
+  it("separates non-continuation stacked assistant rows with a blank line", () => {
+    // Two separate responses (e.g. across tool turns) are distinct messages and
+    // need a blank-line gap. Continuation paragraphs of one response are handled
+    // earlier via the `continuation` flag and are unaffected.
     const item: CompletedItem = { kind: "assistant", id: "assistant-2", text: "second answer" };
     const previous: CompletedItem = { kind: "assistant", id: "assistant-1", text: "first answer" };
 
@@ -212,7 +215,7 @@ describe("transcript spacing", () => {
         item,
         previousLiveItem: previous,
       }),
-    ).toBe(0);
+    ).toBe(1);
   });
 
   it("does not add a top gap to a queued placeholder immediately after its user row", () => {

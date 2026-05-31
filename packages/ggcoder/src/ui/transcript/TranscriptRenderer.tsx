@@ -7,6 +7,7 @@ import { CompactionDone, CompactionSpinner } from "../components/CompactionNotic
 import { Banner } from "../components/Banner.js";
 import type { useTheme } from "../theme/theme.js";
 import type { CompletedItem } from "../app-items.js";
+import { isPanelReplacedToolItem } from "../app-items.js";
 import { TranscriptItemFrame } from "./TranscriptItemFrame.js";
 import { getTranscriptItemMarginTop } from "./spacing.js";
 import { GoalProgressRow, GoalRow } from "./GoalRows.js";
@@ -140,10 +141,16 @@ export function renderTranscriptItem({
     case "ideal_hook":
       return withTranscriptSpacing(<IdealHookMessage key={item.id} text={item.text} />);
     case "tool_start":
-      return withTranscriptSpacing(<ToolStartRow item={item} />);
     case "tool_done":
-      return withTranscriptSpacing(<ToolDoneRow item={item} />);
     case "tool_group":
+      // Tool activity now lives in the pinned LiveToolPanel above the activity
+      // bar — suppress the in-transcript rows so they aren't shown twice.
+      // Image-bearing results (read/screenshot) are the exception: they keep
+      // their row so the inline preview still renders. Mirrors the scrollback
+      // printer + fullscreen viewport, which use the same predicate.
+      if (isPanelReplacedToolItem(item)) return null;
+      if (item.kind === "tool_start") return withTranscriptSpacing(<ToolStartRow item={item} />);
+      if (item.kind === "tool_done") return withTranscriptSpacing(<ToolDoneRow item={item} />);
       return withTranscriptSpacing(<ToolGroupRow item={item} />);
     case "server_tool_start":
       return withTranscriptSpacing(<ServerToolStartRow item={item} />);

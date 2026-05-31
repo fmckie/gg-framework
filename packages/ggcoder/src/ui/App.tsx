@@ -36,6 +36,8 @@ import type { SubAgentInfo } from "./components/SubAgentPanel.js";
 import type { SubAgentUpdate, SubAgentDetails } from "../tools/subagent.js";
 import { createWebSearchTool } from "../tools/web-search.js";
 import { ChatScreen } from "./components/ChatScreen.js";
+import type { LiveToolEntry } from "./components/LiveToolPanel.js";
+import { LIVE_TOOL_PANEL_ROWS } from "./components/LiveToolPanel.js";
 import { FullScreenOverlayRouter } from "./components/FullScreenOverlayRouter.js";
 import { SessionSummaryDisplay } from "./components/SessionSummary.js";
 import {
@@ -429,6 +431,10 @@ export function App(props: AppProps) {
     const restoredHistoryIds = new Set(history.map((item) => item.id));
     return removeItemsWithIds(restoredLiveItems, restoredHistoryIds);
   });
+  // Rolling feed of recent tool actions for the pinned LiveToolPanel. Kept
+  // separate from `liveItems` (the scrollback record) so tool calls mutate in
+  // place above the activity bar instead of spamming the transcript.
+  const [liveToolFeed, setLiveToolFeed] = useState<LiveToolEntry[]>([]);
   // overlay seeded from sessionStore (lives across remount). Falls back to
   // props.initialOverlay (CLI launched with one), then null.
   const [overlay, setOverlay] = useState<
@@ -1214,6 +1220,15 @@ export function App(props: AppProps) {
           const startedAt = Date.now();
           const animateUntil = startedAt + RUNNING_INDICATOR_ANIMATION_MS;
 
+          // Feed the pinned LiveToolPanel. Keep a small tail (panel shows the
+          // last few rows) so memory stays bounded across long sessions.
+          setLiveToolFeed((prev) =>
+            [
+              ...prev,
+              { id: toolCallId, name, args, status: "running" as const },
+            ].slice(-(LIVE_TOOL_PANEL_ROWS * 2)),
+          );
+
           const appendToolStart = (prev: CompletedItem[]): CompletedItem[] => {
             const visible = pinStreamingTextBeforeToolBoundary({
               items: prev,
@@ -1353,6 +1368,13 @@ export function App(props: AppProps) {
           details?: unknown,
         ) => {
           recordToolEnd(sessionStatsRef.current, name, isError, durationMs);
+          setLiveToolFeed((prev) =>
+            prev.map((entry) =>
+              entry.id === toolCallId
+                ? { ...entry, status: "done" as const, isError, result, details }
+                : entry,
+            ),
+          );
           if (name === "edit" && !isError) {
             const diff = (details as { diff?: string } | undefined)?.diff ?? result;
             addLinesChanged(sessionStatsRef.current, {
@@ -2621,6 +2643,16 @@ export function App(props: AppProps) {
     initialRunAllPixel: props.sessionStore?.runAllPixel ?? false,
   });
 
+  // Reset the live tool feed at the start of each run so the pinned panel only
+  // ever reflects the current turn's activity, not the previous one's.
+  const wasRunningRef = useRef(false);
+  useEffect(() => {
+    if (agentLoop.isRunning && !wasRunningRef.current) {
+      setLiveToolFeed([]);
+    }
+    wasRunningRef.current = agentLoop.isRunning;
+  }, [agentLoop.isRunning]);
+
   const isSkillsView = overlay === "skills";
   const isPlanView = overlay === "plan";
   const {
@@ -3149,6 +3181,7 @@ export function App(props: AppProps) {
           statusSlotVisible={statusSlotVisible}
           activityVisible={activityVisible}
           stallStatusVisible={stallStatusVisible}
+          liveToolFeed={liveToolFeed}
           doneStatus={doneStatus}
           activityPhase={agentLoop.activityPhase}
           elapsedMs={agentLoop.elapsedMs}
