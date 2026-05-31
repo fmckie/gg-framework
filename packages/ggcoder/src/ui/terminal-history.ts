@@ -122,11 +122,32 @@ export interface TerminalHistoryContext {
   cwd: string;
 }
 
+// How many recent assistant fingerprints to remember for retry de-dup. A
+// stream retry re-emits the SAME leading paragraphs it just flushed, always
+// adjacent in print order — so a small recency window catches retries while
+// still allowing a genuinely repeated short phrase (e.g. "Done.") to reappear
+// many turns later.
+const ASSISTANT_FINGERPRINT_WINDOW = 16;
+
 export function createTerminalHistoryPrinter({
   stream = process.stdout,
 }: TerminalHistoryPrinterOptions = {}): TerminalHistoryPrinter {
   const printed = new Set<string>();
+  // Ordered ring of recently printed assistant text fingerprints. The printer
+  // dedupes by item id, but progressive mid-stream flushing assigns a FRESH id
+  // to each flushed paragraph. On a stream stall/overload the agent loop emits
+  // a `retry`, the provider re-streams from scratch, and those same paragraphs
+  // get re-flushed under new ids — so id-dedup alone lets the identical text
+  // print again (N retries => N+1 stacked copies). Fingerprinting the content
+  // suppresses those re-emissions regardless of id.
+  const recentAssistantFingerprints: string[] = [];
   let previousPrintedKind: CompletedItem["kind"] | null = null;
+
+  const fingerprintOf = (item: CompletedItem): string | null => {
+    if (item.kind !== "assistant") return null;
+    const normalized = item.text.replace(/\s+/g, " ").trim();
+    return normalized.length > 0 ? normalized : null;
+  };
 
   return {
     print(items, context, options) {
@@ -137,6 +158,14 @@ export function createTerminalHistoryPrinter({
         // scrollback transcript. Skip without touching spacing state so the
         // surrounding non-tool rows keep their separators.
         if (isPanelReplacedToolItem(item)) continue;
+        // Retry-driven duplicate: identical assistant text re-flushed under a
+        // new id after a stream restart. Mark the id printed so a later flush of
+        // the same item is a cheap id hit, then skip without writing.
+        const fingerprint = options?.force ? null : fingerprintOf(item);
+        if (fingerprint !== null && recentAssistantFingerprints.includes(fingerprint)) {
+          printed.add(item.id);
+          continue;
+        }
         const output = serializeCompletedItemToTerminalHistory(item, context);
         const endsWithBlankLine = item.kind === "banner";
         // A continuation assistant chunk is the next paragraph of a response
@@ -162,6 +191,12 @@ export function createTerminalHistoryPrinter({
         });
         if (formatted.length === 0) continue;
         printed.add(item.id);
+        if (fingerprint !== null) {
+          recentAssistantFingerprints.push(fingerprint);
+          if (recentAssistantFingerprints.length > ASSISTANT_FINGERPRINT_WINDOW) {
+            recentAssistantFingerprints.shift();
+          }
+        }
         writeOutput(formatted);
         // Inline image previews render in the Static scrollback region (straight
         // to the stream, above Ink's live frame). Only emit graphics escapes on
@@ -197,10 +232,12 @@ export function createTerminalHistoryPrinter({
     },
     clear() {
       printed.clear();
+      recentAssistantFingerprints.length = 0;
       previousPrintedKind = null;
     },
     resetPrinted() {
       printed.clear();
+      recentAssistantFingerprints.length = 0;
       previousPrintedKind = null;
     },
     get printedIds() {
