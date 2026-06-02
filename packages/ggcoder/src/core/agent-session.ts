@@ -20,7 +20,7 @@ import { discoverSkills, type Skill } from "./skills.js";
 import { ensureAppDirs } from "../config.js";
 import { buildSystemPrompt } from "../system-prompt.js";
 import { createTools, createWebSearchTool, type ProcessManager } from "../tools/index.js";
-import { MCPClientManager, getMCPServers } from "./mcp/index.js";
+import { MCPClientManager, getMCPServers, getAllMcpServers } from "./mcp/index.js";
 import { log } from "./logger.js";
 import { setEstimatorModel } from "./compaction/token-estimator.js";
 import { discoverAgents } from "./agents.js";
@@ -370,6 +370,7 @@ export class AgentSession {
         cacheRetention: "short",
         promptCacheKey: this.getPromptCacheKey(),
         supportsImages: modelInfo?.supportsImages,
+        supportsVideo: modelInfo?.supportsVideo,
         userAgent,
         // clearToolUses disabled — causes model to output unsolicited context summaries
         // Single tool result shouldn't exceed 30% of context window (in chars)
@@ -443,8 +444,13 @@ export class AgentSession {
         this.tools.push(createWebSearchTool());
       }
 
-      // Reconnect MCP servers (e.g. GLM needs Z.AI tools, others don't)
-      if (this.mcpManager) {
+      // Reconnect MCP servers ONLY when GLM is involved on either side — GLM
+      // is the only provider with a different server set (Z.AI tools), so a
+      // non-GLM switch keeps the identical set. Skipping the dispose/reconnect
+      // there avoids tearing down a live stdio child (e.g. kencode-search) and
+      // gambling on a `npx` re-spawn that could fail and drop the tools.
+      const glmInvolved = this.provider === "glm" || prevProvider === "glm";
+      if (this.mcpManager && glmInvolved) {
         // Remove old MCP tools
         this.tools = this.tools.filter((t) => !t.name.startsWith("mcp__"));
 
@@ -462,7 +468,9 @@ export class AgentSession {
               // GLM not configured — skip Z.AI MCP servers
             }
           }
-          const mcpTools = await this.mcpManager.connectAll(getMCPServers(this.provider, apiKey));
+          // Use getAllMcpServers so user-configured servers survive the reconnect.
+          const servers = await getAllMcpServers(this.provider, apiKey, this.cwd);
+          const mcpTools = await this.mcpManager.connectAll(servers);
           this.tools.push(...mcpTools);
         } catch (err) {
           log(

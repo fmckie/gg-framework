@@ -1,7 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { agentLoop, type AgentEvent, type AgentTool } from "@kenkaiiii/gg-agent";
 import { ProviderError } from "@kenkaiiii/gg-ai";
-import type { Message, Provider, ThinkingLevel, TextContent, ImageContent } from "@kenkaiiii/gg-ai";
+import type {
+  Message,
+  Provider,
+  ThinkingLevel,
+  TextContent,
+  ImageContent,
+  VideoContent,
+} from "@kenkaiiii/gg-ai";
 import type { IdealReviewStats } from "../../core/ideal-review.js";
 import {
   detectTextRepetition,
@@ -14,7 +21,7 @@ import { log } from "../../core/logger.js";
 /** Extract plain text from this run's user input — the verbatim request that
  *  the re-grounding hook re-pins after a compaction. Captured at run start so
  *  it is never the lossy summary compaction leaves behind. */
-function userContentText(content: string | (TextContent | ImageContent)[]): string {
+function userContentText(content: string | (TextContent | ImageContent | VideoContent)[]): string {
   if (typeof content === "string") return content;
   return content
     .filter((c): c is TextContent => "text" in c && typeof c.text === "string")
@@ -55,7 +62,7 @@ function mergeUserContent(items: UserContent[]): UserContent {
   }
 
   // Flatten into a single content array
-  const parts: (TextContent | ImageContent)[] = [];
+  const parts: (TextContent | ImageContent | VideoContent)[] = [];
   for (const item of items) {
     if (typeof item === "string") {
       parts.push({ type: "text", text: item });
@@ -93,6 +100,10 @@ export interface AgentLoopOptions {
   tools: AgentTool[];
   webSearch?: boolean;
   maxTokens: number;
+  /** Whether the active model supports native image input. */
+  supportsImages?: boolean;
+  /** Whether the active model supports native video input. */
+  supportsVideo?: boolean;
   thinking?: ThinkingLevel;
   apiKey?: string;
   baseUrl?: string;
@@ -131,7 +142,7 @@ export interface RetryInfo {
   delayMs: number;
 }
 
-export type UserContent = string | (TextContent | ImageContent)[];
+export type UserContent = string | (TextContent | ImageContent | VideoContent)[];
 
 export interface StreamSnapshot {
   text: string;
@@ -554,6 +565,8 @@ export function useAgentLoop(
             tools: options.tools,
             webSearch: options.webSearch,
             maxTokens: options.maxTokens,
+            supportsImages: options.supportsImages,
+            supportsVideo: options.supportsVideo,
             thinking: options.thinking,
             apiKey,
             baseUrl: options.baseUrl,

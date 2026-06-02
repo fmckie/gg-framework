@@ -236,6 +236,43 @@ describe("streamAnthropic error normalization", () => {
     } satisfies Partial<ProviderError>);
   });
 
+  it("stamps a MiniMax 500 insufficient-balance body as a usage limit", async () => {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const AnthropicMock = Anthropic as unknown as {
+      APIError: new (
+        status: number | undefined,
+        error: unknown,
+        message: string,
+        requestID?: string | null,
+        type?: string | null,
+      ) => Error;
+      nextError: Error | null;
+      nextEvents: unknown[] | null;
+    };
+    AnthropicMock.nextEvents = null;
+    const err = new AnthropicMock.APIError(
+      500,
+      { type: "api_error", message: "insufficient balance (1008)" },
+      "500 Internal Server Error",
+      "req_minimax_balance",
+      "api_error",
+    );
+    AnthropicMock.nextError = err;
+
+    const result = streamAnthropic({
+      provider: "anthropic",
+      model: "minimax-test",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "token",
+    });
+
+    await expect(result.response).rejects.toMatchObject({
+      provider: "anthropic",
+      statusCode: 500,
+    } satisfies Partial<ProviderError>);
+    await expect(result.response).rejects.toThrow(/usage limit reached/i);
+  });
+
   it("preserves tool arguments carried on the streamed content block start", async () => {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const AnthropicMock = Anthropic as unknown as {

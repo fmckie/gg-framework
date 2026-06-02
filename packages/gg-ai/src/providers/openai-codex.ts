@@ -14,7 +14,11 @@ import { StreamResult } from "../utils/event-stream.js";
 import { providerDiag } from "../utils/diag.js";
 import { resolveToolSchema } from "../utils/zod-to-json-schema.js";
 import { normalizePromptCacheKey } from "./prompt-cache-key.js";
-import { downgradeUnsupportedImages, toolResultText } from "./transform.js";
+import {
+  downgradeUnsupportedImages,
+  downgradeUnsupportedVideos,
+  toolResultText,
+} from "./transform.js";
 import { parseToolArguments } from "../utils/json.js";
 import { readSseStream } from "../utils/sse.js";
 import { extractRequestIdFromMessage } from "../utils/request-id.js";
@@ -37,7 +41,9 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   const baseUrl = (options.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
   const url = `${baseUrl}/codex/responses`;
 
-  const downgraded = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  const downgradedImages = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  // Codex (GPT OAuth) has no video support — always strip video to a placeholder.
+  const downgraded = downgradeUnsupportedVideos(downgradedImages, options.supportsVideo);
   const { system, input } = toCodexInput(downgraded, { supportsImages: options.supportsImages });
 
   const body: Record<string, unknown> = {

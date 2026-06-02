@@ -155,6 +155,36 @@ export function isUsageLimitError(err: unknown): boolean {
   return /usage limit reached/i.test(err.message);
 }
 
+/**
+ * Substrings that mark a hard, non-retriable billing/quota stop on ANY provider
+ * (credit exhaustion, balance too low, plan quota spent). Single source of truth
+ * shared across the OpenAI-compatible and Anthropic provider boundaries and the
+ * agent-loop retry classifier, so the lists can't drift. Matched case-insensitively.
+ */
+export function isHardBillingMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("insufficient balance") ||
+    lower.includes("insufficient credits") ||
+    lower.includes("more credits") ||
+    lower.includes("insufficient_quota") ||
+    lower.includes("exceeded your current quota") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("no resource package") ||
+    lower.includes("recharge") ||
+    lower.includes("balance is too low") ||
+    lower.includes("out of credits") ||
+    lower.includes("arrears") ||
+    lower.includes("arrearage") ||
+    lower.includes("token quota") ||
+    lower.includes("exceeded_current_quota_error") ||
+    lower.includes("check your account balance") ||
+    lower.includes("does not yet include access") ||
+    lower.includes("subscription plan") ||
+    lower.includes("billing")
+  );
+}
+
 /** Format a unix-seconds reset timestamp for display, e.g. "3:45 PM". */
 function formatResetTime(resetsAt: number): string {
   const when = new Date(resetsAt * 1000);

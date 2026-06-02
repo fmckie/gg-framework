@@ -226,6 +226,58 @@ describe("streamGemini", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("surfaces a hard quota exhaustion 429 as a usage-limit error", async () => {
+    const body = JSON.stringify({
+      error: {
+        code: 429,
+        status: "RESOURCE_EXHAUSTED",
+        message: "You have exhausted your capacity on this model.",
+      },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(body, { status: 429 }));
+
+    const result = streamGemini({
+      provider: "gemini",
+      model: "gemini-3-flash-preview",
+      projectId: "test-project",
+      apiKey: "access-token",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    await expect(result.response).rejects.toThrow(/usage limit reached/i);
+  });
+
+  it("stamps resetsAt from RetryInfo.retryDelay on a transient throttle 429", async () => {
+    const body = JSON.stringify({
+      error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "Quota will reset shortly." },
+      details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "18s" }],
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(body, { status: 429 }));
+
+    const before = Math.floor(Date.now() / 1000);
+    const result = streamGemini({
+      provider: "gemini",
+      model: "gemini-3-flash-preview",
+      projectId: "test-project",
+      apiKey: "access-token",
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    await result.response.then(
+      () => {
+        throw new Error("expected rejection");
+      },
+      (err: unknown) => {
+        expect(err).toBeInstanceOf(Error);
+        // Not a hard usage-limit error — it's retriable.
+        expect((err as Error).message).not.toMatch(/usage limit reached/i);
+        const resetsAt = (err as Error & { resetsAt?: number }).resetsAt;
+        expect(resetsAt).toBeGreaterThanOrEqual(before + 18);
+        expect(resetsAt).toBeLessThanOrEqual(before + 20);
+      },
+    );
+  });
+
   it("explains unsupported Gemini OAuth models without calling paid endpoints", async () => {
     const fetchMock = vi.fn();
     globalThis.fetch = fetchMock;

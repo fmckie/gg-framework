@@ -254,7 +254,7 @@ export function serializeCompletedItemToTerminalHistory(
     case "banner":
       return renderBanner(context);
     case "user":
-      return renderUser(item.text, item.imageCount, item.pasteInfo, context);
+      return renderUser(item.text, item.imageCount, item.videoCount, item.pasteInfo, context);
     case "queued":
       return renderQueued(item.text, item.imageCount, context);
     case "assistant":
@@ -457,11 +457,15 @@ function renderBanner(context: TerminalHistoryContext): string {
 function renderUser(
   text: string,
   imageCount: number | undefined,
+  videoCount: number | undefined,
   pasteInfo: PasteInfo | undefined,
   context: TerminalHistoryContext,
 ): string {
   const imageBadges = Array.from({ length: imageCount ?? 0 }, (_, index) =>
     userChipSegment(`[Image #${index + 1}]`, context.theme.accent),
+  );
+  const videoBadges = Array.from({ length: videoCount ?? 0 }, (_, index) =>
+    userChipSegment(`[🎬 Video #${index + 1}]`, context.theme.accent),
   );
   const userMessageText = context.theme.commandColor;
   const separator = userChipSegment(" ", userMessageText);
@@ -470,6 +474,7 @@ function renderUser(
       userChipSegment(part.text, part.kind === "paste" ? context.theme.textDim : userMessageText),
     ),
     ...imageBadges,
+    ...videoBadges,
   ]
     .filter((part) => part.length > 0)
     .join(separator);

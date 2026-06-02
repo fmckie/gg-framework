@@ -38,7 +38,7 @@ describe("prompt-template slash commands with attachments", () => {
       data: "iVBORw0KGgo=",
     };
 
-    const content = buildUserContentWithAttachments(fullPrompt, [imageAttachment], true);
+    const content = buildUserContentWithAttachments(fullPrompt, [imageAttachment], true, false);
 
     expect(content).toEqual([
       { type: "text", text: fullPrompt },
@@ -55,7 +55,7 @@ describe("prompt-template slash commands with attachments", () => {
       data: "important context",
     };
 
-    const content = buildUserContentWithAttachments("Analyze this", [textAttachment], true);
+    const content = buildUserContentWithAttachments("Analyze this", [textAttachment], true, false);
 
     expect(content).toEqual([
       { type: "text", text: "Analyze this" },
@@ -66,6 +66,42 @@ describe("prompt-template slash commands with attachments", () => {
   it("returns the original prompt string when no attachments are provided", () => {
     const fullPrompt = "Command prompt\n\n## User Instructions\n\ndo X";
 
-    expect(buildUserContentWithAttachments(fullPrompt, [], true)).toBe(fullPrompt);
+    expect(buildUserContentWithAttachments(fullPrompt, [], true, false)).toBe(fullPrompt);
+  });
+
+  it("builds a native video block when the model supports video", () => {
+    const videoAttachment: ImageAttachment = {
+      kind: "video",
+      fileName: "clip.mp4",
+      filePath: "/tmp/clip.mp4",
+      mediaType: "video/mp4",
+      data: "AAAA",
+    };
+
+    const content = buildUserContentWithAttachments("Watch this", [videoAttachment], true, true);
+
+    expect(content).toEqual([
+      { type: "text", text: "Watch this" },
+      { type: "video", mediaType: "video/mp4", data: "AAAA" },
+    ]);
+  });
+
+  it("falls back to a temp-file text block when the model lacks video support", () => {
+    const videoAttachment: ImageAttachment = {
+      kind: "video",
+      fileName: "clip.mp4",
+      filePath: "/tmp/clip.mp4",
+      mediaType: "video/mp4",
+      data: "AAAA",
+    };
+
+    const content = buildUserContentWithAttachments("Watch this", [videoAttachment], true, false);
+
+    expect(Array.isArray(content)).toBe(true);
+    const parts = content as { type: string; text?: string }[];
+    expect(parts[0]).toEqual({ type: "text", text: "Watch this" });
+    expect(parts[1]!.type).toBe("text");
+    expect(parts[1]!.text).toContain("use ffmpeg or your tools to inspect it");
+    expect(parts[1]!.text).toMatch(/\/tmp\/ggcoder-video-\d+\.mp4/);
   });
 });

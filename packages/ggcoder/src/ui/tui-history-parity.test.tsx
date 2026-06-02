@@ -83,9 +83,13 @@ function normalizeParityLines(kind: CompletedItem["kind"], lines: readonly strin
 }
 
 function renderQueuedLiveItem(item: Extract<CompletedItem, { kind: "queued" }>, itemTheme: Theme) {
-  const suffix = item.imageCount
+  const imageSuffix = item.imageCount
     ? ` (+${item.imageCount} image${item.imageCount > 1 ? "s" : ""})`
     : "";
+  const videoSuffix = item.videoCount
+    ? ` (+${item.videoCount} video${item.videoCount > 1 ? "s" : ""})`
+    : "";
+  const suffix = `${imageSuffix}${videoSuffix}`;
   return (
     <Box flexDirection="row" paddingLeft={1} marginTop={1} flexShrink={1}>
       <Box width={2} flexShrink={0}>
@@ -244,7 +248,12 @@ function liveElementFor(item: CompletedItem): React.ReactElement | null {
       );
     case "user":
       return (
-        <UserMessage text={item.text} imageCount={item.imageCount} pasteInfo={item.pasteInfo} />
+        <UserMessage
+          text={item.text}
+          imageCount={item.imageCount}
+          videoCount={item.videoCount}
+          pasteInfo={item.pasteInfo}
+        />
       );
     case "assistant":
       return (

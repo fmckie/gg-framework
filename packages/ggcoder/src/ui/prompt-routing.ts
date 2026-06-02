@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
-import type { TextContent, ImageContent } from "@kenkaiiii/gg-ai";
+import type { TextContent, ImageContent, VideoContent } from "@kenkaiiii/gg-ai";
 import type { ImageAttachment } from "../utils/image.js";
+import { VIDEO_MEDIA_TYPES } from "../utils/image.js";
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
 import type { CustomCommand } from "../core/custom-commands.js";
 
@@ -30,10 +31,11 @@ export function buildUserContentWithAttachments(
   text: string,
   inputImages: ImageAttachment[],
   modelSupportsImages: boolean,
-): string | (TextContent | ImageContent)[] {
+  modelSupportsVideo: boolean,
+): string | (TextContent | ImageContent | VideoContent)[] {
   if (inputImages.length === 0) return text;
 
-  const parts: (TextContent | ImageContent)[] = [];
+  const parts: (TextContent | ImageContent | VideoContent)[] = [];
   if (text) {
     parts.push({ type: "text", text });
   }
@@ -44,6 +46,28 @@ export function buildUserContentWithAttachments(
         type: "text",
         text: `<file name="${img.fileName}">\n${img.data}\n</file>`,
       });
+    } else if (img.kind === "video") {
+      if (modelSupportsVideo) {
+        parts.push({ type: "video", mediaType: img.mediaType, data: img.data });
+      } else {
+        // Models without native video: save to a temp file and tell the model
+        // to inspect it with ffmpeg/tools (mirrors the GLM image fallback).
+        const ext =
+          Object.entries(VIDEO_MEDIA_TYPES).find(([, mt]) => mt === img.mediaType)?.[0] ?? ".mp4";
+        const tmpPath = `/tmp/ggcoder-video-${Date.now()}${ext}`;
+        try {
+          writeFileSync(tmpPath, Buffer.from(img.data, "base64"));
+          parts.push({
+            type: "text",
+            text: `[User attached a video saved at: ${tmpPath} — use ffmpeg or your tools to inspect it]`,
+          });
+        } catch {
+          parts.push({
+            type: "text",
+            text: `[User attached a video but it could not be saved for analysis]`,
+          });
+        }
+      }
     } else if (modelSupportsImages) {
       parts.push({ type: "image", mediaType: img.mediaType, data: img.data });
     } else {

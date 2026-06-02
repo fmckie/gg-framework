@@ -6,10 +6,11 @@ import type {
   StreamResponse,
   ToolCall,
 } from "../types.js";
-import { ProviderError } from "../errors.js";
+import { ProviderError, readHeader, isHardBillingMessage } from "../errors.js";
 import { StreamResult } from "../utils/event-stream.js";
 import {
   downgradeUnsupportedImages,
+  downgradeUnsupportedVideos,
   normalizeOpenAIStopReason,
   toOpenAIMessages,
   toOpenAIReasoningEffort,
@@ -79,7 +80,8 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   const usesThinkingParam =
     options.provider === "glm" || options.provider === "moonshot" || options.provider === "xiaomi";
 
-  const downgradedMessages = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  const downgradedImages = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  const downgradedMessages = downgradeUnsupportedVideos(downgradedImages, options.supportsVideo);
   const messages = toOpenAIMessages(downgradedMessages, {
     provider: options.provider,
     thinking: !!options.thinking,
@@ -411,6 +413,32 @@ function completionToResponse(completion: OpenAI.ChatCompletion): StreamResponse
   };
 }
 
+/**
+ * Classify an OpenAI-compatible error as a hard usage/quota stop, a transient
+ * throttle, or neither. "hard" stops must NOT be retried (credit/balance/quota
+ * exhaustion); "transient" 429s are retriable (per-minute throttle).
+ */
+function classifyOpenAICompatLimit(args: {
+  status: number | undefined;
+  code: string | undefined;
+  type: string | undefined;
+  message: string;
+}): "hard" | "transient" | null {
+  const { status, code, type, message } = args;
+  const codeType = `${code ?? ""} ${type ?? ""}`.toLowerCase();
+  const isHard =
+    status === 402 || codeType.includes("insufficient_quota") || isHardBillingMessage(message);
+  if (isHard) return "hard";
+  if (
+    status === 429 ||
+    codeType.includes("rate_limit_exceeded") ||
+    codeType.includes("too_many_requests")
+  ) {
+    return "transient";
+  }
+  return null;
+}
+
 function toError(err: unknown, provider: string = "openai"): ProviderError {
   if (err instanceof OpenAI.APIError) {
     const body = err.error as Record<string, unknown> | undefined;
@@ -429,6 +457,47 @@ function toError(err: unknown, provider: string = "openai"): ProviderError {
     const requestId =
       (err as unknown as { request_id?: string }).request_id ??
       (typeof body?.request_id === "string" ? body.request_id : undefined);
+
+    const code = typeof err.code === "string" ? err.code : undefined;
+    const type = typeof err.type === "string" ? err.type : undefined;
+    const limit = classifyOpenAICompatLimit({
+      status: err.status,
+      code,
+      type,
+      message: cleanMessage,
+    });
+
+    if (limit === "hard") {
+      // Stamp the canonical "usage limit reached" token so downstream retry
+      // logic surfaces it once instead of burning quota on doomed retries.
+      const message = /usage limit reached/i.test(cleanMessage)
+        ? cleanMessage
+        : `usage limit reached: ${cleanMessage}`;
+      return new ProviderError(provider, message, {
+        statusCode: err.status,
+        ...(requestId ? { requestId } : {}),
+        ...(hint ? { hint } : {}),
+        cause: err,
+      });
+    }
+
+    if (limit === "transient") {
+      // Honor a server-stated Retry-After (seconds) so the loop waits the right
+      // amount through the existing serverResetDelayMs() path.
+      const retryAfterRaw = readHeader(err.headers, "retry-after");
+      const retryAfterSec = retryAfterRaw != null ? Number(retryAfterRaw) : Number.NaN;
+      const resetsAt =
+        Number.isFinite(retryAfterSec) && retryAfterSec > 0
+          ? Math.floor(Date.now() / 1000) + retryAfterSec
+          : undefined;
+      return new ProviderError(provider, cleanMessage, {
+        statusCode: err.status,
+        ...(requestId ? { requestId } : {}),
+        ...(hint ? { hint } : {}),
+        ...(resetsAt ? { resetsAt } : {}),
+        cause: err,
+      });
+    }
 
     return new ProviderError(provider, cleanMessage, {
       statusCode: err.status,

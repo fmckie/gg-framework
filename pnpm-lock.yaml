@@ -119,6 +119,21 @@ importers:
         specifier: ^4.1.7
         version: 4.1.7(@types/node@25.9.1)(jsdom@29.1.1)(vite@7.3.3(@types/node@25.9.1)(jiti@2.7.0)(tsx@4.22.3))
 
+  experiments/prompt-bench:
+    dependencies:
+      '@kenkaiiii/gg-agent':
+        specifier: workspace:*
+        version: link:../../packages/gg-agent
+      '@kenkaiiii/gg-ai':
+        specifier: workspace:*
+        version: link:../../packages/gg-ai
+      '@kenkaiiii/ggcoder':
+        specifier: workspace:*
+        version: link:../../packages/ggcoder
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+
   packages/gg-agent:
     dependencies:
       '@kenkaiiii/gg-ai':

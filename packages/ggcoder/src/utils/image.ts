@@ -37,8 +37,17 @@ const PREVIEW_MAX_WIDTH = 480;
 const MAX_IMAGE_DIMENSION = 2000;
 
 export const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+export const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".avi", ".mkv"]);
 const TEXT_EXTENSIONS = new Set([".md", ".txt"]);
-const ATTACHABLE_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...TEXT_EXTENSIONS]);
+const ATTACHABLE_EXTENSIONS = new Set([
+  ...IMAGE_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+  ...TEXT_EXTENSIONS,
+]);
+
+/** Max inline video size in bytes (50 MB) — matches MiniMax's base64 cap.
+ *  Larger videos degrade to a text placeholder naming the on-disk path. */
+export const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 export const IMAGE_MEDIA_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -49,21 +58,35 @@ export const IMAGE_MEDIA_TYPES: Record<string, string> = {
   ".bmp": "image/bmp",
 };
 
+export const VIDEO_MEDIA_TYPES: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".avi": "video/x-msvideo",
+  ".mkv": "video/x-matroska",
+};
+
 // Backwards-compat alias for internal use below
 const MEDIA_TYPES = IMAGE_MEDIA_TYPES;
 
 export interface ImageAttachment {
-  kind: "image" | "text";
+  kind: "image" | "video" | "text";
   fileName: string;
   filePath: string;
   mediaType: string;
-  data: string; // base64 for images, raw text for text files
+  data: string; // base64 for images/video, raw text for text files
 }
 
 /** Check if a file path points to an image based on extension. */
 export function isImagePath(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return IMAGE_EXTENSIONS.has(ext);
+}
+
+/** Check if a file path points to a video based on extension. */
+export function isVideoPath(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return VIDEO_EXTENSIONS.has(ext);
 }
 
 /** Check if a file path points to an attachable file (image or text). */
@@ -149,6 +172,10 @@ export async function extractImagePaths(
 
   return { imagePaths, cleanText: cleanParts.join(" ") };
 }
+
+/** Alias of {@link extractImagePaths} that also picks up video paths (video
+ *  extensions are part of ATTACHABLE_EXTENSIONS). Name reflects the widened scope. */
+export const extractMediaPaths = extractImagePaths;
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -292,6 +319,42 @@ export async function readImageFile(filePath: string): Promise<ImageAttachment> 
   const ext = path.extname(filePath).toLowerCase();
   const fileName = path.basename(filePath);
 
+  if (VIDEO_EXTENSIONS.has(ext)) {
+    try {
+      const mediaType = VIDEO_MEDIA_TYPES[ext] ?? "video/mp4";
+      const rawBuffer = await fs.readFile(filePath);
+      // Never run sharp on video buffers — read straight to base64. Over the
+      // inline cap, degrade to a text placeholder naming the on-disk path so
+      // the model can still inspect it with ffmpeg/tools.
+      if (rawBuffer.length > MAX_VIDEO_BYTES) {
+        const mb = (rawBuffer.length / (1024 * 1024)).toFixed(1);
+        return {
+          kind: "text",
+          fileName,
+          filePath,
+          mediaType: "text/plain",
+          data: `[video ${fileName} (${mb} MB) exceeds the ${MAX_VIDEO_BYTES / (1024 * 1024)} MB inline cap and is saved at: ${filePath} — use ffmpeg or your tools to inspect it]`,
+        };
+      }
+      return {
+        kind: "video",
+        fileName,
+        filePath,
+        mediaType,
+        data: rawBuffer.toString("base64"),
+      };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return {
+        kind: "text",
+        fileName,
+        filePath,
+        mediaType: "text/plain",
+        data: `[video ${fileName} could not be loaded: ${reason}]`,
+      };
+    }
+  }
+
   if (TEXT_EXTENSIONS.has(ext)) {
     try {
       const content = await fs.readFile(filePath, "utf-8");
@@ -330,6 +393,10 @@ export async function readImageFile(filePath: string): Promise<ImageAttachment> 
     };
   }
 }
+
+/** Alias of {@link readImageFile} that also handles video files. Name reflects
+ *  the widened scope. */
+export const readMediaFile = readImageFile;
 
 /**
  * Try to read image data from the system clipboard (macOS only).

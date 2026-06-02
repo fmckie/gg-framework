@@ -14,6 +14,7 @@ export interface ModelInfo {
   maxOutputTokens: number;
   supportsThinking: boolean;
   supportsImages: boolean;
+  supportsVideo: boolean;
   costTier: "low" | "medium" | "high";
   /**
    * The top reasoning tier this model genuinely uses. Used when thinking is
@@ -41,6 +42,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "max",
   },
@@ -52,6 +54,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 64_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "max",
   },
@@ -63,6 +66,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 64_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "high",
   },
@@ -76,6 +80,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "xhigh",
   },
@@ -88,6 +93,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "xhigh",
   },
@@ -99,6 +105,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "xhigh",
   },
@@ -110,6 +117,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "xhigh",
   },
@@ -122,6 +130,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 65_536,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: true,
     costTier: "low",
     maxThinkingLevel: "high",
   },
@@ -133,6 +142,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 65_536,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: true,
     costTier: "low",
     maxThinkingLevel: "high",
   },
@@ -145,6 +155,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 262_144,
     supportsThinking: true,
     supportsImages: true,
+    supportsVideo: true,
     costTier: "medium",
     maxThinkingLevel: "high",
   },
@@ -157,6 +168,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 131_072,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "high",
   },
@@ -168,6 +180,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 131_072,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "high",
   },
@@ -179,29 +192,20 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 131_072,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "high",
   },
   // ── MiniMax ────────────────────────────────────────────
   {
-    id: "MiniMax-M2.7",
-    name: "MiniMax M2.7",
+    id: "MiniMax-M3",
+    name: "MiniMax M3",
     provider: "minimax",
-    contextWindow: 204_800,
+    contextWindow: 1_000_000,
     maxOutputTokens: 131_072,
     supportsThinking: true,
-    supportsImages: false,
-    costTier: "medium",
-    maxThinkingLevel: "high",
-  },
-  {
-    id: "MiniMax-M2.7-highspeed",
-    name: "MiniMax M2.7 Highspeed",
-    provider: "minimax",
-    contextWindow: 204_800,
-    maxOutputTokens: 131_072,
-    supportsThinking: true,
-    supportsImages: false,
+    supportsImages: true,
+    supportsVideo: true,
     costTier: "medium",
     maxThinkingLevel: "high",
   },
@@ -214,6 +218,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 131_072,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "high",
   },
@@ -226,6 +231,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 384_000,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "high",
     // DeepSeek V4 maps `xhigh` → its internal `max` tier.
     maxThinkingLevel: "xhigh",
@@ -238,6 +244,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 384_000,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "xhigh",
   },
@@ -250,6 +257,7 @@ export const MODELS: ModelInfo[] = [
     maxOutputTokens: 65_536,
     supportsThinking: true,
     supportsImages: false,
+    supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "high",
   },
@@ -269,7 +277,7 @@ export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "gemini") return MODELS.find((m) => m.id === "gemini-3.1-flash-lite-preview")!;
   if (provider === "glm") return MODELS.find((m) => m.id === "glm-5.1")!;
   if (provider === "moonshot") return MODELS.find((m) => m.id === "kimi-k2.6")!;
-  if (provider === "minimax") return MODELS.find((m) => m.id === "MiniMax-M2.7")!;
+  if (provider === "minimax") return MODELS.find((m) => m.id === "MiniMax-M3")!;
   if (provider === "deepseek") return MODELS.find((m) => m.id === "deepseek-v4-pro")!;
   if (provider === "openrouter") return MODELS.find((m) => m.id === "qwen/qwen3.6-plus")!;
   return MODELS.find((m) => m.id === "claude-sonnet-4-6")!;

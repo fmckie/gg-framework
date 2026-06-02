@@ -8,13 +8,14 @@ import type {
   StreamResponse,
   ToolCall,
 } from "../types.js";
-import { ProviderError, readHeader } from "../errors.js";
+import { ProviderError, readHeader, isHardBillingMessage } from "../errors.js";
 import { StreamResult } from "../utils/event-stream.js";
 import {
   downgradeUnsupportedImages,
   normalizeAnthropicStopReason,
   toAnthropicCacheControl,
   toAnthropicMessages,
+  downgradeUnsupportedVideos,
   toAnthropicThinking,
   toAnthropicToolChoice,
   toAnthropicTools,
@@ -60,7 +61,8 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   const cacheControl = toAnthropicCacheControl(options.cacheRetention, options.baseUrl);
   const supportsFirstPartyToolExtras =
     !options.baseUrl || options.baseUrl.includes("api.anthropic.com");
-  const downgradedMessages = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  const downgradedImages = downgradeUnsupportedImages(options.messages, options.supportsImages);
+  const downgradedMessages = downgradeUnsupportedVideos(downgradedImages, options.supportsVideo);
   const { system: rawSystem, messages } = toAnthropicMessages(downgradedMessages, cacheControl);
 
   // OAuth tokens require Claude Code identity in the system prompt
@@ -606,6 +608,22 @@ function toError(err: unknown): ProviderError {
           cause: err,
         });
       }
+    }
+
+    // Hard billing/quota stop, regardless of status code. MiniMax (Anthropic
+    // transport) returns these as HTTP 500 `api_error` "insufficient balance";
+    // the Anthropic API key path returns a 400 "credit balance is too low".
+    // Both would otherwise be treated as transient and retried — stamp the
+    // canonical "usage limit reached" token so the loop surfaces it once.
+    if (isHardBillingMessage(message)) {
+      const usageMessage = /usage limit reached/i.test(message)
+        ? message
+        : `usage limit reached: ${message}`;
+      return new ProviderError("anthropic", usageMessage, {
+        statusCode: err.status,
+        ...(requestId ? { requestId } : {}),
+        cause: err,
+      });
     }
 
     return new ProviderError("anthropic", message, {

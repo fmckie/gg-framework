@@ -9,6 +9,7 @@ import type {
   TextContent,
   ThinkingContent,
   ThinkingLevel,
+  VideoContent,
   Tool,
   ToolChoice,
   ToolResultContent,
@@ -135,10 +136,14 @@ function toAnthropicAssistantContent(
 
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 const NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+const NON_VIDEO_USER_PLACEHOLDER = "(video omitted: model does not support video)";
 
 /** Replace image blocks with a text placeholder (deduping consecutive placeholders). */
-function stripImages(content: (TextContent | ImageContent)[], placeholder: string): TextContent[] {
-  const out: TextContent[] = [];
+function stripImages<T extends TextContent | ImageContent | VideoContent>(
+  content: T[],
+  placeholder: string,
+): (Exclude<T, ImageContent> | TextContent)[] {
+  const out: (Exclude<T, ImageContent> | TextContent)[] = [];
   let lastWasPlaceholder = false;
   for (const block of content) {
     if (block.type === "image") {
@@ -146,10 +151,47 @@ function stripImages(content: (TextContent | ImageContent)[], placeholder: strin
       lastWasPlaceholder = true;
       continue;
     }
-    out.push(block);
-    lastWasPlaceholder = block.text === placeholder;
+    out.push(block as Exclude<T, ImageContent>);
+    lastWasPlaceholder = block.type === "text" && block.text === placeholder;
   }
   return out;
+}
+
+/** Replace video blocks with a text placeholder (deduping consecutive placeholders). */
+function stripVideos(
+  content: (TextContent | ImageContent | VideoContent)[],
+  placeholder: string,
+): (TextContent | ImageContent)[] {
+  const out: (TextContent | ImageContent)[] = [];
+  let lastWasPlaceholder = false;
+  for (const block of content) {
+    if (block.type === "video") {
+      if (!lastWasPlaceholder) out.push({ type: "text", text: placeholder });
+      lastWasPlaceholder = true;
+      continue;
+    }
+    out.push(block);
+    lastWasPlaceholder = block.type === "text" && block.text === placeholder;
+  }
+  return out;
+}
+
+/**
+ * Pre-transform pass: when the target model doesn't support video, replace
+ * video blocks in user messages with a text placeholder. Tool results never
+ * carry video, so only user messages are scanned.
+ */
+export function downgradeUnsupportedVideos(
+  messages: Message[],
+  supportsVideo: boolean | undefined,
+): Message[] {
+  if (supportsVideo === true) return messages;
+  return messages.map((msg) => {
+    if (msg.role === "user" && Array.isArray(msg.content)) {
+      return { ...msg, content: stripVideos(msg.content, NON_VIDEO_USER_PLACEHOLDER) };
+    }
+    return msg;
+  });
 }
 
 /**
@@ -290,6 +332,19 @@ export function toAnthropicMessages(
             ? msg.content
             : msg.content.map((part) => {
                 if (part.type === "text") return { type: "text" as const, text: part.text };
+                if (part.type === "video") {
+                  // MiniMax-M3 rides the Anthropic transport and accepts native
+                  // video blocks. Non-video models never reach here — video is
+                  // downgraded to text by downgradeUnsupportedVideos first.
+                  return {
+                    type: "video" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: part.mediaType,
+                      data: part.data,
+                    },
+                  } as unknown as Anthropic.ContentBlockParam;
+                }
                 return {
                   type: "image" as const,
                   source: {
@@ -531,6 +586,17 @@ export function toOpenAIMessages(
               part,
             ): OpenAI.ChatCompletionContentPartImage | OpenAI.ChatCompletionContentPartText => {
               if (part.type === "text") return { type: "text", text: part.text };
+              if (part.type === "video") {
+                // Moonshot/Kimi accepts a `video_url` content part. Non-video
+                // models never reach here — video is downgraded to text by
+                // downgradeUnsupportedVideos before this transform runs.
+                return {
+                  type: "video_url",
+                  video_url: {
+                    url: `data:${part.mediaType};base64,${part.data}`,
+                  },
+                } as unknown as OpenAI.ChatCompletionContentPartImage;
+              }
               return {
                 type: "image_url",
                 image_url: {

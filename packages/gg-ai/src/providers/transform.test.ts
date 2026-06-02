@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  downgradeUnsupportedVideos,
   toAnthropicMessages,
   toAnthropicThinking,
   toAnthropicTools,
@@ -336,5 +337,51 @@ describe("toAnthropicThinking", () => {
 describe("toOpenAIReasoningEffort", () => {
   it("clamps shared max thinking level to OpenAI's xhigh effort", () => {
     expect(toOpenAIReasoningEffort("max", "gpt-5.5")).toBe("xhigh");
+  });
+});
+
+describe("video content transforms", () => {
+  const videoMessage: Message[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "What happens here?" },
+        { type: "video", mediaType: "video/mp4", data: "AAAA" },
+      ],
+    },
+  ];
+
+  it("emits an Anthropic-style base64 video block (MiniMax M3)", () => {
+    const result = toAnthropicMessages(videoMessage);
+    expect(result.messages[0]!.content).toEqual([
+      { type: "text", text: "What happens here?" },
+      { type: "video", source: { type: "base64", media_type: "video/mp4", data: "AAAA" } },
+    ]);
+  });
+
+  it("emits an OpenAI video_url content part (Moonshot/Kimi)", () => {
+    const result = toOpenAIMessages(videoMessage);
+    expect(result[0]!.content).toEqual([
+      { type: "text", text: "What happens here?" },
+      { type: "video_url", video_url: { url: "data:video/mp4;base64,AAAA" } },
+    ]);
+  });
+
+  it("downgrades video to a text placeholder when the model lacks video support", () => {
+    const downgraded = downgradeUnsupportedVideos(videoMessage, false);
+    expect(downgraded[0]!.content).toEqual([
+      { type: "text", text: "What happens here?" },
+      { type: "text", text: "(video omitted: model does not support video)" },
+    ]);
+    // After downgrade, the Anthropic transform never sees a video block.
+    const result = toAnthropicMessages(downgraded);
+    expect(result.messages[0]!.content).toEqual([
+      { type: "text", text: "What happens here?" },
+      { type: "text", text: "(video omitted: model does not support video)" },
+    ]);
+  });
+
+  it("keeps video untouched when the model supports it", () => {
+    expect(downgradeUnsupportedVideos(videoMessage, true)).toEqual(videoMessage);
   });
 });

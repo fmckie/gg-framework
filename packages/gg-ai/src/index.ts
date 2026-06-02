@@ -13,6 +13,7 @@ export type {
   TextContent,
   ThinkingContent,
   ImageContent,
+  VideoContent,
   ToolCall,
   ToolResult,
   ToolResultContent,
@@ -51,6 +52,7 @@ export {
   formatError,
   formatErrorForDisplay,
   isUsageLimitError,
+  isHardBillingMessage,
 } from "./errors.js";
 export type { ErrorSource, FormattedError } from "./errors.js";
 

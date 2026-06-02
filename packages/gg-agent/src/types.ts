@@ -191,6 +191,9 @@ export interface AgentOptions {
   /** Whether the target model supports image input. When false, image blocks
    *  in messages/tool_results are downgraded to text placeholders. Default: true. */
   supportsImages?: boolean;
+  /** Whether the target model supports video input. When false, video blocks
+   *  in messages are downgraded to text placeholders. Default: false. */
+  supportsVideo?: boolean;
   /** Enable provider-native web search. */
   webSearch?: boolean;
   /** Enable server-side compaction (Anthropic only, beta). */

@@ -139,11 +139,17 @@ export function presentStopped(item: StoppedItem): StatusPresentation {
 }
 
 export function presentQueued(item: QueuedItem): QueuedPresentation {
+  const imageSuffix = item.imageCount
+    ? ` (+${item.imageCount} image${item.imageCount > 1 ? "s" : ""})`
+    : "";
+  const videoSuffix = item.videoCount
+    ? ` (+${item.videoCount} video${item.videoCount > 1 ? "s" : ""})`
+    : "";
   return {
     glyph: "• ",
     label: "Queued: ",
     text: item.text || "(empty)",
-    suffix: item.imageCount ? ` (+${item.imageCount} image${item.imageCount > 1 ? "s" : ""})` : "",
+    suffix: `${imageSuffix}${videoSuffix}`,
   };
 }
 
