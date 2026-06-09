@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import stringWidth from "string-width";
 import {
   createTerminalHistoryPrinter,
@@ -6,6 +6,13 @@ import {
 } from "./terminal-history.js";
 import type { CompletedItem } from "./app-items.js";
 import { loadTheme } from "./theme/theme.js";
+
+// BLACK_CIRCLE is platform-dependent (⏺ on macOS, ● elsewhere); pin it so
+// the hardcoded frame expectations pass on Linux/Windows CI too.
+vi.mock("./constants/figures.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./constants/figures.js")>()),
+  BLACK_CIRCLE: "\u23FA",
+}));
 
 const context = {
   theme: loadTheme("dark"),
