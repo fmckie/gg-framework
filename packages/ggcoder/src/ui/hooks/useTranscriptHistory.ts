@@ -28,6 +28,14 @@ interface UseTranscriptHistoryOptions<TItem extends TranscriptHistoryItem> {
   terminalHistoryPrinter?: TranscriptHistoryPrinter<TItem>;
   terminalHistoryContext: TerminalHistoryContext;
   writeStdout: (data: string) => void;
+  /**
+   * Atomic scrollback enqueue (patched Ink `insertBeforeFrame`). Bytes passed
+   * here are NOT written immediately — they are folded into the next Ink frame
+   * write, so the live-frame shrink and the scrollback insert reach the
+   * terminal in ONE write and the footer never jumps. Falls back to
+   * `writeStdout` (erase frame → write → restore frame) when absent.
+   */
+  enqueueStdout?: (data: string) => void;
   sessionPathRef: React.RefObject<string | undefined>;
   sessionManagerRef: React.RefObject<SessionManager | null>;
   sessionStore?: SessionStoreLike<TItem>;
@@ -52,6 +60,7 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
   terminalHistoryPrinter,
   terminalHistoryContext,
   writeStdout,
+  enqueueStdout,
   sessionPathRef,
   sessionManagerRef,
   sessionStore,
@@ -81,10 +90,10 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
       if (!terminalHistoryPrinter || items.length === 0) return;
       terminalHistoryPrinter.print(items, terminalHistoryContextRef.current, {
         ...options,
-        write: writeStdout,
+        write: enqueueStdout ?? writeStdout,
       });
     },
-    [terminalHistoryPrinter, writeStdout],
+    [enqueueStdout, terminalHistoryPrinter, writeStdout],
   );
 
   const queueFlush = useCallback(
@@ -92,6 +101,12 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
       const flushed = trimFlushItems(items);
       if (flushed.length === 0) return;
       pendingHistoryFlushRef.current = [...pendingHistoryFlushRef.current, ...flushed];
+      // Render the rows to ANSI and enqueue the bytes NOW, before any state
+      // update. With the patched `insertBeforeFrame` the enqueue is passive (no
+      // terminal write), so the bytes ride the very next frame write — the one
+      // produced by the batched setLiveItems/generation updates below, which is
+      // also the write that shrinks the live frame. One write = no footer jump.
+      printHistoryItems(flushed);
       const sessionPath = sessionPathRef.current;
       const sessionManager = sessionManagerRef.current;
       if (sessionPath && sessionManager) {
@@ -114,9 +129,24 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
           (item) => !queuedIds.has(item.id),
         );
       }
+      // Remove the flushed rows from the live frame in the SAME React batch as
+      // the generation bump. Ink emits one frame write per commit (throttled,
+      // leading edge), so deferring this shrink to a later effect would split
+      // enqueue and shrink across two writes — the second one (shrink without
+      // compensating scrollback bytes) is exactly what strands the footer.
+      const flushedIds = new Set(flushed.map((item) => item.id));
+      setLiveItems((prev) => prev.filter((item) => !flushedIds.has(item.id)));
       setHistoryFlushGeneration((generation) => generation + 1);
     },
-    [persistDisplayItem, sessionManagerRef, sessionPathRef, sessionStore, trimFlushItems],
+    [
+      persistDisplayItem,
+      printHistoryItems,
+      sessionManagerRef,
+      sessionPathRef,
+      sessionStore,
+      setLiveItems,
+      trimFlushItems,
+    ],
   );
 
   useEffect(() => {
@@ -124,19 +154,15 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
   }, [history, printHistoryItems]);
 
   useLayoutEffect(() => {
+    // Printing and live-row removal already happened synchronously inside
+    // queueFlush (they must batch into the commit that carries the enqueued
+    // scrollback bytes). This effect only moves the queue along so the
+    // follow-up effect below can fold the flushed rows into React history.
     const flushed = pendingHistoryFlushRef.current;
     if (flushed.length === 0) return;
-    // Keep the visible row continuous during finalization: write the completed
-    // transcript into terminal history while Ink still knows about the current
-    // live frame, then remove those live rows. Doing this in the opposite order
-    // collapses the live frame to the controls first, so a large final history
-    // write scrolls underneath the footer/input and visibly pushes them upward.
     pendingHistoryFlushRef.current = [];
     drainedHistoryFlushRef.current = flushed;
-    printHistoryItems(flushed);
-    const flushedIds = new Set(flushed.map((item) => item.id));
-    setLiveItems((prev) => prev.filter((item) => !flushedIds.has(item.id)));
-  }, [historyFlushGeneration, printHistoryItems, setLiveItems]);
+  }, [historyFlushGeneration]);
 
   useEffect(() => {
     const flushed = drainedHistoryFlushRef.current;
@@ -157,15 +183,13 @@ export function useTranscriptHistory<TItem extends TranscriptHistoryItem = Compl
       streamedAssistantFlushRef.current = { flushedChars: 0, text: "" };
       const priorLiveItems = trimFlushItems([...deferredLiveItems]);
       const finalizedItems = [...priorLiveItems, item];
+      // queueFlush renders + enqueues the rows synchronously (the printer
+      // dedupes by id), so the deferred final assistant output is anchored in
+      // scrollback before the next prompt clears the live frame.
       queueFlush(finalizedItems);
-      // Print synchronously so deferred final assistant output is anchored in
-      // scrollback before the next prompt clears the live frame. The queued flush
-      // still persists and updates React history; the printer dedupes by id when
-      // the effect drains the queue.
-      printHistoryItems(finalizedItems);
       setLiveItems([]);
     },
-    [printHistoryItems, queueFlush, setLiveItems, trimFlushItems],
+    [queueFlush, setLiveItems, trimFlushItems],
   );
 
   const clearPendingHistory = useCallback(() => {

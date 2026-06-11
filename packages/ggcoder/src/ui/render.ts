@@ -1,4 +1,5 @@
 import React from "react";
+import wrapAnsi from "wrap-ansi";
 import { render, type Instance as InkInstance } from "ink";
 import type { Message, Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
 import type { AgentTool } from "@kenkaiiii/gg-agent";
@@ -16,6 +17,21 @@ import { AnimationProvider } from "./components/AnimationContext.js";
 import { TerminalSizeProvider } from "./hooks/useTerminalSize.js";
 // Note: DEC 2026 synchronized output (BSU/ESU) is handled natively by Ink 6.8+
 // via its built-in write-synchronized.ts module — no manual wrapping needed.
+
+/**
+ * Our `patches/ink@6.8.0.patch` exposes `insertBeforeFrame` on the Ink instance:
+ * raw bytes queued through it are folded atomically into the NEXT frame write
+ * (erase old frame + scrollback bytes + new frame in one synchronized write).
+ * This is the primitive that keeps the footer pinned when finalized transcript
+ * rows leave the live frame — the shrink and the scrollback insert land together.
+ */
+type PatchedInkInstance = InkInstance & {
+  insertBeforeFrame?: (data: string) => void;
+  /** Toggle bottom-anchor pad creation (on while the agent runs). */
+  setFrameAnchorActive?: (active: boolean) => void;
+  /** Install the transcript-tail provider for bottom-pinned idle shrink. */
+  setFrameShrinkBackfill?: (fn: (rows: number) => string | undefined) => void;
+};
 
 export interface RenderAppConfig {
   provider: Provider;
@@ -188,6 +204,22 @@ function ThemeProvider({
 }
 
 const INK_OPTIONS = {
+  // [gg ink patch] Scrollback-mode safety net: clip frames to terminal height
+  // (rows - 2) so a single mis-estimated live-area clamp can never produce a
+  // frame that reaches the screen height. Once a frame hits `rows`, Ink's
+  // eraseLines clamps at the screen top on the next shrink and rewrites the
+  // frame top-anchored — stranding the footer mid-screen with blank rows
+  // below. The clip drops the oldest (top) rows, mirroring the app's own
+  // bottom-anchored clamp. The fullscreen alt-screen path must NOT set this —
+  // it intentionally owns the whole screen.
+  clipFrameToTerminalHeight: true,
+  // [gg ink patch] Bottom anchoring: the frame bottom (footer) must never move
+  // UP. Any rewrite that nets fewer rows than the previous frame (shrink not
+  // fully compensated by enqueued scrollback bytes — tool panel hiding, status
+  // row swaps, turn finalization after mid-stream flushes) is padded with
+  // blank scrollback lines between the transcript and the frame, keeping the
+  // footer row fixed. Exact line counts inside Ink — no estimates, no lag.
+  anchorFrameToBottom: true,
   // Enable kitty keyboard protocol so terminals that support it can
   // distinguish Shift+Enter from Enter (needed for multiline input).
   // Terminals without support gracefully ignore this.
@@ -229,7 +261,14 @@ const INK_OPTIONS = {
 //
 // The legacy scrollback path keeps the conservative defaults (it appends to
 // native scrollback, so there's no repaint to optimize).
-const FULLSCREEN_INK_OPTIONS = { ...INK_OPTIONS, maxFps: 120, incrementalRendering: true };
+const FULLSCREEN_INK_OPTIONS = {
+  ...INK_OPTIONS,
+  // Fullscreen frames legitimately fill the terminal — never clip or pad them.
+  clipFrameToTerminalHeight: false,
+  anchorFrameToBottom: false,
+  maxFps: 120,
+  incrementalRendering: true,
+};
 
 // XTMODKEYS "off" — turns off xterm's modifyOtherKeys=2 mode where Shift+Enter,
 // Ctrl+letters, etc. arrive as ESC[27;<mod>;<keycode>~. Some terminals
@@ -364,7 +403,92 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
 
   const terminalHistoryPrinter = createTerminalHistoryPrinter();
   const inkOptions = fullscreen ? FULLSCREEN_INK_OPTIONS : INK_OPTIONS;
-  const ref: { instance: InkInstance | null } = { instance: null };
+  const ref: { instance: PatchedInkInstance | null } = { instance: null };
+
+  // Stable closure passed down to App → useTranscriptHistory. Reads ref.instance
+  // at call time so it follows resetUI remounts.
+  //
+  // Pre-mount buffering: Ink's legacy sync mode flushes passive effects DURING
+  // render(), so the very first transcript print (the banner) arrives while
+  // ref.instance is still null. Writing it raw at that point would land BELOW
+  // the already-painted controls frame and strand the frame at the top of the
+  // screen. Buffer those bytes and flush them through insertBeforeFrame right
+  // after the instance is assigned, so they're folded atomically above the
+  // frame like every later flush.
+  let preMountHistoryBytes = "";
+  const enqueueHistoryWrite = (data: string): void => {
+    const instance = ref.instance;
+    if (!instance) {
+      preMountHistoryBytes += data;
+      return;
+    }
+    if (instance.insertBeforeFrame) {
+      instance.insertBeforeFrame(data);
+    } else {
+      // Unpatched Ink — degrade to the old two-write behavior.
+      process.stdout.write(data);
+    }
+  };
+  const flushPreMountHistory = (): void => {
+    if (!preMountHistoryBytes) return;
+    const data = preMountHistoryBytes;
+    preMountHistoryBytes = "";
+    enqueueHistoryWrite(data);
+  };
+
+  // The bottom anchor must only pad shrinks while the agent is RUNNING (tool
+  // panel, status swaps, finalization). At idle, frame shrink is symmetric UI
+  // — the slash menu or expanded input closing — and the footer returning up
+  // is the correct behavior; padding it leaves permanent whitespace. App
+  // mirrors agentLoop.isRunning here. Tracked in the closure so resetUI
+  // remounts re-apply the current state to the fresh instance.
+  let frameAnchorActive = false;
+  const setFrameAnchorActive = (active: boolean): void => {
+    frameAnchorActive = active;
+    ref.instance?.setFrameAnchorActive?.(active);
+  };
+
+  // Bottom-pinned idle shrink backfill (patched ink `frameShrinkBackfill`).
+  // When the slash menu (or any idle growth) scrolled the screen and then
+  // closes, the scroll cannot be undone — rising would strand dead rows below
+  // the footer. Instead ink asks for the last N hard-wrapped transcript rows
+  // and paints them into the vacated space, restoring the pre-menu screen
+  // exactly. Serializes from sessionStore.history with a throwaway printer
+  // (force: dedup state must not be touched); called rarely (menu close).
+  const buildShrinkBackfill = (needRows: number): string | undefined => {
+    const history = sessionStore.history;
+    if (needRows <= 0 || !history || history.length === 0) return undefined;
+    let collected = "";
+    try {
+      createTerminalHistoryPrinter().print(
+        history,
+        {
+          theme: loadTheme(resolvedTheme),
+          columns: Math.max(40, process.stdout.columns ?? 80),
+          version: config.version,
+          model: runtimeState.model,
+          provider: runtimeState.provider,
+          cwd: config.cwd,
+        },
+        {
+          force: true,
+          write: (data: string) => {
+            collected += data;
+          },
+        },
+      );
+    } catch {
+      return undefined;
+    }
+    if (!collected) return undefined;
+    const columnsNow = Math.max(40, process.stdout.columns ?? 80);
+    const wrapped = wrapAnsi(collected.replace(/\n$/, ""), columnsNow, { trim: false, hard: true });
+    const lines = wrapped.split("\n").slice(-needRows);
+    // Transcript shorter than the vacated space: blank-fill the top so the
+    // row count still matches and the footer stays put.
+    while (lines.length < needRows) lines.unshift("");
+    return `${lines.join("\n")}\n`;
+  };
 
   const buildElement = (): React.ReactElement =>
     React.createElement(
@@ -412,6 +536,8 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
             connectInitialMcpTools: config.connectInitialMcpTools,
             planCallbacks: config.planCallbacks,
             terminalHistoryPrinter,
+            enqueueHistoryWrite,
+            setFrameAnchorActive,
             fullscreen,
             resetUI,
             onRuntimeStateChange,
@@ -457,6 +583,12 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
     if (options?.pendingAction) sessionStore.pendingAction = options.pendingAction;
 
     old.unmount();
+    // Null the ref so any history flush fired during the new instance's
+    // synchronous mount is buffered by enqueueHistoryWrite (the unmounted old
+    // instance's insertBeforeFrame silently drops bytes). Safe for the
+    // waitUntilExit loop: this function runs synchronously, so by the time the
+    // loop's await continuation executes, ref.instance is the new instance.
+    ref.instance = null;
     if (options?.resizeRedraw) {
       terminalHistoryPrinter.resetPrinted();
     }
@@ -466,6 +598,9 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
     if (fullscreen) {
       process.stdout.write(VIEWPORT_CLEAR);
       ref.instance = render(buildElement(), inkOptions);
+      ref.instance.setFrameAnchorActive?.(frameAnchorActive);
+      ref.instance.setFrameShrinkBackfill?.(buildShrinkBackfill);
+      flushPreMountHistory();
       return;
     }
     // Resize can leave log-update frames at the old width in the visible viewport.
@@ -484,9 +619,15 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
       });
     }
     ref.instance = render(buildElement(), inkOptions);
+    ref.instance.setFrameAnchorActive?.(frameAnchorActive);
+    ref.instance.setFrameShrinkBackfill?.(buildShrinkBackfill);
+    flushPreMountHistory();
   }
 
   ref.instance = render(buildElement(), inkOptions);
+  ref.instance.setFrameAnchorActive?.(frameAnchorActive);
+  ref.instance.setFrameShrinkBackfill?.(buildShrinkBackfill);
+  flushPreMountHistory();
 
   // Terminal resize → full unmount/remount. Completed transcript rows are real
   // terminal output now, so resetUI() only rebuilds the live Ink controls unless
@@ -522,7 +663,7 @@ export async function renderApp(config: RenderAppConfig): Promise<void> {
   // by unmount and the loop ends.
   try {
     while (true) {
-      const current: InkInstance | null = ref.instance;
+      const current: PatchedInkInstance | null = ref.instance;
       if (!current) return;
       await current.waitUntilExit();
       if (ref.instance === current) {
