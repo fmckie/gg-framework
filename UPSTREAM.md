@@ -10,23 +10,27 @@ This repository is the Kleio-owned downstream fork of
 - Upstream package version: `4.10.1`
 - Import date: `2026-07-17`
 - Immutable baseline tag: `upstream/4.10.1-cde19e9`
-- First downstream release: `4.10.1-kleio.0`
+- Unshipped mechanical baseline: `4.10.1-kleio.0`
+- Direct-rename baseline commit: `ef12845`
+- Mechanical baseline tag: `kleio/mechanical-4.10.1-kleio.0`
+- First publish candidate: `4.10.1-kleio.1`
 
-The baseline tag points at the untouched upstream commit. The first downstream
-commit changes only ownership, package/repository/version metadata, dependency
-aliases, release infrastructure, and provenance documentation. Runtime source
-behavior remains the upstream `4.10.1` behavior until the separately reviewed
-Kleio rebrand release.
+The immutable upstream tag remains untouched. Commit `ef12845` directly renamed the
+five package names, workspace dependency specifiers, and TypeScript import specifiers
+from the upstream scope to `@kleio/*`. Its successful build and test suite establish
+behavioral parity, while artifact comparisons must normalize exactly the five mappings
+below and reject every other runtime delta. Version `.0` records that unshipped
+mechanical baseline; it must not be published.
 
 ## Package map
 
-| Upstream | Downstream |
-| --- | --- |
-| `@kenkaiiii/gg-ai` | `@kleio/ai` |
-| `@kenkaiiii/gg-agent` | `@kleio/agent` |
-| `@kenkaiiii/gg-core` | `@kleio/core` |
-| `@kenkaiiii/ggcoder` | `@kleio/coder` |
-| `@kenkaiiii/gg-boss` | `@kleio/manager` |
+| Upstream              | Downstream       |
+| --------------------- | ---------------- |
+| `@kenkaiiii/gg-ai`    | `@kleio/ai`      |
+| `@kenkaiiii/gg-agent` | `@kleio/agent`   |
+| `@kenkaiiii/gg-core`  | `@kleio/core`    |
+| `@kenkaiiii/ggcoder`  | `@kleio/coder`   |
+| `@kenkaiiii/gg-boss`  | `@kleio/manager` |
 
 Runtime imports and workspace dependencies use the downstream `@kleio/*` names.
 The upstream names above remain only as immutable provenance for the imported

@@ -1,6 +1,6 @@
 {
   "name": "@kleio/core",
-  "version": "4.10.1",
+  "version": "4.10.1-kleio.0",
   "type": "module",
   "description": "Provider-agnostic, UI-free shared foundation: model registry, auth, paths, telegram, voice",
   "license": "MIT",

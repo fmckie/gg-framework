@@ -3,7 +3,8 @@
   "downstream": {
     "repository": "https://github.com/fmckie/gg-framework",
     "releaseBranch": "main",
-    "scope": "@kleio"
+    "scope": "@kleio",
+    "currentFixedVersion": "4.10.1-kleio.0"
   },
   "upstream": {
     "repository": "https://github.com/KenKaiii/gg-framework",
@@ -11,6 +12,17 @@
     "version": "4.10.1",
     "baselineTag": "upstream/4.10.1-cde19e9",
     "importedAt": "2026-07-17"
+  },
+  "directRenameBaseline": {
+    "commit": "ef12845",
+    "version": "4.10.1",
+    "packageSpecifierStrategy": "direct imports",
+    "artifactParityRule": "Normalize only the five package-specifier mappings below; reject every other runtime delta."
+  },
+  "mechanicalBaseline": {
+    "version": "4.10.1-kleio.0",
+    "tag": "kleio/mechanical-4.10.1-kleio.0",
+    "published": false
   },
   "releases": {
     "provenanceOnly": "4.10.1-kleio.0",
@@ -24,14 +36,16 @@
     "@kenkaiiii/gg-boss": "@kleio/manager"
   },
   "phase1AllowedDeltas": [
-    "package names",
+    "package names and the five direct package-specifier substitutions listed in packages",
     "package versions",
     "repository metadata",
-    "workspace dependency aliases",
     "lockfile resolutions",
     "release and CI infrastructure",
     "documentation and provenance metadata"
   ],
-  "phase1RuntimeSourceChangesAllowed": false,
+  "phase1RuntimeSourcePolicy": {
+    "allowed": ["the five direct package-specifier substitutions listed in packages"],
+    "allOtherRuntimeDeltasAllowed": false
+  },
   "license": "MIT"
 }

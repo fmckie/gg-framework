@@ -10,6 +10,7 @@
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}' 'Matey/**/*.{ts,tsx,css,html,json,md,yml}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}' 'Matey/**/*.{ts,tsx,css,html,json,md,yml}'",
     "test": "pnpm -r test",
+    "verify:fixed-versions": "node scripts/verify-fixed-versions.mjs",
     "prepare": "pnpm build"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 {
   "name": "@kleio/agent",
-  "version": "4.10.1",
+  "version": "4.10.1-kleio.0",
   "type": "module",
   "description": "Agentic loop system with tool execution for LLMs",
   "license": "MIT",

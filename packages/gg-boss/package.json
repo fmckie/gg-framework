@@ -1,6 +1,6 @@
 {
   "name": "@kleio/manager",
-  "version": "4.10.1",
+  "version": "4.10.1-kleio.0",
   "type": "module",
   "description": "Orchestrator agent that drives multiple ggcoder sessions across projects from a single chat",
   "license": "MIT",
