@@ -1,0 +1,426 @@
+{
+  "schemaVersion": 1,
+  "description": "Narrow exceptions for legacy machine contracts and immutable upstream provenance. Entries are ordered from specific to broad; expectedOccurrences locks each exception against growth.",
+  "entries": [
+    {
+      "id": "audit-allowlist-control-data",
+      "path": "scripts/identity-allowlist.json",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 118, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The audit policy must spell the legacy identities it classifies.",
+      "removeWhen": "Remove each token only after its final compatibility or provenance entry is retired."
+    },
+    {
+      "id": "audit-scanner-token-definitions",
+      "path": "scripts/identity-audit.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The scanner must recognize every frozen legacy identity.",
+      "removeWhen": "Remove a token after its compatibility and provenance contracts no longer exist."
+    },
+    {
+      "id": "upstream-provenance-document",
+      "path": "UPSTREAM.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 7, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "The upstream package map and repository link are immutable fork lineage.",
+      "removeWhen": "Never while this repository derives from the recorded upstream baseline."
+    },
+    {
+      "id": "fork-provenance-data",
+      "path": "fork-provenance.json",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 7, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "Exact upstream-to-downstream mappings are required for artifact normalization and attribution.",
+      "removeWhen": "Never while the fork publishes artifacts derived from this upstream baseline."
+    },
+    {
+      "id": "historical-changelogs",
+      "path": "packages/*/CHANGELOG.md",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 20, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "Published upstream changelog entries are historical release evidence.",
+      "removeWhen": "Never; append downstream release notes instead of rewriting released history."
+    },
+    {
+      "id": "historical-goal-evidence-content",
+      "path": "packages/ggcoder/docs/goal-*",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 205, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "Captured goal audit logs, patches, and reports must remain verbatim.",
+      "removeWhen": "Never; these files are immutable audit evidence."
+    },
+    {
+      "id": "historical-goal-evidence-paths",
+      "path": "packages/ggcoder/docs/goal-*",
+      "scope": "path",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 11, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "The captured evidence paths retain the upstream directory seam.",
+      "removeWhen": "Only during a separately reviewed repository path migration."
+    },
+    {
+      "id": "historical-fixes-record",
+      "path": "fixes.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 23, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "The remediation record documents upstream behavior and commands.",
+      "removeWhen": "Never; supersede it with a new report."
+    },
+    {
+      "id": "historical-deep-audit-report",
+      "path": "scripts/goal-deep-audit/report.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 11, "packed": 0 },
+      "bucket": "provenance",
+      "owner": "Kleio release engineering",
+      "reason": "The deep-audit output is historical evidence rather than current product copy.",
+      "removeWhen": "Never; generate a new dated audit instead."
+    },
+    {
+      "id": "coder-source-directory-seam",
+      "path": "packages/ggcoder/**",
+      "scope": "path",
+      "targets": ["tracked", "packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 375, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework maintainers",
+      "reason": "The upstream-sync directory remains packages/ggcoder while the npm package is @kleio/coder.",
+      "removeWhen": "A coordinated git mv updates build scripts, source links, audits, and upstream-sync tooling."
+    },
+    {
+      "id": "manager-source-directory-seam",
+      "path": "packages/gg-boss/**",
+      "scope": "path",
+      "targets": ["tracked", "packed"],
+      "match": { "literal": "gg-boss" },
+      "expectedOccurrences": { "tracked": 72, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework maintainers",
+      "reason": "The upstream-sync directory remains packages/gg-boss while the npm package is @kleio/manager.",
+      "removeWhen": "A coordinated git mv updates build scripts, source links, audits, and upstream-sync tooling."
+    },
+    {
+      "id": "nonspine-eyes-directory-seam",
+      "path": "packages/ggcoder-eyes/**",
+      "scope": "path",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 30, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "ggcoder-eyes package owner",
+      "reason": "This non-spine package and its directory are outside the five-package release unit.",
+      "removeWhen": "The package receives its own mapped, versioned rename release."
+    },
+    {
+      "id": "voice-wire-bridge-paths",
+      "path": "packages/gg-voice/src/bridges/*",
+      "scope": "path",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder|ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice protocol owner",
+      "reason": "Published bridge subpaths are wire and import contracts.",
+      "removeWhen": "A separately versioned @kleio/voice migration ships aliases for every bridge subpath."
+    },
+    {
+      "id": "fixed-version-package-paths",
+      "path": "scripts/verify-fixed-versions.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "packages/(?:ggcoder|gg-boss)/package\\.json", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The atomic version check maps branded package names to retained upstream-sync directories.",
+      "removeWhen": "The corresponding repository directories are migrated."
+    },
+    {
+      "id": "active-upstream-package-coordinates-manifests",
+      "path": "**/package.json",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": {
+        "regex": "@kenkaiiii/(?:agent-home-sdk|gg-pixel|ink|kencode-search|gg-editor(?:-premiere-panel)?|gg-voice|ggcoder-eyes)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 11, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "These active dependencies and non-spine package names have no owned @kleio publication yet.",
+      "removeWhen": "Owned replacement packages are published and clean-consumer tests pass against them."
+    },
+    {
+      "id": "active-upstream-package-coordinates-lockfile",
+      "path": "pnpm-lock.yaml",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "@kenkaiiii/(?:agent-home-sdk|gg-pixel|ink|kencode-search|gg-editor(?:-premiere-panel)?|gg-voice|ggcoder-eyes)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 10, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "Lockfile resolutions must continue to match active upstream dependency coordinates.",
+      "removeWhen": "The corresponding owned replacement package is adopted and the lockfile is regenerated."
+    },
+    {
+      "id": "active-upstream-package-imports",
+      "path": "packages/**/src/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "@kenkaiiii/(?:agent-home-sdk|gg-pixel|ink|kencode-search)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 47, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "Runtime imports must use the coordinates of packages that actually exist.",
+      "removeWhen": "Owned replacement packages are published and adopted in one reviewed migration."
+    },
+    {
+      "id": "external-skill-source",
+      "path": "**",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "kenkaiiii/agent-skills", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Skills distribution owner",
+      "reason": "The bundled installer still fetches skills from this verified external repository.",
+      "removeWhen": "An owned mirror exists and its contents and redirect behavior are verified."
+    },
+    {
+      "id": "language-module-identities",
+      "path": "packages/gg-pixel-*/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "github\\.com/kenkaiiii/gg-pixel-(?:go|swift)", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel SDK owners",
+      "reason": "Go and Swift module URLs are package-resolution contracts.",
+      "removeWhen": "Owned repositories, module tags, and consumer migration guidance exist."
+    },
+    {
+      "id": "openai-provider-identity",
+      "path": "packages/gg-ai/src/providers/openai*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "(?:originator|User-Agent|promptCacheKey|cache key|cache-key|prefix|startsWith)[^\\n]*(?:ggcoder|ggboss)|(?:ggcoder|ggboss)[^\\n]*(?:originator|User-Agent|promptCacheKey|cache key|cache-key|prefix|startsWith)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 4, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider integration owner",
+      "reason": "OpenAI originator, user-agent, and prompt-cache identities affect routing and cache continuity.",
+      "removeWhen": "A live provider contract and cache migration prove branded values safe."
+    },
+    {
+      "id": "error-source-machine-discriminator",
+      "path": "packages/gg-ai/src/errors*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "(?:source[^\\n]*|case\\s+|return\\s+|\\|\\s*)[\"']ggcoder[\"']|[\"']ggcoder[\"'][^\\n]*(?:source|ErrorSource)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 5, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Error contract owner",
+      "reason": "ErrorSource ggcoder is a serialized machine discriminator, not a display label.",
+      "removeWhen": "All consumers accept a branded discriminator and persisted errors have a dual-reader migration."
+    },
+    {
+      "id": "voice-wire-contract-content",
+      "path": "packages/gg-voice/src/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "(?:send_to_|requestId|request_id|bridges/|GGCoder|GGBoss|ggcoder_|ggboss_|source:|target:)[^\\n]*(?:ggcoder|ggboss)|(?:ggcoder|ggboss)[^\\n]*(?:send_to_|requestId|request_id|bridges/|GGCoder|GGBoss|source:|target:)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 13, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice protocol owner",
+      "reason": "Voice tool names, request IDs, public types, and bridge routes are published contracts.",
+      "removeWhen": "A separately versioned @kleio/voice release provides additive branded aliases and dual routing."
+    },
+    {
+      "id": "pixel-generated-project-contracts",
+      "path": "packages/gg-pixel/src/install*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "(?:auto-wired by|npx|npm|pnpm|import|require|marker|gg_pixel|gg-pixel)[^\\n]*(?:kenkaiiii|ggcoder|gg-coder)|(?:kenkaiiii|ggcoder|gg-coder)[^\\n]*(?:auto-wired by|npx|npm|pnpm|import|require|marker|gg_pixel|gg-pixel)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 10, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel SDK owner",
+      "reason": "Generated snippets and idempotency markers persist in user projects and must remain readable.",
+      "removeWhen": "A dual-reader recognizes old and branded markers before a branded writer ships."
+    },
+    {
+      "id": "legacy-cli-bin-aliases",
+      "path": "packages/*/package.json",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": {
+        "regex": "\"(?:ggcoder|ggboss)\"\\s*:\\s*\"\\./dist/cli\\.js\"",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 2, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "CLI compatibility owner",
+      "reason": "Legacy executable names must continue to resolve to the branded CLI entry points.",
+      "removeWhen": "A future major release completes a documented command migration and deprecation period."
+    },
+    {
+      "id": "manager-legacy-public-api",
+      "path": "packages/gg-boss/src/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "\\bGGBoss(?:Options)?\\b", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 19, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Manager public API owner",
+      "reason": "GGBoss and GGBossOptions are published TypeScript and JavaScript exports.",
+      "removeWhen": "Only after the complete 4.10.1-kleio.* line and a later major-version deprecation window."
+    },
+    {
+      "id": "manager-project-source-discriminator",
+      "path": "packages/gg-boss/src/discover*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "[\"']ggcoder[\"']", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Manager project discovery owner",
+      "reason": "ProjectSource ggcoder is a machine value shared by discovery and UI mapping.",
+      "removeWhen": "Persisted and cross-process project-source consumers support a branded discriminator."
+    },
+    {
+      "id": "manager-prompt-cache-prefix",
+      "path": "packages/gg-boss/src/orchestrator.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "[\"']ggboss(?::|[\"'])", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "The Manager prompt-cache prefix preserves provider cache continuity.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "manager-truncation-marker",
+      "path": "packages/gg-boss/src/truncate-tool-results*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "\\[\\[gg-boss:truncated\\]\\]", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Manager transcript owner",
+      "reason": "Persisted truncated tool results use this exact idempotency marker.",
+      "removeWhen": "A dual-reader recognizes both markers before a new writer value ships."
+    },
+    {
+      "id": "coder-app-name-legacy-export",
+      "path": "packages/ggcoder/src/config.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "APP_NAME\\s*=\\s*[\"']ggcoder[\"']", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder public API owner",
+      "reason": "APP_NAME remains a legacy public export while the product profile supplies branded display names.",
+      "removeWhen": "A later major version removes the documented legacy export."
+    },
+    {
+      "id": "coder-prompt-cache-prefix",
+      "path": "packages/ggcoder/src/core/agent-session.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "promptCacheKeyPrefix\\s*\\?\\?\\s*[\"']ggcoder[\"']", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "The Coder prompt-cache prefix preserves provider cache continuity and downgrade behavior.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "coder-agent-home-machine-id",
+      "path": "packages/ggcoder/src/modes/agent-home-mode*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "id:\\s*[\"']ggcoder[\"']", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Agent Home protocol owner",
+      "reason": "Agent Home relay and mobile associations key registrations by the immutable ggcoder ID.",
+      "removeWhen": "Relay and mobile clients ship a coordinated alias and association migration."
+    },
+    {
+      "id": "legacy-environment-identifiers",
+      "path": "packages/**/src/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "\\b(?:GGCODER|GGBOSS)[A-Z0-9_]*\\b", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 20, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Runtime configuration owner",
+      "reason": "Existing launch agents, OAuth setups, audio helpers, and tests consume these environment names.",
+      "removeWhen": "All branded aliases have shipped with legacy fallback for a documented deprecation period."
+    },
+    {
+      "id": "legacy-logger-components",
+      "path": "packages/*/src/**/*logger*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "[\"'](?:ggcoder|gg-boss)[\"']", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 5, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Logging compatibility owner",
+      "reason": "Legacy logger components and prefixes remain stable for existing filters and debug tooling.",
+      "removeWhen": "Structured product fields replace string filters and cleanup supports both generations."
+    }
+  ]
+}

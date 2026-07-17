@@ -10,6 +10,9 @@
     "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}' 'Matey/**/*.{ts,tsx,css,html,json,md,yml}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}' 'Matey/**/*.{ts,tsx,css,html,json,md,yml}'",
     "test": "pnpm -r test",
+    "identity:audit": "node scripts/identity-audit.mjs",
+    "identity:audit:report": "node scripts/identity-audit.mjs --report",
+    "identity:audit:packed": "node scripts/identity-audit.mjs --packed-only",
     "verify:fixed-versions": "node scripts/verify-fixed-versions.mjs",
     "prepare": "pnpm build"
   },
