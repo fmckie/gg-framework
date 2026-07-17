@@ -2,6 +2,7 @@ import chalk from "chalk";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import type { Provider } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { getModel } from "../core/model-registry.js";
 import type { CompletedItem } from "./App.js";
 import { HOOK_TONE_COLOR, isPanelReplacedToolItem, type HookTone } from "./app-items.js";
@@ -62,12 +63,12 @@ import {
 import { toolTonePalette } from "./transcript/tool-presentation.js";
 
 const LOGO_LINES = [
-  " ██████╗  ██████╗ ",
-  "██╔════╝ ██╔════╝ ",
-  "██║  ███╗██║  ███╗",
-  "██║   ██║██║   ██║",
-  "╚██████╔╝╚██████╔╝",
-  " ╚═════╝  ╚═════╝",
+  "██╗  ██╗ ██╗     ",
+  "██║ ██╔╝ ██║     ",
+  "█████╔╝  ██║     ",
+  "██╔═██╗  ██║     ",
+  "██║  ██╗ ███████╗",
+  "╚═╝  ╚═╝ ╚══════╝",
 ];
 const PLAN_MODE_LOGO = [
   "▗▄▄▖ ▗▖    ▗▄▖ ▗▖  ▗▖    ▗▖  ▗▖ ▗▄▖ ▗▄▄▄ ▗▄▄▄▖",
@@ -455,7 +456,7 @@ function renderBanner(context: TerminalHistoryContext): string {
       "",
       ...logo,
       "",
-      `${RESPONSE_LEFT_PADDING}${color(context.theme.primary, "GG Coder", true)}${dim(context, ` v${context.version}`)}`,
+      `${RESPONSE_LEFT_PADDING}${color(context.theme.primary, KLEIO_PRODUCT_PROFILE.coder.displayName, true)}${dim(context, ` v${context.version}`)}`,
       `${RESPONSE_LEFT_PADDING}${color(context.theme.secondary, modelName)}  ${dim(context, truncatePlain(displayPath, context.columns))}`,
       `${RESPONSE_LEFT_PADDING}${shortcuts}`,
       "",
@@ -465,7 +466,7 @@ function renderBanner(context: TerminalHistoryContext): string {
   // Info lines rendered beside the (taller) logo. They're anchored starting at
   // INFO_ANCHOR_ROW so the text column sits vertically centered next to the art.
   const infoLines = [
-    `${color(context.theme.primary, "GG Coder", true)}${dim(context, ` v${context.version} · By `)}${color(context.theme.text, "Ken Kai", true)}`,
+    `${color(context.theme.primary, KLEIO_PRODUCT_PROFILE.coder.displayName, true)}${dim(context, ` v${context.version}`)}`,
     `${color(context.theme.secondary, modelName)}  ${dim(context, truncatePlain(displayPath, Math.max(10, context.columns - LOGO_WIDTH - GAP.length - stringWidth(modelName) - 2)))}`,
     shortcuts,
   ];

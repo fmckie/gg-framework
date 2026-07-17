@@ -315,6 +315,6 @@ describe("listAllErrors", () => {
     const out = output();
     expect(out).toContain("legacy-app");
     expect(out).toContain("missing bearer secret");
-    expect(out).toContain("ggcoder pixel install");
+    expect(out).toContain("kleio-coder pixel install");
   });
 });

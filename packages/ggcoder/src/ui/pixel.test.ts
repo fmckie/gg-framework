@@ -70,17 +70,17 @@ const mixed: PixelFetchResult = {
 };
 
 describe("renderScreen", () => {
-  it("renders the standard ggcoder banner with the 'Pixel' label", () => {
+  it("renders the Kleio Coder banner with the Pixel label", () => {
     const out = strip(renderScreen(empty, 0));
-    expect(out).toContain("GG Coder");
+    expect(out).toContain("Kleio Coder");
     expect(out).toContain("Pixel");
-    expect(out).toContain("By Ken Kai");
+    expect(out).not.toContain("By Ken Kai");
   });
 
   it("shows the install hint when no projects are registered", () => {
     const out = strip(renderScreen(empty, 0));
     expect(out).toContain("No projects registered");
-    expect(out).toContain("ggcoder pixel install");
+    expect(out).toContain("kleio-coder pixel install");
   });
 
   it("shows a clean-state message when projects exist but no errors", () => {

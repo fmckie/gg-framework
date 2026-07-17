@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { AgentSession } from "../core/agent-session.js";
 import { isAbortError } from "@kleio/agent";
 import { TelegramBot, type TelegramMessage, type TelegramVoiceMessage } from "../core/telegram.js";
@@ -14,6 +15,8 @@ import { estimateConversationTokens } from "../core/compaction/token-estimator.j
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
 import { loadCustomCommands } from "../core/custom-commands.js";
 import { renderLogoBlock } from "../cli/shared.js";
+
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 
 export interface ServeModeOptions {
   provider: Provider;
@@ -101,11 +104,8 @@ interface ChatState {
 }
 
 /**
- * Serve mode: run ggcoder controlled via Telegram.
- *
- * - DMs to bot → default project (CWD where serve was started)
- * - Groups → linked projects via /link <path>
- * - Each chat gets its own AgentSession, tools, context
+ * Serve mode runs Kleio Coder through Telegram. DMs use the launch project,
+ * groups can link another project, and each chat owns an isolated session.
  */
 export async function runServeMode(options: ServeModeOptions): Promise<void> {
   const bot = new TelegramBot({
@@ -300,7 +300,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
     const currentModel = state?.session.getState().model ?? options.model;
     const modelInfo = MODELS.find((m) => m.id === currentModel);
 
-    let text = `*ggcoder* — remote coding agent\n\n`;
+    let text = `*${CODER_DISPLAY_NAME}* — remote coding agent\n\n`;
     text += `Project: \`${path.basename(projectPath)}\`\n`;
     text += `Model: *${modelInfo?.name ?? currentModel}*\n\n`;
 
@@ -366,7 +366,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
     const groupName = chatTitle ?? "this group";
     await bot.send(
       chatId,
-      `*ggcoder* joined *${groupName}*\n\n` +
+      `*${CODER_DISPLAY_NAME}* joined *${groupName}*\n\n` +
         `Send /link to connect to a project\n` +
         `Send /help for all commands`,
     );
@@ -615,7 +615,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
       if (state.isProcessing) {
         await bot.send(
           chatId,
-          "ggcoder is still processing. Wait for the current task to finish, or send /cancel to interrupt.",
+          `${CODER_DISPLAY_NAME} is still processing. Wait for the current task to finish, or send /cancel to interrupt.`,
         );
         return;
       }
@@ -651,7 +651,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
     if (state?.isProcessing) {
       await bot.send(
         chatId,
-        "ggcoder is still processing. Wait for the current task to finish, or send /cancel to interrupt.",
+        `${CODER_DISPLAY_NAME} is still processing. Wait for the current task to finish, or send /cancel to interrupt.`,
       );
       return;
     }
@@ -706,7 +706,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
     if (state.isProcessing) {
       await bot.send(
         chatId,
-        "ggcoder is still processing. Wait for the current task to finish, or send /cancel to interrupt.",
+        `${CODER_DISPLAY_NAME} is still processing. Wait for the current task to finish, or send /cancel to interrupt.`,
       );
       return;
     }
@@ -743,13 +743,10 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
     const displayPath =
       home && options.cwd.startsWith(home) ? "~" + options.cwd.slice(home.length) : options.cwd;
 
-    // GG logo with gradient (matches the interactive TUI banner)
+    // Kleio logo with gradient (matches the interactive TUI banner)
     console.log();
     for (const row of renderLogoBlock([
-      chalk.hex("#60a5fa").bold("GG Coder") +
-        chalk.hex("#6b7280")(` v${options.version}`) +
-        chalk.hex("#6b7280")(" · By ") +
-        chalk.white.bold("Ken Kai"),
+      chalk.hex("#60a5fa").bold(CODER_DISPLAY_NAME) + chalk.hex("#6b7280")(` v${options.version}`),
       chalk.hex("#a78bfa")(modelName),
       chalk.hex("#6b7280")(displayPath),
     ])) {

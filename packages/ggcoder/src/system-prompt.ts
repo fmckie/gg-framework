@@ -1,24 +1,26 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import type { Provider } from "@kleio/ai";
 import { formatSkillsForPrompt, type Skill } from "./core/skills.js";
 import { TOOL_PROMPT_HINTS, buildToolSteering, DEFAULT_TOOL_NAMES } from "./tools/prompt-hints.js";
 import type { LanguageId } from "./core/language-detector.js";
 import { renderStylePacksSection } from "./core/style-packs/index.js";
 import { detectVerifyCommands, renderVerifySection } from "./core/verify-commands.js";
 import { extractPlanSteps } from "./utils/plan-steps.js";
-import type { Provider } from "@kleio/ai";
 
 const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".cursorrules", "CONVENTIONS.md"];
 const UNCACHED_MARKER = "<!-- uncached -->";
+const ANTHROPIC_PROMPT_IDENTITY = "Claude Code";
 
 /**
- * The agent's product identity. Anthropic models run as "Claude Code" (matching
- * the Claude Code identity Anthropic's OAuth tokens require in the system
- * prompt); every other provider runs as GG Coder. Keeping this dynamic avoids a
- * contradictory double identity when streaming through Anthropic.
+ * Anthropic retains its provider-required Claude Code prompt identity; every
+ * other provider receives the Kleio Coder product identity.
  */
 function productName(provider: Provider | undefined): string {
-  return provider === "anthropic" ? "Claude Code" : "GG Coder by Ken Kai";
+  return provider === "anthropic"
+    ? ANTHROPIC_PROMPT_IDENTITY
+    : KLEIO_PRODUCT_PROFILE.coder.displayName;
 }
 
 function renderIdentitySection(provider: Provider | undefined): string {
@@ -173,7 +175,7 @@ function renderUncachedDateSuffix(): string {
  *   Pass `tools.map(t => t.name)` from the session so the prompt reflects
  *   exactly what the model can call. Defaults to the full built-in set.
  * @param provider — the active LLM provider. Drives the product identity
- *   (`anthropic` → "Claude Code", everything else → "GG Coder").
+ *   (`anthropic` → "Claude Code", everything else → "Kleio Coder").
  */
 export async function buildSystemPrompt(
   cwd: string,

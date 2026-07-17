@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import type { Provider } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 
 // Resolve the package version by walking up from this module to the nearest
 // package.json. A bare `require("../../package.json")` breaks when this module
@@ -30,14 +31,14 @@ function resolveCliVersion(): string {
 
 export const CLI_VERSION = resolveCliVersion();
 
-// ── Logo + gradient (mirrors terminal-history.ts banner) ────────────
+// ── Kleio logo + gradient (mirrors terminal-history.ts banner) ─────────
 export const LOGO_LINES = [
-  " \u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557 ",
-  "\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d ",
-  "\u2588\u2588\u2551  \u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2588\u2557",
-  "\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551",
-  "\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d",
-  " \u255a\u2550\u2550\u2550\u2550\u2550\u255d  \u255a\u2550\u2550\u2550\u2550\u2550\u255d",
+  "██╗  ██╗ ██╗     ",
+  "██║ ██╔╝ ██║     ",
+  "█████╔╝  ██║     ",
+  "██╔═██╗  ██║     ",
+  "██║  ██╗ ███████╗",
+  "╚═╝  ╚═╝ ╚══════╝",
 ];
 
 // Visible width of the logo block (glyph columns) and the gap before titles.
@@ -83,9 +84,8 @@ export function gradientLine(text: string): string {
 }
 
 /**
- * Render the GG logo with up to three title lines placed beside the
- * vertically-centered rows of the (6-line) art. Returns one string per output
- * row. `titleLines` are already-colored strings (brand, page name, subtitle).
+ * Render the Kleio logo with up to three title lines placed beside the
+ * vertically-centered rows of the six-line art.
  */
 export function renderLogoBlock(
   titleLines: readonly string[],
@@ -111,11 +111,14 @@ export function clearVisibleScreen(): void {
  */
 export function requireInteractiveTTY(): void {
   if (process.stdin.isTTY) return;
+  const command = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
   process.stderr.write(
-    chalk.red("ggcoder needs an interactive terminal — your stdin isn't a TTY.\n") +
+    chalk.red(
+      `${KLEIO_PRODUCT_PROFILE.coder.displayName} needs an interactive terminal — your stdin isn't a TTY.\n`,
+    ) +
       chalk.hex("#6b7280")(
-        "Run ggcoder directly in your terminal (not piped or through an API shell). " +
-          'For headless use try "ggcoder --json \'<prompt>\'" or "ggcoder --rpc".\n',
+        `Run ${command} directly in your terminal (not piped or through an API shell). ` +
+          `For headless use try "${command} --json '<prompt>'" or "${command} --rpc".\n`,
       ),
   );
   process.exit(1);

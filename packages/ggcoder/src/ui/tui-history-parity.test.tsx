@@ -541,7 +541,7 @@ const parityCaseByKind = {
   update_notice: {
     kind: "update_notice",
     id: "update-notice",
-    text: "Ken just pushed a fresh update — 4.3.214 → 4.3.215! I'll grab it on next launch (or run npm install -g @kleio/coder@latest if you can't wait).",
+    text: "A new update is available — 4.3.214 → 4.3.215. It will install on next launch, or run npm install -g @kleio/coder@latest now.",
   },
   compacting: { kind: "compacting", id: "compacting" },
   compacted: {
@@ -577,7 +577,7 @@ const parityCaseByKind = {
     kind: "session_summary",
     id: "session-summary",
     summary: {
-      title: "GG Coder is powering down. Goodbye!",
+      title: "Kleio Coder is powering down. Goodbye!",
       sessionId: "session.jsonl",
       provider: "anthropic",
       model: "claude-sonnet-4-5",
@@ -594,7 +594,7 @@ const parityCaseByKind = {
       },
       serverToolCalls: 0,
       linesChanged: { added: 3, removed: 1 },
-      footer: "To resume this session: ggcoder --resume session.jsonl",
+      footer: "To resume this session: kleio-coder --resume session.jsonl",
     },
   },
 } satisfies ParityCaseByKind;

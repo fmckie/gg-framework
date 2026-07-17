@@ -1,8 +1,11 @@
 import chalk from "chalk";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { loadSavedSettings } from "../config.js";
 import { getDefaultModel } from "../core/model-registry.js";
 import type { ThemeName } from "../ui/theme/theme.js";
+
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 
 /** Options accepted by the Ink TUI launcher injected into the pixel command. */
 export interface RunInkTUIOptions {
@@ -43,17 +46,17 @@ export function parsePixelInstallArgs(args: string[]): ParsedInstall {
 }
 
 export function printPixelHelp(): void {
-  console.log(`ggcoder pixel — error tracking + auto-fix queue
+  console.log(`${CODER_COMMAND} pixel — error tracking + auto-fix queue
 
 Usage:
-  ggcoder pixel                  List open errors across every registered project
-  ggcoder pixel install          Register the current project and wire up the SDK
-  ggcoder pixel fix <error_id>   Fix one specific error end-to-end
-  ggcoder pixel run              Auto-fix every open error across all projects
+  ${CODER_COMMAND} pixel                  List open errors across every registered project
+  ${CODER_COMMAND} pixel install          Register the current project and wire up the SDK
+  ${CODER_COMMAND} pixel fix <error_id>   Fix one specific error end-to-end
+  ${CODER_COMMAND} pixel run              Auto-fix every open error across all projects
 
-  ggcoder pixel install --name <name>      Override the project name
-  ggcoder pixel install --ingest-url <url> Use a custom backend URL
-  ggcoder pixel install --skip-install     Don't run the package manager
+  ${CODER_COMMAND} pixel install --name <name>      Override the project name
+  ${CODER_COMMAND} pixel install --ingest-url <url> Use a custom backend URL
+  ${CODER_COMMAND} pixel install --skip-install     Don't run the package manager
 `);
 }
 
@@ -71,7 +74,7 @@ export async function runPixel(deps: PixelCommandDeps): Promise<void> {
   if (sub === "fix") {
     const errorId = rest[0];
     if (!errorId) {
-      process.stderr.write("Usage: ggcoder pixel fix <error_id>\n");
+      process.stderr.write(`Usage: ${CODER_COMMAND} pixel fix <error_id>\n`);
       process.exit(1);
     }
     const { fixError } = await import("../core/pixel-fix.js");

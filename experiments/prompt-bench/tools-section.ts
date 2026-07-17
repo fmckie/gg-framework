@@ -25,7 +25,7 @@ interface ToolsVariant {
 }
 
 const BASE_PROMPT =
-  "You are GG Coder, a coding agent working in the user's codebase. Use the available tools to complete the task.";
+  "You are Kleio Coder, a coding agent working in the user's codebase. Use the available tools to complete the task.";
 
 function w(s: string): number {
   return s.trim() ? s.trim().split(/\s+/).length : 0;
@@ -61,7 +61,11 @@ interface SelectTask {
   pass: (t: TrajectoryEntry[]) => boolean;
 }
 
-function used(t: TrajectoryEntry[], tool: string, match?: (e: TrajectoryEntry) => boolean): boolean {
+function used(
+  t: TrajectoryEntry[],
+  tool: string,
+  match?: (e: TrajectoryEntry) => boolean,
+): boolean {
   return t.some((e) => e.tool === tool && (!match || match(e)));
 }
 
@@ -97,8 +101,7 @@ const TASKS: SelectTask[] = [
       "src/other.js": "function noop() {}\n",
     },
     pass: (t) =>
-      used(t, "grep") &&
-      !used(t, "bash", (e) => /\bgrep\b/.test(String(e.args.command ?? ""))),
+      used(t, "grep") && !used(t, "bash", (e) => /\bgrep\b/.test(String(e.args.command ?? ""))),
   },
   {
     id: "read-before-edit",

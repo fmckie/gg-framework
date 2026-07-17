@@ -100,10 +100,13 @@ import { discoverAgents } from "./core/agents.js";
 import { discoverSkills } from "./core/skills.js";
 import path from "node:path";
 import chalk from "chalk";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { checkAndAutoUpdate } from "./core/auto-update.js";
 
 import { routeCliCommandInput, type CliSubcommandName } from "./cli/command-routing.js";
 
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 const THINKING_LEVELS = new Set<ThinkingLevel>(["low", "medium", "high", "xhigh", "max"]);
 
 export function parseThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
@@ -121,12 +124,11 @@ function printHelp(): void {
   const dim = chalk.dim;
   const primary = chalk.hex("#60a5fa");
   const accent = chalk.hex("#a78bfa");
-  const bold = chalk.bold;
 
   // Banner — matches the interactive TUI banner layout
   console.log();
   for (const row of renderLogoBlock([
-    primary.bold("GG Coder") + dim(` v${CLI_VERSION}`) + dim(" · By ") + bold("Ken Kai"),
+    primary.bold(CODER_DISPLAY_NAME) + dim(` v${CLI_VERSION}`),
     dim("AI coding agent"),
   ])) {
     console.log(row);
@@ -134,7 +136,7 @@ function printHelp(): void {
   console.log();
 
   // Usage
-  console.log(primary("Usage:") + "  ggcoder " + dim("[options]") + " " + dim("[prompt]"));
+  console.log(primary("Usage:") + `  ${CODER_COMMAND} ` + dim("[options]") + " " + dim("[prompt]"));
   console.log();
 
   // Commands
@@ -187,7 +189,7 @@ function printHelp(): void {
     ["/session", "Switch or create sessions"],
     ["/new", "Start a new session"],
     ["/settings", "Open settings"],
-    ["/quit", "Exit ggcoder"],
+    ["/quit", `Exit ${CODER_DISPLAY_NAME}`],
   ];
   for (const [name, desc] of slashCmds) {
     console.log(`  ${accent(name.padEnd(20))} ${dim(desc)}`);
@@ -451,13 +453,13 @@ async function runInkTUI(opts: {
     const fallback = loggedInProviders.find((p) => credentialsByProvider[p]);
     if (!fallback) {
       throw new Error(
-        'All logged-in providers expired or failed to authenticate. Run "ggcoder login" to re-authenticate.',
+        `All logged-in providers expired or failed to authenticate. Run "${CODER_COMMAND} login" to re-authenticate.`,
       );
     }
     console.warn(
       chalk.yellow(
         `⚠ ${displayName(preferredProvider)} session expired — switched to ${displayName(fallback)} for this launch.\n` +
-          `  Run "ggcoder login" to re-authenticate ${displayName(preferredProvider)}.`,
+          `  Run "${CODER_COMMAND} login" to re-authenticate ${displayName(preferredProvider)}.`,
       ),
     );
     provider = fallback;
@@ -466,7 +468,7 @@ async function runInkTUI(opts: {
     console.warn(
       chalk.yellow(
         `⚠ Sessions expired: ${expiredProviders.map(displayName).join(", ")}. ` +
-          `Run "ggcoder login" to re-authenticate.`,
+          `Run "${CODER_COMMAND} login" to re-authenticate.`,
       ),
     );
   }
@@ -846,10 +848,7 @@ async function runTelegramSetup(): Promise<void> {
   // Banner
   console.log();
   for (const row of renderLogoBlock([
-    chalk.hex("#60a5fa").bold("GG Coder") +
-      chalk.hex("#6b7280")(` v${CLI_VERSION}`) +
-      chalk.hex("#6b7280")(" · By ") +
-      chalk.white.bold("Ken Kai"),
+    chalk.hex("#60a5fa").bold(CODER_DISPLAY_NAME) + chalk.hex("#6b7280")(` v${CLI_VERSION}`),
     chalk.hex("#a78bfa")("Telegram Setup"),
     chalk.hex("#6b7280")("Remote Control"),
   ])) {
@@ -955,7 +954,7 @@ async function runTelegramSetup(): Promise<void> {
         chalk.hex("#6b7280")("    2. Add the bot to your group\n") +
         chalk.hex("#6b7280")("    3. Send /link in the group to connect it to a project\n\n") +
         chalk.hex("#60a5fa")("  To start:\n") +
-        chalk.hex("#6b7280")("    cd your-project && ggcoder serve\n"),
+        chalk.hex("#6b7280")(`    cd your-project && ${CODER_COMMAND} serve\n`),
     );
   } finally {
     rl.close();
@@ -986,10 +985,10 @@ async function runServe(): Promise<void> {
     console.error(
       chalk.hex("#ef4444")("Telegram not configured.\n\n") +
         "Run " +
-        chalk.hex("#60a5fa").bold("ggcoder telegram") +
+        chalk.hex("#60a5fa").bold(`${CODER_COMMAND} telegram`) +
         " to set up your bot token and user ID.\n\n" +
         chalk.hex("#6b7280")("Or provide manually:\n") +
-        chalk.hex("#6b7280")("  ggcoder serve --bot-token TOKEN --user-id ID"),
+        chalk.hex("#6b7280")(`  ${CODER_COMMAND} serve --bot-token TOKEN --user-id ID`),
     );
     process.exit(1);
   }
@@ -1066,10 +1065,7 @@ async function runAgentHomeLogin(): Promise<void> {
   // Banner
   console.log();
   for (const row of renderLogoBlock([
-    chalk.hex("#60a5fa").bold("GG Coder") +
-      chalk.hex("#6b7280")(` v${CLI_VERSION}`) +
-      chalk.hex("#6b7280")(" \u00b7 By ") +
-      chalk.white.bold("Ken Kai"),
+    chalk.hex("#60a5fa").bold(CODER_DISPLAY_NAME) + chalk.hex("#6b7280")(` v${CLI_VERSION}`),
     chalk.hex("#a78bfa")("Agent Home Setup"),
     chalk.hex("#6b7280")("Remote Control via iOS"),
   ])) {
@@ -1119,7 +1115,7 @@ async function runAgentHomeLogin(): Promise<void> {
         chalk.hex("#4ade80")(`  \u2713 Config saved to ${paths.agentHomeFile}`) +
         "\n\n" +
         chalk.hex("#60a5fa")("  To start:\n") +
-        chalk.hex("#6b7280")("    cd your-project && ggcoder agent-home\n"),
+        chalk.hex("#6b7280")(`    cd your-project && ${CODER_COMMAND} agent-home\n`),
     );
   } finally {
     rl.close();
@@ -1147,10 +1143,10 @@ async function runAgentHome(): Promise<void> {
     console.error(
       chalk.hex("#ef4444")("Agent Home not configured.\n\n") +
         "Run " +
-        chalk.hex("#60a5fa").bold("ggcoder agent-home-login") +
+        chalk.hex("#60a5fa").bold(`${CODER_COMMAND} agent-home-login`) +
         " to set up your token.\n\n" +
         chalk.hex("#6b7280")("Or provide manually:\n") +
-        chalk.hex("#6b7280")("  ggcoder agent-home --token TOKEN"),
+        chalk.hex("#6b7280")(`  ${CODER_COMMAND} agent-home --token TOKEN`),
     );
     process.exit(1);
   }
@@ -1225,7 +1221,7 @@ async function resolveActiveProvider(
   }
 
   if (loggedInProviders.length === 0) {
-    throw new Error('Not logged in to any provider. Run "ggcoder login" to authenticate.');
+    throw new Error(`Not logged in to any provider. Run "${CODER_COMMAND} login" to authenticate.`);
   }
 
   if (loggedInProviders.includes(preferred)) {

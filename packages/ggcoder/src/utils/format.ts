@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { formatUserError } from "./error-handler.js";
 
 /**
@@ -46,7 +47,7 @@ export function formatError(error: Error): string {
  */
 export function formatWelcome(model: string, provider: string, cwd: string): string {
   const lines = [
-    chalk.bold("ggcoder"),
+    chalk.bold(KLEIO_PRODUCT_PROFILE.coder.displayName),
     chalk.dim(`  model:    ${model}`),
     chalk.dim(`  provider: ${provider}`),
     chalk.dim(`  cwd:      ${cwd}`),

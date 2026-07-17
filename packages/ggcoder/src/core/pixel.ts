@@ -9,6 +9,9 @@ import {
   verifyInstall,
   type VerifyOutcome,
 } from "@kenkaiiii/gg-pixel";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 
 interface ProjectMapping {
   name: string;
@@ -226,7 +229,7 @@ export async function listAllErrors(opts: ListOptions = {}): Promise<void> {
     if (!project.secret) {
       console.log(
         chalk.hex("#fbbf24")(
-          `⚠ ${project.name}: missing bearer secret — re-run \`ggcoder pixel install\` to refresh management access`,
+          `⚠ ${project.name}: missing bearer secret — re-run \`${CODER_COMMAND} pixel install\` to refresh management access`,
         ),
       );
       continue;
@@ -339,7 +342,7 @@ function printNoProjects(): void {
   console.log("");
   console.log(
     "Run " +
-      chalk.hex("#60a5fa").bold("ggcoder pixel install") +
+      chalk.hex("#60a5fa").bold(`${CODER_COMMAND} pixel install`) +
       " inside any project to wire it up.",
   );
   console.log("");

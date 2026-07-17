@@ -15,7 +15,7 @@ type HarnessItem =
   | { kind: "assistant"; id: string; text: string };
 
 function renderHarnessItem(item: HarnessItem) {
-  if (item.kind === "banner") return <Text>GG CODER BANNER</Text>;
+  if (item.kind === "banner") return <Text>KLEIO CODER BANNER</Text>;
   if (item.kind === "user") return <UserMessage text={item.text} />;
   return <Text>{item.text}</Text>;
 }
@@ -132,11 +132,11 @@ describe("long prompt regression harness", () => {
     const frames = splitDebugFrames(output);
     const scrollback = stripAnsi(output);
     const lastFullScreenFrame =
-      [...frames].reverse().find((frame) => frame.includes("GG CODER BANNER")) ?? "";
+      [...frames].reverse().find((frame) => frame.includes("KLEIO CODER BANNER")) ?? "";
     const lastPromptFrame = [...frames].reverse().find((frame) => frame.includes("> This")) ?? "";
 
     expect(staticRenders).toEqual(["banner"]);
-    expect(lastFullScreenFrame).toContain("GG CODER BANNER");
+    expect(lastFullScreenFrame).toContain("KLEIO CODER BANNER");
     expect(lastPromptFrame).toContain("> This");
     expect(scrollback).toContain("> This ⏎ Is ⏎ A ⏎ Test...");
     unmount();
@@ -185,9 +185,9 @@ describe("long prompt regression harness", () => {
       />,
     );
 
-    const frames = stripAnsi(output).split("GG CODER BANNER");
-    const frame = `GG CODER BANNER${frames.at(-1) ?? ""}`;
-    expect(count(frame, "GG CODER BANNER")).toBe(1);
+    const frames = stripAnsi(output).split("KLEIO CODER BANNER");
+    const frame = `KLEIO CODER BANNER${frames.at(-1) ?? ""}`;
+    expect(count(frame, "KLEIO CODER BANNER")).toBe(1);
     expect(count(frame, "> LONG_PROMPT_LINE_01")).toBe(1);
     expect(count(frame, "LONG_PROMPT_LINE_02")).toBe(1);
     expect(count(frame, "LONG_PROMPT_LINE_18")).toBe(1);
@@ -238,8 +238,8 @@ describe("long prompt regression harness", () => {
     const frames = splitDebugFrames(output);
     const lastFrame = frames.at(-1) ?? "";
     const lastFullScreenFrame =
-      [...frames].reverse().find((frame) => frame.includes("GG CODER BANNER")) ?? "";
-    expect(lastFullScreenFrame).toContain("GG CODER BANNER");
+      [...frames].reverse().find((frame) => frame.includes("KLEIO CODER BANNER")) ?? "";
+    expect(lastFullScreenFrame).toContain("KLEIO CODER BANNER");
     expect(lastFullScreenFrame).toContain("> LONG_PROMPT_LINE_01");
     expect(lastFullScreenFrame).toContain("LONG_PROMPT_LINE_18");
     expect(lastFrame).toContain("> LONG_PROMPT_LINE_01");

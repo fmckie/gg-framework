@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { ensureAppDirs } from "../config.js";
 import { initLogger, log, closeLogger } from "../core/logger.js";
 import {
@@ -25,6 +26,8 @@ import {
 } from "../ui/mcp.js";
 import { CLI_VERSION, clearVisibleScreen, requireInteractiveTTY } from "./shared.js";
 
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 const dim = chalk.hex(C.dim);
 const primary = chalk.hex(C.primary);
 const good = chalk.hex(C.good);
@@ -75,22 +78,22 @@ export async function runMcp(): Promise<void> {
 }
 
 function printMcpHelp(): void {
-  console.log(`ggcoder mcp — add and manage MCP servers
+  console.log(`${CODER_COMMAND} mcp — add and manage MCP servers
 
 Usage:
-  ggcoder mcp                              Open the interactive dashboard
-  ggcoder mcp list                         List servers with live connection status
-  ggcoder mcp get <name>                   Show one server's config
-  ggcoder mcp add <args…>                  Add a server (claude-compatible grammar)
-  ggcoder mcp remove <name> [--scope s]    Remove a server
+  ${CODER_COMMAND} mcp                              Open the interactive dashboard
+  ${CODER_COMMAND} mcp list                         List servers with live connection status
+  ${CODER_COMMAND} mcp get <name>                   Show one server's config
+  ${CODER_COMMAND} mcp add <args…>                  Add a server (claude-compatible grammar)
+  ${CODER_COMMAND} mcp remove <name> [--scope s]    Remove a server
 
 Add examples:
-  ggcoder mcp add --transport http notion https://mcp.notion.com/mcp
-  ggcoder mcp add --transport sse asana https://mcp.asana.com/sse
-  ggcoder mcp add airtable -- npx -y airtable-mcp-server
+  ${CODER_COMMAND} mcp add --transport http notion https://mcp.notion.com/mcp
+  ${CODER_COMMAND} mcp add --transport sse asana https://mcp.asana.com/sse
+  ${CODER_COMMAND} mcp add airtable -- npx -y airtable-mcp-server
 
 Scopes:
-  global   ~/.gg/mcp.json   (all GG Coder sessions)
+  global   ~/.gg/mcp.json   (all ${CODER_DISPLAY_NAME} sessions)
   project  ./.gg/mcp.json   (the current project)
 
 Configs are stored in the same { "mcpServers": { … } } shape Claude Code uses.`);
@@ -122,7 +125,7 @@ async function buildRows(cwd: string): Promise<McpServerRow[]> {
 async function runList(cwd: string): Promise<void> {
   const rows = await buildRows(cwd);
   if (rows.length === 0) {
-    console.log(dim("No MCP servers configured. Add one with `ggcoder mcp add …`."));
+    console.log(dim(`No MCP servers configured. Add one with \`${CODER_COMMAND} mcp add …\`.`));
     return;
   }
   for (const row of rows) {
@@ -138,7 +141,7 @@ async function runList(cwd: string): Promise<void> {
 async function runGet(rest: string[], cwd: string): Promise<void> {
   const name = rest[0];
   if (!name) {
-    process.stderr.write("Usage: ggcoder mcp get <name>\n");
+    process.stderr.write(`Usage: ${CODER_COMMAND} mcp get <name>\n`);
     process.exit(1);
   }
   const found = await getServer(name, cwd);
@@ -191,7 +194,7 @@ async function runRemove(rest: string[], cwd: string): Promise<void> {
   const scopeValue = parseScopeArgValue(rest);
   const name = rest.find((a) => !a.startsWith("-") && a !== scopeValue);
   if (!name) {
-    process.stderr.write("Usage: ggcoder mcp remove <name> [--scope global|project]\n");
+    process.stderr.write(`Usage: ${CODER_COMMAND} mcp remove <name> [--scope global|project]\n`);
     process.exit(1);
   }
   const requested = parseScopeFlag(rest);
@@ -244,7 +247,7 @@ async function runAdd(rest: string[], cwd: string): Promise<void> {
   if (!requestedScope) {
     console.log(dim("  Use --scope global to add it for all sessions instead."));
   }
-  console.log(dim("  Restart ggcoder to load the new server."));
+  console.log(dim(`  Restart ${CODER_DISPLAY_NAME} to load the new server.`));
 }
 
 async function probeServer(
@@ -309,7 +312,7 @@ async function runInteractiveAdd(cwd: string): Promise<void> {
   const line = await promptWithBanner(CLI_VERSION, {
     subtitle: "Add a server",
     question: "Command: ",
-    hint: "Paste a `claude mcp add …` or `ggcoder mcp add …` line. Empty to go back.",
+    hint: `Paste a \`claude mcp add …\` or \`${CODER_COMMAND} mcp add …\` line. Empty to go back.`,
   });
   if (line === null) return;
   const parsed = parseMcpAddCommand(line);
@@ -342,7 +345,7 @@ async function runInteractiveAdd(cwd: string): Promise<void> {
     return;
   }
   console.log(good(`✓ Added "${config.name}" to ${scope} scope.`));
-  console.log(dim("  Restart ggcoder to load the new server."));
+  console.log(dim(`  Restart ${CODER_DISPLAY_NAME} to load the new server.`));
   await pause();
 }
 

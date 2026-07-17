@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { AgentHomeClient, type AgentSession as AHSession } from "@kenkaiiii/agent-home-sdk";
 import { AgentSession } from "../core/agent-session.js";
 import { isAbortError } from "@kleio/agent";
@@ -13,6 +14,9 @@ import { estimateConversationTokens } from "../core/compaction/token-estimator.j
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
 import { loadCustomCommands } from "../core/custom-commands.js";
 import { renderLogoBlock } from "../cli/shared.js";
+
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
+const AGENT_HOME_ID = KLEIO_PRODUCT_PROFILE.coder.agentHomeId;
 
 export const AGENT_HOME_RELAY_URL = "wss://agent-home-relay.buzzbeamaustralia.workers.dev/ws";
 
@@ -79,11 +83,8 @@ const HANDLED_COMMANDS = new Set([
 ]);
 
 /**
- * Agent Home mode: run ggcoder as an Agent Home agent.
- *
- * Connects to the Agent Home relay via WebSocket and bridges
- * messages between the iOS app and the ggcoder agent loop.
- * Each Agent Home session maps to its own AgentSession.
+ * Agent Home mode connects Kleio Coder to the relay while retaining the legacy
+ * registration ID required by existing relay and mobile associations.
  */
 export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<void> {
   const sessionStates = new Map<string, SessionState>();
@@ -97,8 +98,8 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
     relayUrl: AGENT_HOME_RELAY_URL,
     token: options.agentHome.token,
     agent: {
-      id: "ggcoder",
-      name: "GG Coder",
+      id: AGENT_HOME_ID,
+      name: CODER_DISPLAY_NAME,
       description: `AI coding agent — ${options.model}`,
     },
   });
@@ -201,7 +202,7 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
     const modelInfo = MODELS.find((m) => m.id === currentModel);
 
     let text = "";
-    text += `**GG Coder**\n`;
+    text += `**${CODER_DISPLAY_NAME}**\n`;
     text += `Project: **${path.basename(currentCwd)}** \u00b7 Model: **${modelInfo?.name ?? currentModel}**\n\n`;
 
     text += `**Commands**\n`;
@@ -507,7 +508,7 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
     const state = await getOrCreateSession(targetSessionId);
 
     if (state.isProcessing) {
-      stream.error("GG Coder is still processing a previous message. Please wait.");
+      stream.error(`${CODER_DISPLAY_NAME} is still processing a previous message. Please wait.`);
       return;
     }
 
@@ -619,10 +620,7 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
 
     console.log();
     for (const row of renderLogoBlock([
-      chalk.hex("#60a5fa").bold("GG Coder") +
-        chalk.hex("#6b7280")(` v${options.version}`) +
-        chalk.hex("#6b7280")(" \u00b7 By ") +
-        chalk.white.bold("Ken Kai"),
+      chalk.hex("#60a5fa").bold(CODER_DISPLAY_NAME) + chalk.hex("#6b7280")(` v${options.version}`),
       chalk.hex("#a78bfa")(modelName),
       chalk.hex("#6b7280")(displayPath),
     ])) {
@@ -633,7 +631,7 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
       chalk.hex("#6b7280")("  Mode      ") +
         chalk.hex("#a78bfa")("Agent Home") +
         chalk.hex("#6b7280")("  \u00b7  Agent ") +
-        chalk.white("GG Coder"),
+        chalk.white(CODER_DISPLAY_NAME),
     );
     console.log();
     console.log(chalk.hex("#6b7280")("  Connecting to relay..."));

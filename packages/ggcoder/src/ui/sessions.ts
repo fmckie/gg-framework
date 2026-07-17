@@ -1,5 +1,6 @@
 import chalk from "chalk";
 import { readFile } from "node:fs/promises";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { SessionManager, type SessionInfo } from "../core/session-manager.js";
 import { renderLogoBlock } from "../cli/shared.js";
 
@@ -76,10 +77,8 @@ function renderScreen(sessions: SessionDisplay[], selectedIndex: number): string
   const lines: string[] = [];
 
   for (const row of renderLogoBlock([
-    chalk.hex("#60a5fa").bold("GG Coder") +
-      (_version ? chalk.hex(TEXT_DIM)(` v${_version}`) : "") +
-      chalk.hex(TEXT_DIM)(" · By ") +
-      chalk.hex(TEXT).bold("Ken Kai"),
+    chalk.hex("#60a5fa").bold(KLEIO_PRODUCT_PROFILE.coder.displayName) +
+      (_version ? chalk.hex(TEXT_DIM)(` v${_version}`) : ""),
     chalk.hex(PRIMARY)("Sessions"),
     chalk.hex(TEXT_DIM)("Select a session to resume"),
   ])) {

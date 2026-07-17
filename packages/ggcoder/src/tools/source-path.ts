@@ -85,7 +85,7 @@ export function createSourcePathTool(cwd: string): AgentTool<typeof SourcePathPa
           });
           finish(
             `Error: could not run bundled opensrc for ${args.package}: ${error.message}. ` +
-              "Try installing ggcoder again or run `npm install -g opensrc`.",
+              "Try reinstalling Kleio Coder (`npm install -g @kleio/coder`) or run `npm install -g opensrc`.",
           );
         });
 

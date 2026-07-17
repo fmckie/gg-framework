@@ -344,7 +344,7 @@ Keep total file under 100 lines. If updating, preserve any custom sections the u
 
 End your reply with this exact notice so the user doesn't miss it:
 
-> ⚠️ CLAUDE.md was created/updated. ggcoder loads it at startup, so **exit and restart ggcoder** (\`/quit\` then run \`ggcoder\` again) before continuing. Without a restart, I won't see the new context.`,
+> ⚠️ CLAUDE.md was created/updated. Kleio Coder loads it at startup, so **exit and restart Kleio Coder** (\`/quit\` then run \`kleio-coder\` again) before continuing. Without a restart, I won't see the new context.`,
   },
   {
     name: "setup-commit",

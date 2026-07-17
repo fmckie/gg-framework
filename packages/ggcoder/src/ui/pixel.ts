@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_INGEST_URL } from "@kenkaiiii/gg-pixel";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { fetchPixelEntries, type PixelEntry, type PixelFetchResult } from "../core/pixel.js";
 import { renderLogoBlock } from "../cli/shared.js";
 
@@ -11,6 +12,7 @@ const TEXT = "#e2e8f0";
 const TEXT_DIM = "#94a3b8";
 const RULE = "#ffffff";
 
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 let _version = "";
 
 export type PixelSelection =
@@ -153,10 +155,8 @@ export function renderScreen(
   const version = opts.version ?? _version;
 
   for (const row of renderLogoBlock([
-    chalk.hex("#60a5fa").bold("GG Coder") +
-      (version ? chalk.hex(TEXT_DIM)(` v${version}`) : "") +
-      chalk.hex(TEXT_DIM)(" · By ") +
-      chalk.hex(TEXT).bold("Ken Kai"),
+    chalk.hex("#60a5fa").bold(KLEIO_PRODUCT_PROFILE.coder.displayName) +
+      (version ? chalk.hex(TEXT_DIM)(` v${version}`) : ""),
     chalk.hex(PRIMARY)("Pixel"),
     chalk.hex(TEXT_DIM)(summarize(data)),
   ])) {
@@ -170,7 +170,7 @@ export function renderScreen(
     lines.push("");
     lines.push(
       "  Run " +
-        chalk.hex(PRIMARY).bold("ggcoder pixel install") +
+        chalk.hex(PRIMARY).bold(`${CODER_COMMAND} pixel install`) +
         chalk.hex(TEXT_DIM)(" inside any project to wire it up."),
     );
   } else if (data.entries.length === 0) {
@@ -198,7 +198,7 @@ export function renderScreen(
     for (const name of data.unmanaged) {
       lines.push(
         chalk.hex("#fbbf24")(
-          `  ⚠ ${name}: missing bearer secret — re-run \`ggcoder pixel install\``,
+          `  ⚠ ${name}: missing bearer secret — re-run \`${CODER_COMMAND} pixel install\``,
         ),
       );
     }

@@ -38,7 +38,7 @@ function Controls() {
     <ChatControls controlsRef={() => {}}>
       <Text>SIM_STATUS Ready to go..</Text>
       <Text>SIM_INPUT type your message</Text>
-      <Text>SIM_FOOTER gg-coder</Text>
+      <Text>SIM_FOOTER kleio-coder</Text>
     </ChatControls>
   );
 }
@@ -113,7 +113,9 @@ describe("startup banner ordering", () => {
     mounted.unmount();
     const full = stripAnsi(recorder.fullText());
     const lines = full.split("\n");
-    const bannerRow = lines.findIndex((l) => l.includes("██") || l.includes("GG Coder"));
+    const bannerRow = lines.findIndex(
+      (line) => line.includes("██") || line.includes("Kleio Coder"),
+    );
     const statusRow = lines.findIndex((l) => l.includes("SIM_STATUS"));
     expect(bannerRow, "banner present").toBeGreaterThanOrEqual(0);
     expect(statusRow, "controls present").toBeGreaterThanOrEqual(0);

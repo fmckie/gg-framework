@@ -68,7 +68,7 @@ export interface ErrorItem {
   headline: string;
   /** Detailed message body (clean, no JSON). */
   message: string;
-  /** Action line — "Retry, this is an OpenAI issue" / "Report this ggcoder bug …". */
+  /** Action line — retry a provider error or report a Kleio Coder bug. */
   guidance: string;
   id: string;
 }
@@ -98,7 +98,7 @@ export interface SetupHintItem {
   id: string;
 }
 
-export const UPDATE_NOTICE_TEXT = "KEN HAS PUSHED A NEW GG CODER UPDATE";
+export const UPDATE_NOTICE_TEXT = "A NEW KLEIO CODER UPDATE IS AVAILABLE";
 
 /** Copy shown when the automatic pre-final ideal-review hook engages. */
 export const IDEAL_HOOK_NOTICE_TEXT = "Hook engaged — running an ideal review before finalizing.";

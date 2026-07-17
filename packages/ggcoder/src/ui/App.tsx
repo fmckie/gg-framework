@@ -19,12 +19,8 @@ import {
   killTask,
 } from "./stores/taskbar-store.js";
 import { playNotificationSound } from "../utils/sound.js";
-import {
-  type Message,
-  type Provider,
-  type ThinkingLevel,
-  type TextContent,
-} from "@kleio/ai";
+import { type Message, type Provider, type ThinkingLevel, type TextContent } from "@kleio/ai";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { downscaleForPreview, extractMediaPaths, type ImageAttachment } from "../utils/image.js";
 import type { AgentTool } from "@kleio/agent";
 import { useAgentLoop, type StreamSnapshot, type UserContent } from "./hooks/useAgentLoop.js";
@@ -147,7 +143,6 @@ import type {
   ToolStartItem,
   UserItem,
 } from "./app-items.js";
-
 export type { CompletedItem, ToolGroupItem } from "./app-items.js";
 import {
   IDEAL_HOOK_NOTICE_TEXT,
@@ -178,6 +173,9 @@ export {
   partitionCompleted,
   pinStreamingTextBeforeToolBoundary,
 } from "./item-helpers.js";
+
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 
 /** Tools that get aggregated into a single compact group when possible. */
 const AGGREGATABLE_TOOLS = new Set([
@@ -1910,7 +1908,7 @@ export function App(props: AppProps) {
       model: currentModel,
       cwd: displayedCwd,
       footer: sessionStatsRef.current.sessionId
-        ? `To resume this session: ggcoder --resume ${sessionStatsRef.current.sessionId}`
+        ? `To resume this session: ${CODER_COMMAND} --resume ${sessionStatsRef.current.sessionId}`
         : undefined,
     });
     setDoneStatus(null);
@@ -2015,7 +2013,7 @@ export function App(props: AppProps) {
             ...prev,
             {
               kind: "info",
-              text: "No checkpoints yet \u2014 edit a file through ggcoder first.",
+              text: `No checkpoints yet — edit a file through ${CODER_DISPLAY_NAME} first.`,
               id: getId(),
             },
           ]);
@@ -2515,7 +2513,7 @@ export function App(props: AppProps) {
       {
         name: "quit",
         aliases: ["q", "exit"],
-        description: "Exit ggcoder",
+        description: `Exit ${CODER_DISPLAY_NAME}`,
         sectionTitle: "built-in",
       },
     ];

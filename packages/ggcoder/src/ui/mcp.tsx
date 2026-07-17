@@ -1,5 +1,6 @@
 import readline from "node:readline/promises";
 import chalk from "chalk";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import type { MCPScope, MCPServerConfig } from "../core/mcp/index.js";
 import { renderLogoBlock } from "../cli/shared.js";
 
@@ -17,10 +18,8 @@ const CLEAR_HOME = "\x1b[2J\x1b[H";
 
 function bannerLines(version: string, subtitle: string): string[] {
   return renderLogoBlock([
-    chalk.hex(PRIMARY).bold("GG Coder") +
-      chalk.hex(TEXT_DIM)(` v${version}`) +
-      chalk.hex(TEXT_DIM)(" · By ") +
-      chalk.hex(TEXT).bold("Ken Kai"),
+    chalk.hex(PRIMARY).bold(KLEIO_PRODUCT_PROFILE.coder.displayName) +
+      chalk.hex(TEXT_DIM)(` v${version}`),
     chalk.hex(ACCENT)("MCP Servers"),
     chalk.hex(TEXT_DIM)(subtitle),
   ]);
@@ -281,7 +280,11 @@ export function renderScopeSelector(version: string, cwd: string): Promise<MCPSc
     version,
     subtitle: "Choose a scope",
     items: [
-      { label: "Global (all GG Coder sessions)", value: "global", description: "~/.gg/mcp.json" },
+      {
+        label: `Global (all ${KLEIO_PRODUCT_PROFILE.coder.displayName} sessions)`,
+        value: "global",
+        description: "~/.gg/mcp.json",
+      },
       { label: `This project (${cwd})`, value: "project", description: "./.gg/mcp.json" },
     ],
   });

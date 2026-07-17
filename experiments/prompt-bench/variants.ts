@@ -31,7 +31,7 @@ function v(id: string, text: string): SectionVariant {
 
 const IDENTITY = v(
   "identity.full",
-  `You are GG Coder — a coding agent that works directly in the user's codebase. You explore, understand, change, and verify code — completing tasks end-to-end rather than just suggesting edits.`,
+  `You are Kleio Coder — a coding agent that works directly in the user's codebase. You explore, understand, change, and verify code — completing tasks end-to-end rather than just suggesting edits.`,
 );
 
 // ── How to Talk ────────────────────────────────────────────
@@ -222,7 +222,10 @@ export const SECTIONS: Section[] = [
   { key: "talk", variants: [TALK_FULL, TALK_COMPRESSED, TALK_TINY, TALK_AGGRESSIVE] },
   { key: "work", variants: [WORK_FULL, WORK_COMPRESSED, WORK_TINY, WORK_AGGRESSIVE] },
   { key: "research", variants: [RESEARCH_FULL, RESEARCH_AGGRESSIVE] },
-  { key: "quality", variants: [QUALITY_FULL, QUALITY_COMPRESSED, QUALITY_TINY, QUALITY_AGGRESSIVE] },
+  {
+    key: "quality",
+    variants: [QUALITY_FULL, QUALITY_COMPRESSED, QUALITY_TINY, QUALITY_AGGRESSIVE],
+  },
   {
     key: "stylepack",
     variants: [STYLEPACK_FULL, STYLEPACK_COMPRESSED, STYLEPACK_TINY, STYLEPACK_AGGRESSIVE],

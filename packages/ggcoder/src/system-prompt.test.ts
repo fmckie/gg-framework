@@ -89,7 +89,7 @@ describe("buildSystemPrompt", () => {
       new Set<LanguageId>(["typescript"]),
     );
 
-    expect(prompt.startsWith("You are GG Coder by Ken Kai")).toBe(true);
+    expect(prompt.startsWith("You are Kleio Coder")).toBe(true);
     expect(sectionIndex(prompt, "## How to Talk")).toBeLessThan(
       sectionIndex(prompt, "## How to Work"),
     );
@@ -370,7 +370,7 @@ describe("buildSystemPrompt", () => {
     expect(audit.size.sections).toBeGreaterThanOrEqual(8);
   });
 
-  it("uses the Claude Code identity for Anthropic and GG Coder for other providers", async () => {
+  it("uses the exact Claude Code identity only for Anthropic", async () => {
     const cwd = await makeProject();
     const anthropic = await buildSystemPrompt(
       cwd,
@@ -381,19 +381,37 @@ describe("buildSystemPrompt", () => {
       undefined,
       "anthropic",
     );
-    const openai = await buildSystemPrompt(
-      cwd,
-      undefined,
-      false,
-      undefined,
-      ["read"],
-      undefined,
-      "openai",
-    );
 
     expect(anthropic.startsWith("You are Claude Code")).toBe(true);
-    expect(anthropic).not.toContain("GG Coder by Ken Kai");
-    expect(openai.startsWith("You are GG Coder by Ken Kai")).toBe(true);
-    expect(openai).not.toContain("You are Claude Code");
+    expect(anthropic).not.toContain("Kleio Coder");
+  });
+
+  it("uses Kleio Coder for every non-Anthropic provider", async () => {
+    const cwd = await makeProject();
+    const providers = [
+      "xiaomi",
+      "openai",
+      "gemini",
+      "glm",
+      "moonshot",
+      "minimax",
+      "deepseek",
+      "openrouter",
+      "palsu",
+    ] as const;
+
+    for (const provider of providers) {
+      const prompt = await buildSystemPrompt(
+        cwd,
+        undefined,
+        false,
+        undefined,
+        ["read"],
+        undefined,
+        provider,
+      );
+      expect(prompt.startsWith("You are Kleio Coder"), provider).toBe(true);
+      expect(prompt, provider).not.toContain("You are Claude Code");
+    }
   });
 });

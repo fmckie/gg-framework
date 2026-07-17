@@ -1,6 +1,5 @@
 import { AuthStorage } from "@kleio/coder";
 import type { Provider } from "@kleio/ai";
-
 /**
  * Credential loader for the bench. Uses the CLI's own `AuthStorage` so OAuth
  * tokens are refreshed on demand (the raw `~/.gg/auth.json` accessToken can be
@@ -31,7 +30,7 @@ export const TARGETS: ModelTarget[] = [
 export async function loadAuth(authKey: string): Promise<BenchAuth> {
   const creds = await storage.resolveCredentials(authKey).catch((err: unknown) => {
     throw new Error(
-      `Could not resolve credentials for "${authKey}" (run: ggcoder login). ` +
+      `Could not resolve credentials for "${authKey}" (run: kleio-coder login). ` +
         (err instanceof Error ? err.message : String(err)),
     );
   });

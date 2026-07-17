@@ -319,7 +319,7 @@ describe("terminal history", () => {
         {
           kind: "update_notice",
           id: "update-notice",
-          text: "Ken just pushed a fresh update — 4.3.214 → 4.3.215! I'll grab it on next launch (or run npm install -g @kleio/coder@latest if you can't wait).",
+          text: "A stale update payload that should not be rendered.",
         },
       ],
       context,
@@ -328,8 +328,8 @@ describe("terminal history", () => {
     const rendered = stripAnsi(output);
     expect(rendered).toMatch(/4\.3\.215\.\n\n │ ⟳ Conversation compacted/);
     expect(rendered).toMatch(/86% reduction\n\n ╭─+/);
-    expect(rendered).toContain(" │ KEN HAS PUSHED A NEW GG CODER UPDATE");
-    expect(rendered).not.toContain("Ken just pushed a fresh update");
+    expect(rendered).toContain(" │ A NEW KLEIO CODER UPDATE IS AVAILABLE");
+    expect(rendered).not.toContain("A stale update payload");
     expect(rendered).toMatch(/╰─+╯\n$/);
   });
 
@@ -350,7 +350,7 @@ describe("terminal history", () => {
     printer.print(items, context);
     printer.print(items, context);
 
-    expect(output.match(/GG Coder/g)).toHaveLength(1);
+    expect(output.match(/Kleio Coder/g)).toHaveLength(1);
     expect(output.match(/hello/g)).toHaveLength(1);
   });
 

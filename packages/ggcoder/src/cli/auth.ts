@@ -9,7 +9,7 @@ import { loginAnthropic } from "../core/oauth/anthropic.js";
 import { loginOpenAI } from "../core/oauth/openai.js";
 import { loginGemini } from "../core/oauth/gemini.js";
 import { loginKimi } from "../core/oauth/kimi.js";
-import { MOONSHOT_OAUTH_KEY } from "@kleio/core";
+import { KLEIO_PRODUCT_PROFILE, MOONSHOT_OAUTH_KEY } from "@kleio/core";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "../core/oauth/types.js";
 import {
   CLI_VERSION,
@@ -19,6 +19,9 @@ import {
   openBrowser,
   requireInteractiveTTY,
 } from "./shared.js";
+
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 
 export async function runLogin(): Promise<void> {
   requireInteractiveTTY();
@@ -148,10 +151,7 @@ export async function runDoctor(): Promise<void> {
   // ── Banner ──────────────────────────────────────────────────
   console.log();
   for (const row of renderLogoBlock([
-    primary.bold("GG Coder") +
-      dim(` v${CLI_VERSION}`) +
-      dim(" · By ") +
-      chalk.white.bold("Ken Kai"),
+    primary.bold(CODER_DISPLAY_NAME) + dim(` v${CLI_VERSION}`),
     accent("Doctor"),
     dim("Diagnose & Fix"),
   ])) {
@@ -179,7 +179,7 @@ export async function runDoctor(): Promise<void> {
   }
   if (myUid !== process.geteuid!()) {
     console.log(warn("    ⚠ uid ≠ euid — running with elevated privileges (sudo?)"));
-    console.log(dim("      Running ggcoder with sudo can cause ownership issues."));
+    console.log(dim(`      Running ${CODER_COMMAND} with sudo can cause ownership issues.`));
     console.log(dim("      Use without sudo, or fix after: sudo chown -R $(whoami) ~/.gg"));
   }
   console.log();
@@ -293,7 +293,7 @@ export async function runDoctor(): Promise<void> {
         await fsP.copyFile(authFile, path.join(ggDir, backupName));
         await fsP.writeFile(authFile, "{}", { encoding: "utf-8", mode: 0o600 });
         console.log(good(`    ✓ Corrupt file backed up as ${backupName}`));
-        console.log(dim('      Run "ggcoder login" to re-authenticate'));
+        console.log(dim(`      Run "${CODER_COMMAND} login" to re-authenticate`));
         authData = {};
         fixed++;
       }
@@ -310,7 +310,7 @@ export async function runDoctor(): Promise<void> {
     }
   } catch {
     console.log(dim(`    Path:  ${authFile}`));
-    console.log(warn('    Not found — run "ggcoder login" to authenticate'));
+    console.log(warn(`    Not found — run "${CODER_COMMAND} login" to authenticate`));
   }
   console.log();
 

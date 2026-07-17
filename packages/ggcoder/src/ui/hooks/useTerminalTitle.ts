@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useStdout } from "ink";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 
 export interface TerminalTitleOptions {
   isRunning: boolean;
@@ -20,7 +21,7 @@ export function useTerminalTitle({ isRunning, sessionTitle }: TerminalTitleOptio
     if (sessionTitle) {
       title = isRunning ? `● ${sessionTitle}` : sessionTitle;
     } else {
-      title = "GG Coder";
+      title = KLEIO_PRODUCT_PROFILE.coder.displayName;
     }
     if (title !== prevTitleRef.current) {
       prevTitleRef.current = title;
@@ -31,7 +32,7 @@ export function useTerminalTitle({ isRunning, sessionTitle }: TerminalTitleOptio
   // Reset title on unmount
   useEffect(() => {
     return () => {
-      stdout?.write(`\x1b]0;GG Coder\x1b\\`);
+      stdout?.write(`\x1b]0;${KLEIO_PRODUCT_PROFILE.coder.displayName}\x1b\\`);
     };
   }, [stdout]);
 }
