@@ -2,7 +2,7 @@
   "name": "@kleio/manager",
   "version": "4.10.1-kleio.0",
   "type": "module",
-  "description": "Orchestrator agent that drives multiple ggcoder sessions across projects from a single chat",
+  "description": "Kleio Manager orchestrates multiple Kleio Coder workers across projects from one chat",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -10,10 +10,16 @@
     "directory": "packages/gg-boss"
   },
   "bin": {
+    "kleio-manager": "./dist/cli.js",
     "ggboss": "./dist/cli.js"
   },
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist"

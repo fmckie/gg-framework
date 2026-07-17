@@ -7,6 +7,8 @@ import { getAppPaths } from "@kleio/coder";
 
 export type ProjectSource = "ggcoder" | "claude-code" | "codex";
 
+export const LEGACY_CODER_PROJECT_SOURCE = "ggcoder" as const satisfies ProjectSource;
+
 export interface DiscoveredProject {
   name: string;
   path: string;
@@ -92,7 +94,7 @@ async function discoverGgcoderProjects(): Promise<DiscoveredProject[]> {
       path: decoded,
       lastActiveMs: mtime,
       lastActiveDisplay: formatRelativeTime(mtime),
-      sources: ["ggcoder"],
+      sources: [LEGACY_CODER_PROJECT_SOURCE],
     });
   }
   return results;

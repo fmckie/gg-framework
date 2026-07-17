@@ -1,15 +1,15 @@
-// The update engine now lives in @kenkaiiii/gg-core. This module pins it to
-// gg-boss's npm package + its own state file under ~/.gg/boss/ so it can't
-// fight with ggcoder's checker, and supplies the ggboss restart wording.
-import path from "node:path";
-import os from "node:os";
-import { createAutoUpdater } from "@kleio/core";
+// Scope the shared update engine to the Kleio Manager package, release channel,
+// and existing ~/.gg/boss state path so it never consumes Coder or upstream
+// update state.
+import { createAutoUpdater, KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import { getManagerPaths } from "./manager-paths.js";
 
 const updater = createAutoUpdater({
   packageName: "@kleio/manager",
-  stateFilePath: () => path.join(os.homedir(), ".gg", "boss", "update-state.json"),
+  distTag: "kleio",
+  stateFilePath: () => getManagerPaths().updateStateFile,
   periodicMessage: ({ currentVersion, latestVersion, updateCommand }) =>
-    `Ken just pushed a fresh update — ${currentVersion} → ${latestVersion}! Restart ggboss to grab it (or run ${updateCommand} if you can't wait).`,
+    `Kleio Manager update ${currentVersion} → ${latestVersion} is ready. Restart ${KLEIO_PRODUCT_PROFILE.manager.preferredCommand} to apply it (or run ${updateCommand}).`,
 });
 
 export const checkAndAutoUpdate = updater.checkAndAutoUpdate;

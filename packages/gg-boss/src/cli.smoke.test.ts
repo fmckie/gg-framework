@@ -36,17 +36,28 @@ function runCli(args: string[]): Promise<{ code: number; stdout: string; stderr:
   });
 }
 
-describe("ggboss CLI smoke", () => {
-  it("--help exits 0 and prints brand", async () => {
-    const r = await runCli(["--help"]);
-    expect(r.code).toBe(0);
-    const out = r.stdout + r.stderr;
-    expect(out.toLowerCase()).toContain("gg boss");
-    expect(out.toLowerCase()).toContain("usage");
+describe("Kleio Manager CLI smoke", () => {
+  it("--help exits 0 and prints the preferred brand and command", async () => {
+    const result = await runCli(["--help"]);
+    expect(result.code).toBe(0);
+    const output = result.stdout + result.stderr;
+    expect(output).toContain("Kleio Manager v4.10.1-kleio.0");
+    expect(output).toContain("kleio-manager");
+    expect(output.toLowerCase()).toContain("usage");
   });
 
   it("-h is the same as --help", async () => {
-    const r = await runCli(["-h"]);
-    expect(r.code).toBe(0);
+    const result = await runCli(["-h"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Kleio Manager");
+  });
+
+  it("reports the package version", async () => {
+    const result = await runCli(["--version"]);
+    expect(result).toMatchObject({
+      code: 0,
+      stdout: "Kleio Manager v4.10.1-kleio.0\n",
+      stderr: "",
+    });
   });
 });

@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { AUTHOR, BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./branding.js";
+import { BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./branding.js";
 
 interface BossBannerProps {
   /** Second line text (e.g. "Link projects", "Orchestrator"). */
@@ -26,10 +26,6 @@ export function BossBanner({ subtitle, hint, showShortcuts }: BossBannerProps): 
           {BRAND}
         </Text>
         <Text color={COLORS.textDim}> v{VERSION}</Text>
-        <Text color={COLORS.textDim}> · By </Text>
-        <Text color={COLORS.text} bold>
-          {AUTHOR}
-        </Text>
       </Box>
       <Box>
         <GradientText text={LOGO_LINES[1]!} />

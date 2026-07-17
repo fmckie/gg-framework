@@ -8,8 +8,8 @@ import path from "node:path";
 import chalk from "chalk";
 import type { Provider } from "@kleio/ai";
 import { setStreamDiagnostic } from "@kleio/agent";
-import { AuthStorage, getDefaultModel, getModel } from "@kleio/core";
-import { GGBoss } from "./orchestrator.js";
+import { AuthStorage, getDefaultModel, getModel, KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import { KleioManager } from "./orchestrator.js";
 import type { ProjectSpec } from "./types.js";
 import { loadLinks } from "./links.js";
 import { runLinkCommand } from "./link-command.js";
@@ -22,7 +22,14 @@ import { showSplash } from "./splash.js";
 import { initLogger, log } from "./logger.js";
 import { VERSION } from "./branding.js";
 import { checkAndAutoUpdate } from "./auto-update.js";
+import { resolveManagerTelegramEnvironment } from "./environment.js";
 import { stopRadio } from "./radio.js";
+
+const MANAGER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.manager.displayName;
+const MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.preferredCommand;
+const LEGACY_MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.legacyCommand;
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
 
 interface CliArgs {
   /** Undefined when not passed on the CLI — settings file then defaults take over. */
@@ -57,9 +64,9 @@ function parseArgs(argv: string[]): CliArgs {
       const v = argv[++i];
       if (!v) throw new Error("--project requires a value");
       args.projects.push(parseProjectSpec(v));
-    } else if (a === "--boss-model") {
+    } else if (a === "--manager-model" || a === "--boss-model") {
       const v = argv[++i];
-      if (!v) throw new Error("--boss-model requires a value");
+      if (!v) throw new Error(`${a} requires a value`);
       args.bossModel = v;
     } else if (a === "--worker-model") {
       const v = argv[++i];
@@ -83,59 +90,65 @@ function printHelpAndExit(): never {
   const c = (color: string, text: string): string => chalk.hex(color)(text);
   process.stdout.write(
     "\n" +
-      c(COLORS.primary, "GG Boss") +
-      c(COLORS.textDim, " — orchestrator that drives multiple ggcoder workers from one chat.\n\n") +
-      c(COLORS.text, "Usage\n") +
-      "  " +
-      c(COLORS.accent, "ggboss") +
+      c(COLORS.primary, `${MANAGER_DISPLAY_NAME} v${VERSION}`) +
       c(
         COLORS.textDim,
-        "                              start orchestrator using linked projects\n",
+        ` — orchestrator that drives multiple ${CODER_DISPLAY_NAME} workers from one chat.\n\n`,
       ) +
+      c(COLORS.text, "Usage\n") +
       "  " +
-      c(COLORS.accent, "ggboss link") +
-      c(COLORS.textDim, "                         pick which projects to link (interactive)\n") +
+      c(COLORS.accent, MANAGER_COMMAND) +
+      c(COLORS.textDim, "                         start with linked projects\n") +
       "  " +
-      c(COLORS.accent, "ggboss telegram") +
-      c(COLORS.textDim, "                     configure Telegram bot integration\n") +
+      c(COLORS.accent, `${MANAGER_COMMAND} link`) +
+      c(COLORS.textDim, "                    pick projects to link (interactive)\n") +
       "  " +
-      c(COLORS.accent, "ggboss serve") +
-      c(COLORS.textDim, "                        run the boss over Telegram (no TUI)\n") +
+      c(COLORS.accent, `${MANAGER_COMMAND} telegram`) +
+      c(COLORS.textDim, "                configure Telegram integration\n") +
       "  " +
-      c(COLORS.accent, "ggboss continue") +
-      c(COLORS.textDim, "                     resume the most recent boss session\n") +
+      c(COLORS.accent, `${MANAGER_COMMAND} serve`) +
+      c(COLORS.textDim, `                   run ${MANAGER_DISPLAY_NAME} over Telegram\n`) +
       "  " +
-      c(COLORS.accent, "ggboss --resume <id>") +
-      c(COLORS.textDim, "                resume a specific boss session\n") +
+      c(COLORS.accent, `${MANAGER_COMMAND} continue`) +
+      c(COLORS.textDim, "                resume the most recent Manager session\n") +
       "  " +
-      c(COLORS.accent, "ggboss --project <spec> [...]") +
-      c(COLORS.textDim, "       override links with explicit project(s)\n\n") +
+      c(COLORS.accent, `${MANAGER_COMMAND} --resume <id>`) +
+      c(COLORS.textDim, "           resume a specific Manager session\n") +
+      "  " +
+      c(COLORS.accent, `${MANAGER_COMMAND} --project <spec> [...]`) +
+      c(COLORS.textDim, "  override links with explicit project(s)\n\n") +
       c(COLORS.text, "Options\n") +
       "  " +
       c(COLORS.primary, "--project, -p <spec>") +
-      c(COLORS.textDim, '    project to manage. spec is "cwd" or "name=cwd". repeatable.\n') +
+      c(COLORS.textDim, '    project to manage; "cwd" or "name=cwd"; repeatable\n') +
       "  " +
-      c(COLORS.primary, "--boss-model <id>") +
-      c(COLORS.textDim, "       model for the orchestrator (default: claude-opus-4-8)\n") +
+      c(COLORS.primary, "--manager-model <id>") +
+      c(COLORS.textDim, "      Manager model (default: claude-opus-4-8)\n") +
       "  " +
       c(COLORS.primary, "--worker-model <id>") +
-      c(COLORS.textDim, "     model for workers (default: claude-sonnet-4-6)\n") +
+      c(COLORS.textDim, "       Coder worker model (default: claude-sonnet-4-6)\n") +
+      "  " +
+      c(COLORS.primary, "--version, -v") +
+      c(COLORS.textDim, "               show version\n") +
       "  " +
       c(COLORS.primary, "--help, -h") +
-      c(COLORS.textDim, "              show this help\n\n") +
-      c(COLORS.textDim, "Talk to the boss at the prompt. Press ") +
+      c(COLORS.textDim, "                  show this help\n\n") +
+      c(
+        COLORS.textDim,
+        `Compatibility: ${LEGACY_MANAGER_COMMAND} and --boss-model remain supported.\n`,
+      ) +
+      c(COLORS.textDim, `Talk to ${MANAGER_DISPLAY_NAME} at the prompt. Press `) +
       c(COLORS.accent, "Ctrl+C") +
       c(COLORS.textDim, " twice to exit.\n\n"),
   );
   process.exit(0);
 }
 
-// ── `ggboss serve` ────────────────────────────────────────────
+// ── `kleio-manager serve` ─────────────────────────────────────
 //
 // Runs the orchestrator headless and bridges it to Telegram. Resolves the bot
-// token + user ID from CLI flags > env > saved config (`ggboss telegram`).
-// Boss/worker provider+model resolution mirrors interactive mode so the user
-// doesn't have to repeat themselves between `ggboss` and `ggboss serve`.
+// token + user ID from CLI flags > preferred env > legacy env > saved config.
+// Manager/worker provider and model resolution mirrors interactive mode.
 async function runServeSubcommand(argv: string[]): Promise<void> {
   let cliBotToken: string | undefined;
   let cliUserId: string | undefined;
@@ -145,17 +158,18 @@ async function runServeSubcommand(argv: string[]): Promise<void> {
     const a = argv[i]!;
     if (a === "--bot-token") cliBotToken = argv[++i];
     else if (a === "--user-id") cliUserId = argv[++i];
-    else if (a === "--boss-model") cliBossModel = argv[++i];
+    else if (a === "--manager-model" || a === "--boss-model") cliBossModel = argv[++i];
     else if (a === "--worker-model") cliWorkerModel = argv[++i];
     else if (a === "--help" || a === "-h") {
       process.stdout.write(
-        "\nggboss serve — drive the boss from Telegram\n\n" +
+        `\n${MANAGER_COMMAND} serve — drive ${MANAGER_DISPLAY_NAME} from Telegram\n\n` +
           "Options\n" +
-          "  --bot-token <token>   Telegram bot token (or env GG_BOSS_TELEGRAM_BOT_TOKEN)\n" +
-          "  --user-id <id>        Allowed Telegram user ID (or env GG_BOSS_TELEGRAM_USER_ID)\n" +
-          "  --boss-model <id>     Override boss model\n" +
-          "  --worker-model <id>   Override worker model\n\n" +
-          "Run `ggboss telegram` first to save credentials interactively.\n\n",
+          "  --bot-token <token>   Telegram token (env KLEIO_MANAGER_TELEGRAM_BOT_TOKEN)\n" +
+          "  --user-id <id>        Allowed user (env KLEIO_MANAGER_TELEGRAM_USER_ID)\n" +
+          "  --manager-model <id>  Override Manager model\n" +
+          "  --worker-model <id>   Override Coder worker model\n\n" +
+          `Legacy GG_BOSS_TELEGRAM_* variables and --boss-model remain supported.\n` +
+          `Run \`${MANAGER_COMMAND} telegram\` first to save credentials interactively.\n\n`,
       );
       process.exit(0);
     } else {
@@ -164,18 +178,19 @@ async function runServeSubcommand(argv: string[]): Promise<void> {
   }
 
   const saved = await loadBossTelegramConfig();
-  const botToken = cliBotToken ?? process.env.GG_BOSS_TELEGRAM_BOT_TOKEN ?? saved?.botToken;
-  const userIdStr = cliUserId ?? process.env.GG_BOSS_TELEGRAM_USER_ID;
-  const userId = userIdStr ? parseInt(userIdStr, 10) : saved?.userId;
+  const telegramEnvironment = resolveManagerTelegramEnvironment();
+  const botToken = cliBotToken ?? telegramEnvironment.botToken ?? saved?.botToken;
+  const userIdStr = cliUserId ?? telegramEnvironment.userId;
+  const userId = userIdStr !== undefined ? parseInt(userIdStr, 10) : saved?.userId;
 
   if (!botToken || !userId || isNaN(userId)) {
     process.stderr.write(
       chalk.hex(COLORS.error)("Telegram not configured.\n\n") +
         "Run " +
-        chalk.hex(COLORS.primary).bold("ggboss telegram") +
+        chalk.hex(COLORS.primary).bold(`${MANAGER_COMMAND} telegram`) +
         " to set up your bot token and user ID.\n\n" +
         chalk.hex(COLORS.textDim)("Or provide manually:\n") +
-        chalk.hex(COLORS.textDim)("  ggboss serve --bot-token TOKEN --user-id ID\n"),
+        chalk.hex(COLORS.textDim)(`  ${MANAGER_COMMAND} serve --bot-token TOKEN --user-id ID\n`),
     );
     process.exit(1);
   }
@@ -216,8 +231,8 @@ function bossDefaultModel(provider: Provider): string {
 }
 
 /**
- * Resolve boss + worker provider/model against the providers the user is
- * actually logged in with. Mirrors ggcoder's `resolveActiveProvider`: never
+ * Resolve Manager + worker provider/model against the providers the user is
+ * actually logged in with. Mirrors Kleio Coder's active-provider fallback: never
  * fail just because the *saved* provider isn't authenticated — fall back to a
  * logged-in one for this launch. Settings on disk are left untouched, so a
  * later re-login to the preferred provider restores the preference. Only
@@ -241,7 +256,7 @@ async function resolveBossAuth(input: {
   const loggedIn = ALL_PROVIDERS.filter((p) => stored.includes(p));
 
   if (loggedIn.length === 0) {
-    throw new Error('Not logged in to any provider. Run "ggcoder login" to authenticate.');
+    throw new Error(`Not logged in to any provider. Run "${CODER_COMMAND} login" to authenticate.`);
   }
 
   const fallback = loggedIn[0]!;
@@ -277,7 +292,7 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
         "\n" +
           chalk.hex(COLORS.warning)("No linked projects.") +
           chalk.hex(COLORS.textDim)(" Run ") +
-          chalk.hex(COLORS.accent)("ggboss link") +
+          chalk.hex(COLORS.accent)(`${MANAGER_COMMAND} link`) +
           chalk.hex(COLORS.textDim)(" to choose, or pass ") +
           chalk.hex(COLORS.accent)("--project") +
           chalk.hex(COLORS.textDim)(".\n\n"),
@@ -290,16 +305,16 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
   clearScreen();
 
   // Splash — Ink-rendered ASCII logo with shimmering gradient, shown while
-  // the boss spins up its workers. dismiss() blocks until min-visible-time
+  // Kleio Manager spins up its workers. dismiss() blocks until min-visible-time
   // has elapsed AND Ink has flushed the unmount, so the chat UI never
   // overlaps with the splash on screen.
   const splash = showSplash({
     caption: `Spinning up ${args.projects.length} worker${args.projects.length === 1 ? "" : "s"}…`,
   });
 
-  // Resolve final boss/worker models: CLI flags > saved settings > defaults.
-  // Settings persist user choices made via /model boss / /model workers across
-  // restarts so the user doesn't have to re-pick every session.
+  // Resolve final Manager/worker models: CLI flags > saved settings > defaults.
+  // Settings persist user choices made via model commands across restarts so
+  // the user doesn't have to re-pick every session.
   const settings = await loadSettings();
   const preferredBossProvider = args.bossProvider ?? settings.bossProvider ?? "anthropic";
   const preferredBossModel = args.bossModel ?? settings.bossModel ?? "claude-opus-4-8";
@@ -307,7 +322,7 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
   const preferredWorkerModel = args.workerModel ?? settings.workerModel ?? "claude-sonnet-4-6";
 
   // Fall back to a logged-in provider instead of crashing when the saved
-  // boss/worker provider isn't authenticated (matches ggcoder startup).
+  // Manager/worker provider isn't authenticated (matches Kleio Coder startup).
   const {
     bossProvider: finalBossProvider,
     bossModel: finalBossModel,
@@ -354,7 +369,7 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
   const updateMessage = checkAndAutoUpdate(VERSION);
   if (updateMessage) log("INFO", "auto_update", updateMessage);
 
-  const boss = new GGBoss({
+  const boss = new KleioManager({
     bossProvider: finalBossProvider,
     bossModel: finalBossModel,
     bossThinkingLevel: settings.bossThinkingLevel,
@@ -377,13 +392,13 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
   // signal. Registering SIGINT would race InputArea's onAbort and exit
   // immediately on the first press, breaking the double-press exit flow.
 
-  // Run boss in background; await Ink unmount (triggered by useApp().exit()
-  // in BossApp when the user double-presses Ctrl+C).
+  // Run Manager in the background; await the Ink unmount triggered when the
+  // user double-presses Ctrl+C.
   const runPromise = boss.run();
   await ink.waitUntilExit();
   await boss.dispose();
   // Kill any in-flight radio stream before exiting — otherwise the detached
-  // mpv/ffplay child keeps playing after the user closed gg-boss.
+  // mpv/ffplay child keeps playing after the user closes Kleio Manager.
   stopRadio();
   await runPromise.catch(() => {});
   process.exit(0);
@@ -391,6 +406,11 @@ async function runOrchestrator(args: CliArgs): Promise<void> {
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+
+  if (argv[0] === "--version" || argv[0] === "-v") {
+    process.stdout.write(`${MANAGER_DISPLAY_NAME} v${VERSION}\n`);
+    return;
+  }
 
   if (argv[0] === "link") {
     await runLinkCommand();
@@ -407,7 +427,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // `ggboss continue` is a subcommand alias for "resume the most recent session".
+  // `kleio-manager continue` resumes the latest session under either bin alias.
   // Accept any flags after `continue` as normal flag args.
   const isContinue = argv[0] === "continue";
   const args = parseArgs(isContinue ? argv.slice(1) : argv);
@@ -425,9 +445,9 @@ process.on("uncaughtException", (err) => {
   const message = err instanceof Error ? err.message : String(err);
   const stack = err instanceof Error ? err.stack : undefined;
   log("ERROR", "uncaught_exception", message, { stack });
-  // Don't exit. The boss orchestrator and Ink TUI keep running; any worker
-  // that got into a bad state will surface the issue via worker_error events
-  // on its next interaction. This is far less disruptive than dying outright.
+  // Keep Kleio Manager running; any worker in a bad state surfaces the issue
+  // via worker_error on its next interaction. This is less disruptive than
+  // terminating every in-flight worker.
 });
 
 process.on("unhandledRejection", (reason) => {
@@ -439,6 +459,6 @@ process.on("unhandledRejection", (reason) => {
 
 main().catch((err) => {
   const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(chalk.hex(COLORS.error)(`\ngg-boss failed: ${message}\n`));
+  process.stderr.write(chalk.hex(COLORS.error)(`\n${MANAGER_DISPLAY_NAME} failed: ${message}\n`));
   process.exit(1);
 });

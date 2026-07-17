@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getAppPaths } from "@kleio/coder";
+import { getManagerPaths } from "./manager-paths.js";
 
 export interface LinkedProject {
   name: string;
@@ -12,7 +12,7 @@ export interface LinksFile {
 }
 
 export function getLinksPath(): string {
-  return path.join(getAppPaths().agentDir, "boss", "links.json");
+  return getManagerPaths().linksFile;
 }
 
 export async function loadLinks(): Promise<LinksFile> {

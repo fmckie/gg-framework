@@ -19,7 +19,7 @@ import { toolTonePalette } from "@kleio/coder/ui/transcript/tool-presentation";
 import type { BossDisplayItem } from "./boss-ui-items.js";
 import { bossToolGroupRenderers } from "./boss-tool-group-summary.js";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";
-import { AUTHOR, BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./branding.js";
+import { BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./branding.js";
 import { parseStatusGrade } from "./boss-transcript-rows.js";
 import { projectColor } from "./colors.js";
 
@@ -134,10 +134,7 @@ function renderBanner(context: TerminalHistoryContext): string {
 
   return [
     "",
-    `${logo[0]}${LOGO_GAP}${color(COLORS.primary, BRAND, true)}${dim(
-      context,
-      ` v${VERSION} · By `,
-    )}${color(COLORS.text, AUTHOR, true)}`,
+    `${logo[0]}${LOGO_GAP}${color(COLORS.primary, BRAND, true)}${dim(context, ` v${VERSION}`)}`,
     `${logo[1]}${LOGO_GAP}${color(COLORS.accent, "Orchestrator")}`,
     `${logo[2]}${LOGO_GAP}${shortcuts}`,
     "",

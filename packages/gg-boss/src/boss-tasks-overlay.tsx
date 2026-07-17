@@ -150,9 +150,8 @@ export function BossTasksOverlay({
 
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
-      {/* Single header line — the main GG Boss banner sits in scrollback
-          above (from <Static>), so we just announce the pane state here.
-          Inner BossBanner caused visible duplicates on toggle round-trips. */}
+      {/* Single header line — the Kleio Manager banner already sits in scrollback.
+          A second BossBanner here would duplicate it after overlay toggles. */}
       <Box>
         <Text color={COLORS.primary} bold>
           Tasks
@@ -170,7 +169,7 @@ export function BossTasksOverlay({
       {flatTasks.length === 0 && (
         <Box marginTop={1}>
           <Text color={theme.textDim}>
-            {"  No tasks yet. Ask the boss to plan some — e.g. "}
+            {"  No tasks yet. Ask Kleio Manager to plan some — e.g. "}
             <Text color={theme.text}>"plan some work"</Text>
             {"."}
           </Text>

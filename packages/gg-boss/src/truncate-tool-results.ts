@@ -1,9 +1,9 @@
 /**
  * Post-turn tool-result truncation for the LLM message array.
  *
- * gg-boss runs long. Each turn, the boss and every worker accumulate full
- * tool results in their `messages` array — `read` of a 50KB file, `bash`
- * with verbose output, `prompt_worker` returning a multi-paragraph summary.
+ * Kleio Manager runs long sessions. Each turn, the Manager and every worker
+ * accumulate full tool results in their `messages` array — `read` of a 50KB
+ * file, `bash` with verbose output, or a multi-paragraph worker summary.
  * Auto-compaction kicks at 80% of context window, but heap pressure builds
  * long before token-context pressure does: we crashed at 23% context with
  * 4GB heap exhausted (mark-compacts ineffective).
@@ -51,7 +51,7 @@ export const TAIL_PROTECTED_MESSAGES = 6;
  * truncation idempotent — calling the function multiple times across turns
  * doesn't re-truncate or stack notices.
  */
-const TRUNCATION_MARKER = "[[gg-boss:truncated]]";
+export const TRUNCATION_MARKER = "[[gg-boss:truncated]]";
 
 function buildNotice(originalLen: number, keptLen: number): string {
   const omitted = originalLen - keptLen;

@@ -1,16 +1,18 @@
 import readline from "node:readline/promises";
 import chalk from "chalk";
-import { COLORS, GRADIENT, LOGO_LINES, LOGO_GAP, BRAND, AUTHOR, VERSION } from "./branding.js";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import { COLORS, GRADIENT, LOGO_LINES, LOGO_GAP, BRAND, VERSION } from "./branding.js";
 import {
   loadBossTelegramConfig,
   saveBossTelegramConfig,
   type BossTelegramConfig,
 } from "./serve-mode.js";
 
+const MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.preferredCommand;
+
 /**
- * `ggboss telegram` — interactive setup wizard. Mirrors `ggcoder telegram` but
- * writes to `~/.gg/boss/telegram.json` so the boss has its own bot identity
- * (distinct from ggcoder's coding bot).
+ * `kleio-manager telegram` configures the Manager Telegram bot while retaining
+ * the existing `~/.gg/boss/telegram.json` storage contract.
  */
 export async function runBossTelegramSetup(): Promise<void> {
   process.stdout.write("\x1b[2J\x1b[H");
@@ -61,7 +63,7 @@ export async function runBossTelegramSetup(): Promise<void> {
         chalk.hex(COLORS.primary).underline("https://t.me/userinfobot") +
         "\n" +
         chalk.hex(COLORS.textDim)("    2. Send any message — it replies with your numeric ID\n") +
-        chalk.hex(COLORS.textDim)("    Only this user ID can control the boss.\n"),
+        chalk.hex(COLORS.textDim)("    Only this user ID can control Kleio Manager.\n"),
     );
 
     const userPrompt = existing
@@ -101,7 +103,7 @@ export async function runBossTelegramSetup(): Promise<void> {
       ) +
         chalk.hex(COLORS.success)(`  ✓ Authorized user ID: ${userId}\n\n`) +
         chalk.hex(COLORS.primary)("  To start:\n") +
-        chalk.hex(COLORS.textDim)("    ggboss serve\n"),
+        chalk.hex(COLORS.textDim)(`    ${MANAGER_COMMAND} serve\n`),
     );
   } finally {
     rl.close();
@@ -121,9 +123,7 @@ function printSetupBanner(): void {
   console.log(
     `  ${gradientText(LOGO_LINES[0]!)}${LOGO_GAP}` +
       chalk.hex(COLORS.primary).bold(BRAND) +
-      chalk.hex(COLORS.textDim)(` v${VERSION}`) +
-      chalk.hex(COLORS.textDim)(" · By ") +
-      chalk.white.bold(AUTHOR),
+      chalk.hex(COLORS.textDim)(` v${VERSION}`),
   );
   console.log(
     `  ${gradientText(LOGO_LINES[1]!)}${LOGO_GAP}` + chalk.hex(COLORS.accent)("Telegram Setup"),

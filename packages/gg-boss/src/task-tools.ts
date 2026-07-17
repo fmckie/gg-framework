@@ -56,7 +56,7 @@ const updateTaskParams = z.object({
     .enum(["pending", "in_progress", "done", "blocked", "skipped"])
     .optional()
     .describe("New status."),
-  notes: z.string().optional().describe("Boss commentary / blocker reason / outcome notes."),
+  notes: z.string().optional().describe("Manager commentary / blocker reason / outcome notes."),
 });
 
 const dispatchPendingParams = z.object({
@@ -79,7 +79,7 @@ export function createTaskTools(deps: TaskToolDeps): AgentTool[] {
   const addTask: AgentTool<typeof addTaskParams> = {
     name: "add_task",
     description:
-      "Add a task to the boss's plan for a specific project. Tasks are persisted across sessions and visible in the Tasks overlay (Ctrl+T).",
+      "Add a task to Kleio Manager's plan for a specific project. Tasks persist across sessions and remain visible in the Tasks overlay (Ctrl+T).",
     parameters: addTaskParams,
     async execute(args) {
       if (!workers.has(args.project)) return `Unknown project: ${args.project}`;
@@ -117,7 +117,7 @@ export function createTaskTools(deps: TaskToolDeps): AgentTool[] {
   const listTasks: AgentTool<typeof listTasksParams> = {
     name: "list_tasks",
     description:
-      "List tasks in the boss's plan, optionally filtered by project and/or status. Returns task ids so you can update or dispatch them.",
+      "List tasks in Kleio Manager's plan, optionally filtered by project and/or status. Returns task ids so you can update or dispatch them.",
     parameters: listTasksParams,
     execute(args) {
       const xs = tasksStore.list({
@@ -132,7 +132,7 @@ export function createTaskTools(deps: TaskToolDeps): AgentTool[] {
   const updateTask: AgentTool<typeof updateTaskParams> = {
     name: "update_task",
     description:
-      "Update a task's status and/or notes. Use this after a worker_turn_complete to mark the task DONE / BLOCKED / SKIPPED. The notes field is for boss commentary or blocker reasons.",
+      "Update a task's status and/or notes after worker_turn_complete. The notes field is for Manager commentary or blocker reasons.",
     parameters: updateTaskParams,
     async execute(args) {
       // Build the partial WITHOUT undefined keys so that calling update_task

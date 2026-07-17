@@ -1,22 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text, render } from "ink";
-import { AUTHOR, BRAND, COLORS, GRADIENT, VERSION } from "./branding.js";
+import { BRAND, COLORS, GRADIENT, VERSION } from "./branding.js";
 import { getSplashAudioDurationMs, playSplashAudio } from "./audio.js";
 
 /**
- * Big ASCII "GG Boss" rendered for the splash. The block characters here are
- * ANSI Shadow-style figlet output. Whitespace is significant — every line is
- * the same width so the gradient striping aligns vertically. Do not reformat.
+ * Big Kleio wordmark rendered for the Manager splash. Whitespace is
+ * significant — every line is the same width so the gradient aligns.
  */
 const SPLASH_LINES: readonly string[] = [
-  "   █████████    █████████     ███████████                          ",
-  "  ███░░░░░███  ███░░░░░███   ░░███░░░░░███                         ",
-  " ███     ░░░  ███     ░░░     ░███    ░███  ██████   █████   █████ ",
-  "░███         ░███             ░██████████  ███░░███ ███░░   ███░░  ",
-  "░███    █████░███    █████    ░███░░░░░███░███ ░███░░█████ ░░█████ ",
-  "░░███  ░░███ ░░███  ░░███     ░███    ░███░███ ░███ ░░░░███ ░░░░███",
-  " ░░█████████  ░░█████████     ███████████ ░░██████  ██████  ██████ ",
-  "  ░░░░░░░░░    ░░░░░░░░░     ░░░░░░░░░░░   ░░░░░░  ░░░░░░  ░░░░░░  ",
+  "██╗  ██╗██╗     ███████╗██╗ ██████╗ ",
+  "██║ ██╔╝██║     ██╔════╝██║██╔═══██╗",
+  "█████╔╝ ██║     █████╗  ██║██║   ██║",
+  "██╔═██╗ ██║     ██╔══╝  ██║██║   ██║",
+  "██║  ██╗███████╗███████╗██║╚██████╔╝",
+  "╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ",
 ];
 
 const SPLASH_WIDTH = SPLASH_LINES[0]!.length;
@@ -91,7 +88,7 @@ export function SplashScreen({ caption }: SplashScreenProps): React.ReactElement
   const [offset, setOffset] = useState(0);
   // Soft shimmer — rotates the gradient through the logo every 120ms. Stops
   // when the component unmounts (the cli swaps the splash out as soon as the
-  // boss has finished initialising).
+  // Manager has finished initialising).
   useEffect(() => {
     const timer = setInterval(() => {
       setOffset((o) => o + 1);
@@ -139,14 +136,10 @@ export function SplashScreen({ caption }: SplashScreenProps): React.ReactElement
               {BRAND}
             </Text>
             <Text color={COLORS.textDim}> v{VERSION}</Text>
-            <Text color={COLORS.textDim}> · By </Text>
-            <Text color={COLORS.text} bold>
-              {AUTHOR}
-            </Text>
           </Text>
         </Box>
         <Box width={SPLASH_WIDTH} justifyContent="center">
-          <Text color={COLORS.textDim}>{caption ?? "Spinning up the orchestrator…"}</Text>
+          <Text color={COLORS.textDim}>{caption ?? "Starting Kleio Manager…"}</Text>
         </Box>
       </Box>
     </Box>

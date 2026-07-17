@@ -4,7 +4,7 @@ import { ThemeContext, loadTheme, useTheme } from "@kleio/coder/ui/theme";
 import { AnimationProvider } from "@kleio/coder/ui";
 import { useDoublePress } from "@kleio/coder/ui/hooks/double-press";
 import type { Provider } from "@kleio/ai";
-import { getNextThinkingLevel } from "@kleio/core";
+import { getNextThinkingLevel, KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { TerminalSizeProvider, useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
 import { BossChatScreen } from "./boss-chat-screen.js";
 import { bossStore, getBossState, useBossState } from "./boss-store.js";
@@ -23,6 +23,17 @@ import {
   startPeriodicUpdateCheck,
   stopPeriodicUpdateCheck,
 } from "./auto-update.js";
+
+const MANAGER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.manager.displayName;
+const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
+
+export function getBossTerminalTitle(workersRunning: number, managerWorking: boolean): string {
+  if (workersRunning > 0) {
+    const workerLabel = `${CODER_DISPLAY_NAME} worker${workersRunning === 1 ? "" : "s"}`;
+    return `● ${workersRunning} ${workerLabel} running · ${MANAGER_DISPLAY_NAME}`;
+  }
+  return managerWorking ? `● ${MANAGER_DISPLAY_NAME}` : MANAGER_DISPLAY_NAME;
+}
 
 interface BossAppProps {
   boss: GGBoss;
@@ -103,29 +114,21 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
     return () => stopPeriodicUpdateCheck();
   }, []);
 
-  // Terminal title — dynamically reflects worker activity so the user can
-  // glance at the tab/window from another app and see how many workers are
+  // Terminal title — dynamically reflects Kleio Coder activity so the user can
+  // glance at the tab/window from another app and see how many Coder workers are
   // still running. OSC 0 sets both window and tab title in most modern
   // terminals (Ghostty, Terminal.app, iTerm2, Kitty).
   //
   // States:
-  //   N workers running    "● 5 workers running · GG Boss"
-  //   1 worker running     "● 1 worker running · GG Boss"
-  //   boss thinking only   "● GG Boss"
-  //   idle                 "GG Boss"
+  //   N Coders running      "● 5 Kleio Coder workers running · Kleio Manager"
+  //   1 Coder running       "● 1 Kleio Coder worker running · Kleio Manager"
+  //   Manager thinking only "● Kleio Manager"
+  //   idle                  "Kleio Manager"
   const workersRunning = state.workers.filter((w) => w.status === "working").length;
   const titlePrevRef = useRef("");
   useEffect(() => {
     if (!stdout) return;
-    let title: string;
-    if (workersRunning > 0) {
-      const label = `${workersRunning} worker${workersRunning === 1 ? "" : "s"} running`;
-      title = `● ${label} · GG Boss`;
-    } else if (state.phase === "working") {
-      title = "● GG Boss";
-    } else {
-      title = "GG Boss";
-    }
+    const title = getBossTerminalTitle(workersRunning, state.phase === "working");
     if (title !== titlePrevRef.current) {
       titlePrevRef.current = title;
       stdout.write(`\x1b]0;${title}\x1b\\`);
@@ -133,7 +136,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
   }, [stdout, workersRunning, state.phase]);
   useEffect(() => {
     return () => {
-      stdout?.write(`\x1b]0;GG Boss\x1b\\`);
+      stdout?.write(`\x1b]0;${MANAGER_DISPLAY_NAME}\x1b\\`);
     };
   }, [stdout]);
 
@@ -163,7 +166,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
    * (tasks pane → chat chrome, model picker → chat chrome, etc.). Toggling
    * React state alone leaves Ink's log-update cursor math drifting on the
    * very next streaming response, surfacing as "input pushed upward, new
-   * chat lines disappear off the top". Mirrors ggcoder's broader fix
+   * chat lines disappear off the top". Mirrors Kleio Coder's broader fix
    * (commit 0246c6d): every overlay open/close goes through resetUI which
    * unmounts the Ink instance and renders a fresh one. The overlay
    * selection survives via bossStore.overlay.
@@ -198,7 +201,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
   }, [scheduleOverlayReset]);
   void stdout;
 
-  // ggcoder's double-press pattern: 800ms window. First press shows
+  // Kleio Coder's double-press pattern: 800ms window. First press shows
   // "Press Ctrl+C again to exit" in the footer; second within 800ms exits.
   const handleDoubleExit = useDoublePress(
     (pending) => bossStore.setExitPending(pending),
@@ -212,18 +215,18 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
   }, [state.flushGeneration, state.pendingFlush.length]);
 
   const handleAbort = useCallback((): void => {
-    // Ctrl+C while boss is running → single-press abort (matches ggcoder).
+    // Ctrl+C while Kleio Manager is running → single-press abort (matches Kleio Coder).
     if (state.phase === "working") {
       boss.abort();
       return;
     }
-    // Boss is idle → double-press to exit, with footer pending message.
+    // Kleio Manager is idle → double-press to exit, with footer pending message.
     handleDoubleExit();
   }, [boss, handleDoubleExit, state.phase]);
 
   // ── App-level keyboard ──────────────────────────────────
   // Ctrl+T toggles the Tasks overlay globally. Ctrl+C is handled here only
-  // while an overlay owns focus; in the chat view the shared gg-coder InputArea
+  // while an overlay owns focus; in the chat view the shared Kleio Coder InputArea
   // owns Ctrl+C/ESC, so a single press cannot hit two abort/exit handlers.
   useInput((input, key) => {
     if (key.ctrl && input === "c" && overlay) {
@@ -264,7 +267,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
         await boss.resetConversation();
         bossStore.appendInfo("Session cleared.", "info");
         return true;
-      case "model-boss":
+      case "model-manager":
         openOverlay("model-boss");
         return true;
       case "model-workers":
@@ -319,7 +322,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
     printedHistoryIdsRef.current.add(userItem.id);
     bossStore.queueSubmittedUserItem(userItem);
     setLastUserMessage(trimmed);
-    // Inject the scope pill into the message the boss actually sees, so the
+    // Inject the scope pill into the message Kleio Manager actually sees, so the
     // user doesn't have to write "for the yaatuber project, …" every prompt.
     const scoped = scopePrefix(state.scope) + trimmed;
     boss.enqueueUserMessage(scoped);
@@ -346,7 +349,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
           {"Terminal too small"}
         </Text>
         <Text color={COLORS.primary}>
-          {`Resize to at least 14 rows to use GG Boss (currently ${rows}).`}
+          {`Resize to at least 14 rows to use ${MANAGER_DISPLAY_NAME} (currently ${rows}).`}
         </Text>
       </Box>
     );
@@ -434,12 +437,12 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
   );
 }
 
-// ── Scope pill (gg-boss specific) ──────────────────────────
+// ── Scope pill (Kleio Manager-specific) ────────────────────
 
 function ScopePill({ scope }: { scope: string }): React.ReactElement {
   const theme = useTheme();
   const isAll = scope === "all";
-  // "All" → boss accent (fuchsia) so multi-project mode wears the brand.
+  // "All" → Manager accent (fuchsia) so multi-project mode wears the brand.
   // Specific project → its stable project color so the pill matches its
   // appearances elsewhere in the TUI.
   const bg = isAll ? COLORS.accent : projectColor(scope);
@@ -462,8 +465,8 @@ function ScopePill({ scope }: { scope: string }): React.ReactElement {
 }
 
 /**
- * Prepend the active scope to the user's message before it reaches the boss.
- * Boss's system prompt teaches it to interpret these prefixes.
+ * Prepend the active scope to the user's message before it reaches Kleio Manager.
+ * The Manager system prompt teaches it to interpret these prefixes.
  */
 function scopePrefix(scope: string): string {
   if (scope === "all") return "[scope:all] ";
@@ -484,7 +487,7 @@ export interface RenderBossAppOptions {
 }
 
 const INK_OPTIONS = {
-  // Match ggcoder's keyboard setup: enable kitty keyboard so Ink can decode
+  // Match Kleio Coder's keyboard setup: enable kitty keyboard so Ink can decode
   // enhanced key events, but keep exitOnCtrlC false so our handlers receive it.
   kittyKeyboard: {
     mode: "enabled" as const,
@@ -493,7 +496,7 @@ const INK_OPTIONS = {
   exitOnCtrlC: false,
 };
 
-// Match ggcoder's terminal keyboard hygiene. Some terminals/tmux sessions leave
+// Match Kleio Coder's terminal keyboard hygiene. Some terminals/tmux sessions leave
 // xterm modifyOtherKeys enabled, which makes ordinary keys arrive as CSI 27
 // escape sequences that Ink/InputArea won't treat as text.
 const DISABLE_MODIFY_OTHER_KEYS = "\x1b[>4;0m";
@@ -534,7 +537,7 @@ export function renderBossApp(opts: RenderBossAppOptions): {
     old.unmount();
 
     if (reason === "resize-redraw") {
-      // A resize malformed the visible frame at the old width. Match gg-coder:
+      // A resize malformed the visible frame at the old width. Match Kleio Coder:
       // full screen clear, reset terminal-history dedupe, then repaint the
       // durable transcript once before mounting fresh live controls.
       terminalHistoryPrinter.resetPrinted();

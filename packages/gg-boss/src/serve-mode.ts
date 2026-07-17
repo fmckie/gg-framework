@@ -1,11 +1,11 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import chalk from "chalk";
-import { getAppPaths } from "@kleio/coder";
-import { MODELS, type ModelInfo } from "@kleio/core";
+import { getManagerPaths } from "./manager-paths.js";
+import { KLEIO_PRODUCT_PROFILE, MODELS, type ModelInfo } from "@kleio/core";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { setStreamDiagnostic } from "@kleio/agent";
-import { GGBoss } from "./orchestrator.js";
+import { KleioManager } from "./orchestrator.js";
 import { loadLinks } from "./links.js";
 import { tasksStore } from "./tasks-store.js";
 import { saveSettings } from "./settings.js";
@@ -19,8 +19,9 @@ import {
 } from "./boss-store.js";
 import { TelegramBot, type TelegramMessage, type TelegramVoiceMessage } from "@kleio/core";
 import { initLogger, log, closeLogger } from "./logger.js";
-import { VERSION, BRAND, AUTHOR, LOGO_LINES, LOGO_GAP, GRADIENT, COLORS } from "./branding.js";
+import { VERSION, BRAND, LOGO_LINES, LOGO_GAP, GRADIENT, COLORS } from "./branding.js";
 
+const MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.preferredCommand;
 /**
  * `ggboss serve` — drive the orchestrator from Telegram.
  *
@@ -62,7 +63,7 @@ export interface BossTelegramConfig {
 }
 
 function getTelegramConfigPath(): string {
-  return path.join(getAppPaths().agentDir, "boss", "telegram.json");
+  return getManagerPaths().telegramFile;
 }
 
 export async function loadBossTelegramConfig(): Promise<BossTelegramConfig | null> {
@@ -179,15 +180,14 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
     log("INFO", "stream", phase, data as Record<string, unknown>);
   });
 
-  // Load linked projects — same path as interactive `ggboss`. Without links
-  // the boss has nothing to manage, so bail with a clear error.
+  // Keep using the existing links file shared with interactive Manager mode.
   const links = await loadLinks();
   if (links.projects.length === 0) {
     console.error(
       chalk.hex(COLORS.error)("No linked projects.\n") +
         chalk.hex(COLORS.textDim)("Run ") +
-        chalk.hex(COLORS.accent)("ggboss link") +
-        chalk.hex(COLORS.textDim)(" first to choose which projects the boss should manage."),
+        chalk.hex(COLORS.accent)(`${MANAGER_COMMAND} link`) +
+        chalk.hex(COLORS.textDim)(" first to choose which projects Kleio Manager should manage."),
     );
     process.exit(1);
   }
@@ -200,7 +200,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
     allowedUserId: options.telegram.userId,
   });
 
-  const boss = new GGBoss({
+  const boss = new KleioManager({
     bossProvider: options.bossProvider,
     bossModel: options.bossModel,
     bossThinkingLevel: options.bossThinkingLevel,
@@ -274,7 +274,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
       if (target === "boss") {
         await boss.switchBossModel(selected.provider, selected.id);
         await saveSettings({ bossProvider: selected.provider, bossModel: selected.id });
-        await bot.send(allowedChatId, `Boss → *${selected.name}*`);
+        await bot.send(allowedChatId, `Manager → *${selected.name}*`);
       } else {
         await boss.switchWorkerModel(selected.provider, selected.id);
         await saveSettings({ workerProvider: selected.provider, workerModel: selected.id });
@@ -365,11 +365,14 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
       return;
     }
 
-    // /m, /model, /model-boss, /model-workers — mirrors the TUI's two pickers.
-    // Bare /m and /model open the BOSS picker (most common ask); the explicit
-    // -workers form is required to swap workers since that touches every active
-    // session and we want it deliberate.
-    if (cmd === "m" || cmd === "model" || cmd === "model-boss" || cmd === "model-workers") {
+    // Preferred Manager and worker model commands; preserve /model-boss as an alias.
+    if (
+      cmd === "m" ||
+      cmd === "model" ||
+      cmd === "model-manager" ||
+      cmd === "model-boss" ||
+      cmd === "model-workers"
+    ) {
       const target: "boss" | "workers" = cmd === "model-workers" ? "workers" : "boss";
       const arg = parts.slice(1).join(" ").trim().toLowerCase();
       const state = getBossState();
@@ -394,7 +397,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
       }
 
       // No arg → numbered picker grouped by provider.
-      let listText = `*${target === "boss" ? "Boss" : "Worker"} model*\n`;
+      let listText = `*${target === "boss" ? "Manager" : "Coder worker"} model*\n`;
       let lastProvider = "";
       MODELS.forEach((m, i) => {
         if (m.provider !== lastProvider) {
@@ -466,7 +469,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
 
     if (cmd === "cancel") {
       boss.abort();
-      await bot.send(chatId, "_Aborted current boss turn._");
+      await bot.send(chatId, "_Aborted current Manager turn._");
       return;
     }
 
@@ -588,22 +591,23 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
 
 // ── Help & banner ──────────────────────────────────────────────
 
-function buildTelegramHelpText(): string {
+export function buildTelegramHelpText(): string {
   return [
-    "*GG Boss* — orchestrator over Telegram",
+    `*${BRAND}* — orchestration over Telegram`,
     "",
     "*Commands*",
     "/scope (/s) — switch project focus (All / per-worker)",
-    "/m, /model-boss — switch the orchestrator's model",
-    "/model-workers — switch every worker's model",
-    "/status — workers + open tasks",
+    "/m, /model-manager — switch the Manager model",
+    "/model-workers — switch every Coder worker model",
+    "/status — Coder workers + open tasks",
     "/tasks — list tasks",
-    "/new — fresh boss session",
-    "/cancel — abort the current boss turn",
+    "/new — fresh Manager session",
+    "/cancel — abort the current Manager turn",
     "/help — this message",
     "",
+    "Compatibility: /model-boss remains supported.",
     "Voice notes are transcribed locally with Whisper and sent as prompts.",
-    "Send any message to talk to the boss.",
+    `Send any message to talk to ${BRAND}.`,
   ].join("\n");
 }
 
@@ -648,13 +652,11 @@ function printBanner(opts: {
   console.log(
     `  ${gradientText(LOGO_LINES[0]!)}${LOGO_GAP}` +
       chalk.hex(COLORS.primary).bold(BRAND) +
-      chalk.hex(COLORS.textDim)(` v${VERSION}`) +
-      chalk.hex(COLORS.textDim)(" · By ") +
-      chalk.white.bold(AUTHOR),
+      chalk.hex(COLORS.textDim)(` v${VERSION}`),
   );
   console.log(
     `  ${gradientText(LOGO_LINES[1]!)}${LOGO_GAP}` +
-      chalk.hex(COLORS.accent)(`Boss: ${opts.bossModel}`),
+      chalk.hex(COLORS.accent)(`Manager: ${opts.bossModel}`),
   );
   console.log(
     `  ${gradientText(LOGO_LINES[2]!)}${LOGO_GAP}` +

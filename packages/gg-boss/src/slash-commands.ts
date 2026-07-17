@@ -1,24 +1,22 @@
 import type { SlashCommandInfo } from "@kleio/coder/ui";
 
 /**
- * Slash commands the boss CLI recognizes. Shape matches ggcoder's
- * SlashCommandInfo so the existing SlashCommandMenu in InputArea renders them.
- *
- * The actual handlers live in BossApp's handleSubmit — we just declare the
- * surface here so the menu is in one place.
+ * Slash commands Kleio Manager recognizes. The shape matches Kleio Coder's
+ * SlashCommandInfo so the shared menu renders them. Handlers live in
+ * BossApp.handleSubmit; this module owns the discoverable command surface.
  */
 export const BOSS_SLASH_COMMANDS: SlashCommandInfo[] = [
   { name: "help", aliases: ["?"], description: "Show available commands" },
   {
-    name: "model-boss",
-    aliases: ["m", "model", "models"],
-    description: "Switch the orchestrator's model",
+    name: "model-manager",
+    aliases: ["m", "model", "models", "model-boss"],
+    description: "Switch the Manager model",
   },
-  { name: "model-workers", aliases: [], description: "Switch every worker's model" },
-  { name: "compact", aliases: [], description: "Compact the boss's context now" },
+  { name: "model-workers", aliases: [], description: "Switch every Coder worker model" },
+  { name: "compact", aliases: [], description: "Compact the Manager context now" },
   { name: "clear", aliases: [], description: "Clear chat history and terminal" },
   { name: "radio", aliases: [], description: "Stream a free internet radio station" },
-  { name: "quit", aliases: ["q", "exit"], description: "Exit gg-boss" },
+  { name: "quit", aliases: ["q", "exit"], description: "Exit Kleio Manager" },
 ];
 
 export function isSlashCommand(value: string): boolean {
@@ -49,7 +47,7 @@ export function canonicalName(name: string): string | null {
 }
 
 export function buildHelpText(): string {
-  const lines: string[] = ["**gg-boss commands**", ""];
+  const lines: string[] = ["**Kleio Manager commands**", ""];
   for (const cmd of BOSS_SLASH_COMMANDS) {
     const aliases =
       cmd.aliases.length > 0 ? ` (${cmd.aliases.map((a) => "/" + a).join(", ")})` : "";
@@ -59,8 +57,8 @@ export function buildHelpText(): string {
   lines.push("**Global keybindings**");
   lines.push("- `Ctrl+T` — open the Tasks pane");
   lines.push("- `Tab` — switch project scope (All / per-project pill in the input)");
-  lines.push("- `Shift+Tab` — cycle the boss's thinking level, then off");
-  lines.push("- `Esc` — interrupt the boss while it's running");
+  lines.push("- `Shift+Tab` — cycle the Manager thinking level, then off");
+  lines.push("- `Esc` — interrupt the Manager while it's running");
   lines.push("- `Ctrl+C` (twice) — exit");
   lines.push("");
   lines.push("**Inside the Tasks pane (Ctrl+T)**");
@@ -69,7 +67,7 @@ export function buildHelpText(): string {
   lines.push("- `d` — delete the selected task");
   lines.push("- `Esc` — close the Tasks pane");
   lines.push("");
-  lines.push("**Inside model pickers (`/model`, `/models`, `/model-boss`, `/model-workers`)**");
+  lines.push("**Inside model pickers (`/model`, `/models`, `/model-manager`, `/model-workers`)**");
   lines.push("- `↑` / `↓` — navigate models");
   lines.push("- `Enter` — select");
   lines.push("- `Esc` — cancel");

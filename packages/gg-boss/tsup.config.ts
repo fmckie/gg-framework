@@ -28,6 +28,7 @@ import { defineConfig } from "tsup";
  */
 export default defineConfig({
   entry: { cli: "src/cli.ts", index: "src/index.ts" },
+  dts: { entry: { index: "src/index.ts" }, resolve: ["@kleio/ai"] },
   // ESM output. Some transitive deps use top-level await (ink, yoga-layout)
   // which CJS output can't represent, and others use dynamic require()
   // (cross-spawn → child_process) which by default throws under ESM. The

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Box, Text, useApp, useInput, render } from "ink";
 import chalk from "chalk";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { discoverProjects, type DiscoveredProject, type ProjectSource } from "./discover.js";
 import { loadLinks, saveLinks, type LinkedProject } from "./links.js";
 import { BossBanner } from "./banner.js";
@@ -13,12 +14,14 @@ interface LinkScreenProps {
 }
 
 const VISIBLE_ROWS = 12;
+const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
+const MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.preferredCommand;
 
 function sourceBadge(sources: ProjectSource[]): { label: string; color: string } {
   // Fixed-width 5-char badges so names stay aligned across rows.
   if (sources.length > 1) return { label: "[mix]", color: COLORS.success };
   const only = sources[0];
-  if (only === "ggcoder") return { label: "[gg ]", color: COLORS.accent };
+  if (only === "ggcoder") return { label: "[kl ]", color: COLORS.accent };
   if (only === "claude-code") return { label: "[cc ]", color: COLORS.warning };
   if (only === "codex") return { label: "[cx ]", color: COLORS.primary };
   return { label: "[?? ]", color: COLORS.textDim };
@@ -82,10 +85,10 @@ function LinkScreen({ projects, initialSelected, onDone }: LinkScreenProps): Rea
       <Box flexDirection="column" paddingX={2}>
         <BossBanner subtitle="Link projects" hint="No projects yet" />
         <Box flexDirection="column" marginLeft={2}>
-          <Text color={COLORS.textDim}>No ggcoder projects found in ~/.gg/sessions/.</Text>
+          <Text color={COLORS.textDim}>No Kleio Coder projects found in ~/.gg/sessions/.</Text>
           <Text color={COLORS.textDim}>
-            Run ggcoder in a project at least once, then re-run{" "}
-            <Text color={COLORS.accent}>ggboss link</Text>.
+            Run {CODER_COMMAND} in a project at least once, then re-run{" "}
+            <Text color={COLORS.accent}>{MANAGER_COMMAND} link</Text>.
           </Text>
           <Box marginTop={1}>
             <Text color={COLORS.textDim}>Press any key to exit.</Text>
@@ -197,8 +200,8 @@ export async function runLinkCommand(): Promise<void> {
     process.stdout.write("\n");
     process.stdout.write(
       chalk.hex(COLORS.textDim)(`Run `) +
-        chalk.hex(COLORS.accent)("ggboss") +
-        chalk.hex(COLORS.textDim)(` to start the orchestrator.\n`),
+        chalk.hex(COLORS.accent)(MANAGER_COMMAND) +
+        chalk.hex(COLORS.textDim)(` to start Kleio Manager.\n`),
     );
   }
 }

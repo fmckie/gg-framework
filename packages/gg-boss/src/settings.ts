@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getAppPaths } from "@kleio/coder";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { getManagerPaths } from "./manager-paths.js";
 
 export interface BossSettings {
   bossProvider?: Provider;
@@ -12,7 +12,7 @@ export interface BossSettings {
 }
 
 function settingsPath(): string {
-  return path.join(getAppPaths().agentDir, "boss", "settings.json");
+  return getManagerPaths().settingsFile;
 }
 
 async function ensureDir(): Promise<void> {

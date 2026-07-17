@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { useSyncExternalStore } from "react";
-import { getAppPaths } from "@kleio/coder";
+import { getManagerPaths } from "./manager-paths.js";
 
 export type TaskStatus = "pending" | "in_progress" | "done" | "blocked" | "skipped";
 
@@ -26,13 +26,13 @@ export interface BossTask {
 }
 
 /**
- * Lightweight task store — the boss orchestrator's plan-of-record. One JSON
- * file at ~/.gg/boss/plan.json, append-on-mutation, per-project grouping
- * happens in the read layer rather than on disk.
+ * Lightweight task store — Kleio Manager's plan of record. One JSON file at
+ * ~/.gg/boss/plan.json; per-project grouping happens in the read layer rather
+ * than on disk.
  */
 
 function getPlanPath(): string {
-  return path.join(getAppPaths().agentDir, "boss", "plan.json");
+  return getManagerPaths().planFile;
 }
 
 interface PlanFile {

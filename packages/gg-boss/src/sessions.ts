@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { getAppPaths } from "@kleio/coder";
 import type { Message } from "@kleio/ai";
+import { getManagerPaths } from "./manager-paths.js";
 
 /**
  * Lightweight per-session log for the boss orchestrator. Each session is one
@@ -12,15 +12,8 @@ import type { Message } from "@kleio/ai";
  * one in-flight conversation per process.
  */
 
-const BOSS_SUBDIR = "boss";
-const SESSIONS_SUBDIR = "sessions";
-
-function getBossDir(): string {
-  return path.join(getAppPaths().agentDir, BOSS_SUBDIR);
-}
-
 function getSessionsDir(): string {
-  return path.join(getBossDir(), SESSIONS_SUBDIR);
+  return getManagerPaths().sessionsDir;
 }
 
 export interface BossSessionInfo {

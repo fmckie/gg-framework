@@ -4,7 +4,7 @@ import type { ThinkingLevel } from "@kleio/ai";
 import { useTheme } from "@kleio/coder/ui/theme";
 import { useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
 import { getContextWindow } from "@kleio/core";
-import { COLORS } from "./branding.js";
+import { BRAND, COLORS } from "./branding.js";
 
 const PARTIAL_BLOCKS = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
 const LIGHT_SHADE = "░";
@@ -105,7 +105,7 @@ export function getBossFooterScopeLabel(scope: string): string {
   return scope === "all" ? "all projects" : scope;
 }
 
-/** Footer matching ggcoder's structure: left context label, right status cluster. */
+/** Footer matching Kleio Coder's structure: context label plus status cluster. */
 export function BossFooter({
   bossModel,
   workerModel,
@@ -136,7 +136,7 @@ export function BossFooter({
   const radioName = currentRadioStationId
     ? (SHORT_RADIO[currentRadioStationId] ?? currentRadioStationId)
     : null;
-  const updateText = updatePending ? "Update ready. Restart GG Boss." : null;
+  const updateText = updatePending ? `Update ready. Restart ${BRAND}.` : null;
   const leftText = getBossFooterScopeLabel(scope);
 
   const barChars = renderContextBar({

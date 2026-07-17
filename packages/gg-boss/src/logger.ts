@@ -1,10 +1,9 @@
-import path from "node:path";
-import { getAppPaths } from "@kleio/core";
 import { openLog, log, closeLogger as coreCloseLogger } from "@kleio/core";
+import { getManagerPaths } from "./manager-paths.js";
 
 /**
- * Boss debug log — uses the shared file-writer core in @kleio/core so the
- * format is grep-compatible across the framework. Lives at ~/.gg/boss/debug.log;
+ * Kleio Manager debug log — uses the shared file-writer core in @kleio/core so
+ * the format stays grep-compatible. It remains at ~/.gg/boss/debug.log;
  * the core rotates at 10 MB and keeps one generation (`debug.log.1`) so a
  * session that's just been rotated still has its trailing context recoverable.
  *
@@ -20,13 +19,15 @@ import { openLog, log, closeLogger as coreCloseLogger } from "@kleio/core";
 
 export { log, getSessionId } from "@kleio/core";
 
+export const LEGACY_MANAGER_LOG_COMPONENT = "gg-boss";
+
 export function getLogPath(): string {
-  return path.join(getAppPaths().agentDir, "boss", "debug.log");
+  return getManagerPaths().debugLogFile;
 }
 
 /**
- * Open the boss log in append mode and write a one-time "gg-boss started …"
- * line. Idempotent — re-calling once open is a no-op.
+ * Open the Manager log and retain its legacy component/startup values for
+ * log-filter compatibility. Idempotent once open.
  */
 export function initLogger(meta?: {
   version?: string;
@@ -37,8 +38,8 @@ export function initLogger(meta?: {
   workerModel?: string;
   projectCount?: number;
 }): void {
-  if (!openLog(getLogPath(), "gg-boss")) return;
-  const parts = ["gg-boss"];
+  if (!openLog(getLogPath(), LEGACY_MANAGER_LOG_COMPONENT)) return;
+  const parts = [LEGACY_MANAGER_LOG_COMPONENT];
   if (meta?.version) parts[0] += ` v${meta.version}`;
   parts.push("started");
   if (meta?.bossProvider) parts.push(`boss=${meta.bossProvider}/${meta.bossModel ?? "?"}`);

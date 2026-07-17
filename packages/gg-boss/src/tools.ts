@@ -24,21 +24,21 @@ export interface BossToolDeps {
  * Exported so the orchestrator can wrap dispatches that bypass prompt_worker
  * (Tasks overlay direct dispatch, dispatch_pending tool) with the same brief.
  */
-export const WORKER_PROMPT_BRIEF = `You're being driven by gg-boss, an orchestrator. Your tool usage is already visible to it — don't narrate which tools you ran or recap the request.
+export const WORKER_PROMPT_BRIEF = `You are a Kleio Coder worker driven by Kleio Manager, an orchestrator. Your tool usage is already visible to it — don't narrate which tools you ran or recap the request.
 
 End your response with a tight structured summary. Omit any line that doesn't apply:
 
 Changed: <files modified, comma-separated, with the specific change in parentheses where it adds clarity — e.g. "src/auth.ts (added retry guard)">
 Skipped: <anything the prompt asked for that you didn't do, with a one-line reason each>
 Verified: <what you ran or checked to confirm correctness — e.g. "pnpm test (15/15 pass)", "tsc --noEmit clean">
-Notes: <ONE line; only if there's something gg-boss must know that the above doesn't capture>
+Notes: <ONE line; only if there's something Kleio Manager must know that the above doesn't capture>
 Status: <one of: DONE | UNVERIFIED | PARTIAL | BLOCKED | INFO>
 
-Status meanings (be honest — gg-boss routes off this):
+Status meanings (be honest — Kleio Manager routes off this):
 - DONE: task complete AND you verified it (tests ran, types check, behaviour confirmed)
 - UNVERIFIED: task complete but you didn't / couldn't validate it
 - PARTIAL: did some of the task; the rest is in Skipped
-- BLOCKED: couldn't make progress, needs gg-boss to unblock or re-prompt
+- BLOCKED: couldn't make progress, needs Kleio Manager to unblock or re-prompt
 - INFO: no work was performed — the prompt was a question and you answered it
 
 If Status is INFO, answer the question in one or two lines and skip the rest of the summary.
@@ -188,7 +188,7 @@ ${summary.finalText || "(empty)"}`;
   const cancelWorker: AgentTool<typeof cancelWorkerParams> = {
     name: "cancel_worker",
     description:
-      "Abort a worker's current turn. Other workers are untouched. The cancelled worker emits a `worker_error` event with message 'Cancelled by boss.' so any in-flight task is cleared. After cancelling, you can re-prompt or reset the worker. No-op if the worker isn't `working`.",
+      "Abort a worker's current turn. Other workers are untouched. The cancelled worker emits a `worker_error` event with message 'Cancelled by Kleio Manager.' so any in-flight task is cleared. After cancelling, you can re-prompt or reset the worker. No-op if the worker isn't `working`.",
     parameters: cancelWorkerParams,
     execute(args) {
       const w = workers.get(args.project);

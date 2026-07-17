@@ -1,6 +1,20 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { log } from "./logger.js";
+import { buildWindowsBridgeEnvironment } from "./windows-environment.js";
+
+export const MANAGER_RADIO_URL_ENV = "KLEIO_MANAGER_RADIO_URL";
+export const LEGACY_MANAGER_RADIO_URL_ENV = "GGBOSS_RADIO_URL";
+
+export function buildManagerRadioEnvironment(
+  streamUrl: string,
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  return buildWindowsBridgeEnvironment(sourceEnvironment, {
+    [MANAGER_RADIO_URL_ENV]: streamUrl,
+    [LEGACY_MANAGER_RADIO_URL_ENV]: streamUrl,
+  });
+}
 
 /**
  * Terminal radio — stream a free internet radio station while you're working.
@@ -155,11 +169,10 @@ function isWsl(): boolean {
  *    that constructs a station object outside the constant array.
  *  - Scheme is enforced as http/https so a future entry can't slip a
  *    file:// or javascript: URL through.
- *  - The URL is passed via GGBOSS_RADIO_URL env, never string-interpolated
- *    into the PowerShell -Command argument. WSLENV lists the var so it
- *    actually crosses the WSL→Windows process boundary (custom env vars
- *    don't propagate by default — powershell.exe just sees them as empty
- *    without WSLENV). Existing $WSLENV is preserved.
+ *  - The URL is passed through `KLEIO_MANAGER_RADIO_URL`, with the legacy
+ *    variable exported beside it for compatibility, and is never interpolated
+ *    into the PowerShell command. WSLENV lists both names so they cross the
+ *    WSL→Windows process boundary while preserving existing entries.
  *  - powershell.exe runs -NoProfile -WindowStyle Hidden.
  */
 function tryPlayOnWindowsHost(station: RadioStation): ChildProcess | null {
@@ -170,7 +183,7 @@ function tryPlayOnWindowsHost(station: RadioStation): ChildProcess | null {
     "Add-Type -AssemblyName presentationCore;",
     "Add-Type -AssemblyName WindowsBase;",
     "$p = New-Object System.Windows.Media.MediaPlayer;",
-    "$p.Open([uri]$env:GGBOSS_RADIO_URL);",
+    `$p.Open([uri]$env:${MANAGER_RADIO_URL_ENV});`,
     "$p.Play();",
     "[System.Windows.Threading.Dispatcher]::Run();",
   ].join(" ");
@@ -181,11 +194,7 @@ function tryPlayOnWindowsHost(station: RadioStation): ChildProcess | null {
       {
         detached: true,
         stdio: "ignore",
-        env: {
-          ...process.env,
-          GGBOSS_RADIO_URL: station.url,
-          WSLENV: (process.env.WSLENV ? process.env.WSLENV + ":" : "") + "GGBOSS_RADIO_URL",
-        },
+        env: buildManagerRadioEnvironment(station.url),
       },
     );
     return child;

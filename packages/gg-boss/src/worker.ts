@@ -1,10 +1,5 @@
 import { AgentSession } from "@kleio/coder";
-import {
-  classifyProviderError,
-  type Message,
-  type Provider,
-  type ThinkingLevel,
-} from "@kleio/ai";
+import { classifyProviderError, type Message, type Provider, type ThinkingLevel } from "@kleio/ai";
 import type { EventQueue } from "./event-queue.js";
 import type { ToolUseSummary, WorkerStatus, WorkerTurnSummary } from "./types.js";
 import { bossStore } from "./boss-store.js";
@@ -98,9 +93,9 @@ export class Worker {
   private activeTools = new Map<string, string>();
   /** Parent (orchestrator-wide) signal — fires only on full shutdown. */
   private parentSignal: AbortSignal;
-  /** Per-turn AbortController so the boss can cancel one worker mid-flight without taking down the whole pool. */
+  /** Per-turn AbortController so Manager can cancel one worker without stopping the pool. */
   private turnAc: AbortController | null = null;
-  /** Set true when cancel() fired so the silent-death guard reports "Cancelled by boss" instead of a generic abort error. */
+  /** Tracks explicit cancellation so the worker emits the branded cancellation reason. */
   private wasCancelled = false;
   private startedAt: number | null = null;
   private lastEventAt: number | null = null;
@@ -165,7 +160,7 @@ export class Worker {
         // diagnose / retry.
         if (this.status === "working") {
           const message = this.wasCancelled
-            ? "Cancelled by boss."
+            ? "Cancelled by Kleio Manager."
             : "Session ended without agent_done — likely a silently swallowed abort or stream interruption.";
           const ts = new Date().toISOString();
           this.status = "error";
@@ -188,7 +183,7 @@ export class Worker {
       })
       .catch((err) => {
         const rawMessage = this.wasCancelled
-          ? "Cancelled by boss."
+          ? "Cancelled by Kleio Manager."
           : err instanceof Error
             ? err.message
             : String(err);
@@ -214,8 +209,8 @@ export class Worker {
   /**
    * Cancel the current turn. Aborts only this worker's per-turn controller —
    * other workers keep running. The aborted turn surfaces as a `worker_error`
-   * event with message "Cancelled by boss." so the orchestrator clears its
-   * in-flight task entry and the boss is notified.
+   * event with a branded cancellation message so the orchestrator clears its
+   * in-flight task entry and Kleio Manager is notified.
    *
    * Returns true if a turn was actually cancelled.
    */

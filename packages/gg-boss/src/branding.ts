@@ -1,20 +1,18 @@
 // Pull version from package.json so banner + boot output stay in sync with
 // what npm sees — bumping package.json now updates the TUI automatically.
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import pkg from "../package.json" with { type: "json" };
 
 export const VERSION = pkg.version;
-export const BRAND = "GG Boss";
-export const AUTHOR = "Ken Kai";
+export const BRAND = KLEIO_PRODUCT_PROFILE.manager.displayName;
 
-export const LOGO_LINES: readonly string[] = [" ▄▀▀▀ ▄▀▀▀", " █ ▀█ █ ▀█", " ▀▄▄▀ ▀▄▄▀"];
+export const LOGO_LINES: readonly string[] = [" █▄▀ █▄ ▄█", " █▀▄ █ ▀ █", " ▀ ▀ ▀   ▀"];
 
 export const LOGO_GAP = "   ";
 
 /**
- * GG Boss brand gradient — crimson → fuchsia. Deliberately distinct:
- *   - gg-coder is cool blues/violets
- *   - gg-editor is warm oranges/yellows
- *   - gg-boss is fiery reds/pinks/magentas
+ * Kleio Manager gradient — crimson → fuchsia. Deliberately distinct from
+ * Kleio Coder's cool blue/violet palette and Kleio Editor's warm palette.
  *
  * Palindromic 12-stop sequence so the banner gradient animates smoothly
  * (read forward, then back).

@@ -70,7 +70,7 @@ describe("BossChatScreen", () => {
     expect(appSource).toContain('if (getBossState().phase === "working") return;');
   });
 
-  it("uses a Boss-owned full GG Coder model selector", () => {
+  it("uses a Manager-owned full Kleio Coder model selector", () => {
     expect(source).toContain("<BossModelSelector");
     expect(source).not.toContain("loggedInProviders={state.loggedInProviders}");
     expect(modelSelectorSource).toContain('import { MODELS } from "@kleio/core"');
@@ -80,9 +80,9 @@ describe("BossChatScreen", () => {
     expect(modelSelectorSource).not.toContain("loggedInProviders");
   });
 
-  it("supports GG Coder-style model aliases and keeps radio opening through the overlay reset", () => {
-    expect(slashSource).toContain('aliases: ["m", "model", "models"]');
-    expect(appSource).toContain('case "model-boss":');
+  it("supports preferred and legacy model aliases through the overlay reset", () => {
+    expect(slashSource).toContain('aliases: ["m", "model", "models", "model-boss"]');
+    expect(appSource).toContain('case "model-manager":');
     expect(appSource).toContain('openOverlay("radio")');
     expect(appSource).toContain("scheduleOverlayReset");
     expect(appSource).toContain("setTimeout(() =>");

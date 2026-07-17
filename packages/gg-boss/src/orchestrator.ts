@@ -68,6 +68,9 @@ export interface GGBossOptions {
   continueRecent?: boolean;
 }
 
+/** Preferred Kleio name; GGBossOptions remains available for compatibility. */
+export type KleioManagerOptions = GGBossOptions;
+
 /**
  * The orchestrator. Owns N workers, a single shared event queue, and the boss Agent.
  * Each loop iteration: pop one event, format it as a user message, run the boss for
@@ -552,7 +555,7 @@ export class GGBoss {
         const message = err instanceof Error ? err.message : String(err);
         log("ERROR", "run_loop", "iteration threw", { message });
         try {
-          bossStore.appendInfo(`Boss loop error (recovered): ${message}`, "error");
+          bossStore.appendInfo(`Kleio Manager loop error (recovered): ${message}`, "error");
         } catch {
           // Even the recovery path can throw (e.g. bossStore tearing down)
           // — swallow rather than crash the loop.
@@ -880,6 +883,9 @@ export class GGBoss {
     await Promise.all([...this.workers.values()].map((w) => w.dispose()));
   }
 }
+
+/** Preferred Kleio name; GGBoss remains available as the same constructor. */
+export { GGBoss as KleioManager };
 
 type ReportedStatus = "DONE" | "UNVERIFIED" | "PARTIAL" | "BLOCKED" | "INFO" | null;
 
