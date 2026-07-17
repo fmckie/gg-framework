@@ -8,8 +8,8 @@ import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 
 // Resolve the package version by walking up from this module to the nearest
 // package.json. A bare `require("../../package.json")` breaks when this module
-// is re-bundled into a sibling package (e.g. gg-boss), where the relative path
-// no longer points at ggcoder's manifest — so it crashes the CLI. Walking up
+// is re-bundled into a sibling package (e.g. Kleio Manager), where the relative
+// path no longer points at Kleio Coder's manifest — so it crashes the CLI.
 // from import.meta.url always finds a valid manifest and never throws.
 function resolveCliVersion(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildLlmsCandidates, createWebFetchTool, htmlToCleanText } from "./web-fetch.js";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import {
+  buildLlmsCandidates,
+  createWebFetchTool,
+  htmlToCleanText,
+  resolveWebFetchUserAgent,
+} from "./web-fetch.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -9,7 +15,26 @@ function context() {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("resolveWebFetchUserAgent", () => {
+  it("uses the branded product-profile identity by default", () => {
+    expect(KLEIO_PRODUCT_PROFILE.coder.httpUserAgent).toBe("KleioCoder/1.0");
+    expect(resolveWebFetchUserAgent({})).toBe(KLEIO_PRODUCT_PROFILE.coder.httpUserAgent);
+  });
+
+  it("accepts the legacy identity through the explicit environment override", () => {
+    expect(KLEIO_PRODUCT_PROFILE.coder.legacyHttpUserAgent).toBe(
+      "Mozilla/5.0 (compatible; GGCoder/1.0)",
+    );
+    expect(
+      resolveWebFetchUserAgent({
+        KLEIO_CODER_HTTP_USER_AGENT: KLEIO_PRODUCT_PROFILE.coder.legacyHttpUserAgent,
+      }),
+    ).toBe("Mozilla/5.0 (compatible; GGCoder/1.0)");
+  });
 });
 
 describe("htmlToCleanText", () => {
@@ -74,6 +99,38 @@ describe("buildLlmsCandidates", () => {
 });
 
 describe("createWebFetchTool", () => {
+  it.each([
+    ["branded default", undefined, KLEIO_PRODUCT_PROFILE.coder.httpUserAgent],
+    [
+      "legacy override",
+      KLEIO_PRODUCT_PROFILE.coder.legacyHttpUserAgent,
+      KLEIO_PRODUCT_PROFILE.coder.legacyHttpUserAgent,
+    ],
+  ] as const)("wires the %s User-Agent into requests", async (_label, override, expected) => {
+    vi.stubEnv("KLEIO_CODER_HTTP_USER_AGENT", override);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("ok", {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+        }),
+    );
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const result = await createWebFetchTool().execute(
+      { url: "https://example.com/page", prefer_llms_txt: false },
+      context(),
+    );
+
+    expect(result).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/page",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "User-Agent": expected }),
+      }),
+    );
+  });
+
   it("returns sanitized HTML content from fetched pages", async () => {
     const html = `
       <html>

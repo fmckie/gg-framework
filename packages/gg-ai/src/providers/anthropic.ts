@@ -23,8 +23,19 @@ import {
 } from "./transform.js";
 import { isJsonObject } from "../utils/json.js";
 
+/** Frozen request identity required by Anthropic's Claude Code OAuth edge. */
+export const ANTHROPIC_OAUTH_TOKEN_PREFIX = "sk-ant-oat";
+export const ANTHROPIC_OAUTH_FALLBACK_USER_AGENT = "claude-cli/2.1.75 (external, cli)";
+export const ANTHROPIC_OAUTH_X_APP = "cli";
+export const ANTHROPIC_OAUTH_SYSTEM_IDENTITY =
+  "You are Claude Code, Anthropic's official CLI for Claude.";
+
+function isAnthropicOAuth(apiKey: string | undefined): boolean {
+  return apiKey?.startsWith(ANTHROPIC_OAUTH_TOKEN_PREFIX) ?? false;
+}
+
 function createClient(options: StreamOptions): Anthropic {
-  const isOAuth = options.apiKey?.startsWith("sk-ant-oat");
+  const isOAuth = isAnthropicOAuth(options.apiKey);
   return new Anthropic({
     ...(isOAuth
       ? { apiKey: null as unknown as string, authToken: options.apiKey }
@@ -39,10 +50,10 @@ function createClient(options: StreamOptions): Anthropic {
       ? {
           defaultHeaders: {
             // Anthropic's OAuth edge validates the claude-cli version. Callers
-            // (ggcoder) resolve the live version at runtime; the literal here
+            // from Kleio Coder resolve the live version at runtime; the literal here
             // is the offline fallback for direct gg-ai consumers.
-            "user-agent": options.userAgent ?? "claude-cli/2.1.75 (external, cli)",
-            "x-app": "cli",
+            "user-agent": options.userAgent ?? ANTHROPIC_OAUTH_FALLBACK_USER_AGENT,
+            "x-app": ANTHROPIC_OAUTH_X_APP,
           },
         }
       : {}),
@@ -55,7 +66,7 @@ export function streamAnthropic(options: StreamOptions): StreamResult {
 
 async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, StreamResponse> {
   const client = createClient(options);
-  const isOAuth = options.apiKey?.startsWith("sk-ant-oat");
+  const isOAuth = isAnthropicOAuth(options.apiKey);
   const useStreaming = options.streaming !== false;
 
   const cacheControl = toAnthropicCacheControl(options.cacheRetention, options.baseUrl);
@@ -70,7 +81,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     ? [
         {
           type: "text" as const,
-          text: "You are Claude Code, Anthropic's official CLI for Claude.",
+          text: ANTHROPIC_OAUTH_SYSTEM_IDENTITY,
         },
         ...(rawSystem ?? []),
       ]

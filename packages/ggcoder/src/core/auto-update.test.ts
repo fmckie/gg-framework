@@ -11,6 +11,8 @@ import {
 
 // Use a temp directory for state file instead of the real ~/.gg
 const tmpDir = path.join(os.tmpdir(), `gg-update-test-${process.pid}`);
+const UPDATE_PACKAGE = "@kleio/coder";
+const UPDATE_DIST_TAG = "kleio";
 
 // Mock the state file path
 vi.mock("node:os", async () => {
@@ -29,9 +31,17 @@ vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => ({ unref: vi.fn() })),
 }));
 
-function writeStateFile(state: Record<string, unknown>): void {
+function writeRawStateFile(state: Record<string, unknown>): void {
   fs.mkdirSync(path.join(tmpDir, ".gg"), { recursive: true });
   fs.writeFileSync(path.join(tmpDir, ".gg", "update-state.json"), JSON.stringify(state));
+}
+
+function writeStateFile(state: Record<string, unknown>): void {
+  writeRawStateFile({
+    ...state,
+    packageName: UPDATE_PACKAGE,
+    distTag: UPDATE_DIST_TAG,
+  });
 }
 
 function readStateFile(): Record<string, unknown> | null {
@@ -50,12 +60,16 @@ beforeEach(() => {
   } catch {
     // fine
   }
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 afterEach(() => {
   stopPeriodicUpdateCheck();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.clearAllMocks();
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {
@@ -117,13 +131,49 @@ describe("checkAndAutoUpdate", () => {
     const result = checkAndAutoUpdate("1.0.0");
 
     expect(result).toContain("2.0.0");
-    expect(result).toContain("Installing in the background");
+    expect(result).toContain("installing in the background");
     expect(vi.mocked(spawn)).toHaveBeenCalled();
 
     // Should clear the pending flag
     const state = readStateFile();
     expect(state?.updatePending).toBe(false);
     expect(state?.lastUpdateAttempt).toBeDefined();
+    const [manager, args] = vi.mocked(spawn).mock.calls[0] ?? [];
+    expect([manager, ...(args ?? [])].join(" ")).toContain("@kleio/coder@kleio");
+  });
+
+  it("updates across Kleio prerelease revisions", () => {
+    writeStateFile({
+      lastCheckedAt: Date.now(),
+      latestVersion: "4.10.1-kleio.1",
+      updatePending: true,
+    });
+
+    const result = checkAndAutoUpdate("4.10.1-kleio.0");
+
+    expect(result).toContain("4.10.1-kleio.1");
+    expect(vi.mocked(spawn)).toHaveBeenCalled();
+  });
+
+  it("ignores unscoped legacy update state instead of installing the wrong package", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ version: "4.10.1-kleio.0" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    writeRawStateFile({
+      lastCheckedAt: Date.now(),
+      latestVersion: "99.0.0",
+      updatePending: true,
+    });
+
+    expect(checkAndAutoUpdate("4.10.1-kleio.0")).toBeNull();
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => {
+      const state = readStateFile();
+      expect(state?.packageName).toBe(UPDATE_PACKAGE);
+      expect(state?.distTag).toBe(UPDATE_DIST_TAG);
+    });
   });
 
   it("schedules background check when last check was long ago", async () => {
@@ -142,7 +192,10 @@ describe("checkAndAutoUpdate", () => {
 
     // Give the async check time to complete
     await vi.waitFor(() => {
-      expect(fetchMock).toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://registry.npmjs.org/%40kleio%2Fcoder/kleio",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
 
     // Wait for the state to be written
@@ -150,6 +203,8 @@ describe("checkAndAutoUpdate", () => {
       const state = readStateFile();
       expect(state?.latestVersion).toBe("5.0.0");
       expect(state?.updatePending).toBe(true);
+      expect(state?.packageName).toBe(UPDATE_PACKAGE);
+      expect(state?.distTag).toBe(UPDATE_DIST_TAG);
     });
   });
 

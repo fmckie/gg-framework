@@ -1,10 +1,13 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { resolveEnvironmentAlias } from "../product-profile.js";
 import { generatePKCE } from "./pkce.js";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "./types.js";
 
-const CLIENT_ID_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_ID";
-const CLIENT_SECRET_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_SECRET";
+const CLIENT_ID_ENV = "KLEIO_CODER_GEMINI_OAUTH_CLIENT_ID";
+const LEGACY_CLIENT_ID_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_ID";
+const CLIENT_SECRET_ENV = "KLEIO_CODER_GEMINI_OAUTH_CLIENT_SECRET";
+const LEGACY_CLIENT_SECRET_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_SECRET";
 // Public "installed application" OAuth client shipped with the official Gemini CLI.
 // Unlike the OpenAI/Anthropic flows (pure PKCE, no secret), Google's token endpoint
 // requires a client_secret for the installed-app authorization_code / refresh_token
@@ -149,8 +152,12 @@ export async function refreshGeminiToken(refreshToken: string): Promise<OAuthCre
 }
 
 function getGeminiOAuthClientCredentials(): GeminiOAuthClientCredentials {
-  const clientId = process.env[CLIENT_ID_ENV]?.trim() || DEFAULT_CLIENT_ID;
-  const clientSecret = process.env[CLIENT_SECRET_ENV]?.trim() || DEFAULT_CLIENT_SECRET;
+  const clientId =
+    resolveEnvironmentAlias(process.env, CLIENT_ID_ENV, LEGACY_CLIENT_ID_ENV)?.trim() ||
+    DEFAULT_CLIENT_ID;
+  const clientSecret =
+    resolveEnvironmentAlias(process.env, CLIENT_SECRET_ENV, LEGACY_CLIENT_SECRET_ENV)?.trim() ||
+    DEFAULT_CLIENT_SECRET;
   return { clientId, clientSecret };
 }
 

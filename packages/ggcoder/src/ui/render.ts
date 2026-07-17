@@ -3,6 +3,7 @@ import wrapAnsi from "wrap-ansi";
 import { render, type Instance as InkInstance } from "ink";
 import type { Message, Provider, ThinkingLevel } from "@kleio/ai";
 import type { AgentTool } from "@kleio/agent";
+import { resolveEnvironmentAlias } from "@kleio/core";
 import type { ProcessManager } from "../core/process-manager.js";
 import type { MCPClientManager } from "../core/mcp/index.js";
 import type { AuthStorage } from "../core/auth-storage.js";
@@ -304,12 +305,17 @@ const ALT_SCREEN_LEAVE = "\x1b[?1049l";
 /**
  * Fullscreen alternate-screen viewport mode. Default OFF: native terminal
  * scrollback is the default (smooth, GPU-accelerated, real mouse-wheel scroll).
- * Set `GG_FULLSCREEN=1` to opt into the alternate-screen in-Ink viewport
- * (pinned footer, but no native scrollback). Non-TTY / CI / print modes never
- * use it.
+ * Set `KLEIO_CODER_FULLSCREEN=1` (or legacy `GG_FULLSCREEN=1`) to opt into
+ * the alternate-screen in-Ink viewport. Non-TTY / CI / print modes never use it.
  */
+export function isFullscreenViewportRequested(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return resolveEnvironmentAlias(environment, "KLEIO_CODER_FULLSCREEN", "GG_FULLSCREEN") === "1";
+}
+
 export function isFullscreenViewportEnabled(): boolean {
-  if (process.env.GG_FULLSCREEN === "1") {
+  if (isFullscreenViewportRequested()) {
     return Boolean(process.stdout.isTTY && process.stdin.isTTY);
   }
   return false;

@@ -6,6 +6,7 @@ import chalk from "chalk";
 import { DEFAULT_INGEST_URL } from "@kenkaiiii/gg-pixel";
 import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { PIXEL_FIX_SYSTEM_PROMPT } from "./pixel-fix-agent.js";
+import { resolveCoderCommand, type ResolvedCoderCommand } from "./coder-command.js";
 import { tryResolveStack } from "./source-maps.js";
 
 const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
@@ -56,6 +57,9 @@ export interface FixOptions {
   homeDir?: string;
   fetchFn?: typeof fetch;
   spawnFn?: SpawnFn;
+  /** Preferred explicit Coder executable override. */
+  kleioCoderBin?: string;
+  /** @deprecated Use kleioCoderBin; retained for automation compatibility. */
   ggcoderBin?: string;
   inheritStdio?: boolean;
   maxTurns?: number;
@@ -80,12 +84,17 @@ export async function fixError(errorId: string, opts: FixOptions = {}): Promise<
   const branch = `fix/pixel-${error.id}`;
   await patchError(fetchFn, ingestUrl, error.id, { status: "in_progress", branch }, secret);
 
+  const resolvedCoderCommand: ResolvedCoderCommand = opts.kleioCoderBin
+    ? { command: opts.kleioCoderBin, argsPrefix: [], source: "preferred" }
+    : opts.ggcoderBin
+      ? { command: opts.ggcoderBin, argsPrefix: [], source: "legacy" }
+      : resolveCoderCommand();
   const exitCode = await runAgent({
     cwd: project.path,
     prompt: buildAgentPrompt(error, branch, project.path),
     systemPrompt: PIXEL_FIX_SYSTEM_PROMPT,
     spawnFn: opts.spawnFn ?? spawn,
-    ggcoderBin: opts.ggcoderBin ?? "ggcoder",
+    coderCommand: resolvedCoderCommand,
     inheritStdio: opts.inheritStdio ?? true,
     maxTurns: opts.maxTurns ?? 60,
   });
@@ -412,7 +421,7 @@ interface AgentRunOptions {
   prompt: string;
   systemPrompt: string;
   spawnFn: SpawnFn;
-  ggcoderBin: string;
+  coderCommand: ResolvedCoderCommand;
   inheritStdio: boolean;
   maxTurns: number;
 }
@@ -420,6 +429,7 @@ interface AgentRunOptions {
 async function runAgent(opts: AgentRunOptions): Promise<number> {
   return new Promise((resolve, reject) => {
     const args = [
+      ...opts.coderCommand.argsPrefix,
       "--json",
       "--max-turns",
       String(opts.maxTurns),
@@ -427,7 +437,7 @@ async function runAgent(opts: AgentRunOptions): Promise<number> {
       opts.systemPrompt,
       opts.prompt,
     ];
-    const child = opts.spawnFn(opts.ggcoderBin, args, {
+    const child = opts.spawnFn(opts.coderCommand.command, args, {
       cwd: opts.cwd,
       stdio: opts.inheritStdio ? "inherit" : ["ignore", "pipe", "pipe"],
     });

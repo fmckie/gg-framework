@@ -3,10 +3,30 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { AgentTool } from "@kleio/agent";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { z } from "zod";
 import os from "node:os";
 import { log } from "../logger.js";
 import type { MCPServerConfig } from "./types.js";
+
+export interface MCPClientManagerOptions {
+  /** Override the client name sent in MCP SDK handshakes. */
+  clientName?: string;
+  /** Injectable environment used to resolve compatibility overrides. */
+  environment?: Readonly<Record<string, string | undefined>>;
+}
+
+/** Resolve MCP handshake identity without reading global process state. */
+export function resolveMcpClientName(
+  explicitClientName: string | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+): string {
+  return (
+    explicitClientName ??
+    environment.KLEIO_CODER_MCP_CLIENT_NAME ??
+    KLEIO_PRODUCT_PROFILE.coder.mcpClientName
+  );
+}
 
 interface ConnectedServer {
   name: string;
@@ -26,7 +46,11 @@ export interface MCPConnectResult {
 
 export class MCPClientManager {
   private servers: ConnectedServer[] = [];
+  private readonly clientName: string;
 
+  constructor(options: MCPClientManagerOptions = {}) {
+    this.clientName = resolveMcpClientName(options.clientName, options.environment ?? process.env);
+  }
   async connectAll(configs: MCPServerConfig[]): Promise<AgentTool[]> {
     const results = await this.connectAllDetailed(configs);
     return results.flatMap((r) => r.tools);
@@ -83,6 +107,10 @@ export class MCPClientManager {
     }
   }
 
+  private createClient(): Client {
+    return new Client({ name: this.clientName, version: "1.0.0" });
+  }
+
   private async connectServer(config: MCPServerConfig): Promise<AgentTool[]> {
     const timeout = config.timeout ?? 30_000;
     let client: Client;
@@ -91,7 +119,7 @@ export class MCPClientManager {
     if (config.command) {
       // Stdio transport for local processes.
       // cwd is forced to homedir so the user's working directory can't
-      // affect resolution. e.g. running ggcoder from a folder whose
+      // affect resolution. e.g. running Kleio Coder from a folder whose
       // package.json names the same package as the MCP server makes
       // `npx -y <pkg>` self-resolve to the local source (no built bin
       // shim) and fail with "command not found".
@@ -110,7 +138,7 @@ export class MCPClientManager {
       transport.stderr?.on("data", (chunk: Buffer | string) => {
         stderrChunks.push(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
       });
-      client = new Client({ name: "ggcoder", version: "1.0.0" });
+      client = this.createClient();
       try {
         await client.connect(transport, { timeout });
       } catch (err) {
@@ -129,7 +157,7 @@ export class MCPClientManager {
         transport = new StreamableHTTPClientTransport(url, {
           requestInit: reqInit,
         });
-        client = new Client({ name: "ggcoder", version: "1.0.0" });
+        client = this.createClient();
         await client.connect(transport, { timeout });
       } catch (streamableErr) {
         log("INFO", "mcp", `StreamableHTTP failed for "${config.name}", trying SSE fallback`, {
@@ -141,7 +169,7 @@ export class MCPClientManager {
             : undefined,
           requestInit: reqInit,
         });
-        client = new Client({ name: "ggcoder", version: "1.0.0" });
+        client = this.createClient();
         await client.connect(transport, { timeout });
       }
     }

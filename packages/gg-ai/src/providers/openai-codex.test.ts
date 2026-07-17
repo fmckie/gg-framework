@@ -196,6 +196,42 @@ describe("streamOpenAICodex", () => {
     },
   );
 
+  it("preserves the legacy Codex request identity and default cache key", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        createSseResponse([
+          {
+            type: "response.completed",
+            response: { usage: { input_tokens: 1, output_tokens: 1 } },
+          },
+        ]),
+      ),
+    );
+
+    const fetchMock = vi.mocked(fetch);
+    const result = streamOpenAICodex({
+      provider: "openai",
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "test-api-key",
+      accountId: "acct",
+    });
+
+    for await (const _event of result) {
+      /* consume */
+    }
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(headers.originator).toBe("ggcoder");
+    expect(headers["User-Agent"]).toMatch(/^ggcoder \(/);
+    expect(headers.session_id).toBe("ggcoder");
+    expect(headers["x-client-request-id"]).toBe("ggcoder");
+    expect(body.prompt_cache_key).toBe("ggcoder");
+  });
+
   it("shapes Codex transport request with endpoint, cache headers, reasoning include, and no rejected token caps", async () => {
     vi.stubGlobal(
       "fetch",

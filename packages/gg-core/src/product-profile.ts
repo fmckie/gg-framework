@@ -9,7 +9,7 @@ export const KLEIO_PRODUCT_PROFILE = {
     preferredCommand: "kleio-coder",
     legacyCommand: "ggcoder",
     httpUserAgent: "KleioCoder/1.0",
-    legacyHttpUserAgent: "GGCoder/1.0",
+    legacyHttpUserAgent: "Mozilla/5.0 (compatible; GGCoder/1.0)",
     mcpClientName: "kleio-coder",
     legacyMcpClientName: "ggcoder",
     agentHomeId: "ggcoder",

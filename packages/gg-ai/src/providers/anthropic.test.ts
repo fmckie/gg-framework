@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProviderError } from "../errors.js";
-import { streamAnthropic } from "./anthropic.js";
+import {
+  ANTHROPIC_OAUTH_FALLBACK_USER_AGENT,
+  ANTHROPIC_OAUTH_SYSTEM_IDENTITY,
+  ANTHROPIC_OAUTH_TOKEN_PREFIX,
+  ANTHROPIC_OAUTH_X_APP,
+  streamAnthropic,
+} from "./anthropic.js";
 
+const clientOptionsMock = vi.fn();
 const createMock = vi.fn();
 const streamMock = vi.fn();
 
@@ -28,6 +35,10 @@ vi.mock("@anthropic-ai/sdk", () => {
   }
 
   class AnthropicMock {
+    constructor(options: unknown) {
+      clientOptionsMock(options);
+    }
+
     static APIError = APIError;
     static nextError: Error | null = null;
     static nextEvents: unknown[] | null = null;
@@ -55,6 +66,58 @@ vi.mock("@anthropic-ai/sdk", () => {
 });
 
 describe("streamAnthropic request shaping", () => {
+  it("preserves the frozen Claude Code OAuth compatibility identity", async () => {
+    expect({
+      tokenPrefix: ANTHROPIC_OAUTH_TOKEN_PREFIX,
+      fallbackUserAgent: ANTHROPIC_OAUTH_FALLBACK_USER_AGENT,
+      xApp: ANTHROPIC_OAUTH_X_APP,
+      systemIdentity: ANTHROPIC_OAUTH_SYSTEM_IDENTITY,
+    }).toEqual({
+      tokenPrefix: "sk-ant-oat",
+      fallbackUserAgent: "claude-cli/2.1.75 (external, cli)",
+      xApp: "cli",
+      systemIdentity: "You are Claude Code, Anthropic's official CLI for Claude.",
+    });
+
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const AnthropicMock = Anthropic as unknown as {
+      nextError: Error | null;
+      nextEvents: unknown[] | null;
+    };
+    AnthropicMock.nextError = null;
+    AnthropicMock.nextEvents = [{ type: "message_stop" }];
+    const oauthToken = `${ANTHROPIC_OAUTH_TOKEN_PREFIX}-test`;
+
+    const result = streamAnthropic({
+      provider: "anthropic",
+      model: "claude-test",
+      messages: [
+        { role: "system", content: "Project instructions" },
+        { role: "user", content: "hi" },
+      ],
+      apiKey: oauthToken,
+    });
+    for await (const _event of result) {
+      /* consume */
+    }
+
+    const clientOptions = clientOptionsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(clientOptions).toMatchObject({
+      authToken: oauthToken,
+      maxRetries: 0,
+      defaultHeaders: {
+        "user-agent": "claude-cli/2.1.75 (external, cli)",
+        "x-app": "cli",
+      },
+    });
+
+    const params = createMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(params.system).toEqual([
+      { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." },
+      expect.objectContaining({ type: "text", text: "Project instructions" }),
+    ]);
+  });
+
   it("sends thinking, cache, image, and tool transform params", async () => {
     const { default: Anthropic } = await import("@anthropic-ai/sdk");
     const AnthropicMock = Anthropic as unknown as {

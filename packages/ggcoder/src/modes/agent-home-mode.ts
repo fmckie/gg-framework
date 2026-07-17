@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
-import { AgentHomeClient, type AgentSession as AHSession } from "@kenkaiiii/agent-home-sdk";
+import {
+  AgentHomeClient,
+  type AgentInfo,
+  type AgentSession as AHSession,
+} from "@kenkaiiii/agent-home-sdk";
 import { AgentSession } from "../core/agent-session.js";
 import { isAbortError } from "@kleio/agent";
 import chalk from "chalk";
@@ -19,6 +23,15 @@ const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 const AGENT_HOME_ID = KLEIO_PRODUCT_PROFILE.coder.agentHomeId;
 
 export const AGENT_HOME_RELAY_URL = "wss://agent-home-relay.buzzbeamaustralia.workers.dev/ws";
+
+/** Build the relay registration without changing the ID used by existing pairings. */
+export function buildAgentHomeRegistration(model: string): AgentInfo {
+  return {
+    id: AGENT_HOME_ID,
+    name: CODER_DISPLAY_NAME,
+    description: `AI coding agent — ${model}`,
+  };
+}
 
 export interface AgentHomeModeOptions {
   provider: Provider;
@@ -97,11 +110,7 @@ export async function runAgentHomeMode(options: AgentHomeModeOptions): Promise<v
   const client = new AgentHomeClient({
     relayUrl: AGENT_HOME_RELAY_URL,
     token: options.agentHome.token,
-    agent: {
-      id: AGENT_HOME_ID,
-      name: CODER_DISPLAY_NAME,
-      description: `AI coding agent — ${options.model}`,
-    },
+    agent: buildAgentHomeRegistration(options.model),
   });
 
   // ── Helpers ────────────────────────────────────────────

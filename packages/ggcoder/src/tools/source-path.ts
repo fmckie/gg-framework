@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { z } from "zod";
 import type { AgentTool } from "@kleio/agent";
+import { resolveEnvironmentAlias } from "@kleio/core";
+import { z } from "zod";
 import { log } from "../core/logger.js";
 
 const SOURCE_PATH_TIMEOUT_MS = 120_000;
 const MAX_STDERR_CHARS = 10_000;
-const OPENSRC_BIN_ENV = "GG_CODER_OPENSRC_BIN";
+const OPENSRC_BIN_ENV = "KLEIO_CODER_OPENSRC_BIN";
+const LEGACY_OPENSRC_BIN_ENV = "GG_CODER_OPENSRC_BIN";
 
 const SourcePathParams = z.object({
   package: z
@@ -127,8 +129,12 @@ export function createSourcePathTool(cwd: string): AgentTool<typeof SourcePathPa
   };
 }
 
-function getBundledOpenSrcBinPath(): string {
-  const override = process.env[OPENSRC_BIN_ENV]?.trim();
+export function getBundledOpenSrcBinPath(environment: NodeJS.ProcessEnv = process.env): string {
+  const override = resolveEnvironmentAlias(
+    environment,
+    OPENSRC_BIN_ENV,
+    LEGACY_OPENSRC_BIN_ENV,
+  )?.trim();
   if (override) return override;
 
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
@@ -139,5 +145,7 @@ function getOpenSrcEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     TERM: process.env.TERM ?? "dumb",
+    KLEIO_CODER: "true",
+    GG_CODER: "true",
   };
 }

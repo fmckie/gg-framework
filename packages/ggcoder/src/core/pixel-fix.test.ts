@@ -165,7 +165,7 @@ describe("fixError — orchestration", () => {
     ]);
 
     const { fn: spawnFn, calls: spawnCalls } = buildSpawnFn([
-      // ggcoder agent run
+      // Coder agent run
       () => makeFakeChild(0),
       // git show-ref --verify refs/heads/fix/pixel-err_abc123
       () => makeFakeChild(0),
@@ -179,6 +179,8 @@ describe("fixError — orchestration", () => {
       homeDir: home,
       fetchFn,
       spawnFn,
+      kleioCoderBin: "kleio-coder-test",
+      ggcoderBin: "ggcoder-legacy-ignored",
       inheritStdio: false,
     } satisfies FixOptions);
 
@@ -186,9 +188,9 @@ describe("fixError — orchestration", () => {
     expect(result.branch).toBe("fix/pixel-err_abc123");
     expect(result.reason).toContain("3 commit");
 
-    // First call to ggcoder uses the right cwd and args
+    // The branded override wins while the deprecated option remains accepted.
     const ggCall = spawnCalls[0];
-    expect(ggCall?.command).toBe("ggcoder");
+    expect(ggCall?.command).toBe("kleio-coder-test");
     expect(ggCall?.args).toContain("--json");
     expect(ggCall?.args).toContain("--system-prompt");
     expect(ggCall?.options.cwd).toBe("/tmp/demo-app");
@@ -210,17 +212,19 @@ describe("fixError — orchestration", () => {
       () => new Response("{}", { status: 200 }), // PATCH failed
     ]);
 
-    const { fn: spawnFn } = buildSpawnFn([() => makeFakeChild(1)]);
+    const { fn: spawnFn, calls: spawnCalls } = buildSpawnFn([() => makeFakeChild(1)]);
 
     const result = await fixError("err_abc123", {
       homeDir: home,
       fetchFn,
       spawnFn,
+      ggcoderBin: "legacy-automation-bin",
       inheritStdio: false,
     });
 
     expect(result.outcome).toBe("failed");
     expect(result.reason).toContain("exited with code 1");
+    expect(spawnCalls[0]?.command).toBe("legacy-automation-bin");
   });
 
   it("marks failed when the branch was not created", async () => {
@@ -233,7 +237,7 @@ describe("fixError — orchestration", () => {
     ]);
 
     const { fn: spawnFn } = buildSpawnFn([
-      () => makeFakeChild(0), // ggcoder ok
+      () => makeFakeChild(0), // Coder ok
       () => makeFakeChild(1), // git show-ref FAIL
     ]);
 
@@ -258,7 +262,7 @@ describe("fixError — orchestration", () => {
     ]);
 
     const { fn: spawnFn } = buildSpawnFn([
-      () => makeFakeChild(0), // ggcoder
+      () => makeFakeChild(0), // Coder
       () => makeFakeChild(0), // branch exists
       () => makeFakeChild(0), // main exists
       () => makeFakeChild(0, "0\n"), // 0 commits ahead
@@ -285,7 +289,7 @@ describe("fixError — orchestration", () => {
     ]);
 
     const { fn: spawnFn, calls: spawnCalls } = buildSpawnFn([
-      () => makeFakeChild(0), // ggcoder
+      () => makeFakeChild(0), // Coder
       () => makeFakeChild(0), // branch exists
       () => makeFakeChild(1), // main missing
       () => makeFakeChild(0), // master exists

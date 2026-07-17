@@ -3,7 +3,7 @@
 // long sessions — tool results are capped at 50KB each but accumulate
 // across thousands of turns, and Ink/React state plus the SDK clients
 // share the same heap. 8GB gives ample headroom; --expose-gc is unused
-// today but matches gg-boss for consistency. NODE_OPTIONS overrides via
+// today but matches Kleio Manager for consistency. NODE_OPTIONS overrides via
 // Node's standard flag merge.
 
 // Catch stray abort-related promise rejections that escape the normal error
@@ -101,6 +101,7 @@ import { discoverSkills } from "./core/skills.js";
 import path from "node:path";
 import chalk from "chalk";
 import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
+import { resolveCoderTelegramEnvironment } from "./cli/environment.js";
 import { checkAndAutoUpdate } from "./core/auto-update.js";
 
 import { routeCliCommandInput, type CliSubcommandName } from "./cli/command-routing.js";
@@ -542,7 +543,7 @@ async function runInkTUI(opts: {
 
   // Rebuilds the cwd-bound tools for a different project root. Used by the
   // pixel-fix flow so the agent operates in the error's project, not in
-  // wherever ggcoder was launched from.
+  // wherever Kleio Coder was launched from.
   const rebuildToolsForCwd = (newCwd: string) => {
     activeLspManager?.shutdownAll();
     const { tools: rebuilt, lspManager: rebuiltLspManager } = createTools(newCwd, {
@@ -644,7 +645,7 @@ async function runInkTUI(opts: {
               signal: compactionAbort.signal,
             });
             // Persist compacted continuation to a fresh session so future
-            // `ggcoder continue` starts from the compacted checkpoint instead
+            // `kleio-coder continue` starts from the compacted checkpoint instead
             // of repeatedly restoring the oversized source session.
             const compactedSession = await createCompactedSessionCheckpoint(sessionManager, {
               cwd,
@@ -975,11 +976,12 @@ async function runServe(): Promise<void> {
     strict: true,
   });
 
-  // Priority: CLI flags > env vars > saved config
+  // Priority: CLI flags > preferred env > legacy env > saved config.
   const saved = await loadTelegramConfig();
-  const botToken = serveValues["bot-token"] ?? process.env.GG_TELEGRAM_BOT_TOKEN ?? saved?.botToken;
-  const userIdStr = serveValues["user-id"] ?? process.env.GG_TELEGRAM_USER_ID;
-  const userId = userIdStr ? parseInt(userIdStr, 10) : saved?.userId;
+  const telegramEnvironment = resolveCoderTelegramEnvironment();
+  const botToken = serveValues["bot-token"] ?? telegramEnvironment.botToken ?? saved?.botToken;
+  const userIdStr = serveValues["user-id"] ?? telegramEnvironment.userId;
+  const userId = userIdStr !== undefined ? parseInt(userIdStr, 10) : saved?.userId;
 
   if (!botToken || !userId || isNaN(userId)) {
     console.error(

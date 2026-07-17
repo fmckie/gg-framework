@@ -1,14 +1,21 @@
 import http from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loginGemini } from "./gemini.js";
+import { loginGemini, refreshGeminiToken } from "./gemini.js";
+
+const PREFERRED_CLIENT_ID_ENV = "KLEIO_CODER_GEMINI_OAUTH_CLIENT_ID";
+const LEGACY_CLIENT_ID_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_ID";
+const PREFERRED_CLIENT_SECRET_ENV = "KLEIO_CODER_GEMINI_OAUTH_CLIENT_SECRET";
+const LEGACY_CLIENT_SECRET_ENV = "GGCODER_GEMINI_OAUTH_CLIENT_SECRET";
 
 const originalFetch = globalThis.fetch;
 const originalCodeAssistEndpoint = process.env.CODE_ASSIST_ENDPOINT;
 const originalCodeAssistApiVersion = process.env.CODE_ASSIST_API_VERSION;
 const originalGoogleCloudProject = process.env.GOOGLE_CLOUD_PROJECT;
 const originalGoogleCloudProjectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
-const originalGeminiClientId = process.env.GGCODER_GEMINI_OAUTH_CLIENT_ID;
-const originalGeminiClientSecret = process.env.GGCODER_GEMINI_OAUTH_CLIENT_SECRET;
+const originalPreferredGeminiClientId = process.env[PREFERRED_CLIENT_ID_ENV];
+const originalLegacyGeminiClientId = process.env.GGCODER_GEMINI_OAUTH_CLIENT_ID;
+const originalPreferredGeminiClientSecret = process.env[PREFERRED_CLIENT_SECRET_ENV];
+const originalLegacyGeminiClientSecret = process.env.GGCODER_GEMINI_OAUTH_CLIENT_SECRET;
 
 function tokenResponse(): Response {
   return new Response(
@@ -37,12 +44,33 @@ function completeLoopbackLogin(authUrl: string): void {
   req.on("error", () => undefined);
 }
 
-describe("loginGemini", () => {
+function restoreEnvironmentVariable(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+async function getRefreshRequestBody(): Promise<URLSearchParams> {
+  const fetchMock = vi.fn().mockResolvedValueOnce(tokenResponse());
+  globalThis.fetch = fetchMock;
+
+  await refreshGeminiToken("refresh-token");
+
+  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(init.body).toBeInstanceOf(URLSearchParams);
+  return init.body as URLSearchParams;
+}
+
+describe("Gemini OAuth", () => {
   beforeEach(() => {
     delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.GOOGLE_CLOUD_PROJECT_ID;
-    process.env.GGCODER_GEMINI_OAUTH_CLIENT_ID = "test-client-id";
-    process.env.GGCODER_GEMINI_OAUTH_CLIENT_SECRET = "test-client-secret";
+    delete process.env[PREFERRED_CLIENT_ID_ENV];
+    delete process.env[LEGACY_CLIENT_ID_ENV];
+    delete process.env[PREFERRED_CLIENT_SECRET_ENV];
+    delete process.env[LEGACY_CLIENT_SECRET_ENV];
   });
 
   afterEach(() => {
@@ -67,17 +95,47 @@ describe("loginGemini", () => {
     } else {
       process.env.GOOGLE_CLOUD_PROJECT_ID = originalGoogleCloudProjectId;
     }
-    if (originalGeminiClientId === undefined) {
-      delete process.env.GGCODER_GEMINI_OAUTH_CLIENT_ID;
-    } else {
-      process.env.GGCODER_GEMINI_OAUTH_CLIENT_ID = originalGeminiClientId;
-    }
-    if (originalGeminiClientSecret === undefined) {
-      delete process.env.GGCODER_GEMINI_OAUTH_CLIENT_SECRET;
-    } else {
-      process.env.GGCODER_GEMINI_OAUTH_CLIENT_SECRET = originalGeminiClientSecret;
-    }
+    restoreEnvironmentVariable(PREFERRED_CLIENT_ID_ENV, originalPreferredGeminiClientId);
+    restoreEnvironmentVariable(LEGACY_CLIENT_ID_ENV, originalLegacyGeminiClientId);
+    restoreEnvironmentVariable(PREFERRED_CLIENT_SECRET_ENV, originalPreferredGeminiClientSecret);
+    restoreEnvironmentVariable(LEGACY_CLIENT_SECRET_ENV, originalLegacyGeminiClientSecret);
     vi.restoreAllMocks();
+  });
+
+  it("prefers Kleio OAuth client variables over legacy aliases", async () => {
+    process.env[PREFERRED_CLIENT_ID_ENV] = "preferred-client-id";
+    process.env[PREFERRED_CLIENT_SECRET_ENV] = "preferred-client-secret";
+    process.env[LEGACY_CLIENT_ID_ENV] = "legacy-client-id";
+    process.env[LEGACY_CLIENT_SECRET_ENV] = "legacy-client-secret";
+
+    const body = await getRefreshRequestBody();
+
+    expect(body.get("client_id")).toBe("preferred-client-id");
+    expect(body.get("client_secret")).toBe("preferred-client-secret");
+  });
+
+  it("supports legacy-only OAuth client variables", async () => {
+    process.env[LEGACY_CLIENT_ID_ENV] = "legacy-client-id";
+    process.env[LEGACY_CLIENT_SECRET_ENV] = "legacy-client-secret";
+
+    const body = await getRefreshRequestBody();
+
+    expect(body.get("client_id")).toBe("legacy-client-id");
+    expect(body.get("client_secret")).toBe("legacy-client-secret");
+  });
+
+  it("treats empty preferred OAuth client variables as set", async () => {
+    process.env[PREFERRED_CLIENT_ID_ENV] = "";
+    process.env[PREFERRED_CLIENT_SECRET_ENV] = "";
+    process.env[LEGACY_CLIENT_ID_ENV] = "legacy-client-id";
+    process.env[LEGACY_CLIENT_SECRET_ENV] = "legacy-client-secret";
+
+    const body = await getRefreshRequestBody();
+
+    expect(body.get("client_id")).not.toBe("legacy-client-id");
+    expect(body.get("client_id")).not.toBe("");
+    expect(body.get("client_secret")).not.toBe("legacy-client-secret");
+    expect(body.get("client_secret")).not.toBe("");
   });
 
   it("opens validation URLs and retries Code Assist setup", async () => {

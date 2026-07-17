@@ -1,7 +1,7 @@
-// The file-writer logger core (open/log/rotate/close) now lives in
-// @kenkaiiii/gg-core. This module keeps ggcoder's "ggcoder"-branded startup
-// line and the EventBus bridge (`attachToEventBus`), which needs the gg-agent
-// `EventBus` type and therefore must stay out of the UI-free core.
+// The file-writer logger core (open/log/rotate/close) lives in @kleio/core.
+// This module preserves the frozen legacy startup component and the EventBus
+// bridge (`attachToEventBus`), which needs the gg-agent `EventBus` type and
+// therefore must stay out of the UI-free core.
 import { openLog, log, registerLogCleanup } from "@kleio/core";
 import type { EventBus } from "./event-bus.js";
 
@@ -9,17 +9,20 @@ export { log, getSessionId, closeLogger } from "@kleio/core";
 
 type LogLevel = "INFO" | "ERROR" | "WARN";
 
+/** Frozen component name used by existing log parsers and support tooling. */
+export const LEGACY_CODER_LOG_COMPONENT = "ggcoder";
+
 /**
- * Initialize the debug logger for ggcoder. Opens the shared log file in append
- * mode (via gg-core) and writes a one-time "ggcoder started …" line tagged with
- * the session id. No-op if already initialized.
+ * Initialize the Kleio Coder debug logger. Opens the shared log file in append
+ * mode and writes the compatibility startup line tagged with the session id.
+ * No-op if already initialized.
  */
 export function initLogger(
   filePath: string,
   meta?: { version?: string; provider?: string; model?: string; thinking?: string },
 ): void {
-  if (!openLog(filePath, "ggcoder")) return;
-  const parts = ["ggcoder"];
+  if (!openLog(filePath, LEGACY_CODER_LOG_COMPONENT)) return;
+  const parts = [LEGACY_CODER_LOG_COMPONENT];
   if (meta?.version) parts[0] += ` v${meta.version}`;
   parts.push("started");
   if (meta?.provider) parts.push(`provider=${meta.provider}`);

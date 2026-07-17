@@ -2,10 +2,18 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createSourcePathTool } from "./source-path.js";
+import { createSourcePathTool, getBundledOpenSrcBinPath } from "./source-path.js";
 
-const OPENSRC_BIN_ENV = "GG_CODER_OPENSRC_BIN";
+const OPENSRC_BIN_ENV = "KLEIO_CODER_OPENSRC_BIN";
+const LEGACY_OPENSRC_BIN_ENV = "GG_CODER_OPENSRC_BIN";
 const OPENSRC_TEST_ENV = "GG_CODER_OPENSRC_TEST_ENV";
+const KLEIO_CODER_MARKER = "KLEIO_CODER";
+const LEGACY_CODER_MARKER = "GG_CODER";
+
+function restoreEnvironmentVariable(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 function context() {
   return { signal: new AbortController().signal, toolCallId: "test" };
@@ -26,28 +34,57 @@ async function writeFakeOpenSrc(tmpDir: string, source: string): Promise<string>
   return binPath;
 }
 
+describe("getBundledOpenSrcBinPath", () => {
+  it("prefers the Kleio override over the legacy alias", () => {
+    expect(
+      getBundledOpenSrcBinPath({
+        KLEIO_CODER_OPENSRC_BIN: "/preferred/opensrc",
+        GG_CODER_OPENSRC_BIN: "/legacy/opensrc",
+      }),
+    ).toBe("/preferred/opensrc");
+  });
+
+  it("supports the legacy override by itself", () => {
+    expect(getBundledOpenSrcBinPath({ GG_CODER_OPENSRC_BIN: "/legacy/opensrc" })).toBe(
+      "/legacy/opensrc",
+    );
+  });
+
+  it("treats an empty preferred override as authoritative", () => {
+    expect(
+      getBundledOpenSrcBinPath({
+        KLEIO_CODER_OPENSRC_BIN: "",
+        GG_CODER_OPENSRC_BIN: "/legacy/opensrc",
+      }),
+    ).not.toBe("/legacy/opensrc");
+  });
+});
+
 describe("createSourcePathTool", () => {
   let tmpDir: string;
   let originalOverride: string | undefined;
+  let originalLegacyOverride: string | undefined;
   let originalTestEnv: string | undefined;
+  let originalKleioMarker: string | undefined;
+  let originalLegacyMarker: string | undefined;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "source-path-test-"));
     originalOverride = process.env[OPENSRC_BIN_ENV];
+    originalLegacyOverride = process.env[LEGACY_OPENSRC_BIN_ENV];
     originalTestEnv = process.env[OPENSRC_TEST_ENV];
+    originalKleioMarker = process.env[KLEIO_CODER_MARKER];
+    originalLegacyMarker = process.env[LEGACY_CODER_MARKER];
+    delete process.env[OPENSRC_BIN_ENV];
+    delete process.env[LEGACY_OPENSRC_BIN_ENV];
   });
 
   afterEach(async () => {
-    if (originalOverride === undefined) {
-      delete process.env[OPENSRC_BIN_ENV];
-    } else {
-      process.env[OPENSRC_BIN_ENV] = originalOverride;
-    }
-    if (originalTestEnv === undefined) {
-      delete process.env[OPENSRC_TEST_ENV];
-    } else {
-      process.env[OPENSRC_TEST_ENV] = originalTestEnv;
-    }
+    restoreEnvironmentVariable(OPENSRC_BIN_ENV, originalOverride);
+    restoreEnvironmentVariable(LEGACY_OPENSRC_BIN_ENV, originalLegacyOverride);
+    restoreEnvironmentVariable(OPENSRC_TEST_ENV, originalTestEnv);
+    restoreEnvironmentVariable(KLEIO_CODER_MARKER, originalKleioMarker);
+    restoreEnvironmentVariable(LEGACY_CODER_MARKER, originalLegacyMarker);
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -83,7 +120,7 @@ describe("createSourcePathTool", () => {
     process.env[OPENSRC_TEST_ENV] = "available";
     process.env[OPENSRC_BIN_ENV] = await writeFakeOpenSrc(
       tmpDir,
-      `if (process.env.${OPENSRC_TEST_ENV} !== "available") process.exit(2);\nconsole.log("/tmp/opensrc/env/1.0.0");\n`,
+      `if (process.env.${OPENSRC_TEST_ENV} !== "available" || process.env.${KLEIO_CODER_MARKER} !== "true" || process.env.${LEGACY_CODER_MARKER} !== "true") process.exit(2);\nconsole.log("/tmp/opensrc/env/1.0.0");\n`,
     );
     const tool = createSourcePathTool(tmpDir);
 

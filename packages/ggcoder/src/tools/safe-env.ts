@@ -42,7 +42,11 @@ const ENV_ALLOWLIST = new Set([
 ]);
 
 export function getSafeToolEnv(sourceEnv: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const env: Record<string, string> = { TERM: "dumb", GG_CODER: "true" };
+  const env: Record<string, string> = {
+    TERM: "dumb",
+    KLEIO_CODER: "true",
+    GG_CODER: "true",
+  };
   for (const key of ENV_ALLOWLIST) {
     const value = sourceEnv[key];
     if (value) env[key] = value;

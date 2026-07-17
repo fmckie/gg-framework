@@ -18,7 +18,7 @@ function handlers(calls: string[]): Record<CliSubcommandName, () => void> {
 
 describe("routeCliCommandInput", () => {
   it("prints top-level help before dispatching subcommands", () => {
-    const argv = ["node", "ggcoder", "login", "--help"];
+    const argv = ["node", "kleio-coder", "login", "--help"];
     const printHelp = vi.fn();
     const exit = vi.fn((code: number) => {
       throw new Error(`exit:${code}`);
@@ -32,8 +32,8 @@ describe("routeCliCommandInput", () => {
 
   it("dispatches subcommands and strips command tokens only for modes that parse their own flags", () => {
     const calls: string[] = [];
-    const sessionsArgv = ["node", "ggcoder", "sessions", "--foo"];
-    const loginArgv = ["node", "ggcoder", "login", "--foo"];
+    const sessionsArgv = ["node", "kleio-coder", "sessions", "--foo"];
+    const loginArgv = ["node", "kleio-coder", "login", "--foo"];
 
     expect(
       routeCliCommandInput({
@@ -43,7 +43,7 @@ describe("routeCliCommandInput", () => {
         handlers: handlers(calls),
       }),
     ).toEqual({ kind: "handled", subcommand: "sessions" });
-    expect(sessionsArgv).toEqual(["node", "ggcoder", "--foo"]);
+    expect(sessionsArgv).toEqual(["node", "kleio-coder", "--foo"]);
 
     expect(
       routeCliCommandInput({
@@ -53,12 +53,12 @@ describe("routeCliCommandInput", () => {
         handlers: handlers(calls),
       }),
     ).toEqual({ kind: "handled", subcommand: "login" });
-    expect(loginArgv).toEqual(["node", "ggcoder", "login", "--foo"]);
+    expect(loginArgv).toEqual(["node", "kleio-coder", "login", "--foo"]);
     expect(calls).toEqual(["sessions", "login"]);
   });
 
   it("converts continue into a later TUI resume route without handling it as a subcommand", () => {
-    const argv = ["node", "ggcoder", "continue", "--model", "x"];
+    const argv = ["node", "kleio-coder", "continue", "--model", "x"];
     const calls: string[] = [];
 
     expect(
@@ -69,7 +69,7 @@ describe("routeCliCommandInput", () => {
         handlers: handlers(calls),
       }),
     ).toEqual({ kind: "continue" });
-    expect(argv).toEqual(["node", "ggcoder", "--model", "x"]);
+    expect(argv).toEqual(["node", "kleio-coder", "--model", "x"]);
     expect(calls).toEqual([]);
   });
 });

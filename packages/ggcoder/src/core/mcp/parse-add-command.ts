@@ -11,7 +11,7 @@ export interface ParsedAddCommand {
 }
 
 const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
-const PREFIX_PATTERN = /^(claude|ggcoder)\s+mcp\s+add\s+/i;
+const PREFIX_PATTERN = /^(claude|kleio-coder|ggcoder)\s+mcp\s+add\s+/i;
 
 /**
  * Shell-style tokenizer: splits on whitespace but respects single/double
@@ -83,8 +83,9 @@ function mapScope(value: string): Result<MCPScope, string> {
 }
 
 /**
- * Parse a pasted `claude mcp add …` / `ggcoder mcp add …` line (or just the
- * args after `add`) into an MCPServerConfig + requested scope.
+ * Parse a pasted `claude mcp add …` / `kleio-coder mcp add …` /
+ * `ggcoder mcp add …` line (or just the args after `add`) into an
+ * MCPServerConfig + requested scope.
  *
  * Grammar matches Claude Code:
  *   add [--transport t] [--env K=V]… [--header "K: V"]… [--scope s] <name> -- <command> [args…]

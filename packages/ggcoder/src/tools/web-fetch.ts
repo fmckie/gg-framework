@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { AgentTool, ToolContext } from "@kleio/agent";
+import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { extractToMarkdown } from "./html-extract.js";
 import { extractPdfText, PdfExtractorUnavailable } from "./pdf-extract.js";
 
@@ -170,10 +171,23 @@ const MAX_URLS = 10;
 const MAX_CONCURRENCY = 5;
 const PER_URL_MIN_BUDGET = 1000;
 
-const FETCH_HEADERS: Record<string, string> = {
-  "User-Agent": "Mozilla/5.0 (compatible; GGCoder/1.0)",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-};
+const FETCH_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+
+/** Resolve the web-fetch identity without reading global process state. */
+export function resolveWebFetchUserAgent(
+  environment: Readonly<Record<string, string | undefined>>,
+): string {
+  return environment.KLEIO_CODER_HTTP_USER_AGENT ?? KLEIO_PRODUCT_PROFILE.coder.httpUserAgent;
+}
+
+function createFetchHeaders(
+  environment: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  return {
+    "User-Agent": resolveWebFetchUserAgent(environment),
+    Accept: FETCH_ACCEPT,
+  };
+}
 
 const DOC_PATH_PATTERNS = [/\/docs?\b/i, /\/reference\b/i, /\/api\b/i, /\/guide/i, /\/learn\b/i];
 const DOC_ROOT_SEGMENTS = new Set(["docs", "doc", "reference", "api", "guide", "learn"]);
@@ -219,7 +233,7 @@ async function fetchOne(url: string, signal: AbortSignal): Promise<FetchOneResul
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const response = await fetch(currentUrl, {
-      headers: FETCH_HEADERS,
+      headers: createFetchHeaders(process.env),
       redirect: "manual",
       signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
     });

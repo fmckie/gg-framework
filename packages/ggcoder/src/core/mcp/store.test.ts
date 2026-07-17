@@ -82,7 +82,8 @@ describe("mcp store", () => {
       },
       scope: "project",
     });
-    // Project file lives at ./.gg/mcp.json.
+    // Project state remains at ./.gg/mcp.json; this release performs no path migration.
+    expect(projectMcpPath(tmpProject)).toBe(path.join(tmpProject, ".gg", "mcp.json"));
     await fs.access(projectMcpPath(tmpProject));
   });
 

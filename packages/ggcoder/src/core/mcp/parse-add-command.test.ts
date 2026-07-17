@@ -41,6 +41,15 @@ describe("parseMcpAddCommand", () => {
     expect(r.ok && r.value.config.name).toBe("notion");
   });
 
+  it("strips a `kleio-coder mcp add` prefix", () => {
+    const r = parseMcpAddCommand("kleio-coder mcp add foo -- node server.js");
+    expect(r.ok && r.value.config).toEqual({
+      name: "foo",
+      command: "node",
+      args: ["server.js"],
+    });
+  });
+
   it("strips a `ggcoder mcp add` prefix", () => {
     const r = parseMcpAddCommand("ggcoder mcp add foo -- node server.js");
     expect(r.ok && r.value.config).toEqual({

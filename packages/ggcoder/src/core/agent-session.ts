@@ -36,6 +36,13 @@ import path from "node:path";
 
 // ── Options ────────────────────────────────────────────────
 
+/** Provider cache continuity contract retained for the Kleio prerelease line. */
+export const LEGACY_CODER_PROMPT_CACHE_PREFIX = "ggcoder";
+
+export function buildCoderPromptCacheKey(sessionId: string, prefix?: string): string {
+  return `${prefix ?? LEGACY_CODER_PROMPT_CACHE_PREFIX}:${sessionId}`;
+}
+
 export interface AgentSessionOptions {
   provider: Provider;
   model: string;
@@ -59,7 +66,7 @@ export interface AgentSessionOptions {
   /**
    * If true, this session does NOT create a `.jsonl` session file or persist
    * any messages. Used by subagent spawns (`--json` mode) so their transcripts
-   * don't leak into `ggcoder continue` for the parent project. Subagent runs
+   * don't leak into `kleio-coder continue` for the parent project. Subagent runs
    * are one-shot, NDJSON-streamed to the parent over stdout, and have no
    * resumable identity.
    */
@@ -206,7 +213,7 @@ export class AgentSession {
 
     // Load or create session. Transient sessions (subagent spawns) never
     // touch the session store — sessionPath stays empty and persistMessage
-    // is a no-op so their transcripts can't pollute `ggcoder continue`.
+    // is a no-op so their transcripts can't pollute `kleio-coder continue`.
     if (this.opts.transient) {
       this.lastPersistedIndex = this.messages.length;
     } else if (this.opts.sessionId) {
@@ -520,7 +527,7 @@ export class AgentSession {
 
     this.messages = result.messages;
 
-    // Persist compacted messages to a new session file so `ggcoder continue`
+    // Persist compacted messages to a new session file so `kleio-coder continue`
     // picks up the compacted state instead of the full original history.
     const session = await this.sessionManager.create(this.cwd, this.provider, this.model);
     this.sessionId = session.id;
@@ -634,7 +641,7 @@ export class AgentSession {
   private getPromptCacheKey(): string | undefined {
     if (this.opts.promptCacheKey) return this.opts.promptCacheKey;
     if (!this.sessionId) return undefined;
-    return `${this.opts.promptCacheKeyPrefix ?? "ggcoder"}:${this.sessionId}`;
+    return buildCoderPromptCacheKey(this.sessionId, this.opts.promptCacheKeyPrefix);
   }
 
   /** Stable cache-routing key for downstream sub-agent processes. */

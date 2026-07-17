@@ -10,6 +10,8 @@ import path from "node:path";
  */
 
 interface UpdateState {
+  packageName?: string;
+  distTag?: string;
   lastCheckedAt: number;
   latestVersion?: string;
   updatePending?: boolean;
@@ -31,6 +33,8 @@ interface InstallInfo {
 export interface AutoUpdateConfig {
   /** npm package to self-update, e.g. "@kleio/coder". */
   packageName: string;
+  /** npm dist-tag/release channel. Defaults to latest. */
+  distTag?: string;
   /**
    * Absolute path to this app's update-state.json, or a thunk resolving it.
    * A thunk keeps path resolution lazy so callers can derive it from
@@ -56,11 +60,55 @@ export interface AutoUpdater {
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const FETCH_TIMEOUT_MS = 10_000; // 10s — npm can be slow
 
+interface ParsedVersion {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
+}
+
+function parseVersion(version: string): ParsedVersion | null {
+  const match = version
+    .trim()
+    .match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/);
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4]?.split(".") ?? [],
+  };
+}
+
+function comparePrereleaseIdentifier(a: string, b: string): number {
+  const aNumeric = /^\d+$/.test(a);
+  const bNumeric = /^\d+$/.test(b);
+  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  return a.localeCompare(b);
+}
+
 function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+  const parsedA = parseVersion(a);
+  const parsedB = parseVersion(b);
+  if (!parsedA || !parsedB) return 0;
+
+  for (const key of ["major", "minor", "patch"] as const) {
+    const diff = parsedA[key] - parsedB[key];
+    if (diff !== 0) return diff;
+  }
+
+  if (parsedA.prerelease.length === 0 || parsedB.prerelease.length === 0) {
+    if (parsedA.prerelease.length === parsedB.prerelease.length) return 0;
+    return parsedA.prerelease.length === 0 ? 1 : -1;
+  }
+
+  const length = Math.max(parsedA.prerelease.length, parsedB.prerelease.length);
+  for (let index = 0; index < length; index++) {
+    const aPart = parsedA.prerelease[index];
+    const bPart = parsedB.prerelease[index];
+    if (aPart === undefined || bPart === undefined) return aPart === undefined ? -1 : 1;
+    const diff = comparePrereleaseIdentifier(aPart, bPart);
     if (diff !== 0) return diff;
   }
   return 0;
@@ -81,7 +129,8 @@ function performUpdateInBackground(command: string): void {
 }
 
 export function createAutoUpdater(config: AutoUpdateConfig): AutoUpdater {
-  const REGISTRY_URL = `https://registry.npmjs.org/${config.packageName}/latest`;
+  const distTag = config.distTag ?? "latest";
+  const REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(config.packageName)}/${encodeURIComponent(distTag)}`;
   const periodicMessage =
     config.periodicMessage ??
     (({ currentVersion, latestVersion, updateCommand }) =>
@@ -98,7 +147,9 @@ export function createAutoUpdater(config: AutoUpdateConfig): AutoUpdater {
   function readState(): UpdateState | null {
     try {
       const raw = fs.readFileSync(stateFilePath(), "utf-8");
-      return JSON.parse(raw) as UpdateState;
+      const state = JSON.parse(raw) as UpdateState;
+      if (state.packageName !== config.packageName || state.distTag !== distTag) return null;
+      return state;
     } catch {
       return null;
     }
@@ -108,7 +159,10 @@ export function createAutoUpdater(config: AutoUpdateConfig): AutoUpdater {
     try {
       const filePath = stateFilePath();
       fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(filePath, JSON.stringify(state));
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ ...state, packageName: config.packageName, distTag }),
+      );
     } catch {
       // Non-fatal
     }
@@ -126,7 +180,7 @@ export function createAutoUpdater(config: AutoUpdateConfig): AutoUpdater {
     if (scriptPath.includes("/.pnpm") || scriptPath.includes("/pnpm/global")) {
       return {
         packageManager: PackageManager.PNPM,
-        updateCommand: `pnpm add -g ${config.packageName}@latest`,
+        updateCommand: `pnpm add -g ${config.packageName}@${distTag}`,
       };
     }
 
@@ -134,14 +188,14 @@ export function createAutoUpdater(config: AutoUpdateConfig): AutoUpdater {
     if (scriptPath.includes("/.yarn/") || scriptPath.includes("/yarn/global")) {
       return {
         packageManager: PackageManager.YARN,
-        updateCommand: `yarn global add ${config.packageName}@latest`,
+        updateCommand: `yarn global add ${config.packageName}@${distTag}`,
       };
     }
 
     // npm global (default)
     return {
       packageManager: PackageManager.NPM,
-      updateCommand: `npm install -g ${config.packageName}@latest`,
+      updateCommand: `npm install -g ${config.packageName}@${distTag}`,
     };
   }
 
