@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, render, useApp, useInput, useStdout } from "ink";
-import { ThemeContext, loadTheme, useTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import { AnimationProvider } from "@kenkaiiii/ggcoder/ui";
-import { useDoublePress } from "@kenkaiiii/ggcoder/ui/hooks/double-press";
-import type { Provider } from "@kenkaiiii/gg-ai";
-import { getNextThinkingLevel } from "@kenkaiiii/gg-core";
-import { TerminalSizeProvider, useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
+import { ThemeContext, loadTheme, useTheme } from "@kleio/coder/ui/theme";
+import { AnimationProvider } from "@kleio/coder/ui";
+import { useDoublePress } from "@kleio/coder/ui/hooks/double-press";
+import type { Provider } from "@kleio/ai";
+import { getNextThinkingLevel } from "@kleio/core";
+import { TerminalSizeProvider, useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
 import { BossChatScreen } from "./boss-chat-screen.js";
 import { bossStore, getBossState, useBossState } from "./boss-store.js";
 import type { BossOverlay } from "./boss-store.js";
@@ -79,7 +79,7 @@ function BossAppInner({ boss, resetUI, terminalHistoryPrinter }: BossAppProps): 
   // Seeded from the radio module's module-level state — usually null on
   // launch but resilient to a hot-restart of the React tree.
   const [currentRadio, setCurrentRadio] = useState<string | null>(() => getCurrentStation());
-  // Auto-update indicator: true when a newer version of @kenkaiiii/gg-boss
+  // Auto-update indicator: true when a newer version of @kleio/manager
   // is on disk waiting for the next restart. Seeded synchronously from the
   // state file (so we show the indicator immediately if a previous session
   // queued one) and bumped to true by the periodic check below if a fresh

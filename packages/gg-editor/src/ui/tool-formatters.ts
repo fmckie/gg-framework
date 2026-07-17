@@ -23,7 +23,7 @@
  *     objects from `core/format.ts`) get key fields surfaced.
  */
 
-import type { ToolExecutionFormatters } from "@kenkaiiii/ggcoder/ui";
+import type { ToolExecutionFormatters } from "@kleio/coder/ui";
 
 // ── helpers ─────────────────────────────────────────────────
 

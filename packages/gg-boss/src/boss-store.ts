@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { ActivityPhase, RetryInfo } from "@kenkaiiii/ggcoder/ui";
+import type { ActivityPhase, RetryInfo } from "@kleio/coder/ui";
 import type {
   ContentPart,
   Message,
@@ -8,7 +8,7 @@ import type {
   ThinkingLevel,
   ToolCall,
   ToolResult,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import type { WorkerStatus, WorkerTurnSummary } from "./types.js";
 import type {
   BossAssistantItem,

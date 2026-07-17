@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { basename, extname, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err } from "../core/format.js";
 import { checkFfmpeg, probeMedia, runFfmpeg } from "../core/media/ffmpeg.js";
 import type { FfmpegResult, MediaProbe } from "../core/media/ffmpeg.js";

@@ -11,7 +11,7 @@
   <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
 </p>
 
-Built on the [GG Framework](../../README.md). Same agent loop ([`@kenkaiiii/gg-agent`](../gg-agent/README.md)) as ggcoder, completely different tool surface — no `bash`, no `read/write/edit`, no general-purpose coder behaviour. Just video.
+Built on the [GG Framework](../../README.md). Same agent loop ([`@kleio/agent`](../gg-agent/README.md)) as ggcoder, completely different tool surface — no `bash`, no `read/write/edit`, no general-purpose coder behaviour. Just video.
 
 ---
 

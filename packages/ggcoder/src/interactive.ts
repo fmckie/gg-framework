@@ -1,7 +1,7 @@
 import readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { agentLoop, type AgentEvent } from "@kenkaiiii/gg-agent";
-import type { Message } from "@kenkaiiii/gg-ai";
+import { agentLoop, type AgentEvent } from "@kleio/agent";
+import type { Message } from "@kleio/ai";
 import type { CliConfig } from "./types.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { createTools } from "./tools/index.js";

@@ -305,7 +305,7 @@ describe("terminal history", () => {
       [
         {
           kind: "assistant",
-          text: "Published @kenkaiiii/ggcoder at 4.3.215.",
+          text: "Published @kleio/coder at 4.3.215.",
           id: "assistant-before-notices",
         },
         {
@@ -319,7 +319,7 @@ describe("terminal history", () => {
         {
           kind: "update_notice",
           id: "update-notice",
-          text: "Ken just pushed a fresh update — 4.3.214 → 4.3.215! I'll grab it on next launch (or run npm install -g @kenkaiiii/ggcoder@latest if you can't wait).",
+          text: "Ken just pushed a fresh update — 4.3.214 → 4.3.215! I'll grab it on next launch (or run npm install -g @kleio/coder@latest if you can't wait).",
         },
       ],
       context,

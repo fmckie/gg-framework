@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
+import type { Message, Provider } from "@kleio/ai";
 import type { SessionManager, MessageEntry } from "./session-manager.js";
 
 export async function appendMessagesToSession(

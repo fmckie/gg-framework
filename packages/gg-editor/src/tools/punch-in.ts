@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err } from "../core/format.js";
 import { checkFfmpeg, probeMedia, runFfmpeg } from "../core/media/ffmpeg.js";
 import { buildPunchInFilter, punchInsAfterCuts, type PunchInRange } from "../core/punch-in.js";

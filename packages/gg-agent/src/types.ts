@@ -8,7 +8,7 @@ import type {
   ToolResultContent,
   Usage,
   StreamOptions,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 
 // ── Tool Results ────────────────────────────────────────────
 

@@ -97,7 +97,7 @@ const targeted = spawnSync(
   "pnpm",
   [
     "--filter",
-    "@kenkaiiii/ggcoder",
+    "@kleio/coder",
     "test",
     "--run",
     "src/core/goal-controller.test.ts",
@@ -119,10 +119,10 @@ const targeted = spawnSync(
 check(
   "targeted /goal behavior tests pass",
   targeted.status === 0,
-  `command: pnpm --filter @kenkaiiii/ggcoder test -- src/core/goal-controller.test.ts src/core/goal-prerequisites.test.ts src/core/goal-store.test.ts src/core/goal-worker.test.ts src/core/goal-verifier.test.ts src/tools/goals.test.ts src/tools/goal-mode.test.ts src/core/prompt-commands.test.ts src/system-prompt.test.ts src/core/goal-lifecycle-smoke.test.ts src/ui/goal-events.test.ts src/ui/goal-lifecycle-orchestration.test.ts --reporter=dot\nexit=${targeted.status}\n${(targeted.stdout + targeted.stderr).slice(-4000)}`,
+  `command: pnpm --filter @kleio/coder test -- src/core/goal-controller.test.ts src/core/goal-prerequisites.test.ts src/core/goal-store.test.ts src/core/goal-worker.test.ts src/core/goal-verifier.test.ts src/tools/goals.test.ts src/tools/goal-mode.test.ts src/core/prompt-commands.test.ts src/system-prompt.test.ts src/core/goal-lifecycle-smoke.test.ts src/ui/goal-events.test.ts src/ui/goal-lifecycle-orchestration.test.ts --reporter=dot\nexit=${targeted.status}\n${(targeted.stdout + targeted.stderr).slice(-4000)}`,
 );
 
-const typecheck = spawnSync("pnpm", ["--filter", "@kenkaiiii/ggcoder", "check"], {
+const typecheck = spawnSync("pnpm", ["--filter", "@kleio/coder", "check"], {
   encoding: "utf8",
   stdio: "pipe",
   timeout: 120_000,
@@ -130,7 +130,7 @@ const typecheck = spawnSync("pnpm", ["--filter", "@kenkaiiii/ggcoder", "check"],
 check(
   "package typecheck passes",
   typecheck.status === 0,
-  `command: pnpm --filter @kenkaiiii/ggcoder check\nexit=${typecheck.status}\n${(typecheck.stdout + typecheck.stderr).slice(-4000)}`,
+  `command: pnpm --filter @kleio/coder check\nexit=${typecheck.status}\n${(typecheck.stdout + typecheck.stderr).slice(-4000)}`,
 );
 
 let output = "Goal system audit verifier\n";

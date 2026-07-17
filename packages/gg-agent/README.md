@@ -1,24 +1,24 @@
-# @kenkaiiii/gg-agent
+# @kleio/agent
 
 <p align="center">
   <strong>Agent loop with multi-turn tool execution. Build agents that think, act, and loop.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/gg-agent"><img src="https://img.shields.io/npm/v/@kenkaiiii/gg-agent?style=for-the-badge" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/agent"><img src="https://img.shields.io/npm/v/@kleio/agent?style=for-the-badge" alt="npm version"></a>
   <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
 Give an LLM tools. It calls them. Results go back in. It loops until it's done. That's it.
 
-Built on top of [`@kenkaiiii/gg-ai`](../gg-ai/README.md). Part of the [GG Framework](../../README.md) monorepo.
+Built on top of [`@kleio/ai`](../gg-ai/README.md). Part of the [GG Framework](../../README.md) monorepo.
 
 ---
 
 ## Install
 
 ```bash
-npm i @kenkaiiii/gg-agent
+npm i @kleio/agent
 ```
 
 ---
@@ -30,7 +30,7 @@ Create an `Agent` with a provider, model, and tools. Call `agent.prompt()` to st
 - **`for await`** gives you streaming events (`text_delta`, `tool_call_start`, `tool_call_end`, `agent_done`, etc.)
 - **`await`** gives you the final result (`message`, `totalTurns`, `totalUsage`)
 
-Same dual-nature pattern as `@kenkaiiii/gg-ai`. The `Agent` class maintains conversation history — each `prompt()` call continues the conversation.
+Same dual-nature pattern as `@kleio/ai`. The `Agent` class maintains conversation history — each `prompt()` call continues the conversation.
 
 For full control, use `agentLoop()` directly — a pure async generator that takes a messages array and options.
 

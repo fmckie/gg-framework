@@ -1,4 +1,4 @@
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 import type { MCPServerConfig } from "./types.js";
 import { loadServers } from "./store.js";
 

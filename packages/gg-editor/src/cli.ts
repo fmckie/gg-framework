@@ -44,8 +44,8 @@ import { PerformanceObserver, performance } from "node:perf_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import chalk from "chalk";
-import { getDefaultModel } from "@kenkaiiii/ggcoder/models";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
+import { getDefaultModel } from "@kleio/coder/models";
+import type { Message, Provider } from "@kleio/ai";
 import {
   AuthStorage,
   NotLoggedInError,

@@ -1,6 +1,6 @@
 /**
  * gg-editor's auth surface. Single source of truth lives in
- * `@kenkaiiii/ggcoder/auth` \u2014 we re-export it here so editor code keeps a
+ * `@kleio/coder/auth` \u2014 we re-export it here so editor code keeps a
  * stable import path while the underlying OAuth flows, refresh logic, and
  * AuthStorage are exactly the ones ggcoder ships and exercises daily.
  *
@@ -19,8 +19,8 @@ export {
   loginOpenAI,
   refreshAnthropicToken,
   refreshOpenAIToken,
-} from "@kenkaiiii/ggcoder/auth";
-export type { OAuthCredentials, OAuthLoginCallbacks } from "@kenkaiiii/ggcoder/auth";
+} from "@kleio/coder/auth";
+export type { OAuthCredentials, OAuthLoginCallbacks } from "@kleio/coder/auth";
 
 export { runLogin, runLogout, runStatus } from "./login.js";
 export { STATIC_KEY_PROVIDERS, OAUTH_PROVIDERS } from "./types.js";

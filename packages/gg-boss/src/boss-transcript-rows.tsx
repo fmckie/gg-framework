@@ -10,13 +10,13 @@ import {
   ToolGroupExecution,
   ToolUseLoader,
   UserMessage,
-} from "@kenkaiiii/ggcoder/ui";
-import { TranscriptItemFrame } from "@kenkaiiii/ggcoder/ui/transcript/frame";
+} from "@kleio/coder/ui";
+import { TranscriptItemFrame } from "@kleio/coder/ui/transcript/frame";
 import {
   getTranscriptItemMarginTop,
   shouldTopSpaceStreamingAssistant,
-} from "@kenkaiiii/ggcoder/ui/transcript/spacing";
-import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
+} from "@kleio/coder/ui/transcript/spacing";
+import { useTheme } from "@kleio/coder/ui/theme";
 import { BossBanner } from "./banner.js";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";
 import type {

@@ -3,10 +3,10 @@
 // fight with ggcoder's checker, and supplies the ggboss restart wording.
 import path from "node:path";
 import os from "node:os";
-import { createAutoUpdater } from "@kenkaiiii/gg-core";
+import { createAutoUpdater } from "@kleio/core";
 
 const updater = createAutoUpdater({
-  packageName: "@kenkaiiii/gg-boss",
+  packageName: "@kleio/manager",
   stateFilePath: () => path.join(os.homedir(), ".gg", "boss", "update-state.json"),
   periodicMessage: ({ currentVersion, latestVersion, updateCommand }) =>
     `Ken just pushed a fresh update — ${currentVersion} → ${latestVersion}! Restart ggboss to grab it (or run ${updateCommand} if you can't wait).`,

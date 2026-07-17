@@ -1,4 +1,4 @@
-import { stream, type Message, type Provider, type TextContent } from "@kenkaiiii/gg-ai";
+import { stream, type Message, type Provider, type TextContent } from "@kleio/ai";
 
 const TITLE_PROMPT = `Generate an extremely short title (3-7 words) summarizing what the user is asking for. Just the title, nothing else. No quotes, no punctuation at the end.`;
 

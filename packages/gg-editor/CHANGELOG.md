@@ -5,171 +5,171 @@
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.10.1
-  - @kenkaiiii/gg-ai@4.10.1
-  - @kenkaiiii/gg-agent@4.10.1
+  - @kleio/coder@4.10.1
+  - @kleio/ai@4.10.1
+  - @kleio/agent@4.10.1
 
 ## 0.7.26
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.10.0
-  - @kenkaiiii/gg-agent@4.10.0
-  - @kenkaiiii/ggcoder@4.10.0
+  - @kleio/ai@4.10.0
+  - @kleio/agent@4.10.0
+  - @kleio/coder@4.10.0
 
 ## 0.7.25
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.9.1
-  - @kenkaiiii/gg-ai@4.9.1
-  - @kenkaiiii/gg-agent@4.9.1
+  - @kleio/coder@4.9.1
+  - @kleio/ai@4.9.1
+  - @kleio/agent@4.9.1
 
 ## 0.7.24
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.9.0
-  - @kenkaiiii/gg-ai@4.9.0
-  - @kenkaiiii/gg-agent@4.9.0
+  - @kleio/coder@4.9.0
+  - @kleio/ai@4.9.0
+  - @kleio/agent@4.9.0
 
 ## 0.7.23
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.7
-  - @kenkaiiii/gg-ai@4.8.7
-  - @kenkaiiii/gg-agent@4.8.7
+  - @kleio/coder@4.8.7
+  - @kleio/ai@4.8.7
+  - @kleio/agent@4.8.7
 
 ## 0.7.22
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.6
-  - @kenkaiiii/gg-ai@4.8.6
-  - @kenkaiiii/gg-agent@4.8.6
+  - @kleio/coder@4.8.6
+  - @kleio/ai@4.8.6
+  - @kleio/agent@4.8.6
 
 ## 0.7.21
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.5
-  - @kenkaiiii/gg-ai@4.8.5
-  - @kenkaiiii/gg-agent@4.8.5
+  - @kleio/coder@4.8.5
+  - @kleio/ai@4.8.5
+  - @kleio/agent@4.8.5
 
 ## 0.7.20
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.4
-  - @kenkaiiii/gg-ai@4.8.4
-  - @kenkaiiii/gg-agent@4.8.4
+  - @kleio/coder@4.8.4
+  - @kleio/ai@4.8.4
+  - @kleio/agent@4.8.4
 
 ## 0.7.19
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.3
-  - @kenkaiiii/gg-ai@4.8.3
-  - @kenkaiiii/gg-agent@4.8.3
+  - @kleio/coder@4.8.3
+  - @kleio/ai@4.8.3
+  - @kleio/agent@4.8.3
 
 ## 0.7.18
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.2
-  - @kenkaiiii/gg-ai@4.8.2
-  - @kenkaiiii/gg-agent@4.8.2
+  - @kleio/coder@4.8.2
+  - @kleio/ai@4.8.2
+  - @kleio/agent@4.8.2
 
 ## 0.7.17
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.8.1
-  - @kenkaiiii/gg-ai@4.8.1
-  - @kenkaiiii/gg-agent@4.8.1
+  - @kleio/coder@4.8.1
+  - @kleio/ai@4.8.1
+  - @kleio/agent@4.8.1
 
 ## 0.7.16
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.8.0
-  - @kenkaiiii/gg-agent@4.8.0
-  - @kenkaiiii/ggcoder@4.8.0
+  - @kleio/ai@4.8.0
+  - @kleio/agent@4.8.0
+  - @kleio/coder@4.8.0
 
 ## 0.7.15
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.7.0
-  - @kenkaiiii/gg-ai@4.7.0
-  - @kenkaiiii/gg-agent@4.7.0
+  - @kleio/coder@4.7.0
+  - @kleio/ai@4.7.0
+  - @kleio/agent@4.7.0
 
 ## 0.7.14
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.3
-  - @kenkaiiii/gg-agent@4.6.3
-  - @kenkaiiii/ggcoder@4.6.3
+  - @kleio/ai@4.6.3
+  - @kleio/agent@4.6.3
+  - @kleio/coder@4.6.3
 
 ## 0.7.13
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.2
-  - @kenkaiiii/gg-agent@4.6.2
-  - @kenkaiiii/ggcoder@4.6.2
+  - @kleio/ai@4.6.2
+  - @kleio/agent@4.6.2
+  - @kleio/coder@4.6.2
 
 ## 0.7.12
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.1
-  - @kenkaiiii/gg-agent@4.6.1
-  - @kenkaiiii/ggcoder@4.6.1
+  - @kleio/ai@4.6.1
+  - @kleio/agent@4.6.1
+  - @kleio/coder@4.6.1
 
 ## 0.7.11
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.0
-  - @kenkaiiii/ggcoder@4.6.0
-  - @kenkaiiii/gg-agent@4.6.0
+  - @kleio/ai@4.6.0
+  - @kleio/coder@4.6.0
+  - @kleio/agent@4.6.0
 
 ## 0.7.10
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/ggcoder@4.5.0
-  - @kenkaiiii/gg-ai@4.5.0
-  - @kenkaiiii/gg-agent@4.5.0
+  - @kleio/coder@4.5.0
+  - @kleio/ai@4.5.0
+  - @kleio/agent@4.5.0
 
 ## 0.7.9
 
 ### Patch Changes
 
 - Updated dependencies [9e381ad]
-  - @kenkaiiii/gg-ai@4.4.0
-  - @kenkaiiii/ggcoder@4.4.0
-  - @kenkaiiii/gg-agent@4.4.0
+  - @kleio/ai@4.4.0
+  - @kleio/coder@4.4.0
+  - @kleio/agent@4.4.0
 
 All notable changes to `@kenkaiiii/gg-editor` are tracked here.
 

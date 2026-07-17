@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { useSyncExternalStore } from "react";
-import { getAppPaths } from "@kenkaiiii/ggcoder";
+import { getAppPaths } from "@kleio/coder";
 
 export type TaskStatus = "pending" | "in_progress" | "done" | "blocked" | "skipped";
 

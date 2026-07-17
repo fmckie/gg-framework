@@ -1,9 +1,9 @@
 import { renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import { AnimationProvider } from "@kenkaiiii/ggcoder/ui";
-import { ThemeContext, loadTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import { TerminalSizeProvider } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
-import { stripAnsi } from "@kenkaiiii/ggcoder/ui/terminal-history-format";
+import { AnimationProvider } from "@kleio/coder/ui";
+import { ThemeContext, loadTheme } from "@kleio/coder/ui/theme";
+import { TerminalSizeProvider } from "@kleio/coder/ui/hooks/terminal-size";
+import { stripAnsi } from "@kleio/coder/ui/terminal-history-format";
 import { serializeBossItemToTerminalHistory } from "./boss-terminal-history.js";
 import { BossTranscriptRow } from "./boss-transcript-rows.js";
 import type { BossDisplayItem } from "./boss-ui-items.js";

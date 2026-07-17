@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact } from "../core/format.js";
 import type { VideoHost } from "../core/hosts/types.js";
 import { measureLoudness, PLATFORM_TARGETS } from "../core/loudness.js";

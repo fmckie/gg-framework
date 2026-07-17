@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 import { getModel } from "../core/model-registry.js";
 import type { CompletedItem } from "./App.js";
 import { HOOK_TONE_COLOR, isPanelReplacedToolItem, type HookTone } from "./app-items.js";

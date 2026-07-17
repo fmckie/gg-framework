@@ -1,13 +1,13 @@
-# @kenkaiiii/ggcoder
+# @kleio/coder
 
 ## 4.10.1
 
 ### Patch Changes
 
 - Fix `ggcoder continue` resuming the newest-created session instead of the one you last spoke in (now sorts by last-message activity), and fix inline-image scrollback corruption (base64 spew, duplicated lines, and misaligned images) by bailing the shrink-backfill text repaint when the transcript contains an image.
-  - @kenkaiiii/gg-ai@4.10.1
-  - @kenkaiiii/gg-agent@4.10.1
-  - @kenkaiiii/gg-core@4.10.1
+  - @kleio/ai@4.10.1
+  - @kleio/agent@4.10.1
+  - @kleio/core@4.10.1
 
 ## 4.10.0
 
@@ -20,9 +20,9 @@
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.10.0
-  - @kenkaiiii/gg-agent@4.10.0
-  - @kenkaiiii/gg-core@4.10.0
+  - @kleio/ai@4.10.0
+  - @kleio/agent@4.10.0
+  - @kleio/core@4.10.0
 
 ## 4.9.1
 
@@ -34,9 +34,9 @@
   bottom-anchored the content — leaving a block of empty rows above it until the
   rows flushed to history. The estimate is now biased low; Ink's
   clipFrameToTerminalHeight remains the authoritative overflow backstop.
-  - @kenkaiiii/gg-ai@4.9.1
-  - @kenkaiiii/gg-agent@4.9.1
-  - @kenkaiiii/gg-core@4.9.1
+  - @kleio/ai@4.9.1
+  - @kleio/agent@4.9.1
+  - @kleio/core@4.9.1
 
 ## 4.9.0
 
@@ -53,81 +53,81 @@ L42:7 Type 'string' is not assignable …`) so the model self-corrects type erro
 
 ### Patch Changes
 
-- @kenkaiiii/gg-ai@4.9.0
-- @kenkaiiii/gg-agent@4.9.0
-- @kenkaiiii/gg-core@4.9.0
+- @kleio/ai@4.9.0
+- @kleio/agent@4.9.0
+- @kleio/core@4.9.0
 
 ## 4.8.7
 
 ### Patch Changes
 
 - Fix the intermittent blank-row block appearing right before the agent's final response: the patched ink's bottom-anchor pad debt left over from a run-end frame shrink is now reclaimed when the anchor deactivates (ink fork 6.8.0-gg.2). Also: oversized flushed assistant prefixes leave live state immediately, and null-rendering items no longer inflate the live-area clamp estimate.
-  - @kenkaiiii/gg-ai@4.8.7
-  - @kenkaiiii/gg-agent@4.8.7
-  - @kenkaiiii/gg-core@4.8.7
+  - @kleio/ai@4.8.7
+  - @kleio/agent@4.8.7
+  - @kleio/core@4.8.7
 
 ## 4.8.6
 
 ### Patch Changes
 
 - Fix message vanish on slash-command submit: queueFlush now mirrors flushed rows into sessionStore.history synchronously so the patched ink's bottom-pinned repaint (menu close, resize) redraws from a current transcript. Also track /theme switches live so closure-level repaint serializers always use the active theme, not the startup theme.
-  - @kenkaiiii/gg-ai@4.8.6
-  - @kenkaiiii/gg-agent@4.8.6
-  - @kenkaiiii/gg-core@4.8.6
+  - @kleio/ai@4.8.6
+  - @kleio/agent@4.8.6
+  - @kleio/core@4.8.6
 
 ## 4.8.5
 
 ### Patch Changes
 
 - Ship the patched Ink rendering engine to npm installs. The TUI's footer-anchor and scrollback fixes live in a patched ink build that pnpm's patchedDependencies only applied inside the workspace — npm users silently got vanilla ink. ggcoder's ink dependency is now an npm alias to the published @kenkaiiii/ink fork, so every install (npm, pnpm, yarn, bun) gets the fixed renderer with no install scripts.
-  - @kenkaiiii/gg-ai@4.8.5
-  - @kenkaiiii/gg-agent@4.8.5
-  - @kenkaiiii/gg-core@4.8.5
+  - @kleio/ai@4.8.5
+  - @kleio/agent@4.8.5
+  - @kleio/core@4.8.5
 
 ## 4.8.4
 
 ### Patch Changes
 
 - Fix footer jumps and scrollback whitespace/duplication in the scrollback-mode TUI. The patched Ink now folds transcript flushes atomically into frame writes (insertBeforeFrame), anchors the frame bottom with reclaimable pad debt while the agent runs, clips frames to terminal height, and repaints in place (cursor home + eraseDown) for bottom-pinned idle height changes like the slash-command menu — so the footer stays pinned, responses have no phantom gaps, and scrollback receives no duplicate banner/prompt copies.
-  - @kenkaiiii/gg-ai@4.8.4
-  - @kenkaiiii/gg-agent@4.8.4
-  - @kenkaiiii/gg-core@4.8.4
+  - @kleio/ai@4.8.4
+  - @kleio/agent@4.8.4
+  - @kleio/core@4.8.4
 
 ## 4.8.3
 
 ### Patch Changes
 
 - Fix oversized pinned assistant items being cut off in the live area: flush tall finalized items (cumulative over the pinned set) to scrollback, and keep the height-clamp slice from starting on a blank line so the ⏺ prefix stays aligned.
-  - @kenkaiiii/gg-ai@4.8.3
-  - @kenkaiiii/gg-agent@4.8.3
-  - @kenkaiiii/gg-core@4.8.3
+  - @kleio/ai@4.8.3
+  - @kleio/agent@4.8.3
+  - @kleio/core@4.8.3
 
 ## 4.8.2
 
 ### Patch Changes
 
 - Fix TUI scrollback corruption from streaming markdown tables and inline images: table-aware live-region row estimation, pending-table height clamping and partial-row hold-back in the markdown renderer, and fixed-height inline image blocks so Ink's live-frame erase math stays in sync (no more orphaned ⏺ rows).
-  - @kenkaiiii/gg-ai@4.8.2
-  - @kenkaiiii/gg-agent@4.8.2
-  - @kenkaiiii/gg-core@4.8.2
+  - @kleio/ai@4.8.2
+  - @kleio/agent@4.8.2
+  - @kleio/core@4.8.2
 
 ## 4.8.1
 
 ### Patch Changes
 
 - Fix ENOSPC crash when session transcript writes fail (disk full) — persistence now fails soft with a one-time warning instead of killing the live session. Add automatic session transcript pruning via new `sessionRetentionDays` setting (default 30 days, 0 disables).
-  - @kenkaiiii/gg-ai@4.8.1
-  - @kenkaiiii/gg-agent@4.8.1
-  - @kenkaiiii/gg-core@4.8.1
+  - @kleio/ai@4.8.1
+  - @kleio/agent@4.8.1
+  - @kleio/core@4.8.1
 
 ## 4.8.0
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.8.0
-  - @kenkaiiii/gg-core@4.8.0
-  - @kenkaiiii/gg-agent@4.8.0
+  - @kleio/ai@4.8.0
+  - @kleio/core@4.8.0
+  - @kleio/agent@4.8.0
 
 ## 4.7.0
 
@@ -137,18 +137,18 @@ L42:7 Type 'string' is not assignable …`) so the model self-corrects type erro
 
 ### Patch Changes
 
-- @kenkaiiii/gg-ai@4.7.0
-- @kenkaiiii/gg-agent@4.7.0
-- @kenkaiiii/gg-core@4.7.0
+- @kleio/ai@4.7.0
+- @kleio/agent@4.7.0
+- @kleio/core@4.7.0
 
 ## 4.6.3
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.3
-  - @kenkaiiii/gg-agent@4.6.3
-  - @kenkaiiii/gg-core@4.6.3
+  - @kleio/ai@4.6.3
+  - @kleio/agent@4.6.3
+  - @kleio/core@4.6.3
 
 ## 4.6.2
 
@@ -156,18 +156,18 @@ L42:7 Type 'string' is not assignable …`) so the model self-corrects type erro
 
 - Fix OpenAI OAuth account switching by adding prompt=login to authorize URL. Previously, re-running `ggcoder login` with OpenAI would silently re-approve the cached browser session, preventing users from switching accounts.
 - Updated dependencies
-  - @kenkaiiii/gg-core@4.6.2
-  - @kenkaiiii/gg-ai@4.6.2
-  - @kenkaiiii/gg-agent@4.6.2
+  - @kleio/core@4.6.2
+  - @kleio/ai@4.6.2
+  - @kleio/agent@4.6.2
 
 ## 4.6.1
 
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.1
-  - @kenkaiiii/gg-agent@4.6.1
-  - @kenkaiiii/gg-core@4.6.1
+  - @kleio/ai@4.6.1
+  - @kleio/agent@4.6.1
+  - @kleio/core@4.6.1
 
 ## 4.6.0
 
@@ -185,9 +185,9 @@ L42:7 Type 'string' is not assignable …`) so the model self-corrects type erro
 ### Patch Changes
 
 - Updated dependencies
-  - @kenkaiiii/gg-ai@4.6.0
-  - @kenkaiiii/gg-agent@4.6.0
-  - @kenkaiiii/gg-core@4.6.0
+  - @kleio/ai@4.6.0
+  - @kleio/agent@4.6.0
+  - @kleio/core@4.6.0
 
 ## 4.5.0
 
@@ -197,15 +197,15 @@ L42:7 Type 'string' is not assignable …`) so the model self-corrects type erro
 
 ### Patch Changes
 
-- @kenkaiiii/gg-ai@4.5.0
-- @kenkaiiii/gg-agent@4.5.0
-- @kenkaiiii/gg-core@4.5.0
+- @kleio/ai@4.5.0
+- @kleio/agent@4.5.0
+- @kleio/core@4.5.0
 
 ## 4.4.0
 
 ### Patch Changes
 
 - Updated dependencies [9e381ad]
-  - @kenkaiiii/gg-core@4.4.0
-  - @kenkaiiii/gg-ai@4.4.0
-  - @kenkaiiii/gg-agent@4.4.0
+  - @kleio/core@4.4.0
+  - @kleio/ai@4.4.0
+  - @kleio/agent@4.4.0

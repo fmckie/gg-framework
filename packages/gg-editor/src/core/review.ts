@@ -1,5 +1,5 @@
-import { Agent, type AgentTool } from "@kenkaiiii/gg-agent";
-import type { Usage } from "@kenkaiiii/gg-ai";
+import { Agent, type AgentTool } from "@kleio/agent";
+import type { Usage } from "@kleio/ai";
 import type { VideoHost } from "./hosts/types.js";
 import {
   createGetMarkersTool,

@@ -6,14 +6,14 @@ A modular TypeScript framework for building LLM-powered apps — from raw stream
 
 | Package | npm Name | Description |
 |---|---|---|
-| `packages/gg-ai` | `@kenkaiiii/gg-ai` | Unified LLM streaming API |
-| `packages/gg-agent` | `@kenkaiiii/gg-agent` | Agent loop with tool execution |
-| `packages/gg-core` | `@kenkaiiii/gg-core` | Provider-agnostic, UI-free shared foundation: model registry, thinking levels, app paths, OAuth + auth storage, file-writer logger core, telegram + voice transcription, self-updater |
-| `packages/ggcoder` | `@kenkaiiii/ggcoder` | CLI coding agent |
+| `packages/gg-ai` | `@kleio/ai` | Unified LLM streaming API |
+| `packages/gg-agent` | `@kleio/agent` | Agent loop with tool execution |
+| `packages/gg-core` | `@kleio/core` | Provider-agnostic, UI-free shared foundation: model registry, thinking levels, app paths, OAuth + auth storage, file-writer logger core, telegram + voice transcription, self-updater |
+| `packages/ggcoder` | `@kleio/coder` | CLI coding agent |
 | `packages/gg-pixel` | `@kenkaiiii/gg-pixel` | Universal error tracking SDK (Node + Browser + Deno + Workers) |
 | `packages/gg-pixel-server` | (private — Cloudflare Worker) | Ingest backend (Workers + D1) |
 
-**Install**: `npm i -g @kenkaiiii/ggcoder`
+**Install**: `npm i -g @kleio/coder`
 
 ## Models & Multimodal
 
@@ -32,7 +32,7 @@ ffmpeg/its tools (mirrors the GLM image fallback). The `supportsVideo` capabilit
 
 ```
 packages/
-  ├── gg-ai/                 # @kenkaiiii/gg-ai — Unified LLM streaming API
+  ├── gg-ai/                 # @kleio/ai — Unified LLM streaming API
   │   └── src/
   │       ├── types.ts       # Core types (StreamOptions, ContentBlock, events)
   │       ├── errors.ts      # GGAIError, ProviderError
@@ -40,13 +40,13 @@ packages/
   │       ├── providers/     # Anthropic, OpenAI streaming implementations
   │       └── utils/         # EventStream, Zod-to-JSON-Schema
   │
-  ├── gg-agent/              # @kenkaiiii/gg-agent — Agent loop with tool execution
+  ├── gg-agent/              # @kleio/agent — Agent loop with tool execution
   │   └── src/
   │       ├── types.ts       # AgentTool, AgentEvent, AgentOptions
   │       ├── agent.ts       # Agent class + AgentStream
   │       └── agent-loop.ts  # Pure async generator loop
   │
-  └── ggcoder/               # @kenkaiiii/ggcoder — CLI (ggcoder)
+  └── ggcoder/               # @kleio/coder — CLI (ggcoder)
       └── src/
           ├── cli.ts         # CLI entry point
           ├── config.ts      # Configuration constants
@@ -72,9 +72,9 @@ packages/
 gg-ai → gg-agent → gg-core → { ggcoder, gg-boss, gg-editor, gg-voice }
 ```
 
-- `@kenkaiiii/gg-ai` — standalone unified streaming API. Owns raw provider wording (`formatError`, `isHardBillingMessage`, `classifyProviderError`).
-- `@kenkaiiii/gg-agent` — agent loop; depends on gg-ai.
-- `@kenkaiiii/gg-core` — provider-agnostic, **UI-free** shared foundation; depends only on gg-ai (for `Provider` / `ThinkingLevel` types). Must NOT import gg-agent or React/Ink — it sits below every app. (The logger's `attachToEventBus` bridge, which needs the gg-agent `EventBus` type, stays in the apps; only the pure file-writer logger core lives in gg-core.)
+- `@kleio/ai` — standalone unified streaming API. Owns raw provider wording (`formatError`, `isHardBillingMessage`, `classifyProviderError`).
+- `@kleio/agent` — agent loop; depends on gg-ai.
+- `@kleio/core` — provider-agnostic, **UI-free** shared foundation; depends only on gg-ai (for `Provider` / `ThinkingLevel` types). Must NOT import gg-agent or React/Ink — it sits below every app. (The logger's `attachToEventBus` bridge, which needs the gg-agent `EventBus` type, stays in the apps; only the pure file-writer logger core lives in gg-core.)
 - Apps (ggcoder, gg-boss, gg-editor, gg-voice) keep only **UI + orchestration** and depend on gg-core.
 
 ### One home for provider-coupled code
@@ -84,7 +84,7 @@ levels, app paths, auth/OAuth — has exactly **one home in gg-core**. Raw provi
 error *wording* lives in **gg-ai** (`classifyProviderError`, `isHardBillingMessage`).
 Fix a model entry or an error string once and ggcoder, gg-boss, gg-editor, and
 gg-voice all inherit it on their next build. Do not re-add per-app copies; import
-from `@kenkaiiii/gg-core` (or `@kenkaiiii/gg-ai`) instead.
+from `@kleio/core` (or `@kleio/ai`) instead.
 
 ## Tech Stack
 
@@ -105,9 +105,9 @@ pnpm build                          # tsc across all packages
 pnpm check                          # tsc --noEmit across all packages
 
 # Per-package
-pnpm --filter @kenkaiiii/gg-ai build
-pnpm --filter @kenkaiiii/gg-agent build
-pnpm --filter @kenkaiiii/ggcoder build
+pnpm --filter @kleio/ai build
+pnpm --filter @kleio/agent build
+pnpm --filter @kleio/coder build
 ```
 
 ## Publishing to npm (Changesets)
@@ -115,8 +115,8 @@ pnpm --filter @kenkaiiii/ggcoder build
 Versioning + publishing is managed by [Changesets](https://github.com/changesets/changesets).
 Manual multi-package version bumping is gone — do **not** hand-edit `version` fields.
 
-The framework spine — `@kenkaiiii/gg-ai`, `@kenkaiiii/gg-agent`, `@kenkaiiii/gg-core`,
-`@kenkaiiii/ggcoder`, `@kenkaiiii/gg-boss` — is a **fixed group** in
+The framework spine — `@kleio/ai`, `@kleio/agent`, `@kleio/core`,
+`@kleio/coder`, `@kleio/manager` — is a **fixed group** in
 `.changeset/config.json`: a changeset touching any one bumps them all to the same
 version together (this is what kept drifting before). Dependents like gg-editor /
 gg-voice get an automatic patch bump.
@@ -141,8 +141,8 @@ pnpm changeset publish    # publishes in topological order (uses pnpm under the 
 ### Verify
 
 ```bash
-npm view @kenkaiiii/ggcoder versions --json   # check published versions
-npm i -g @kenkaiiii/ggcoder@<version>         # test install
+npm view @kleio/coder versions --json   # check published versions
+npm i -g @kleio/coder@<version>         # test install
 ggcoder --help                                # verify CLI works
 ```
 
@@ -151,11 +151,11 @@ If `npm i` gets ETARGET after publishing, clear cache: `npm cache clean --force`
 ## Organization Rules
 
 - Types → `types.ts` in each package
-- Providers → `providers/` directory in @kenkaiiii/gg-ai
-- Tools → `tools/` directory in @kenkaiiii/ggcoder, one file per tool
+- Providers → `providers/` directory in @kleio/ai
+- Tools → `tools/` directory in @kleio/coder, one file per tool
 - UI components → `ui/components/`, one component per file
-- OAuth flows, auth storage, model registry, app paths, logger core → `@kenkaiiii/gg-core` (`packages/gg-core/src/`), one file per provider under `oauth/`. ggcoder keeps thin re-export shims at `core/oauth/*`, `core/auth-storage.ts`, etc. so existing relative imports + subpath exports (`@kenkaiiii/ggcoder/auth`, `/models`) keep resolving.
-- Provider error classification → `@kenkaiiii/gg-ai` (`classifyProviderError` in `error-classification.ts`).
+- OAuth flows, auth storage, model registry, app paths, logger core → `@kleio/core` (`packages/gg-core/src/`), one file per provider under `oauth/`. ggcoder keeps thin re-export shims at `core/oauth/*`, `core/auth-storage.ts`, etc. so existing relative imports + subpath exports (`@kleio/coder/auth`, `/models`) keep resolving.
+- Provider error classification → `@kleio/ai` (`classifyProviderError` in `error-classification.ts`).
 - Tests → co-located with source files
 
 ## Code Quality
@@ -178,7 +178,7 @@ Fix errors from checks you do run before continuing. Quick fixes:
 ## Key Patterns
 
 - **StreamResult/AgentStream**: dual-nature objects — async iterable (`for await`) + thenable (`await`)
-- **EventStream**: push-based async iterable in `@kenkaiiii/gg-ai/utils/event-stream.ts`
+- **EventStream**: push-based async iterable in `@kleio/ai/utils/event-stream.ts`
 - **agentLoop**: pure async generator — call LLM, yield deltas, execute tools, loop on tool_use
 - **OAuth-only auth**: no API keys, PKCE OAuth flows, tokens in `~/.gg/auth.json`
 - **Zod schemas**: tool parameters defined with Zod, converted to JSON Schema at provider boundary

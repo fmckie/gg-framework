@@ -28,7 +28,7 @@
  *  - Already-truncated results (idempotent — detected via marker).
  */
 
-import type { Message, ToolResultContent } from "@kenkaiiii/gg-ai";
+import type { Message, ToolResultContent } from "@kleio/ai";
 
 /**
  * Per-result character cap. Matches LobeHub's default. Long enough to keep

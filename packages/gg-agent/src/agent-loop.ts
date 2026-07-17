@@ -10,7 +10,7 @@ import {
   type ContentPart,
   type AssistantMessage,
   isHardBillingMessage,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import type {
   AgentEvent,
   AgentOptions,
@@ -147,7 +147,7 @@ export function isBillingError(err: unknown): boolean {
   // provider set (DeepSeek, OpenRouter, ...). Never retriable.
   const statusCode = (err as Error & { statusCode?: unknown }).statusCode;
   if (statusCode === 402) return true;
-  // Shared marker list (single source of truth in @kenkaiiii/gg-ai) so the
+  // Shared marker list (single source of truth in @kleio/ai) so the
   // provider boundary and this classifier can't drift apart.
   return isHardBillingMessage(err.message);
 }

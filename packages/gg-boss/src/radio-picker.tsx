@@ -1,5 +1,5 @@
 import React from "react";
-import { SelectList } from "@kenkaiiii/ggcoder/ui";
+import { SelectList } from "@kleio/coder/ui";
 import { RADIO_STATIONS } from "./radio.js";
 
 interface RadioPickerProps {

@@ -1,10 +1,10 @@
-import { AgentSession } from "@kenkaiiii/ggcoder";
+import { AgentSession } from "@kleio/coder";
 import {
   classifyProviderError,
   type Message,
   type Provider,
   type ThinkingLevel,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import type { EventQueue } from "./event-queue.js";
 import type { ToolUseSummary, WorkerStatus, WorkerTurnSummary } from "./types.js";
 import { bossStore } from "./boss-store.js";
@@ -19,7 +19,7 @@ import { log } from "./logger.js";
  * process.
  */
 /**
- * Provider-error classification moved to @kenkaiiii/gg-ai
+ * Provider-error classification moved to @kleio/ai
  * (`classifyProviderError`) so provider-wording changes are a one-file edit
  * next to `formatError` / `isHardBillingMessage`. Re-exported under the
  * historical name so existing callers and tests in gg-boss are unchanged.

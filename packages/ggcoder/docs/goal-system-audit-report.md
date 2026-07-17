@@ -71,7 +71,7 @@ Final report worker command:
 pnpm dlx tsx packages/ggcoder/scripts/verify-goal-system-audit.ts
 ```
 
-The verifier internally runs the targeted Goal behavior tests and package check described by the harness, including controller/tool/prompt/system-prompt/lifecycle orchestration coverage and `pnpm --filter @kenkaiiii/ggcoder check`.
+The verifier internally runs the targeted Goal behavior tests and package check described by the harness, including controller/tool/prompt/system-prompt/lifecycle orchestration coverage and `pnpm --filter @kleio/coder check`.
 
 ## Verifier results
 
@@ -123,7 +123,7 @@ Verification run for this fix pass:
 pnpm --dir packages/ggcoder exec vitest run src/ui/prompt-routing.test.ts src/ui/slash-command-images.test.ts src/core/goal-worker.test.ts src/system-prompt.test.ts
 ```
 
-Result: **PASS** — 4 files, 42 tests passed. Note: an earlier `pnpm --filter @kenkaiiii/ggcoder test -- ...` invocation unexpectedly ran broad suites and failed on missing workspace build outputs for `@kenkaiiii/gg-ai`, `@kenkaiiii/gg-agent`, and `@kenkaiiii/gg-pixel`; the focused verifier above avoids that unrelated package-entry failure and directly covers this fix diff.
+Result: **PASS** — 4 files, 42 tests passed. Note: an earlier `pnpm --filter @kleio/coder test -- ...` invocation unexpectedly ran broad suites and failed on missing workspace build outputs for `@kleio/ai`, `@kleio/agent`, and `@kenkaiiii/gg-pixel`; the focused verifier above avoids that unrelated package-entry failure and directly covers this fix diff.
 
 ## Residual risks
 

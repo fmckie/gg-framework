@@ -5,7 +5,7 @@ import {
   estimateConversationTokens,
   setEstimatorModel,
 } from "./token-estimator.js";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 
 // Use a known model so the chars-per-token ratio is deterministic in tests.
 // "claude-sonnet-4-6" → ratio = 3.2

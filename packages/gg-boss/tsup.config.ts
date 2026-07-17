@@ -3,7 +3,7 @@ import { defineConfig } from "tsup";
 /**
  * gg-boss CLI is bundled into a single ESM file with every dependency
  * inlined. This is deliberate — the alternative is shipping a published
- * package.json with `dependencies: { @kenkaiiii/ggcoder, ... }`, which then
+ * package.json with `dependencies: { @kleio/coder, ... }`, which then
  * pulls @modelcontextprotocol/sdk → express-rate-limit → ip-address@10.1.0
  * into the user's node_modules. ip-address 10.1.0 has an open advisory
  * (GHSA-v2v4-37r5-5v8g, XSS in Address6 HTML methods) that the upstream
@@ -11,7 +11,7 @@ import { defineConfig } from "tsup";
  * loudly even though the vulnerable code path is unreachable in a TUI.
  *
  * Bundling means the published `dependencies` field is empty, so a fresh
- * `npm i -g @kenkaiiii/gg-boss` ends up with zero transitive deps and a
+ * `npm i -g @kleio/manager` ends up with zero transitive deps and a
  * clean audit. Users never see panic-inducing warnings on install.
  *
  * Reachability requirements (already satisfied):

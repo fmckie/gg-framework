@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 import type { SessionHeader, SessionMessageEntry, SessionEntry, SessionInfo } from "./types.js";
 
 const SESSION_DIR = path.join(os.homedir(), ".gg", "sessions");

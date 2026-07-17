@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import type { Worker } from "./worker.js";
 import type { WorkerTurnSummary } from "./types.js";
 

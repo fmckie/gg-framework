@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 import { truncateOversizedToolResults } from "./truncate-tool-results.js";
 
 function bigToolResult(text: string, id = "t1"): Message {

@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import type { TextContent, ImageContent, VideoContent } from "@kenkaiiii/gg-ai";
+import type { TextContent, ImageContent, VideoContent } from "@kleio/ai";
 import type { ImageAttachment } from "../utils/image.js";
 import { VIDEO_MEDIA_TYPES } from "../utils/image.js";
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";

@@ -121,13 +121,13 @@ importers:
 
   experiments/prompt-bench:
     dependencies:
-      '@kenkaiiii/gg-agent':
+      '@kleio/agent':
         specifier: workspace:*
         version: link:../../packages/gg-agent
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../../packages/gg-ai
-      '@kenkaiiii/ggcoder':
+      '@kleio/coder':
         specifier: workspace:*
         version: link:../../packages/ggcoder
       zod:
@@ -136,7 +136,7 @@ importers:
 
   packages/gg-agent:
     dependencies:
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
       zod:
@@ -174,16 +174,16 @@ importers:
 
   packages/gg-boss:
     devDependencies:
-      '@kenkaiiii/gg-agent':
+      '@kleio/agent':
         specifier: workspace:*
         version: link:../gg-agent
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
-      '@kenkaiiii/gg-core':
+      '@kleio/core':
         specifier: workspace:*
         version: link:../gg-core
-      '@kenkaiiii/ggcoder':
+      '@kleio/coder':
         specifier: workspace:*
         version: link:../ggcoder
       '@types/node':
@@ -223,7 +223,7 @@ importers:
 
   packages/gg-core:
     dependencies:
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
     devDependencies:
@@ -246,13 +246,13 @@ importers:
 
   packages/gg-editor:
     dependencies:
-      '@kenkaiiii/gg-agent':
+      '@kleio/agent':
         specifier: workspace:*
         version: link:../gg-agent
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
-      '@kenkaiiii/ggcoder':
+      '@kleio/coder':
         specifier: workspace:*
         version: link:../ggcoder
       chalk:
@@ -361,10 +361,10 @@ importers:
 
   packages/gg-voice:
     dependencies:
-      '@kenkaiiii/gg-agent':
+      '@kleio/agent':
         specifier: workspace:*
         version: link:../gg-agent
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
       zod:
@@ -386,13 +386,13 @@ importers:
       '@kenkaiiii/agent-home-sdk':
         specifier: ^0.3.8
         version: 0.3.8
-      '@kenkaiiii/gg-agent':
+      '@kleio/agent':
         specifier: workspace:*
         version: link:../gg-agent
-      '@kenkaiiii/gg-ai':
+      '@kleio/ai':
         specifier: workspace:*
         version: link:../gg-ai
-      '@kenkaiiii/gg-core':
+      '@kleio/core':
         specifier: workspace:*
         version: link:../gg-core
       '@kenkaiiii/gg-pixel':

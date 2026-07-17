@@ -2,7 +2,7 @@
  * Shared chalk banner used by every non-TUI ggeditor screen
  * (auth, login, doctor, onboarding). Mirrors the Ink-rendered banner
  * from src/ui/components/Banner.tsx and the chalk login screen in
- * @kenkaiiii/ggcoder/ui/login so all surfaces feel like one product.
+ * @kleio/coder/ui/login so all surfaces feel like one product.
  *
  * Layout (side-by-side, 3 lines):
  *

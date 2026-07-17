@@ -64,11 +64,11 @@ Observed results:
    - `packages/gg-pixel-go/README.md`
    - `packages/gg-pixel-server/README.md`
    - `packages/ggcoder-eyes/README.md`
-2. Fixed `@kenkaiiii/gg-boss` package metadata clarity:
+2. Fixed `@kleio/manager` package metadata clarity:
    - Removed the stale `exports[.].types` target pointing at missing `./dist/index.d.ts`.
    - Verified with `pnpm --dir packages/gg-boss run check`.
 3. Added `scripts/goal-deep-audit/package-clarity-audit.mjs` to make all-package metadata/source-layout verification reproducible.
-4. Fixed the flaky `InputArea` UI regression test wait so `@kenkaiiii/ggcoder:test` passes reliably.
+4. Fixed the flaky `InputArea` UI regression test wait so `@kleio/coder:test` passes reliably.
 
 ## Known unresolved blockers
 

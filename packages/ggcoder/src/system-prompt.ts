@@ -6,7 +6,7 @@ import type { LanguageId } from "./core/language-detector.js";
 import { renderStylePacksSection } from "./core/style-packs/index.js";
 import { detectVerifyCommands, renderVerifySection } from "./core/verify-commands.js";
 import { extractPlanSteps } from "./utils/plan-steps.js";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 
 const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".cursorrules", "CONVENTIONS.md"];
 const UNCACHED_MARKER = "<!-- uncached -->";

@@ -3,7 +3,7 @@ import { Box, Text } from "ink";
 import { useTheme } from "../theme/theme.js";
 import { getModel } from "../../core/model-registry.js";
 import { useTerminalSize } from "../hooks/useTerminalSize.js";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 
 interface BannerProps {
   version: string;

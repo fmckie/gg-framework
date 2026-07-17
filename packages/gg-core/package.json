@@ -1,5 +1,5 @@
 {
-  "name": "@kenkaiiii/gg-core",
+  "name": "@kleio/core",
   "version": "4.10.1",
   "type": "module",
   "description": "Provider-agnostic, UI-free shared foundation: model registry, auth, paths, telegram, voice",
@@ -38,7 +38,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@kenkaiiii/gg-ai": "workspace:*"
+    "@kleio/ai": "workspace:*"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^3.6.0",

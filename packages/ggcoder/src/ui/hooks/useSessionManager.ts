@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from "react";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 import { SessionManager, type MessageEntry, type SessionInfo } from "../../core/session-manager.js";
 import crypto from "node:crypto";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 
 export interface UseSessionManagerReturn {
   sessionId: string;

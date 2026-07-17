@@ -6,9 +6,9 @@
     "bench": "tsx run.ts"
   },
   "dependencies": {
-    "@kenkaiiii/gg-agent": "workspace:*",
-    "@kenkaiiii/gg-ai": "workspace:*",
-    "@kenkaiiii/ggcoder": "workspace:*",
+    "@kleio/agent": "workspace:*",
+    "@kleio/ai": "workspace:*",
+    "@kleio/coder": "workspace:*",
     "zod": "^4.0.0"
   }
 }

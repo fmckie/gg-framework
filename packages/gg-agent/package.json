@@ -1,5 +1,5 @@
 {
-  "name": "@kenkaiiii/gg-agent",
+  "name": "@kleio/agent",
   "version": "4.10.1",
   "type": "module",
   "description": "Agentic loop system with tool execution for LLMs",
@@ -28,7 +28,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@kenkaiiii/gg-ai": "workspace:*",
+    "@kleio/ai": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type DOMElement } from "ink";
-import type { ThinkingLevel } from "@kenkaiiii/gg-ai";
+import type { ThinkingLevel } from "@kleio/ai";
 import type { ContextWindowOptions } from "../../core/model-registry.js";
 import { doesFooterFitOnOneLine } from "../components/Footer.js";
 import {

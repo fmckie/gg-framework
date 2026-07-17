@@ -41,24 +41,24 @@ jobs:
 
       - name: Build framework packages
         run: |
-          pnpm --filter @kenkaiiii/gg-ai build
-          pnpm --filter @kenkaiiii/gg-agent build
-          pnpm --filter @kenkaiiii/ggcoder build
-          pnpm --filter @kenkaiiii/gg-boss build
+          pnpm --filter @kleio/ai build
+          pnpm --filter @kleio/agent build
+          pnpm --filter @kleio/coder build
+          pnpm --filter @kleio/manager build
 
       - name: Typecheck
         run: |
-          pnpm --filter @kenkaiiii/gg-ai check
-          pnpm --filter @kenkaiiii/gg-agent check
-          pnpm --filter @kenkaiiii/ggcoder check
-          pnpm --filter @kenkaiiii/gg-boss check
+          pnpm --filter @kleio/ai check
+          pnpm --filter @kleio/agent check
+          pnpm --filter @kleio/coder check
+          pnpm --filter @kleio/manager check
 
       - name: Test framework packages
         run: |
-          pnpm --filter @kenkaiiii/gg-ai test
-          pnpm --filter @kenkaiiii/gg-agent test
-          pnpm --filter @kenkaiiii/ggcoder test
-          pnpm --filter @kenkaiiii/gg-boss test
+          pnpm --filter @kleio/ai test
+          pnpm --filter @kleio/agent test
+          pnpm --filter @kleio/coder test
+          pnpm --filter @kleio/manager test
 
       - name: ggboss CLI smoke (extra belt-and-braces)
         run: node packages/gg-boss/dist/cli.js --help

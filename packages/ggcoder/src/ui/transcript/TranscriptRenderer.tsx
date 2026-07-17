@@ -1,5 +1,5 @@
 import React from "react";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 import { UserMessage } from "../components/UserMessage.js";
 import { AssistantMessage } from "../components/AssistantMessage.js";
 import { IdealHookMessage } from "../components/IdealHookMessage.js";

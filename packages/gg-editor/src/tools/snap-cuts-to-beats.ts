@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { detectBeats, snapCuts } from "../core/beats.js";
 import { compact, err } from "../core/format.js";
 import { findPython } from "../core/python.js";

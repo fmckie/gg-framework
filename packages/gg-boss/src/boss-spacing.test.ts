@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getTranscriptItemMarginTop,
   shouldSeparateTranscriptItemKinds,
-} from "@kenkaiiii/ggcoder/ui/transcript/spacing";
+} from "@kleio/coder/ui/transcript/spacing";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";
 
 /**

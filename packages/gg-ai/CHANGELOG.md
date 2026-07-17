@@ -1,4 +1,4 @@
-# @kenkaiiii/gg-ai
+# @kleio/ai
 
 ## 4.10.1
 
@@ -73,12 +73,12 @@
 
 ### Minor Changes
 
-- 9e381ad: Extract `@kenkaiiii/gg-core` — a provider-agnostic, UI-free shared foundation
+- 9e381ad: Extract `@kleio/core` — a provider-agnostic, UI-free shared foundation
   that owns the model registry, thinking levels, app paths, OAuth + auth storage,
   the file-writer logger core, telegram + voice transcription, and the
   self-updater. ggcoder, gg-boss, and gg-editor now inherit a single source of
   truth for provider-coupled code instead of maintaining duplicates.
 
-  Move provider-error classification into `@kenkaiiii/gg-ai` as
+  Move provider-error classification into `@kleio/ai` as
   `classifyProviderError`, reconciled with `isHardBillingMessage` so billing
   wording lives in one place.

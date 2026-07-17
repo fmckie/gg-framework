@@ -1,8 +1,8 @@
 import { renderToString } from "ink";
 import { describe, expect, it } from "vitest";
-import { AnimationProvider } from "@kenkaiiii/ggcoder/ui";
-import { ThemeContext, loadTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import { TerminalSizeProvider } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
+import { AnimationProvider } from "@kleio/coder/ui";
+import { ThemeContext, loadTheme } from "@kleio/coder/ui/theme";
+import { TerminalSizeProvider } from "@kleio/coder/ui/hooks/terminal-size";
 import { renderBossTranscriptItem } from "./boss-transcript-renderer.js";
 import type { BossDisplayItem } from "./boss-ui-items.js";
 

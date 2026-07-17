@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { agentLoop, type AgentEvent, type AgentTool } from "@kenkaiiii/gg-agent";
-import { ProviderError } from "@kenkaiiii/gg-ai";
+import { agentLoop, type AgentEvent, type AgentTool } from "@kleio/agent";
+import { ProviderError } from "@kleio/ai";
 import type {
   Message,
   Provider,
@@ -8,7 +8,7 @@ import type {
   TextContent,
   ImageContent,
   VideoContent,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import type { IdealReviewStats } from "../../core/ideal-review.js";
 import {
   detectTextRepetition,

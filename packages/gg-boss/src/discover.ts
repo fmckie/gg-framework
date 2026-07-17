@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import readline from "node:readline";
 import os from "node:os";
 import path from "node:path";
-import { getAppPaths } from "@kenkaiiii/ggcoder";
+import { getAppPaths } from "@kleio/coder";
 
 export type ProjectSource = "ggcoder" | "claude-code" | "codex";
 

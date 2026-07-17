@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { Message, Provider } from "@kleio/ai";
+import type { AgentTool } from "@kleio/agent";
 import { buildSystemPrompt } from "../../system-prompt.js";
 import type { LanguageId } from "../../core/language-detector.js";
 import type { Skill } from "../../core/skills.js";

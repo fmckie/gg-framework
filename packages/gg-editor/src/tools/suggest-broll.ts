@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { resolveApiKey } from "../core/auth/api-keys.js";
 import { compact, err } from "../core/format.js";
 import { safeOutputPath } from "../core/safe-paths.js";

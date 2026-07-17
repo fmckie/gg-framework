@@ -2,10 +2,10 @@
 // @kenkaiiii/gg-core. This module keeps ggcoder's "ggcoder"-branded startup
 // line and the EventBus bridge (`attachToEventBus`), which needs the gg-agent
 // `EventBus` type and therefore must stay out of the UI-free core.
-import { openLog, log, registerLogCleanup } from "@kenkaiiii/gg-core";
+import { openLog, log, registerLogCleanup } from "@kleio/core";
 import type { EventBus } from "./event-bus.js";
 
-export { log, getSessionId, closeLogger } from "@kenkaiiii/gg-core";
+export { log, getSessionId, closeLogger } from "@kleio/core";
 
 type LogLevel = "INFO" | "ERROR" | "WARN";
 

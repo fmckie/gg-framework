@@ -28,9 +28,9 @@ Kleio rebrand release.
 | `@kenkaiiii/ggcoder` | `@kleio/coder` |
 | `@kenkaiiii/gg-boss` | `@kleio/manager` |
 
-Internal `@kenkaiiii/*` import spellings may remain where a pnpm workspace alias
-resolves them to the owned package. Release checks must reject any runtime-spine
-alias that resolves to an upstream registry artifact.
+Runtime imports and workspace dependencies use the downstream `@kleio/*` names.
+The upstream names above remain only as immutable provenance for the imported
+baseline.
 
 ## License and attribution
 

@@ -1,5 +1,5 @@
 import React from "react";
-import type { Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
+import type { Provider, ThinkingLevel } from "@kleio/ai";
 import type { ContextWindowOptions } from "../../core/model-registry.js";
 import type { ThemeName } from "../theme/theme.js";
 import { Footer } from "./Footer.js";

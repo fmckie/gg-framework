@@ -14,7 +14,7 @@
  *
  * We score whether the model picks the RIGHT tool for each task.
  */
-import { Agent, type AgentEvent } from "@kenkaiiii/gg-agent";
+import { Agent, type AgentEvent } from "@kleio/agent";
 import { loadAuth } from "./auth.js";
 import { createSandbox, type TrajectoryEntry } from "./sandbox.js";
 

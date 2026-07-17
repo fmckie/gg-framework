@@ -1,4 +1,4 @@
-import type { Message, ContentPart, ToolResult } from "@kenkaiiii/gg-ai";
+import type { Message, ContentPart, ToolResult } from "@kleio/ai";
 
 /**
  * Model-family-specific chars-per-token ratios.

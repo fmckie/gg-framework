@@ -1,11 +1,11 @@
-# @kenkaiiii/gg-ai
+# @kleio/ai
 
 <p align="center">
   <strong>Unified LLM streaming API. Four providers. One interface.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/gg-ai"><img src="https://img.shields.io/npm/v/@kenkaiiii/gg-ai?style=for-the-badge" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/ai"><img src="https://img.shields.io/npm/v/@kleio/ai?style=for-the-badge" alt="npm version"></a>
   <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
 </p>
 
@@ -18,7 +18,7 @@ Part of the [GG Framework](../../README.md) monorepo.
 ## Install
 
 ```bash
-npm i @kenkaiiii/gg-ai
+npm i @kleio/ai
 ```
 
 ---

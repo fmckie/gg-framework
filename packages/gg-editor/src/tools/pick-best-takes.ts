@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { clusterSegments } from "../core/clustering.js";
 import { compact, err, summarizeList } from "../core/format.js";
 import { extractAtTimes } from "../core/frames.js";

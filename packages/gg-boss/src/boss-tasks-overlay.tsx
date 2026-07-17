@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
+import { useTheme } from "@kleio/coder/ui/theme";
 import { useTasksState, tasksStore, type BossTask, type TaskStatus } from "./tasks-store.js";
 import { bossStore } from "./boss-store.js";
 import { projectColor } from "./colors.js";

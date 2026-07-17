@@ -54,7 +54,7 @@ const targeted = spawnSync(
   "pnpm",
   [
     "--filter",
-    "@kenkaiiii/ggcoder",
+    "@kleio/coder",
     "exec",
     "vitest",
     "run",
@@ -68,7 +68,7 @@ const targeted = spawnSync(
 check(
   "targeted harnesses pass",
   targeted.status === 0,
-  `command: pnpm --filter @kenkaiiii/ggcoder exec vitest run src/core/compaction/compactor.test.ts src/ui/queued-message.test.ts src/system-prompt.test.ts --reporter=dot\nexit=${targeted.status}\n${(targeted.stdout + targeted.stderr).slice(-2000)}`,
+  `command: pnpm --filter @kleio/coder exec vitest run src/core/compaction/compactor.test.ts src/ui/queued-message.test.ts src/system-prompt.test.ts --reporter=dot\nexit=${targeted.status}\n${(targeted.stdout + targeted.stderr).slice(-2000)}`,
 );
 
 console.log("Quality audit goal verifier");
@@ -77,6 +77,6 @@ for (const item of checks) {
   if (!item.ok) console.log(`  ${item.detail.replace(/\n/g, "\n  ")}`);
 }
 console.log("\nFinal full-project verifier command (orchestrator must run before completion):");
-console.log("pnpm check && pnpm lint && pnpm format:check && pnpm build && pnpm --filter @kenkaiiii/ggcoder exec vitest run src/core/compaction/compactor.test.ts src/ui/queued-message.test.ts src/system-prompt.test.ts");
+console.log("pnpm check && pnpm lint && pnpm format:check && pnpm build && pnpm --filter @kleio/coder exec vitest run src/core/compaction/compactor.test.ts src/ui/queued-message.test.ts src/system-prompt.test.ts");
 
 process.exit(checks.every((item) => item.ok) ? 0 : 1);

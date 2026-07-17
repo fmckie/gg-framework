@@ -15,7 +15,7 @@ index 0000000..462858c
 +Configured verifier command was used exactly after dependency setup:
 +
 +```bash
-+pnpm --filter @kenkaiiii/ggcoder check && pnpm --filter @kenkaiiii/ggcoder test -- goal
++pnpm --filter @kleio/coder check && pnpm --filter @kleio/coder test -- goal
 +```
 +
 +Why no alternate command was needed: the `goal` Vitest filter matched the goal-focused surface and adjacent regressions successfully.
@@ -40,7 +40,7 @@ index 0000000..462858c
 +
 +## Risk notes
 +
-+- `pnpm --filter @kenkaiiii/ggcoder test -- goal` is substring-based and intentionally included adjacent non-goal tests whose file/test names contain `goal`; this is acceptable for targeted verification but broader than `verify:goal:tests`.
++- `pnpm --filter @kleio/coder test -- goal` is substring-based and intentionally included adjacent non-goal tests whose file/test names contain `goal`; this is acceptable for targeted verification but broader than `verify:goal:tests`.
 +- No full workspace lint/format run was performed, per task instruction not to broaden unless targeted failures required it.
 diff --git a/packages/ggcoder/docs/goal-verification.log b/packages/ggcoder/docs/goal-verification.log
 new file mode 100644
@@ -53,14 +53,14 @@ index 0000000..7d0258d
 +base_sha: 20190fcc8f4563a0e60c58f40cadeba4a729d7ee
 +worktree: /Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8967ac82-ca0a-4b28-83a4-2ad2c83b153a-6fe2b1bd
 +dependency_setup: pnpm install --frozen-lockfile was required because candidate worktree initially had no node_modules; first check failed on global TypeScript 5.9.2 vs repo TypeScript 6 config.
-+command: pnpm --filter @kenkaiiii/ggcoder check && pnpm --filter @kenkaiiii/ggcoder test -- goal
++command: pnpm --filter @kleio/coder check && pnpm --filter @kleio/coder test -- goal
 +
 +
-+> @kenkaiiii/ggcoder@4.3.219 check /Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8967ac82-ca0a-4b28-83a4-2ad2c83b153a-6fe2b1bd/packages/ggcoder
++> @kleio/coder@4.3.219 check /Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8967ac82-ca0a-4b28-83a4-2ad2c83b153a-6fe2b1bd/packages/ggcoder
 +> tsc --noEmit
 +
 +
-+> @kenkaiiii/ggcoder@4.3.219 test /Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8967ac82-ca0a-4b28-83a4-2ad2c83b153a-6fe2b1bd/packages/ggcoder
++> @kleio/coder@4.3.219 test /Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8967ac82-ca0a-4b28-83a4-2ad2c83b153a-6fe2b1bd/packages/ggcoder
 +> vitest run -- goal
 +
 +

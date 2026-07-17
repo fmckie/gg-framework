@@ -1,18 +1,18 @@
-import { Agent, isAbortError } from "@kenkaiiii/gg-agent";
-import { compact, estimateConversationTokens, shouldCompact } from "@kenkaiiii/ggcoder";
+import { Agent, isAbortError } from "@kleio/agent";
+import { compact, estimateConversationTokens, shouldCompact } from "@kleio/coder";
 import {
   AuthStorage,
   getContextWindow,
   getNextThinkingLevel,
   isThinkingLevelSupported,
-} from "@kenkaiiii/gg-core";
+} from "@kleio/core";
 import {
   formatError,
   type Message,
   type Provider,
   type ThinkingLevel,
   type Usage,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import { Worker } from "./worker.js";
 import { EventQueue } from "./event-queue.js";
 import { createBossTools, WORKER_PROMPT_BRIEF } from "./tools.js";

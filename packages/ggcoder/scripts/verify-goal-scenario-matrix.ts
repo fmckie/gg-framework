@@ -114,7 +114,7 @@ try {
       goal: `[original-goal-prompt] ${scenario.prompt}`,
       success_criteria: criteria,
       prerequisites,
-      harness: [{ id: "scenario-matrix", label: "Domain-agnostic setup/leak contract", command: "pnpm --filter @kenkaiiii/ggcoder exec tsx scripts/verify-goal-scenario-matrix.ts", path: "packages/ggcoder/.goal-evidence/goal-scenario-matrix.log", description: "Checks setup expectations and leak signals across scenario domains." }],
+      harness: [{ id: "scenario-matrix", label: "Domain-agnostic setup/leak contract", command: "pnpm --filter @kleio/coder exec tsx scripts/verify-goal-scenario-matrix.ts", path: "packages/ggcoder/.goal-evidence/goal-scenario-matrix.log", description: "Checks setup expectations and leak signals across scenario domains." }],
       evidence_plan: evidencePlan,
       verifier_command: scenario.external || scenario.ambiguous ? undefined : `test -f ${JSON.stringify(path.basename(fixture!))}`,
       verifier_description: `[original-goal-prompt] verifier for ${scenario.domain}`,

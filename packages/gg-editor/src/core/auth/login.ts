@@ -1,13 +1,13 @@
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
-import { renderLoginSelector } from "@kenkaiiii/ggcoder/ui/login";
+import { renderLoginSelector } from "@kleio/coder/ui/login";
 import {
   AuthStorage,
   loginAnthropic,
   loginOpenAI,
   type OAuthCredentials,
-} from "@kenkaiiii/ggcoder/auth";
-import { openBrowser } from "@kenkaiiii/ggcoder/utils/open-browser";
+} from "@kleio/coder/auth";
+import { openBrowser } from "@kleio/coder/utils/open-browser";
 import { STATIC_KEY_PROVIDERS, type SupportedAuthProvider } from "./types.js";
 
 /**

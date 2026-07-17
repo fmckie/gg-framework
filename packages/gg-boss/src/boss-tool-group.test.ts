@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 import { bossStore, getBossState, type HistoryItem } from "./boss-store.js";
 
 function initStore(): void {

@@ -1,6 +1,6 @@
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err } from "../core/format.js";
 import { checkFfprobe, probeMedia } from "../core/media/ffmpeg.js";
 

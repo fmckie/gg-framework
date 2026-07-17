@@ -1,9 +1,9 @@
 import path from "node:path";
-import { getAppPaths } from "@kenkaiiii/gg-core";
-import { openLog, log, closeLogger as coreCloseLogger } from "@kenkaiiii/gg-core";
+import { getAppPaths } from "@kleio/core";
+import { openLog, log, closeLogger as coreCloseLogger } from "@kleio/core";
 
 /**
- * Boss debug log — uses the shared file-writer core in @kenkaiiii/gg-core so the
+ * Boss debug log — uses the shared file-writer core in @kleio/core so the
  * format is grep-compatible across the framework. Lives at ~/.gg/boss/debug.log;
  * the core rotates at 10 MB and keeps one generation (`debug.log.1`) so a
  * session that's just been rotated still has its trailing context recoverable.
@@ -18,7 +18,7 @@ import { openLog, log, closeLogger as coreCloseLogger } from "@kenkaiiii/gg-core
  *   grep "sid=$(grep -oE 'sid=[a-f0-9]+' ~/.gg/boss/debug.log | tail -1 | cut -d= -f2)" ~/.gg/boss/debug.log
  */
 
-export { log, getSessionId } from "@kenkaiiii/gg-core";
+export { log, getSessionId } from "@kleio/core";
 
 export function getLogPath(): string {
   return path.join(getAppPaths().agentDir, "boss", "debug.log");

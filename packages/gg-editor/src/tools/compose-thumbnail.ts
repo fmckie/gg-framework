@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { loadBrandKit } from "../core/brand-kit.js";
 import { compact, err } from "../core/format.js";
 import { checkFfmpeg } from "../core/media/ffmpeg.js";

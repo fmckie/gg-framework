@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { applyMix, type AudioChain } from "../core/audio-mix.js";
 import { compact, err } from "../core/format.js";
 import { checkFfmpeg } from "../core/media/ffmpeg.js";

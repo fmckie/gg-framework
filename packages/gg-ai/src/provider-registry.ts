@@ -27,7 +27,7 @@ class ProviderRegistryImpl {
    * Register a provider. Overwrites any existing provider with the same name.
    *
    * ```ts
-   * import { providerRegistry } from "@kenkaiiii/gg-ai";
+   * import { providerRegistry } from "@kleio/ai";
    *
    * providerRegistry.register("deepseek", {
    *   stream: (options) => streamOpenAI({ ...options, baseUrl: "https://api.deepseek.com/v1" }),

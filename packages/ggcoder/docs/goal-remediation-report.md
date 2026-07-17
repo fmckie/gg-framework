@@ -30,13 +30,13 @@ This report intentionally distinguishes **automated local proof** from **unteste
 ## Commands run
 
 ```sh
-pnpm --filter @kenkaiiii/ggcoder test -- src/core/goal-controller.test.ts src/tools/goals.test.ts src/core/goal-store.test.ts src/core/goal-prerequisites.test.ts src/core/goal-verifier.test.ts src/core/goal-worker.test.ts src/core/goal-worker-dev-server-lifecycle.test.ts src/tools/goal-mode.test.ts src/ui/goal-events.test.ts src/ui/goal-lifecycle-orchestration.test.ts src/ui/goal-overlay.test.ts src/ui/goal-status-bar.test.ts src/system-prompt.test.ts src/core/prompt-commands.test.ts --reporter=dot
-pnpm --filter @kenkaiiii/ggcoder verify:goal:e2e
+pnpm --filter @kleio/coder test -- src/core/goal-controller.test.ts src/tools/goals.test.ts src/core/goal-store.test.ts src/core/goal-prerequisites.test.ts src/core/goal-verifier.test.ts src/core/goal-worker.test.ts src/core/goal-worker-dev-server-lifecycle.test.ts src/tools/goal-mode.test.ts src/ui/goal-events.test.ts src/ui/goal-lifecycle-orchestration.test.ts src/ui/goal-overlay.test.ts src/ui/goal-status-bar.test.ts src/system-prompt.test.ts src/core/prompt-commands.test.ts --reporter=dot
+pnpm --filter @kleio/coder verify:goal:e2e
 pnpm dlx tsx packages/ggcoder/scripts/verify-goal-system-audit.ts
-pnpm --filter @kenkaiiii/ggcoder check
+pnpm --filter @kleio/coder check
 pnpm lint
 pnpm format:check
-pnpm --filter @kenkaiiii/ggcoder build
+pnpm --filter @kleio/coder build
 ```
 
 ## Evidence
@@ -56,8 +56,8 @@ The automated proof is strong for durable goal state, controller gates, evidence
 Run this only in an environment where provider access is already configured; do not paste secrets into logs or reports.
 
 1. From the package/project root, confirm local automated proof remains green:
-   - `pnpm --filter @kenkaiiii/ggcoder verify:goal:tests`
-   - `pnpm --filter @kenkaiiii/ggcoder verify:goal:e2e`
+   - `pnpm --filter @kleio/coder verify:goal:tests`
+   - `pnpm --filter @kleio/coder verify:goal:e2e`
    - `pnpm dlx tsx packages/ggcoder/scripts/verify-goal-system-audit.ts`
 2. Start `ggcoder` with an already-authenticated provider/model.
 3. Type a small reversible `/goal` objective in a disposable temp project.

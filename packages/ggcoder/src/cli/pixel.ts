@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import type { Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
+import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { loadSavedSettings } from "../config.js";
 import { getDefaultModel } from "../core/model-registry.js";
 import type { ThemeName } from "../ui/theme/theme.js";

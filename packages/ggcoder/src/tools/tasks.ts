@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { log } from "../core/logger.js";
 import { createTaskRecord, loadTasks, saveTasks } from "../core/tasks-store.js";
 

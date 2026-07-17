@@ -1,5 +1,5 @@
 import { useCallback, type MutableRefObject } from "react";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
+import type { Message, Provider } from "@kleio/ai";
 import {
   appendMessagesToSession as appendSessionMessages,
   createCompactedSessionCheckpoint,

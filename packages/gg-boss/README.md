@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/gg-boss"><img src="https://img.shields.io/npm/v/@kenkaiiii/gg-boss?style=for-the-badge" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/npm/v/@kleio/manager?style=for-the-badge" alt="npm version"></a>
   <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
   <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
@@ -14,7 +14,7 @@
 
 You talk to the boss. The boss drives the workers — one per project — in parallel. Dispatch work, watch them finish, keep a backlog, swap models on the fly. All from one terminal.
 
-Built on [`@kenkaiiii/ggcoder`](../ggcoder/README.md), [`@kenkaiiii/gg-agent`](../gg-agent/README.md) and [`@kenkaiiii/gg-ai`](../gg-ai/README.md). Part of the [GG Framework](../../README.md) monorepo.
+Built on [`@kleio/coder`](../ggcoder/README.md), [`@kleio/agent`](../gg-agent/README.md) and [`@kleio/ai`](../gg-ai/README.md). Part of the [GG Framework](../../README.md) monorepo.
 
 ---
 
@@ -22,11 +22,11 @@ Built on [`@kenkaiiii/ggcoder`](../ggcoder/README.md), [`@kenkaiiii/gg-agent`](.
 
 ```bash
 # Sign in once with ggcoder — gg-boss reuses the same auth
-npm i -g @kenkaiiii/ggcoder
+npm i -g @kleio/coder
 ggcoder login
 
 # Install the boss
-npm i -g @kenkaiiii/gg-boss
+npm i -g @kleio/manager
 
 # Pick which projects the boss should drive (interactive picker —
 # scans your ggcoder, Claude Code, and Codex session history)
@@ -164,5 +164,5 @@ MIT
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/gg-boss"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kenkaiiii%2Fgg--boss-blue?style=for-the-badge" alt="Install"></a>
+  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kleio%2Fmanager-blue?style=for-the-badge" alt="Install"></a>
 </p>

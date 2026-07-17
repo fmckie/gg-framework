@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 import { MODELS } from "../../core/model-registry.js";
 import { SlashStyledSelectList } from "./SlashStyledSelectList.js";
 

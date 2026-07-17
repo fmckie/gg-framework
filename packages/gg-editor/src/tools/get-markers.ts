@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err, summarizeList } from "../core/format.js";
 import type { VideoHost } from "../core/hosts/types.js";
 import { RESOLVE_TO_PREMIERE_INDEX } from "../core/marker-colors.js";

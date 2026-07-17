@@ -1,4 +1,4 @@
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import type { VideoHost } from "../core/hosts/types.js";
 import { logError, logInfo } from "../core/logger.js";
 import { discoverSkills, type SkillSource } from "../core/skills-loader.js";

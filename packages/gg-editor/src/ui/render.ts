@@ -1,14 +1,14 @@
 import React from "react";
 import { render } from "ink";
-import { AnimationProvider } from "@kenkaiiii/ggcoder/ui";
+import { AnimationProvider } from "@kleio/coder/ui";
 import {
   ThemeContext,
   SetThemeContext,
   loadTheme,
   type ThemeName,
-} from "@kenkaiiii/ggcoder/ui/theme";
-import { detectTheme } from "@kenkaiiii/ggcoder/ui/theme/detect";
-import { TerminalSizeProvider } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
+} from "@kleio/coder/ui/theme";
+import { detectTheme } from "@kleio/coder/ui/theme/detect";
+import { TerminalSizeProvider } from "@kleio/coder/ui/hooks/terminal-size";
 import { App, type AppProps } from "./App.js";
 
 /**

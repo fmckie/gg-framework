@@ -1,6 +1,6 @@
 import React from "react";
 import type { DOMElement } from "ink";
-import { ChatControls, ChatInputStack, ChatLayout, InputArea } from "@kenkaiiii/ggcoder/ui";
+import { ChatControls, ChatInputStack, ChatLayout, InputArea } from "@kleio/coder/ui";
 import { BossFooter } from "./boss-footer.js";
 import { BossModelSelector } from "./boss-model-selector.js";
 import { BossTasksOverlay } from "./boss-tasks-overlay.js";
@@ -10,7 +10,7 @@ import type { GGBoss } from "./orchestrator.js";
 import type { BossOverlay, BossUiState, WorkerView } from "./boss-store.js";
 import type { BOSS_SLASH_COMMANDS } from "./slash-commands.js";
 import type { RADIO_STATIONS } from "./radio.js";
-import type { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
+import type { useTheme } from "@kleio/coder/ui/theme";
 
 interface BossChatScreenProps {
   boss: GGBoss;

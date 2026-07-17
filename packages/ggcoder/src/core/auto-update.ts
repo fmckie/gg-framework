@@ -3,10 +3,10 @@
 // the same exported function names so consumers/tests are unchanged.
 import path from "node:path";
 import os from "node:os";
-import { createAutoUpdater } from "@kenkaiiii/gg-core";
+import { createAutoUpdater } from "@kleio/core";
 
 const updater = createAutoUpdater({
-  packageName: "@kenkaiiii/ggcoder",
+  packageName: "@kleio/coder",
   stateFilePath: () => path.join(os.homedir(), ".gg", "update-state.json"),
 });
 

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getAppPaths } from "@kenkaiiii/ggcoder";
+import { getAppPaths } from "@kleio/coder";
 
 export interface LinkedProject {
   name: string;

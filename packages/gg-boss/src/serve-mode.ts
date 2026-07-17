@@ -1,15 +1,15 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import chalk from "chalk";
-import { getAppPaths } from "@kenkaiiii/ggcoder";
-import { MODELS, type ModelInfo } from "@kenkaiiii/gg-core";
-import type { Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
-import { setStreamDiagnostic } from "@kenkaiiii/gg-agent";
+import { getAppPaths } from "@kleio/coder";
+import { MODELS, type ModelInfo } from "@kleio/core";
+import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { setStreamDiagnostic } from "@kleio/agent";
 import { GGBoss } from "./orchestrator.js";
 import { loadLinks } from "./links.js";
 import { tasksStore } from "./tasks-store.js";
 import { saveSettings } from "./settings.js";
-import { transcribeVoice, isModelLoaded, setProgressCallback } from "@kenkaiiii/gg-core";
+import { transcribeVoice, isModelLoaded, setProgressCallback } from "@kleio/core";
 import {
   subscribeToBossStore,
   getBossState,
@@ -17,7 +17,7 @@ import {
   type HistoryItem,
   type BossUiState,
 } from "./boss-store.js";
-import { TelegramBot, type TelegramMessage, type TelegramVoiceMessage } from "@kenkaiiii/gg-core";
+import { TelegramBot, type TelegramMessage, type TelegramVoiceMessage } from "@kleio/core";
 import { initLogger, log, closeLogger } from "./logger.js";
 import { VERSION, BRAND, AUTHOR, LOGO_LINES, LOGO_GAP, GRADIENT, COLORS } from "./branding.js";
 
@@ -541,7 +541,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
       log("ERROR", "voice", message);
       // Common failure: optional dep missing on user's install.
       const hint = /Cannot find module|Cannot resolve|MODULE_NOT_FOUND/.test(message)
-        ? "\n\nVoice transcription needs the optional `@huggingface/transformers` and `ogg-opus-decoder` packages. Reinstall with `npm i -g @kenkaiiii/gg-boss` and ensure optional deps installed."
+        ? "\n\nVoice transcription needs the optional `@huggingface/transformers` and `ogg-opus-decoder` packages. Reinstall with `npm i -g @kleio/manager` and ensure optional deps installed."
         : "";
       await bot.send(chatId, `_Voice transcription failed: ${message}_${hint}`);
     }

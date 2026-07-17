@@ -6,9 +6,9 @@
 // shebang flags with the env var.
 import path from "node:path";
 import chalk from "chalk";
-import type { Provider } from "@kenkaiiii/gg-ai";
-import { setStreamDiagnostic } from "@kenkaiiii/gg-agent";
-import { AuthStorage, getDefaultModel, getModel } from "@kenkaiiii/gg-core";
+import type { Provider } from "@kleio/ai";
+import { setStreamDiagnostic } from "@kleio/agent";
+import { AuthStorage, getDefaultModel, getModel } from "@kleio/core";
 import { GGBoss } from "./orchestrator.js";
 import type { ProjectSpec } from "./types.js";
 import { loadLinks } from "./links.js";

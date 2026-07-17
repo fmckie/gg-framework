@@ -6,4 +6,4 @@ export {
   type InlineButton,
   type TelegramMessage,
   type TelegramVoiceMessage,
-} from "@kenkaiiii/gg-core";
+} from "@kleio/core";

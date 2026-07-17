@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err, summarizeList } from "../core/format.js";
 import { detectSpeakerChanges } from "../core/speaker-changes.js";
 import { parseTranscript } from "../core/whisper.js";

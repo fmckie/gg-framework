@@ -9,7 +9,7 @@ agent picking up the work — read it before starting anything.
 |---|---|---|---|
 | **JS SDK** (Node + Browser + Deno + Workers) | `packages/gg-pixel/` | All-in-one with subpath exports | `@kenkaiiii/gg-pixel` (published) |
 | **JS backend** | `packages/gg-pixel-server/` | Cloudflare Worker + D1 (the ingest server) | private, deployed |
-| **CLI / runner** | `packages/ggcoder/` | `ggcoder pixel` TUI + agent fix queue | `@kenkaiiii/ggcoder` (published) |
+| **CLI / runner** | `packages/ggcoder/` | `ggcoder pixel` TUI + agent fix queue | `@kleio/coder` (published) |
 | **Python SDK** | `packages/gg-pixel-py/` | wheel built at 4.3.68; **NOT yet on PyPI** | `gg-pixel` (PyPI, blocked) |
 | **Rust SDK** | `packages/gg-pixel-rs/` | crate at 4.3.72; **NOT yet on crates.io** | `gg-pixel` (crates, blocked) |
 | **Go SDK** | `packages/gg-pixel-go/` | module; **NOT yet pushed to GitHub** | `github.com/kenkaiiii/gg-pixel-go` (blocked) |

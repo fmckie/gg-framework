@@ -1,4 +1,4 @@
-import { EventStream, type Message } from "@kenkaiiii/gg-ai";
+import { EventStream, type Message } from "@kleio/ai";
 import { agentLoop } from "./agent-loop.js";
 import type { AgentEvent, AgentOptions, AgentResult } from "./types.js";
 

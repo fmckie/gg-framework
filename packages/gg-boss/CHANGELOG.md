@@ -1,4 +1,4 @@
-# @kenkaiiii/gg-boss
+# @kleio/manager
 
 ## 4.10.1
 

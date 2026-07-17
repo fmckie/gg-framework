@@ -5,7 +5,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from "react";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
+import type { Message, Provider } from "@kleio/ai";
 import {
   compact,
   shouldCompact,

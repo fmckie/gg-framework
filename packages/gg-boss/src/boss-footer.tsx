@@ -1,9 +1,9 @@
 import React from "react";
 import { Text, Box } from "ink";
-import type { ThinkingLevel } from "@kenkaiiii/gg-ai";
-import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import { useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
-import { getContextWindow } from "@kenkaiiii/gg-core";
+import type { ThinkingLevel } from "@kleio/ai";
+import { useTheme } from "@kleio/coder/ui/theme";
+import { useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
+import { getContextWindow } from "@kleio/core";
 import { COLORS } from "./branding.js";
 
 const PARTIAL_BLOCKS = [" ", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
@@ -62,7 +62,7 @@ interface BossFooterProps {
   exitPending: boolean;
   /** Boss extended-thinking level. Falsy when thinking is off. */
   bossThinkingLevel?: ThinkingLevel;
-  /** Auto-updater has installed a newer @kenkaiiii/gg-boss in the background. */
+  /** Auto-updater has installed a newer @kleio/manager in the background. */
   updatePending?: boolean;
   /** id of the currently-playing radio station, or null when the radio is off. */
   currentRadioStationId?: string | null;

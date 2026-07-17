@@ -1,5 +1,5 @@
-import { useTranscriptHistory } from "@kenkaiiii/ggcoder/ui/hooks/transcript-history";
-import type { TerminalHistoryContext } from "@kenkaiiii/ggcoder/ui/terminal-history";
+import { useTranscriptHistory } from "@kleio/coder/ui/hooks/transcript-history";
+import type { TerminalHistoryContext } from "@kleio/coder/ui/terminal-history";
 import type { BossDisplayItem } from "./boss-ui-items.js";
 import type { BossTerminalHistoryPrinter } from "./boss-terminal-history.js";
 

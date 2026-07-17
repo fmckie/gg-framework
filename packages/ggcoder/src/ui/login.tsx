@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import type { Provider } from "@kleio/ai";
 import { renderLogoBlock } from "../cli/shared.js";
 
 // Defaults — ggcoder branding. ggeditor passes its own palette.

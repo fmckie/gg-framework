@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTool, ToolContext } from "@kenkaiiii/gg-agent";
+import type { AgentTool, ToolContext } from "@kleio/agent";
 import { extractToMarkdown } from "./html-extract.js";
 import { extractPdfText, PdfExtractorUnavailable } from "./pdf-extract.js";
 

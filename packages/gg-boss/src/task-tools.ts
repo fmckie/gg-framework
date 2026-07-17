@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { tasksStore, type BossTask, type TaskStatus } from "./tasks-store.js";
 import { bossStore } from "./boss-store.js";
 import type { Worker } from "./worker.js";

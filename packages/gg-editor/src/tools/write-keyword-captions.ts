@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { buildAss } from "../core/ass.js";
 import { injectEmojis } from "../core/emoji-captions.js";
 import { compact, err } from "../core/format.js";

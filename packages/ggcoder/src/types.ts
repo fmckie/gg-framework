@@ -1,4 +1,4 @@
-import type { Message, Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
+import type { Message, Provider, ThinkingLevel } from "@kleio/ai";
 
 // ── CLI Config ─────────────────────────────────────────────
 

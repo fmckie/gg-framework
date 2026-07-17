@@ -1,8 +1,8 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
-import type { Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
-import { getAppPaths, type AppPaths } from "@kenkaiiii/gg-core";
+import type { Provider, ThinkingLevel } from "@kleio/ai";
+import { getAppPaths, type AppPaths } from "@kleio/core";
 import type { ThemeName } from "./ui/theme/theme.js";
 
 export const APP_NAME = "ggcoder";

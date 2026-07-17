@@ -1,5 +1,5 @@
-import { agentLoop, isAbortError, type AgentEvent, type AgentTool } from "@kenkaiiii/gg-agent";
-import { ProviderError, type Message, type Provider, type ThinkingLevel } from "@kenkaiiii/gg-ai";
+import { agentLoop, isAbortError, type AgentEvent, type AgentTool } from "@kleio/agent";
+import { ProviderError, type Message, type Provider, type ThinkingLevel } from "@kleio/ai";
 import { EventBus } from "./event-bus.js";
 import {
   SlashCommandRegistry,

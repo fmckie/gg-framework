@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { ProviderError } from "@kenkaiiii/gg-ai";
+import { ProviderError } from "@kleio/ai";
 import {
   agentLoop,
   classifyOverload,
@@ -12,17 +12,17 @@ import {
   serverResetDelayMs,
 } from "./agent-loop.js";
 import type { AgentEvent, AgentResult, AgentTool } from "./types.js";
-import type { Message, StreamOptions } from "@kenkaiiii/gg-ai";
+import type { Message, StreamOptions } from "@kleio/ai";
 
 // ── Mock stream ────────────────────────────────────────────
 
-vi.mock("@kenkaiiii/gg-ai", async (importOriginal) => {
+vi.mock("@kleio/ai", async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-  const mod = await importOriginal<typeof import("@kenkaiiii/gg-ai")>();
+  const mod = await importOriginal<typeof import("@kleio/ai")>();
   return { ...mod, stream: vi.fn() };
 });
 
-import { stream } from "@kenkaiiii/gg-ai";
+import { stream } from "@kleio/ai";
 const mockStream = vi.mocked(stream);
 const emptyParams = z.object({});
 

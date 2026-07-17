@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { getAppPaths } from "@kenkaiiii/ggcoder";
-import type { Message } from "@kenkaiiii/gg-ai";
+import { getAppPaths } from "@kleio/coder";
+import type { Message } from "@kleio/ai";
 
 /**
  * Lightweight per-session log for the boss orchestrator. Each session is one

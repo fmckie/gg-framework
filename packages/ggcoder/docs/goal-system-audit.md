@@ -49,7 +49,7 @@ Evidence-backed positives:
 - `goal-quality-audit.md` identifies concrete issues GQA-001 through GQA-018 with severity, confidence, source evidence, repro/proof, recommendations, and action status.
 - `goal-remediation-plan.md` translates findings into implementation files, priority, dependencies, and required tests/proof.
 - `goal-remediation-report.md` records that the major false-positive completion, evidence-plan, final-audit, lifecycle, store, pause/resume, synthetic-event, prerequisite, and canonical-verifier gaps were fixed or explicitly deferred.
-- The current `verify-goal-system-audit.ts` run proves targeted Goal behavior tests passed and `pnpm --filter @kenkaiiii/ggcoder check` passed before failing on one source-contract string check.
+- The current `verify-goal-system-audit.ts` run proves targeted Goal behavior tests passed and `pnpm --filter @kleio/coder check` passed before failing on one source-contract string check.
 
 Remaining friction:
 

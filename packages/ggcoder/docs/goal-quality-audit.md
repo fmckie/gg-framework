@@ -19,7 +19,7 @@ Re-audited on 2026-05-23 against the current working tree and refreshed docs. Cu
 - Gap audit: this file.
 - Remediation plan: `packages/ggcoder/docs/goal-remediation-plan.md`.
 - Remediation report: `packages/ggcoder/docs/goal-remediation-report.md`.
-- Local proof scripts: `pnpm --filter @kenkaiiii/ggcoder verify:goal:tests`, `pnpm --filter @kenkaiiii/ggcoder verify:goal:e2e`, and `pnpm dlx tsx packages/ggcoder/scripts/verify-goal-system-audit.ts`.
+- Local proof scripts: `pnpm --filter @kleio/coder verify:goal:tests`, `pnpm --filter @kleio/coder verify:goal:e2e`, and `pnpm dlx tsx packages/ggcoder/scripts/verify-goal-system-audit.ts`.
 
 Remaining blockers/residual risks after the re-audit:
 

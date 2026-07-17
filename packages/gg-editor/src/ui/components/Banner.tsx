@@ -1,9 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
-import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import { useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
-import { getModel } from "@kenkaiiii/ggcoder/models";
-import type { Provider } from "@kenkaiiii/gg-ai";
+import { useTheme } from "@kleio/coder/ui/theme";
+import { useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
+import { getModel } from "@kleio/coder/models";
+import type { Provider } from "@kleio/ai";
 
 /**
  * Welcome banner for ggeditor. Static — printed once into terminal scrollback.

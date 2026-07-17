@@ -66,7 +66,7 @@ Use confirmation policies such as `"always"` or `"destructive"` for high-risk vo
 
 Expo apps should consume the package root plus their own platform adapters for secure storage, URL opening, microphone capture, audio playback, and WebRTC. Direct realtime WebRTC in React Native generally requires `react-native-webrtc` and a custom dev/EAS build; Expo Go is unlikely to be enough for production speech-to-speech.
 
-Do not import `@kenkaiiii/ggcoder` directly into a phone bundle. Send voice-derived commands through a relay, `ggcoder rpc`, Agent Home style bridge, or a server-side `AgentSession` wrapper.
+Do not import `@kleio/coder` directly into a phone bundle. Send voice-derived commands through a relay, `ggcoder rpc`, Agent Home style bridge, or a server-side `AgentSession` wrapper.
 
 ## Auth modes
 

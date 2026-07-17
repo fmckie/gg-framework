@@ -29,7 +29,7 @@ interface InstallInfo {
 }
 
 export interface AutoUpdateConfig {
-  /** npm package to self-update, e.g. "@kenkaiiii/ggcoder". */
+  /** npm package to self-update, e.g. "@kleio/coder". */
   packageName: string;
   /**
    * Absolute path to this app's update-state.json, or a thunk resolving it.

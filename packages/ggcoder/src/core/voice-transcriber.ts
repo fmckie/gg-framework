@@ -8,4 +8,4 @@ export {
   isModelLoaded,
   transcribeVoice,
   type ProgressCallback,
-} from "@kenkaiiii/gg-core";
+} from "@kleio/core";

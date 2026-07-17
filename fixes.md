@@ -48,7 +48,7 @@ Key findings addressed:
 
 - **BEFORE:** The integrated verification worktree did not have the final `fixes.md` required by `[original-goal-prompt]`.
 - **AFTER:** This root-level `fixes.md` records BEFORE/AFTERs, command evidence, changed files, task-output/reference preservation, and a candidate packet for the coordinator.
-- **Proof:** `.goal-evidence/minimum-verifier.log` records `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kenkaiiii/ggcoder check` passing.
+- **Proof:** `.goal-evidence/minimum-verifier.log` records `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kleio/coder check` passing.
 
 ## Investigated but not changed
 
@@ -63,9 +63,9 @@ Key findings addressed:
 | --- | --- | --- |
 | `pnpm install --frozen-lockfile` | PASS, exit 0 | `.goal-evidence/install.log` |
 | `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md` | PASS, exit 0 | `.goal-evidence/fixes-reference-check.log` |
-| `pnpm --filter @kenkaiiii/ggcoder test -- src/tools/goals.test.ts src/ui/prompt-routing.test.ts` | PASS, exit 0; Vitest reported 76 files / 867 tests passed | `.goal-evidence/targeted-vitest.log` |
-| `pnpm --filter @kenkaiiii/ggcoder check` | PASS, exit 0 | `.goal-evidence/ggcoder-check.log` |
-| `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kenkaiiii/ggcoder check` | PASS, exit 0 | `.goal-evidence/minimum-verifier.log` |
+| `pnpm --filter @kleio/coder test -- src/tools/goals.test.ts src/ui/prompt-routing.test.ts` | PASS, exit 0; Vitest reported 76 files / 867 tests passed | `.goal-evidence/targeted-vitest.log` |
+| `pnpm --filter @kleio/coder check` | PASS, exit 0 | `.goal-evidence/ggcoder-check.log` |
+| `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kleio/coder check` | PASS, exit 0 | `.goal-evidence/minimum-verifier.log` |
 
 ## Changed files
 
@@ -102,7 +102,7 @@ Key findings addressed:
 - **Branch/worktree path:** `goal/445685e7-c0dc-48e4-bfbe-b11f79812f80/8eca78c4-4aeb-44bf-be63-6a5f96accbc2-8ffacb81` at `/Users/kenkai/Documents/UnstableMind/gg-coder-goal-worktrees/8eca78c4-4aeb-44bf-be63-6a5f96accbc2-8ffacb81`
 - **Changed files for this task:** `fixes.md`, `packages/ggcoder/src/tools/goals.ts`, `packages/ggcoder/src/tools/goals.test.ts`, `packages/ggcoder/src/ui/prompt-routing.ts`, `packages/ggcoder/src/ui/prompt-routing.test.ts`.
 - **Diffstat:** see `git diff --stat` from this worktree; patch path `.goal-evidence/integrated-candidate.patch`.
-- **Verifier command/result:** `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kenkaiiii/ggcoder check` — PASS, exit 0; targeted Vitest command above also PASS, exit 0.
+- **Verifier command/result:** `test -f fixes.md && grep -F "[original-goal-prompt]" fixes.md && pnpm --filter @kleio/coder check` — PASS, exit 0; targeted Vitest command above also PASS, exit 0.
 - **Evidence paths:** `.goal-evidence/install.log`, `.goal-evidence/fixes-reference-check.log`, `.goal-evidence/targeted-vitest.log`, `.goal-evidence/ggcoder-check.log`, `.goal-evidence/minimum-verifier.log`, `.goal-evidence/integrated-candidate.patch`, `fixes.md`.
 - **Risk notes:** Narrow setup/routing changes; no external services; no generated dependency/build outputs included.
 

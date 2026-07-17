@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { z } from "zod";
-import type { AgentTool, StructuredToolResult, ToolContext } from "@kenkaiiii/gg-agent";
+import type { AgentTool, StructuredToolResult, ToolContext } from "@kleio/agent";
 import { resolvePath } from "./path-utils.js";
 import { downscaleForPreview, shrinkToFit } from "../utils/image.js";
 

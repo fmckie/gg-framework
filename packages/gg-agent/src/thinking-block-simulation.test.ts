@@ -20,16 +20,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
 import { agentLoop } from "./agent-loop.js";
 import type { AgentEvent, AgentResult, AgentTool } from "./types.js";
-import type { Message } from "@kenkaiiii/gg-ai";
+import type { Message } from "@kleio/ai";
 
 // Mock only `stream`; everything else (incl. toAnthropicMessages) stays real.
-vi.mock("@kenkaiiii/gg-ai", async (importOriginal) => {
+vi.mock("@kleio/ai", async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-  const mod = await importOriginal<typeof import("@kenkaiiii/gg-ai")>();
+  const mod = await importOriginal<typeof import("@kleio/ai")>();
   return { ...mod, stream: vi.fn() };
 });
 
-import { stream, toAnthropicMessages } from "@kenkaiiii/gg-ai";
+import { stream, toAnthropicMessages } from "@kleio/ai";
 const mockStream = vi.mocked(stream);
 const emptyParams = z.object({});
 

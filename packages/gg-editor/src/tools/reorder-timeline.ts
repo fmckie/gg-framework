@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { buildFcpxml } from "../core/fcpxml.js";
 import { compact, err } from "../core/format.js";
 import type { VideoHost } from "../core/hosts/types.js";

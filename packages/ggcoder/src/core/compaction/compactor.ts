@@ -4,7 +4,7 @@ import {
   type Provider,
   type ContentPart,
   type ToolResult,
-} from "@kenkaiiii/gg-ai";
+} from "@kleio/ai";
 import { estimateConversationTokens, estimateMessageTokens } from "./token-estimator.js";
 import { getSummaryModel, getContextWindow } from "../model-registry.js";
 import { kimiCodingHeaders, isKimiCodingEndpoint } from "../oauth/kimi.js";

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import { compact, err } from "../core/format.js";
 import { buildSrt, buildWordLevelSrt } from "../core/srt.js";
 import { safeOutputPath } from "../core/safe-paths.js";

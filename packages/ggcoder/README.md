@@ -5,23 +5,23 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/ggcoder"><img src="https://img.shields.io/npm/v/@kenkaiiii/ggcoder?style=for-the-badge" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/npm/v/@kleio/coder?style=for-the-badge" alt="npm version"></a>
   <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
   <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
   <a href="https://github.com/KenKaiii"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
 </p>
 
-A coding agent that ships only what the model needs to work — a tiny system prompt, one carefully-chosen MCP, and a focused tool set. Switch between Anthropic, OpenAI, GLM, Moonshot, MiniMax, Xiaomi, DeepSeek, and OpenRouter mid-conversation. Run it on its own, or let [`@kenkaiiii/gg-boss`](../gg-boss/README.md) drive a fleet of `ggcoder` workers across many projects from a single chat.
+A coding agent that ships only what the model needs to work — a tiny system prompt, one carefully-chosen MCP, and a focused tool set. Switch between Anthropic, OpenAI, GLM, Moonshot, MiniMax, Xiaomi, DeepSeek, and OpenRouter mid-conversation. Run it on its own, or let [`@kleio/manager`](../gg-boss/README.md) drive a fleet of `ggcoder` workers across many projects from a single chat.
 
-Built on [`@kenkaiiii/gg-ai`](../gg-ai/README.md) and [`@kenkaiiii/gg-agent`](../gg-agent/README.md). Part of the [GG Framework](../../README.md) monorepo.
+Built on [`@kleio/ai`](../gg-ai/README.md) and [`@kleio/agent`](../gg-agent/README.md). Part of the [GG Framework](../../README.md) monorepo.
 
 ---
 
 ## 🚀 Run It
 
 ```bash
-npm i -g @kenkaiiii/ggcoder
+npm i -g @kleio/coder
 
 ggcoder login    # Pick provider, authenticate
 ggcoder          # Start coding
@@ -89,7 +89,7 @@ The same conversation, the same tools, the same project context — only the mod
 `ggcoder` is the unit of work. [`gg-boss`](../gg-boss/README.md) is the orchestrator that drives many of them at once.
 
 ```bash
-npm i -g @kenkaiiii/gg-boss
+npm i -g @kleio/manager
 ggboss link    # pick which projects to drive
 ggboss         # one chat, N parallel ggcoder workers
 ```
@@ -221,5 +221,5 @@ MIT
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kenkaiiii/ggcoder"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kenkaiiii%2Fggcoder-blue?style=for-the-badge" alt="Install"></a>
+  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kleio%2Fcoder-blue?style=for-the-badge" alt="Install"></a>
 </p>

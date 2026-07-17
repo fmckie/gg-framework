@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Provider, ThinkingLevel } from "@kenkaiiii/gg-ai";
+import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { AgentSession } from "../core/agent-session.js";
-import { isAbortError } from "@kenkaiiii/gg-agent";
+import { isAbortError } from "@kleio/agent";
 import { TelegramBot, type TelegramMessage, type TelegramVoiceMessage } from "../core/telegram.js";
 import { transcribeVoice, isModelLoaded, setProgressCallback } from "../core/voice-transcriber.js";
 import chalk from "chalk";

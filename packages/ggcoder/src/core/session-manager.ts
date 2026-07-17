@@ -3,7 +3,7 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
+import type { Message, Provider } from "@kleio/ai";
 import { log } from "./logger.js";
 import type { CompletedItem } from "../ui/app-items.js";
 

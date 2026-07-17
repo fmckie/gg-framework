@@ -4,7 +4,7 @@ import {
   type GroupRenderer,
   type SummarySegment,
   type ToolGroupSummaryTool,
-} from "@kenkaiiii/ggcoder/ui/tool-group-summary";
+} from "@kleio/coder/ui/tool-group-summary";
 
 /**
  * Boss orchestrator tools that are safe to coalesce into a single row when the

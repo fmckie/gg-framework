@@ -11,14 +11,14 @@ import {
   UserMessage,
   deriveFrame,
   useAnimationTick,
-} from "@kenkaiiii/ggcoder/ui";
-import { useTerminalSize } from "@kenkaiiii/ggcoder/ui/hooks/terminal-size";
-import { useAgentLoop } from "@kenkaiiii/ggcoder/ui/hooks/agent-loop";
-import { useDoublePress } from "@kenkaiiii/ggcoder/ui/hooks/double-press";
-import { useTheme } from "@kenkaiiii/ggcoder/ui/theme";
-import type { Message, Provider } from "@kenkaiiii/gg-ai";
-import { getMaxThinkingLevel } from "@kenkaiiii/ggcoder/models";
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+} from "@kleio/coder/ui";
+import { useTerminalSize } from "@kleio/coder/ui/hooks/terminal-size";
+import { useAgentLoop } from "@kleio/coder/ui/hooks/agent-loop";
+import { useDoublePress } from "@kleio/coder/ui/hooks/double-press";
+import { useTheme } from "@kleio/coder/ui/theme";
+import type { Message, Provider } from "@kleio/ai";
+import { getMaxThinkingLevel } from "@kleio/coder/models";
+import type { AgentTool } from "@kleio/agent";
 import { Banner } from "./components/Banner.js";
 import type { LazyHost } from "../core/hosts/lazy.js";
 import { saveSession } from "../core/sessions.js";
@@ -504,7 +504,7 @@ export function App(props: AppProps) {
     const selection = parseModelSelection(value);
     if (!selection) return;
 
-    import("@kenkaiiii/ggcoder/models").then(({ getModel }) => {
+    import("@kleio/coder/models").then(({ getModel }) => {
       const info = getModel(selection.model);
       const provider = selection.provider ?? info?.provider;
       if (!provider || (info && info.provider !== provider)) return;

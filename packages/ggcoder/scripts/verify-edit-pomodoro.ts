@@ -8,7 +8,7 @@
  *   2. NEW path — same edit with replace_all: true → must succeed.
  *   3. Mixed batch — replace_all + sequential edits in one call → must succeed.
  *
- * Run: pnpm --filter @kenkaiiii/ggcoder build && \
+ * Run: pnpm --filter @kleio/coder build && \
  *      node packages/ggcoder/dist/scripts/verify-edit-pomodoro.js
  */
 import fs from "node:fs/promises";

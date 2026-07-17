@@ -7,7 +7,7 @@
  * field (the diff) is UI-only; the model never sees it. So `content` is the
  * whole contract.
  *
- * Run: pnpm --filter @kenkaiiii/ggcoder build && \
+ * Run: pnpm --filter @kleio/coder build && \
  *      npx tsx packages/ggcoder/scripts/verify-edit-agent-view.ts
  */
 import fs from "node:fs/promises";
@@ -15,7 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { createEditTool } from "../src/tools/edit.js";
 
-// Mirror of `normalizeToolResult` in @kenkaiiii/gg-agent agent-loop.ts.
+// Mirror of `normalizeToolResult` in @kleio/agent agent-loop.ts.
 // Kept inline so this script doesn't need a dist build of gg-agent.
 type ToolReturn = string | { content: string; details?: unknown };
 function normalizeToolResult(raw: ToolReturn): { content: string; details?: unknown } {

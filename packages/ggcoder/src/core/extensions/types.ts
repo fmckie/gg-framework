@@ -1,4 +1,4 @@
-import type { AgentTool } from "@kenkaiiii/gg-agent";
+import type { AgentTool } from "@kleio/agent";
 import type { EventBus } from "../event-bus.js";
 import type { SettingsManager } from "../settings-manager.js";
 import type { SlashCommand } from "../slash-commands.js";

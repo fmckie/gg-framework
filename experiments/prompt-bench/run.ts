@@ -1,4 +1,4 @@
-import { Agent, type AgentEvent } from "@kenkaiiii/gg-agent";
+import { Agent, type AgentEvent } from "@kleio/agent";
 import { loadAuth, TARGETS, type ModelTarget } from "./auth.js";
 import { createSandbox } from "./sandbox.js";
 import { SECTIONS, assemblePrompt, type SectionVariant } from "./variants.js";

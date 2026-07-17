@@ -1,7 +1,7 @@
 /**
  * Interactive doctor screen.
  *
- * Modelled directly on `@kenkaiiii/ggcoder/ui/login.tsx`'s
+ * Modelled directly on `@kleio/coder/ui/login.tsx`'s
  * `renderLoginSelector` so the look matches:
  *
  *   ▄▀▀▀ ▄▀▀▀   GG Editor v0.6.0 · By Ken Kai

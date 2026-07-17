@@ -1,7 +1,7 @@
 import {
   serializeCompletedItemToTerminalHistory,
   type TerminalHistoryContext,
-} from "@kenkaiiii/ggcoder/ui/terminal-history";
+} from "@kleio/coder/ui/terminal-history";
 import {
   formatHistoryWrite,
   color,
@@ -12,10 +12,10 @@ import {
   stripAnsi,
   truncatePlain,
   wrapPlain,
-} from "@kenkaiiii/ggcoder/ui/terminal-history-format";
-import { shouldSeparateTranscriptItemKinds } from "@kenkaiiii/ggcoder/ui/transcript/spacing";
-import { buildToolGroupSummary } from "@kenkaiiii/ggcoder/ui/tool-group-summary";
-import { toolTonePalette } from "@kenkaiiii/ggcoder/ui/transcript/tool-presentation";
+} from "@kleio/coder/ui/terminal-history-format";
+import { shouldSeparateTranscriptItemKinds } from "@kleio/coder/ui/transcript/spacing";
+import { buildToolGroupSummary } from "@kleio/coder/ui/tool-group-summary";
+import { toolTonePalette } from "@kleio/coder/ui/transcript/tool-presentation";
 import type { BossDisplayItem } from "./boss-ui-items.js";
 import { bossToolGroupRenderers } from "./boss-tool-group-summary.js";
 import { BOSS_SPACING_KINDS, BOSS_COMPACT_BOUNDARIES } from "./boss-spacing.js";

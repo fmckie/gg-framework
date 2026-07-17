@@ -5,4 +5,4 @@ export {
   kimiCodeBaseUrl,
   kimiCodingHeaders,
   isKimiCodingEndpoint,
-} from "@kenkaiiii/gg-core";
+} from "@kleio/core";

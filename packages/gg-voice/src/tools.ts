@@ -1,5 +1,5 @@
-import type { AgentTool, ToolContext, ToolExecuteResult } from "@kenkaiiii/gg-agent";
-import type { Tool } from "@kenkaiiii/gg-ai";
+import type { AgentTool, ToolContext, ToolExecuteResult } from "@kleio/agent";
+import type { Tool } from "@kleio/ai";
 import { z } from "zod";
 import type {
   JsonObject,

@@ -4,4 +4,4 @@ export {
   getSupportedThinkingLevels,
   isThinkingLevelSupported,
   getNextThinkingLevel,
-} from "@kenkaiiii/gg-core";
+} from "@kleio/core";

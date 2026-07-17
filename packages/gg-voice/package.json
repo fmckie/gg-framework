@@ -49,8 +49,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@kenkaiiii/gg-agent": "workspace:*",
-    "@kenkaiiii/gg-ai": "workspace:*",
+    "@kleio/agent": "workspace:*",
+    "@kleio/ai": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {
