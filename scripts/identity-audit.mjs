@@ -243,15 +243,15 @@ let scannedFiles = 0;
 if (options.scanTracked) {
   scannedTargets.add("tracked");
   for (const path of await trackedPaths()) {
-    scanPath({ path, target: "tracked", entries, counts, unclassified });
     const absolutePath = join(ROOT, path);
     let content;
     try {
       content = await readFile(absolutePath, "utf8");
     } catch (error) {
-      if (error?.code === "EISDIR") continue;
+      if (error?.code === "EISDIR" || error?.code === "ENOENT") continue;
       throw error;
     }
+    scanPath({ path, target: "tracked", entries, counts, unclassified });
     scanText({ content, path, target: "tracked", entries, counts, unclassified });
     scannedFiles += 1;
   }
@@ -290,12 +290,13 @@ const countMismatches = entries.flatMap((entry) =>
 );
 
 if (options.verbose || unclassified.length > 0) {
-  for (const occurrence of unclassified.slice(0, 250)) {
+  const reportedOccurrences = options.verbose ? unclassified : unclassified.slice(0, 250);
+  for (const occurrence of reportedOccurrences) {
     const location =
       occurrence.line > 0 ? `${occurrence.path}:${occurrence.line}` : occurrence.path;
     console.error(`UNCLASSIFIED ${occurrence.target} ${location}: ${occurrence.context.trim()}`);
   }
-  if (unclassified.length > 250) {
+  if (!options.verbose && unclassified.length > 250) {
     console.error(`... ${unclassified.length - 250} more unclassified occurrences`);
   }
 }

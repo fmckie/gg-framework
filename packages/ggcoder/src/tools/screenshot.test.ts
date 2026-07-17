@@ -21,7 +21,7 @@ function isStructured(result: string | StructuredToolResult): result is Structur
 let tmpDir: string;
 
 beforeEach(async () => {
-  tmpDir = await mkdtemp(path.join(os.tmpdir(), "ggcoder-screenshot-"));
+  tmpDir = await mkdtemp(path.join(os.tmpdir(), "kleio-coder-screenshot-"));
 });
 
 afterEach(async () => {

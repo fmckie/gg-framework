@@ -23,9 +23,9 @@ import { BRAND, COLORS, GRADIENT, LOGO_GAP, LOGO_LINES, VERSION } from "./brandi
 import { parseStatusGrade } from "./boss-transcript-rows.js";
 import { projectColor } from "./colors.js";
 
-type GGCoderCompletedItem = Parameters<typeof serializeCompletedItemToTerminalHistory>[0];
+type CoderCompletedItem = Parameters<typeof serializeCompletedItemToTerminalHistory>[0];
 type BossToolInlineSummary = string | { text: string; color: string };
-type BossGGCoderHistoryItem = Extract<
+type ManagerCoderHistoryItem = Extract<
   BossDisplayItem,
   {
     kind:
@@ -118,7 +118,7 @@ export function serializeBossItemToTerminalHistory(
     case "update_notice":
       return renderUpdateNotice(item, context);
     default:
-      return serializeCompletedItemToTerminalHistory(toGGCoderCompletedItem(item), context);
+      return serializeCompletedItemToTerminalHistory(toCoderCompletedItem(item), context);
   }
 }
 
@@ -229,7 +229,7 @@ function renderTaskDispatch(
   return lines.join("\n");
 }
 
-function toGGCoderCompletedItem(item: BossGGCoderHistoryItem): GGCoderCompletedItem {
+function toCoderCompletedItem(item: ManagerCoderHistoryItem): CoderCompletedItem {
   switch (item.kind) {
     case "user":
       return { kind: "user", id: item.id, text: item.text };

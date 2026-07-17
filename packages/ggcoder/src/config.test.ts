@@ -7,7 +7,7 @@ import { loadSavedSettings } from "./config.js";
 const tempDirs: string[] = [];
 
 function tempSettingsPath(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ggcoder-config-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kleio-coder-config-"));
   tempDirs.push(dir);
   return path.join(dir, "settings.json");
 }

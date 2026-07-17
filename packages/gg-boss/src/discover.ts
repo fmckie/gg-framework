@@ -26,7 +26,7 @@ export interface DiscoveredProject {
  */
 export async function discoverProjects(): Promise<DiscoveredProject[]> {
   const [gg, cc, cx] = await Promise.all([
-    discoverGgcoderProjects(),
+    discoverCoderProjects(),
     discoverClaudeProjects(),
     discoverCodexProjects(),
   ]);
@@ -71,7 +71,7 @@ function mergeSources(a: ProjectSource[], b: ProjectSource[]): ProjectSource[] {
  * (slashes → underscores); we decode it back and verify the directory still
  * exists on disk.
  */
-async function discoverGgcoderProjects(): Promise<DiscoveredProject[]> {
+async function discoverCoderProjects(): Promise<DiscoveredProject[]> {
   const sessionsDir = getAppPaths().sessionsDir;
   let entries: string[];
   try {

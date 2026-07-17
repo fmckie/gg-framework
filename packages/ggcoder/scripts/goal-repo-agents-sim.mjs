@@ -1,6 +1,6 @@
 // Run "Ensure the agents we have are production grade ready" in SETUP mode against
-// the REAL ggcoder repo (a genuine multi-agent system), so we can judge the
-// agent's thought process on: (1) speed of scoping, (2) simplicity of approach,
+// the real Kleio Coder repository (a genuine multi-agent system), so we can
+// judge the agent's thought process on: (1) speed of scoping, (2) simplicity of approach,
 // (3) whether the proof is the perfected one for THIS system.
 //
 // Runs inside a throwaway detached git worktree of HEAD so the agent cannot
@@ -60,7 +60,11 @@ async function run(model, worktree) {
       systemPrompt,
       PROMPT,
     ],
-    { cwd: worktree, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GG_GOALS_BASE: goalsBase } },
+    {
+      cwd: worktree,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GG_GOALS_BASE: goalsBase },
+    },
   );
 
   let text = "";
@@ -81,10 +85,13 @@ async function run(model, worktree) {
   });
   child.stderr.on("data", (c) => (stderr += c.toString("utf-8")));
   const code = await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      resolve(124);
-    }, 8 * 60 * 1000);
+    const timer = setTimeout(
+      () => {
+        child.kill("SIGTERM");
+        resolve(124);
+      },
+      8 * 60 * 1000,
+    );
     child.on("close", (c) => {
       clearTimeout(timer);
       resolve(c ?? 1);

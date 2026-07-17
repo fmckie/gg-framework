@@ -9,7 +9,7 @@ const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "ggcoder-pixel-"));
+  home = mkdtempSync(join(tmpdir(), "kleio-coder-pixel-"));
   logSpy.mockClear();
   errorSpy.mockClear();
 });

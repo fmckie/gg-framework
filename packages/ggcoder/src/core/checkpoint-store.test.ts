@@ -8,8 +8,8 @@ let cwd: string;
 let baseDir: string;
 
 beforeEach(async () => {
-  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "ggcoder-cp-cwd-"));
-  baseDir = await fs.mkdtemp(path.join(os.tmpdir(), "ggcoder-cp-store-"));
+  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "kleio-coder-cp-cwd-"));
+  baseDir = await fs.mkdtemp(path.join(os.tmpdir(), "kleio-coder-cp-store-"));
 });
 
 afterEach(async () => {

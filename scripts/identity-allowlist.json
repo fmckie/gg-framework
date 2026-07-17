@@ -8,7 +8,7 @@
       "scope": "content",
       "targets": ["tracked"],
       "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
-      "expectedOccurrences": { "tracked": 156, "packed": 0 },
+      "expectedOccurrences": { "tracked": 336, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "The audit policy must spell the legacy identities it classifies.",
@@ -270,19 +270,61 @@
       "removeWhen": "All consumers accept a branded discriminator and persisted errors have a dual-reader migration."
     },
     {
-      "id": "voice-wire-contract-content",
-      "path": "packages/gg-voice/src/**",
+      "id": "voice-manager-public-api-contracts",
+      "path": "packages/gg-voice/src/bridges/ggboss.ts",
       "scope": "content",
       "targets": ["tracked"],
       "match": {
-        "regex": "(?:send_to_|requestId|request_id|bridges/|GGCoder|GGBoss|ggcoder_|ggboss_|source:|target:)[^\\n]*(?:ggcoder|ggboss)|(?:ggcoder|ggboss)[^\\n]*(?:send_to_|requestId|request_id|bridges/|GGCoder|GGBoss|source:|target:)",
-        "flags": "giu"
+        "regex": "\\b(?:GGBoss(?:PromptTarget|Bridge)|create(?:GGBossBridge|(?:SendTo|Relay)GGBossTool))\\b",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 9, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice API owner",
+      "reason": "These exact Manager bridge types and factory functions are exported public APIs.",
+      "removeWhen": "A separately versioned voice release provides additive branded API aliases and consumers migrate."
+    },
+    {
+      "id": "voice-manager-tool-name-contract",
+      "path": "packages/gg-voice/src/bridges/ggboss.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "send_to_ggboss" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice routing owner",
+      "reason": "The exact Manager voice tool name is part of the model and router wire contract.",
+      "removeWhen": "A versioned voice protocol accepts both branded and legacy tool names through a migration window."
+    },
+    {
+      "id": "voice-coder-public-api-contracts",
+      "path": "packages/gg-voice/src/bridges/ggcoder-rpc.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "\\b(?:GGCoderRpc(?:MessageSink|BridgeOptions|Bridge)|createGGCoderRpcBridge|toGGCoderRpcCommand|createSendToGGCoderTool|normalizeGGCoderRpcEvent)\\b",
+        "flags": "gu"
       },
       "expectedOccurrences": { "tracked": 13, "packed": 0 },
       "bucket": "compatibility",
-      "owner": "Voice protocol owner",
-      "reason": "Voice tool names, request IDs, public types, and bridge routes are published contracts.",
-      "removeWhen": "A separately versioned @kleio/voice release provides additive branded aliases and dual routing."
+      "owner": "Voice API owner",
+      "reason": "These exact Coder RPC types, factories, and normalizers are exported public APIs.",
+      "removeWhen": "A separately versioned voice release provides additive branded API aliases and consumers migrate."
+    },
+    {
+      "id": "voice-coder-wire-identities",
+      "path": "packages/gg-voice/src/bridges/ggcoder-rpc.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "ggcoder_\\$\\{Date\\.now\\(\\)\\}|send_to_ggcoder",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice routing owner",
+      "reason": "The exact Coder request-ID prefix and model tool name are response-correlation and router contracts.",
+      "removeWhen": "A versioned voice protocol dual-reads branded request IDs and accepts both tool names."
     },
     {
       "id": "pixel-generated-project-contracts",
@@ -415,8 +457,8 @@
       "path": "packages/gg-boss/src/orchestrator.ts",
       "scope": "content",
       "targets": ["tracked"],
-      "match": { "regex": "[\"']ggboss(?::|[\"'])", "flags": "giu" },
-      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "match": { "regex": "[\"'`]ggboss(?::|[\"'`])", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Provider cache owner",
       "reason": "The Manager prompt-cache prefix preserves provider cache continuity.",
@@ -628,6 +670,1092 @@
       "owner": "Kleio product identity owner",
       "reason": "The profile centralizes legacy command, HTTP, MCP, and Agent Home identifiers beside preferred values.",
       "removeWhen": "Each downstream contract has completed its separately reviewed migration and deprecation window."
+    },
+    {
+      "id": "ci-manager-directory-seam",
+      "path": ".github/workflows/ci.yml",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "gg-boss" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "CI invokes the Manager build through its retained repository directory.",
+      "removeWhen": "The Manager source directory completes a coordinated repository path migration."
+    },
+    {
+      "id": "ignored-coder-directory-seams",
+      "path": ".gitignore",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework maintainers",
+      "reason": "Ignored generated directories remain rooted under the retained Coder source directory.",
+      "removeWhen": "A coordinated repository path migration updates generated-output locations."
+    },
+    {
+      "id": "framework-readme-repository-paths",
+      "path": "README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "packages/(?:ggcoder|gg-boss)", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 10, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework documentation owner",
+      "reason": "These exact links target the retained Coder and Manager repository directories.",
+      "removeWhen": "A coordinated repository path migration updates every source link."
+    },
+    {
+      "id": "framework-readme-legacy-command-aliases",
+      "path": "README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "`(?:ggcoder|ggboss)`", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework CLI owner",
+      "reason": "The compatibility section names the two retained executable aliases exactly.",
+      "removeWhen": "Both legacy bins complete their versioned deprecation windows."
+    },
+    {
+      "id": "operator-guide-repository-paths",
+      "path": "CLAUDE.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "packages/(?:ggcoder|gg-boss)", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 6, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework documentation owner",
+      "reason": "These operator instructions consume the exact retained Coder and Manager source paths.",
+      "removeWhen": "A coordinated repository path migration updates build, source, and operator instructions."
+    },
+    {
+      "id": "operator-guide-coder-tree-path",
+      "path": "CLAUDE.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "└── ggcoder/" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework documentation owner",
+      "reason": "The repository tree records the retained Coder source directory name.",
+      "removeWhen": "A coordinated repository path migration updates the documented tree."
+    },
+    {
+      "id": "operator-guide-upstream-package-coordinates",
+      "path": "CLAUDE.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "@kenkaiiii/(?:gg-pixel|gg-editor|gg-voice)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 4, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "The operator guide names exact active packages that have no owned replacement publication.",
+      "removeWhen": "Each owned replacement package is published and adopted through clean-consumer gates."
+    },
+    {
+      "id": "operator-guide-legacy-command-aliases",
+      "path": "CLAUDE.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "`(?:ggcoder|ggboss)(?: mcp add)?`", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 3, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework CLI owner",
+      "reason": "The operator guide documents the exact legacy bins and pasted MCP prefix still accepted.",
+      "removeWhen": "The bins and MCP parser aliases complete their versioned deprecation windows."
+    },
+    {
+      "id": "matey-application-id",
+      "path": "Matey/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "com\\.kenkaiiii\\.matey", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Matey application owner",
+      "reason": "Electron app IDs bind operating-system identity and existing user-data associations.",
+      "removeWhen": "A separately approved app migration copies user data and updates packaging identity atomically."
+    },
+    {
+      "id": "prompt-bench-coder-source-path",
+      "path": "experiments/prompt-bench/*",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Prompt evaluation owner",
+      "reason": "The benchmark points at the retained production Coder source path.",
+      "removeWhen": "A coordinated repository path migration updates the benchmark and production source together."
+    },
+    {
+      "id": "gemini-prompt-cache-compatibility-test",
+      "path": "packages/gg-ai/src/providers/gemini.test.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "The Gemini transport test proves legacy Coder cache/session keys pass through unchanged.",
+      "removeWhen": "A measured provider cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "manager-cache-key-normalization-tests",
+      "path": "packages/gg-ai/src/providers/prompt-cache-key.test.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggboss" },
+      "expectedOccurrences": { "tracked": 6, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "Normalization tests freeze Manager and worker cache-prefix stability and collision behavior.",
+      "removeWhen": "A measured provider cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "manager-readme-repository-paths",
+      "path": "packages/gg-boss/README.md",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "packages/gg-boss|\\.\\./ggcoder/", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 3, "packed": 3 },
+      "bucket": "compatibility",
+      "owner": "Manager documentation owner",
+      "reason": "These exact links target the retained Manager and Coder repository directories.",
+      "removeWhen": "A coordinated repository path migration updates source and package links."
+    },
+    {
+      "id": "manager-readme-legacy-command-aliases",
+      "path": "packages/gg-boss/README.md",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "`(?:ggboss|ggcoder)`", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Manager CLI owner",
+      "reason": "The compatibility section names the retained Manager and Coder executable aliases exactly.",
+      "removeWhen": "Both legacy bins complete their versioned deprecation windows."
+    },
+    {
+      "id": "workspace-package-directory-metadata",
+      "path": "packages/*/package.json",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": {
+        "regex": "directory[^\\n]*packages/(?:ggcoder(?:-eyes)?|gg-boss)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 3, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Framework package owners",
+      "reason": "Registry source metadata must point at the retained repository directories.",
+      "removeWhen": "Each package completes a coordinated repository path migration."
+    },
+    {
+      "id": "manager-project-source-order-key",
+      "path": "packages/gg-boss/src/discover.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder\\s*:", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Manager project discovery owner",
+      "reason": "The source-order map keys the immutable ggcoder ProjectSource discriminator.",
+      "removeWhen": "Persisted and cross-process project-source consumers support a branded discriminator."
+    },
+    {
+      "id": "manager-coder-package-path-test",
+      "path": "packages/gg-boss/src/ink-version.test.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "../../ggcoder/package.json" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Manager build owner",
+      "reason": "The Ink parity test reads Coder metadata through its retained sibling source directory.",
+      "removeWhen": "A coordinated repository path migration updates both package directories and this test."
+    },
+    {
+      "id": "openai-oauth-originator",
+      "path": "packages/gg-core/src/oauth/openai.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Provider integration owner",
+      "reason": "OpenAI OAuth validates and routes the legacy originator value.",
+      "removeWhen": "A live provider contract proves a branded originator is accepted safely."
+    },
+    {
+      "id": "premiere-panel-package-coordinates",
+      "path": "packages/gg-editor-premiere-panel/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "@kenkaiiii/gg-editor(?:-premiere-panel)?", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 5, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Premiere panel package owner",
+      "reason": "The non-spine editor and panel packages retain their published registry coordinates.",
+      "removeWhen": "Owned replacement packages ship with a separately versioned panel migration."
+    },
+    {
+      "id": "premiere-plugin-identifiers",
+      "path": "packages/gg-editor-premiere-panel/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "com\\.kenkaiiii\\.gg-editor-premiere-panel(?:\\.uxp)?", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 15, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Premiere panel package owner",
+      "reason": "CEP and UXP IDs and install paths control Adobe plugin discovery and installed associations.",
+      "removeWhen": "Parallel plugin IDs, installers, and uninstall guidance ship in one coordinated migration."
+    },
+    {
+      "id": "editor-package-coordinates",
+      "path": "packages/gg-editor/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "@kenkaiiii/gg-editor(?:-premiere-panel)?", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 10, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Editor package owner",
+      "reason": "The non-spine editor and companion panel retain their currently published registry coordinates.",
+      "removeWhen": "Owned replacement packages and a documented consumer migration are released."
+    },
+    {
+      "id": "pixel-server-package-coordinate",
+      "path": "packages/gg-pixel-server/README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "@kenkaiiii/gg-pixel-server" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel server owner",
+      "reason": "The non-spine server package retains its current package identity.",
+      "removeWhen": "The server receives its own mapped and versioned rename release."
+    },
+    {
+      "id": "pixel-package-documentation-coordinates",
+      "path": "packages/gg-pixel/*.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "@kenkaiiii/gg-pixel(?:/[a-z0-9-]+)?", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel SDK owner",
+      "reason": "Current Pixel documentation must use the registry coordinate that consumers can install today.",
+      "removeWhen": "An owned replacement package is published with migration guidance."
+    },
+    {
+      "id": "pixel-roadmap-coder-source-path",
+      "path": "packages/gg-pixel/NEXT_STEPS.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel integration owner",
+      "reason": "The roadmap points at the retained Coder source directory implementing the Pixel runner.",
+      "removeWhen": "A coordinated Coder repository path migration updates the integration documentation."
+    },
+    {
+      "id": "pixel-roadmap-language-module-identities",
+      "path": "packages/gg-pixel/NEXT_STEPS.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "(?:github\\.com/)?kenkaiiii/gg-pixel-(?:go|swift)", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 6, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel SDK owners",
+      "reason": "Roadmap commands and examples retain Go and Swift repository/module identities until owned modules exist.",
+      "removeWhen": "Owned repositories, tags, and documented consumer migrations are available."
+    },
+    {
+      "id": "pixel-generated-coder-comment",
+      "path": "packages/gg-pixel/src/install.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder pixel install" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Pixel integration owner",
+      "reason": "Generated project snippets retain their legacy writer comment for idempotent upgrades.",
+      "removeWhen": "A dual-reader recognizes both old and branded generated comments before a new writer ships."
+    },
+    {
+      "id": "voice-readme-package-coordinates",
+      "path": "packages/gg-voice/README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "@kenkaiiii/gg-voice(?:/(?:providers/(?:openai-realtime|openai-codex-realtime)|bridges/(?:ggcoder-rpc|ggboss)))?",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice package owner",
+      "reason": "These exact imports and bridge subpaths belong to the non-spine published Voice package.",
+      "removeWhen": "A separately versioned Voice package publishes owned coordinates and additive branded bridge paths."
+    },
+    {
+      "id": "voice-readme-coder-command-alias",
+      "path": "packages/gg-voice/README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "`ggcoder rpc`" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder CLI owner",
+      "reason": "The Voice guide documents the exact retained Coder RPC executable invocation.",
+      "removeWhen": "The legacy Coder bin completes its versioned deprecation window."
+    },
+    {
+      "id": "voice-readme-manager-api-and-tool-contracts",
+      "path": "packages/gg-voice/README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "GGBoss(?:\\.enqueueUserMessage\\(text\\))?|send_to_ggboss|`ggboss`",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 5, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice protocol owner",
+      "reason": "The guide names the exact frozen Manager API, executable, and model tool contracts.",
+      "removeWhen": "A separately versioned Voice release ships additive branded aliases for all three contracts."
+    },
+    {
+      "id": "voice-package-export-subpaths",
+      "path": "packages/gg-voice/package.json",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder-rpc|ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice protocol owner",
+      "reason": "Published bridge export subpaths and declaration paths are import contracts.",
+      "removeWhen": "A separately versioned voice package provides additive branded subpaths."
+    },
+    {
+      "id": "voice-build-entry-paths",
+      "path": "packages/gg-voice/tsup.config.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder-rpc|ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Voice package owner",
+      "reason": "Build entries must continue producing the frozen public bridge subpaths.",
+      "removeWhen": "A separately versioned voice package provides additive branded subpaths."
+    },
+    {
+      "id": "nonspine-eyes-readme-contracts",
+      "path": "packages/ggcoder-eyes/README.md",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "@kenkaiiii/ggcoder-eyes|(?:packages/)?ggcoder-eyes",
+        "flags": "gu"
+      },
+      "expectedOccurrences": { "tracked": 7, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Eyes package owner",
+      "reason": "The README documents the exact non-spine package coordinate, executable, and retained repository path.",
+      "removeWhen": "The Eyes package receives its own mapped, versioned rename release and documentation migration."
+    },
+    {
+      "id": "nonspine-eyes-bin-contract",
+      "path": "packages/ggcoder-eyes/package.json",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "\"ggcoder-eyes\"\\s*:", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 1, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Eyes package owner",
+      "reason": "The exact published Eyes executable remains outside the five-package release unit.",
+      "removeWhen": "A versioned Eyes release adds a branded bin and completes its command migration."
+    },
+    {
+      "id": "nonspine-eyes-cli-contract",
+      "path": "packages/ggcoder-eyes/src/cli.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder-eyes" },
+      "expectedOccurrences": { "tracked": 8, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Eyes CLI owner",
+      "reason": "These exact usage and install strings invoke the package's retained executable.",
+      "removeWhen": "A versioned Eyes release adds a branded bin and updates every generated command hint."
+    },
+    {
+      "id": "coder-readme-repository-paths",
+      "path": "packages/ggcoder/README.md",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "packages/ggcoder|\\.\\./gg-boss/", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 4, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Coder documentation owner",
+      "reason": "These exact links target the retained Coder and Manager repository directories.",
+      "removeWhen": "A coordinated repository path migration updates source and package links."
+    },
+    {
+      "id": "coder-readme-legacy-command-aliases",
+      "path": "packages/ggcoder/README.md",
+      "scope": "content",
+      "targets": ["tracked", "packed"],
+      "match": { "regex": "`(?:ggcoder|ggboss)`", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 2, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder CLI owner",
+      "reason": "The compatibility section names the retained Coder and Manager executable aliases exactly.",
+      "removeWhen": "Both legacy bins complete their versioned deprecation windows."
+    },
+    {
+      "id": "coder-verification-script-paths",
+      "path": "packages/ggcoder/scripts/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 40, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder verification owner",
+      "reason": "Verification scripts consume exact retained repository and evidence paths.",
+      "removeWhen": "A coordinated repository path migration updates scripts and evidence locations together."
+    },
+    {
+      "id": "bundled-find-skills-legacy-seed",
+      "path": "packages/ggcoder/src/config.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "gg-coder" },
+      "expectedOccurrences": { "tracked": 2, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder skills owner",
+      "reason": "The bundled seed remains unchanged until the Step 9 no-overwrite migration and tests land.",
+      "removeWhen": "Step 9 updates only the new-install default while preserving every existing user skill."
+    },
+    {
+      "id": "coder-runtime-temporary-prefixes",
+      "path": "packages/ggcoder/src/**",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder-(?:video|img|compressed|clipboard)-", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 4, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder media integration owner",
+      "reason": "External cleanup and debugging scripts may recognize established Coder temporary-file prefixes.",
+      "removeWhen": "Creation and cleanup support both legacy and branded prefixes for a documented transition."
+    },
+    {
+      "id": "coder-test-source-path-fixtures",
+      "path": "packages/ggcoder/src/ui/tool-group-summary.test.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 3, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Coder UI test owner",
+      "reason": "The summary fixtures exercise realistic retained repository paths.",
+      "removeWhen": "A coordinated repository path migration updates the fixtures and source tree."
+    },
+    {
+      "id": "workspace-lockfile-directory-seams",
+      "path": "pnpm-lock.yaml",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "regex": "packages/(?:ggcoder(?:-eyes)?|gg-boss)|link:(?:\\.\\./)+ggcoder",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 6, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Framework dependency owner",
+      "reason": "Workspace lockfile links must resolve through retained package directories.",
+      "removeWhen": "A coordinated repository path migration regenerates the lockfile."
+    },
+    {
+      "id": "packed-ai-error-discriminators",
+      "path": "packages/gg-ai/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:ErrorSource\\s*=[^\\n]{0,80}|source\\s*=\\s*options\\?\\.source\\s*\\?\\?\\s*|finaliseBySource\\(|case\\s+|return\\s+).{1,2}ggcoder",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 20 },
+      "bucket": "compatibility",
+      "owner": "Error contract owner",
+      "reason": "Packed AI runtime, declarations, and source maps retain the serialized ggcoder ErrorSource discriminator.",
+      "removeWhen": "All consumers accept a branded discriminator and persisted errors have a dual-reader migration."
+    },
+    {
+      "id": "packed-ai-provider-identities",
+      "path": "packages/gg-ai/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:prompt_cache_key|originator|User-Agent)[^\\n]{0,180}ggcoder|ggcoder[^\\n]{0,180}(?:prompt_cache_key|originator|User-Agent)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 16 },
+      "bucket": "compatibility",
+      "owner": "Provider integration owner",
+      "reason": "Packed AI providers retain exact OpenAI cache keys, originator, and user-agent identities.",
+      "removeWhen": "A live provider contract and measured cache migration prove branded values safe."
+    },
+    {
+      "id": "packed-core-product-profile-values",
+      "path": "packages/gg-core/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:legacyCommand|legacyHttpUserAgent|legacyMcpClientName|agentHomeId)[^\\n]{0,50}(?:ggcoder|GGCoder|ggboss)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 30 },
+      "bucket": "compatibility",
+      "owner": "Kleio product identity owner",
+      "reason": "Packed Core profile output exposes explicit legacy command, HTTP, MCP, and Agent Home values.",
+      "removeWhen": "Each profile contract completes its separately reviewed migration and deprecation window."
+    },
+    {
+      "id": "packed-core-openai-originator",
+      "path": "packages/gg-core/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "originator[^\\n]{0,80}ggcoder|ggcoder[^\\n]{0,80}originator",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Provider integration owner",
+      "reason": "Packed Core OAuth output retains the OpenAI originator required by the live provider flow.",
+      "removeWhen": "A live provider contract proves a branded originator is accepted safely."
+    },
+    {
+      "id": "packed-core-gemini-environment-aliases",
+      "path": "packages/gg-core/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "GGCODER_GEMINI_OAUTH_CLIENT_(?:ID|SECRET)", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 8 },
+      "bucket": "compatibility",
+      "owner": "Runtime configuration owner",
+      "reason": "Packed Core OAuth output retains legacy Gemini environment fallbacks.",
+      "removeWhen": "The branded aliases complete their documented legacy fallback period."
+    },
+    {
+      "id": "packed-coder-upstream-dependencies",
+      "path": "packages/ggcoder/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "@kenkaiiii/(?:agent-home-sdk|gg-pixel|kencode-search)", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 7 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "Packed Coder output imports active external packages that have no owned replacements.",
+      "removeWhen": "Owned replacements are published and pass clean-consumer integration tests."
+    },
+    {
+      "id": "packed-coder-cli-contract-test",
+      "path": "packages/ggcoder/dist/cli/bin-alias.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder CLI compatibility owner",
+      "reason": "The packed contract test retains the legacy executable and APP_NAME assertions.",
+      "removeWhen": "A later major release removes both legacy contracts after deprecation."
+    },
+    {
+      "id": "packed-coder-app-name",
+      "path": "packages/ggcoder/dist/config.*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "APP_NAME[^\\n]{0,80}ggcoder|ggcoder[^\\n]{0,80}APP_NAME",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder public API owner",
+      "reason": "Packed runtime and declarations retain the legacy APP_NAME export.",
+      "removeWhen": "A later major version removes the documented legacy export."
+    },
+    {
+      "id": "packed-coder-find-skills-seed",
+      "path": "packages/ggcoder/dist/config.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "gg-coder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder skills owner",
+      "reason": "Packed new-install seed output remains unchanged until the Step 9 no-overwrite migration lands.",
+      "removeWhen": "Step 9 updates the bundled default while preserving every existing user skill."
+    },
+    {
+      "id": "packed-coder-prompt-cache-contract",
+      "path": "packages/ggcoder/dist/core/agent-session*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "Packed Coder runtime, declaration, and tests retain the legacy prompt-cache prefix.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "packed-coder-command-resolution",
+      "path": "packages/ggcoder/dist/core/coder-command*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 6 },
+      "bucket": "compatibility",
+      "owner": "Coder process integration owner",
+      "reason": "Packed command resolution and tests retain the installed legacy executable fallback.",
+      "removeWhen": "The legacy executable completes its major-version deprecation window."
+    },
+    {
+      "id": "packed-coder-pixel-command-compatibility",
+      "path": "packages/ggcoder/dist/core/pixel-fix*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 7 },
+      "bucket": "compatibility",
+      "owner": "Pixel integration owner",
+      "reason": "Packed Pixel automation retains the deprecated option, command fallback, and compatibility tests.",
+      "removeWhen": "A later major removes the option after callers migrate and cleanup supports both prefixes."
+    },
+    {
+      "id": "packed-coder-logger-contracts",
+      "path": "packages/ggcoder/dist/core/logger*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 6 },
+      "bucket": "compatibility",
+      "owner": "Logging compatibility owner",
+      "reason": "Packed logger runtime, declaration, and tests retain strings consumed by existing filters.",
+      "removeWhen": "Structured product fields replace legacy string filters and cleanup supports both generations."
+    },
+    {
+      "id": "packed-coder-mcp-client-tests",
+      "path": "packages/ggcoder/dist/core/mcp/client.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 8 },
+      "bucket": "compatibility",
+      "owner": "Coder MCP integration owner",
+      "reason": "Packed tests prove explicit and configured legacy MCP client identities remain supported.",
+      "removeWhen": "Known MCP servers no longer require the legacy client identity."
+    },
+    {
+      "id": "packed-coder-mcp-command-prefix",
+      "path": "packages/ggcoder/dist/core/mcp/parse-add-command*",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 5 },
+      "bucket": "compatibility",
+      "owner": "Coder MCP integration owner",
+      "reason": "Packed parser runtime, declaration, and tests retain pasted legacy MCP command support.",
+      "removeWhen": "A later major ends the documented pasted-command compatibility window."
+    },
+    {
+      "id": "packed-coder-agent-home-id-test",
+      "path": "packages/ggcoder/dist/modes/agent-home-mode.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 1 },
+      "bucket": "compatibility",
+      "owner": "Agent Home protocol owner",
+      "reason": "The packed registration test freezes the relay and mobile machine ID.",
+      "removeWhen": "Relay and mobile clients ship a coordinated alias and association migration."
+    },
+    {
+      "id": "packed-coder-environment-contract-tests",
+      "path": "packages/ggcoder/dist/tools/safe-env.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "GGCODER" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Runtime configuration owner",
+      "reason": "Packed tests retain legacy environment names exported to child processes.",
+      "removeWhen": "Branded aliases complete their documented legacy fallback period."
+    },
+    {
+      "id": "packed-coder-web-user-agent-tests",
+      "path": "packages/ggcoder/dist/tools/web-fetch.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "GGCoder/1.0" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder web integration owner",
+      "reason": "Packed tests prove strict endpoints can request the previous HTTP user-agent identity.",
+      "removeWhen": "Endpoint compatibility evidence shows the legacy override is no longer needed."
+    },
+    {
+      "id": "packed-coder-runtime-temporary-prefixes",
+      "path": "packages/ggcoder/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "ggcoder-(?:video|img|compressed|clipboard)-", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Coder media integration owner",
+      "reason": "Packed media helpers retain temporary-file prefixes recognized by cleanup and debugging scripts.",
+      "removeWhen": "Creation and cleanup support both legacy and branded prefixes for a documented transition."
+    },
+    {
+      "id": "packed-coder-source-path-fixtures",
+      "path": "packages/ggcoder/dist/ui/tool-group-summary.test.js",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "packages/ggcoder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 3 },
+      "bucket": "compatibility",
+      "owner": "Coder UI test owner",
+      "reason": "Packed summary tests retain realistic repository path fixtures.",
+      "removeWhen": "A coordinated repository path migration updates fixtures and source together."
+    },
+    {
+      "id": "packed-manager-upstream-dependencies",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "kenkaiiii[^\\n]{0,30}(?:ink|kencode-search|gg-pixel(?:-go)?)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 333 },
+      "bucket": "compatibility",
+      "owner": "Dependency owners",
+      "reason": "Manager bundles and source maps inline active Ink, search, Pixel, and Go module coordinates.",
+      "removeWhen": "Owned replacements exist and clean-consumer tests pass against rebuilt Manager artifacts."
+    },
+    {
+      "id": "packed-manager-coder-source-paths",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:\\.\\./)+ggcoder/(?:dist|src)|packages/ggcoder",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 476 },
+      "bucket": "compatibility",
+      "owner": "Manager build owner",
+      "reason": "Manager bundles and source maps inline Coder modules through the retained repository directory.",
+      "removeWhen": "A coordinated repository path migration rebuilds Manager from the new Coder path."
+    },
+    {
+      "id": "packed-manager-public-api",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "\\bGGBoss(?:Options)?\\b", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 28 },
+      "bucket": "compatibility",
+      "owner": "Manager public API owner",
+      "reason": "Packed runtime and source maps expose the legacy Manager class and options API beside branded aliases.",
+      "removeWhen": "Only after the complete prerelease line and a later major-version deprecation window."
+    },
+    {
+      "id": "packed-manager-product-profile-values",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:(?:legacyCommand|legacyMcpClientName|agentHomeId)[^\\n]{0,25}(?:ggcoder|ggboss)|legacyHttpUserAgent[^\\n]{0,60}GGCoder)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 10 },
+      "bucket": "compatibility",
+      "owner": "Kleio product identity owner",
+      "reason": "Inlined Core profile values preserve explicit Coder and Manager compatibility identities.",
+      "removeWhen": "Each profile contract completes its separately reviewed migration and deprecation window."
+    },
+    {
+      "id": "packed-manager-worker-cache-prefix",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggboss-worker" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "Packed Manager workers retain their provider prompt-cache prefix.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "packed-manager-cache-prefix",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "ggboss[^\\n]{0,80}ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "Packed Manager runtime and source maps retain session-scoped and fallback prompt-cache keys.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "packed-manager-bin-alias",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "ggboss[^\\n]{0,100}dist/cli", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Manager CLI compatibility owner",
+      "reason": "Embedded package metadata retains the legacy Manager executable alias.",
+      "removeWhen": "A later major release completes the documented command deprecation period."
+    },
+    {
+      "id": "packed-manager-environment-aliases",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "GGBOSS_(?:AUDIO_PATH|RADIO_URL)", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Runtime configuration owner",
+      "reason": "Packed Manager audio and radio bridges retain legacy environment fallbacks.",
+      "removeWhen": "Branded aliases complete their documented legacy fallback period."
+    },
+    {
+      "id": "packed-manager-logger-component",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "LOG_COMPONENT[^\\n]{0,80}gg-boss|gg-boss[^\\n]{0,80}LOG_COMPONENT",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Logging compatibility owner",
+      "reason": "Packed Manager logging retains the legacy component consumed by existing filters.",
+      "removeWhen": "Structured product fields replace legacy string filters."
+    },
+    {
+      "id": "packed-manager-truncation-marker",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "\\[\\[gg-boss:truncated\\]\\]", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Manager transcript owner",
+      "reason": "Packed Manager output emits and recognizes the persisted truncation marker.",
+      "removeWhen": "A dual-reader recognizes both markers before a new writer ships."
+    },
+    {
+      "id": "packed-manager-directory-metadata",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "packages/gg-boss" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Manager package owner",
+      "reason": "Embedded package metadata points to the retained Manager repository directory.",
+      "removeWhen": "A coordinated repository path migration rebuilds package metadata."
+    },
+    {
+      "id": "packed-manager-find-skills-seed",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "gg-coder" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Coder skills owner",
+      "reason": "Inlined new-install seed output remains unchanged until the Step 9 no-overwrite migration lands.",
+      "removeWhen": "Step 9 updates the bundled default while preserving every existing user skill."
+    },
+    {
+      "id": "packed-manager-error-discriminators",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:ErrorSource\\s*=[^\\n]{0,80}|source\\s*=\\s*options\\?\\.source\\s*\\?\\?\\s*|finaliseBySource\\(|case\\s+|return\\s+).{1,2}ggcoder",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 9 },
+      "bucket": "compatibility",
+      "owner": "Error contract owner",
+      "reason": "Inlined AI error handling retains the exact error-source type, default, finalization, switch, and inference branches for the serialized ggcoder discriminator.",
+      "removeWhen": "All consumers accept a branded discriminator and persisted errors have a dual-reader migration."
+    },
+    {
+      "id": "packed-manager-provider-identities",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:prompt_cache_key|originator|User-Agent)[^\\n]{0,180}ggcoder|ggcoder[^\\n]{0,180}(?:prompt_cache_key|originator|User-Agent)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 9 },
+      "bucket": "compatibility",
+      "owner": "Provider integration owner",
+      "reason": "Inlined AI and Core provider code retains exact OpenAI cache, originator, and user-agent identities.",
+      "removeWhen": "Live provider and cache migrations prove branded values safe."
+    },
+    {
+      "id": "packed-manager-gemini-environment-aliases",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "GGCODER_GEMINI_OAUTH_CLIENT_(?:ID|SECRET)", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 4 },
+      "bucket": "compatibility",
+      "owner": "Runtime configuration owner",
+      "reason": "Inlined Core OAuth code retains legacy Gemini environment fallbacks.",
+      "removeWhen": "Branded aliases complete their documented legacy fallback period."
+    },
+    {
+      "id": "packed-manager-mcp-command-prefix",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "(?:PREFIX_PATTERN|pasted)[^\\n]{0,180}ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder MCP integration owner",
+      "reason": "Inlined parser source maps retain regex and documentation for pasted legacy MCP commands.",
+      "removeWhen": "A later major ends the documented pasted-command compatibility window."
+    },
+    {
+      "id": "packed-manager-project-source-values",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:ProjectSource|SOURCE_ORDER|only\\s*===|LEGACY_CODER_PROJECT_SOURCE)[^\\n]{0,180}ggcoder|ggcoder\\s*:",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 7 },
+      "bucket": "compatibility",
+      "owner": "Manager project discovery owner",
+      "reason": "Packed discovery and display code retain the immutable ggcoder ProjectSource value.",
+      "removeWhen": "Persisted and cross-process consumers support a branded discriminator."
+    },
+    {
+      "id": "packed-manager-pixel-command-option",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "literal": "ggcoderBin" },
+      "expectedOccurrences": { "tracked": 0, "packed": 5 },
+      "bucket": "compatibility",
+      "owner": "Pixel integration owner",
+      "reason": "Inlined Pixel automation retains the deprecated Coder executable override.",
+      "removeWhen": "A later major removes the option after external callers migrate."
+    },
+    {
+      "id": "packed-manager-coder-logger-component",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "LOG_COMPONENT[^\\n]{0,80}ggcoder|ggcoder[^\\n]{0,80}LOG_COMPONENT",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 1 },
+      "bucket": "compatibility",
+      "owner": "Logging compatibility owner",
+      "reason": "Inlined Coder source maps retain the legacy logger component.",
+      "removeWhen": "Structured product fields replace legacy string filters."
+    },
+    {
+      "id": "packed-manager-coder-temporary-prefixes",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "ggcoder-(?:video|img|compressed|clipboard)-", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 6 },
+      "bucket": "compatibility",
+      "owner": "Coder media integration owner",
+      "reason": "Inlined media helpers retain temporary-file prefixes recognized by cleanup and debugging scripts.",
+      "removeWhen": "Creation and cleanup support both legacy and branded prefixes."
+    },
+    {
+      "id": "packed-manager-coder-app-name",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": { "regex": "APP_NAME[^\\n]{0,80}ggcoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 0, "packed": 1 },
+      "bucket": "compatibility",
+      "owner": "Coder public API owner",
+      "reason": "Inlined Coder source maps retain the legacy APP_NAME export.",
+      "removeWhen": "A later major version removes the documented legacy export."
+    },
+    {
+      "id": "packed-manager-pixel-generated-contracts",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "(?:auto-wired by|generated by|pixel install)[^\\n]{0,180}ggcoder|ggcoder[^\\n]{0,180}(?:auto-wired by|generated by|pixel install)",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 12 },
+      "bucket": "compatibility",
+      "owner": "Pixel SDK owner",
+      "reason": "Inlined Pixel generators retain persisted comments and idempotency markers in user projects.",
+      "removeWhen": "A dual-reader recognizes old and branded markers before a new writer ships."
+    },
+    {
+      "id": "packed-manager-coder-cache-prefix",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "LEGACY_CODER_PROMPT_CACHE_PREFIX[^\\n]{0,80}ggcoder|ggcoder[^\\n]{0,80}LEGACY_CODER_PROMPT_CACHE_PREFIX",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Provider cache owner",
+      "reason": "Inlined Coder session code retains its provider prompt-cache prefix.",
+      "removeWhen": "A measured cache migration accepts an intentional cold-cache cutover."
+    },
+    {
+      "id": "packed-manager-coder-command-path",
+      "path": "packages/gg-boss/dist/**",
+      "scope": "content",
+      "targets": ["packed"],
+      "match": {
+        "regex": "packages[^\\n]{0,10}ggcoder[^\\n]{0,100}dist[^\\n]{0,10}cli",
+        "flags": "giu"
+      },
+      "expectedOccurrences": { "tracked": 0, "packed": 2 },
+      "bucket": "compatibility",
+      "owner": "Coder process integration owner",
+      "reason": "Inlined command resolution recognizes Coder's retained repository CLI path.",
+      "removeWhen": "A coordinated repository path migration updates command resolution."
     }
   ]
 }

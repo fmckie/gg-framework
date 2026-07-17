@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { JsonRpcConnection, JsonRpcRequestError } from "./jsonrpc.js";
 import { getSafeToolEnv } from "../../tools/safe-env.js";
@@ -94,7 +95,7 @@ export class LspClient {
       {
         processId: process.pid,
         rootUri,
-        workspaceFolders: [{ uri: rootUri, name: "ggcoder" }],
+        workspaceFolders: [{ uri: rootUri, name: basename(this.rootPath) || "Kleio Coder" }],
         initializationOptions: this.initializationOptions,
         capabilities: {
           textDocument: {

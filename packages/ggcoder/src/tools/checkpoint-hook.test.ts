@@ -13,7 +13,7 @@ function ctx() {
 }
 
 beforeEach(async () => {
-  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "ggcoder-hook-"));
+  cwd = await fs.mkdtemp(path.join(os.tmpdir(), "kleio-coder-hook-"));
 });
 
 afterEach(async () => {

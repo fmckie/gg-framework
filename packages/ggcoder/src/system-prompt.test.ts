@@ -8,7 +8,7 @@ import type { LanguageId } from "./core/language-detector.js";
 const tempDirs: string[] = [];
 
 async function makeProject(files: Record<string, string> = {}): Promise<string> {
-  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "ggcoder-system-prompt-"));
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "kleio-coder-system-prompt-"));
   tempDirs.push(cwd);
   for (const [relativePath, content] of Object.entries(files)) {
     const filePath = path.join(cwd, relativePath);

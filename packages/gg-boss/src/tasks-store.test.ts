@@ -15,7 +15,7 @@ let tmpHome: string;
 const originalEnv: Partial<Record<(typeof HOME_VARS)[number], string | undefined>> = {};
 
 beforeEach(async () => {
-  tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "gg-boss-test-"));
+  tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "kleio-manager-test-"));
   for (const k of HOME_VARS) originalEnv[k] = process.env[k];
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
