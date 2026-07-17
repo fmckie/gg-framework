@@ -6,7 +6,7 @@
  * single section's variant at a time and measures whether the behavior the
  * section encodes survives the compression — everything else stays at `full`.
  *
- * Keep `full` text in sync with packages/ggcoder/src/system-prompt.ts.
+ * Keep `full` text in sync with `packages/ggcoder/src/system-prompt.ts`.
  */
 
 export interface SectionVariant {

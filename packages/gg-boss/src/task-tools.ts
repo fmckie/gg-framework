@@ -6,7 +6,7 @@ import type { Worker } from "./worker.js";
 
 /**
  * Once-per-process flag so we surface the Ctrl+T / r hint a single time per
- * ggboss session. Repeating it on every add_task would bury the chat in
+ * Kleio Manager session. Repeating it on every add_task would bury the chat in
  * advice the user already absorbed.
  */
 let tasksHintShown = false;

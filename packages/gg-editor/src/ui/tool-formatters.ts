@@ -1,14 +1,14 @@
 /**
  * Per-tool detail + inline-summary formatters for gg-editor's ~91 tools.
  *
- * ggcoder's ToolExecution component renders every tool as `<Bold>Label</Bold>
- * (detail) — inline_summary` once done. The default behaviour does
- * snake_case → Title Case for the label and shows nothing for detail / inline
- * unless an explicit case exists in `getToolHeaderParts` / `getInlineSummary`.
+ * Kleio Coder's ToolExecution component renders every tool as
+ * `<Bold>Label</Bold> (detail) — inline_summary` once done. The default behavior
+ * converts snake_case to Title Case for the label and shows nothing for detail
+ * or inline output unless `getToolHeaderParts` / `getInlineSummary` handles it.
  *
  * This file plugs gg-editor specifics into that surface via the
- * `ToolExecutionFormatters` API. Everything we add here is OPT-IN — returning
- * undefined keeps ggcoder's built-in defaults.
+ * `ToolExecutionFormatters` API. Everything here is opt-in; returning
+ * undefined keeps Kleio Coder's built-in defaults.
  *
  * Convention for `formatDetail`:
  *   - Show the most identifying argument the model picked (file path, clip id,

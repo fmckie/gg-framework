@@ -22,7 +22,7 @@ function promptWorkerDetailLen(project: string): number {
 
 /**
  * Custom label / detail / inline-summary rendering for the boss's own tools.
- * Falls through to ggcoder's defaults for anything else.
+ * Falls through to @kleio/coder's defaults for anything else.
  */
 export const bossToolFormatters: ToolExecutionFormatters = {
   formatLabel(name) {

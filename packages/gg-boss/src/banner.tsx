@@ -9,7 +9,7 @@ interface BossBannerProps {
   hint?: string;
   /**
    * If true, show the standard chat-mode shortcut row (Ctrl+T tasks). Mirrors
-   * ggcoder's banner where the third row advertises ^T / ^S / ^P. Override
+   * Kleio Coder's banner where the third row advertises ^T / ^S / ^P. Override
    * with `hint` for non-chat banners (link picker, task overlay).
    */
   showShortcuts?: boolean;

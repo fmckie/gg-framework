@@ -11,7 +11,7 @@ const modelSelectorSource = readFileSync(
 );
 
 describe("BossChatScreen", () => {
-  it("keeps GG Coder chat layout order", () => {
+  it("keeps Kleio Coder chat layout order", () => {
     const layout = source.indexOf("<ChatLayout");
     const live = source.indexOf("{livePane}");
     const controls = source.indexOf("<ChatControls");
@@ -29,7 +29,7 @@ describe("BossChatScreen", () => {
     expect(workerStatus).toBeGreaterThan(footer);
   });
 
-  it("reserves the shared gg-coder live response slot after submit", () => {
+  it("reserves the shared Kleio Coder live response slot after submit", () => {
     const rowsSource = readFileSync(new URL("./boss-transcript-rows.tsx", import.meta.url), "utf8");
 
     expect(rowsSource).toContain("<ChatLivePane");
@@ -40,7 +40,7 @@ describe("BossChatScreen", () => {
     expect(appSource).not.toContain("bossStore.commitLiveItem(userItem)");
   });
 
-  it("passes boss running state into the shared gg-coder input", () => {
+  it("passes Manager running state into the shared Kleio Coder input", () => {
     expect(source).toContain("disabled={isRunning}");
     expect(appSource).toContain('isRunning={state.phase === "working"}');
   });

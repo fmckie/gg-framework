@@ -1,16 +1,15 @@
 import type { ActivityPhase } from "@kleio/coder/ui";
 
 /**
- * Boss-themed phrase library for the activity indicator. Replaces ggcoder's
- * coder-flavored phrases ("Cogitating", "Sleuthing", etc.) with vocabulary
- * that fits an orchestrator role — managing, dispatching, reviewing — so the
- * spinner reads as "the boss is at work" not "the boss is writing code".
+ * Manager-themed phrase library for the activity indicator. It replaces Kleio
+ * Coder's implementation language with orchestration vocabulary—managing,
+ * dispatching, and reviewing—so the spinner reads as Manager work.
  */
 export const BOSS_PHRASES: Record<ActivityPhase, string[]> = {
   // Generic between-states fallback. Probably never shown but keep for safety.
   idle: ["Standing by", "Waiting for orders", "On call"],
 
-  // Boss has issued a request, waiting for the LLM to begin streaming.
+  // Manager issued a request and is waiting for the model to begin streaming.
   waiting: [
     "Briefing",
     "Reviewing the room",

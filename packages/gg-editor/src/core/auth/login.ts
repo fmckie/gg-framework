@@ -1,19 +1,14 @@
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
 import { renderLoginSelector } from "@kleio/coder/ui/login";
-import {
-  AuthStorage,
-  loginAnthropic,
-  loginOpenAI,
-  type OAuthCredentials,
-} from "@kleio/coder/auth";
+import { AuthStorage, loginAnthropic, loginOpenAI, type OAuthCredentials } from "@kleio/coder/auth";
 import { openBrowser } from "@kleio/coder/utils/open-browser";
 import { STATIC_KEY_PROVIDERS, type SupportedAuthProvider } from "./types.js";
 
 /**
  * Editor brand palette — same warm sunset used by the main TUI. Applied to
  * every screen ggeditor renders (login selector, status output, login flow
- * messages) so the look is consistent and clearly distinct from ggcoder.
+ * messages) so the look is consistent and clearly distinct from Kleio Coder.
  */
 const EDITOR_PRIMARY = "#f97316"; // orange-500
 const EDITOR_ACCENT = "#ec4899"; // pink-500
@@ -38,7 +33,7 @@ const pink = chalk.hex(EDITOR_ACCENT);
 /**
  * Interactive `ggeditor login` flow. Uses the shared Ink-based provider
  * selector with the editor's warm palette + brand. Credentials saved to
- * ~/.gg/auth.json — same file ggcoder uses, so logging in via either CLI
+ * ~/.gg/auth.json — same file Kleio Coder uses, so logging in via either CLI
  * works for both.
  */
 export async function runLogin(opts: { provider?: SupportedAuthProvider } = {}): Promise<void> {
@@ -83,7 +78,7 @@ export async function runLogin(opts: { provider?: SupportedAuthProvider } = {}):
   process.stdout.write(
     orange(`\n✓ Logged in to ${displayName(provider)}.\n`) +
       chalk.dim(`  Credentials saved to ${storage.path}\n`) +
-      chalk.dim("  (Same file ggcoder uses — both CLIs share auth.)\n"),
+      chalk.dim("  (Same file Kleio Coder uses — both CLIs share auth.)\n"),
   );
 }
 

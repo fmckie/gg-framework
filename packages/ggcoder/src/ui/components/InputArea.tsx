@@ -236,7 +236,7 @@ interface InputAreaProps {
   /**
    * Locked badge rendered before the prompt arrow on the first visual line.
    * The user cannot delete or edit it — typed text always follows. Used by
-   * downstream tools (gg-boss) to show the active scope/project pill.
+   * downstream tools (@kleio/manager) to show the active scope/project pill.
    */
   scopeBadge?: React.ReactNode;
   /**
@@ -246,13 +246,13 @@ interface InputAreaProps {
    * paste whatever's in the system clipboard repeatedly during high-frequency
    * UI updates (e.g. when workers are running and the input rapidly rerenders).
    * Setting this to true disables click-to-cursor inside the input but kills
-   * the phantom-paste bug. Default: false (mouse tracking enabled, ggcoder
+   * the phantom-paste bug. Default: false (mouse tracking enabled, Kleio Coder
    * behaviour preserved).
    */
   disableMouseTracking?: boolean;
   /**
    * Fired when the user presses Tab (outside slash-completion mode). Used by
-   * downstream tools (gg-boss) to cycle the scope badge.
+   * downstream tools (@kleio/manager) to cycle the scope badge.
    */
   onTab?: () => void;
   /**
@@ -597,7 +597,7 @@ export function InputArea({
   useEffect(() => {
     if (!isActive || !internal_eventEmitter) return;
     // Hard-bail when mouse tracking is disabled at the prop level — used by
-    // gg-boss to avoid the Ghostty phantom-paste bug where rapid mode toggles
+    // @kleio/manager to avoid the Ghostty phantom-paste bug where rapid mode toggles
     // get interpreted as bracketed-paste boundaries during high-frequency UI
     // updates (e.g. workers running, status bar shimmering). Without this we
     // skip the wrapper install too, so no escape-sequence stripping happens
@@ -1347,7 +1347,7 @@ export function InputArea({
           setSelectionAnchor(null);
           return;
         }
-        // Outside slash mode, Tab is delegated — used by gg-boss to cycle
+        // Outside slash mode, Tab is delegated — used by @kleio/manager to cycle
         // the scope badge.
         onTab?.();
         return;

@@ -4,7 +4,7 @@ Universal error tracking optimized for autonomous coding agents, not human dashb
 
 ## Vision
 
-Drop a "pixel" SDK into any project (web app, CLI, server, eventually mobile). Every error — uncaught crash, unhandled rejection, `console.error`, manual report — phones home to a central backend. A web dashboard shows everything live across every project. A global `ggcoder pixel` TUI pulls open errors and runs autonomous fix sessions, one per error, in the right project directory.
+Drop a "pixel" SDK into any project (web app, CLI, server, eventually mobile). Every error — uncaught crash, unhandled rejection, `console.error`, manual report — phones home to a central backend. A web dashboard shows everything live across every project. A global `kleio-coder pixel` TUI pulls open errors and runs autonomous fix sessions, one per error, in the right project directory.
 
 The key shift vs. Sentry/Bugsnag: **the primary consumer is a coding agent, not a human.** Payloads, schemas, and APIs are designed for that.
 
@@ -15,7 +15,7 @@ The key shift vs. Sentry/Bugsnag: **the primary consumer is a coding agent, not 
 1. **gg-pixel SDK** — drop-in library per runtime. Captures errors, posts to ingest.
 2. **Ingest backend** — Cloudflare Workers + D1 (free tier). Accepts events, stores in SQLite-shaped DB, exposes management API + SSE stream.
 3. **Web dashboard** — real-time error feed across all projects. Lightweight; not the primary surface.
-4. **`ggcoder pixel`** — global TUI fix-queue runner. Reuses the existing Tasks pane engine. Spawns one agent session per error.
+4. **`kleio-coder pixel`** — global TUI fix-queue runner. Reuses the existing Tasks pane engine. Spawns one agent session per error.
 
 ---
 
@@ -31,8 +31,20 @@ The key shift vs. Sentry/Bugsnag: **the primary consumer is a coding agent, not 
   "type": "TypeError",
   "message": "Cannot read properties of undefined (reading 'name')",
   "stack": [
-    { "file": "src/components/UserCard.tsx", "line": 42, "col": 23, "fn": "UserCard",   "in_app": true },
-    { "file": "node_modules/react-dom/index.js", "line": 88, "col": 11, "fn": "renderRoute", "in_app": false }
+    {
+      "file": "src/components/UserCard.tsx",
+      "line": 42,
+      "col": 23,
+      "fn": "UserCard",
+      "in_app": true,
+    },
+    {
+      "file": "node_modules/react-dom/index.js",
+      "line": 88,
+      "col": 11,
+      "fn": "renderRoute",
+      "in_app": false,
+    },
   ],
   "code_context": {
     "file": "src/components/UserCard.tsx",
@@ -42,13 +54,13 @@ The key shift vs. Sentry/Bugsnag: **the primary consumer is a coding agent, not 
       "  return (",
       "    <div>{user.name}</div>",
       "  );",
-      "}"
-    ]
+      "}",
+    ],
   },
   "runtime": "node-20.11",
   "manual_report": false,
   "level": "error",
-  "occurred_at": "2026-04-29T14:22:01Z"
+  "occurred_at": "2026-04-29T14:22:01Z",
 }
 ```
 
@@ -97,13 +109,13 @@ One row per `(project_id, fingerprint)`. New occurrences bump `occurrences` + `l
 
 ### Status enum
 
-| Status | Meaning | Set by |
-|---|---|---|
-| `open` | Reported, not picked up | ingest |
-| `in_progress` | Agent session running | runner (on assign) |
-| `awaiting_review` | Branch pushed, checks passed | runner (on observed success) |
-| `merged` | User merged the branch | webhook or manual PATCH |
-| `failed` | Agent gave up / checks failed | runner (on observed failure) |
+| Status            | Meaning                       | Set by                       |
+| ----------------- | ----------------------------- | ---------------------------- |
+| `open`            | Reported, not picked up       | ingest                       |
+| `in_progress`     | Agent session running         | runner (on assign)           |
+| `awaiting_review` | Branch pushed, checks passed  | runner (on observed success) |
+| `merged`          | User merged the branch        | webhook or manual PATCH      |
+| `failed`          | Agent gave up / checks failed | runner (on observed failure) |
 
 Recurrence is not a status — it's a transition. A `merged` error whose fingerprint reappears flips back to `open` with `recurrence_count` incremented. The agent payload surfaces this so the next session knows the prior fix didn't hold.
 
@@ -197,7 +209,7 @@ Dashboard auth deferred to v1.5 (single-user assumed for v1).
 
 ## Onboarding flow (agent-driven)
 
-Skill: `gg-pixel:install` or `ggcoder pixel install` from inside a project dir.
+Skill: `gg-pixel:install` or `kleio-coder pixel install` from inside a project dir.
 
 The agent gets a dedicated system prompt and:
 
@@ -213,7 +225,7 @@ The agent gets a dedicated system prompt and:
 // ~/.gg/projects.json
 {
   "proj_abc123": { "name": "client-x-app", "path": "/Users/kenkai/Documents/client-x" },
-  "proj_def456": { "name": "ggcoder",      "path": "/Users/kenkai/Documents/UnstableMind/gg-coder" }
+  "proj_def456": { "name": "kleio-coder", "path": "/Users/example/Projects/kleio-coder" },
 }
 ```
 
@@ -235,7 +247,7 @@ One-way push, scales on Workers, simpler than WebSockets, sufficient for this wo
 
 ---
 
-## Fix-queue runner (`ggcoder pixel`)
+## Fix-queue runner (`kleio-coder pixel`)
 
 Global TUI command. Reuses the Tasks-pane engine: queue → spawn session → observe → mark → next.
 
@@ -246,7 +258,7 @@ Loop:
 3. For each open error in priority order:
    - `cd` to project's local path
    - `PATCH /api/errors/:id { status: "in_progress" }`
-   - Spawn a ggcoder session with the **agent context** payload as the prompt
+   - Spawn a Kleio Coder session with the **agent context** payload as the prompt
    - Watch for: branch `fix/pixel-{id}` created? checks pass (project's `pnpm check` / `pytest` / etc.)? push succeeded?
    - All ✓ → `PATCH { status: "awaiting_review", branch: "fix/pixel-..." }`
    - Any ✗ → `PATCH { status: "failed" }`
@@ -262,7 +274,7 @@ Loop:
 
 ## Out of scope for v1
 
-- Browser SDK + source-map symbolication (Node-only first; covers ggcoder + deployed Node services)
+- Browser SDK + source-map symbolication (Node-only first; covers Kleio Coder + deployed Node services)
 - Heartbeats / uptime monitoring
 - Notifications (email, Slack, push)
 - Dashboard auth / multi-tenant (clients viewing their own projects)

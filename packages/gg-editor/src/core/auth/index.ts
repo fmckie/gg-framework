@@ -2,7 +2,7 @@
  * gg-editor's auth surface. Single source of truth lives in
  * `@kleio/coder/auth` \u2014 we re-export it here so editor code keeps a
  * stable import path while the underlying OAuth flows, refresh logic, and
- * AuthStorage are exactly the ones ggcoder ships and exercises daily.
+ * AuthStorage are exactly the ones Kleio Coder ships and exercises daily.
  *
  * Why re-export instead of fork: every previous fork (gg-editor 0.6.0\u20130.6.6)
  * accumulated regressions when small details drifted \u2014 wrong OpenAI

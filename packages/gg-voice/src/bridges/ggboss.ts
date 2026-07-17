@@ -16,7 +16,7 @@ export function createGGBossBridge(target: GGBossPromptTarget): GGBossBridge {
       if (command.type !== "prompt") {
         return {
           type: "error",
-          error: `Unsupported GGBoss bridge command: ${command.type}`,
+          error: `Unsupported Kleio Manager bridge command: ${command.type}`,
         };
       }
       await target.enqueueUserMessage(command.text);
@@ -33,11 +33,11 @@ export function createRelayGGBossTool(
 ): VoiceTool {
   return {
     name: "send_to_ggboss",
-    description: "Send a prompt to a GG Boss orchestrator relay.",
+    description: "Send a prompt to a Kleio Manager orchestrator relay.",
     parameters: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Prompt text to send to GG Boss." },
+        text: { type: "string", description: "Prompt text to send to Kleio Manager." },
       },
       required: ["text"],
     },
@@ -54,11 +54,11 @@ export function createRelayGGBossTool(
 function createSendToGGBossTool(bridge: GGBossBridge): VoiceTool {
   return {
     name: "send_to_ggboss",
-    description: "Send a prompt to an in-process GG Boss orchestrator.",
+    description: "Send a prompt to an in-process Kleio Manager orchestrator.",
     parameters: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Prompt text to send to GG Boss." },
+        text: { type: "string", description: "Prompt text to send to Kleio Manager." },
       },
       required: ["text"],
     },
@@ -75,6 +75,6 @@ function createSendToGGBossTool(bridge: GGBossBridge): VoiceTool {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw new Error("GGBoss bridge command aborted");
+    throw new Error("Kleio Manager bridge command aborted");
   }
 }

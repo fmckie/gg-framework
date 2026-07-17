@@ -1,2 +1,2 @@
-// Moved to @kenkaiiii/gg-core.
+// Moved to @kleio/core.
 export { getClaudeCodeVersion, getClaudeCliUserAgent } from "@kleio/core";

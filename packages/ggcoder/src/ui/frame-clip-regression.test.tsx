@@ -6,7 +6,7 @@
 // next SHORTER frame, log-update's eraseLines clamps at the screen top and
 // rewrites the frame top-anchored: the footer lands mid-screen with blank
 // rows below it and stays there. The patched ink's clipFrameToTerminalHeight
-// option (set by ggcoder's scrollback-mode INK_OPTIONS) clips frames to
+// option (set by @kleio/coder's scrollback-mode INK_OPTIONS) clips frames to
 // rows - 2 so that poisoned state can never be entered. This test renders a
 // frame that overflows the terminal, then shrinks it, and asserts the footer
 // ends at the bottom of the written content — not stranded above blank rows.
@@ -48,7 +48,7 @@ describe("scrollback frame clip (clipFrameToTerminalHeight)", () => {
       rows: ROWS,
       patchConsole: false,
       maxFps: 1000,
-      // Mirrors ggcoder's scrollback-mode INK_OPTIONS.
+      // Mirrors @kleio/coder's scrollback-mode INK_OPTIONS.
       clipFrameToTerminalHeight: true,
     } as Parameters<typeof render>[1]);
     await tick();
@@ -89,7 +89,7 @@ describe("scrollback bottom anchoring (anchorFrameToBottom)", () => {
       rows: ROWS,
       patchConsole: false,
       maxFps: 1000,
-      // Mirrors ggcoder's scrollback-mode INK_OPTIONS.
+      // Mirrors @kleio/coder's scrollback-mode INK_OPTIONS.
       clipFrameToTerminalHeight: true,
       anchorFrameToBottom: true,
     } as Parameters<typeof render>[1]);

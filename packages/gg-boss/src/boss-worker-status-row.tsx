@@ -26,7 +26,7 @@ function AnimationActiveSentinel(): null {
 }
 
 /**
- * Same shimmer pattern used by ggcoder's ActivityIndicator phrases — a bright
+ * Same shimmer pattern used by Kleio Coder's ActivityIndicator phrases — a bright
  * highlight band of width `SHIMMER_WIDTH` slides across the text while the
  * rest stays dim. Driven by the global animation tick.
  */

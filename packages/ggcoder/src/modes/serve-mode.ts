@@ -606,7 +606,7 @@ export async function runServeMode(options: ServeModeOptions): Promise<void> {
       return;
     }
 
-    // ── Forward to ggcoder slash commands ──
+    // ── Forward to Kleio Coder slash commands ──
 
     if (!TELEGRAM_COMMANDS.has(cmd)) {
       const projectPath = resolveProjectPath(chatId);

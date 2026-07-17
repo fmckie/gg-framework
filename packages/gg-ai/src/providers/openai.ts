@@ -87,7 +87,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   // Moonshot/Kimi requires video uploaded to the file service and referenced by
   // `ms://<id>` — inline base64 is rejected. Kimi's endpoint also only accepts
   // the resulting `video_url` part inside a tool result (not user content), so
-  // ggcoder routes attached video through the read tool. This uploads every
+  // Kleio Coder routes attached video through the read tool. This uploads every
   // video part (in user OR tool-result content) and caches the id so multi-turn
   // sessions don't re-upload. Done in-place before the transform.
   if (options.provider === "moonshot") {
@@ -127,7 +127,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     ...(useStreaming ? { stream_options: { include_usage: true } } : {}),
   };
 
-  // Native web search is disabled for OpenAI-compatible providers — ggcoder
+  // Native web search is disabled for OpenAI-compatible providers — Kleio Coder
   // provides its own web_search/web_fetch tools which handle results properly.
   // Moonshot's $web_search was previously injected here but it returns opaque
   // results and triggers reasoning_content validation errors with thinking mode.

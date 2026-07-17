@@ -21,7 +21,7 @@ type SetupHistory = Record<string, SetupHistoryEntry>;
  * exactly once per project, not once per session.
  *
  * Stored at `~/.gg/setup-history.json`. Keys are absolute cwd paths. The file
- * is small (one line per project the user has ever opened with ggcoder) and
+ * is small (one line per project the user has ever opened with Kleio Coder) and
  * read/written on session start only \u2014 not in any hot path.
  */
 function readHistory(): SetupHistory {

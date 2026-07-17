@@ -1,10 +1,10 @@
 # @kenkaiiii/gg-voice
 
-Provider-agnostic realtime voice orchestration for GG tools, agents, and remote coding sessions.
+Provider-agnostic realtime voice orchestration for Kleio tools, agents, and remote coding sessions.
 
 ## Architecture
 
-`gg-voice` keeps the package root mobile-safe: it exports normalized voice session types, tool conversion helpers, in-memory tests, and platform interfaces without importing Node-only `ggcoder` internals. Provider and bridge integrations live behind subpath exports so Expo, web, desktop, and Node relays can choose only the pieces they need.
+`gg-voice` keeps the package root mobile-safe: it exports normalized voice session types, tool conversion helpers, in-memory tests, and platform interfaces without importing Node-only `@kleio/coder` internals. Provider and bridge integrations live behind subpath exports so Expo, web, desktop, and Node relays can choose only the pieces they need.
 
 Core concepts:
 
@@ -12,7 +12,7 @@ Core concepts:
 - `VoiceTransport`: injectable WebRTC, WebSocket, or custom transport.
 - `VoiceEvent`: normalized session, transcript, text, audio, tool, error, and close events.
 - `VoiceTool`: realtime-safe tool contract with optional confirmation policies.
-- `VoiceBridgeCommand` / `VoiceBridgeEvent`: small control surface for GG remotes.
+- `VoiceBridgeCommand` / `VoiceBridgeEvent`: small control surface for Kleio remotes.
 
 ## Provider support
 
@@ -34,7 +34,7 @@ This route is intentionally marked experimental because Codex backend request sh
 
 ## Tools
 
-Convert existing GG tools into realtime function tools:
+Convert existing Kleio tools into realtime function tools:
 
 ```ts
 import { agentToolToVoiceTool, voiceToolToRealtimeFunctionTool } from "@kenkaiiii/gg-voice";
@@ -56,17 +56,19 @@ await session.sendToolResult(result);
 
 Use confirmation policies such as `"always"` or `"destructive"` for high-risk voice actions.
 
-## GG bridges
+## Compatibility bridge IDs
 
-`@kenkaiiii/gg-voice/bridges/ggcoder-rpc` maps the voice bridge command surface to existing `ggcoder rpc` NDJSON commands such as `prompt`, `get_state`, `abort`, `new_session`, and `switch_model`.
+Voice bridge subpaths, API names, tool names, and NDJSON commands are compatibility identifiers and remain unchanged.
 
-`@kenkaiiii/gg-voice/bridges/ggboss` can wrap an in-process `GGBoss.enqueueUserMessage(text)` target or expose a relay-backed `send_to_ggboss` tool.
+`@kenkaiiii/gg-voice/bridges/ggcoder-rpc` maps the voice bridge surface to Kleio Coder RPC commands such as `prompt`, `get_state`, `abort`, `new_session`, and `switch_model`. Prefer the `kleio-coder rpc` executable invocation; the legacy `ggcoder rpc` invocation remains supported.
+
+`@kenkaiiii/gg-voice/bridges/ggboss` can wrap an in-process `GGBoss.enqueueUserMessage(text)` target or expose a relay-backed `send_to_ggboss` tool. The `ggboss`, `GGBoss`, and `send_to_ggboss` spellings are frozen wire/API identities, not current product display names.
 
 ## Expo and mobile limitations
 
 Expo apps should consume the package root plus their own platform adapters for secure storage, URL opening, microphone capture, audio playback, and WebRTC. Direct realtime WebRTC in React Native generally requires `react-native-webrtc` and a custom dev/EAS build; Expo Go is unlikely to be enough for production speech-to-speech.
 
-Do not import `@kleio/coder` directly into a phone bundle. Send voice-derived commands through a relay, `ggcoder rpc`, Agent Home style bridge, or a server-side `AgentSession` wrapper.
+Do not import `@kleio/coder` directly into a phone bundle. Send voice-derived commands through a relay, `kleio-coder rpc`, an Agent Home-style bridge, or a server-side `AgentSession` wrapper.
 
 ## Auth modes
 
@@ -74,6 +76,6 @@ Recommended first path:
 
 1. A trusted backend uses an OpenAI API key to create a Realtime client secret or call session.
 2. The mobile/web app uses the ephemeral credential or backend SDP exchange.
-3. The app sends local device tools and remote GG bridge tools through `gg-voice`.
+3. The app sends local device tools and remote Kleio bridge tools through `gg-voice`.
 
 Experimental Codex auth should remain behind explicit user opt-in and separate imports.

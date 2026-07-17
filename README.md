@@ -1,59 +1,68 @@
-# GG Framework
+# Kleio Framework
 
 <p align="center">
-  <strong>Modular TypeScript framework for building LLM-powered apps. From raw streaming to full coding agent.</strong>
+  <strong>Modular TypeScript framework for building LLM-powered apps. From raw streaming to a full coding agent.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/npm/v/@kleio/coder?style=for-the-badge&label=ggcoder" alt="ggcoder npm version"></a>
-  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/npm/v/@kleio/manager?style=for-the-badge&label=gg-boss" alt="gg-boss npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/npm/v/@kleio/coder?style=for-the-badge&label=Kleio%20Coder" alt="Kleio Coder npm version"></a>
+  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/npm/v/@kleio/manager?style=for-the-badge&label=Kleio%20Manager" alt="Kleio Manager npm version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
-  <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-  <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
+  <a href="https://github.com/fmckie/gg-framework"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="Source on GitHub"></a>
 </p>
 
-Four packages. Each one works on its own. Stack them together and you get a full coding agent — or an orchestrator that drives many of them at once.
+Each package works on its own. Stack them together and you get a full coding agent—or a manager that drives many agents at once.
 
-| Package | What it does | README |
-|---|---|---|
-| [`@kleio/ai`](https://www.npmjs.com/package/@kleio/ai) | Unified LLM streaming API across four providers | [packages/gg-ai](packages/gg-ai/README.md) |
-| [`@kleio/agent`](https://www.npmjs.com/package/@kleio/agent) | Agent loop with multi-turn tool execution | [packages/gg-agent](packages/gg-agent/README.md) |
-| [`@kleio/coder`](https://www.npmjs.com/package/@kleio/coder) | CLI coding agent with OAuth, tools, and TUI | [packages/ggcoder](packages/ggcoder/README.md) |
-| [`@kleio/manager`](https://www.npmjs.com/package/@kleio/manager) | Orchestrator that drives many ggcoder workers from one chat | [packages/gg-boss](packages/gg-boss/README.md) |
+| Package                                                          | What it does                                             | README                                           |
+| ---------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| [`@kleio/ai`](https://www.npmjs.com/package/@kleio/ai)           | Unified LLM streaming API across four providers          | [packages/gg-ai](packages/gg-ai/README.md)       |
+| [`@kleio/agent`](https://www.npmjs.com/package/@kleio/agent)     | Agent loop with multi-turn tool execution                | [packages/gg-agent](packages/gg-agent/README.md) |
+| [`@kleio/coder`](https://www.npmjs.com/package/@kleio/coder)     | Kleio Coder CLI with OAuth, tools, and TUI               | [packages/ggcoder](packages/ggcoder/README.md)   |
+| [`@kleio/manager`](https://www.npmjs.com/package/@kleio/manager) | Kleio Manager orchestration for many Kleio Coder workers | [packages/gg-boss](packages/gg-boss/README.md)   |
 
-```
+```text
 @kleio/ai (standalone)
-  └─► @kleio/agent (depends on gg-ai)
-        └─► @kleio/coder (depends on both)
-              └─► @kleio/manager (orchestrates many ggcoder workers)
+  └─► @kleio/agent
+        └─► @kleio/coder
+              └─► @kleio/manager (orchestrates many Kleio Coder workers)
 ```
 
 ---
 
 ## Which package do I need?
 
-| You want to... | Use |
-|---|---|
-| Stream LLM responses across providers with one API | [`@kleio/ai`](packages/gg-ai/README.md) |
-| Build an agent that calls tools and loops autonomously | [`@kleio/agent`](packages/gg-agent/README.md) |
-| Use a ready-made CLI coding agent | [`@kleio/coder`](packages/ggcoder/README.md) |
+| You want to...                                                  | Use                                            |
+| --------------------------------------------------------------- | ---------------------------------------------- |
+| Stream LLM responses across providers with one API              | [`@kleio/ai`](packages/gg-ai/README.md)        |
+| Build an agent that calls tools and loops autonomously          | [`@kleio/agent`](packages/gg-agent/README.md)  |
+| Use a ready-made CLI coding agent                               | [`@kleio/coder`](packages/ggcoder/README.md)   |
 | Drive many coding agents across multiple projects from one chat | [`@kleio/manager`](packages/gg-boss/README.md) |
 
-Each package works on its own. Install only what you need.
+Install only what you need:
 
 ```bash
-npm i @kleio/ai          # Just the streaming layer
-npm i @kleio/agent       # Streaming + agent loop
-npm i -g @kleio/coder     # The full CLI coding agent
-npm i -g @kleio/manager     # Multi-project orchestrator
+npm i @kleio/ai           # Streaming layer
+npm i @kleio/agent        # Streaming + agent loop
+npm i -g @kleio/coder     # Kleio Coder CLI
+npm i -g @kleio/manager   # Kleio Manager CLI
 ```
+
+The preferred commands are `kleio-coder` and `kleio-manager`.
+
+---
+
+## Command compatibility
+
+The legacy `ggcoder` and `ggboss` executables remain compatibility aliases for existing scripts and installations. They run the same entry points and use the same `.gg` state as `kleio-coder` and `kleio-manager`. Use the Kleio commands in new documentation and automation.
+
+Repository directories remain [`packages/ggcoder`](packages/ggcoder) and [`packages/gg-boss`](packages/gg-boss) to preserve the upstream-sync seam.
 
 ---
 
 ## For developers
 
 ```bash
-git clone https://github.com/KenKaiii/gg-framework.git
+git clone https://github.com/fmckie/gg-framework.git
 cd gg-framework
 pnpm install
 pnpm build
@@ -63,10 +72,11 @@ TypeScript 5.9 + pnpm workspaces + Ink 6 + React 19 + Vitest 4 + Zod v4
 
 ---
 
-## Community
+## Support and provenance
 
-- [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) - tutorials and demos
-- [Skool community](https://skool.com/kenkai) - come hang out
+- [Source](https://github.com/fmckie/gg-framework)
+- [Issues](https://github.com/fmckie/gg-framework/issues)
+- [Fork lineage and upstream policy](UPSTREAM.md)
 
 ---
 
@@ -77,10 +87,10 @@ MIT
 ---
 
 <p align="center">
-  <strong>Less bloat. More coding. Four providers. Four packages. One framework.</strong>
+  <strong>Less bloat. More coding. One Kleio framework.</strong>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kleio%2Fcoder-blue?style=for-the-badge" alt="Install ggcoder"></a>
-  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/badge/Orchestrate-npm%20i%20--g%20%40kleio%2Fmanager-7C3AED?style=for-the-badge" alt="Install gg-boss"></a>
+  <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/badge/Install-npm%20i%20--g%20%40kleio%2Fcoder-blue?style=for-the-badge" alt="Install Kleio Coder"></a>
+  <a href="https://www.npmjs.com/package/@kleio/manager"><img src="https://img.shields.io/badge/Orchestrate-npm%20i%20--g%20%40kleio%2Fmanager-7C3AED?style=for-the-badge" alt="Install Kleio Manager"></a>
 </p>

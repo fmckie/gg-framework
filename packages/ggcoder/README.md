@@ -1,4 +1,4 @@
-![ggcoder](screenshots/ggcoder.png)
+# Kleio Coder
 
 <p align="center">
   <strong>The fast, lean coding agent. Eight providers. Zero bloat.</strong>
@@ -7,14 +7,12 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/@kleio/coder"><img src="https://img.shields.io/npm/v/@kleio/coder?style=for-the-badge" alt="npm version"></a>
   <a href="../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
-  <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-  <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
-  <a href="https://github.com/KenKaiii"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="https://github.com/fmckie/gg-framework/tree/main/packages/ggcoder"><img src="https://img.shields.io/badge/Source-GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="Source on GitHub"></a>
 </p>
 
-A coding agent that ships only what the model needs to work — a tiny system prompt, one carefully-chosen MCP, and a focused tool set. Switch between Anthropic, OpenAI, GLM, Moonshot, MiniMax, Xiaomi, DeepSeek, and OpenRouter mid-conversation. Run it on its own, or let [`@kleio/manager`](../gg-boss/README.md) drive a fleet of `ggcoder` workers across many projects from a single chat.
+Kleio Coder ships only what the model needs to work: a tiny system prompt, one carefully chosen MCP, and a focused tool set. Switch between Anthropic, OpenAI, GLM, Moonshot, MiniMax, Xiaomi, DeepSeek, and OpenRouter mid-conversation. Run it on its own, or let [`@kleio/manager`](../gg-boss/README.md) drive a fleet of Kleio Coder workers across many projects from a single chat.
 
-Built on [`@kleio/ai`](../gg-ai/README.md) and [`@kleio/agent`](../gg-agent/README.md). Part of the [GG Framework](../../README.md) monorepo.
+Built on [`@kleio/ai`](../gg-ai/README.md) and [`@kleio/agent`](../gg-agent/README.md). Part of the [Kleio Framework](../../README.md) monorepo.
 
 ---
 
@@ -23,11 +21,17 @@ Built on [`@kleio/ai`](../gg-ai/README.md) and [`@kleio/agent`](../gg-agent/READ
 ```bash
 npm i -g @kleio/coder
 
-ggcoder login    # Pick provider, authenticate
-ggcoder          # Start coding
+kleio-coder login    # Pick provider, authenticate
+kleio-coder          # Start coding
 ```
 
-OAuth for Anthropic and OpenAI (log in once, auto-refresh, no key to leak). API keys for the rest. Up and running in seconds either way. Auth lives in `~/.gg/auth.json` and is shared with `gg-boss`.
+OAuth for Anthropic and OpenAI (log in once, auto-refresh, no key to leak). API keys for the rest. Up and running in seconds either way. Auth lives in `~/.gg/auth.json` and is shared with Kleio Manager.
+
+---
+
+## Command compatibility
+
+`ggcoder` remains a compatibility alias for `kleio-coder`, and `ggboss` remains a compatibility alias for `kleio-manager`. Existing scripts can continue to use the legacy executables; new documentation and automation should use the Kleio commands. Both names use the same `.gg` credentials, settings, and sessions.
 
 ---
 
@@ -35,10 +39,10 @@ OAuth for Anthropic and OpenAI (log in once, auto-refresh, no key to leak). API 
 
 Every token in the system prompt gets processed on **every single turn**. It's not a one-time cost. It's a tax on every request.
 
-| | **Claude Code / Agent SDK** | **GG Coder** |
-|---|---|---|
-| System prompt size | ~15,000 tokens | **~1,100 tokens** |
-| Ratio | baseline | **~13x smaller** |
+|                    | **Claude Code / Agent SDK** | **Kleio Coder**   |
+| ------------------ | --------------------------- | ----------------- |
+| System prompt size | ~15,000 tokens              | **~1,100 tokens** |
+| Ratio              | baseline                    | **~13x smaller**  |
 
 ### Why you should care
 
@@ -47,7 +51,7 @@ Every token in the system prompt gets processed on **every single turn**. It's n
 - **Context fills up faster.** ~15,000 tokens sitting in your window permanently. That's ~7.5% of a 200K model gone before you say hello. You hit compaction sooner, lose history faster, and the agent forgets what it was doing.
 - **Higher cost.** Input tokens aren't free. Every cache miss charges you for the full bloat. Smaller prompt = smaller bill.
 
-GG Coder sends only what the model needs: how to work, what tools it has, and your project context. No walls of rules. No formatting instructions. Just signal.
+Kleio Coder sends only what the model needs: how to work, what tools it has, and your project context. No walls of rules. No formatting instructions. Just signal.
 
 ---
 
@@ -57,7 +61,7 @@ Same philosophy applies to tools. People collect MCPs like Pokemon. Slack MCP, G
 
 This doesn't help. It confuses the agent. More tool descriptions = more noise = worse tool selection. The model spends tokens reasoning about tools it will never call.
 
-GG Coder ships with one MCP: [Grep](https://grep.dev). That's it. It lets the agent search across 1M+ public GitHub repos to verify implementations against real-world code. Correct API usage, library idioms, production patterns. One tool that actually makes the output better.
+Kleio Coder ships with one MCP: [Grep](https://grep.dev). That's it. It lets the agent search across 1M+ public GitHub repos to verify implementations against real-world code. Correct API usage, library idioms, production patterns. One tool that actually makes the output better.
 
 You can still add your own MCPs if you need them. But start with less. You'll get better results.
 
@@ -67,16 +71,16 @@ You can still add your own MCPs if you need them. But start with less. You'll ge
 
 Switch mid-conversation with `/model`. Not locked to anyone.
 
-| Provider | Models | Auth |
-|---|---|---|
-| **Anthropic** | Claude Opus 4.8, Sonnet 4.6, Haiku 4.5 | OAuth |
-| **OpenAI** | GPT-5.5, GPT-5.5 Pro, GPT-5.4, GPT-5.3 Codex | OAuth |
-| **Moonshot** | Kimi K2.7 | API key |
-| **Z.AI (GLM)** | GLM-5.1, GLM-4.7, GLM-4.7 Flash | API key |
-| **MiniMax** | MiniMax M3 (image + video) | API key |
-| **Xiaomi (MiMo)** | MiMo-V2.5-Pro, MiMo-V2.5 (image + video) | API key |
-| **DeepSeek** | DeepSeek V4 Pro, V4 Flash | API key |
-| **OpenRouter** | Qwen3.6-Plus + multi-provider gateway | API key |
+| Provider          | Models                                       | Auth    |
+| ----------------- | -------------------------------------------- | ------- |
+| **Anthropic**     | Claude Opus 4.8, Sonnet 4.6, Haiku 4.5       | OAuth   |
+| **OpenAI**        | GPT-5.5, GPT-5.5 Pro, GPT-5.4, GPT-5.3 Codex | OAuth   |
+| **Moonshot**      | Kimi K2.7                                    | API key |
+| **Z.AI (GLM)**    | GLM-5.1, GLM-4.7, GLM-4.7 Flash              | API key |
+| **MiniMax**       | MiniMax M3 (image + video)                   | API key |
+| **Xiaomi (MiMo)** | MiMo-V2.5-Pro, MiMo-V2.5 (image + video)     | API key |
+| **DeepSeek**      | DeepSeek V4 Pro, V4 Flash                    | API key |
+| **OpenRouter**    | Qwen3.6-Plus + multi-provider gateway        | API key |
 
 The same conversation, the same tools, the same project context — only the model changes. Use a strong reasoning model when you need it, swap to a fast cheap one for grunt work, never restart your session.
 
@@ -84,35 +88,35 @@ The same conversation, the same tools, the same project context — only the mod
 
 ---
 
-## 🤝 Pair it with gg-boss
+## 🤝 Pair it with Kleio Manager
 
-`ggcoder` is the unit of work. [`gg-boss`](../gg-boss/README.md) is the orchestrator that drives many of them at once.
+Kleio Coder is the unit of work. [Kleio Manager](../gg-boss/README.md) is the orchestrator that drives many of them at once.
 
 ```bash
 npm i -g @kleio/manager
-ggboss link    # pick which projects to drive
-ggboss         # one chat, N parallel ggcoder workers
+kleio-manager link    # Pick which projects to drive
+kleio-manager         # One chat, N parallel Kleio Coder workers
 ```
 
-Inside `gg-boss`, every project gets its own `ggcoder` `AgentSession` running in that project's directory. The boss dispatches work — `prompt_worker(project, "...")` — and each worker uses the **same** focused tool set (read, write, edit, bash, grep, find, ls, web fetch, sub-agents) you'd get running `ggcoder` solo. Workers reply with a tight `Changed / Skipped / Verified / Notes / Status` summary the boss reads, cross-checks, and routes off.
+Inside Kleio Manager, every project gets its own Kleio Coder `AgentSession` running in that project's directory. The manager dispatches work—`prompt_worker(project, "...")`—and each worker uses the **same** focused tool set (read, write, edit, bash, grep, find, ls, web fetch, sub-agents) you'd get when running Kleio Coder solo. Workers reply with a tight `Changed / Skipped / Verified / Notes / Status` summary that the manager reads, cross-checks, and routes.
 
-Why this works: ggcoder's lean prompt and tight tool set keep each worker cheap and predictable, so the boss can run six or more in parallel without context blow-up. Anything you can do in a single `ggcoder` session — slash commands, skills, MCPs, custom commands, project `CLAUDE.md` rules — works inside the boss too.
+Kleio Coder's lean prompt and tight tool set keep each worker cheap and predictable, so the manager can run six or more in parallel without context blow-up. Anything you can do in a single Kleio Coder session—slash commands, skills, MCPs, custom commands, project `CLAUDE.md` rules—works inside Kleio Manager too.
 
-Run `ggcoder` directly when you're heads-down on one project. Switch to `ggboss` when you want a coordinator on top.
+Run `kleio-coder` directly when you're heads-down on one project. Switch to `kleio-manager` when you want a coordinator on top.
 
 ---
 
 ## ⌨️ Keybindings
 
-| Key | What it does |
-|---|---|
-| <kbd>Ctrl+T</kbd> | Open the Task pane |
-| <kbd>Ctrl+S</kbd> | Open the Skills pane |
-| <kbd>Shift+Tab</kbd> | Cycle extended thinking (off / low / medium / high / max) |
-| <kbd>Esc</kbd> | Interrupt the agent mid-turn |
-| <kbd>Ctrl+C</kbd> ×2 | Exit |
-| <kbd>↑</kbd> / <kbd>↓</kbd> | Recall previous prompts (when input is empty) |
-| <kbd>Enter</kbd> | Send · <kbd>Shift+Enter</kbd> newline · `/` opens the slash menu |
+| Key                         | What it does                                                     |
+| --------------------------- | ---------------------------------------------------------------- |
+| <kbd>Ctrl+T</kbd>           | Open the Task pane                                               |
+| <kbd>Ctrl+S</kbd>           | Open the Skills pane                                             |
+| <kbd>Shift+Tab</kbd>        | Cycle extended thinking (off / low / medium / high / max)        |
+| <kbd>Esc</kbd>              | Interrupt the agent mid-turn                                     |
+| <kbd>Ctrl+C</kbd> ×2        | Exit                                                             |
+| <kbd>↑</kbd> / <kbd>↓</kbd> | Recall previous prompts (when input is empty)                    |
+| <kbd>Enter</kbd>            | Send · <kbd>Shift+Enter</kbd> newline · `/` opens the slash menu |
 
 ---
 
@@ -120,19 +124,19 @@ Run `ggcoder` directly when you're heads-down on one project. Switch to `ggboss`
 
 Everything runs through slash commands inside the session. Not CLI flags.
 
-| Command | What it does |
-|---|---|
-| `/model` (`/m`) | Switch model on the fly |
-| `/compact` (`/c`) | Compress context when it gets long |
-| `/new` (`/n`) | Start a fresh session in this project |
-| `/session` (`/s`) | Resume a prior session |
-| `/branch` (`/b`) | Branch the current conversation |
-| `/branches` | List branches of the current session |
-| `/rewind` | Restore files and/or conversation to an earlier checkpoint |
-| `/buddy` | Spin up a second model to review the current chat |
-| `/settings` (`/config`) | Open settings |
-| `/help` (`/h`, `/?`) | Show all commands |
-| `/quit` (`/q`, `/exit`) | Exit |
+| Command                 | What it does                                               |
+| ----------------------- | ---------------------------------------------------------- |
+| `/model` (`/m`)         | Switch model on the fly                                    |
+| `/compact` (`/c`)       | Compress context when it gets long                         |
+| `/new` (`/n`)           | Start a fresh session in this project                      |
+| `/session` (`/s`)       | Resume a prior session                                     |
+| `/branch` (`/b`)        | Branch the current conversation                            |
+| `/branches`             | List branches of the current session                       |
+| `/rewind`               | Restore files and/or conversation to an earlier checkpoint |
+| `/buddy`                | Spin up a second model to review the current chat          |
+| `/settings` (`/config`) | Open settings                                              |
+| `/help` (`/h`, `/?`)    | Show all commands                                          |
+| `/quit` (`/q`, `/exit`) | Exit                                                       |
 
 Plus built-in workflows that ship with the binary:
 
@@ -148,20 +152,20 @@ Plus built-in workflows that ship with the binary:
 
 ## 🛠 Tools
 
-GG Coder comes with a focused set of tools. Each one is small, well-described, and earns its place in the prompt.
+Kleio Coder comes with a focused set of tools. Each one is small, well-described, and earns its place in the prompt.
 
-| Tool | What it does |
-|---|---|
-| `bash` | Run shell commands |
-| `read` | Read file contents |
-| `write` | Write files |
-| `edit` | Surgical string replacements |
-| `grep` | Search file contents (regex) |
-| `find` | Find files by glob pattern |
-| `ls` | List directory contents |
-| `web_fetch` | Fetch URL content |
+| Tool         | What it does                                                                                           |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| `bash`       | Run shell commands                                                                                     |
+| `read`       | Read file contents                                                                                     |
+| `write`      | Write files                                                                                            |
+| `edit`       | Surgical string replacements                                                                           |
+| `grep`       | Search file contents (regex)                                                                           |
+| `find`       | Find files by glob pattern                                                                             |
+| `ls`         | List directory contents                                                                                |
+| `web_fetch`  | Fetch URL content                                                                                      |
 | `screenshot` | Open a URL / dev server in a headless browser and capture a PNG so the agent can see the rendered page |
-| `subagent` | Spawn parallel sub-agents |
+| `subagent`   | Spawn parallel sub-agents                                                                              |
 
 The `screenshot` tool needs the optional `playwright` dependency plus a one-time `npx playwright install chromium`. Without it the tool returns an install hint instead of failing the turn. Captured images render inline in graphics-capable terminals (kitty, Ghostty, WezTerm, iTerm2); other terminals show a text line.
 
@@ -177,9 +181,9 @@ Drop a markdown file in `.gg/commands/` and it becomes a slash command. Your Rea
 
 ## ⏪ Checkpoints & `/rewind`
 
-Before every file the agent writes or edits, GG Coder snapshots the prior on-disk content into a per-session checkpoint (stored under `~/.gg/checkpoints/`, never in your repo). Run `/rewind` to pick an earlier checkpoint and restore **code only**, **conversation only**, or **both**.
+Before every file the agent writes or edits, Kleio Coder snapshots the prior on-disk content into a per-session checkpoint (stored under `~/.gg/checkpoints/`, never in your repo). Run `/rewind` to pick an earlier checkpoint and restore **code only**, **conversation only**, or **both**.
 
-Only edits made through ggcoder's `write`/`edit` tools are tracked — changes made by `bash` (e.g. `sed`, `rm`, codegen) are **not** captured.
+Only edits made through Kleio Coder's `write`/`edit` tools are tracked—changes made by `bash` (for example, `sed`, `rm`, or code generation) are **not** captured.
 
 ---
 
@@ -196,17 +200,17 @@ They get loaded into the system prompt automatically. The agent knows what it ca
 
 ## 📋 Project guidelines
 
-Drop a `CLAUDE.md` or `AGENTS.md` in your repo root (or any parent directory). GG Coder picks it up automatically.
+Drop a `CLAUDE.md` or `AGENTS.md` in your repo root (or any parent directory). Kleio Coder picks it up automatically.
 
 Your rules. Your conventions. The agent follows them.
 
 ---
 
-## 👥 Community
+## Support
 
-- [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) — tutorials and demos
-- [Skool community](https://skool.com/kenkai) — come hang out
-- [GitHub @KenKaiii](https://github.com/KenKaiii)
+- [Source](https://github.com/fmckie/gg-framework/tree/main/packages/ggcoder)
+- [Issues](https://github.com/fmckie/gg-framework/issues)
+- [Fork lineage and upstream policy](../../UPSTREAM.md)
 
 ---
 

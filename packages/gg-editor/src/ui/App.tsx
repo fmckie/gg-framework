@@ -26,7 +26,7 @@ import { buildEditorHostBlock, spliceHostBlock } from "../system-prompt.js";
 import { EDITOR_PROMPT_COMMANDS, getEditorPromptCommand } from "../prompt-commands.js";
 import { ggEditorFormatters } from "./tool-formatters.js";
 
-// Editor brand pulse — amber → orange → rose. Distinct from ggcoder's blue/purple.
+// Editor brand pulse — amber → orange → rose. Distinct from Kleio Coder's blue/purple.
 const THINKING_BORDER_COLORS = ["#fbbf24", "#f97316", "#ec4899", "#f97316", "#fbbf24"];
 
 export interface AppProps {
@@ -107,7 +107,7 @@ type HistoryItem =
       details?: unknown;
     };
 
-// Names are bare (no `/` prefix) — ggcoder's slash menu prepends `/` for
+// Names are bare (no `/` prefix) — Kleio Coder's slash menu prepends `/` for
 // display. Including a `/` here would render as `//`.
 //
 // Order is intentional, follows the typical creator session arc:
@@ -451,7 +451,7 @@ export function App(props: AppProps) {
       }
 
       // Bundled prompt commands — dispatch to the agent loop with the
-      // command's prompt as the user message. Mirrors ggcoder's pattern.
+      // command's prompt as the user message. Mirrors Kleio Coder's pattern.
       // Args after the command name are appended as "## User Instructions".
       if (value.startsWith("/")) {
         const parts = value.slice(1).split(" ");
@@ -476,13 +476,13 @@ export function App(props: AppProps) {
   );
 
   // Double-press exit — first Ctrl+C / ESC sets pending; second within 800ms
-  // exits cleanly. Mirrors ggcoder's pattern.
+  // exits cleanly. Mirrors Kleio Coder's pattern.
   const handleDoubleExit = useDoublePress(setExitPending, () => {
     props.onShutdown();
     exit();
   });
 
-  // Toggle thinking via Shift-Tab — same binding ggcoder uses.
+  // Toggle thinking via Shift-Tab — same binding Kleio Coder uses.
   const handleToggleThinking = useCallback(() => {
     setThinkingEnabled((prev) => {
       const next = !prev;
@@ -638,7 +638,7 @@ export function App(props: AppProps) {
       />
 
       {/* Model picker overlay sits below the input (replacing the Footer)
-          while open — matches ggcoder's layout exactly. */}
+          while open — matches Kleio Coder's layout exactly. */}
       {overlay === "model" ? (
         <ModelSelector
           onSelect={handleModelSelect}

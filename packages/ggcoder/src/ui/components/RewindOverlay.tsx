@@ -30,7 +30,7 @@ function relativeTime(timestamp: number): string {
  * Step 1 selects a checkpoint (one per turn); step 2 picks a restore mode.
  * Mirrors Claude Code's three restore modes: code only, conversation only, both.
  *
- * Caveat shown in the copy: only edits made through ggcoder's write/edit tools
+ * Caveat shown in the copy: only edits made through Kleio Coder's write/edit tools
  * are tracked — changes made by bash (sed, rm, codegen) are not captured.
  */
 export function RewindOverlay({ checkpoints, onRestore, onCancel }: RewindOverlayProps) {

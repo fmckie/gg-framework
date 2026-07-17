@@ -1,20 +1,14 @@
 import React from "react";
 import { render } from "ink";
 import { AnimationProvider } from "@kleio/coder/ui";
-import {
-  ThemeContext,
-  SetThemeContext,
-  loadTheme,
-  type ThemeName,
-} from "@kleio/coder/ui/theme";
+import { ThemeContext, SetThemeContext, loadTheme, type ThemeName } from "@kleio/coder/ui/theme";
 import { detectTheme } from "@kleio/coder/ui/theme/detect";
 import { TerminalSizeProvider } from "@kleio/coder/ui/hooks/terminal-size";
 import { App, type AppProps } from "./App.js";
 
 /**
- * Editor brand palette. Warm orange/red so it's visually distinct from
- * ggcoder's blue/purple — same theme structure (so all shared components
- * still work), just different accent colors.
+ * Editor brand palette. Warm orange/red keeps it visually distinct from Kleio
+ * Coder's blue/purple palette while preserving the shared theme structure.
  */
 const EDITOR_PALETTE = {
   primary: "#f97316", // orange-500 — used by spinner, input arrow, footer model name
@@ -31,10 +25,9 @@ const EDITOR_PALETTE = {
 } as const;
 
 /**
- * Mount the editor TUI. Wraps with the same provider stack ggcoder uses so
- * shared components (Footer, ToolExecution, AssistantMessage, ActivityIndicator,
- * etc.) work with their context dependencies satisfied — but injects the
- * editor's warm palette over the loaded base theme.
+ * Mount the editor TUI with the same provider stack as Kleio Coder. Shared
+ * components receive their expected contexts while the editor's warm palette
+ * overrides the loaded base theme.
  */
 export async function renderEditorTui(props: AppProps): Promise<void> {
   const themeName = await detectTheme();

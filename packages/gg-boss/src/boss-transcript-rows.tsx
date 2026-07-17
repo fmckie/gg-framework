@@ -108,10 +108,10 @@ export function BossTranscriptRow({
 }
 
 /**
- * Update-available notice — gg-boss brand aesthetic. Rounded box, fuchsia
+ * Update-available notice — Kleio Manager brand aesthetic. Rounded box, fuchsia
  * accent border, crimson primary body text. Mirrors the gradient feel of the
- * splash + banner so the notice reads as part of gg-boss rather than a
- * borrowed-green ggcoder element. The ✨ rides the accent so the eye lands
+ * splash + banner so the notice reads as part of Kleio Manager rather than a
+ * borrowed-green Kleio Coder element. The ✨ rides the accent so the eye lands
  * on the highlight first, then reads the primary-colored body.
  */
 function UpdateNoticeRow({ text }: { text: string }): React.ReactElement {

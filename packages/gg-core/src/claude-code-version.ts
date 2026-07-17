@@ -11,7 +11,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
 // Last known good version at publish time. Used only when the npm fetch fails
 // and no on-disk cache exists (e.g. first run on an offline machine). Keep
-// reasonably current — bump on each ggcoder release.
+// reasonably current with each Kleio Coder release.
 const FALLBACK_VERSION = "2.1.88";
 
 type CachedVersion = { version: string; fetchedAt: number };

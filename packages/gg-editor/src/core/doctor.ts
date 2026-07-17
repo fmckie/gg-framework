@@ -451,7 +451,7 @@ function checkAuthFile(home: string): DoctorCheck {
     fix: exists
       ? undefined
       : "Run `ggeditor login` and pick a provider (Anthropic OAuth recommended; OpenAI / GLM / " +
-        "Moonshot also supported). Auth is shared with ggcoder via ~/.gg/auth.json — log in once.",
+        "Moonshot also supported). Auth is shared with Kleio Coder via ~/.gg/auth.json — log in once.",
   };
 }
 

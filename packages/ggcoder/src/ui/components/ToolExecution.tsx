@@ -61,7 +61,7 @@ export interface ToolExecutionFormatters {
   formatDetail?: (name: string, args: Record<string, unknown>) => string | undefined;
   /**
    * Override the inline summary at done time. Return a string for the default
-   * dim color, or `{ text, color }` to render in a custom color (e.g. gg-boss
+   * dim color, or `{ text, color }` to render in a custom color (e.g. @kleio/manager
    * uses this to randomise the "dispatched" color per call).
    */
   formatInline?: (name: string, result: string, isError: boolean) => InlineSummary | undefined;

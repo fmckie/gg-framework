@@ -1,5 +1,5 @@
 /**
- * Error model for gg-ai and downstream consumers.
+ * Error model for @kleio/ai and downstream consumers.
  *
  * Low-level formatting stays product-neutral. Applications can pass an
  * `ErrorDisplayOptions` profile to add their display name, preferred login
@@ -161,7 +161,7 @@ function providerDisplayName(provider: string): string {
  * transient per-minute throttle)? These don't clear with a quick retry — the
  * user has to wait for the window to reset — so callers must surface them as a
  * hard stop, not silently retry for minutes. Detected from the canonical
- * "usage limit reached" message gg-ai stamps onto the ProviderError.
+ * "usage limit reached" message @kleio/ai stamps onto the ProviderError.
  */
 export function isUsageLimitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;

@@ -19,7 +19,7 @@ export interface DiscoveredProject {
 }
 
 /**
- * Scan ggcoder + Claude Code + Codex session stores and return one row per
+ * Scan Kleio Coder, Claude Code, and Codex session stores and return one row per
  * project, sorted most-recent first. Duplicates (same cwd) are collapsed; the
  * `sources` field lists every store the project appeared in so the picker can
  * show a combined badge.
@@ -103,7 +103,7 @@ async function discoverGgcoderProjects(): Promise<DiscoveredProject[]> {
 /**
  * Scan ~/.claude/projects/. Claude Code's directory encoding replaces every
  * "/" with "-", which is genuinely ambiguous — a real dash in a path component
- * (e.g. "gg-coder") collides with the separator. So we extract the cwd from
+ * (e.g. "my-project") collides with the separator. So we extract the cwd from
  * the JSONL events themselves; Claude writes it into user/assistant records.
  * Falls back to a best-effort dash decode only if no event carries a cwd.
  */

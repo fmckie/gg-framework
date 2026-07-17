@@ -1,4 +1,4 @@
-// Moved to @kenkaiiii/gg-core. Shim keeps `../core/voice-transcriber.js`
+// Moved to @kleio/core. Shim keeps `../core/voice-transcriber.js`
 // imports working.
 export {
   setProgressCallback,

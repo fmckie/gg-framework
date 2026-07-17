@@ -14,7 +14,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - **Bundled skills** (recipes): `long-form-content-edit`, `short-form-content-edit` — fetched on demand via `read_skill`
 - **TUI footer** with running token + tool counts
 - **Slash command autocomplete** with menu and Tab completion
-- **OAuth login** (`ggeditor login`) — PKCE flow for Anthropic + OpenAI, shared `~/.gg/auth.json` with ggcoder
+- **OAuth login** (`ggeditor login`) — PKCE flow for Anthropic + OpenAI, shared `~/.gg/auth.json` with Kleio Coder
 - **Ink TUI** with header, streaming text, animated spinner, tool-call lines, slash commands
 - **3 host adapters**: Resolve (live bridge), Premiere (live bridge on macOS), None (file-only)
 - **Cross-platform**: macOS ✓, Linux ✓ (Resolve only), Windows ✓ (Resolve only)
@@ -27,6 +27,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 ## Done
 
 ### Foundation
+
 - [x] Package skeleton, pnpm workspace integration, build/check/test scripts
 - [x] `VideoHost` interface — NLE-agnostic contract
 - [x] `HostUnsupportedError` / `HostUnreachableError` — clean fallback signal
@@ -39,6 +40,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] ffmpeg/ffprobe wrappers + abort-signal support
 
 ### Resolve adapter (live)
+
 - [x] Cross-platform Python interpreter detection (python3 / python / py -3)
 - [x] Long-lived sidecar bridge with JSON-line wire protocol
 - [x] Embedded Python source (no .py shipping issues)
@@ -47,6 +49,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [~] cut_at / ripple_delete: throw HostUnsupportedError pointing to write_edl + import_edl
 
 ### Premiere adapter (live, macOS)
+
 - [x] osascript/ExtendScript transport
 - [x] Self-contained per-call JSX generation
 - [x] Methods: ping, get_timeline, add_marker, append_clip, import_timeline
@@ -54,9 +57,11 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [ ] Windows path — needs CEP panel (see "Premiere on Windows" below)
 
 ### None adapter (file-only)
+
 - [x] Bypass mode for ffmpeg-only workflows
 
 ### Tools (27)
+
 - [x] `host_info` — capabilities snapshot
 - [x] `get_timeline` — head/tail summarized JSON
 - [x] `get_markers` — read prior decisions for session resume
@@ -99,6 +104,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] Word-level captions — `transcribe(wordTimestamps=true)`, `read_transcript(includeWords=true)`, `write_srt(words=[...])`
 
 ### Content-creator additions (Tier 1)
+
 - [x] Mental model: long-form vs short-form video content
 - [x] Captions / subtitles workflow (probe → extract → transcribe → write_srt → import_subtitles)
 - [x] Rough-cut-from-script workflow
@@ -109,12 +115,14 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] Bundled skills: long-form-content-edit, short-form-content-edit
 
 ### Content-creator additions (Tier 2 — closed)
+
 - [x] Color tools: `apply_lut`, `set_primary_correction`, `copy_grade` (Resolve only; LUT + CDL is what's actually scriptable; wheels/curves/qualifiers/windows remain manual)
 - [x] Multicam audio sync — v1 first-transient / clap-sync via ffmpeg silencedetect
 - [x] Self-review tool (`review_edit`) — critique edit against stated intent
 - [x] User-extensible skills — `.gg/editor-skills/*.md` (project) + `~/.gg/editor-skills/*.md` (user) layered on top of bundled
 
 ### Content-creator additions (Tier 3 — closed)
+
 - [x] `color_match` — vision-derived CDL with confidence gate
 - [x] B-roll insertion over transcript range — `insert_broll` on V2
 - [x] Loudness pipeline — `measure_loudness` + `normalize_loudness` (EBU R128)
@@ -127,12 +135,14 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] Chapter-markers skill recipe
 
 ### Content-creator additions (Tier 4 — closed)
+
 - [x] Marker query enhancements — `get_markers(color, contains, startFrame, endFrame)`
 - [x] Style presets — `<cwd>/.gg/editor-styles/*.md` + `~/.gg/editor-styles/*.md` (project overrides user); fold into system prompt as Active style presets
 - [x] Speaker handling — `Transcript.segments[].speaker?: string` schema, `read_transcript(speaker=...)` filter, `detect_speaker_changes` heuristic v1 (silence-gap based; honest about its limits)
 - [x] Round-trip golden tests — EDL + FCPXML structural verification via targeted regex (event count, contiguous record cursor, frame-rate fractions for 23.976/29.97, asset/clip ref integrity)
 
 ### Content-creator additions (Tier 5 — closed)
+
 - [x] **Speaker diarization v2** — `transcribe(diarize=true)` shells out to whisperx (which uses pyannote). Requires HF_TOKEN. Real speaker labels per segment + word.
 - [x] **ASS subtitle writer** (`write_ass`) — styled burned captions: font, color, outline, position, per-cue style overrides. Vertical-canvas defaults baked in. ffmpeg hardcodes via `subtitles=` filter.
 - [x] **Music ducking** (`duck_audio`) — sidechain compression (voice key, music chain). Defaults tuned for spoken voice over music.
@@ -140,6 +150,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] **Per-call bridge cancellation** — Resolve and Premiere bridges accept `opts.signal`; aborted calls stop waiting on the JS side and discard the eventual response. Resolve render still can't be cancelled mid-flight (host-side limitation).
 
 ### Content-creator additions (Tier 6 — closed)
+
 - [x] **Multicam sync v2** — envelope cross-correlation for dialogue/applause/music; no slate needed. Pure JS, no FFT lib (energy envelope at 100ms blocks is sufficient for editorial alignment). `multicam_sync(method="envelope")`.
 - [x] **`stabilize_video`** — two-pass ffmpeg vidstab (detect → transform). Audio preserved, zoom available to hide stabilization borders.
 - [x] **`add_track`** — append a track to the active Resolve timeline (V2/A3/ST1...).
@@ -147,6 +158,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] **`pre_render_check`** — composite QA before render. Verifies timeline non-empty, no unresolved PAUSE markers, loudness vs platform target (when supplied), captions presence (when expected). Severity-tagged issues; blocks at severity="block".
 
 ### Content-creator additions (Tier 7 — closed)
+
 - [x] **`burn_subtitles`** — hardcode .srt or .ass into a video. End-of-pipeline captioning.
 - [x] **`concat_videos`** — lossless concat-demuxer mode + filter-based re-encode mode. Intro/main/outro stitching.
 - [x] **`add_fades`** — fade-in/out on video + audio.
@@ -156,6 +168,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] **`compose_thumbnail`** — frame extract + drawtext headline. YouTube/TikTok thumbnails.
 
 ### Content-creator backlog (Tier 8 — open)
+
 - [ ] Cumulative cost telemetry surface in TUI footer (token → dollar). Pricing table maintenance burden.
 - [ ] Render mid-flight cancellation — host-side limit (Resolve render queue can be cancelled only via UI).
 - [ ] Frame-accurate FFT cross-correlation for multicam (envelope is editorial-grade, sub-block lag undefined). Needed only if someone asks for it.
@@ -164,14 +177,16 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 
 ## Up next (priority order)
 
-### ~~1. Vision shot scoring — `score_shot`~~  ✅ DONE
+### ~~1. Vision shot scoring — `score_shot`~~ ✅ DONE
+
 - [x] `core/vision.ts` — OpenAI vision API client (chat completions w/ image_url)
 - [x] `core/frames.ts` — frame extraction (per-time + interval modes)
 - [x] `tools/score-shot.ts` — sample frames at interval or specific times, batch-score
 - [x] Tests for response parser (handles array, wrapped object, prose-wrapped, padding/truncation)
 - [x] System prompt: vision-pass workflow + cost-awareness rules
 
-### ~~1. Premiere on Windows~~  ✅ DONE
+### ~~1. Premiere on Windows~~ ✅ DONE
+
 - [x] New package: `@kenkaiiii/gg-editor-premiere-panel`
 - [x] CEP manifest (PPRO, NodeJS enabled, mixed-context)
 - [x] Panel HTML + JS with localhost HTTP server (default port 7437)
@@ -182,7 +197,8 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] HTTP bridge end-to-end tested with stub server
 - [ ] (v1) ZXP signing for production unsigned-panel-free install
 
-### ~~2. Take-selection helper — `cluster_takes`~~  ✅ DONE
+### ~~2. Take-selection helper — `cluster_takes`~~ ✅ DONE
+
 - [x] `core/clustering.ts` — Jaccard similarity over normalized token sets, union-find
 - [x] Tunable threshold + window + minTokens
 - [x] `tools/cluster-takes.ts` — reads transcript, returns multi-member clusters in temporal order
@@ -191,8 +207,9 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [ ] (v1) Embedding-similarity backend for paraphrased re-takes (currently token-based only)
 - [ ] (v1) Per-cluster ranking (vision score + audio quality + position) auto-pick winner
 
-### ~~3. Ink TUI port~~  ✅ DONE (focused rebuild rather than full port)
-- [x] `ui/theme.ts` — standalone palette (no ggcoder dep)
+### ~~3. Ink TUI port~~ ✅ DONE (focused rebuild rather than full port)
+
+- [x] `ui/theme.ts` — standalone palette (no Kleio Coder dependency)
 - [x] `ui/spinner-frames.ts` — sparkle character set, OS-aware
 - [x] `ui/components/Header.tsx` — host status banner
 - [x] `ui/components/Spinner.tsx` — animated tick
@@ -210,7 +227,8 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [x] TUI footer with token + tool + turn counts
 - [ ] (v1) Theme picker (currently dark-only)
 
-### Output format expansion  ✅ PARTIAL DONE
+### Output format expansion ✅ PARTIAL DONE
+
 - [x] FCPXML 1.10 emitter + `write_fcpxml` tool
 - [x] Frame-rational time encoding (no 23.976/29.97 rounding loss)
 - [x] Multi-source asset support (one asset per unique reel)
@@ -218,7 +236,8 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [ ] (v1) AAF emitter for Avid interop
 - [ ] (v1) Resolve `.drt` native timeline format
 
-### Composite take selection  ✅ DONE
+### Composite take selection ✅ DONE
+
 - [x] `pick_best_takes` tool combines cluster_takes + score_shot + winner-picking
 - [x] Three strategies: `last` (default), `first`, `vision`
 - [x] Returns picks + dropped indexes + reasoning per cluster
@@ -229,6 +248,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 ## Stubbed but reachable (honest gaps)
 
 ### Resolve API limits (genuine)
+
 - [~] `cut_at` — Resolve API has no scriptable razor. Fallback: `write_edl + import_edl`. Documented in adapter.
 - [~] `ripple_delete` — same. Same fallback.
 - [~] AI features (Magic Mask config, Voice Isolation params, Speed Warp) — not in API. No workaround until Blackmagic exposes them.
@@ -237,6 +257,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [~] Smart Bins — read but not creatable via script.
 
 ### Premiere API limits (genuine)
+
 - [~] `cut_at` — QE DOM razor exists but undocumented and version-fragile. Avoid; use EDL.
 - [~] `ripple_delete` — same.
 - [~] `render` — requires Adobe Media Encoder integration. Punt to manual export for now.
@@ -244,6 +265,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [~] Speech-to-Text features — not exposed.
 
 ### Whisper backend limits
+
 - [~] Local whisper.cpp word-level timestamps — disabled (whisper.cpp `-oj` doesn't include them by default).
 - [~] OpenAI 25MB upload limit — guarded with clear error directing to extract_audio compression.
 
@@ -252,6 +274,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 ## Missing entirely (post-v1 ideas)
 
 ### Higher-tier intelligence
+
 - [ ] **Multi-take auto-selection** — extract every "did the user re-take this line" and auto-pick best
 - [ ] **B-roll suggestion** — for talking-head, propose cutaways based on transcript content
 - [ ] **Pacing analysis** — detect over/under-paced sections via prosody + visual change rate
@@ -259,6 +282,7 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [ ] **Style transfer from reference edit** — feed agent a reference cut, learn its cut rhythm
 
 ### Supporting tools
+
 - [ ] `extract_frames` — exposed standalone (currently internal to score_shot)
 - [ ] `compare_audio` — A/B audio quality (SNR, clipping, tonality)
 - [ ] `detect_speakers` — diarization for multi-person recordings (pyannote / similar)
@@ -268,35 +292,41 @@ Legend: `[x]` done · `[~]` partial / stubbed honestly · `[ ]` not started
 - [ ] `safe_render` — render to scratch first, agent verifies output, then commits to final path
 
 ### Output formats
+
 - [ ] FCPXML emitter (alternative to EDL; richer, supports color/effects metadata)
 - [ ] AAF emitter (Avid interop)
 - [ ] Resolve `.drt` timeline format (lossless Resolve-native)
 
 ### Integrations
+
 - [ ] Remotion bridge — generate compositions from agent decisions, render outside any NLE
 - [ ] Frame.io upload after render
 - [ ] Cloudinary / S3 upload + URL return for rendered files
-- [ ] Telegram / Slack notification on render complete (the existing `gg-coder` has telegram already; reusable)
+- [ ] Telegram / Slack notification on render complete (Kleio Coder already has reusable Telegram support)
 
 ### Infrastructure
-- [ ] Session persistence (current state, decisions journal) like ggcoder has
+
+- [ ] Session persistence (current state, decisions journal) like Kleio Coder has
 - [ ] `--resume <session-id>`
-- [x] OAuth for Anthropic + OpenAI (PKCE flow, shared auth.json with ggcoder) (currently API key only)
+- [x] OAuth for Anthropic + OpenAI (PKCE flow, shared `auth.json` with Kleio Coder; currently API key only)
 - [ ] Cost tracking per session (tokens used, frames analyzed, transcribe minutes)
 - [ ] Undo journal (every host op records inverse operation when possible)
 
 ### Cross-platform polish
+
 - [ ] Linux Premiere — N/A (Premiere is Mac/Windows only). Document explicitly.
 - [ ] Windows Resolve — should work today via the existing Python bridge; needs verification.
 - [ ] AppImage / standalone binary distribution
 
 ### Testing
+
 - [ ] End-to-end test against a real Resolve installation (requires CI with Resolve Studio license — hard)
 - [ ] End-to-end test against a real Premiere installation (similar)
 - [ ] Snapshot tests for EDL output across realistic decision lists
 - [ ] Property-based tests for silence parser (random ffmpeg output shapes)
 
 ### Documentation
+
 - [ ] Architecture diagram
 - [ ] Tool reference page (each tool's contract, examples)
 - [ ] Recipe book: silence cut, take selection, color batch, B-roll insertion

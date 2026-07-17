@@ -31,7 +31,7 @@ import type { BundledSkill } from "../skills.js";
  *
  * Two project / user dirs are searched in order — `.gg/editor-skills/` (the
  * legacy gg-editor location) then `.gg/skills/` (the broader ecosystem
- * convention used by ggcoder + skills.sh installs). Same for ~/.gg/. This
+ * convention used by Kleio Coder + skills.sh installs). Same for ~/.gg/. This
  * means a creator who has done `npx skills add kenkaiiii/agent-skills` into
  * `~/.gg/skills/` automatically gets the editor skills too.
  */
@@ -129,7 +129,7 @@ function readSkillDir(dir: string, origin: "project" | "user"): SkillSource[] {
  *
  * The parsed `content` retains the frontmatter when present, so consumers
  * (read_skill / agent prompts) see the full file as authored. This matches
- * how ggcoder and the skills.sh ecosystem treat skill files.
+ * how Kleio Coder and the skills.sh ecosystem treat skill files.
  */
 export function parseSkill(
   raw: string,

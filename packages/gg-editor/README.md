@@ -11,7 +11,7 @@
   <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
 </p>
 
-Built on the [GG Framework](../../README.md). Same agent loop ([`@kleio/agent`](../gg-agent/README.md)) as ggcoder, completely different tool surface — no `bash`, no `read/write/edit`, no general-purpose coder behaviour. Just video.
+Built on the [Kleio Framework](../../README.md). It uses the same agent loop ([`@kleio/agent`](../gg-agent/README.md)) as Kleio Coder with a completely different tool surface—no `bash`, no `read/write/edit`, and no general-purpose coding behavior. Just video.
 
 ---
 
@@ -19,11 +19,11 @@ Built on the [GG Framework](../../README.md). Same agent loop ([`@kleio/agent`](
 
 ```bash
 npm i -g @kenkaiiii/gg-editor
-ggeditor login    # if you don't already use ggcoder
+ggeditor login    # If you are not already signed in with Kleio Coder
 ggeditor
 ```
 
-Auth lives in `~/.gg/auth.json` — the **same file ggcoder uses**. If you've already logged into ggcoder, ggeditor uses those credentials automatically. No env vars, no API key flags.
+Auth lives in `~/.gg/auth.json`—the **same file Kleio Coder uses**. If you have already logged in with Kleio Coder, `ggeditor` uses those credentials automatically. No environment variables or API key flags are required.
 
 It auto-detects whether you have DaVinci Resolve or Premiere Pro open. If neither, it runs in file-only mode (ffmpeg + transcribe + score). All three modes use the same tools and the same agent.
 
@@ -46,6 +46,7 @@ ggeditor "cut all silences from podcast.mp4"
 ```
 
 Real workflow that runs autonomously:
+
 1. Probes the file (`probe_media`)
 2. Detects silence ranges via ffmpeg (`detect_silence`)
 3. Writes a CMX 3600 EDL of the keep-ranges (`write_edl`)
@@ -59,6 +60,7 @@ ggeditor "from this 2-hour interview, keep only the strongest takes about authen
 ```
 
 Goes deeper:
+
 1. Extracts audio (`extract_audio`)
 2. Transcribes (`transcribe`) — full transcript saved to disk, summary in context
 3. Clusters re-takes (`cluster_takes`) — finds where the speaker said the same thing 2-3 times
@@ -138,13 +140,13 @@ When a host can't do something via the live API (Resolve has no scriptable razor
 
 This is the design rule that keeps the whole thing fast:
 
-| Concern | What we do |
-|---|---|
-| **Successful void op** | returns `"ok"` — 1 token |
-| **Successful state op** | compact JSON, no labels: `{"id":"x","start":0,"end":600}` |
-| **Errors** | one line: `error: <cause>; fix: <next-step>` |
-| **Long lists** | summarized: `{total, omitted, head[], tail[]}` |
-| **Big payloads (transcript)** | written to disk; tool returns summary + path |
+| Concern                       | What we do                                                |
+| ----------------------------- | --------------------------------------------------------- |
+| **Successful void op**        | returns `"ok"` — 1 token                                  |
+| **Successful state op**       | compact JSON, no labels: `{"id":"x","start":0,"end":600}` |
+| **Errors**                    | one line: `error: <cause>; fix: <next-step>`              |
+| **Long lists**                | summarized: `{total, omitted, head[], tail[]}`            |
+| **Big payloads (transcript)** | written to disk; tool returns summary + path              |
 
 Token economics for a 50-tool-call edit session: **~3K tokens of tool output**, vs the ~30K-50K typical of "AI video editor" wrappers that dump prose. Means the agent stays sharp for hundreds of decisions in one window.
 
@@ -153,29 +155,35 @@ Token economics for a 50-tool-call edit session: **~3K tokens of tool output**, 
 ## Setup notes
 
 ### Required
+
 - **Node 18+** and **ffmpeg/ffprobe** on PATH
 
 ### For Resolve
+
 - **DaVinci Resolve Studio** (free version doesn't expose the API externally)
 - **Python 3** on PATH (`python3` / `python` / `py -3` — auto-detected)
 - Resolve must be running with a project + timeline open
 - **Preferences → System → General → External scripting using → Local**
 
 ### For Premiere (macOS)
+
 - **Adobe Premiere Pro** running with an active sequence
 - That's it — uses the built-in `osascript` + ExtendScript
 
 ### For Premiere (Windows or macOS)
+
 - Install the companion panel package: `npm i -g @kenkaiiii/gg-editor-premiere-panel && gg-editor-premiere-panel install`
 - Restart Premiere; open `Window → Extensions → GG Editor`
 - The bridge auto-probes the panel — once it's running, gg-editor uses HTTP transport (faster than osascript)
 - macOS without the panel still works via the built-in osascript fallback
 
 ### For transcription
+
 - **Local** (recommended, free, private): install [whisper.cpp](https://github.com/ggerganov/whisper.cpp), download a `ggml-*.bin` model, pass `modelPath` to the `transcribe` tool
 - **API**: set `OPENAI_API_KEY` — auto-detected fallback
 
 ### For vision shot scoring
+
 - **OpenAI API key** — `score_shot` uses GPT-4o-mini by default (~$0.15 per 1M input tokens)
 
 ---
@@ -191,7 +199,8 @@ The agent ships with three bundled **skills** (recipes) for these, fetched on de
 
 ### Persistent style presets
 
-For things that should apply to *every* response (your editing voice, default formats, naming conventions): drop a markdown file in either:
+For things that should apply to _every_ response (your editing voice, default formats, naming conventions): drop a markdown file in either:
+
 - `<cwd>/.gg/editor-styles/<name>.md` — project-scoped (checked into the repo)
 - `~/.gg/editor-styles/<name>.md` — user-scoped (your personal default)
 
@@ -200,6 +209,7 @@ Unlike skills (which are read on-demand), styles fold directly into the system p
 ### Custom skills
 
 Drop your own recipes as `.md` files in either:
+
 - `<cwd>/.gg/editor-skills/<name>.md` — project-scoped
 - `~/.gg/editor-skills/<name>.md` — user-scoped
 
@@ -213,78 +223,78 @@ Still out of scope: generative video, VFX, animation, 3D, particles, complex com
 
 ## Tool catalog
 
-| Tool | Tier | What it does |
-|---|---|---|
-| `host_info` | API | Capabilities snapshot. Call first. |
-| `get_timeline` | API | Timeline state, head/tail summarized for long lists |
-| `get_markers` | API | Read existing markers — prior decisions / session resume |
-| `cut_at` | API | Razor (Premiere only — falls back to EDL on Resolve) |
-| `ripple_delete` | API | Delete + close gap (EDL fallback on both NLEs) |
-| `add_marker` | API | Drop a marker with a note (your audit trail) |
-| `append_clip` | API | Most reliable mutation; works on both NLEs |
-| `set_clip_speed` | API | Retime (slow-mo / speed-up). FCPXML rebuild fallback |
-| `create_timeline` | API | New empty timeline / sequence with name + fps + resolution |
-| `import_to_media_pool` | API | Bring files into project bins without appending |
-| `open_page` | API | Switch Resolve workspace (media/edit/color/deliver/...) — Resolve only |
-| `write_edl` | Bulk | CMX 3600 EDL writer — lowest-common-denominator |
-| `write_fcpxml` | Bulk | FCPXML 1.10 — preserves clip names + rational time (preferred for Premiere) |
-| `import_edl` | Bulk | Bulk-import EDL/FCPXML/AAF |
-| `reformat_timeline` | Bulk | Generate 9:16 / 1:1 / 4:5 / 16:9 / 4:3 FCPXML preset for short-form reformat |
-| `render` | API | Resolve only; Premiere uses File → Export manually |
-| `write_srt` | File | SubRip caption writer (1-indexed, `HH:MM:SS,mmm`) |
-| `import_subtitles` | API | Attach SRT to active timeline (Resolve auto; Premiere drag-onto-track) |
-| `clone_timeline` | API | Duplicate the active timeline (safety net before destructive ops) |
-| `save_project` | API | Save the host project (Resolve `pm.SaveProject()`, Premiere `app.project.save()`) |
-| `apply_lut` | API | Apply a .cube/.dat LUT to a clip's grading node (Resolve only) |
-| `set_primary_correction` | API | Slope/offset/power/saturation CDL on a node (Resolve only) |
-| `copy_grade` | API | Copy grade from one clip to many (Resolve only — Color page must be open) |
-| `color_match` | File | Vision-derived CDL: compare reference/target frames → emit slope/offset/power/sat |
-| `replace_clip` | API | Swap a clip's media reference without changing in/out or grade |
-| `insert_broll` | API | Place a cutaway on a higher track at a specific frame, A-roll undisturbed |
-| `smart_reframe` | API | Trigger Resolve Studio's Smart Reframe AI on a clip (Studio only) |
-| `list_render_presets` | API | List the host's render presets (call BEFORE render) |
-| `measure_loudness` | File | EBU R128 read: integrated LUFS, true peak, LRA |
-| `normalize_loudness` | File | Two-pass loudnorm: hits platform target (-14/-16/-23 LUFS) |
-| `clean_audio` | File | Audio cleanup: denoise / denoise-strong / rnnoise / dehum / deess |
-| `duck_audio` | File | Sidechain compress music under voice (podcast / YouTube ducking) |
-| `stabilize_video` | File | Two-pass vidstab stabilization (handheld / gimbal-less footage) |
-| `burn_subtitles` | File | Hardcode .srt/.ass into a video (final-delivery captions) |
-| `concat_videos` | File | Stitch videos end-to-end (lossless concat or re-encode) |
-| `add_fades` | File | Fade-in / fade-out on video + audio |
-| `crossfade_videos` | File | xfade transition between two videos (16 styles) |
-| `generate_gif` | File | Two-pass palettegen GIF for social previews |
-| `overlay_watermark` | File | PNG watermark with corner positioning, opacity, scale |
-| `compose_thumbnail` | File | Frame extract + drawtext headline = YouTube/TikTok thumbnail |
-| `fusion_comp` | API | Drive a Fusion comp — lower-thirds, title cards via Background + TextPlus + Merge nodes (Resolve only) |
-| `add_track` | API | Append video / audio / subtitle track on the active timeline (Resolve) |
-| `set_clip_volume` | API | Per-clip audio gain in dB (Resolve) |
-| `pre_render_check` | API | Composite QA: empty timeline, PAUSE markers, loudness, captions |
-| `write_ass` | File | Advanced SubStation Alpha subtitle file (font/color/position for burned-in vertical captions) |
-| `extract_frame` | File | Pull a single frame as JPEG/PNG (thumbnails, hero stills) |
-| `probe_media` | File | ffprobe wrapper — duration, fps, codecs |
-| `extract_audio` | File | mono 16kHz WAV via ffmpeg |
-| `detect_silence` | File | ffmpeg `silencedetect`, returns frame-aligned KEEP ranges |
-| `transcribe` | File | whisper.cpp local + OpenAI API fallback |
-| `read_transcript` | File | Query saved transcript by time range or substring |
-| `cluster_takes` | File | Token-similarity grouping of re-takes |
-| `score_shot` | File | Vision model rates frames 0-10 |
-| `pick_best_takes` | File | Composite: cluster + score + winner per cluster (`last`, `first`, or `vision` strategy) |
-| `multicam_sync` | File | Two methods: transient (clap) or envelope (cross-correlation for dialogue) |
-| `detect_speaker_changes` | File | Silence-gap heuristic boundary candidates (v1; not real diarization) |
-| `review_edit` | Review | Spawns a read-only critique agent; returns critique + flags (registered when auth available) |
-| `read_skill` | Skill | Fetch a skill (bundled + project + user recipes) |
+| Tool                     | Tier   | What it does                                                                                           |
+| ------------------------ | ------ | ------------------------------------------------------------------------------------------------------ |
+| `host_info`              | API    | Capabilities snapshot. Call first.                                                                     |
+| `get_timeline`           | API    | Timeline state, head/tail summarized for long lists                                                    |
+| `get_markers`            | API    | Read existing markers — prior decisions / session resume                                               |
+| `cut_at`                 | API    | Razor (Premiere only — falls back to EDL on Resolve)                                                   |
+| `ripple_delete`          | API    | Delete + close gap (EDL fallback on both NLEs)                                                         |
+| `add_marker`             | API    | Drop a marker with a note (your audit trail)                                                           |
+| `append_clip`            | API    | Most reliable mutation; works on both NLEs                                                             |
+| `set_clip_speed`         | API    | Retime (slow-mo / speed-up). FCPXML rebuild fallback                                                   |
+| `create_timeline`        | API    | New empty timeline / sequence with name + fps + resolution                                             |
+| `import_to_media_pool`   | API    | Bring files into project bins without appending                                                        |
+| `open_page`              | API    | Switch Resolve workspace (media/edit/color/deliver/...) — Resolve only                                 |
+| `write_edl`              | Bulk   | CMX 3600 EDL writer — lowest-common-denominator                                                        |
+| `write_fcpxml`           | Bulk   | FCPXML 1.10 — preserves clip names + rational time (preferred for Premiere)                            |
+| `import_edl`             | Bulk   | Bulk-import EDL/FCPXML/AAF                                                                             |
+| `reformat_timeline`      | Bulk   | Generate 9:16 / 1:1 / 4:5 / 16:9 / 4:3 FCPXML preset for short-form reformat                           |
+| `render`                 | API    | Resolve only; Premiere uses File → Export manually                                                     |
+| `write_srt`              | File   | SubRip caption writer (1-indexed, `HH:MM:SS,mmm`)                                                      |
+| `import_subtitles`       | API    | Attach SRT to active timeline (Resolve auto; Premiere drag-onto-track)                                 |
+| `clone_timeline`         | API    | Duplicate the active timeline (safety net before destructive ops)                                      |
+| `save_project`           | API    | Save the host project (Resolve `pm.SaveProject()`, Premiere `app.project.save()`)                      |
+| `apply_lut`              | API    | Apply a .cube/.dat LUT to a clip's grading node (Resolve only)                                         |
+| `set_primary_correction` | API    | Slope/offset/power/saturation CDL on a node (Resolve only)                                             |
+| `copy_grade`             | API    | Copy grade from one clip to many (Resolve only — Color page must be open)                              |
+| `color_match`            | File   | Vision-derived CDL: compare reference/target frames → emit slope/offset/power/sat                      |
+| `replace_clip`           | API    | Swap a clip's media reference without changing in/out or grade                                         |
+| `insert_broll`           | API    | Place a cutaway on a higher track at a specific frame, A-roll undisturbed                              |
+| `smart_reframe`          | API    | Trigger Resolve Studio's Smart Reframe AI on a clip (Studio only)                                      |
+| `list_render_presets`    | API    | List the host's render presets (call BEFORE render)                                                    |
+| `measure_loudness`       | File   | EBU R128 read: integrated LUFS, true peak, LRA                                                         |
+| `normalize_loudness`     | File   | Two-pass loudnorm: hits platform target (-14/-16/-23 LUFS)                                             |
+| `clean_audio`            | File   | Audio cleanup: denoise / denoise-strong / rnnoise / dehum / deess                                      |
+| `duck_audio`             | File   | Sidechain compress music under voice (podcast / YouTube ducking)                                       |
+| `stabilize_video`        | File   | Two-pass vidstab stabilization (handheld / gimbal-less footage)                                        |
+| `burn_subtitles`         | File   | Hardcode .srt/.ass into a video (final-delivery captions)                                              |
+| `concat_videos`          | File   | Stitch videos end-to-end (lossless concat or re-encode)                                                |
+| `add_fades`              | File   | Fade-in / fade-out on video + audio                                                                    |
+| `crossfade_videos`       | File   | xfade transition between two videos (16 styles)                                                        |
+| `generate_gif`           | File   | Two-pass palettegen GIF for social previews                                                            |
+| `overlay_watermark`      | File   | PNG watermark with corner positioning, opacity, scale                                                  |
+| `compose_thumbnail`      | File   | Frame extract + drawtext headline = YouTube/TikTok thumbnail                                           |
+| `fusion_comp`            | API    | Drive a Fusion comp — lower-thirds, title cards via Background + TextPlus + Merge nodes (Resolve only) |
+| `add_track`              | API    | Append video / audio / subtitle track on the active timeline (Resolve)                                 |
+| `set_clip_volume`        | API    | Per-clip audio gain in dB (Resolve)                                                                    |
+| `pre_render_check`       | API    | Composite QA: empty timeline, PAUSE markers, loudness, captions                                        |
+| `write_ass`              | File   | Advanced SubStation Alpha subtitle file (font/color/position for burned-in vertical captions)          |
+| `extract_frame`          | File   | Pull a single frame as JPEG/PNG (thumbnails, hero stills)                                              |
+| `probe_media`            | File   | ffprobe wrapper — duration, fps, codecs                                                                |
+| `extract_audio`          | File   | mono 16kHz WAV via ffmpeg                                                                              |
+| `detect_silence`         | File   | ffmpeg `silencedetect`, returns frame-aligned KEEP ranges                                              |
+| `transcribe`             | File   | whisper.cpp local + OpenAI API fallback                                                                |
+| `read_transcript`        | File   | Query saved transcript by time range or substring                                                      |
+| `cluster_takes`          | File   | Token-similarity grouping of re-takes                                                                  |
+| `score_shot`             | File   | Vision model rates frames 0-10                                                                         |
+| `pick_best_takes`        | File   | Composite: cluster + score + winner per cluster (`last`, `first`, or `vision` strategy)                |
+| `multicam_sync`          | File   | Two methods: transient (clap) or envelope (cross-correlation for dialogue)                             |
+| `detect_speaker_changes` | File   | Silence-gap heuristic boundary candidates (v1; not real diarization)                                   |
+| `review_edit`            | Review | Spawns a read-only critique agent; returns critique + flags (registered when auth available)           |
+| `read_skill`             | Skill  | Fetch a skill (bundled + project + user recipes)                                                       |
 
 ---
 
 ## Capability matrix
 
-| Capability | Resolve | Premiere | None (ffmpeg) |
-|---|---|---|---|
-| `canMoveClips` | ✗ | ✓ | ✗ |
-| `canScriptColor` | ✓ | ✗ | ✗ |
-| `canScriptAudio` | ✗ | partial | ✗ |
-| `canTriggerAI` | partial (Magic Mask) | ✗ | ✗ |
-| Preferred import | EDL | XML/FCPXML | EDL |
+| Capability       | Resolve              | Premiere   | None (ffmpeg) |
+| ---------------- | -------------------- | ---------- | ------------- |
+| `canMoveClips`   | ✗                    | ✓          | ✗             |
+| `canScriptColor` | ✓                    | ✗          | ✗             |
+| `canScriptAudio` | ✗                    | partial    | ✗             |
+| `canTriggerAI`   | partial (Magic Mask) | ✗          | ✗             |
+| Preferred import | EDL                  | XML/FCPXML | EDL           |
 
 The genuine gaps are documented honestly in [ROADMAP.md](./ROADMAP.md). Resolve's Fairlight is closed; Premiere's QE DOM is unstable; Magic Mask config can't be triggered from a script. We don't pretend otherwise — we surface clear errors with EDL workarounds.
 
@@ -427,11 +437,11 @@ ggeditor auth                    Show stored credentials + expiry
 
 ## Slash commands (in TUI)
 
-| Command | What it does |
-|---|---|
-| `/quit` `/exit` `/q` | Exit cleanly (kills bridges) |
-| `/clear` | Clear visible history (doesn't reset agent context) |
-| `/help` `/?` | Show available commands |
+| Command              | What it does                                        |
+| -------------------- | --------------------------------------------------- |
+| `/quit` `/exit` `/q` | Exit cleanly (kills bridges)                        |
+| `/clear`             | Clear visible history (doesn't reset agent context) |
+| `/help` `/?`         | Show available commands                             |
 
 ---
 

@@ -230,7 +230,7 @@ export class GGBoss {
     this.lastPersistedIndex = this.bossAgent.getMessages().length;
 
     // Seed the context-bar estimate so it shows real progress before the first
-    // turn_end event fires. Especially critical on `ggboss continue` where
+    // turn_end event fires. Especially critical on `kleio-manager continue` where
     // we'd otherwise show 0% over a session that's already half-full.
     const initialMessages = this.bossAgent.getMessages();
     if (initialMessages.length > 1) {
@@ -389,8 +389,8 @@ export class GGBoss {
         contextWindow,
         signal: this.ac.signal,
       });
-      // Start a new session file so `ggboss continue` resumes the COMPACTED
-      // history, not the full original. Mirrors ggcoder/AgentSession.compact.
+      // Start a new session file so `kleio-manager continue` resumes the COMPACTED
+      // history, not the full original. Mirrors @kleio/coder AgentSession.compact.
       // Set bossSessionId before rebuilding the Agent so its provider cache key
       // matches the new compacted session.
       const session = await createSession();
@@ -462,7 +462,7 @@ export class GGBoss {
   /**
    * Toggle the boss's extended-thinking level. Recreates bossAgent with the
    * new setting (Anthropic SDK reads `thinking` once on construction). Mirrors
-   * ggcoder's Shift+Tab UX. Persists to settings.json so the choice sticks
+   * Kleio Coder's Shift+Tab UX. Persists to settings.json so the choice sticks
    * across restarts.
    */
   async setBossThinking(level: ThinkingLevel | undefined): Promise<void> {
@@ -515,7 +515,7 @@ export class GGBoss {
 
   /**
    * Start a brand-new boss session — fresh agent with no message history,
-   * fresh session file on disk so `ggboss continue` picks up the new chat.
+   * fresh session file on disk so `kleio-manager continue` picks up the new chat.
    * Workers are unaffected.
    */
   async newSession(): Promise<void> {
@@ -686,7 +686,7 @@ export class GGBoss {
             bossStore.endTool(e.toolCallId, e.isError, e.durationMs, e.result, e.details);
             break;
           case "turn_end":
-            // Mirror ggcoder/useAgentLoop: total context = uncached input +
+            // Mirror @kleio/coder useAgentLoop: total context = uncached input +
             // cache reads + cache writes (Anthropic separates input/output,
             // others share the window so include output too). Without adding
             // cache, prompt-cached calls report a tiny inputTokens delta and
@@ -720,7 +720,7 @@ export class GGBoss {
       }
     } catch (err) {
       if (isAbortError(err)) {
-        // Mirror ggcoder's onAborted: convert any in-flight tools to
+        // Mirror @kleio/coder's onAborted: convert any in-flight tools to
         // "Stopped." entries so the user sees the same visual feedback.
         bossStore.interruptStreaming();
         if (!this.running) {
@@ -1057,7 +1057,7 @@ ${s.textTail || "(no text yet)"}${renderOthers(event.project)}${renderAutoChain(
 }
 
 /**
- * Total context used in tokens. Mirrors ggcoder/useAgentLoop: Anthropic counts
+ * Total context used in tokens. Mirrors @kleio/coder useAgentLoop: Anthropic counts
  * uncached input + cache reads/writes (output is metered separately); other
  * providers share a single window so output counts too.
  */
@@ -1067,7 +1067,7 @@ function computeContextUsed(usage: Usage, provider: Provider): number {
 }
 
 /**
- * Map raw provider error text to a human-friendly hint. Mirrors ggcoder's
+ * Map raw provider error text to a human-friendly hint. Mirrors @kleio/coder's
  * pattern in App.tsx so users see the same diagnostic phrasing.
  */
 function formatProviderError(err: unknown): string {

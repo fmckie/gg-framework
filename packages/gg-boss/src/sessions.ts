@@ -7,7 +7,7 @@ import { getManagerPaths } from "./manager-paths.js";
 /**
  * Lightweight per-session log for the boss orchestrator. Each session is one
  * `<id>.jsonl` file under `~/.gg/boss/sessions/`, append-only, one Message per
- * line. Mirrors how ggcoder/AgentSession persists conversations — but kept
+ * line. Mirrors how @kleio/coder AgentSession persists conversations — but kept
  * simple (no DAG / branches / project encoding) since the boss only ever has
  * one in-flight conversation per process.
  */

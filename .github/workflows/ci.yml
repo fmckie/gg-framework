@@ -10,10 +10,9 @@ on:
 # typecheck + test + bin-smoke on macOS, Linux, and Windows so we catch
 # platform-specific regressions before they hit npm.
 #
-# We deliberately keep the gg-editor + gg-pixel packages out of the matrix
-# for now — they have heavier native deps (sharp, transformers) that slow CI
-# without buying us much for the framework's release-critical packages
-# (gg-ai, gg-agent, ggcoder, gg-boss).
+# We deliberately keep the editor and Pixel packages out of the matrix for now:
+# their heavier native dependencies slow CI without improving coverage of the
+# release-critical @kleio/ai, @kleio/agent, @kleio/coder, and @kleio/manager set.
 
 jobs:
   test:
@@ -60,6 +59,6 @@ jobs:
           pnpm --filter @kleio/coder test
           pnpm --filter @kleio/manager test
 
-      - name: ggboss CLI smoke (extra belt-and-braces)
-        run: node packages/gg-boss/dist/cli.js --help
+      - name: Kleio Manager CLI smoke
+        run: node packages/gg-boss/dist/cli.js --help && node packages/gg-boss/dist/cli.js --version
         shell: bash

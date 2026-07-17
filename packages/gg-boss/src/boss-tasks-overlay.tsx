@@ -30,7 +30,7 @@ interface BossTasksOverlayProps {
 }
 
 /**
- * Multi-project task overlay for gg-boss. Read-mostly: tasks are added by the
+ * Multi-project task overlay for Kleio Manager. Read-mostly: tasks are added by the
  * boss agent (via add_task tool), so the overlay is just a backlog viewer with
  * two actions — delete a stuck task, or run all pending across idle workers.
  *
@@ -83,7 +83,7 @@ export function BossTasksOverlay({
   // Ink's log-update mispositions the cursor when the live area is much
   // larger than the next frame — going from a 30-line tasks pane back to a
   // 5-line chat chrome was clipping the user's scrollback above on close.
-  // Mirrors ggcoder's `maxVisible = 15` cap. Selection stays visible by
+  // Mirrors @kleio/coder's `maxVisible = 15` cap. Selection stays visible by
   // scrolling the window when the cursor reaches the bottom.
   const MAX_VISIBLE = 12;
   const startIdx = Math.max(

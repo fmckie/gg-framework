@@ -27,7 +27,7 @@ pub const DEFAULT_INGEST_URL: &str =
 
 #[derive(Clone)]
 pub struct PixelOptions {
-    /// Project key minted by `POST /api/projects` (or `ggcoder pixel install`).
+    /// Project key minted by `POST /api/projects` (or `kleio-coder pixel install`).
     pub project_key: String,
     /// Override the ingest URL. Defaults to the public gg-pixel server.
     pub ingest_url: String,

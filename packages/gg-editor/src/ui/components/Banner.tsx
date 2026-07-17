@@ -22,8 +22,8 @@ const LOGO_LINES = [
   " \u2580\u2584\u2584\u2580 \u2580\u2584\u2584\u2580",
 ];
 
-// Warm sunset gradient — amber → orange → red → magenta. Visually distinct
-// from ggcoder's cool blue/purple so users instantly know which tool they're in.
+// Warm sunset gradient—amber → orange → red → magenta. It is visually distinct
+// from Kleio Coder's cool blue/purple palette.
 const GRADIENT = [
   "#fbbf24",
   "#f59e0b",

@@ -2287,7 +2287,7 @@ export function App(props: AppProps) {
       const newModelId = value.slice(colonIdx + 1);
       log("INFO", "model", `Model changed`, { provider: newProvider, model: newModelId });
       // Keep the ref in sync before any prompt rebuild so the identity (Claude
-      // Code vs GG Coder) reflects the newly selected provider immediately.
+      // Code vs Kleio Coder) reflects the newly selected provider immediately.
       currentProviderRef.current = newProvider;
 
       const rebuildPromptWithTools = (tools: AgentTool[]) => {

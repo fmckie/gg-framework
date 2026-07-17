@@ -9,7 +9,7 @@ import {
 /**
  * Boss orchestrator tools that are safe to coalesce into a single row when the
  * boss fires several in a burst (e.g. polling every worker's status). Mirrors
- * ggcoder's AGGREGATABLE_TOOLS but scoped to the boss's read-only inspection
+ * @kleio/coder's AGGREGATABLE_TOOLS but scoped to the Manager's read-only inspection
  * tools — state-changing tools (prompt_worker, add_task, …) stay individual so
  * their per-call results remain visible.
  */
@@ -88,7 +88,7 @@ const renderListTasksGroup: GroupRenderer = (tools, allDone) =>
   renderListGroup(tools, allDone, "tasks");
 
 /**
- * Boss-specific group summary renderers, merged over ggcoder's built-ins by
+ * Manager-specific group summary renderers, merged over @kleio/coder's built-ins by
  * `buildToolGroupSummary(..., bossToolGroupRenderers)`. Keyed by tool name.
  */
 export const bossToolGroupRenderers: Record<string, GroupRenderer> = {

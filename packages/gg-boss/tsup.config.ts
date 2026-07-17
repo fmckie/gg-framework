@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 /**
- * gg-boss CLI is bundled into a single ESM file with every dependency
+ * Kleio Manager's CLI is bundled into a single ESM file with every dependency
  * inlined. This is deliberate — the alternative is shipping a published
  * package.json with `dependencies: { @kleio/coder, ... }`, which then
  * pulls @modelcontextprotocol/sdk → express-rate-limit → ip-address@10.1.0
@@ -15,11 +15,11 @@ import { defineConfig } from "tsup";
  * clean audit. Users never see panic-inducing warnings on install.
  *
  * Reachability requirements (already satisfied):
- *  - ggcoder/utils/image.ts uses dynamic `await import("sharp")` so sharp
- *    isn't pulled in at module init for paths gg-boss touches (boss UI
- *    doesn't actually call shrinkToFit).
- *  - external[] below carves out native binaries that gg-boss will never
- *    actually load at runtime, so esbuild leaves them as bare requires.
+ *  - @kleio/coder's image utility uses dynamic `await import("sharp")`, so
+ *    sharp isn't pulled in when Manager starts (the Manager UI never calls
+ *    shrinkToFit).
+ *  - external[] below carves out native binaries that Kleio Manager never
+ *    loads at runtime, so esbuild leaves them as bare requires.
  *
  * Tradeoffs:
  *  - dist/cli.js grows from ~7KB to ~5–8 MB. It's a one-time install, not
@@ -43,11 +43,11 @@ export default defineConfig({
   // `peerDependencies`. We moved every runtime dep to `devDependencies`,
   // so by default tsup will INLINE all of them — that's the whole point.
   external: [
-    // Native modules that gg-boss never reaches at runtime, but which exist
-    // somewhere in the transitive ggcoder import graph. Marking them external
+    // Native modules that Kleio Manager never reaches at runtime, but which
+    // exist in the transitive @kleio/coder import graph. Marking them external
     // means esbuild leaves the `import` calls as `require` strings; if the
     // dead-code path ever did fire it'd error clearly rather than ship broken
-    // bytecode. None of these will ever be invoked by gg-boss's flow.
+    // bytecode. None of these will ever be invoked by the Manager flow.
     "sharp",
     "@huggingface/transformers",
     "onnxruntime-node",

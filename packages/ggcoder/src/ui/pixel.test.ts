@@ -75,6 +75,7 @@ describe("renderScreen", () => {
     expect(out).toContain("Kleio Coder");
     expect(out).toContain("Pixel");
     expect(out).not.toContain("By Ken Kai");
+    expect(out).not.toContain("· By");
   });
 
   it("shows the install hint when no projects are registered", () => {

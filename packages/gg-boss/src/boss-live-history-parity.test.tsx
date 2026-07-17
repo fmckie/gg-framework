@@ -40,7 +40,7 @@ const toolDone: HistoryItem = {
 const assistantTail: HistoryItem = { kind: "assistant", id: "a2", text: "Done.", durationMs: 1 };
 
 describe("boss live/history transcript parity", () => {
-  it("renders live tool rows before streaming assistant tail like ggcoder ChatLivePane", () => {
+  it("renders live tool rows before the assistant tail like @kleio/coder ChatLivePane", () => {
     const live = wrap(
       <BossStreamingTurnView
         turn={{
@@ -61,7 +61,7 @@ describe("boss live/history transcript parity", () => {
     expect(live.indexOf("Done.")).toBeGreaterThan(live.indexOf("Read"));
   });
 
-  it("reserves the same assistant slot after a submitted user row as ggcoder ChatLivePane", () => {
+  it("reserves @kleio/coder ChatLivePane's assistant slot after a submitted user row", () => {
     const live = stripAnsi(
       wrap(
         <BossStreamingTurnView

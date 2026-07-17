@@ -1,6 +1,6 @@
 # prompt-bench
 
-Section-by-section ablation of the ggcoder system prompt. For each prompt
+Section-by-section ablation of the Kleio Coder system prompt. For each prompt
 **section**, we test a `full` (production wording) variant against `compressed`
 and `tiny` variants — keeping every other section at baseline — and measure
 whether the **behavior** the section encodes survives the word cut.
@@ -18,13 +18,14 @@ cd experiments/prompt-bench
 ```
 
 Flags:
+
 - `-n, --iterations <n>` — runs per cell (default 10). Use 10–15 for real signal.
 - `-s, --section <key>` — `talk` or `work` (default: all).
 - `-t, --targets <a,b>` — `opus`, `gpt-5.5` (default: both).
 
 Auth comes from `~/.gg/auth.json` via the CLI's `AuthStorage` (OAuth refresh
-included). If a provider 401s with "invalidated token", re-run `ggcoder login`
-for that provider.
+included). If a provider returns a 401 with "invalidated token," re-run
+`kleio-coder login` for that provider.
 
 ## How it works
 
@@ -48,7 +49,7 @@ keep them.
 
 ## Caveats
 
-- **Trajectory ≠ intent.** We score what the model *did* with tools, not what
+- **Trajectory ≠ intent.** We score what the model _did_ with tools, not what
   it said it would do.
 - **Tasks must trigger the behavior.** A guardrail you never exercise will read
   100% regardless of wording. When adding variants, add tasks that force the

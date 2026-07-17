@@ -7,17 +7,17 @@ import { log } from "./logger.js";
 
 /**
  * Wrap a sync event-bus handler so any thrown error becomes a worker_error
- * event instead of cascading up through ggcoder's eventBus.emit and
- * potentially killing the boss process. Worker bus handlers do non-trivial
+ * event instead of cascading up through @kleio/coder's eventBus.emit and
+ * potentially killing the Manager process. Worker bus handlers do non-trivial
  * work (state mutations, queue pushes); a bug in any of them must NEVER
- * crash gg-boss because that would take down all 6+ workers in the same
+ * crash Kleio Manager because that would take down all 6+ workers in the same
  * process.
  */
 /**
  * Provider-error classification moved to @kleio/ai
  * (`classifyProviderError`) so provider-wording changes are a one-file edit
  * next to `formatError` / `isHardBillingMessage`. Re-exported under the
- * historical name so existing callers and tests in gg-boss are unchanged.
+ * historical name so existing callers and tests in @kleio/manager are unchanged.
  */
 export const classifyWorkerError = classifyProviderError;
 

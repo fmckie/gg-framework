@@ -34,7 +34,7 @@ export async function discoverAgents(options: {
   const globalAgents = await loadAgentsFromDir(options.globalAgentsDir, "global");
   agents.push(...globalAgents);
 
-  // Bundled defaults — shipped with ggcoder, user-defined agents with the same
+  // Bundled defaults — shipped with @kleio/coder; user-defined agents with the same
   // name take precedence because they come first in the array.
   const userNames = new Set(agents.map((a) => a.name.toLowerCase()));
   for (const bundled of BUNDLED_AGENTS) {
@@ -123,7 +123,7 @@ export function parseAgentFile(raw: string, source: "global" | "project"): Agent
 }
 
 // ── Bundled agents ─────────────────────────────────────────
-// Shipped with ggcoder. Used by /bullet-proof and available to any
+// Shipped with @kleio/coder. Used by /bullet-proof and available to any
 // subagent call. User-defined agents with the same name override these.
 
 const AUDITOR_PROMPT = `You are Auditor, a defensive security analyst tasked with finding exploitable weaknesses in this codebase so the team can patch them before the project ships.

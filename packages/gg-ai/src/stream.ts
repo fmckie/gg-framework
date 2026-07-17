@@ -11,9 +11,9 @@ import { providerRegistry } from "./provider-registry.js";
 const GLM_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
 
 /**
- * User-Agent the Kimi For Coding endpoint requires to recognize ggcoder as a
- * coding agent. The endpoint gates solely on this header; the version is
- * overridable via KIMI_CODE_VERSION for forward compatibility.
+ * User-Agent the Kimi For Coding endpoint requires for coding-agent clients.
+ * The endpoint gates solely on this header; the version is overridable via
+ * KIMI_CODE_VERSION for forward compatibility.
  */
 const KIMI_CODE_USER_AGENT = `kimi-code-cli/${process.env.KIMI_CODE_VERSION ?? "1.0.11"}`;
 

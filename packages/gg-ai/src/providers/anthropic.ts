@@ -51,7 +51,7 @@ function createClient(options: StreamOptions): Anthropic {
           defaultHeaders: {
             // Anthropic's OAuth edge validates the claude-cli version. Callers
             // from Kleio Coder resolve the live version at runtime; the literal here
-            // is the offline fallback for direct gg-ai consumers.
+            // is the offline fallback for direct @kleio/ai consumers.
             "user-agent": options.userAgent ?? ANTHROPIC_OAUTH_FALLBACK_USER_AGENT,
             "x-app": ANTHROPIC_OAUTH_X_APP,
           },

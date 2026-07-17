@@ -4,7 +4,7 @@ import { isHardBillingMessage } from "./errors.js";
  * Provider-error classification — tags a raw provider error message with a
  * machine-routable prefix so callers route on intent instead of regexing JSON.
  *
- * This lives in gg-ai (next to `formatError` / `isHardBillingMessage`) so every
+ * This lives in @kleio/ai (next to `formatError` / `isHardBillingMessage`) so every
  * provider-wording change is a one-file edit. The billing check reuses
  * `isHardBillingMessage` so billing substrings have exactly one home.
  *

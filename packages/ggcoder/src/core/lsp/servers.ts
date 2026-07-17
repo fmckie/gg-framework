@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Language-server catalog. Binaries are resolved from the project's
- * node_modules/.bin (walking up for monorepo hoisting), ggcoder's OWN install
- * (typescript-language-server + typescript ship as ggcoder dependencies, so
+ * node_modules/.bin (walking up for monorepo hoisting), @kleio/coder's own install
+ * (typescript-language-server + typescript ship as @kleio/coder dependencies, so
  * TS/JS diagnostics work for every user out of the box), and the user's PATH —
  * never auto-installed at runtime, never fetched over the network. A server
  * that can't be resolved silently degrades to "no diagnostics".
@@ -48,7 +48,7 @@ function candidateNames(name: string): string[] {
   return [name, ...WINDOWS_SUFFIXES.map((suffix) => `${name}${suffix}`)];
 }
 
-/** Directory of this module — anchor for resolving ggcoder's own bundled deps. */
+/** Directory of this module — anchor for resolving @kleio/coder's bundled deps. */
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 function binDirsUpFrom(start: string): string[] {
@@ -66,7 +66,7 @@ function binDirsUpFrom(start: string): string[] {
 /**
  * Find `name`, in priority order:
  *   1. <projectRoot>/node_modules/.bin walking up (project's own version wins)
- *   2. ggcoder's own node_modules/.bin walking up (bundled fallback — this is
+ *   2. @kleio/coder's node_modules/.bin walking up (bundled fallback — this is
  *      how typescript-language-server works for users who never installed it)
  *   3. PATH
  */
@@ -113,7 +113,7 @@ function findInNodeModulesUp(relPath: string, start: string): string | null {
  * Resolve an npm package's bin entry script (the real .js/.mjs file, NOT the
  * node_modules/.bin shim). Shims are shell scripts or symlinks that require
  * `node` on PATH; spawning the entry with `process.execPath` works always —
- * including for users whose only node is the one running ggcoder.
+ * including for users whose only Node.js runtime is the one running Kleio Coder.
  */
 function findPackageBinScript(pkgName: string, binName: string, start: string): string | null {
   const pkgJsonPath = findInNodeModulesUp(path.join(pkgName, "package.json"), start);
@@ -133,7 +133,7 @@ function findPackageBinScript(pkgName: string, binName: string, start: string): 
 
 /**
  * Resolve a node-based language server: the project's own install wins, then
- * ggcoder's bundled dependency, then a PATH binary as a last resort.
+ * @kleio/coder's bundled dependency, then a PATH binary as a last resort.
  */
 function resolveNodeServer(
   pkgName: string,
@@ -157,9 +157,9 @@ function projectTsserverPath(projectRoot: string): string | null {
 }
 
 /**
- * ggcoder's bundled tsserver.js — the fallback when the project has no
+ * @kleio/coder's bundled tsserver.js — the fallback when the project has no
  * `typescript` install. Resolved relative to THIS module so it finds
- * ggcoder's own dependency regardless of where the user runs.
+ * @kleio/coder's dependency regardless of where the user runs Kleio Coder.
  */
 function bundledTsserverPath(): string | null {
   return findInNodeModulesUp(TSSERVER_REL_PATH, MODULE_DIR);
@@ -198,7 +198,7 @@ export const LSP_SERVER_CATALOG: readonly LspServerSpec[] = [
       );
       if (!command) return null;
       // Prefer the project's own typescript (correct version semantics); fall
-      // back to ggcoder's bundled copy so bare projects still get diagnostics.
+      // back to @kleio/coder's bundled copy so bare projects still get diagnostics.
       if (projectTsserverPath(projectRoot)) return command;
       const tsserver = bundledTsserverPath();
       if (!tsserver) return null;

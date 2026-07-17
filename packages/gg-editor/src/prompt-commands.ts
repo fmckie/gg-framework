@@ -1,7 +1,7 @@
 /**
  * Bundled slash-command prompt templates for gg-editor.
  *
- * Mirrors ggcoder's `core/prompt-commands.ts` pattern: each command name maps
+ * Mirrors Kleio Coder's `core/prompt-commands.ts` pattern: each command name maps
  * to a full prompt that the agent loop executes. When the user types `/X`,
  * the App.tsx slash dispatcher looks up the command, optionally appends any
  * args, and runs the prompt as if it were a normal user message.

@@ -41,7 +41,7 @@ export interface BossToolDoneItem {
 }
 
 /**
- * A single tool within a coalesced group. Mirrors ggcoder's ToolGroupTool so
+ * A single tool within a coalesced group. Mirrors @kleio/coder's ToolGroupTool so
  * the shared `<ToolGroupExecution>` component and `buildToolGroupSummary` can
  * consume boss tool groups directly.
  */
@@ -58,7 +58,7 @@ export interface BossToolGroupTool {
 /**
  * Several consecutive same-name read-only tool calls collapsed into one row —
  * e.g. "Checked 4 workers: api, web, +2". Built in the boss store the same way
- * ggcoder's App coalesces read/grep/ls, then rendered with the shared ggcoder
+ * @kleio/coder's App coalesces read/grep/ls, then renders with the shared @kleio/coder
  * `<ToolGroupExecution>` component (live) and `buildToolGroupSummary` (scrollback).
  */
 export interface BossToolGroupItem {

@@ -1,6 +1,6 @@
 // The file-writer logger core (open/log/rotate/close) lives in @kleio/core.
 // This module preserves the frozen legacy startup component and the EventBus
-// bridge (`attachToEventBus`), which needs the gg-agent `EventBus` type and
+// bridge (`attachToEventBus`), which needs the @kleio/agent `EventBus` type and
 // therefore must stay out of the UI-free core.
 import { openLog, log, registerLogCleanup } from "@kleio/core";
 import type { EventBus } from "./event-bus.js";

@@ -102,6 +102,8 @@ describe("isOnboarded / onboardedMarkerPath", () => {
     const auth = r.checks.find((c) => c.id === "auth")!;
     expect(auth.status).toBe("missing");
     expect(auth.fix).toContain("ggeditor login");
+    expect(auth.fix).toContain("Kleio Coder");
+    expect(auth.fix).toContain("~/.gg/auth.json");
   });
 });
 

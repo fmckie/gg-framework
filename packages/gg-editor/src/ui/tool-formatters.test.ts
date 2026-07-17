@@ -108,7 +108,7 @@ describe("formatGgEditorDetail", () => {
     ).toContain("set_result");
   });
 
-  it("returns undefined for unknown tools (falls back to ggcoder default)", () => {
+  it("returns undefined for unknown tools so Kleio Coder's default applies", () => {
     expect(formatGgEditorDetail("totally_unknown_tool", { foo: "bar" })).toBeUndefined();
   });
 });

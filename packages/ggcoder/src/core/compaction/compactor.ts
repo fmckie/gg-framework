@@ -1,10 +1,4 @@
-import {
-  stream,
-  type Message,
-  type Provider,
-  type ContentPart,
-  type ToolResult,
-} from "@kleio/ai";
+import { stream, type Message, type Provider, type ContentPart, type ToolResult } from "@kleio/ai";
 import { estimateConversationTokens, estimateMessageTokens } from "./token-estimator.js";
 import { getSummaryModel, getContextWindow } from "../model-registry.js";
 import { kimiCodingHeaders, isKimiCodingEndpoint } from "../oauth/kimi.js";
@@ -217,7 +211,7 @@ export function findRecentCutPoint(messages: Message[], tokenBudget: number): nu
   // Always keep at least the last user→assistant exchange so that compaction
   // never produces an empty recentMessages array. Without this, the trailing-
   // assistant-pop can strip the compaction ack, leaving only the summary and
-  // making `ggcoder continue` restore just 1 message.
+  // making `kleio-coder continue` restore just 1 message.
   if (cutIndex >= messages.length && messages.length > 2) {
     // Find the last user message and keep everything from there onward
     for (let i = messages.length - 1; i >= 1; i--) {
@@ -825,7 +819,7 @@ export async function compact(
   // Some models reject "assistant prefill" — the conversation must end
   // with a user (or tool) message so the LLM can generate a fresh response.
   // Never pop below the base messages (system + summary [+ ack]) — removing
-  // those would leave only the summary, causing `ggcoder continue`
+  // those would leave only the summary, causing `kleio-coder continue`
   // to restore just 1 message instead of the full session.
   const minMessages = skipAck ? 2 : 3;
   while (

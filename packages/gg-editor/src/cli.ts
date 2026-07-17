@@ -18,7 +18,7 @@ process.on("unhandledRejection", (reason) => {
 // etc. Without clearing, these accumulate across every LLM call and tool
 // execution — hits the 1M cap with the
 // `MaxPerformanceEntryBufferExceededWarning` after a few hours of use.
-// Mirrors the identical block in ggcoder/src/cli.ts.
+// Mirrors the identical block in Kleio Coder's CLI.
 import { PerformanceObserver, performance } from "node:perf_hooks";
 {
   const allTypes = PerformanceObserver.supportedEntryTypes.filter(
@@ -67,7 +67,7 @@ import { buildEditorStaticBody, buildEditorSystemPrompt } from "./system-prompt.
 import { createEditorTools } from "./tools/index.js";
 import { renderEditorTui } from "./ui/render.js";
 
-/** Auto-pick order — same priority ggcoder uses for default-provider selection. */
+/** Auto-pick order — same priority Kleio Coder uses for default-provider selection. */
 const PROVIDER_ORDER: SupportedAuthProvider[] = [
   "anthropic",
   "openai",
@@ -101,7 +101,7 @@ USAGE
   ggeditor doctor    Walk through environment fixes (--all to view inventory)
   ggeditor logs      Print the path to ~/.gg/ggeditor.log (use with tail -f)
 
-Auth lives in ~/.gg/auth.json — the SAME file ggcoder uses, so logging into
+Auth lives in ~/.gg/auth.json — the SAME file Kleio Coder uses, so logging into
 either CLI works for both.
 
 Debug logs are appended to ~/.gg/ggeditor.log — includes Python bridge
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
       chalk.red("Not logged in.\n") +
         chalk.dim("Run: ggeditor login\n\n") +
         chalk.dim(
-          "(Auth is shared with ggcoder via ~/.gg/auth.json — log in once, both CLIs work.)\n",
+          "(Auth is shared with Kleio Coder via ~/.gg/auth.json — log in once, both CLIs work.)\n",
         ),
     );
     process.exit(1);
@@ -221,11 +221,11 @@ async function main(): Promise<void> {
     if (last) priorMessages = last.messages;
   }
 
-  // Pick the right model for this provider via ggcoder's registry.
+  // Pick the right model for this provider via Kleio Coder's registry.
   const model = getDefaultModel(provider as Provider).id;
 
   // All providers the user has logged into — used by /model selector.
-  // Same set ggcoder supports.
+  // Same set Kleio Coder supports.
   const allProviders = await auth.listProviders();
   const loggedInProviders = allProviders.filter((p): p is Provider =>
     (PROVIDER_ORDER as string[]).includes(p),

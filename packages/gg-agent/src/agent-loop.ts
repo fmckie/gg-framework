@@ -26,7 +26,7 @@ const DEFAULT_MAX_TURNS = 300;
 /**
  * Lightweight stream diagnostic callback. When set, the agent loop calls this
  * at every phase boundary with timing and state info. This lets the hosting
- * app (ggcoder, come-alive, etc.) log stall diagnostics without the agent
+ * app (@kleio/coder, come-alive, etc.) log stall diagnostics without the agent
  * package needing fs/process dependencies.
  */
 export type StreamDiagnosticFn = (phase: string, data?: Record<string, unknown>) => void;
@@ -157,7 +157,7 @@ export function isBillingError(err: unknown): boolean {
  * plan running out of usage). Unlike a transient per-minute 429, this does NOT
  * clear with a quick retry — the user must wait for the window to reset — so the
  * loop surfaces it immediately instead of retrying for minutes. Matches the
- * canonical message gg-ai stamps onto the provider error.
+ * canonical message @kleio/ai stamps onto the provider error.
  */
 export function isUsageLimitError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -167,7 +167,7 @@ export function isUsageLimitError(err: unknown): boolean {
 /**
  * Read a provider-stated reset time off the error and convert it to a delay in
  * milliseconds from now. Providers like Gemini return a short `retryDelay` for a
- * transient per-minute throttle, which gg-ai stamps onto the ProviderError as
+ * transient per-minute throttle, which @kleio/ai stamps onto the ProviderError as
  * `resetsAt` (unix seconds). Returns undefined when absent or already elapsed.
  */
 export function serverResetDelayMs(err: unknown): number | undefined {

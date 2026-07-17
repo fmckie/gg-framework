@@ -42,7 +42,7 @@ export {
 } from "./system-prompt.js";
 export type { StaticPromptOptions } from "./system-prompt.js";
 
-// Auth (shared with ggcoder via ~/.gg/auth.json — implementations live in
+// Auth (shared with Kleio Coder via ~/.gg/auth.json — implementations live in
 // @kleio/coder/auth and are re-exported through ./core/auth/index.js)
 export {
   AuthStorage,

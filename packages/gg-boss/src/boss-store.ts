@@ -30,7 +30,7 @@ const id = (): string => `i${nextId++}`;
 // ── History memory cap ─────────────────────────────────────
 //
 // `state.history` is push-only — every assistant turn, tool result, and
-// worker event lives there forever. In `ggboss serve` (24/7 Telegram
+// worker event lives there forever. In `kleio-manager serve` (24/7 Telegram
 // bridge) this fills V8's default 4 GB heap in ~a day. Trimming the array
 // from the front would break Ink's <Static> commit counter, so instead we
 // keep the array intact and release the *contents* of items that have aged
@@ -145,10 +145,9 @@ export type InfoItem = BossInfoItem;
 export type TaskDispatchItem = BossTaskDispatchItem;
 
 /**
- * Auto-update notice ("Ken just shipped 4.3.x!"). Distinct from a plain
- * info row so the renderer can wrap it in the success-bordered ✨ box that
- * ggcoder uses — without this, the update message renders in flat default
- * text and goes unnoticed amid worker chatter.
+ * Branded auto-update notice. It uses a distinct item kind so the renderer can
+ * wrap it in the success-bordered ✨ box used by Kleio Coder; plain info text
+ * disappears amid worker chatter.
  */
 export type UpdateNoticeItem = BossDisplayItem & { kind: "update_notice" };
 
@@ -163,7 +162,7 @@ function isFullyDoneGroup(item: HistoryItem): item is BossToolGroupItem {
  * Split live items into the ones that stay live and the fully-done tool groups
  * that should be committed to history. Used whenever a different activity (a
  * non-matching tool, or flushed assistant text) closes an open group, mirroring
- * ggcoder's partitionCompleted/queueFlush for coalesced tools.
+ * @kleio/coder's partitionCompleted/queueFlush for coalesced tools.
  */
 function extractDoneGroups(items: HistoryItem[]): {
   remaining: HistoryItem[];
@@ -306,7 +305,7 @@ export interface BossUiState {
   /**
    * Active overlay (if any). Lives in the store rather than React state so
    * it survives the unmount/remount that overlay open/close performs to
-   * escape Ink's live-area drift — same pattern ggcoder adopted across all
+   * escape Ink's live-area drift — the same pattern Kleio Coder uses across all
    * its overlays. Without this mirror, opening an overlay would remount the
    * tree and the new mount would have no overlay set, defeating the toggle.
    */
@@ -479,7 +478,7 @@ export const bossStore = {
   /**
    * Append the eye-catching update-available notice. Distinct kind so the
    * renderer can give it the rounded green-bordered "✨ ..." box treatment
-   * that mirrors ggcoder's update notice — flat info text gets lost in
+   * that mirrors Kleio Coder's update notice — flat info text gets lost in
    * worker chatter, this stands out.
    */
   appendUpdateNotice(text: string): void {
@@ -676,7 +675,7 @@ export const bossStore = {
     const animateUntil = startedAt + 1_000;
 
     // Aggregatable read-only tools coalesce into a live tool_group, mirroring
-    // ggcoder's App.onToolStart. A same-name, error-free group absorbs the new
+    // @kleio/coder's App.onToolStart. A same-name, error-free group absorbs the new
     // call; otherwise any fully-done group is closed (flushed to history) and a
     // fresh group is opened.
     if (BOSS_AGGREGATABLE_TOOLS.has(name)) {
@@ -867,7 +866,7 @@ export const bossStore = {
   /**
    * Called when the user interrupts (ESC / Ctrl+C while running). Stops all
    * in-flight running tools, queueing them in pendingFlush as errored "Stopped."
-   * entries — matches ggcoder's onAborted behavior so the user sees the same
+   * entries — matches @kleio/coder's onAborted behavior so the user sees the same
    * visual feedback for an aborted run.
    */
   interruptStreaming(): void {

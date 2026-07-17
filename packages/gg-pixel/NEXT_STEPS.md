@@ -5,16 +5,16 @@ agent picking up the work — read it before starting anything.
 
 ## Repo layout (source of truth)
 
-| Package | Path | What it is | npm/cargo/etc. |
-|---|---|---|---|
-| **JS SDK** (Node + Browser + Deno + Workers) | `packages/gg-pixel/` | All-in-one with subpath exports | `@kenkaiiii/gg-pixel` (published) |
-| **JS backend** | `packages/gg-pixel-server/` | Cloudflare Worker + D1 (the ingest server) | private, deployed |
-| **CLI / runner** | `packages/ggcoder/` | `ggcoder pixel` TUI + agent fix queue | `@kleio/coder` (published) |
-| **Python SDK** | `packages/gg-pixel-py/` | wheel built at 4.3.68; **NOT yet on PyPI** | `gg-pixel` (PyPI, blocked) |
-| **Rust SDK** | `packages/gg-pixel-rs/` | crate at 4.3.72; **NOT yet on crates.io** | `gg-pixel` (crates, blocked) |
-| **Go SDK** | `packages/gg-pixel-go/` | module; **NOT yet pushed to GitHub** | `github.com/kenkaiiii/gg-pixel-go` (blocked) |
-| **Ruby SDK** | `packages/gg-pixel-rb/` | gem; **NOT yet on RubyGems** | `gg_pixel` (gem, blocked) |
-| **Swift SDK** | `packages/gg-pixel-swift/` | SPM package; **NOT yet pushed/tagged** | SPM via Git URL (blocked) |
+| Package                                      | Path                        | What it is                                 | npm/cargo/etc.                               |
+| -------------------------------------------- | --------------------------- | ------------------------------------------ | -------------------------------------------- |
+| **JS SDK** (Node + Browser + Deno + Workers) | `packages/gg-pixel/`        | All-in-one with subpath exports            | `@kenkaiiii/gg-pixel` (published)            |
+| **JS backend**                               | `packages/gg-pixel-server/` | Cloudflare Worker + D1 (the ingest server) | private, deployed                            |
+| **CLI / runner**                             | `packages/ggcoder/`         | `kleio-coder pixel` TUI + agent fix queue  | `@kleio/coder` (published)                   |
+| **Python SDK**                               | `packages/gg-pixel-py/`     | wheel built at 4.3.68; **NOT yet on PyPI** | `gg-pixel` (PyPI, blocked)                   |
+| **Rust SDK**                                 | `packages/gg-pixel-rs/`     | crate at 4.3.72; **NOT yet on crates.io**  | `gg-pixel` (crates, blocked)                 |
+| **Go SDK**                                   | `packages/gg-pixel-go/`     | module; **NOT yet pushed to GitHub**       | `github.com/kenkaiiii/gg-pixel-go` (blocked) |
+| **Ruby SDK**                                 | `packages/gg-pixel-rb/`     | gem; **NOT yet on RubyGems**               | `gg_pixel` (gem, blocked)                    |
+| **Swift SDK**                                | `packages/gg-pixel-swift/`  | SPM package; **NOT yet pushed/tagged**     | SPM via Git URL (blocked)                    |
 
 Verified live end-to-end against the deployed worker:
 **Node, Browser, Deno, Bun, Cloudflare Workers (via wrangler dev), Python (local), Rust (local), Swift (local), Go (local), Ruby (local), source maps (real esbuild bundle)**.
@@ -42,7 +42,7 @@ twine upload dist/*  # the .whl + .tar.gz are already built
 ```
 
 After publish, `pip install gg-pixel` works. The Python install path in
-`ggcoder pixel install` will then work hands-off for Python projects.
+`kleio-coder pixel install` will then work hands-off for Python projects.
 
 ### Rust → crates.io
 
@@ -66,7 +66,7 @@ cd packages/gg-pixel-go
 
 After: `go get github.com/kenkaiiii/gg-pixel-go@v4.3.72` works.
 
-The `ggcoder pixel install` flow already runs `go get
+The `kleio-coder pixel install` flow already runs `go get
 github.com/kenkaiiii/gg-pixel-go@latest` — so once the repo + tag exist, Go
 projects work hands-off.
 
@@ -103,18 +103,20 @@ from: "4.3.72")` to their `Package.swift` (or via Xcode → File → Add Package
 current dev environment. Cannot verify a build without those.
 
 **To unblock**:
+
 1. `brew install --cask android-commandlinetools`
 2. Install Android SDK platform: `sdkmanager "platforms;android-34" "build-tools;34.0.0"`
 3. Install Gradle: `brew install gradle`
 
 **Pattern to follow** (verified via Grep MCP against Sentry/Bugsnag Kotlin SDKs):
+
 - Library module published to Maven Central or JitPack
 - `Thread.setDefaultUncaughtExceptionHandler` for JVM-level uncaught
 - `OkHttp` for the HTTP sink (or `HttpURLConnection` with no extra deps)
 - Wire format: same JSON as everywhere else
 - Manual API: `GGPixel.init(context, projectKey)` + `GGPixel.report(...)` + `GGPixel.captureException(e)`
 
-Add `ggcoder pixel install` detection: `build.gradle` or `build.gradle.kts`
+Add `kleio-coder pixel install` detection: `build.gradle` or `build.gradle.kts`
 present → kind = "android".
 
 ### React Native SDK
@@ -124,15 +126,17 @@ simulator to verify hooks fire. The runtime is neither browser nor Node, so
 neither existing SDK works correctly.
 
 **To unblock**:
+
 1. `npm install -g expo-cli`
 2. Have Xcode iOS simulator available
 
 **Pattern**:
+
 - New `@kenkaiiii/gg-pixel/react-native` entry in the existing npm package
 - Hook `ErrorUtils.setGlobalHandler(...)` (RN-specific JS global)
 - Send via the existing `HttpSink` (fetch is available in RN)
 
-`ggcoder pixel install` already detects `react-native` in deps and emits a
+`kleio-coder pixel install` already detects `react-native` in deps and emits a
 clear "not yet supported" warning rather than installing something broken.
 
 ### Java (server-side) SDK
@@ -141,6 +145,7 @@ clear "not yet supported" warning rather than installing something broken.
 runtime — needs `brew install openjdk`.
 
 **Pattern**:
+
 - Maven artifact published to Maven Central
 - `Thread.setDefaultUncaughtExceptionHandler` (JVM-level)
 - HTTP via `java.net.http.HttpClient` (stdlib, no deps)
@@ -155,19 +160,19 @@ of work — at least a day of focused effort per language.
 
 ## 3. Live verification status
 
-`ggcoder pixel install` is unit-tested for detection across all listed
+`kleio-coder pixel install` is unit-tested for detection across all listed
 frameworks. **Runtime e2e** has been done for the most common ones:
 
-| Framework | Live verified? | Notes |
-|---|---|---|
-| **Next.js** | ✅ Live e2e (4.3.76+) | `create-next-app`, install, throw in API route + manual report — both landed in D1 |
-| **Electron** main process | ✅ Live e2e (4.3.78+) | Real Electron app, throw in main, sync emit via curl works |
-| **Electron** renderer | ⚠️ Bundler-required | Vanilla `<script>` can't resolve npm specifiers. Real Electron apps use webpack/Vite via electron-forge — those work because the bundler resolves the import |
-| **SvelteKit** | ✅ Live e2e (4.3.80) | Server hooks fire on API route throw; landed in D1 |
-| **Nuxt** | ⚠️ Wiring code-correct, not e2e | Same hooks pattern as SvelteKit; high confidence |
-| **Remix** | ⚠️ Wiring code-correct, not e2e | Entry-file injection same pattern as Next client |
-| **Tauri** (frontend) | ⚠️ Wiring code-correct, not e2e | Frontend = browser SDK (verified independently); Rust backend has no SDK |
-| **React Native** | ❌ Explicitly skipped | Not supported until a real RN SDK is built |
+| Framework                 | Live verified?                  | Notes                                                                                                                                                        |
+| ------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Next.js**               | ✅ Live e2e (4.3.76+)           | `create-next-app`, install, throw in API route + manual report — both landed in D1                                                                           |
+| **Electron** main process | ✅ Live e2e (4.3.78+)           | Real Electron app, throw in main, sync emit via curl works                                                                                                   |
+| **Electron** renderer     | ⚠️ Bundler-required             | Vanilla `<script>` can't resolve npm specifiers. Real Electron apps use webpack/Vite via electron-forge — those work because the bundler resolves the import |
+| **SvelteKit**             | ✅ Live e2e (4.3.80)            | Server hooks fire on API route throw; landed in D1                                                                                                           |
+| **Nuxt**                  | ⚠️ Wiring code-correct, not e2e | Same hooks pattern as SvelteKit; high confidence                                                                                                             |
+| **Remix**                 | ⚠️ Wiring code-correct, not e2e | Entry-file injection same pattern as Next client                                                                                                             |
+| **Tauri** (frontend)      | ⚠️ Wiring code-correct, not e2e | Frontend = browser SDK (verified independently); Rust backend has no SDK                                                                                     |
+| **React Native**          | ❌ Explicitly skipped           | Not supported until a real RN SDK is built                                                                                                                   |
 
 To finish the runtime sweep: scaffold the remaining ones (`npx nuxi init`,
 `create-remix@latest`, `create-tauri-app`) and run the same loop —
@@ -183,6 +188,7 @@ to `https://gg-pixel-server.buzzbeamaustralia.workers.dev/ingest` get
 **error 1042** (Cloudflare's worker→worker same-account block).
 
 **Fixes:**
+
 1. **Best**: add a custom domain to `gg-pixel-server` (e.g.
    `pixel.kenkai.dev`) and update `DEFAULT_INGEST_URL` everywhere.
 2. **For Ken's own apps**: use a Cloudflare Service Binding instead of HTTP
@@ -195,7 +201,7 @@ For users on **different** Cloudflare accounts: no issue (verified via
 
 ## 5. Source maps — server-side upload (deferred to v2)
 
-Current resolution is **client-side**: works only when `ggcoder pixel`
+Current resolution is **client-side**: works only when `kleio-coder pixel`
 runs from the project dir AND there's a local `dist/` with `.map` files.
 
 **For deployed-and-disconnected scenarios** (dev's machine has no build),
@@ -227,8 +233,6 @@ Estimated effort: ~1 day. Sentry's pattern for reference:
 - **Drop-telemetry to the backend** — when the SDK retries-then-drops, only
   stderr gets the warning. Could send a special "drops" record so the
   dashboard knows.
-- **`auto-update.test.ts` drift in ggcoder** — pre-existing test failure,
-  expects "Updating" but source says "Ken just shipped". 1-line fix.
 - **`gg-editor` lint errors** — pre-existing in another package, unrelated
   to pixel work. Fix or wave away.
 

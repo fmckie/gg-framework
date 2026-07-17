@@ -23,12 +23,12 @@ import { VERSION, BRAND, LOGO_LINES, LOGO_GAP, GRADIENT, COLORS } from "./brandi
 
 const MANAGER_COMMAND = KLEIO_PRODUCT_PROFILE.manager.preferredCommand;
 /**
- * `ggboss serve` — drive the orchestrator from Telegram.
+ * `kleio-manager serve` — drive the orchestrator from Telegram.
  *
- * Mirrors `ggcoder serve` shape (long-poll bot, allowedUserId gate) but instead
+ * Mirrors `kleio-coder serve` shape (long-poll bot, allowedUserId gate) but instead
  * of one-AgentSession-per-chat, there's a single GGBoss instance. The user's
  * linked projects (from `~/.gg/boss/links.json`) are spun up as workers at
- * boot, just like `ggboss` interactive mode.
+ * boot, just like `kleio-manager` interactive mode.
  *
  * Bridge model:
  *  - Telegram text → boss.enqueueUserMessage(text). The boss's run loop picks
@@ -502,7 +502,7 @@ export async function runBossServeMode(options: BossServeOptions): Promise<void>
 
   // ── Voice notes ──────────────────────────────────────────────
   //
-  // Mirrors `ggcoder serve`: download the OGG Opus blob from Telegram, decode
+  // Mirrors `kleio-coder serve`: download the OGG Opus blob from Telegram, decode
   // + transcribe locally with Whisper-tiny.en, then route the transcribed text
   // through the same scope-prefix path as a typed message. Whisper model is
   // ~75MB and downloaded on first use; we surface that as a one-time hint so

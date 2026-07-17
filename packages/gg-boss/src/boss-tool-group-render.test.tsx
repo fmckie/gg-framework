@@ -51,7 +51,7 @@ describe("boss tool group rendering", () => {
     const scrollback = stripAnsi(serializeBossItemToTerminalHistory(groupItem, context));
     expect(scrollback).toContain("Checked");
     expect(scrollback).toContain("3 workers");
-    // overflow projects collapse to "+N" like ggcoder
+    // overflow projects collapse to "+N" like Kleio Coder
     expect(scrollback).toMatch(/api, web, \+1/);
   });
 });

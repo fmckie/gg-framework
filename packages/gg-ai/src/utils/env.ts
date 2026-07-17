@@ -1,5 +1,5 @@
 /**
- * Read the process environment without assuming a Node global exists (gg-ai
+ * Read the process environment without assuming a Node global exists (@kleio/ai
  * runs in Node, Deno, browsers, and Workers). Returns `undefined` when no
  * `process.env` is available.
  */

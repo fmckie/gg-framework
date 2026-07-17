@@ -72,7 +72,7 @@ async function persist(tasks: BossTask[]): Promise<void> {
     // Atomic write: write to a sibling .tmp then rename. POSIX rename(2) is
     // atomic on the same filesystem — the destination either has the old
     // content or the new content, never a half-written mix. Suffix includes
-    // pid so two ggboss processes don't clobber each other's tmp files.
+    // pid so two Kleio Manager processes don't clobber each other's tmp files.
     const finalPath = getPlanPath();
     const tmpPath = `${finalPath}.${process.pid}.tmp`;
     await fs.writeFile(tmpPath, snapshot, "utf-8");
@@ -127,7 +127,7 @@ export const tasksStore = {
    * Hydrate state from disk on startup. Also prunes terminal tasks (done +
    * skipped) so the overlay doesn't pile up months of completed history, and
    * resets stale `in_progress` rows back to `pending` — those represent tasks
-   * that were running when ggboss exited, so the worker never finished them
+   * that were running when Kleio Manager exited, so the worker never finished them
    * and we don't have a result. Re-runs them next time `r` (or auto-chain)
    * fires. Persists the cleaned list back to disk if anything changed.
    */

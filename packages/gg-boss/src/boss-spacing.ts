@@ -1,5 +1,5 @@
 /**
- * Single source of truth for gg-boss transcript spacing. Both the live pane
+ * Single source of truth for Kleio Manager transcript spacing. Both the live pane
  * (boss-transcript-rows.tsx) and the finalized scrollback printer
  * (boss-terminal-history.tsx) consume these so an item gets the SAME blank-line
  * treatment while streaming as it does once committed to history — no visual
@@ -7,7 +7,7 @@
  *
  * `BOSS_SPACING_KINDS` are the item kinds that participate in spacing at all.
  * `BOSS_COMPACT_BOUNDARIES` are the `previous→current` transitions that should
- * stay tight (no blank line). Keep this aligned with gg-coder's default
+ * stay tight (no blank line). Keep this aligned with Kleio Coder's default
  * transcript spacing so boss replies, tool rows, and worker summaries breathe
  * the same way live and after they flush into scrollback.
  */

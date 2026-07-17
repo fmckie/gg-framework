@@ -263,16 +263,15 @@ interface ActivityIndicatorProps {
   planDone?: number;
   planTotal?: number;
   /**
-   * Override the default phrase library per-phase. Pass any subset — phases
-   * not provided fall back to ggcoder's contextual selectPhrases. gg-boss
-   * uses this to swap in orchestration-themed phrases ("Coordinating workers"
-   * vs "Cogitating") so the activity bar reads as a manager, not a coder.
+   * Override the default phrase library per phase. Missing phases fall back to
+   * @kleio/coder's contextual selectPhrases. @kleio/manager swaps in
+   * orchestration-themed phrases so the activity bar reads as Manager, not Coder.
    */
   phrases?: Partial<Record<ActivityPhase, string[]>>;
   /**
-   * Override the spinner pulse-color cycle. Defaults to the cool blue/violet
-   * cycle ggcoder uses; gg-boss passes its crimson→fuchsia palette so the
-   * spinner reads as Boss, not Coder.
+   * Override the spinner pulse-color cycle. Kleio Coder defaults to cool
+   * blue/violet; Kleio Manager passes crimson→fuchsia so the spinner reads as
+   * Manager rather than Coder.
    */
   pulseColors?: readonly string[];
   /** Disable decorative per-tick animation so terminal scrollback remains usable. */

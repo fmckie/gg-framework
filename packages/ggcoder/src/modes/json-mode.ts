@@ -14,7 +14,7 @@ export interface JsonModeOptions {
   thinkingLevel?: ThinkingLevel;
   maxTurns?: number;
   /**
-   * Stable prompt-cache routing key inherited from the parent ggcoder
+   * Stable prompt-cache routing key inherited from the parent Kleio Coder
    * process. Without this, each sub-agent session generates a unique
    * sessionId-derived cache key and starts with a cold cache on providers
    * that route caching by key (OpenAI Codex, OpenAI Chat, Moonshot).
@@ -45,7 +45,7 @@ export async function runJsonMode(options: JsonModeOptions): Promise<void> {
     signal: ac.signal,
     // Subagent runs are one-shot, NDJSON-streamed to the parent over stdout,
     // and have no resumable identity. Skip writing a `.jsonl` so the spawn
-    // doesn't show up in `ggcoder continue` for the parent project.
+    // doesn't show up in `kleio-coder continue` for the parent project.
     transient: true,
     // Parent-supplied cache routing key. When set, AgentSession uses it
     // verbatim instead of generating `${prefix}:${sessionId}` — so every

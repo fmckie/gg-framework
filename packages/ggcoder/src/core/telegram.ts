@@ -1,4 +1,4 @@
-// Moved to @kenkaiiii/gg-core. Shim keeps `../core/telegram.js` imports working.
+// Moved to @kleio/core. Shim keeps `../core/telegram.js` imports working.
 export {
   TelegramBot,
   type TelegramConfig,

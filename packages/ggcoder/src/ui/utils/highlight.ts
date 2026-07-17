@@ -52,7 +52,7 @@ function ensureLoaded(): HighlightModule | undefined {
   import("cli-highlight").then(
     (m) => {
       // Bundler interop: when tsup bundles cli-highlight as CJS into a chunk
-      // (gg-boss does this), dynamic ESM `import()` returns
+      // (@kleio/manager does this), dynamic ESM `import()` returns
       // `{ default: { supportsLanguage, highlight, ... } }` with no named
       // exports at the top level. Native Node ESM loader DOES mirror named
       // exports up, so probing for the actual method works in both modes.

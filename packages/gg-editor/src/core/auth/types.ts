@@ -15,7 +15,7 @@ export interface OAuthLoginCallbacks {
   onStatus: (message: string) => void;
 }
 
-/** All providers gg-editor supports — mirrors ggcoder's set. */
+/** All providers gg-editor supports — mirrors Kleio Coder's set. */
 export type SupportedAuthProvider =
   | "anthropic"
   | "openai"

@@ -43,7 +43,7 @@ export function toGGCoderRpcCommand(id: string, command: VoiceBridgeCommand): Js
     case "switch_project":
       return { id, command: "prompt", text: `Switch project to ${command.project}` };
     case "list_projects":
-      return { id, command: "prompt", text: "List available GG projects." };
+      return { id, command: "prompt", text: "List available Kleio Coder projects." };
   }
 }
 
@@ -84,11 +84,11 @@ export function normalizeGGCoderRpcEvent(message: unknown): VoiceBridgeEvent | n
 function createSendToGGCoderTool(bridge: GGCoderRpcBridge): VoiceTool {
   return {
     name: "send_to_ggcoder",
-    description: "Send a prompt or control command to a running ggcoder RPC session.",
+    description: "Send a prompt or control command to a running Kleio Coder RPC session.",
     parameters: {
       type: "object",
       properties: {
-        text: { type: "string", description: "Prompt text to send to ggcoder." },
+        text: { type: "string", description: "Prompt text to send to Kleio Coder." },
       },
       required: ["text"],
     },

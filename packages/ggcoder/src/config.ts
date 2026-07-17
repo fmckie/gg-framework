@@ -8,7 +8,7 @@ import type { ThemeName } from "./ui/theme/theme.js";
 export const APP_NAME = "ggcoder";
 export const VERSION = "0.0.1";
 
-// getAppPaths + AppPaths now live in @kenkaiiii/gg-core. Re-exported here so the
+// getAppPaths + AppPaths now live in @kleio/core. Re-exported here so the
 // many `./config.js` importers keep resolving them unchanged.
 export { getAppPaths };
 export type { AppPaths };

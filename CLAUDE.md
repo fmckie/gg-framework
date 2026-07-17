@@ -1,19 +1,22 @@
-# gg-framework
+# Kleio Framework
 
-A modular TypeScript framework for building LLM-powered apps — from raw streaming to full coding agent.
+A modular TypeScript framework for building LLM-powered apps—from raw streaming to a full coding agent.
 
 ## npm Packages
 
-| Package | npm Name | Description |
-|---|---|---|
-| `packages/gg-ai` | `@kleio/ai` | Unified LLM streaming API |
-| `packages/gg-agent` | `@kleio/agent` | Agent loop with tool execution |
-| `packages/gg-core` | `@kleio/core` | Provider-agnostic, UI-free shared foundation: model registry, thinking levels, app paths, OAuth + auth storage, file-writer logger core, telegram + voice transcription, self-updater |
-| `packages/ggcoder` | `@kleio/coder` | CLI coding agent |
-| `packages/gg-pixel` | `@kenkaiiii/gg-pixel` | Universal error tracking SDK (Node + Browser + Deno + Workers) |
-| `packages/gg-pixel-server` | (private — Cloudflare Worker) | Ingest backend (Workers + D1) |
+| Package                    | npm Name                      | Description                                                                                                                                                                           |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/gg-ai`           | `@kleio/ai`                   | Unified LLM streaming API                                                                                                                                                             |
+| `packages/gg-agent`        | `@kleio/agent`                | Agent loop with tool execution                                                                                                                                                        |
+| `packages/gg-core`         | `@kleio/core`                 | Provider-agnostic, UI-free shared foundation: model registry, thinking levels, app paths, OAuth + auth storage, file-writer logger core, telegram + voice transcription, self-updater |
+| `packages/ggcoder`         | `@kleio/coder`                | Kleio Coder CLI                                                                                                                                                                       |
+| `packages/gg-boss`         | `@kleio/manager`              | Kleio Manager orchestrator                                                                                                                                                            |
+| `packages/gg-pixel`        | `@kenkaiiii/gg-pixel`         | Universal error tracking SDK (Node + Browser + Deno + Workers)                                                                                                                        |
+| `packages/gg-pixel-server` | (private — Cloudflare Worker) | Ingest backend (Workers + D1)                                                                                                                                                         |
 
-**Install**: `npm i -g @kleio/coder`
+**Install:** `npm i -g @kleio/coder` or `npm i -g @kleio/manager`
+
+**Preferred CLIs:** `kleio-coder` and `kleio-manager`
 
 ## Models & Multimodal
 
@@ -46,7 +49,7 @@ packages/
   │       ├── agent.ts       # Agent class + AgentStream
   │       └── agent-loop.ts  # Pure async generator loop
   │
-  └── ggcoder/               # @kleio/coder — CLI (ggcoder)
+  └── ggcoder/               # @kleio/coder — Kleio Coder CLI
       └── src/
           ├── cli.ts         # CLI entry point
           ├── config.ts      # Configuration constants
@@ -69,22 +72,22 @@ packages/
 ## Package Dependencies
 
 ```
-gg-ai → gg-agent → gg-core → { ggcoder, gg-boss, gg-editor, gg-voice }
+@kleio/ai → @kleio/agent → @kleio/core → { @kleio/coder, @kleio/manager, @kenkaiiii/gg-editor, @kenkaiiii/gg-voice }
 ```
 
 - `@kleio/ai` — standalone unified streaming API. Owns raw provider wording (`formatError`, `isHardBillingMessage`, `classifyProviderError`).
-- `@kleio/agent` — agent loop; depends on gg-ai.
-- `@kleio/core` — provider-agnostic, **UI-free** shared foundation; depends only on gg-ai (for `Provider` / `ThinkingLevel` types). Must NOT import gg-agent or React/Ink — it sits below every app. (The logger's `attachToEventBus` bridge, which needs the gg-agent `EventBus` type, stays in the apps; only the pure file-writer logger core lives in gg-core.)
-- Apps (ggcoder, gg-boss, gg-editor, gg-voice) keep only **UI + orchestration** and depend on gg-core.
+- `@kleio/agent` — agent loop; depends on `@kleio/ai`.
+- `@kleio/core` — provider-agnostic, **UI-free** shared foundation; depends only on `@kleio/ai` (for `Provider` / `ThinkingLevel` types). It must not import `@kleio/agent` or React/Ink—it sits below every app. (The logger's `attachToEventBus` bridge, which needs the `@kleio/agent` `EventBus` type, stays in the apps; only the pure file-writer logger core lives in `@kleio/core`.)
+- Apps (Kleio Coder, Kleio Manager, `gg-editor`, and `gg-voice`) keep only **UI + orchestration** and depend on `@kleio/core`.
 
 ### One home for provider-coupled code
 
 Anything coupled to provider behavior — model registry, context windows, thinking
 levels, app paths, auth/OAuth — has exactly **one home in gg-core**. Raw provider
-error *wording* lives in **gg-ai** (`classifyProviderError`, `isHardBillingMessage`).
-Fix a model entry or an error string once and ggcoder, gg-boss, gg-editor, and
-gg-voice all inherit it on their next build. Do not re-add per-app copies; import
-from `@kleio/core` (or `@kleio/ai`) instead.
+error _wording_ lives in **gg-ai** (`classifyProviderError`, `isHardBillingMessage`).
+Fix a model entry or an error string once and Kleio Coder, Kleio Manager,
+`gg-editor`, and `gg-voice` all inherit it on their next build. Do not re-add
+per-app copies; import from `@kleio/core` (or `@kleio/ai`) instead.
 
 ## Tech Stack
 
@@ -143,10 +146,17 @@ pnpm changeset publish    # publishes in topological order (uses pnpm under the 
 ```bash
 npm view @kleio/coder versions --json   # check published versions
 npm i -g @kleio/coder@<version>         # test install
-ggcoder --help                                # verify CLI works
+kleio-coder --help                          # verify CLI works
 ```
 
 If `npm i` gets ETARGET after publishing, clear cache: `npm cache clean --force`
+
+## Compatibility
+
+- `kleio-coder` and `kleio-manager` are the preferred executable names. The legacy `ggcoder` and `ggboss` bins remain aliases for existing scripts and installations.
+- The repository directories remain `packages/ggcoder` and `packages/gg-boss`; do not rename them outside a coordinated path migration.
+- Global and project state remains under `.gg`, including Manager state under `~/.gg/boss/`; do not migrate or rewrite existing user state.
+- MCP add-command parsing accepts both the preferred `kleio-coder mcp add` prefix and the legacy `ggcoder mcp add` prefix.
 
 ## Organization Rules
 
@@ -154,7 +164,7 @@ If `npm i` gets ETARGET after publishing, clear cache: `npm cache clean --force`
 - Providers → `providers/` directory in @kleio/ai
 - Tools → `tools/` directory in @kleio/coder, one file per tool
 - UI components → `ui/components/`, one component per file
-- OAuth flows, auth storage, model registry, app paths, logger core → `@kleio/core` (`packages/gg-core/src/`), one file per provider under `oauth/`. ggcoder keeps thin re-export shims at `core/oauth/*`, `core/auth-storage.ts`, etc. so existing relative imports + subpath exports (`@kleio/coder/auth`, `/models`) keep resolving.
+- OAuth flows, auth storage, model registry, app paths, logger core → `@kleio/core` (`packages/gg-core/src/`), one file per provider under `oauth/`. `@kleio/coder` keeps thin re-export shims at `core/oauth/*`, `core/auth-storage.ts`, and related paths so existing relative imports and subpath exports (`@kleio/coder/auth`, `/models`) keep resolving.
 - Provider error classification → `@kleio/ai` (`classifyProviderError` in `error-classification.ts`).
 - Tests → co-located with source files
 
@@ -171,6 +181,7 @@ pnpm check && pnpm lint && pnpm format:check
 After code changes that need compiled outputs, also run `pnpm build`.
 
 Fix errors from checks you do run before continuing. Quick fixes:
+
 - `pnpm lint:fix` — auto-fix ESLint issues
 - `pnpm format` — auto-fix Prettier formatting
 - Use `/fix` to run all checks and spawn parallel agents to fix issues
@@ -196,9 +207,9 @@ so the model self-corrects type errors in the same turn it creates them. Code li
 Hard rules:
 
 - **TS/JS works for every user out of the box.** `typescript-language-server` + `typescript`
-  ship as ggcoder dependencies (~26MB unpacked) — no postinstall, no downloads, no runtime
+  ship as Kleio Coder dependencies (~26MB unpacked)—no postinstall, downloads, or runtime
   `npx -y`. Resolution order: project's `node_modules` (walking up, its own TS version wins) →
-  ggcoder's bundled copy → PATH. Node-based servers spawn via `process.execPath` + the real
+  Kleio Coder's bundled copy → PATH. Node-based servers spawn via `process.execPath` + the real
   bin script (never `.bin` shims, which need `node` on PATH). Other servers
   (`pyright-langserver`, `gopls`, `rust-analyzer`, `clangd`) resolve from project/PATH only —
   they ship with their language toolchains.
@@ -216,57 +227,57 @@ Hard rules:
 
 ## MCP Servers
 
-`ggcoder mcp` adds and manages Model Context Protocol servers. Configs are stored in the same `{ "mcpServers": { … } }` shape Claude Code uses, so they're portable both directions.
+`kleio-coder mcp` adds and manages Model Context Protocol servers. Configs are stored in the same `{ "mcpServers": { … } }` shape Claude Code uses, so they're portable both directions.
 
 ### Scopes & file locations
 
-- **Global** → `~/.gg/mcp.json` — available in all GG Coder sessions.
+- **Global** → `~/.gg/mcp.json` — available in all Kleio Coder sessions.
 - **Project** → `./.gg/mcp.json` — only the current project root.
 - On a name collision, **project wins**. Provider defaults (e.g. `kencode-search`) stay authoritative — a user server can only add a new name, never override a default.
 
 ### Commands
 
 ```bash
-ggcoder mcp                              # interactive dashboard (🟢/🔴 status, tool counts, scope)
-ggcoder mcp list                         # list servers with live connection status
-ggcoder mcp get <name>                   # show one server's config (secrets masked)
-ggcoder mcp add <args…>                  # add a server (claude-compatible grammar)
-ggcoder mcp remove <name> [--scope s]    # remove a server
+kleio-coder mcp                              # interactive dashboard (🟢/🔴 status, tool counts, scope)
+kleio-coder mcp list                         # list servers with live connection status
+kleio-coder mcp get <name>                   # show one server's config (secrets masked)
+kleio-coder mcp add <args…>                  # add a server (claude-compatible grammar)
+kleio-coder mcp remove <name> [--scope s]    # remove a server
 ```
 
-The `add` grammar mirrors `claude mcp add` 1:1 — you can paste a `claude mcp add …` (or `ggcoder mcp add …`) line and the prefix is stripped automatically:
+The `add` grammar mirrors `claude mcp add` 1:1—you can paste a `claude mcp add …` or `kleio-coder mcp add …` line, and the prefix is stripped automatically:
 
 ```bash
-ggcoder mcp add --transport http notion https://mcp.notion.com/mcp
-ggcoder mcp add --transport sse asana https://mcp.asana.com/sse
-ggcoder mcp add --env AIRTABLE_API_KEY=key airtable -- npx -y airtable-mcp-server
+kleio-coder mcp add --transport http notion https://mcp.notion.com/mcp
+kleio-coder mcp add --transport sse asana https://mcp.asana.com/sse
+kleio-coder mcp add --env AIRTABLE_API_KEY=key airtable -- npx -y airtable-mcp-server
 ```
 
 `--scope user` maps to global; `local`/`project` map to project. Code lives in `core/mcp/` (`store.ts` persistence, `parse-add-command.ts` parser, `client.ts` `connectAllDetailed`/`probe`) and `cli/mcp.ts` + `ui/mcp.tsx`.
 
 ### Caveats
 
-- **Connection is startup-only.** MCP connects once at launch (`connectInitialMcpTools` in `cli.ts`). Adding a server via `ggcoder mcp` mid-session won't hot-load it — restart ggcoder.
+- **Connection is startup-only.** MCP connects once at launch (`connectInitialMcpTools` in `cli.ts`). Adding a server via `kleio-coder mcp` mid-session will not hot-load it—restart Kleio Coder.
 - **Pixel chdir flow.** Project-scoped servers load relative to `process.cwd()` at startup. The Pixel fix flow swaps cwd mid-session (`process.chdir` + `rebuildToolsForCwd`); project MCP servers won't follow that swap.
 - **WebSocket transport** is parsed but rejected (no WS client today).
 - **Env var expansion** (`${VAR}`) in `.mcp.json` is NOT expanded in v1 — values pass through literally.
 
 ## Pixel — error tracking + auto-fix queue
 
-`@kenkaiiii/gg-pixel` is a drop-in error tracking SDK. Errors flow to a Cloudflare Worker (`gg-pixel-server`) backed by D1. `ggcoder pixel` opens an in-Ink overlay that lists open errors per project and hands each one off to the existing agent loop — same UX as the Task pane.
+`@kenkaiiii/gg-pixel` is a drop-in error tracking SDK. Errors flow to a Cloudflare Worker (`gg-pixel-server`) backed by D1. `kleio-coder pixel` opens an in-Ink overlay that lists open errors per project and hands each one to the existing agent loop—the same UX as the Task pane.
 
 ### CLI
 
 ```bash
-ggcoder pixel install          # Detect framework, wire up SDK + .env, register project key
-ggcoder pixel                  # Open the in-Ink overlay (also: Ctrl+E inside running ggcoder)
-ggcoder pixel fix <error_id>   # Fix one error end-to-end (subprocess flow, for non-TTY use)
-ggcoder pixel run              # Auto-fix every open error (non-interactive)
+kleio-coder pixel install          # Detect framework, wire up SDK + .env, register project key
+kleio-coder pixel                  # Open the in-Ink overlay (also: Ctrl+E inside Kleio Coder)
+kleio-coder pixel fix <error_id>   # Fix one error end-to-end (subprocess flow, for non-TTY use)
+kleio-coder pixel run              # Auto-fix every open error (non-interactive)
 ```
 
 ### In-Ink fix flow (the main path)
 
-`Ctrl+E` from inside ggcoder, or `ggcoder pixel`, opens `PixelOverlay`. Keys: `↑↓ navigate · Enter fix one · f fix all · d delete · Esc close`.
+`Ctrl+E` from inside Kleio Coder, or `kleio-coder pixel`, opens `PixelOverlay`. Keys: `↑↓ navigate · Enter fix one · f fix all · d delete · Esc close`.
 
 When a fix starts, `startPixelFix(errorId)` in `App.tsx` swaps **four** things in lockstep before calling `agentLoop.run(prep.prompt)`:
 
@@ -282,6 +293,7 @@ Reset chat state (`setHistory`, `setLiveItems`, `setStaticKey`, screen clear) **
 ### Backend
 
 `packages/gg-pixel-server/` — Hono on Workers + D1. Routes:
+
 - `POST /ingest` — SDK posts events; server dedupes by `(project_id, fingerprint)`. Validated + size-capped + per-project unique-fingerprint cap (10K). CORS-open since the publishable `project_key` is the auth boundary for ingest only.
 - `POST /api/projects` — globally rate-limited (100/hr). Returns `{ id, key, secret }` once on creation; the `secret` is the bearer token for every other `/api/*` call from that project's owner.
 - `GET /api/projects/:id/errors` — bearer-authed (`Authorization: Bearer sk_live_…`); 403 if the secret doesn't own the project.
@@ -289,7 +301,7 @@ Reset chat state (`setHistory`, `setLiveItems`, `setStaticKey`, screen clear) **
 - `PATCH /api/errors/:id` — bearer-authed + scoped. Drives `open → in_progress → awaiting_review → merged` (or `failed`).
 - `DELETE /api/errors/:id` — bearer-authed + scoped (used by `d` in the overlay).
 
-`~/.gg/projects.json` stores `{ name, path, secret }` per project. The CLI reads the secret on every management call. Re-run `ggcoder pixel install` to refresh the secret if a mapping is legacy (no `secret` field).
+`~/.gg/projects.json` stores `{ name, path, secret }` per project. The CLI reads the secret on every management call. Re-run `kleio-coder pixel install` to refresh the secret if a mapping is legacy (no `secret` field).
 
 ## Slash Commands
 
@@ -302,6 +314,7 @@ Commands that need direct access to React state (UI, overlays, token counters) a
 **Current UI commands:** `/model` (`/m`), `/compact` (`/c`), `/quit` (`/q`, `/exit`), `/clear`
 
 To add a new UI command:
+
 1. Add a condition in `handleSubmit` after the existing checks:
    ```tsx
    if (trimmed === "/mycommand") {
@@ -321,6 +334,7 @@ Commands that don't need React state live in `createBuiltinCommands()` in `src/c
 Note: `/model`, `/compact`, and `/quit` exist in both — the UI handlers in `App.tsx` take precedence since they're checked first.
 
 To add a new registry command:
+
 1. Add an entry to the array in `createBuiltinCommands()`:
    ```ts
    {
@@ -338,11 +352,11 @@ To add a new registry command:
 
 ### When to use which
 
-| Need | Where |
-|---|---|
-| Modify UI state (history, overlays, live items) | `App.tsx` |
-| Reset token counters | `App.tsx` (call `agentLoop.reset()`) |
-| Access agent session (messages, auth, settings) | `slash-commands.ts` registry |
-| Both UI + session access | `App.tsx` (can call session methods via props) |
+| Need                                            | Where                                          |
+| ----------------------------------------------- | ---------------------------------------------- |
+| Modify UI state (history, overlays, live items) | `App.tsx`                                      |
+| Reset token counters                            | `App.tsx` (call `agentLoop.reset()`)           |
+| Access agent session (messages, auth, settings) | `slash-commands.ts` registry                   |
+| Both UI + session access                        | `App.tsx` (can call session methods via props) |
 
 There is also support for **prompt-template commands** (built-in from `core/prompt-commands.ts` and custom from `.gg/commands/` directory).
