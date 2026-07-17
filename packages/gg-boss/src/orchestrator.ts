@@ -2,6 +2,7 @@ import { Agent, isAbortError } from "@kleio/agent";
 import { compact, estimateConversationTokens, shouldCompact } from "@kleio/coder";
 import {
   AuthStorage,
+  KLEIO_MANAGER_ERROR_DISPLAY,
   getContextWindow,
   getNextThinkingLevel,
   isThinkingLevelSupported,
@@ -1064,7 +1065,7 @@ function computeContextUsed(usage: Usage, provider: Provider): number {
  * pattern in App.tsx so users see the same diagnostic phrasing.
  */
 function formatProviderError(err: unknown): string {
-  const formatted = formatError(err);
+  const formatted = formatError(err, KLEIO_MANAGER_ERROR_DISPLAY);
   const message = formatted.message || (err instanceof Error ? err.message : String(err));
   const lines = [formatted.headline];
   if (message && message !== formatted.headline) lines.push(message);

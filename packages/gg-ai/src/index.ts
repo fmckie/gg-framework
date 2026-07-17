@@ -54,7 +54,7 @@ export {
   isUsageLimitError,
   isHardBillingMessage,
 } from "./errors.js";
-export type { ErrorSource, FormattedError } from "./errors.js";
+export type { ErrorDisplayOptions, ErrorSource, FormattedError } from "./errors.js";
 export { classifyProviderError } from "./error-classification.js";
 
 // Provider-level diagnostics (raw SSE event types, etc.)

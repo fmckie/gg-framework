@@ -1,20 +1,21 @@
 /**
  * Error model for gg-ai and downstream consumers.
  *
- * Every error users see should answer one question: "is this me or them?"
- * That answer drives whether they retry, switch model, log in, or report a
- * ggcoder bug. The `FormattedError` shape captures it in plain English:
- *
- *   ✗ OpenAI returned an error.
- *     An error occurred while processing your request...
- *     → This is an OpenAI issue, not ggcoder. Retry — if it persists, check status.openai.com.
- *
- *   ✗ ggcoder hit an unexpected error.
- *     Cannot read property 'foo' of undefined
- *     → This is a ggcoder bug — please report it.
+ * Low-level formatting stays product-neutral. Applications can pass an
+ * `ErrorDisplayOptions` profile to add their display name, preferred login
+ * command, and bug-report destination without changing machine discriminators.
  */
 
 export type ErrorSource = "provider" | "ggcoder" | "network" | "auth" | "capability";
+
+export interface ErrorDisplayOptions {
+  /** User-visible application name, for example "Kleio Coder". */
+  productName: string;
+  /** Full preferred login command, for example "kleio-coder login". */
+  loginCommand: string;
+  /** Optional destination appended to application-bug guidance. */
+  bugReportUrl?: string;
+}
 
 /**
  * Probe a web `Headers` object or a plain header record for the first present
@@ -223,7 +224,7 @@ function isMythosAccessError(message: string): boolean {
   );
 }
 
-export function formatError(err: unknown): FormattedError {
+export function formatError(err: unknown, display?: ErrorDisplayOptions): FormattedError {
   if (err instanceof ProviderError) {
     const name = providerDisplayName(err.provider);
     const cleanMessage = cleanProviderMessage(err.message);
@@ -260,20 +261,20 @@ export function formatError(err: unknown): FormattedError {
       provider: err.provider,
       statusCode: err.statusCode,
       requestId: err.requestId,
-      guidance: err.hint ?? providerGuidance(err.provider, cleanMessage, err.statusCode),
+      guidance: err.hint ?? providerGuidance(err.provider, cleanMessage, err.statusCode, display),
     };
   }
 
   if (err instanceof GGAIError) {
-    return finaliseBySource(err.source, err.message, err.requestId, err.hint);
+    return finaliseBySource(err.source, err.message, err.requestId, err.hint, display);
   }
 
   if (err instanceof Error) {
     const source = inferSource(err);
-    return finaliseBySource(source, err.message, undefined, undefined);
+    return finaliseBySource(source, err.message, undefined, undefined, display);
   }
 
-  return finaliseBySource("ggcoder", String(err), undefined, undefined);
+  return finaliseBySource("ggcoder", String(err), undefined, undefined, display);
 }
 
 function finaliseBySource(
@@ -281,6 +282,7 @@ function finaliseBySource(
   message: string,
   requestId: string | undefined,
   hint: string | undefined,
+  display: ErrorDisplayOptions | undefined,
 ): FormattedError {
   switch (source) {
     case "network":
@@ -288,7 +290,11 @@ function finaliseBySource(
         headline: "Network error — couldn't reach the provider.",
         source,
         message,
-        guidance: hint ?? "Check your internet connection. Not a ggcoder issue — retry shortly.",
+        guidance:
+          hint ??
+          (display
+            ? `Check your internet connection. This is not a ${display.productName} issue — retry shortly.`
+            : "Check your internet connection, then retry shortly."),
         ...(requestId ? { requestId } : {}),
       };
     case "auth":
@@ -296,7 +302,7 @@ function finaliseBySource(
         headline: "Authentication issue.",
         source,
         message,
-        guidance: hint ?? "Run `ggcoder login` to refresh your credentials.",
+        guidance: hint ?? refreshCredentialsGuidance(display),
         ...(requestId ? { requestId } : {}),
       };
     case "provider":
@@ -305,7 +311,7 @@ function finaliseBySource(
         headline: "Provider returned an error.",
         source,
         message,
-        guidance: hint ?? providerGuidance(undefined, message, undefined),
+        guidance: hint ?? providerGuidance(undefined, message, undefined, display),
         ...(requestId ? { requestId } : {}),
       };
     case "capability":
@@ -320,11 +326,12 @@ function finaliseBySource(
       };
     case "ggcoder":
       return {
-        headline: "ggcoder hit an unexpected error.",
+        headline: display
+          ? `${display.productName} hit an unexpected error.`
+          : "The application hit an unexpected error.",
         source,
         message,
-        guidance:
-          hint ?? "This looks like a ggcoder bug — please report it to the developer (see /help).",
+        guidance: hint ?? applicationBugGuidance(display),
         ...(requestId ? { requestId } : {}),
       };
   }
@@ -338,8 +345,8 @@ function finaliseBySource(
  *     <message>
  *     → <guidance>
  */
-export function formatErrorForDisplay(err: unknown): string {
-  const f = formatError(err);
+export function formatErrorForDisplay(err: unknown, display?: ErrorDisplayOptions): string {
+  const f = formatError(err, display);
   const lines = [f.headline];
   if (f.message && f.message !== f.headline) lines.push(`  ${f.message}`);
   lines.push(`  → ${f.guidance}`);
@@ -379,26 +386,41 @@ function inferSource(err: Error): ErrorSource {
   return "ggcoder";
 }
 
-/**
- * Build the action line for a provider error: tells the user whether to
- * retry, switch model, check billing, or whether it's serious enough to
- * report. Always frames the source plainly ("This is an OpenAI issue") so
- * the user knows to NOT report it to the ggcoder dev.
- */
+function refreshCredentialsGuidance(display: ErrorDisplayOptions | undefined): string {
+  return display
+    ? `Run \`${display.loginCommand}\` to refresh your credentials.`
+    : "Refresh your credentials and try again.";
+}
+
+function applicationBugGuidance(display: ErrorDisplayOptions | undefined): string {
+  if (!display) return "This looks like an application bug — please report it to the developer.";
+  const destination = display.bugReportUrl ? ` at ${display.bugReportUrl}` : "";
+  return `This looks like a ${display.productName} bug — please report it${destination}.`;
+}
+
+function providerOrigin(name: string, display: ErrorDisplayOptions | undefined): string {
+  return display
+    ? `The error came from ${name}, not ${display.productName}.`
+    : `The error came from ${name}.`;
+}
+
+/** Build a product-neutral provider action line, branded only when a caller supplies a profile. */
 function providerGuidance(
   provider: string | undefined,
   message: string,
   statusCode: number | undefined,
+  display: ErrorDisplayOptions | undefined,
 ): string {
   const name = provider ? providerDisplayName(provider) : "the provider";
   const status = provider ? PROVIDER_STATUS_URL[provider] : undefined;
   const lower = message.toLowerCase();
+  const origin = providerOrigin(name, display);
 
   if (statusCode === 401 || lower.includes("unauthorized") || lower.includes("invalid api key")) {
-    return `Authentication failed with ${name}. Run \`ggcoder login\` to refresh your credentials.`;
+    return `Authentication failed with ${name}. ${refreshCredentialsGuidance(display)}`;
   }
   if (lower.includes("overloaded") || lower.includes("engine_overloaded")) {
-    return `${name}'s servers are overloaded right now. Retry in a moment — not a ggcoder issue.`;
+    return `${name}'s servers are overloaded right now. Retry in a moment. ${origin}`;
   }
   if (
     lower.includes("insufficient balance") ||
@@ -406,16 +428,16 @@ function providerGuidance(
     lower.includes("recharge") ||
     lower.includes("no resource package")
   ) {
-    return `Your ${name} account has a billing or quota issue — check your balance. Not a ggcoder issue.`;
+    return `Your ${name} account has a billing or quota issue — check your balance. ${origin}`;
   }
   if (statusCode === 429 || lower.includes("rate limit") || lower.includes("too many requests")) {
-    return `${name} rate limit hit. Wait a moment then retry — not a ggcoder issue.`;
+    return `${name} rate limit hit. Wait a moment then retry. ${origin}`;
   }
   if (statusCode === 502 || lower.includes("bad gateway")) {
-    return `${name} returned a bad gateway. Retry — this is on their side, not ggcoder.`;
+    return `${name} returned a bad gateway. Retry. ${origin}`;
   }
   if (statusCode === 503 || lower.includes("service unavailable")) {
-    return `${name} is temporarily unavailable. Retry shortly — not a ggcoder issue.`;
+    return `${name} is temporarily unavailable. Retry shortly. ${origin}`;
   }
   if (
     statusCode === 500 ||
@@ -423,11 +445,11 @@ function providerGuidance(
     (lower.includes("500") && lower.includes("internal server error"))
   ) {
     return status
-      ? `This is an error from ${name}, not ggcoder. Retry — if it keeps happening, check ${status}.`
-      : `This is an error from ${name}, not ggcoder. Retry — if it keeps happening, try a different model with /model.`;
+      ? `${origin} Retry — if it keeps happening, check ${status}.`
+      : `${origin} Retry — if it keeps happening, try a different model with /model.`;
   }
   if (lower.includes("timeout") || lower.includes("timed out")) {
-    return `Request to ${name} timed out. Their servers may be slow — retry. Not a ggcoder issue.`;
+    return `Request to ${name} timed out. Their servers may be slow — retry. ${origin}`;
   }
   if (
     lower.includes("does not recognize the requested model") ||
@@ -440,6 +462,6 @@ function providerGuidance(
     return `Context window for this ${name} model is full. Run /compact to shrink history, or start a new session.`;
   }
   return status
-    ? `This is an error from ${name}, not ggcoder. Retry — if it persists, check ${status}.`
-    : `This is an error from ${name}, not ggcoder. Retry — if it persists, try a different model with /model.`;
+    ? `${origin} Retry — if it persists, check ${status}.`
+    : `${origin} Retry — if it persists, try a different model with /model.`;
 }

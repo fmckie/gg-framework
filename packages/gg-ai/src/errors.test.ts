@@ -95,7 +95,7 @@ describe("VideoUnsupportedError", () => {
   it("renders headline + guidance only (no bug-report framing)", () => {
     const out = formatErrorForDisplay(new VideoUnsupportedError());
     expect(out).toContain("This model can't analyze video.");
-    expect(out).not.toContain("ggcoder bug");
+    expect(out).not.toContain("application bug");
   });
 });
 
@@ -108,7 +108,7 @@ describe("formatErrorForDisplay", () => {
       [
         "Anthropic returned an error.",
         "  overloaded_error: Overloaded",
-        "  \u2192 Anthropic's servers are overloaded right now. Retry in a moment \u2014 not a ggcoder issue.",
+        "  \u2192 Anthropic's servers are overloaded right now. Retry in a moment. The error came from Anthropic.",
       ].join("\n"),
     );
   });
@@ -121,7 +121,7 @@ describe("formatErrorForDisplay", () => {
       [
         "OpenAI returned an error.",
         "  server_error: something broke",
-        "  \u2192 This is an error from OpenAI, not ggcoder. Retry \u2014 if it keeps happening, check status.openai.com.",
+        "  \u2192 The error came from OpenAI. Retry \u2014 if it keeps happening, check status.openai.com.",
       ].join("\n"),
     );
   });
@@ -150,31 +150,63 @@ describe("formatErrorForDisplay", () => {
       [
         "Gemini returned an error.",
         "  quota exceeded",
-        "  \u2192 Your Gemini account has a billing or quota issue \u2014 check your balance. Not a ggcoder issue.",
+        "  \u2192 Your Gemini account has a billing or quota issue \u2014 check your balance. The error came from Gemini.",
       ].join("\n"),
     );
   });
 
-  it("classifies a network GGAIError without a ggcoder bug headline", () => {
+  it("classifies a network GGAIError without application-bug framing", () => {
     const out = formatErrorForDisplay(new GGAIError("fetch failed", { source: "network" }));
     expect(out).toBe(
       [
         "Network error \u2014 couldn't reach the provider.",
         "  fetch failed",
-        "  \u2192 Check your internet connection. Not a ggcoder issue \u2014 retry shortly.",
+        "  \u2192 Check your internet connection, then retry shortly.",
       ].join("\n"),
     );
   });
 
-  it("falls back to the ggcoder-bug headline for unknown errors", () => {
+  it("uses product-neutral application-bug copy for unknown errors", () => {
     const out = formatErrorForDisplay(new Error("Cannot read property 'foo' of undefined"));
     expect(out).toBe(
       [
-        "ggcoder hit an unexpected error.",
+        "The application hit an unexpected error.",
         "  Cannot read property 'foo' of undefined",
-        "  \u2192 This looks like a ggcoder bug \u2014 please report it to the developer (see /help).",
+        "  \u2192 This looks like an application bug \u2014 please report it to the developer.",
       ].join("\n"),
     );
+  });
+
+  it("applies an application profile without changing the machine source", () => {
+    const display = {
+      productName: "Kleio Coder",
+      loginCommand: "kleio-coder login",
+      bugReportUrl: "https://github.com/fmckie/gg-framework/issues",
+    };
+    const formatted = formatError(new Error("boom"), display);
+    expect(formatted).toMatchObject({
+      source: "ggcoder",
+      headline: "Kleio Coder hit an unexpected error.",
+      guidance:
+        "This looks like a Kleio Coder bug \u2014 please report it at https://github.com/fmckie/gg-framework/issues.",
+    });
+  });
+
+  it("uses the profiled login command and provider attribution", () => {
+    const display = {
+      productName: "Kleio Manager",
+      loginCommand: "kleio-coder login",
+    };
+    expect(
+      formatError(new ProviderError("openai", "unauthorized", { statusCode: 401 }), display)
+        .guidance,
+    ).toBe(
+      "Authentication failed with OpenAI. Run `kleio-coder login` to refresh your credentials.",
+    );
+    expect(
+      formatError(new ProviderError("openai", "server_error", { statusCode: 500 }), display)
+        .guidance,
+    ).toContain("The error came from OpenAI, not Kleio Manager.");
   });
 });
 

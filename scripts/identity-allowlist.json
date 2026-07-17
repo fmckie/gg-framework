@@ -8,7 +8,7 @@
       "scope": "content",
       "targets": ["tracked"],
       "match": { "regex": "kenkaiiii|gg-boss|gg-coder|gg coder|ggboss|ggcoder", "flags": "giu" },
-      "expectedOccurrences": { "tracked": 118, "packed": 0 },
+      "expectedOccurrences": { "tracked": 121, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "The audit policy must spell the legacy identities it classifies.",
@@ -116,7 +116,7 @@
       "scope": "path",
       "targets": ["tracked", "packed"],
       "match": { "literal": "ggcoder" },
-      "expectedOccurrences": { "tracked": 375, "packed": 0 },
+      "expectedOccurrences": { "tracked": 376, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Framework maintainers",
       "reason": "The upstream-sync directory remains packages/ggcoder while the npm package is @kleio/coder.",
@@ -263,7 +263,7 @@
         "regex": "(?:source[^\\n]*|case\\s+|return\\s+|\\|\\s*)[\"']ggcoder[\"']|[\"']ggcoder[\"'][^\\n]*(?:source|ErrorSource)",
         "flags": "giu"
       },
-      "expectedOccurrences": { "tracked": 5, "packed": 0 },
+      "expectedOccurrences": { "tracked": 6, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Error contract owner",
       "reason": "ErrorSource ggcoder is a serialized machine discriminator, not a display label.",
@@ -404,7 +404,7 @@
       "scope": "content",
       "targets": ["tracked"],
       "match": { "regex": "\\b(?:GGCODER|GGBOSS)[A-Z0-9_]*\\b", "flags": "gu" },
-      "expectedOccurrences": { "tracked": 20, "packed": 0 },
+      "expectedOccurrences": { "tracked": 18, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Runtime configuration owner",
       "reason": "Existing launch agents, OAuth setups, audio helpers, and tests consume these environment names.",
@@ -421,6 +421,18 @@
       "owner": "Logging compatibility owner",
       "reason": "Legacy logger components and prefixes remain stable for existing filters and debug tooling.",
       "removeWhen": "Structured product fields replace string filters and cleanup supports both generations."
+    },
+    {
+      "id": "core-product-profile-compatibility-values",
+      "path": "packages/gg-core/src/product-profile*.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "ggcoder|ggboss|GGCoder", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 9, "packed": 0 },
+      "bucket": "compatibility",
+      "owner": "Kleio product identity owner",
+      "reason": "The profile centralizes legacy command, HTTP, MCP, and Agent Home identifiers beside preferred values.",
+      "removeWhen": "Each downstream contract has completed its separately reviewed migration and deprecation window."
     }
   ]
 }

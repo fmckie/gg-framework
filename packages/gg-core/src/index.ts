@@ -1,4 +1,5 @@
 // @kleio/core — provider-agnostic, UI-free shared foundation.
+export * from "./product-profile.js";
 export * from "./model-registry.js";
 export * from "./thinking-level.js";
 export * from "./paths.js";
