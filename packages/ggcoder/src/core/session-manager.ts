@@ -109,6 +109,50 @@ export interface SessionInfo {
   lastActivity: string;
   cwd: string;
   messageCount: number;
+  /**
+   * Text of the first user message, for session pickers that want a meaningful
+   * label instead of a UUID. Captured during the existing listing scan, so it
+   * costs no extra file read.
+   *
+   * Raw apart from a hard {@link FIRST_PROMPT_MAX_LENGTH} cap that stops a
+   * multi-megabyte paste from being held per session. Callers are expected to
+   * sanitize and shorten it for display.
+   *
+   * `undefined` when the session has no user message yet, or when the first one
+   * carries no text at all (an image-only turn).
+   */
+  firstPrompt?: string;
+}
+
+/**
+ * Hard cap on captured {@link SessionInfo.firstPrompt} text. Listing a directory
+ * holds every session's prompt in memory at once, so an uncapped field would let
+ * a single huge paste dominate. Far above any sensible label length.
+ */
+const FIRST_PROMPT_MAX_LENGTH = 512;
+
+/**
+ * Extract displayable text from a user message's content, which is either a
+ * plain string or an array of content blocks (text, image, video).
+ *
+ * Returns the first non-empty text block, or null when the turn carries no text
+ * at all — e.g. an image-only message, which must not yield an empty label.
+ */
+function firstPromptText(message: Message): string | null {
+  if (message.role !== "user") return null;
+
+  const { content } = message;
+  if (typeof content === "string") {
+    return content.length > 0 ? content.slice(0, FIRST_PROMPT_MAX_LENGTH) : null;
+  }
+  if (!Array.isArray(content)) return null;
+
+  for (const part of content) {
+    if (part?.type === "text" && typeof part.text === "string" && part.text.length > 0) {
+      return part.text.slice(0, FIRST_PROMPT_MAX_LENGTH);
+    }
+  }
+  return null;
 }
 
 // ── Branch Info ───────────────────────────────────────────
@@ -278,6 +322,7 @@ export class SessionManager {
         let first: SessionLine | null = null;
         let messageCount = 0;
         let lastActivity: string | null = null;
+        let firstPrompt: string | null = null;
 
         for await (const line of rl) {
           if (!line) continue;
@@ -289,6 +334,9 @@ export class SessionManager {
             } else if (parsed.type === "message") {
               messageCount++;
               if (parsed.timestamp) lastActivity = parsed.timestamp;
+              // Reuse the message this scan already parsed — capturing the label
+              // here is what keeps listing to a single pass per file.
+              if (firstPrompt === null) firstPrompt = firstPromptText(parsed.message);
             }
           } catch {
             // Skip malformed lines
@@ -304,6 +352,8 @@ export class SessionManager {
           lastActivity: lastActivity ?? first.timestamp,
           cwd: first.cwd,
           messageCount,
+          // Omitted rather than set to undefined, so JSON round-trips cleanly.
+          ...(firstPrompt !== null ? { firstPrompt } : {}),
         });
       } catch {
         // Skip corrupt files

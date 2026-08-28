@@ -1,6 +1,6 @@
 {
   "name": "@kleio/manager",
-  "version": "4.10.1-kleio.0",
+  "version": "4.10.1-kleio.1",
   "type": "module",
   "description": "Kleio Manager orchestrates multiple Kleio Coder workers across projects from one chat",
   "license": "MIT",

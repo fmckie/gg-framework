@@ -1,5 +1,19 @@
 # @kleio/coder
 
+## 4.10.1-kleio.1
+
+### Patch Changes
+
+- Expose `firstPrompt` on `SessionManager.list()` results, so session pickers can label a session with its opening prompt instead of a UUID.
+
+  The text is captured during the listing scan that already streams each session file, so listing still costs exactly one read per session — no second pass. Handles plain-string and mixed text/media content, omits the field entirely for image-only or empty sessions, and caps captured text at 512 characters so one huge paste cannot dominate memory while a directory is listed. Callers sanitize and truncate for display.
+
+- Provenance: this is the release `fork-provenance.json` reserves under the `kleioRebrand` label, now also labelled `sessionFirstPrompt`. The Kleio rebrand itself — the rename from the upstream package scope to `@kleio/*`, plus the product-surface copy — was already contained in the commit tagged `v4.10.1-kleio.0` and therefore already shipped in that published artifact. Measured as a code delta against `4.10.1-kleio.0`, this release contains the `firstPrompt` change only.
+
+  - @kleio/ai@4.10.1-kleio.1
+  - @kleio/agent@4.10.1-kleio.1
+  - @kleio/core@4.10.1-kleio.1
+
 ## 4.10.1
 
 ### Patch Changes

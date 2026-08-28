@@ -4,7 +4,7 @@
     "repository": "https://github.com/fmckie/gg-framework",
     "releaseBranch": "main",
     "scope": "@kleio",
-    "currentFixedVersion": "4.10.1-kleio.0"
+    "currentFixedVersion": "4.10.1-kleio.1"
   },
   "upstream": {
     "repository": "https://github.com/KenKaiii/gg-framework",
@@ -26,7 +26,8 @@
   },
   "releases": {
     "provenanceOnly": "4.10.1-kleio.0",
-    "kleioRebrand": "4.10.1-kleio.1"
+    "kleioRebrand": "4.10.1-kleio.1",
+    "sessionFirstPrompt": "4.10.1-kleio.1"
   },
   "packages": {
     "@kenkaiiii/gg-ai": "@kleio/ai",
@@ -44,7 +45,9 @@
     "documentation and provenance metadata"
   ],
   "phase1RuntimeSourcePolicy": {
-    "allowed": ["the five direct package-specifier substitutions listed in packages"],
+    "allowed": [
+      "the five direct package-specifier substitutions listed in packages"
+    ],
     "allOtherRuntimeDeltasAllowed": false
   },
   "license": "MIT"

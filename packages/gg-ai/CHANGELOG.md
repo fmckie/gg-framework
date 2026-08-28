@@ -1,5 +1,11 @@
 # @kleio/ai
 
+## 4.10.1-kleio.1
+
+### Patch Changes
+
+- Lockstep version bump for the fixed `@kleio/*` group; no source change in this package. See `@kleio/coder` for the release contents (`SessionManager.list()` now exposes `firstPrompt`).
+
 ## 4.10.1
 
 ## 4.10.0

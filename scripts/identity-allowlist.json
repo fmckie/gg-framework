@@ -116,7 +116,7 @@
       "scope": "path",
       "targets": ["tracked", "packed"],
       "match": { "literal": "ggcoder" },
-      "expectedOccurrences": { "tracked": 386, "packed": 0 },
+      "expectedOccurrences": { "tracked": 387, "packed": 0 },
       "bucket": "compatibility",
       "owner": "Framework maintainers",
       "reason": "The upstream-sync directory remains packages/ggcoder while the npm package is @kleio/coder.",
