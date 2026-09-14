@@ -42,13 +42,13 @@ export function createStabilizeVideoTool(cwd: string): AgentTool<typeof Stabiliz
       "the borders out. Audio is copied unchanged.",
     parameters: StabilizeVideoParams,
     async execute({ input, output, shakiness, smoothing, zoom }, ctx) {
-      if (!checkFfmpeg()) return err("ffmpeg not on PATH", "install ffmpeg");
       try {
         const inAbs = resolvePath(cwd, input);
         const outAbs = safeOutputPath(cwd, output);
         if (inAbs === outAbs) {
           return err("input and output paths are identical", "use a different output path");
         }
+        if (!checkFfmpeg()) return err("ffmpeg not on PATH", "install ffmpeg");
         mkdirSync(dirname(outAbs), { recursive: true });
         const r = await stabilize(inAbs, outAbs, {
           shakiness,

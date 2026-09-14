@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAddSfxToTimelineTool } from "./add-sfx-to-timeline.js";
+import { resolveSfx } from "../core/bundled-sfx.js";
 import type { VideoHost } from "../core/hosts/types.js";
+import * as ffmpeg from "../core/media/ffmpeg.js";
+
+afterEach(() => vi.restoreAllMocks());
 
 // Mock bundled-sfx so the tool tests don't try to spawn ffmpeg.
 vi.mock("../core/bundled-sfx.js", async () => {
@@ -195,12 +199,36 @@ describe("add_sfx_to_timeline", () => {
     expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({ recordFrame: 60 }));
   });
 
-  it("propagates unknown SFX name errors with the bundled list in the hint", async () => {
-    const tool = createAddSfxToTimelineTool(mockHost({ fps: 30 }), "/cwd");
-    const r = await tool.execute({ sfx: "notarealsfx", cutPoints: [1] }, ctx);
-    expect(r).toMatch(/error: unknown SFX name/);
-    expect(r).toMatch(/bundled SFX name/);
-  });
+  it.each([true, false])(
+    "propagates unknown SFX name errors regardless of ffmpeg availability (%s)",
+    async (available) => {
+      const check = vi.spyOn(ffmpeg, "checkFfmpeg").mockReturnValue(available);
+      const tool = createAddSfxToTimelineTool(mockHost({ fps: 30 }), "/cwd");
+      for (const sfx of ["notarealsfx", "ffmpeg"]) {
+        const r = await tool.execute({ sfx, cutPoints: [1] }, ctx);
+        expect(r).toMatch(/error: unknown SFX name/);
+        expect(r).toMatch(/bundled SFX name/);
+        expect(r).toContain("Bundled: pop, whoosh");
+        expect(r).not.toContain("install ffmpeg");
+      }
+      expect(check).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, false])(
+    "retains the appropriate hint for synthesis failures with ffmpeg available (%s)",
+    async (available) => {
+      const check = vi.spyOn(ffmpeg, "checkFfmpeg").mockReturnValue(available);
+      vi.mocked(resolveSfx).mockRejectedValueOnce(
+        new Error("ffmpeg failed synthesising 'whoosh' SFX"),
+      );
+      const tool = createAddSfxToTimelineTool(mockHost({ fps: 30 }), "/cwd");
+      const r = await tool.execute({ sfx: "whoosh", cutPoints: [1] }, ctx);
+      expect(r).toMatch(/error: ffmpeg failed synthesising/);
+      expect(r).toContain(available ? "use a bundled SFX name" : "ffmpeg not on PATH");
+      expect(check).toHaveBeenCalledOnce();
+    },
+  );
 
   it("rejects when the host can't report a frame rate", async () => {
     const tool = createAddSfxToTimelineTool(

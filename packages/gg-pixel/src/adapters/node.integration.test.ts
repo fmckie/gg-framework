@@ -3,10 +3,10 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 
-const distPath = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
+// ESM imports require file URLs on Windows, not drive-letter paths.
+const distUrl = new URL("../../dist/index.js", import.meta.url);
 
 interface ChildResult {
   code: number | null;
@@ -16,7 +16,7 @@ interface ChildResult {
 
 function runChild(script: string): Promise<ChildResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", ["--input-type=module", "-e", script], {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -45,7 +45,7 @@ function readEvents(dbPath: string): EventRow[] {
   return rows;
 }
 
-const distMissing = !existsSync(distPath);
+const distMissing = !existsSync(distUrl);
 
 describe.skipIf(distMissing)("Node adapter — real child processes", () => {
   it("captures a real uncaughtException synchronously before the process dies", async () => {
@@ -53,7 +53,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
     const dbPath = join(dir, "errors.db");
     try {
       const result = await runChild(`
-        import { initPixel } from ${JSON.stringify(distPath)};
+        import { initPixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
@@ -79,7 +79,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
     const dbPath = join(dir, "errors.db");
     try {
       const result = await runChild(`
-        import { initPixel } from ${JSON.stringify(distPath)};
+        import { initPixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
@@ -109,7 +109,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
       // emitting, so this exercises the async (console.error) path that
       // depends on beforeExit drain to land on disk.
       const result = await runChild(`
-        import { initPixel } from ${JSON.stringify(distPath)};
+        import { initPixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
@@ -133,7 +133,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
     const dbPath = join(dir, "errors.db");
     try {
       const result = await runChild(`
-        import { initPixel, reportPixel, flushPixel, closePixel } from ${JSON.stringify(distPath)};
+        import { initPixel, reportPixel, flushPixel, closePixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
@@ -166,7 +166,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
     const dbPath = join(dir, "errors.db");
     try {
       const result = await runChild(`
-        import { initPixel, reportPixel, flushPixel, closePixel } from ${JSON.stringify(distPath)};
+        import { initPixel, reportPixel, flushPixel, closePixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
@@ -193,7 +193,7 @@ describe.skipIf(distMissing)("Node adapter — real child processes", () => {
     const dbPath = join(dir, "errors.db");
     try {
       const result = await runChild(`
-        import { initPixel } from ${JSON.stringify(distPath)};
+        import { initPixel } from ${JSON.stringify(distUrl.href)};
         initPixel({
           projectKey: "pk_test",
           sink: { kind: "local", path: ${JSON.stringify(dbPath)} },
