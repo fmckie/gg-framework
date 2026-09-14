@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { MCPClientManager, resolveMcpClientName } from "./client.js";
+import type * as McpClient from "@modelcontextprotocol/client";
 
 const sdkMocks = vi.hoisted(() => ({
   clientConstructor: vi.fn(),
@@ -13,7 +14,8 @@ const sdkMocks = vi.hoisted(() => ({
   stdioTransport: vi.fn(),
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof McpClient>()),
   Client: class ClientMock {
     constructor(clientInfo: unknown) {
       sdkMocks.clientConstructor(clientInfo);
@@ -24,17 +26,11 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
     callTool = sdkMocks.callTool;
     close = sdkMocks.close;
   },
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: class StreamableHTTPClientTransportMock {
     constructor(url: URL, options: unknown) {
       sdkMocks.streamableTransport(url, options);
     }
   },
-}));
-
-vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
   SSEClientTransport: class SSEClientTransportMock {
     constructor(url: URL, options: unknown) {
       sdkMocks.sseTransport(url, options);
@@ -42,7 +38,7 @@ vi.mock("@modelcontextprotocol/sdk/client/sse.js", () => ({
   },
 }));
 
-vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+vi.mock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: class StdioClientTransportMock {
     stderr = undefined;
 

@@ -12,11 +12,17 @@ export type Provider =
   | "minimax"
   | "deepseek"
   | "openrouter"
-  | "palsu";
+  | "sakana"
+  | "xai"
+  | "palsu"
+  /** Hugging Face Inference Providers router (OpenAI-compatible). */
+  | "huggingface"
+  /** Locally hosted OpenAI-compatible server (Ollama, LM Studio, llama.cpp, vLLM). */
+  | "local";
 
 // ── Thinking ───────────────────────────────────────────────
 
-export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 // ── Cache ─────────────────────────────────────────────────
 
@@ -66,6 +72,21 @@ export interface ToolResult {
   toolCallId: string;
   content: ToolResultContent;
   isError?: boolean;
+  /**
+   * Set when the agent loop trimmed `content` to fit a per-result or per-turn
+   * budget. The provider (model input) and the persistent transcript both see
+   * the trimmed `content`, but the live `tool_call_end` event carried the FULL
+   * preview — so this marker makes that divergence explicit and reconcilable.
+   * Internal metadata only: it is never serialized onto the provider wire.
+   */
+  capped?: {
+    /** Length of the original, untrimmed string content. */
+    originalChars: number;
+    /** Length of the trimmed content actually sent to the model. */
+    keptChars: number;
+    /** Which budget triggered the trim. */
+    scope: "per-result" | "per-turn";
+  };
 }
 
 export interface ServerToolCall {
@@ -100,22 +121,49 @@ export type ContentPart =
 
 // ── Messages ───────────────────────────────────────────────
 
-export interface SystemMessage {
+export type MessageProvenanceSource = "human" | "agent" | "runtime";
+
+export type MessageProvenanceKind =
+  | "prompt"
+  | "steering"
+  | "notification"
+  | "completion_gate"
+  | "review_follow_up"
+  | "continuation"
+  | "model_switch"
+  | "automation"
+  | "compaction_summary"
+  | "compaction_ack";
+
+export type MessageProvenanceVisibility = "transcript" | "hidden" | "summary";
+
+/** Internal message metadata. `stream()` removes it before provider dispatch. */
+export interface MessageProvenance {
+  source: MessageProvenanceSource;
+  kind: MessageProvenanceKind;
+  visibility: MessageProvenanceVisibility;
+}
+
+interface MessageMetadata {
+  provenance?: MessageProvenance;
+}
+
+export interface SystemMessage extends MessageMetadata {
   role: "system";
   content: string;
 }
 
-export interface UserMessage {
+export interface UserMessage extends MessageMetadata {
   role: "user";
   content: string | (TextContent | ImageContent | VideoContent)[];
 }
 
-export interface AssistantMessage {
+export interface AssistantMessage extends MessageMetadata {
   role: "assistant";
   content: string | ContentPart[];
 }
 
-export interface ToolResultMessage {
+export interface ToolResultMessage extends MessageMetadata {
   role: "tool";
   content: ToolResult[];
 }
@@ -228,7 +276,10 @@ export interface StreamResponse {
 
 export interface Usage {
   inputTokens: number;
+  /** Total billed output tokens, including reasoning tokens when the provider reports them separately. */
   outputTokens: number;
+  /** Reasoning/thinking-token subset of outputTokens. */
+  reasoningTokens?: number;
   cacheRead?: number;
   cacheWrite?: number;
   serverToolUse?: { webSearchRequests?: number; webFetchRequests?: number };
@@ -259,6 +310,10 @@ export interface StreamOptions {
   serviceTier?: "auto" | "default" | "flex" | "priority";
   /** OpenAI ChatGPT account ID (from OAuth JWT) for codex endpoint */
   accountId?: string;
+  /** Stable conversation identity for Codex transport headers. This is distinct from
+   *  promptCacheKey: sessions with matching prefixes may share a cache key, but must
+   *  retain independent session/thread identities. */
+  transportSessionId?: string;
   /** Google Cloud/Code Assist project ID used by Gemini OAuth transport. */
   projectId?: string;
   /** Enable provider-native web search. Each provider uses its own format:

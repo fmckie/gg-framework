@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Tauri merges these strings into the generated macOS app Info.plist.
+      Permissions apply both to GG Coder's webview and to dev apps launched by
+      its agent, because macOS identifies GG Coder as the responsible parent.
+    -->
+    <key>NSCameraUsageDescription</key>
+    <string>GG Coder uses your camera locally to track which window you're looking at and focus it. Video never leaves your machine.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>GG Coder allows apps you run during development to access your microphone for recording and testing.</string>
+</dict>
+</plist>

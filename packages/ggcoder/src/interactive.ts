@@ -21,18 +21,20 @@ import {
 } from "./utils/format.js";
 import { AuthStorage } from "./core/auth-storage.js";
 import { kimiCodingHeaders, isKimiCodingEndpoint } from "./core/oauth/kimi.js";
-import { ensureAppDirs } from "./config.js";
+import { ensureAppDirs, loadSavedSettings } from "./config.js";
 import { discoverSkills } from "./core/skills.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { shouldCompact, compact } from "./core/compaction/compactor.js";
 import { getContextWindow } from "./core/model-registry.js";
+import { resolveCompactionPolicy } from "./core/compaction/policy.js";
 
 export async function runInteractive(config: CliConfig): Promise<void> {
   const { provider, model, cwd } = config;
 
   // Load auth & ensure dirs
   const paths = await ensureAppDirs();
+  const savedSettings = loadSavedSettings(paths.settingsFile);
 
   // Ensure project-local .gg directories exist
   const localGGDir = path.join(cwd, ".gg");
@@ -40,15 +42,19 @@ export async function runInteractive(config: CliConfig): Promise<void> {
   await fs.mkdir(path.join(localGGDir, "commands"), { recursive: true });
   await fs.mkdir(path.join(localGGDir, "agents"), { recursive: true });
 
+  const authStorage = new AuthStorage(paths.authFile);
+  await authStorage.load();
+
   // Discover skills and create tools before building the prompt so tool names are accurate.
   const skills = await discoverSkills({
     globalSkillsDir: paths.skillsDir,
     projectDir: cwd,
   });
-  const { tools, processManager, lspManager } = createTools(cwd, {
+  const { tools, processManager, lspManager } = await createTools(cwd, {
     skills,
     provider,
     model,
+    authStorage,
   });
   const systemPrompt =
     config.systemPrompt ??
@@ -65,8 +71,6 @@ export async function runInteractive(config: CliConfig): Promise<void> {
     processManager.shutdownAll();
     lspManager?.shutdownAll();
   });
-  const authStorage = new AuthStorage(paths.authFile);
-  await authStorage.load();
 
   // Initialize messages and session
   const messages: Message[] = [];
@@ -106,7 +110,14 @@ export async function runInteractive(config: CliConfig): Promise<void> {
   if (messages.length > 1) {
     const creds = await authStorage.resolveCredentials(provider);
     const contextWindow = getContextWindow(model, { provider, accountId: creds.accountId });
-    if (shouldCompact(messages, contextWindow, 0.8)) {
+    const policy = resolveCompactionPolicy({
+      provider,
+      model,
+      contextWindow,
+      threshold: savedSettings.compactThreshold,
+      accountId: creds.accountId,
+    });
+    if (savedSettings.autoCompact && shouldCompact(messages, contextWindow, policy.threshold)) {
       stdout.write("Compacting restored session...\n");
       const compactionAbort = new AbortController();
       const onSigint = () => compactionAbort.abort();
@@ -120,6 +131,7 @@ export async function runInteractive(config: CliConfig): Promise<void> {
           projectId: creds.projectId,
           baseUrl: config.baseUrl ?? creds.baseUrl,
           contextWindow,
+          targetTokens: policy.targetTokens,
           signal: compactionAbort.signal,
         });
         messages.length = 0;
@@ -153,7 +165,11 @@ export async function runInteractive(config: CliConfig): Promise<void> {
     if (!input) continue;
 
     // Push user message
-    const userMessage: Message = { role: "user", content: input };
+    const userMessage: Message = {
+      role: "user",
+      content: input,
+      provenance: { source: "human", kind: "prompt", visibility: "transcript" },
+    };
     messages.push(userMessage);
     await persistMessage(session, userMessage);
 

@@ -4,11 +4,11 @@ import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 
 export interface TerminalTitleOptions {
   isRunning: boolean;
-  /** LLM-generated session title (shown as the terminal window title). */
-  sessionTitle?: string;
+  cwd: string;
+  gitBranch?: string | null;
 }
 
-export function useTerminalTitle({ isRunning, sessionTitle }: TerminalTitleOptions): void {
+export function useTerminalTitle({ isRunning, cwd, gitBranch }: TerminalTitleOptions): void {
   const { stdout } = useStdout();
 
   // Track previous title to avoid redundant writes
@@ -17,17 +17,16 @@ export function useTerminalTitle({ isRunning, sessionTitle }: TerminalTitleOptio
   // Write terminal title
   useEffect(() => {
     if (!stdout) return;
-    let title: string;
-    if (sessionTitle) {
-      title = isRunning ? `● ${sessionTitle}` : sessionTitle;
-    } else {
-      title = KLEIO_PRODUCT_PROFILE.coder.displayName;
-    }
+    const directory = cwd.split(/[\\/]/).filter(Boolean).pop();
+    const context = directory
+      ? `${directory}${gitBranch ? ` │ ⎇ ${gitBranch}` : ""}`
+      : KLEIO_PRODUCT_PROFILE.coder.displayName;
+    const title = isRunning ? `● ${context}` : context;
     if (title !== prevTitleRef.current) {
       prevTitleRef.current = title;
       stdout.write(`\x1b]0;${title}\x1b\\`);
     }
-  }, [stdout, isRunning, sessionTitle]);
+  }, [stdout, isRunning, cwd, gitBranch]);
 
   // Reset title on unmount
   useEffect(() => {

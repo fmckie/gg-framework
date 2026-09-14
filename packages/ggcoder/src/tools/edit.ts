@@ -4,6 +4,7 @@ import type { AgentTool } from "@kleio/agent";
 import { resolvePath, rejectSymlink } from "./path-utils.js";
 import {
   fuzzyFindText,
+  normalizeForFuzzyMatch,
   countOccurrences,
   generateDiff,
   findClosestSnippet,
@@ -14,12 +15,19 @@ import {
 } from "./edit-diff.js";
 import { localOperations, type ToolOperations } from "./operations.js";
 import { assertFresh, recordWrite, type ReadTracker } from "./read-tracker.js";
+import { resolveAnchoredEdit } from "../core/hashline.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
+import type { EditSource } from "../core/lsp/edit-telemetry.js";
+import { resolveWriteGuard, type WriteGuardSettings } from "../core/workspace-guard.js";
 
 type MutationCallback = (filePath: string) => void | Promise<void>;
 
 /** Post-write diagnostics provider (LSP). Non-empty results are appended to successful tool output. */
-type DiagnosticsProvider = (filePath: string, content: string) => Promise<string>;
+type DiagnosticsProvider = (
+  filePath: string,
+  content: string,
+  source?: EditSource,
+) => Promise<string>;
 
 function isMutationCallback(value: unknown): value is MutationCallback {
   return typeof value === "function";
@@ -33,9 +41,18 @@ function isPlanModeRef(value: unknown): value is { current: boolean } {
   );
 }
 
+const EditAnchorSchema = z.object({
+  start_line: z.number().int().min(1).describe("1-based line number of the first edited line"),
+  start_hash: z
+    .string()
+    .describe("Content anchor of the first line (from a read with anchors:true)"),
+  end_line: z.number().int().min(1).describe("1-based line number of the last edited line"),
+  end_hash: z.string().describe("Content anchor of the last line"),
+});
+
 const EditItem = z.object({
-  old_text: z.string().describe("The exact text to find and replace"),
-  new_text: z.string().describe("The replacement text"),
+  old_text: z.string().optional().describe("The exact text to find and replace (text form)"),
+  new_text: z.string().optional().describe("The replacement text (text form)"),
   replace_all: z
     .boolean()
     .optional()
@@ -43,11 +60,30 @@ const EditItem = z.object({
       "Replace every occurrence of old_text instead of requiring a unique match. " +
         "Use for renames or repeated tokens. Defaults to false.",
     ),
+  anchor: EditAnchorSchema.optional().describe(
+    "Optional staleness guard for the text form. When set (using line+hash anchors from a read " +
+      "with anchors:true), the edit is rejected if the file changed since you read it. " +
+      "old_text/new_text still drive the actual replacement.",
+  ),
+  span: EditAnchorSchema.optional().describe(
+    "Span form (preferred when you did a read with anchors:true): replace the inclusive line " +
+      "range pinned by these line+hash endpoints with `lines` — no old_text needed, so you never " +
+      "retype existing code. Rejected if the file changed since the read. " +
+      "Use INSTEAD of old_text/new_text, together with `lines`.",
+  ),
+  lines: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Replacement lines for `span` (full lines with correct indentation, no anchor/line-number " +
+        "prefixes). An empty array deletes the span.",
+    ),
 });
 
-// Some models (Opus 4.6, GLM-5.1) occasionally send `edits` as a JSON string
-// instead of a real array, which trips Zod and makes the model fall back to
-// sed/python. Coerce the string back into an array before validation.
+// Several models (opus-5, sonnet-5, fable-5, glm-5.x) occasionally send `edits`
+// as a JSON string instead of a real array, which trips Zod and makes the model
+// fall back to sed/python. Coerce the well-formed case back into an array before
+// validation.
 const coerceStringifiedEdits = (v: unknown): unknown => {
   if (typeof v !== "string") return v;
   try {
@@ -58,10 +94,48 @@ const coerceStringifiedEdits = (v: unknown): unknown => {
   }
 };
 
+// Reaching the array schema with a string means the coercion above could not
+// parse it. Every observed case is a hand-serialized array whose inner escaping
+// broke, whose `new_text` key went missing, or that was truncated mid-write.
+//
+// A lenient repair stage (the `jsonrepair` package, as used by several agent
+// runtimes) was measured against 41 real failures from ~/.gg session logs: it
+// parses 11, but only 2 faithfully. The rest pass this schema while silently
+// dropping content -- it closes the JSON at the first error, so a truncated
+// stream yields a short `new_text` and one 8.8KB payload came back with 11% of
+// its characters. Those write partial code over a real file. Recovering 2 in 41
+// is not worth 4 corrupted files, so this stays a hard rejection.
+//
+// What was actually costing turns is the message: Zod's stock "expected array,
+// received string" never tells the model what it did, so it re-sends the
+// identical payload until the agent loop's repeat counter turns the turn fatal.
+// Name the mistake and the way out instead.
+const STRINGIFIED_EDITS_ERROR =
+  "`edits` arrived as a JSON-encoded string and could not be parsed back into an array. " +
+  "Send `edits` as a real JSON array of objects, never as a string. " +
+  "Re-sending the same large payload usually breaks the same way: split the work into " +
+  "several `edit` calls carrying one or two smaller edits each.";
+
 const EditParams = z.object({
   file_path: z.string().describe("The file path to edit"),
   edits: z
-    .preprocess(coerceStringifiedEdits, z.array(EditItem).min(1))
+    .preprocess(
+      coerceStringifiedEdits,
+      z
+        .array(EditItem, {
+          // Narrow to "an array was expected, a string arrived" so a nested
+          // string-typed mistake (`anchor: "x"`, `replace_all: "true"`) keeps
+          // its own accurate message. Any non-matching issue returns undefined
+          // and falls through to Zod's default.
+          error: (issue) =>
+            issue.code === "invalid_type" &&
+            issue.expected === "array" &&
+            typeof issue.input === "string"
+              ? STRINGIFIED_EDITS_ERROR
+              : undefined,
+        })
+        .min(1),
+    )
     .describe(
       "One or more edits applied in order. Each edit operates on the result of the previous one.",
     ),
@@ -90,19 +164,22 @@ type MatchResult = MatchSuccess | MatchFailure;
 function tryMatch(working: string, old: string, next: string, replaceAll: boolean): MatchResult {
   if (old.length === 0) return { ok: false, reason: "not_found" };
 
-  const occurrences = countOccurrences(working, old);
+  const occurrences = countOccurrences(working, old, !replaceAll);
 
   if (replaceAll && occurrences > 0) {
-    let newWorking = working;
-    let replaced = 0;
-    while (replaced < occurrences) {
-      const match = fuzzyFindText(newWorking, old);
-      if (!match.found) break;
-      newWorking =
-        newWorking.slice(0, match.index) + next + newWorking.slice(match.index + match.matchLength);
-      replaced++;
+    const parts: string[] = [];
+    let cursor = 0;
+    // Search only untouched input: replacements can contain old_text or create
+    // new matches at their boundaries, neither of which belongs to this edit.
+    for (let replaced = 0; replaced < occurrences; replaced++) {
+      const match = fuzzyFindText(working.slice(cursor), old);
+      if (!match.found || match.matchLength === 0) return { ok: false, reason: "not_found" };
+      const start = cursor + match.index;
+      parts.push(working.slice(cursor, start), next);
+      cursor = start + match.matchLength;
     }
-    return replaced === occurrences ? { ok: true, newWorking } : { ok: false, reason: "not_found" };
+    parts.push(working.slice(cursor));
+    return { ok: true, newWorking: parts.join("") };
   }
 
   if (occurrences === 0) return { ok: false, reason: "not_found" };
@@ -121,11 +198,28 @@ function tryMatch(working: string, old: string, next: string, replaceAll: boolea
 type FailureKind =
   | { reason: "noop" }
   | { reason: "not_found"; closestSnippet: string | null; closestLine: number | null }
-  | { reason: "ambiguous"; occurrences: number; matchLines: string; more: string };
+  | { reason: "ambiguous"; occurrences: number; matchLines: string; more: string }
+  | { reason: "stale_anchor" }
+  | { reason: "invalid"; detail: string }
+  | { reason: "overlap" };
 
 interface EditOutcome {
   ok: boolean;
   failure?: FailureKind;
+  /** Which matching strategy placed this edit; absent for no-ops. */
+  source?: EditSource;
+}
+
+/**
+ * Riskiest strategy used in a batch, worst first. When one edit landed by exact
+ * text and another only by `...` elision, the elision is what a resulting
+ * breakage should be attributed to.
+ */
+const SOURCE_RISK: EditSource[] = ["dotdotdot", "blank_edges", "indent_flex", "text", "span"];
+
+function riskiestSource(outcomes: EditOutcome[]): EditSource | undefined {
+  const used = new Set(outcomes.map((o) => o.source).filter(Boolean));
+  return SOURCE_RISK.find((s) => used.has(s));
 }
 
 export function createEditTool(
@@ -136,6 +230,7 @@ export function createEditTool(
   onFileMutated?: MutationCallback,
   onPreFileMutation?: MutationCallback,
   getDiagnostics?: DiagnosticsProvider,
+  getWriteGuardSettings?: () => WriteGuardSettings | undefined,
 ): AgentTool<typeof EditParams> {
   const planModeRef = isPlanModeRef(planModeRefOrOnFileMutated)
     ? planModeRefOrOnFileMutated
@@ -146,11 +241,18 @@ export function createEditTool(
   return {
     name: "edit",
     description:
-      "Replace text in a file via { old_text, new_text } edits applied sequentially. Read the file first and copy old_text from the latest read/diff. " +
-      "Each old_text should identify one location — include surrounding context; set replace_all: true only for deliberate global replacements/renames. " +
-      "The matcher tolerates safe whitespace/quote/dash drift, but do not paraphrase. For long blocks, a line containing only `...` in BOTH old_text and new_text elides a middle preserved verbatim. " +
+      "Replace text in a file. Two edit forms:\n" +
+      "1. TEXT form { old_text, new_text }: copy old_text verbatim from the latest read/diff with " +
+      "enough context to match one location; set replace_all: true only for deliberate global renames. " +
+      "The matcher tolerates safe whitespace/quote/dash drift, but do not paraphrase. For long blocks, " +
+      "a line containing only `...` in BOTH old_text and new_text elides a middle preserved verbatim.\n" +
+      "2. SPAN form { span, lines } (preferred after a read with anchors:true): pin the line range by " +
+      "its line+hash endpoints and supply the full replacement lines — no old_text to retype, and the " +
+      "edit is rejected if the file changed since the read. Span edits apply against the file as read; " +
+      "text edits then run on the result.\n" +
       "Partial-apply by default: failed edits are listed for retry, successful ones are still written — " +
-      "re-issue ONLY the listed failures, not the whole batch. Returns a unified diff.",
+      "re-issue ONLY the listed failures, not the whole batch. " +
+      "Returns a unified diff.",
     parameters: EditParams,
     executionMode: "sequential",
     async execute({ file_path, edits, atomic = false }) {
@@ -160,18 +262,103 @@ export function createEditTool(
       const resolved = resolvePath(cwd, file_path);
       await rejectSymlink(resolved);
 
+      // Workspace write guard: outside cwd/tmp/~/.gg requires user approval.
+      const guard = resolveWriteGuard(cwd, resolved, getWriteGuardSettings?.());
+      if (!guard.allowed) {
+        return `Error: ${guard.reason}`;
+      }
+
       await assertFresh(readFiles, resolved, ops);
 
       const original = await ops.readFile(resolved);
       const hasCRLF = original.includes("\r\n");
       const originalNormalized = hasCRLF ? original.replace(/\r\n/g, "\n") : original;
 
-      let working = originalNormalized;
+      // Anchors pin lines in the file AS READ, so they always verify against the
+      // original (pre-edit) line array — earlier edits in the batch don't shift
+      // what an anchor refers to.
+      const originalLines = originalNormalized.split("\n");
       const fileName = path.basename(resolved);
       const outcomes: EditOutcome[] = new Array(edits.length);
 
+      // ── Phase 1: span-form edits (hash-anchored replacement). Spans resolve
+      // against the file AS READ and apply bottom-up so indices stay valid.
+      // Text-form edits then run on the result in phase 2.
+      const isSpanForm = (e: (typeof edits)[number]): boolean =>
+        e.span !== undefined || e.lines !== undefined;
+      const spanResolved: Array<{ index: number; start: number; end: number; lines: string[] }> =
+        [];
       for (let i = 0; i < edits.length; i++) {
-        const { old_text, new_text, replace_all } = edits[i];
+        const e = edits[i];
+        if (!isSpanForm(e)) {
+          if (e.old_text === undefined || e.new_text === undefined) {
+            outcomes[i] = {
+              ok: false,
+              failure: {
+                reason: "invalid",
+                detail: "provide either old_text+new_text, or span+lines — this edit has neither",
+              },
+            };
+          }
+          continue;
+        }
+        if (!e.span || !e.lines || e.old_text !== undefined || e.new_text !== undefined) {
+          outcomes[i] = {
+            ok: false,
+            failure: {
+              reason: "invalid",
+              detail:
+                "span form requires BOTH span and lines, and must not mix with old_text/new_text",
+            },
+          };
+          continue;
+        }
+        const res = resolveAnchoredEdit(originalLines, e.span);
+        if (!res.ok) {
+          outcomes[i] = { ok: false, failure: { reason: "stale_anchor" } };
+          continue;
+        }
+        spanResolved.push({ index: i, start: res.startIndex!, end: res.endIndex!, lines: e.lines });
+      }
+      // Reject overlapping spans (keep the first, fail the rest) — overlap means
+      // the model double-addressed the same region and the result is undefined.
+      spanResolved.sort((a, b) => a.start - b.start || a.index - b.index);
+      const spanApplied: typeof spanResolved = [];
+      let lastEnd = -1;
+      for (const s of spanResolved) {
+        if (s.start <= lastEnd) {
+          outcomes[s.index] = { ok: false, failure: { reason: "overlap" } };
+          continue;
+        }
+        spanApplied.push(s);
+        lastEnd = s.end;
+      }
+      const workingLines = [...originalLines];
+      for (let i = spanApplied.length - 1; i >= 0; i--) {
+        const s = spanApplied[i];
+        workingLines.splice(s.start, s.end - s.start + 1, ...s.lines);
+        outcomes[s.index] = { ok: true, source: "span" };
+      }
+      let working = workingLines.join("\n");
+
+      // ── Phase 2: text-form edits, sequential on the working buffer.
+      for (let i = 0; i < edits.length; i++) {
+        if (outcomes[i] !== undefined) continue; // span-form or invalid, already settled
+        const { old_text, new_text, replace_all, anchor } = edits[i];
+        if (old_text === undefined || new_text === undefined) continue; // settled above
+
+        // Optional staleness guard (opt-in). Runs BEFORE the fuzzy match ladder:
+        // if the model supplied an anchor and the file drifted since it read it,
+        // reject this edit instead of risking a misplaced fuzzy match. The fuzzy
+        // path below is byte-identical to today when `anchor` is absent.
+        if (anchor) {
+          const res = resolveAnchoredEdit(originalLines, anchor);
+          if (!res.ok) {
+            outcomes[i] = { ok: false, failure: { reason: "stale_anchor" } };
+            continue;
+          }
+        }
+
         const normalizedOld = hasCRLF ? old_text.replace(/\r\n/g, "\n") : old_text;
         const normalizedNew = hasCRLF ? new_text.replace(/\r\n/g, "\n") : new_text;
         const replaceAll = replace_all ?? false;
@@ -184,6 +371,20 @@ export function createEditTool(
           continue;
         }
 
+        if (
+          normalizedOld.length === 0 ||
+          (!working.includes(normalizedOld) && normalizeForFuzzyMatch(normalizedOld).length === 0)
+        ) {
+          outcomes[i] = {
+            ok: false,
+            failure: {
+              reason: "invalid",
+              detail: "old_text is empty after normalization; provide visible surrounding context.",
+            },
+          };
+          continue;
+        }
+
         // Aider's full fallback ladder, run only when the primary match
         // returns "not_found". Ambiguous matches deliberately don't fall
         // through — the model needs to add context, not paraphrase further.
@@ -192,6 +393,7 @@ export function createEditTool(
         //   2. indent-flex (model omitted/shortened leading whitespace)
         //   3. drop spurious leading/trailing blank lines, retry 1+2
         //   4. dotdotdots (`...` elision with preserved middle)
+        let source: EditSource = "text";
         let result = tryMatch(working, normalizedOld, normalizedNew, replaceAll);
 
         const tryFallbacks = (oldText: string): string | null => {
@@ -207,6 +409,7 @@ export function createEditTool(
           const indentFlexed = applyMissingLeadingWhitespace(working, normalizedOld, normalizedNew);
           if (indentFlexed !== null) {
             result = { ok: true, newWorking: indentFlexed };
+            source = "indent_flex";
           }
         }
 
@@ -214,18 +417,35 @@ export function createEditTool(
           const stripped = stripBlankEdges(normalizedOld);
           if (stripped !== null) {
             const candidate = tryFallbacks(stripped);
-            if (candidate !== null) result = { ok: true, newWorking: candidate };
+            if (candidate !== null) {
+              result = { ok: true, newWorking: candidate };
+              source = "blank_edges";
+            }
           }
         }
 
         if (!result.ok && result.reason === "not_found") {
+          if (replaceAll && /^[ \t]*\.\.\.[ \t]*$/m.test(normalizedOld)) {
+            outcomes[i] = {
+              ok: false,
+              failure: {
+                reason: "invalid",
+                detail:
+                  "replace_all does not support ... elision; use complete matching text or separate uniquely anchored edits.",
+              },
+            };
+            continue;
+          }
           const elided = applyDotdotdots(working, normalizedOld, normalizedNew);
-          if (elided !== null) result = { ok: true, newWorking: elided };
+          if (elided !== null) {
+            result = { ok: true, newWorking: elided };
+            source = "dotdotdot";
+          }
         }
 
         if (result.ok) {
           working = result.newWorking;
-          outcomes[i] = { ok: true };
+          outcomes[i] = { ok: true, source };
           continue;
         }
 
@@ -266,8 +486,20 @@ export function createEditTool(
       // and the snippet is its only guidance — keep it.
       const willPersistSuccesses = successCount > 0 && !atomic;
       const formatFailureMessage = (f: FailureKind): string => {
+        if (f.reason === "stale_anchor") {
+          return `the file changed since you read it (anchor mismatch) — re-read \`${file_path}\` and retry`;
+        }
         if (f.reason === "noop") {
           return `old_text and new_text are identical in ${fileName} — this edit would be a no-op. Either fix new_text or drop this edit.`;
+        }
+        if (f.reason === "invalid") {
+          return `invalid edit: ${f.detail}.`;
+        }
+        if (f.reason === "overlap") {
+          return (
+            `span overlaps another span edit in this batch — the overlapping region was addressed twice. ` +
+            `Merge the overlapping spans into one edit and retry.`
+          );
         }
         if (f.reason === "ambiguous") {
           return (
@@ -343,7 +575,11 @@ export function createEditTool(
         // carries the closest match and a bounded re-read hint.
         if (getDiagnostics) {
           try {
-            diagnosticsNote = await getDiagnostics(resolved, finalContent);
+            diagnosticsNote = await getDiagnostics(
+              resolved,
+              finalContent,
+              riskiestSource(outcomes),
+            );
           } catch {
             // Diagnostics must never break a successful edit.
           }

@@ -1,5 +1,24 @@
 # Kleio Framework
 
+## Local upstream integration — 11 September 2026
+
+The working tree imports upstream engine **5.59.3** at
+`3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1`. This is a local, uncommitted
+integration, not a release: all five Kleio packages remain **4.10.1-kleio.1**.
+Published packages do not yet contain these changes. See [UPSTREAM.md](UPSTREAM.md).
+
+This fork maintains standalone **Kleio Manager**, Editor, the Premiere panel,
+Pixel and its language SDKs/server, Voice, Coder Eyes, Matey, and experiments,
+even though upstream retired them. They remain workspace projects with their
+commands, exports, tests, and supporting assets, not archives. The separate
+Kleio Desktop Manager surface and its dependency pins are unchanged.
+
+The imported [GG App](gg-app/) uses the same shared Kleio engine. Its source and
+upstream branding are retained; it is not Kleio Desktop, and its publication
+workflow is restricted to the upstream repository. Building its source does not
+authorize signing, releasing, installation, or deployment.
+
+
 <p align="center">
   <strong>Modular TypeScript framework for building LLM-powered apps. From raw streaming to a full coding agent.</strong>
 </p>
@@ -15,7 +34,7 @@ Each package works on its own. Stack them together and you get a full coding age
 
 | Package                                                          | What it does                                             | README                                           |
 | ---------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
-| [`@kleio/ai`](https://www.npmjs.com/package/@kleio/ai)           | Unified LLM streaming API across four providers          | [packages/gg-ai](packages/gg-ai/README.md)       |
+| [`@kleio/ai`](https://www.npmjs.com/package/@kleio/ai)           | Unified LLM streaming API across providers          | [packages/gg-ai](packages/gg-ai/README.md)       |
 | [`@kleio/agent`](https://www.npmjs.com/package/@kleio/agent)     | Agent loop with multi-turn tool execution                | [packages/gg-agent](packages/gg-agent/README.md) |
 | [`@kleio/coder`](https://www.npmjs.com/package/@kleio/coder)     | Kleio Coder CLI with OAuth, tools, and TUI               | [packages/ggcoder](packages/ggcoder/README.md)   |
 | [`@kleio/manager`](https://www.npmjs.com/package/@kleio/manager) | Kleio Manager orchestration for many Kleio Coder workers | [packages/gg-boss](packages/gg-boss/README.md)   |
@@ -29,7 +48,7 @@ Each package works on its own. Stack them together and you get a full coding age
 
 ---
 
-## Which package do I need?
+## Choose a layer
 
 | You want to...                                                  | Use                                            |
 | --------------------------------------------------------------- | ---------------------------------------------- |
@@ -59,16 +78,51 @@ Repository directories remain [`packages/ggcoder`](packages/ggcoder) and [`packa
 
 ---
 
-## For developers
+## 🧱 The framework underneath
+
+The desktop app forks **zero** agent logic. Windows, IPC and UI live in `gg-app/`; everything else is the exact same spine the CLI runs, and the engine layers are independently packaged; this local integration is not published.
+
+```
+Imported GG App (not Kleio Desktop)
+  └── @kleio/coder (CLI + app sidecar)
+        ├── @kleio/ai (standalone)
+        ├── @kleio/agent ──► @kleio/ai
+        └── @kleio/core  ──► @kleio/ai
+```
+
+| Package                                                                  | What it does                                              |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| [`@kleio/ai`](packages/gg-ai/README.md)                           | One streaming API for every provider up there             |
+| [`@kleio/agent`](packages/gg-agent/README.md)                     | Agent loop with multi-turn tool execution                 |
+| [`@kleio/core`](https://www.npmjs.com/package/@kleio/core) | Shared guts: model registry, OAuth, auth storage, paths   |
+| [`@kleio/coder`](packages/ggcoder/README.md)                       | The CLI, plus the sidecar the desktop app runs            |
+
+<details>
+<summary><strong>👨‍💻 Run it from source</strong></summary>
 
 ```bash
 git clone https://github.com/fmckie/gg-framework.git
 cd gg-framework
 pnpm install
-pnpm build
+pnpm --filter @kleio/coder build   # build the sidecar first
+cd gg-app && pnpm tauri dev
 ```
 
-TypeScript 5.9 + pnpm workspaces + Ink 6 + React 19 + Vitest 4 + Zod v4
+```bash
+pnpm build      # build all packages (gg-ai → gg-agent + gg-core → ggcoder)
+pnpm check      # typecheck
+pnpm test       # vitest
+pnpm lint
+```
+
+TypeScript 5.9 · pnpm workspaces · Tauri 2 · React 19 · Vite 7 · Ink 6 · Vitest 4 · Zod v4
+
+Packaging (bundled Node runtime, single-file sidecar, code signing) is in
+[gg-app/DISTRIBUTION.md](gg-app/DISTRIBUTION.md). README art is generated by
+`node gg-app/scripts/render-readme-art.mjs`; product shots by
+`node gg-app/scripts/capture-screenshots.mjs`.
+
+</details>
 
 ---
 
@@ -78,11 +132,7 @@ TypeScript 5.9 + pnpm workspaces + Ink 6 + React 19 + Vitest 4 + Zod v4
 - [Issues](https://github.com/fmckie/gg-framework/issues)
 - [Fork lineage and upstream policy](UPSTREAM.md)
 
----
-
-## License
-
-MIT
+MIT licensed. Use it, change it, ship it.
 
 ---
 

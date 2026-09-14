@@ -8,37 +8,40 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
+import type * as NodeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import type { Message } from "@kleio/ai";
 import { SessionManager } from "./session-manager.js";
 
 /**
  * Records every real read of a session file. Module-level mocks (not namespace
- * spies) are required: session-manager.ts imports `createReadStream` as a named
+ * spies) are required: session-storage.ts imports `createReadStream` as a named
  * binding, which is captured at module load and unaffected by spyOn(fs, ...).
  * Both mocks delegate to the genuine implementation, so list() returns real data.
  */
 const { jsonlReads } = vi.hoisted(() => ({ jsonlReads: [] as string[] }));
 
 vi.mock("node:fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs")>();
+  const actual = await importOriginal<typeof NodeFs>();
   return {
     ...actual,
     default: actual,
     createReadStream: (...args: Parameters<typeof actual.createReadStream>) => {
       const target = args[0];
-      if (typeof target === "string" && target.endsWith(".jsonl")) jsonlReads.push(target);
+      if (typeof target === "string" && /\.jsonl(?:\.gz)?$/.test(target)) jsonlReads.push(target);
       return actual.createReadStream(...args);
     },
   };
 });
 
 vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const actual = await importOriginal<typeof fs>();
   const readFile = (...args: Parameters<typeof actual.readFile>) => {
     const target = args[0];
-    if (typeof target === "string" && target.endsWith(".jsonl")) jsonlReads.push(target);
+    if (typeof target === "string" && /\.jsonl(?:\.gz)?$/.test(target)) jsonlReads.push(target);
     return actual.readFile(...args);
   };
   return { ...actual, default: { ...actual, readFile }, readFile };
@@ -72,6 +75,19 @@ async function addMessage(sessionPath: string, message: Message): Promise<void> 
     message,
   });
   await manager.updateLeaf(sessionPath, id);
+}
+
+/**
+ * Storage now probes files up to 4 KiB for redirect stubs. Use realistic larger
+ * transcripts for single-pass assertions, so both eager reads and extra streams
+ * still fail the original instrumentation. Deterministic hash text stays larger
+ * than that bound even after gzip compression.
+ */
+async function expandTranscript(sessionPath: string): Promise<void> {
+  const content = Array.from({ length: 256 }, (_, i) =>
+    createHash("sha256").update(String(i)).digest("hex"),
+  ).join("");
+  await addMessage(sessionPath, { role: "assistant", content });
 }
 
 async function listOne() {
@@ -145,11 +161,64 @@ describe("SessionManager.list — firstPrompt", () => {
     expect((await listOne()).firstPrompt).toBe("  Refactor\tthe\n\nauth flow  ");
   });
 
+  it("keeps raw firstPrompt alongside normalized preview", async () => {
+    const session = await manager.create(cwd, "anthropic", "test-model");
+    const raw = "  Refactor\tthe\n\nauth flow  ";
+    await addMessage(session.path, { role: "user", content: raw });
+
+    const listed = await listOne();
+    expect(listed.firstPrompt).toBe(raw);
+    expect(listed.preview).toBe("Refactor the auth flow");
+  });
+
+  it("captures archived prompts in the same single stream pass", async () => {
+    const session = await manager.create(cwd, "anthropic", "test-model");
+    const raw = "  archived\nrequest  ";
+    await addMessage(session.path, { role: "user", content: raw });
+    await expandTranscript(session.path);
+    const archivePath = `${session.path}.gz`;
+    const archive = gzipSync(await fs.readFile(session.path));
+    expect(archive.length).toBeGreaterThan(4096);
+    await fs.writeFile(archivePath, archive);
+    await fs.unlink(session.path);
+    jsonlReads.length = 0;
+
+    const listed = await listOne();
+    expect(listed.path).toBe(archivePath);
+    expect(listed.firstPrompt).toBe(raw);
+    expect(listed.preview).toBe("archived request");
+    expect(jsonlReads).toEqual([archivePath]);
+  });
+
+  it("uses the canonical newest checkpoint without replacing its preview", async () => {
+    const original = await manager.create(cwd, "anthropic", "test-model");
+    await addMessage(original.path, { role: "user", content: "original request" });
+    await expandTranscript(original.path);
+    const checkpoint = await manager.create(cwd, "anthropic", "test-model", {
+      conversationId: original.id,
+      parentSessionId: original.id,
+      generation: 1,
+      preview: "original request",
+    });
+    await addMessage(checkpoint.path, { role: "user", content: "  retained\nraw tail  " });
+    await expandTranscript(checkpoint.path);
+    jsonlReads.length = 0;
+
+    const listed = await listOne();
+    expect(listed.path).toBe(checkpoint.path);
+    expect(listed.firstPrompt).toBe("  retained\nraw tail  ");
+    expect(listed.preview).toBe("original request");
+    expect(jsonlReads).toHaveLength(2);
+    expect(new Set(jsonlReads)).toEqual(new Set([original.path, checkpoint.path]));
+  });
+
   it("reads each session file exactly ONCE — no second pass for the prompt", async () => {
     const a = await manager.create(cwd, "anthropic", "test-model");
     await addMessage(a.path, { role: "user", content: "session A prompt" });
+    await expandTranscript(a.path);
     const b = await manager.create(cwd, "anthropic", "test-model");
     await addMessage(b.path, { role: "user", content: "session B prompt" });
+    await expandTranscript(b.path);
 
     // Only count reads performed by list() itself, not by the setup above.
     jsonlReads.length = 0;

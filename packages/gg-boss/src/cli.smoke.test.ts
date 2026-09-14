@@ -41,7 +41,7 @@ describe("Kleio Manager CLI smoke", () => {
     const result = await runCli(["--help"]);
     expect(result.code).toBe(0);
     const output = result.stdout + result.stderr;
-    expect(output).toContain("Kleio Manager v4.10.1-kleio.0");
+    expect(output).toContain("Kleio Manager v4.10.1-kleio.1");
     expect(output).toContain("kleio-manager");
     expect(output.toLowerCase()).toContain("usage");
   });
@@ -56,7 +56,7 @@ describe("Kleio Manager CLI smoke", () => {
     const result = await runCli(["--version"]);
     expect(result).toMatchObject({
       code: 0,
-      stdout: "Kleio Manager v4.10.1-kleio.0\n",
+      stdout: "Kleio Manager v4.10.1-kleio.1\n",
       stderr: "",
     });
   });

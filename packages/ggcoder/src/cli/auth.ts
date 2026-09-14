@@ -9,7 +9,9 @@ import { loginAnthropic } from "../core/oauth/anthropic.js";
 import { loginOpenAI } from "../core/oauth/openai.js";
 import { loginGemini } from "../core/oauth/gemini.js";
 import { loginKimi } from "../core/oauth/kimi.js";
-import { KLEIO_PRODUCT_PROFILE, MOONSHOT_OAUTH_KEY } from "@kleio/core";
+import { loginXai } from "../core/oauth/xai.js";
+import { KLEIO_PRODUCT_PROFILE, XIAOMI_CREDITS_KEY, dualAuthProvider } from "@kleio/core";
+import { getAuthProvider, describeAuthMethods } from "../core/auth-providers.js";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "../core/oauth/types.js";
 import {
   CLI_VERSION,
@@ -60,52 +62,70 @@ export async function runLogin(): Promise<void> {
             "\n",
         );
       },
-      onPromptCode: async (message) => {
-        return rl.question(message + " ");
+      onPromptCode: async (message, signal) => {
+        // `signal` fires when the code already arrived over the loopback
+        // callback, so the competing paste prompt is torn down rather than
+        // holding the terminal open after login has already succeeded.
+        return signal ? rl.question(message + " ", { signal }) : rl.question(message + " ");
       },
       onStatus: (message) => {
         console.log(chalk.hex("#6b7280")(message));
       },
     };
 
-    // Moonshot supports two auth methods: Kimi Code OAuth (preferred) and a
-    // Moonshot Open Platform API key. Let the user pick; OAuth credentials are
-    // stored under a distinct key so both can coexist (OAuth wins at runtime).
-    let kimiViaOAuth = false;
-    if (provider === "moonshot") {
+    // Dual-auth providers (Moonshot/Kimi, xAI/Grok) accept subscription OAuth
+    // *and* a metered API key. Let the user pick; OAuth credentials are stored
+    // under a distinct key so both can coexist (OAuth wins at runtime, the key
+    // covers OAuth being out — see gg-core's DUAL_AUTH_PROVIDERS).
+    const dual = dualAuthProvider(provider);
+    let useOAuth = false;
+    if (dual) {
+      for (const detail of describeAuthMethods(provider)) {
+        const n = detail.method === "oauth" ? "1" : "2";
+        console.log(chalk.hex("#a78bfa")(`  (${n}) ${detail.label}`));
+        console.log(chalk.hex("#6b7280")(`      ${detail.billing}`));
+        if (detail.requires) console.log(chalk.hex("#6b7280")(`      Needs: ${detail.requires}`));
+      }
+      console.log(
+        chalk.hex("#6b7280")(
+          `\n  Connecting both is fine — ${dual.oauthLabel} is used first and the ` +
+            `${dual.apiKeyLabel} covers it while subscription usage is out.\n`,
+        ),
+      );
       const choice = (
         await rl.question(
-          chalk.hex("#60a5fa")("Sign in with (1) Kimi OAuth [default] or (2) API key? "),
+          chalk.hex("#60a5fa")(
+            `Sign in with (1) ${dual.oauthLabel} [default] or (2) ${dual.apiKeyLabel}? `,
+          ),
         )
       ).trim();
-      kimiViaOAuth = choice === "" || choice === "1";
+      useOAuth = choice === "" || choice === "1";
+    }
+
+    // Xiaomi splits API-key auth across two distinct endpoints: the Token Plan
+    // (default, current behavior) and API Credits (required for models like
+    // mimo-v2.5-pro-ultraspeed that aren't served over the Token Plan).
+    let xiaomiCredits = false;
+    if (provider === "xiaomi") {
+      const choice = (
+        await rl.question(
+          chalk.hex("#60a5fa")(
+            "Use (1) Token Plan [default] or (2) API Credits (required for UltraSpeed)? ",
+          ),
+        )
+      ).trim();
+      xiaomiCredits = choice === "2";
     }
 
     let creds;
     let storageKey: string = provider;
-    if (provider === "moonshot" && kimiViaOAuth) {
-      creds = await loginKimi(callbacks);
-      storageKey = MOONSHOT_OAUTH_KEY;
-    } else if (
-      provider === "glm" ||
-      provider === "moonshot" ||
-      provider === "xiaomi" ||
-      provider === "minimax" ||
-      provider === "deepseek" ||
-      provider === "openrouter"
-    ) {
-      const keyLabel =
-        provider === "glm"
-          ? "Z.AI"
-          : provider === "xiaomi"
-            ? "Xiaomi MiMo"
-            : provider === "minimax"
-              ? "MiniMax"
-              : provider === "deepseek"
-                ? "DeepSeek"
-                : provider === "openrouter"
-                  ? "OpenRouter"
-                  : "Moonshot";
+    if (dual && useOAuth) {
+      creds = provider === "moonshot" ? await loginKimi(callbacks) : await loginXai(callbacks);
+      storageKey = dual.oauthKey;
+    } else if (getAuthProvider(provider)?.methods.includes("apikey")) {
+      // Key label comes from AUTH_PROVIDERS so the CLI and the desktop app can
+      // never drift on what a provider's key is called.
+      const keyLabel = getAuthProvider(provider)?.apiKeyLabel ?? displayName(provider);
       const apiKey = await rl.question(chalk.hex("#60a5fa")(`Paste your ${keyLabel} API key: `));
       if (!apiKey.trim()) {
         console.log(chalk.hex("#ef4444")("No API key provided. Login cancelled."));
@@ -115,8 +135,17 @@ export async function runLogin(): Promise<void> {
         accessToken: apiKey.trim(),
         refreshToken: "",
         expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 * 100, // ~100 years
-        ...(provider === "xiaomi" ? { baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" } : {}),
+        ...(provider === "xiaomi"
+          ? {
+              baseUrl: xiaomiCredits
+                ? "https://api.xiaomimimo.com/v1"
+                : "https://token-plan-sgp.xiaomimimo.com/v1",
+            }
+          : {}),
       } satisfies OAuthCredentials;
+      if (provider === "xiaomi" && xiaomiCredits) {
+        storageKey = XIAOMI_CREDITS_KEY;
+      }
     } else {
       creds =
         provider === "anthropic"
