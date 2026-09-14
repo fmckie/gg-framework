@@ -219,7 +219,14 @@ function parsePackJson(stdout, packageDir) {
 
 async function packedPaths(packageDir) {
   const absolutePackageDir = join(ROOT, packageDir);
-  const { stdout } = await execFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+  // Windows ships npm as a .cmd shim, which execFile cannot run directly.
+  // Invoke Node's bundled npm CLI without a shell; keep lifecycle scripts disabled.
+  const command = process.platform === "win32" ? process.execPath : "npm";
+  const args = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  if (process.platform === "win32") {
+    args.unshift(join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"));
+  }
+  const { stdout } = await execFile(command, args, {
     cwd: absolutePackageDir,
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
