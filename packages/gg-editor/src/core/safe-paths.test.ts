@@ -50,12 +50,18 @@ describe("safeOutputPath", () => {
     expect(() => safeOutputPath(cwd, "")).toThrow(/empty/);
   });
 
-  it("treats Windows-style drive letters consistently with node:path", () => {
-    // On POSIX runners this becomes a relative-looking path; the assertion
-    // just guarantees we don't throw on the segment shape — node:path picks
-    // the platform behaviour and we trust it.
-    const out = safeOutputPath(cwd, "C:/Users/me/out.mp4");
-    expect(out.endsWith("out.mp4")).toBe(true);
+  it("applies the allowlist to drive-letter paths using native path rules", () => {
+    const target = "C:/Users/me/out.mp4";
+    if (process.platform === "win32") {
+      // A real drive-letter path outside the allowlist must remain denied.
+      expect(() => safeOutputPath(cwd, target)).toThrow(/outside allowed roots/);
+    } else {
+      // POSIX treats the drive letter as a relative directory name under cwd.
+      expect(safeOutputPath(cwd, target)).toBe(resolvePath(cwd, target));
+    }
+    expect(safeOutputPath(cwd, target, { allowRoots: ["C:/Users/me"] })).toBe(
+      resolvePath(cwd, target),
+    );
   });
 });
 
@@ -66,22 +72,20 @@ describe("safeResolveOutputPath", () => {
     expect(r.path.endsWith("thumb.jpg")).toBe(true);
   });
 
-  it("redirects /tmp paths to ~/Documents/gg-editor-out", () => {
-    const r = safeResolveOutputPath(cwd, "/tmp/grab.jpg");
+  it.each([
+    "/tmp/grab.jpg",
+    "/var/folders/zz/abc/T/grab.jpg",
+    "/private/var/folders/zz/T/grab.jpg",
+  ])("redirects the POSIX sandbox path %s only on POSIX", (target) => {
+    if (process.platform === "win32") {
+      // These become drive-rooted paths on Windows, not OS sandbox locations.
+      expect(() => safeResolveOutputPath(cwd, target)).toThrow(/outside allowed roots/);
+      return;
+    }
+    const r = safeResolveOutputPath(cwd, target);
     expect(r.redirected).toBe(true);
     expect(r.path).toBe(resolvePath(userOutputDir(), "grab.jpg"));
     expect(r.reason).toMatch(/sandbox/);
-  });
-
-  it("redirects /var/folders sandbox paths", () => {
-    const r = safeResolveOutputPath(cwd, "/var/folders/zz/abc/T/grab.jpg");
-    expect(r.redirected).toBe(true);
-    expect(r.path).toBe(resolvePath(userOutputDir(), "grab.jpg"));
-  });
-
-  it("redirects /private/var paths", () => {
-    const r = safeResolveOutputPath(cwd, "/private/var/folders/zz/T/grab.jpg");
-    expect(r.redirected).toBe(true);
   });
 
   it("preserves an absolute path under the user output dir", () => {
