@@ -301,7 +301,15 @@ if (options.verbose || unclassified.length > 0) {
   for (const occurrence of reportedOccurrences) {
     const location =
       occurrence.line > 0 ? `${occurrence.path}:${occurrence.line}` : occurrence.path;
-    console.error(`UNCLASSIFIED ${occurrence.target} ${location}: ${occurrence.context.trim()}`);
+    // Source maps can be megabytes on one line. Scan them fully, but keep each
+    // diagnostic bounded so CI problem matchers cannot stall on the output.
+    const start = Math.max(0, occurrence.start - 160);
+    const end = Math.min(occurrence.context.length, occurrence.end + 160);
+    const context =
+      (start > 0 ? "…" : "") +
+      occurrence.context.slice(start, end).trim() +
+      (end < occurrence.context.length ? "…" : "");
+    console.error(`UNCLASSIFIED ${occurrence.target} ${location}: ${context}`);
   }
   if (!options.verbose && unclassified.length > 250) {
     console.error(`... ${unclassified.length - 250} more unclassified occurrences`);
