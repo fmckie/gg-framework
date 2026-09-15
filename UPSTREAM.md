@@ -17,7 +17,9 @@ the blocking Windows installer build-and-launch smoke.
 - Engine **5.60.2**, desktop **0.65.0**: 44 commits after the first integration
 - Integration base: `2a4ba011806ba6795b44c96d2b76261cfd3c98b2`
 - Branch: `sync/upstream-fdab3f18`; `main` stays unchanged
-- State: pending integration for a draft PR, not a downstream release
+- Draft PR: [#2](https://github.com/fmckie/gg-framework/pull/2), open and unmerged
+- Integration commit: `9972757d69935e8fe7041316646acac30e5b0942`
+- State: pushed integration for review, not a downstream release
 
 All five Kleio packages retain version **4.10.1-kleio.1**. Existing published
 artifacts do **not** contain this integration. The original fork point and its
@@ -80,8 +82,10 @@ zoom, including persisted toggles. The optional WebKit leg could not launch beca
 its Playwright browser binary is not installed. Logs are ignored under
 `.git/upstream-44/`.
 
-This branch's six-job GitHub matrix is pending the draft PR. Full native
-screen-reader, live-provider, host-application/audio/screen and signed/notarized
+The authoritative cross-platform results are in [PR #2's checks](https://github.com/fmckie/gg-framework/pull/2/checks):
+all six Linux/macOS/Windows framework/app jobs must pass, including the blocking
+Windows MSI build-and-launch smoke. Full native screen-reader, live-provider,
+host-application/audio/screen and signed/notarized
 installation checks remain unverified. No camera, inference model downloads, real
 sessions or credentials were used; internal mode is enabled only in disposable tests.
 
