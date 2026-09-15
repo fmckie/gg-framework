@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type themeDefinition from "./dark.json";
 import darkTheme from "./dark.json" with { type: "json" };
 import lightTheme from "./light.json" with { type: "json" };
 import darkAnsiTheme from "./dark-ansi.json" with { type: "json" };
@@ -6,7 +7,8 @@ import lightAnsiTheme from "./light-ansi.json" with { type: "json" };
 import darkDaltonizedTheme from "./dark-daltonized.json" with { type: "json" };
 import lightDaltonizedTheme from "./light-daltonized.json" with { type: "json" };
 
-export type Theme = typeof darkTheme;
+// Keep declaration emit from retaining a JSON value import without its attribute.
+export type Theme = typeof themeDefinition;
 
 export type ThemeName =
   "dark" | "light" | "dark-ansi" | "light-ansi" | "dark-daltonized" | "light-daltonized";

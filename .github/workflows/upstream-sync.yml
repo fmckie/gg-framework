@@ -1,0 +1,39 @@
+name: Upstream candidate verification
+
+# Manual verification only. Copy the four full SHAs from the offline preparer's
+# candidate-ready report. The trusted callee rejects stale/non-main contexts.
+on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        type: string
+        required: true
+      upstream_sha:
+        type: string
+        required: true
+      imported_sha:
+        type: string
+        required: true
+      candidate_sha:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# Separate from the callee's concurrency group; neither cancels its own caller.
+concurrency:
+  group: kleio-upstream-dispatch-${{ github.run_id }}
+  cancel-in-progress: true
+
+# The local reference selects this caller's immutable revision, not moving main.
+# Only success of all six required callee executions verifies the reported SHA.
+# This does not publish the candidate, attach a check to it, or promote/release it.
+jobs:
+  candidate-ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      base_sha: ${{ inputs.base_sha }}
+      upstream_sha: ${{ inputs.upstream_sha }}
+      imported_sha: ${{ inputs.imported_sha }}
+      candidate_sha: ${{ inputs.candidate_sha }}

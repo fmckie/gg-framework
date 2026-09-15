@@ -15,6 +15,8 @@
     "identity:audit:packed": "node scripts/identity-audit.mjs --packed-only",
     "verify:fixed-versions": "node scripts/verify-fixed-versions.mjs",
     "verify:versions": "node scripts/verify-fixed-versions.mjs",
+    "verify:local-tools": "node --test scripts/upstream-sync.test.mjs scripts/identity-audit.test.mjs scripts/consumer-contract.test.mjs scripts/verify-ci-candidate.test.mjs",
+    "verify:consumer": "node scripts/consumer-contract.mjs",
     "audit:identity": "node scripts/identity-audit.mjs",
     "audit:identity:packed": "node scripts/identity-audit.mjs --packed-only",
     "prepare": "pnpm build"

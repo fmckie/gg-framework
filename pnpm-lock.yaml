@@ -532,6 +532,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: ^2.0.0
         version: 2.0.0
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.2.14
       ansi-regex:
         specifier: ^6.2.2
         version: 6.2.2
@@ -596,9 +599,6 @@ importers:
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
-      '@types/react':
-        specifier: ^19.2.14
-        version: 19.2.14
       '@types/turndown':
         specifier: ^5.0.6
         version: 5.0.6
