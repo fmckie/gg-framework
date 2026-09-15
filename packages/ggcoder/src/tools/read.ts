@@ -5,8 +5,16 @@ import type { AgentTool } from "@kleio/agent";
 import { resolvePath, rejectSymlink } from "./path-utils.js";
 import { truncateHead } from "./truncate.js";
 import { writeOverflow } from "./overflow.js";
-import { localOperations, type ToolOperations } from "./operations.js";
+import {
+  FileTooLargeError,
+  NotRegularFileError,
+  SymlinkRefusedError,
+  localOperations,
+  readFileBounded,
+  type ToolOperations,
+} from "./operations.js";
 import { recordRead, type ReadTracker } from "./read-tracker.js";
+import { lineHash } from "../core/hashline.js";
 import {
   IMAGE_EXTENSIONS,
   IMAGE_MEDIA_TYPES,
@@ -75,7 +83,37 @@ const ReadParams = z.object({
     .optional()
     .describe("Line number to start reading from (1-based)"),
   limit: z.number().int().min(1).optional().describe("Maximum number of lines to read"),
+  anchors: z
+    .boolean()
+    .optional()
+    .describe(
+      "Prefix each line with a stable `hash│` content anchor so a later `edit` can target lines " +
+        "by anchor and reject stale edits. Default false.",
+    ),
 });
+
+/**
+ * Turn a refused bounded read into a message the model can act on.
+ *
+ * Both cases are dead ends for `read`, so the text names the tool that still
+ * works — otherwise the agent retries `read` with an offset and burns turns on
+ * a file it can never load.
+ */
+function describeBoundedReadError(err: unknown): string | null {
+  if (err instanceof FileTooLargeError) {
+    return (
+      `${err.message}. Use \`grep\` to search it, or \`bash\` with ` +
+      `\`sed -n '1,200p'\` / \`tail\` to view part of it.`
+    );
+  }
+  if (err instanceof NotRegularFileError) {
+    return `${err.message}. Reading it could block forever; use \`bash\` if you really need its stream.`;
+  }
+  if (err instanceof SymlinkRefusedError) {
+    return `${err.message}. Read the file it points at directly, if that path is one you should be reading.`;
+  }
+  return null;
+}
 
 export function createReadTool(
   cwd: string,
@@ -104,7 +142,7 @@ export function createReadTool(
         : "") +
       "Other binary files return a notice instead of content.",
     parameters: ReadParams,
-    async execute({ file_path, offset, limit }, context) {
+    async execute({ file_path, offset, limit, anchors }, context) {
       const resolved = resolvePath(cwd, file_path);
       await rejectSymlink(resolved);
       const ext = path.extname(resolved).toLowerCase();
@@ -113,7 +151,10 @@ export function createReadTool(
       // structured content so the model can actually see the pixels.
       if (IMAGE_EXTENSIONS.has(ext)) {
         try {
-          const rawBuffer = await fs.readFile(resolved);
+          // Bounded + opened once: an unbounded read here OOM-kills the shared
+          // daemon (every window's session with it) on a huge or non-regular
+          // file wearing an image extension.
+          const rawBuffer = await readFileBounded(resolved);
           const mediaType = IMAGE_MEDIA_TYPES[ext] ?? "image/png";
           const { buffer, mediaType: finalMediaType } = await shrinkToFit(rawBuffer, mediaType);
           const resizedNote =
@@ -143,6 +184,8 @@ export function createReadTool(
             },
           };
         } catch (err: unknown) {
+          const bounded = describeBoundedReadError(err);
+          if (bounded) return bounded;
           const code = (err as NodeJS.ErrnoException).code;
           if (code === "ENOENT") return `File not found: ${resolved}`;
           if (code === "EACCES") return `Permission denied: ${resolved}`;
@@ -182,7 +225,7 @@ export function createReadTool(
               ` (auto-compressed from ${(result.originalBytes / (1024 * 1024)).toFixed(0)} MB to ` +
               `${(result.compressedBytes / (1024 * 1024)).toFixed(0)} MB for analysis)`;
           }
-          const rawBuffer = await fs.readFile(videoPath);
+          const rawBuffer = await readFileBounded(videoPath, videoByteLimit);
           const mediaType = VIDEO_MEDIA_TYPES[ext] ?? "video/mp4";
           return {
             content: [
@@ -191,6 +234,8 @@ export function createReadTool(
             ],
           };
         } catch (err: unknown) {
+          const bounded = describeBoundedReadError(err);
+          if (bounded) return bounded;
           const code = (err as NodeJS.ErrnoException).code;
           if (code === "ENOENT") return `File not found: ${resolved}`;
           if (code === "EACCES") return `Permission denied: ${resolved}`;
@@ -211,6 +256,8 @@ export function createReadTool(
       try {
         raw = await ops.readFile(resolved);
       } catch (err: unknown) {
+        const bounded = describeBoundedReadError(err);
+        if (bounded) return bounded;
         const code = (err as NodeJS.ErrnoException).code;
         if (code === "ENOENT") return `File not found: ${resolved}`;
         if (code === "EACCES") return `Permission denied: ${resolved}`;
@@ -230,13 +277,18 @@ export function createReadTool(
       const content = lines.join("\n");
       const result = truncateHead(content);
 
-      // Prepend line numbers (cat -n style)
+      // Prepend line numbers (cat -n style). With `anchors`, also prefix each
+      // line with a `hash│` content anchor. The hash is computed from the REAL
+      // file line content and its REAL 0-based file index (startLine + i) so it
+      // matches exactly what edit's anchor guard verifies against the file bytes
+      // — anchors are display-only and never touch the tracked content.
       const actualStart = startLine + 1;
       const numbered = result.content
         .split("\n")
         .map((line, i) => {
           const lineNum = String(actualStart + i).padStart(6, " ");
-          return `${lineNum}\t${line}`;
+          const numberedLine = `${lineNum}\t${line}`;
+          return anchors ? `${lineHash(line, startLine + i)}│${numberedLine}` : numberedLine;
         })
         .join("\n");
 

@@ -1,4 +1,5 @@
 import os from "node:os";
+import * as zstd from "@bokuweb/zstd-wasm";
 import type {
   ContentPart,
   ImageContent,
@@ -8,11 +9,19 @@ import type {
   StreamResponse,
   Tool,
   ToolCall,
+  ToolChoice,
 } from "../types.js";
-import { ProviderError, readHeader } from "../errors.js";
+import {
+  GGAIError,
+  ProviderError,
+  isRawHtmlErrorEcho,
+  providerHtmlErrorMessage,
+  readHeader,
+} from "../errors.js";
 import { StreamResult } from "../utils/event-stream.js";
 import { providerDiag } from "../utils/diag.js";
 import { resolveToolSchema } from "../utils/zod-to-json-schema.js";
+import { makeStrictToolSchema, UnsupportedStrictSchemaError } from "../utils/strict-tool-schema.js";
 import { normalizePromptCacheKey } from "./prompt-cache-key.js";
 import {
   downgradeUnsupportedImages,
@@ -24,6 +33,74 @@ import { readSseStream } from "../utils/sse.js";
 import { extractRequestIdFromMessage } from "../utils/request-id.js";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
+// Advertised Codex client version. The ChatGPT backend gates models on the
+// catalog's `minimal_client_version` (GPT-6 Astra needs >= 0.153.0) and
+// rejects older clients with "requires a newer version of Codex". Track the
+// latest openai/codex `rust-v*` release when adding a model.
+const CODEX_CLIENT_VERSION = "0.153.4";
+// OpenAI's Codex CLI enables zstd request compression by default. Keep tiny
+// synthetic/API requests readable, but compress real agent payloads before they
+// hit the backend's finite Envoy retry buffer.
+const CODEX_REQUEST_COMPRESSION_MIN_BYTES = 16 * 1024;
+
+let zstdInitPromise: Promise<void> | undefined;
+
+interface EncodedCodexRequest {
+  body: BodyInit;
+  compressed: boolean;
+  rawBytes: number;
+  encodedBytes: number;
+}
+
+async function encodeCodexRequest(body: Record<string, unknown>): Promise<EncodedCodexRequest> {
+  const json = JSON.stringify(body);
+  const raw = new TextEncoder().encode(json);
+  if (raw.byteLength < CODEX_REQUEST_COMPRESSION_MIN_BYTES) {
+    return {
+      body: json,
+      compressed: false,
+      rawBytes: raw.byteLength,
+      encodedBytes: raw.byteLength,
+    };
+  }
+
+  try {
+    zstdInitPromise ??= zstd.init();
+    await zstdInitPromise;
+    const compressed = Uint8Array.from(zstd.compress(raw));
+    if (compressed.byteLength >= raw.byteLength) {
+      return {
+        body: json,
+        compressed: false,
+        rawBytes: raw.byteLength,
+        encodedBytes: raw.byteLength,
+      };
+    }
+    return {
+      body: compressed,
+      compressed: true,
+      rawBytes: raw.byteLength,
+      encodedBytes: compressed.byteLength,
+    };
+  } catch (error) {
+    // Compression is an optimization, not a reason to make the provider
+    // unreachable if the WASM asset is missing in an unusual host.
+    providerDiag("codex_request_compression_failed", {
+      error: error instanceof Error ? error.message : String(error),
+      rawBytes: raw.byteLength,
+    });
+    return {
+      body: json,
+      compressed: false,
+      rawBytes: raw.byteLength,
+      encodedBytes: raw.byteLength,
+    };
+  }
+}
+
+function usesResponsesLite(model: string): boolean {
+  return model.startsWith("gpt-5.6-") || model.startsWith("gpt-6-");
+}
 
 function outputTextKey(itemId: string | undefined, contentIndex: number | undefined): string {
   return `${itemId ?? ""}:${contentIndex ?? 0}`;
@@ -31,6 +108,22 @@ function outputTextKey(itemId: string | undefined, contentIndex: number | undefi
 
 function isVisibleOutputItem(itemType: string | undefined): boolean {
   return itemType === "message";
+}
+
+function toCodexToolChoice(choice: ToolChoice | undefined, tools: Tool[] | undefined): string {
+  const resolved = choice ?? "auto";
+  if (typeof resolved === "object") {
+    throw new GGAIError(
+      `OpenAI Codex does not support selecting the named tool \`${resolved.name}\`; use auto, none, or required.`,
+      { source: "capability" },
+    );
+  }
+  if (resolved === "required" && !tools?.length) {
+    throw new GGAIError("OpenAI Codex cannot require a tool call when no tools are configured.", {
+      source: "capability",
+    });
+  }
+  return resolved;
 }
 
 export function streamOpenAICodex(options: StreamOptions): StreamResult {
@@ -46,14 +139,15 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   const downgraded = downgradeUnsupportedVideos(downgradedImages, options.supportsVideo);
   const { system, input } = toCodexInput(downgraded, { supportsImages: options.supportsImages });
 
+  const responsesLite = usesResponsesLite(options.model);
   const body: Record<string, unknown> = {
     model: options.model,
     store: false,
     stream: true,
     instructions: system,
     input,
-    tool_choice: "auto",
-    parallel_tool_calls: true,
+    tool_choice: toCodexToolChoice(options.toolChoice, options.tools),
+    parallel_tool_calls: !responsesLite,
     include: ["reasoning.encrypted_content"],
   };
 
@@ -66,17 +160,21 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   // system+tool prefixes across separate sub-agent processes are accidental
   // rather than guaranteed.
   body.prompt_cache_key = normalizePromptCacheKey(options.promptCacheKey ?? "ggcoder");
-  // Map cacheRetention to OpenAI's prompt_cache_retention. "long" pins the
-  // cached prefix for up to 24h (vs the default 5–10 min in-memory window).
-  if (options.cacheRetention === "long") {
-    body.prompt_cache_retention = "24h";
-  }
+  // Note: prompt_cache_retention ("24h") is a Responses API param, not
+  // accepted by the Codex backend — it returns 400 "Unsupported parameter".
+  // Cache TTL on Codex is controlled server-side (~5-10 min in-memory).
+  // The session_id + x-client-request-id headers below handle cache routing.
   if (options.temperature != null && !options.thinking) {
     body.temperature = options.temperature;
   }
   body.reasoning = {
-    effort: options.thinking ?? "none",
+    // GPT-5.6/6 require at least low; older models still support thinking off.
+    // Apply the floor here for every caller, including one-off prompt rewrites.
+    // `ultra` is a client orchestration preset, not a Codex API effort.
+    effort:
+      options.thinking === "ultra" ? "max" : (options.thinking ?? (responsesLite ? "low" : "none")),
     summary: "auto",
+    ...(responsesLite ? { context: "all_turns" } : {}),
   };
 
   const headers: Record<string, string> = {
@@ -84,35 +182,50 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     Accept: "text/event-stream",
     Authorization: `Bearer ${options.apiKey}`,
     "OpenAI-Beta": "responses=experimental",
-    originator: "ggcoder",
-    "User-Agent": `ggcoder (${os.platform()} ${os.release()}; ${os.arch()})`,
+    originator: responsesLite ? "codex_cli_rs" : "ggcoder",
+    "User-Agent": responsesLite
+      ? `codex_cli_rs/${CODEX_CLIENT_VERSION}`
+      : `ggcoder (${os.platform()} ${os.release()}; ${os.arch()})`,
+    ...(responsesLite
+      ? {
+          version: CODEX_CLIENT_VERSION,
+          "X-OpenAI-Internal-Codex-Responses-Lite": "true",
+        }
+      : {}),
   };
 
   if (options.accountId) {
     headers["chatgpt-account-id"] = options.accountId;
   }
 
-  // The chatgpt.com codex backend routes prompt cache lookups by header, not
-  // body — `prompt_cache_key` in the body alone never produces a cache hit
-  // here (verified against gpt-5.5 with a 22k-token shared prefix). Pinning
-  // both `session_id` and `x-client-request-id` to the cache scope is what
-  // makes consecutive requests hit the same cache shard.
-  const cacheScopeId = body.prompt_cache_key as string | undefined;
-  if (cacheScopeId) {
-    headers["session_id"] = cacheScopeId;
-    headers["x-client-request-id"] = cacheScopeId;
+  // Match Codex CLI's identity split: prompt_cache_key controls cache routing,
+  // while these headers identify the conversation. Sub-agents may deliberately
+  // share a cache key when their static prefixes match, but each child keeps an
+  // independent transport identity so sticky session state cannot bleed across.
+  if (options.transportSessionId) {
+    const transportSessionId = normalizePromptCacheKey(options.transportSessionId);
+    headers["session_id"] = transportSessionId;
+    headers["x-client-request-id"] = transportSessionId;
   }
+
+  const encodedRequest = await encodeCodexRequest(body);
+  if (encodedRequest.compressed) headers["Content-Encoding"] = "zstd";
+  providerDiag("codex_request_body", {
+    rawBytes: encodedRequest.rawBytes,
+    encodedBytes: encodedRequest.encodedBytes,
+    compressed: encodedRequest.compressed,
+  });
 
   const response = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify(body),
+    body: encodedRequest.body,
     signal: options.signal,
   });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    const parsed = parseCodexErrorBody(text);
+    const parsed = parseCodexErrorBody(text, response.status);
     const message = parsed.message ?? `Codex API returned HTTP ${response.status}.`;
     const requestId =
       parsed.requestId ??
@@ -126,18 +239,18 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     if (usageLimit) throw usageLimit;
 
     let hint: string | undefined;
-    if (response.status === 400 && text.includes("not supported")) {
-      if (options.model === "gpt-5.5-pro") {
-        hint = "Use gpt-5.5 instead. OpenAI's Codex model catalog does not list gpt-5.5-pro.";
-      } else {
-        hint =
-          "This model is not available through Codex for the authenticated account. " +
-          "Run /model and choose a model listed for OpenAI Codex, or check your Codex model picker/usage limits.";
-      }
+    if (
+      response.status === 400 &&
+      message ===
+        `The '${options.model}' model is not supported when using Codex with a ChatGPT account.`
+    ) {
+      hint =
+        "This model is not available through your ChatGPT account. " +
+        "Switch to a model listed for OpenAI via the model selector, or check your ChatGPT usage limits.";
     } else if (response.status === 404 && text.includes("does not exist")) {
       hint =
-        "This model is not in the current OpenAI Codex catalog for this account. " +
-        "Try gpt-5.5, gpt-5.4, gpt-5.4-mini, or gpt-5.3-codex.";
+        "This model is not in OpenAI's current catalog for your ChatGPT account. " +
+        "Switch to GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Terra, or GPT-5.6 Luna via the model selector.";
     }
 
     throw new ProviderError("openai", message, {
@@ -170,6 +283,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheRead = 0;
+  let cacheWrite = 0;
 
   // ── Diagnostic: log the first occurrence of each raw SSE event type with
   // timing, so we can see what Codex sends during the pre-reasoning window
@@ -413,12 +527,13 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
       const resp = event.response as Record<string, unknown> | undefined;
       const usage = resp?.usage as
         | (Record<string, number> & {
-            input_tokens_details?: { cached_tokens?: number };
+            input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
           })
         | undefined;
       if (usage) {
         cacheRead = usage.input_tokens_details?.cached_tokens ?? 0;
-        inputTokens = (usage.input_tokens ?? 0) - cacheRead;
+        cacheWrite = usage.input_tokens_details?.cache_write_tokens ?? 0;
+        inputTokens = (usage.input_tokens ?? 0) - cacheRead - cacheWrite;
         outputTokens = usage.output_tokens ?? 0;
       }
     }
@@ -476,7 +591,12 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
       content: contentParts.length > 0 ? contentParts : textAccum || "",
     },
     stopReason,
-    usage: { inputTokens, outputTokens, ...(cacheRead > 0 && { cacheRead }) },
+    usage: {
+      inputTokens,
+      outputTokens,
+      ...(cacheRead > 0 && { cacheRead }),
+      ...(cacheWrite > 0 && { cacheWrite }),
+    },
   };
 
   yield { type: "done", stopReason };
@@ -648,19 +768,32 @@ function toCodexInput(
 // ── Tool Conversion ────────────────────────────────────────
 
 function toCodexTools(tools: Tool[]): unknown[] {
-  return tools.map((tool) => ({
-    type: "function",
-    name: tool.name,
-    description: tool.description,
-    parameters: resolveToolSchema(tool),
-    strict: null,
-  }));
+  return tools.map((tool) => {
+    let parameters = resolveToolSchema(tool);
+    let strict: true | null = null;
+    try {
+      parameters = makeStrictToolSchema(parameters);
+      strict = true;
+    } catch (error) {
+      if (!(error instanceof UnsupportedStrictSchemaError)) throw error;
+    }
+    return {
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      parameters,
+      strict,
+    };
+  });
 }
 
-// HTTP error bodies come back as JSON or plain text. Try to extract a clean
-// message string + request_id (and the raw error object) so we never spill the
-// raw JSON into the UI.
-function parseCodexErrorBody(text: string): {
+// HTTP error bodies may be JSON, useful plain text, or an HTML edge/proxy page.
+// Extract a bounded message plus request ID while keeping raw JSON and markup out
+// of every user-facing error path.
+function parseCodexErrorBody(
+  text: string,
+  statusCode: number,
+): {
   message?: string;
   requestId?: string;
   errorObj?: Record<string, unknown>;
@@ -670,10 +803,14 @@ function parseCodexErrorBody(text: string): {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     const error = parsed.error as Record<string, unknown> | undefined;
     const detail = parsed.detail as unknown;
-    const message =
+    const rawMessage =
       (error?.message as string | undefined) ??
       (parsed.message as string | undefined) ??
       (typeof detail === "string" ? detail : undefined);
+    const message =
+      rawMessage && isRawHtmlErrorEcho(rawMessage)
+        ? providerHtmlErrorMessage(statusCode)
+        : rawMessage;
     const requestId =
       (parsed.request_id as string | undefined) ??
       (error?.request_id as string | undefined) ??
@@ -688,10 +825,13 @@ function parseCodexErrorBody(text: string): {
       ...(errorObj ? { errorObj } : {}),
     };
   } catch {
-    // Non-JSON body — return the trimmed text directly, capped so we never
-    // splat a huge HTML error page.
-    const trimmed = text.trim().slice(0, 240);
-    return trimmed ? { message: trimmed } : {};
+    const trimmed = text.trim();
+    if (isRawHtmlErrorEcho(trimmed)) {
+      return { message: providerHtmlErrorMessage(statusCode) };
+    }
+    // Preserve useful plain-text errors, capped to keep accidental proxy output bounded.
+    const bounded = trimmed.slice(0, 240);
+    return bounded ? { message: bounded } : {};
   }
 }
 

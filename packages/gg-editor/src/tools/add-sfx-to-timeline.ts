@@ -98,14 +98,12 @@ export function createAddSfxToTimelineTool(
           sfxAbs = r.path;
           sfxInfo = { bundled: r.bundled, name: r.name };
         } catch (e) {
-          // Bundled-name failures often surface via ffmpeg synthesis errors;
-          // surface ffmpeg presence in the fix hint when relevant.
+          // Unknown names fail before synthesis; missing ffmpeg is only relevant
+          // when resolving a valid name actually reaches ffmpeg.
           const msg = (e as Error).message;
           const hint =
-            msg.includes("ffmpeg") || msg.includes("Bundled:")
-              ? checkFfmpeg()
-                ? "use a bundled SFX name or supply a real file path"
-                : "ffmpeg not on PATH \u2014 install ffmpeg or use a literal file path"
+            !msg.startsWith("unknown SFX name:") && msg.includes("ffmpeg") && !checkFfmpeg()
+              ? "ffmpeg not on PATH \u2014 install ffmpeg or use a literal file path"
               : "use a bundled SFX name or supply a real file path";
           return err(msg, hint);
         }

@@ -219,7 +219,14 @@ function parsePackJson(stdout, packageDir) {
 
 async function packedPaths(packageDir) {
   const absolutePackageDir = join(ROOT, packageDir);
-  const { stdout } = await execFile("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"], {
+  // Windows ships npm as a .cmd shim, which execFile cannot run directly.
+  // Invoke Node's bundled npm CLI without a shell; keep lifecycle scripts disabled.
+  const command = process.platform === "win32" ? process.execPath : "npm";
+  const args = ["pack", "--dry-run", "--json", "--ignore-scripts"];
+  if (process.platform === "win32") {
+    args.unshift(join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"));
+  }
+  const { stdout } = await execFile(command, args, {
     cwd: absolutePackageDir,
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
@@ -294,7 +301,15 @@ if (options.verbose || unclassified.length > 0) {
   for (const occurrence of reportedOccurrences) {
     const location =
       occurrence.line > 0 ? `${occurrence.path}:${occurrence.line}` : occurrence.path;
-    console.error(`UNCLASSIFIED ${occurrence.target} ${location}: ${occurrence.context.trim()}`);
+    // Source maps can be megabytes on one line. Scan them fully, but keep each
+    // diagnostic bounded so CI problem matchers cannot stall on the output.
+    const start = Math.max(0, occurrence.start - 160);
+    const end = Math.min(occurrence.context.length, occurrence.end + 160);
+    const context =
+      (start > 0 ? "…" : "") +
+      occurrence.context.slice(start, end).trim() +
+      (end < occurrence.context.length ? "…" : "");
+    console.error(`UNCLASSIFIED ${occurrence.target} ${location}: ${context}`);
   }
   if (!options.verbose && unclassified.length > 250) {
     console.error(`... ${unclassified.length - 250} more unclassified occurrences`);

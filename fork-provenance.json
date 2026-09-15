@@ -11,7 +11,23 @@
     "commit": "cde19e9e41b419546d0c167f12a3d616bdd30ccc",
     "version": "4.10.1",
     "baselineTag": "upstream/4.10.1-cde19e9",
-    "importedAt": "2026-07-17"
+    "importedAt": "2026-07-17",
+    "lastImportedCommit": "3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1",
+    "lastImportedVersion": "5.59.3",
+    "lastImportedAt": "2026-09-11"
+  },
+  "localIntegration": {
+    "branch": "sync/upstream-2026-09-11",
+    "baseCommit": "0c69b71e0804726c36b45ded9134d94643f64f7d",
+    "status": "pending-uncommitted-merge",
+    "published": false,
+    "preservedProjects": [
+      "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",
+      "packages/gg-pixel", "packages/gg-pixel-go", "packages/gg-pixel-py",
+      "packages/gg-pixel-rb", "packages/gg-pixel-rs", "packages/gg-pixel-server",
+      "packages/gg-pixel-swift", "packages/gg-voice", "packages/ggcoder-eyes",
+      "Matey", "experiments"
+    ]
   },
   "directRenameBaseline": {
     "commit": "ef12845",

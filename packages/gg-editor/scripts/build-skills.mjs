@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { format, resolveConfig } from "prettier";
 
 /**
  * Bundle every src/skills/<name>.md into a TS string constant + a SKILLS
@@ -118,7 +119,10 @@ lines.push("");
 lines.push("export const SKILL_NAMES = Object.keys(SKILLS);");
 lines.push("");
 
-const out = lines.join("\n");
 const target = resolve(pkgRoot, "src/skills.ts");
+const out = await format(lines.join("\n"), {
+  ...(await resolveConfig(target)),
+  filepath: target,
+});
 writeFileSync(target, out);
 console.log(`wrote ${target} — ${out.length} bytes (${skills.length} skills)`);

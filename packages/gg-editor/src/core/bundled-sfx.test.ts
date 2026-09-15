@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   BUNDLED_SFX,
@@ -76,14 +77,14 @@ describe("resolveSfx", () => {
   it("treats anything containing a path separator as a file path", async () => {
     const r = await resolveSfx("./assets/myfx.wav", "/home/user");
     expect(r.bundled).toBe(false);
-    expect(r.path).toBe("/home/user/assets/myfx.wav");
+    expect(r.path).toBe(resolve("/home/user", "assets/myfx.wav"));
     expect(r.name).toBeUndefined();
   });
 
   it("treats anything with a dot (extension) as a file path", async () => {
     const r = await resolveSfx("custom.mp3", "/home/user");
     expect(r.bundled).toBe(false);
-    expect(r.path).toBe("/home/user/custom.mp3");
+    expect(r.path).toBe(resolve("/home/user", "custom.mp3"));
   });
 
   it("rejects unknown bare names with the bundled list in the message", async () => {

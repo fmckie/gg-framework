@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as faceCore from "../core/face-reframe.js";
 import * as ffmpegMod from "../core/media/ffmpeg.js";
@@ -89,7 +90,7 @@ describe("face_reframe tool", () => {
     expect(ffSpy).toHaveBeenCalledTimes(1);
     const ffArgs = ffSpy.mock.calls[0][0];
     expect(ffArgs).toContain("-i");
-    expect(ffArgs).toContain("/tmp/in.mp4");
+    expect(ffArgs).toContain(resolve("/tmp", "in.mp4"));
     expect(ffArgs).toContain("-vf");
     const vfIdx = ffArgs.indexOf("-vf");
     const vf = ffArgs[vfIdx + 1];

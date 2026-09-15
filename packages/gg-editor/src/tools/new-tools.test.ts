@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NoneAdapter } from "../core/hosts/none/adapter.js";
+import * as ffmpeg from "../core/media/ffmpeg.js";
 import { createApplyLutTool } from "./apply-lut.js";
 import { createCopyGradeTool } from "./copy-grade.js";
 import { createInsertBrollTool } from "./insert-broll.js";
@@ -158,13 +159,37 @@ describe("set_clip_volume tool", () => {
 });
 
 describe("stabilize_video tool", () => {
-  it("rejects when input == output", async () => {
-    const tool = createStabilizeVideoTool("/tmp");
-    const r = await tool.execute(
-      { input: "x.mp4", output: "x.mp4" },
-      ctx as Parameters<typeof tool.execute>[1],
-    );
-    expect(r).toMatch(/identical/);
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([true, false])(
+    "rejects identical paths with ffmpeg available (%s)",
+    async (available) => {
+      const check = vi.spyOn(ffmpeg, "checkFfmpeg").mockReturnValue(available);
+      const tool = createStabilizeVideoTool("/tmp");
+      const r = await tool.execute(
+        { input: "x.mp4", output: "./x.mp4" },
+        ctx as Parameters<typeof tool.execute>[1],
+      );
+      expect(r).toMatch(/identical/);
+      expect(check).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports missing ffmpeg without creating the output directory", async () => {
+    const { existsSync, mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "gg-stabilize-"));
+    const check = vi.spyOn(ffmpeg, "checkFfmpeg").mockReturnValue(false);
+    try {
+      const tool = createStabilizeVideoTool(dir);
+      const r = await tool.execute({ input: "x.mp4", output: "output/y.mp4" }, ctx);
+      expect(r).toBe("error: ffmpeg not on PATH; fix: install ffmpeg");
+      expect(check).toHaveBeenCalledOnce();
+      expect(existsSync(join(dir, "output"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

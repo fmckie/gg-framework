@@ -1,11 +1,13 @@
-import { useCallback, type MutableRefObject } from "react";
+import { useCallback, useRef, type MutableRefObject } from "react";
+import { RunCompletion } from "../run-completion.js";
 import type { Message, Provider } from "@kleio/ai";
 import {
   appendMessagesToSession as appendSessionMessages,
   createCompactedSessionCheckpoint,
 } from "../../core/session-compaction.js";
-import type { SessionManager } from "../../core/session-manager.js";
+import type { SessionManager, TurnMetricPayload } from "../../core/session-manager.js";
 import { log } from "../../core/logger.js";
+import { findUserSessionPrompt } from "../../core/session-preview.js";
 import type { SessionStats } from "../session-summary.js";
 
 /** Minimal session-store surface the persistence layer mirrors into. */
@@ -21,10 +23,12 @@ interface UseSessionPersistenceOptions {
   sessionStatsRef: MutableRefObject<SessionStats>;
   persistedIndexRef: MutableRefObject<number>;
   messagesRef: MutableRefObject<Message[]>;
+  turnMetricsRef: MutableRefObject<TurnMetricPayload[]>;
   cwdRef: MutableRefObject<string>;
   currentProvider: Provider;
   currentModel: string;
   sessionStore?: PersistenceSessionStore;
+  onCompactedSession?: (sessionId: string) => Promise<void>;
 }
 
 export interface SessionPersistence {
@@ -35,6 +39,7 @@ export interface SessionPersistence {
   ) => Promise<void>;
   persistCompactedSession: (compactedMessages: readonly Message[]) => Promise<void>;
   persistNewMessages: () => Promise<void>;
+  flushPendingWrites: () => Promise<void>;
 }
 
 /**
@@ -48,11 +53,14 @@ export function useSessionPersistence({
   sessionStatsRef,
   persistedIndexRef,
   messagesRef,
+  turnMetricsRef,
   cwdRef,
   currentProvider,
   currentModel,
   sessionStore,
+  onCompactedSession,
 }: UseSessionPersistenceOptions): SessionPersistence {
+  const pendingWritesRef = useRef(new RunCompletion());
   const appendMessagesToSession = useCallback(
     async (sessionPath: string, messages: readonly Message[], startIndex: number) => {
       const sm = sessionManagerRef.current;
@@ -62,7 +70,7 @@ export function useSessionPersistence({
     [sessionManagerRef],
   );
 
-  const persistCompactedSession = useCallback(
+  const persistCompactedSessionImpl = useCallback(
     async (compactedMessages: readonly Message[]): Promise<void> => {
       const sm = sessionManagerRef.current;
       if (!sm) return;
@@ -71,9 +79,14 @@ export function useSessionPersistence({
         provider: currentProvider,
         model: currentModel,
         messages: compactedMessages,
+        preview: findUserSessionPrompt(messagesRef.current),
       });
       sessionPathRef.current = session.path;
       sessionStatsRef.current.sessionId = session.id;
+      for (const metric of turnMetricsRef.current) {
+        await sm.appendTurnMetric(session.path, metric);
+      }
+      await onCompactedSession?.(session.id);
       persistedIndexRef.current = compactedMessages.length;
       if (sessionStore) {
         sessionStore.sessionPath = session.path;
@@ -86,15 +99,18 @@ export function useSessionPersistence({
       currentModel,
       currentProvider,
       sessionStore,
+      onCompactedSession,
       sessionManagerRef,
       sessionPathRef,
       sessionStatsRef,
+      messagesRef,
       persistedIndexRef,
       cwdRef,
+      turnMetricsRef,
     ],
   );
 
-  const persistNewMessages = useCallback(async () => {
+  const persistNewMessagesImpl = useCallback(async () => {
     const sp = sessionPathRef.current;
     if (!sp) return;
     const allMsgs = messagesRef.current;
@@ -114,5 +130,26 @@ export function useSessionPersistence({
     sessionStatsRef,
   ]);
 
-  return { appendMessagesToSession, persistCompactedSession, persistNewMessages };
+  const persistCompactedSession = useCallback(
+    (messages: readonly Message[]) =>
+      pendingWritesRef.current.track(() => persistCompactedSessionImpl(messages)),
+    [persistCompactedSessionImpl],
+  );
+  const persistNewMessages = useCallback(
+    () => pendingWritesRef.current.track(persistNewMessagesImpl),
+    [persistNewMessagesImpl],
+  );
+  const flushPendingWrites = useCallback(async () => {
+    await pendingWritesRef.current.wait();
+    // A rejected write may have already settled before the switch began.
+    // Retry any unsaved messages before allowing the old conversation to go.
+    await persistNewMessages();
+  }, [persistNewMessages]);
+
+  return {
+    appendMessagesToSession,
+    persistCompactedSession,
+    persistNewMessages,
+    flushPendingWrites,
+  };
 }

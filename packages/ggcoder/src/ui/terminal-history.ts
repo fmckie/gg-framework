@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import { log } from "@kleio/core";
 import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import type { Provider } from "@kleio/ai";
@@ -11,7 +12,7 @@ import { BLACK_CIRCLE, RETURN_SYMBOL } from "./constants/figures.js";
 import { SPINNER_FRAMES } from "./spinner-frames.js";
 import type { Theme } from "./theme/theme.js";
 import { getUserMessageDisplayParts } from "./utils/user-message-display.js";
-import { buildToolGroupSummary } from "./tool-group-summary.js";
+import { buildToolGroupSummary, steroidsQuery } from "./tool-group-summary.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { renderMarkdownToAnsiLines } from "./utils/markdown-renderer.js";
@@ -44,7 +45,6 @@ import {
   renderCompacted,
   renderCompacting,
   renderError,
-  renderSetupHint,
   renderStatusLine,
   renderStepDone,
   renderStylePack,
@@ -113,7 +113,7 @@ export interface TerminalHistoryPrinter {
   print(
     items: readonly CompletedItem[],
     context: TerminalHistoryContext,
-    options?: { force?: boolean; write?: (data: string) => void },
+    options?: { force?: boolean; write?: (data: string) => void; reason?: string },
   ): void;
   clear(): void;
   resetPrinted(): void;
@@ -163,8 +163,19 @@ export function createTerminalHistoryPrinter({
   return {
     print(items, context, options) {
       const writeOutput = options?.write ?? ((data: string) => void stream.write(data));
+      // Diagnostic counters: a scrollback duplicate manifests as `wrote > 0`
+      // for content already on screen. The reason tag identifies which path
+      // (flush / history-effect / resize-redraw / shrink-backfill) wrote it,
+      // and skippedFingerprint vs skippedId separates the two dedup layers.
+      let wrote = 0;
+      let skippedId = 0;
+      let skippedFingerprint = 0;
+      let skippedEmpty = 0;
       for (const item of items) {
-        if (!options?.force && printed.has(item.id)) continue;
+        if (!options?.force && printed.has(item.id)) {
+          skippedId++;
+          continue;
+        }
         // Tool activity is shown live in the pinned LiveToolPanel, not the
         // scrollback transcript. Skip without touching spacing state so the
         // surrounding non-tool rows keep their separators.
@@ -175,6 +186,7 @@ export function createTerminalHistoryPrinter({
         const fingerprint = options?.force ? null : fingerprintOf(item);
         if (fingerprint !== null && recentAssistantFingerprints.includes(fingerprint)) {
           printed.add(item.id);
+          skippedFingerprint++;
           continue;
         }
         const output = serializeCompletedItemToTerminalHistory(item, context);
@@ -200,8 +212,12 @@ export function createTerminalHistoryPrinter({
           trailingBlankLine: endsWithBlankLine,
           trailingNewlines: item.kind === "user" ? 1 : undefined,
         });
-        if (formatted.length === 0) continue;
+        if (formatted.length === 0) {
+          skippedEmpty++;
+          continue;
+        }
         printed.add(item.id);
+        wrote++;
         if (fingerprint !== null) {
           recentAssistantFingerprints.push(fingerprint);
           if (recentAssistantFingerprints.length > ASSISTANT_FINGERPRINT_WINDOW) {
@@ -245,13 +261,27 @@ export function createTerminalHistoryPrinter({
         }
         previousPrintedKind = item.kind;
       }
+      if (wrote > 0 || options?.force) {
+        log("INFO", "scrollback", "print", {
+          reason: options?.reason ?? "unknown",
+          items: items.length,
+          wrote,
+          skippedId,
+          skippedFingerprint,
+          skippedEmpty,
+          force: String(Boolean(options?.force)),
+          printedSetSize: printed.size,
+        });
+      }
     },
     clear() {
+      log("INFO", "scrollback", "clear", { printedSetSize: printed.size });
       printed.clear();
       recentAssistantFingerprints.length = 0;
       previousPrintedKind = null;
     },
     resetPrinted() {
+      log("INFO", "scrollback", "resetPrinted", { printedSetSize: printed.size });
       printed.clear();
       recentAssistantFingerprints.length = 0;
       previousPrintedKind = null;
@@ -322,9 +352,7 @@ export function serializeCompletedItemToTerminalHistory(
       );
     }
     case "style_pack":
-      return renderStylePack(item.added, item.showSetupHint, context);
-    case "setup_hint":
-      return renderSetupHint(context);
+      return renderStylePack(item.added, context);
     case "update_notice":
       return renderUpdateNotice(item.text, context);
     case "compacting":
@@ -721,7 +749,12 @@ function renderSubAgentGroup(
   agents: readonly {
     status: "running" | "done" | "error" | "aborted" | string;
     task: string;
-    tokenUsage?: { input: number; output: number };
+    tokenUsage?: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+    };
     currentActivity?: string;
     result?: string;
     durationMs?: number;
@@ -770,7 +803,12 @@ function renderSubAgentRows(
   agent: {
     status: "running" | "done" | "error" | "aborted" | string;
     task: string;
-    tokenUsage?: { input: number; output: number };
+    tokenUsage?: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+    };
     currentActivity?: string;
     durationMs?: number;
   },
@@ -791,14 +829,18 @@ function renderSubAgentRows(
         : "";
   const taskLine = `${dim(context, `   ${branch.padEnd(3)}`)}${taskPrefix}${color(agent.status === "done" ? context.theme.success : context.theme.text, taskDisplay, isRunning)}`;
 
-  const totalTokens = agent.tokenUsage ? agent.tokenUsage.input + agent.tokenUsage.output : 0;
+  const freshInput = agent.tokenUsage
+    ? agent.tokenUsage.input + (agent.tokenUsage.cacheWrite ?? 0)
+    : 0;
+  const totalTokens = freshInput + (agent.tokenUsage?.output ?? 0);
+  const cachedTokens = agent.tokenUsage?.cacheRead ?? 0;
   let detail: string;
   if (isRunning) {
     detail = `${color(context.theme.primary, "· ")}${dim(context, agent.currentActivity ?? "Starting…")}`;
   } else if (agent.status === "done") {
     detail = dim(
       context,
-      `${formatCompactTokens(totalTokens)} tokens${agent.durationMs != null ? ` · ${formatDuration(agent.durationMs)}` : ""}`,
+      `${formatCompactTokens(totalTokens)} tokens${cachedTokens > 0 ? ` · ${formatCompactTokens(cachedTokens)} cached` : ""}${agent.durationMs != null ? ` · ${formatDuration(agent.durationMs)}` : ""}`,
     );
   } else {
     detail = color(
@@ -991,6 +1033,7 @@ function getToolHeaderParts(
     case "tasks":
       return { label: displayName, detail: String(args.action ?? "") };
     default:
+      if (name === "steroids") return { label: displayName, detail: steroidsQuery(args) };
       return { label: displayName, detail: name.startsWith("mcp__") ? getMCPDetailArg(args) : "" };
   }
 }
@@ -1148,7 +1191,7 @@ function getInlineSummary(name: string, result: string, isError: boolean): strin
       return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
     }
     default: {
-      if (!name.startsWith("mcp__")) return "";
+      if (name !== "steroids" && !name.startsWith("mcp__")) return "";
       const lines = result.split("\n").filter((lineText) => lineText.length > 0);
       if (lines.length === 0) return "no results";
       const first = lines[0] ?? "";

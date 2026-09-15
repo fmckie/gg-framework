@@ -2,6 +2,30 @@
 
 A modular TypeScript framework for building LLM-powered apps—from raw streaming to a full coding agent.
 
+## Current downstream integration
+
+The local `sync/upstream-2026-09-11` branch integrates upstream engine 5.59.3 at
+`3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1`, without a package release. All five
+Kleio packages remain `4.10.1-kleio.1`; published packages and Kleio Desktop pins
+have not changed. See `UPSTREAM.md` and `fork-provenance.json` for the original
+fork point, preservation policy, and pending-merge status.
+
+Keep standalone Manager, Editor/Premiere, Pixel and every language SDK/server,
+Voice, Coder Eyes, Matey, and experiments usable, with their existing commands,
+exports, tests, and workspace membership. Upstream retirement is not permission
+to delete or disable them. Add `gg-app` alongside them: it is the imported
+upstream app, not Kleio Desktop. Its publication workflow must remain guarded
+against running in this fork. No commit, push, publication, global install,
+service restart, or deployment is authorized by local integration work.
+
+Use the newer engine's async tool factory, process teardown, write guards,
+redaction, streaming session storage and checkpoint selection. Preserve
+`SessionInfo.firstPrompt` alongside `preview`, the five-package release group,
+Kleio product-profile exports/environment precedence, legacy command aliases,
+and existing `.gg` state/protocol/OAuth identities. The layout descriptions
+below include retained projects; newer shared-engine modules and `gg-app`
+are additional to that historical baseline.
+
 ## npm Packages
 
 | Package                    | npm Name                      | Description                                                                                                                                                                           |

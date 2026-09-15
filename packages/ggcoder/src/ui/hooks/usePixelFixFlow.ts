@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useState,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -11,7 +12,9 @@ import type { AgentTool } from "@kleio/agent";
 import { log } from "../../core/logger.js";
 import { detectLanguages, type LanguageId } from "../../core/language-detector.js";
 import type { PreparedPixelFix } from "../../core/pixel-fix.js";
-import type { SessionManager } from "../../core/session-manager.js";
+import type { SessionManager, TurnMetricPayload } from "../../core/session-manager.js";
+import type { PreparedProjectRuntime } from "../project-runtime.js";
+import { createSessionStats, type SessionStats } from "../session-summary.js";
 import type { UseAgentLoopReturn } from "./useAgentLoop.js";
 import type { RebuildSystemPromptOptions } from "./useModeState.js";
 import type { CompletedItem, TaskItem } from "../app-items.js";
@@ -21,14 +24,22 @@ import { toErrorItem } from "../error-item.js";
 /** Minimal session-store surface the pixel run-all flag mirrors into. */
 interface PixelSessionStore {
   runAllPixel?: boolean;
+  sessionPath?: string;
+  sessionId?: string;
+  messages?: Message[];
+  turnMetrics?: TurnMetricPayload[];
 }
 
 interface UsePixelFixFlowOptions {
-  agentLoop: UseAgentLoopReturn;
+  agentLoop: Pick<UseAgentLoopReturn, "run" | "reset" | "isRunning" | "suspendForProjectSwitch">;
   cwd: string;
   currentProvider: Provider;
   currentModel: string;
-  rebuildToolsForCwd?: (cwd: string) => AgentTool[];
+  rebuildToolsForCwd?: (cwd: string) => AgentTool[] | Promise<AgentTool[]>;
+  prepareProjectRuntime?: (cwd: string, sessionId: string) => Promise<PreparedProjectRuntime>;
+  flushPendingWrites?: () => Promise<void>;
+  sessionStatsRef?: MutableRefObject<SessionStats>;
+  turnMetricsRef?: MutableRefObject<TurnMetricPayload[]>;
   sessionStore?: PixelSessionStore;
   // Refs declared in App (created before useAgentLoop so its callbacks can read them).
   currentPixelFixRef: MutableRefObject<PreparedPixelFix | null>;
@@ -37,7 +48,9 @@ interface UsePixelFixFlowOptions {
   cwdRef: MutableRefObject<string>;
   currentToolsRef: MutableRefObject<AgentTool[]>;
   injectedLanguagesRef: MutableRefObject<Set<LanguageId>>;
-  setupHintShownRef: MutableRefObject<boolean>;
+  setupHintShownRef?: MutableRefObject<boolean>;
+  approvedPlanPathRef?: MutableRefObject<string | undefined>;
+  rewindTurnRef?: MutableRefObject<number>;
   messagesRef: MutableRefObject<Message[]>;
   persistedIndexRef: MutableRefObject<number>;
   sessionManagerRef: MutableRefObject<SessionManager | null>;
@@ -73,6 +86,10 @@ export function usePixelFixFlow({
   currentProvider,
   currentModel,
   rebuildToolsForCwd,
+  prepareProjectRuntime,
+  flushPendingWrites,
+  sessionStatsRef,
+  turnMetricsRef,
   sessionStore,
   currentPixelFixRef,
   runAllPixelRef,
@@ -81,6 +98,8 @@ export function usePixelFixFlow({
   currentToolsRef,
   injectedLanguagesRef,
   setupHintShownRef,
+  approvedPlanPathRef,
+  rewindTurnRef,
   messagesRef,
   persistedIndexRef,
   sessionManagerRef,
@@ -97,71 +116,88 @@ export function usePixelFixFlow({
   initialRunAllPixel,
 }: UsePixelFixFlowOptions): PixelFixFlow {
   const [runAllPixel, setRunAllPixel] = useState(initialRunAllPixel);
+  const switchingRef = useRef(false);
 
   const startPixelFix = useCallback(
     (errorId: string) => {
+      if (switchingRef.current) return;
+      switchingRef.current = true;
       void (async () => {
+        let prepared: PreparedProjectRuntime | undefined;
+        let resume: (() => void) | undefined;
+        let previousProcessCwd: string | undefined;
+        let committed = false;
         try {
+          if (agentLoop.suspendForProjectSwitch) {
+            resume = await agentLoop.suspendForProjectSwitch();
+          } else if (agentLoop.isRunning) {
+            throw new Error("Wait for the current run to finish before switching projects.");
+          }
+          await flushPendingWrites?.();
+
+          // Preparation can check out a branch in the current project. It must
+          // wait for both the old run and its saves, not just runtime replacement.
           const { preparePixelFix } = await import("../../core/pixel-fix.js");
           const prep = await preparePixelFix(errorId);
-          currentPixelFixRef.current = prep;
-
-          // Move the agent into the error's project root. Four things must
-          // change in lockstep, otherwise the agent (or the chrome around
-          // it) shows the wrong project:
-          //   1. process.cwd  — for any code reading it directly
-          //   2. cwd-bound tools (read/write/bash/grep/…) — baked at creation
-          //   3. the system prompt's "Working directory: …" line — the only
-          //      place the model itself learns where it is
-          //   4. displayedCwd state — Banner + Footer read this for display
-          try {
-            process.chdir(prep.projectPath);
-          } catch (err) {
-            log("WARN", "pixel", `chdir failed: ${(err as Error).message}`);
-          }
-          cwdRef.current = prep.projectPath;
-          setDisplayedCwd(prep.projectPath);
+          const sm = sessionManagerRef.current;
+          const session = await sm?.create(prep.projectPath, currentProvider, currentModel);
           let toolsForPixelFix = currentToolsRef.current;
-          if (rebuildToolsForCwd) {
-            toolsForPixelFix = rebuildToolsForCwd(prep.projectPath);
-            currentToolsRef.current = toolsForPixelFix;
-            setCurrentTools(toolsForPixelFix);
+          if (prepareProjectRuntime) {
+            if (!session)
+              throw new Error("A session is required to prepare the Pixel project runtime.");
+            prepared = await prepareProjectRuntime(prep.projectPath, session.id);
+            toolsForPixelFix = prepared.runtime.tools;
+          } else if (rebuildToolsForCwd) {
+            toolsForPixelFix = await rebuildToolsForCwd(prep.projectPath);
           }
-          // Pixel-fix swaps the project root — reset injected packs so the
-          // new project re-detects from scratch on the next tool call. Also
-          // reset the setup-hint flag so the new project's first badge re-
-          // surfaces the tip (different project, may need the reminder).
-          injectedLanguagesRef.current = new Set();
-          setupHintShownRef.current = false;
           const detectedForPixelFix = detectLanguages(prep.projectPath);
-          injectedLanguagesRef.current = detectedForPixelFix;
           const newSystemPrompt = await rebuildSystemPrompt({
             cwd: prep.projectPath,
             clearApprovedPlan: true,
             activeLanguages: detectedForPixelFix,
             tools: toolsForPixelFix,
+            skills: prepared?.runtime.skills,
           });
 
-          // Now that the cwd swap is committed, reset chat. Do not clear the
-          // terminal here; terminal clear sequences can erase saved scrollback.
+          await prepared?.runtime.checkpointStore?.openCheckpoint({
+            turnIndex: 1,
+            messageIndex: 1,
+          });
+
+          // All fallible preparation happens before the live session is replaced.
+          // A failed chdir is fatal to this transition, never a reason to proceed
+          // with tools and UI pointing at a different root than process.cwd().
+          previousProcessCwd = process.cwd();
+          process.chdir(prep.projectPath);
+          await prepared?.commit();
+          committed = true;
+          currentPixelFixRef.current = prep;
+          cwdRef.current = prep.projectPath;
+          currentToolsRef.current = toolsForPixelFix;
+          injectedLanguagesRef.current = detectedForPixelFix;
+          if (setupHintShownRef) setupHintShownRef.current = false;
+          if (approvedPlanPathRef) approvedPlanPathRef.current = undefined;
+          if (rewindTurnRef && prepared?.runtime.checkpointStore) rewindTurnRef.current = 1;
+          setDisplayedCwd(prep.projectPath);
+          setCurrentTools(toolsForPixelFix);
           clearPendingHistory();
           setHistory([{ kind: "banner", id: "banner" }]);
           setLiveItems([]);
-          messagesRef.current = messagesRef.current.slice(0, 1);
+          messagesRef.current = [{ role: "system", content: newSystemPrompt }];
           agentLoop.reset();
           persistedIndexRef.current = messagesRef.current.length;
-          const sm = sessionManagerRef.current;
-          if (sm) {
-            void sm.create(prep.projectPath, currentProvider, currentModel).then((s) => {
-              sessionPathRef.current = s.path;
-              log("INFO", "pixel", "New session for pixel fix", { path: s.path });
-            });
-          }
-
-          if (messagesRef.current[0]?.role === "system") {
-            messagesRef.current[0] = { role: "system", content: newSystemPrompt };
-          } else {
-            messagesRef.current.unshift({ role: "system", content: newSystemPrompt });
+          if (session) {
+            sessionPathRef.current = session.path;
+            if (sessionStatsRef)
+              sessionStatsRef.current = createSessionStats({ sessionId: session.id });
+            if (turnMetricsRef) turnMetricsRef.current = [];
+            if (sessionStore) {
+              sessionStore.sessionPath = session.path;
+              sessionStore.sessionId = session.id;
+              sessionStore.messages = [...messagesRef.current];
+              sessionStore.turnMetrics = [];
+            }
+            log("INFO", "pixel", "New session for pixel fix", { path: session.path });
           }
 
           const title = `Fix ${errorId.slice(0, 12)}… in ${prep.projectName}`;
@@ -169,14 +205,30 @@ export function usePixelFixFlow({
           setLastUserMessage(title);
           setDoneStatus(null);
           setLiveItems([taskItem]);
-
+          resume?.();
+          resume = undefined;
+          // Keep ownership through this run: its finalizer must not release a
+          // newer switch's lock or overwrite the newer fix's error state.
           await agentLoop.run(prep.prompt);
         } catch (err) {
+          if (!committed && previousProcessCwd !== undefined) {
+            try {
+              process.chdir(previousProcessCwd);
+            } catch {
+              log("ERROR", "pixel", "Could not restore the previous working directory.");
+            }
+          }
+          await prepared?.dispose().catch(() => {
+            log("ERROR", "pixel", "Could not close the prepared project runtime.");
+          });
           const msg = err instanceof Error ? err.message : String(err);
           log("ERROR", "pixel", msg);
           currentPixelFixRef.current = null;
           setRunAllPixel(false);
           setLiveItems((prev) => [...prev, toErrorItem(err, getId())]);
+        } finally {
+          resume?.();
+          switchingRef.current = false;
         }
       })();
     },

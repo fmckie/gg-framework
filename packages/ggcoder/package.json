@@ -88,26 +88,30 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "scripts": {
     "clean": "node --eval \"fs.rmSync('dist', { recursive: true, force: true })\"",
-    "build": "pnpm clean && tsc && chmod +x dist/cli.js",
+    "build": "pnpm clean && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
     "check": "tsc --noEmit",
     "test": "vitest run",
+    "bench:edit": "tsx src/core/hashline-edit-benchmark.ts",
+    "bench:search": "tsx src/core/semantic-search-benchmark.ts",
     "verify:goal:tests": "vitest run src/core/goal-controller.test.ts src/core/goal-engine.test.ts src/core/goal-store.test.ts src/core/goal-integration.test.ts src/core/goal-prerequisites.test.ts src/core/goal-verifier.test.ts src/core/goal-worker.test.ts src/core/goal-worker-dev-server-lifecycle.test.ts src/core/goal-worktree.test.ts src/core/goal-lifecycle-smoke.test.ts src/tools/goals.test.ts src/tools/goal-mode.test.ts src/ui/goal-events.test.ts src/ui/goal-lifecycle-orchestration.test.ts src/ui/goal-overlay.test.ts src/ui/goal-status-bar.test.ts src/system-prompt.test.ts",
     "verify:goal:overhead": "tsx scripts/verify-goal-overhead-harness.ts",
     "goal:overhead-audit": "tsx scripts/verify-goal-overhead-audit.ts",
     "verify:goal:e2e": "pnpm dlx tsx scripts/verify-goal-e2e.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.67",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@kenkaiiii/agent-home-sdk": "^0.3.8",
     "@kleio/agent": "workspace:*",
     "@kleio/ai": "workspace:*",
     "@kleio/core": "workspace:*",
     "@kenkaiiii/gg-pixel": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/client": "^2.0.0",
     "ansi-regex": "^6.2.2",
     "chalk": "^5.6.2",
     "cli-highlight": "^2.1.11",
@@ -120,7 +124,7 @@
     "marked-terminal": "^7.3.0",
     "opensrc": "^0.7.2",
     "react": "^19.2.5",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.3",
     "string-width": "^8.2.0",
     "strip-ansi": "^7.2.0",
     "typescript": "^6.0.3",

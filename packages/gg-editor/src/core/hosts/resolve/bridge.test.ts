@@ -1,5 +1,6 @@
 import type * as NodeOs from "node:os";
 import { EventEmitter } from "node:events";
+import { delimiter, join } from "node:path";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { findPython, resolveEnv } from "./bridge.js";
@@ -40,8 +41,7 @@ describe("resolveEnv", () => {
     process.env.RESOLVE_SCRIPT_API = "/x/y/Scripting";
     try {
       const env = resolveEnv();
-      expect(env.PYTHONPATH).toContain("/x/y/Scripting");
-      expect(env.PYTHONPATH).toContain("Modules");
+      expect(env.PYTHONPATH?.split(delimiter)[0]).toBe(join("/x/y/Scripting", "Modules"));
     } finally {
       if (before === undefined) delete process.env.RESOLVE_SCRIPT_API;
       else process.env.RESOLVE_SCRIPT_API = before;
@@ -70,16 +70,22 @@ describe("resolveEnv", () => {
     }
   });
 
-  it("does not set PYTHONHOME on darwin/linux", () => {
-    // Real platform() on the test runner is darwin or linux — no Windows path
-    // taken, so PYTHONHOME stays undefined unless the user pre-set it.
+  it.each(["darwin", "linux"])("does not set PYTHONHOME on %s", async (platform) => {
+    vi.resetModules();
+    vi.doMock("node:os", async () => {
+      const real = await vi.importActual<typeof NodeOs>("node:os");
+      return { ...real, platform: () => platform };
+    });
     const beforeHome = process.env.PYTHONHOME;
     delete process.env.PYTHONHOME;
     try {
-      const env = resolveEnv({ cmd: "python3", args: [], prefix: "/usr/local" });
+      const mod = await import("./bridge.js");
+      const env = mod.resolveEnv({ cmd: "python3", args: [], prefix: "/usr/local" });
       expect(env.PYTHONHOME).toBeUndefined();
     } finally {
       if (beforeHome !== undefined) process.env.PYTHONHOME = beforeHome;
+      vi.doUnmock("node:os");
+      vi.resetModules();
     }
   });
 

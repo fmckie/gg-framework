@@ -52,8 +52,15 @@ import fs from "node:fs";
 import readline from "node:readline/promises";
 import { renderApp } from "./ui/render.js";
 import { runJsonMode } from "./modes/json-mode.js";
+import { runSubagentWorkerMode } from "./modes/subagent-worker-mode.js";
 import { runRpcMode } from "./modes/rpc-mode.js";
 import { runServeMode } from "./modes/serve-mode.js";
+import { runAcpModeCli } from "./modes/acp-mode.js";
+import {
+  loadTelegramConfig,
+  saveTelegramConfig,
+  isValidBotTokenFormat,
+} from "./core/telegram-config.js";
 import { runAgentHomeMode } from "./modes/agent-home-mode.js";
 import { renderSessionSelector } from "./ui/sessions.js";
 import type { CompletedItem } from "./ui/app-items.js";
@@ -62,28 +69,41 @@ import { segmentDisplayText, stripDoneMarkers } from "./utils/plan-steps.js";
 import { formatUserError } from "./utils/error-handler.js";
 import type { Message, Provider, ThinkingLevel } from "@kleio/ai";
 import type { ThemeName } from "./ui/theme/theme.js";
-import { AuthStorage } from "./core/auth-storage.js";
-import { SessionManager } from "./core/session-manager.js";
-import { ensureAppDirs, getAppPaths, loadSavedSettings } from "./config.js";
+import { AuthStorage, readStoredBaseUrlSync } from "./core/auth-storage.js";
+import { SessionManager, type TurnMetricPayload } from "./core/session-manager.js";
+import { ensureAppDirs, getAppPaths, loadSavedSettings, projectScopeAllowed } from "./config.js";
 import { initLogger, log, closeLogger } from "./core/logger.js";
 import { setStreamDiagnostic } from "@kleio/agent";
 import { setProviderDiagnostic } from "@kleio/ai";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { PROMPT_COMMANDS } from "./core/prompt-commands.js";
-import { createTools } from "./tools/index.js";
+import { createTools, type CreateToolsOptions } from "./tools/index.js";
+import {
+  disposeProjectRuntime,
+  prepareProjectRuntime as prepareRuntime,
+  type PreparedProjectRuntime,
+  type ProjectRuntime,
+} from "./ui/project-runtime.js";
+import { cleanupToolOutputs } from "./tools/overflow.js";
 import { CheckpointStore } from "./core/checkpoint-store.js";
+import { ReviewCoverageTracker } from "./core/ideal-review.js";
 import { shouldCompact, compact } from "./core/compaction/compactor.js";
 import {
   createCompactedSessionCheckpoint,
   formatRestoreInfoText,
   getRestoredMessagesForDisplay,
+  sourceFingerprint,
 } from "./core/session-compaction.js";
 import { setEstimatorModel } from "./core/compaction/token-estimator.js";
+import { resolveCompactionPolicy } from "./core/compaction/policy.js";
+import { findUserSessionPrompt } from "./core/session-preview.js";
 import {
+  getAuthStorageKeys,
   getContextWindow,
   getDefaultModel,
-  getMaxThinkingLevel,
+  getDefaultThinkingLevel,
   getModel,
+  getModelsForProvider,
 } from "./core/model-registry.js";
 import { MCPClientManager, getAllMcpServers } from "./core/mcp/index.js";
 import { runPixel } from "./cli/pixel.js";
@@ -97,6 +117,7 @@ import {
   requireInteractiveTTY,
 } from "./cli/shared.js";
 import { discoverAgents } from "./core/agents.js";
+import { applyAsyncSubagentPolicy } from "./core/subagent-policy.js";
 import { discoverSkills } from "./core/skills.js";
 import path from "node:path";
 import chalk from "chalk";
@@ -108,13 +129,13 @@ import { routeCliCommandInput, type CliSubcommandName } from "./cli/command-rout
 
 const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
-const THINKING_LEVELS = new Set<ThinkingLevel>(["low", "medium", "high", "xhigh", "max"]);
+const THINKING_LEVELS = new Set<ThinkingLevel>(["low", "medium", "high", "xhigh", "max", "ultra"]);
 
 export function parseThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
   if (value === undefined) return undefined;
   if (THINKING_LEVELS.has(value as ThinkingLevel)) return value as ThinkingLevel;
   throw new Error(
-    `Invalid --thinking value "${value}". Expected low, medium, high, xhigh, or max.`,
+    `Invalid --thinking value "${value}". Expected low, medium, high, xhigh, max, or ultra.`,
   );
 }
 
@@ -149,6 +170,7 @@ function printHelp(): void {
     ["sessions", "Browse and resume previous sessions"],
     ["continue", "Resume the most recent session"],
     ["serve", "Start the HTTP/WebSocket API server"],
+    ["acp", "Serve as an Agent Client Protocol agent on stdio"],
     ["telegram", "Configure Telegram bot integration"],
     ["agent-home-login", "Configure Agent Home relay connection"],
     ["agent-home", "Connect to Agent Home as a remote agent"],
@@ -166,11 +188,13 @@ function printHelp(): void {
     ["-v, --version", "Show version number"],
     [
       "--provider <name>",
-      "AI provider (anthropic, xiaomi, openai, gemini, glm, moonshot, minimax, deepseek, openrouter)",
+      "AI provider (anthropic, xiaomi, openai, gemini, glm, moonshot, minimax, deepseek, openrouter, sakana, xai)",
     ],
-    ["--model <name>", "Model to use (e.g. claude-sonnet-4-6, gpt-5.5)"],
+    ["--model <name>", "Model to use (e.g. claude-sonnet-5, gpt-6-astra)"],
     ["--max-turns <n>", "Maximum agent turns per prompt"],
-    ["--system-prompt <text>", "Override the system prompt"],
+    ["--system-prompt <text>", "Replace the system prompt entirely"],
+    ["--agent-prompt <text>", "Sub-agent body composed with tools/context/environment"],
+    ["--agent-context <mode>", "Project files in the composed prompt (project|none)"],
     ["--thinking <level>", "Enable thinking level (low, medium, high, xhigh, max)"],
     ["--resume <id>", "Resume a session by id"],
     ["--json", "JSON output mode (for sub-agents)"],
@@ -232,6 +256,7 @@ function createCliSubcommandHandlers(): Record<CliSubcommandName, () => void> {
     sessions: () => runWithStandardErrorHandling(runSessions),
     telegram: () => runWithStandardErrorHandling(runTelegramSetup),
     serve: () => runWithStandardErrorHandling(runServe),
+    acp: () => runWithStandardErrorHandling(runAcp),
     doctor: () => {
       runDoctor().catch((err) => {
         process.stderr.write(formatUserError(err) + "\n");
@@ -244,6 +269,14 @@ function createCliSubcommandHandlers(): Record<CliSubcommandName, () => void> {
 }
 
 function main(): void {
+  if (process.argv.includes("--subagent-worker")) {
+    void runSubagentWorkerMode().catch((error: unknown) => {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    });
+    return;
+  }
+
   // Silent auto-update check (throttled, non-blocking on failure)
   const updateMessage = checkAndAutoUpdate(CLI_VERSION);
   if (updateMessage) {
@@ -273,6 +306,10 @@ function main(): void {
       model: { type: "string" },
       "max-turns": { type: "string" },
       "system-prompt": { type: "string" },
+      "agent-prompt": { type: "string" },
+      "agent-context": { type: "string" },
+      tools: { type: "string" },
+      "mcp-servers": { type: "string" },
       "prompt-cache-key": { type: "string" },
       thinking: { type: "string" },
       resume: { type: "string" },
@@ -295,11 +332,37 @@ function main(): void {
   if (values.json) {
     const message = positionals[0] ?? "";
     const jsonProvider = (values.provider ?? "anthropic") as Provider;
-    const jsonModel = values.model ?? "claude-opus-4-8";
+    const jsonModel = values.model ?? "claude-opus-5";
     const maxTurns = values["max-turns"] ? parseInt(values["max-turns"], 10) : undefined;
     const systemPrompt = values["system-prompt"];
+    // An agent definition's body: composed with the Tools/context/Environment
+    // scaffolding rather than replacing it, so a delegated child still knows
+    // which tools it has and where it is running.
+    const agentPrompt = values["agent-prompt"];
+    const agentContext = values["agent-context"] === "none" ? "none" : undefined;
     const promptCacheKey = values["prompt-cache-key"];
     const thinkingLevel = parseThinkingLevel(values.thinking);
+    // Optional tool allow-list forwarded by the subagent spawner from an agent
+    // definition's `tools:` frontmatter. Comma-separated; empty → full toolset.
+    // An all-empty value collapses to undefined (full toolset) rather than an
+    // empty array, which AgentSession would treat as "block every tool".
+    const parsedTools = values.tools
+      ? values.tools
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+    const allowedTools = parsedTools.length > 0 ? parsedTools : undefined;
+    // MCP servers the agent definition asked for (`mcp__<server>__<tool>` in its
+    // `tools:` list). Without this an allow-listed child connects no MCP at all,
+    // so a research agent silently loses live code search.
+    const parsedMcpServers = values["mcp-servers"]
+      ? values["mcp-servers"]
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    const allowedMcpServers = parsedMcpServers.length > 0 ? parsedMcpServers : undefined;
     const cwd = process.cwd();
     runJsonMode({
       message,
@@ -307,7 +370,11 @@ function main(): void {
       model: jsonModel,
       cwd,
       systemPrompt,
+      agentPrompt,
+      agentContext,
       maxTurns,
+      allowedTools,
+      allowedMcpServers,
       promptCacheKey,
       thinkingLevel,
     }).catch((err: unknown) => {
@@ -320,7 +387,7 @@ function main(): void {
   // RPC mode — headless JSON-over-stdio for IDE integrations
   if (values.rpc) {
     const rpcProvider = (values.provider ?? "anthropic") as Provider;
-    const rpcModel = values.model ?? "claude-opus-4-8";
+    const rpcModel = values.model ?? "claude-opus-5";
     const systemPrompt = values["system-prompt"];
     const cwd = process.cwd();
     runRpcMode({
@@ -342,19 +409,27 @@ function main(): void {
   const provider: Provider = saved.provider ?? "anthropic";
 
   function getHardcodedDefault(p: string): string {
-    if (p === "openai") return "gpt-5.5";
-    if (p === "gemini") return "gemini-3.1-flash-lite-preview";
-    if (p === "glm") return "glm-5.1";
-    if (p === "moonshot") return "kimi-k2.7-code";
+    if (p === "openai") return "gpt-5.6-sol";
+    if (p === "gemini") return "gemini-3.1-flash-lite";
+    if (p === "glm") return "glm-5.3";
+    if (p === "moonshot") return "kimi-k3";
     if (p === "minimax") return "MiniMax-M3";
     if (p === "deepseek") return "deepseek-v4-pro";
+    if (p === "huggingface") return "Qwen/Qwen3-Coder-480B-A35B-Instruct";
     if (p === "openrouter") return "qwen/qwen3.6-plus";
-    return "claude-opus-4-8";
+    if (p === "sakana") return "fugu";
+    if (p === "xai") return "grok-4.6";
+    return "claude-opus-5";
   }
 
   const model: string = saved.model ?? getHardcodedDefault(provider);
+  // No saved level → follow the active credential's endpoint (Kimi K3 OAuth
+  // starts at its declared default, high). Sync read: main() is not async.
   const thinkingLevel: ThinkingLevel | undefined = saved.thinkingEnabled
-    ? (saved.thinkingLevel ?? getMaxThinkingLevel(model))
+    ? (saved.thinkingLevel ??
+      getDefaultThinkingLevel(model, {
+        baseUrl: readStoredBaseUrlSync(getAppPaths().authFile, provider),
+      }))
     : undefined;
 
   // Interactive mode (Ink TUI)
@@ -368,6 +443,8 @@ function main(): void {
     thinkingLevel,
     idealReviewEnabled: saved.idealReviewEnabled,
     lspDiagnostics: saved.lspDiagnostics,
+    allowOutsideWorkspaceWrites: saved.allowOutsideWorkspaceWrites,
+    subagentMaxPerModel: saved.subagentMaxPerModel,
     continueRecent,
     resumeSessionPath: values.resume,
     theme: savedTheme,
@@ -392,6 +469,8 @@ async function runInkTUI(opts: {
   initialOverlay?: "pixel";
   idealReviewEnabled?: boolean;
   lspDiagnostics?: boolean;
+  allowOutsideWorkspaceWrites?: boolean;
+  subagentMaxPerModel?: number;
 }): Promise<void> {
   requireInteractiveTTY();
 
@@ -401,10 +480,14 @@ async function runInkTUI(opts: {
   // actually logged in with — we must never default to a provider they
   // haven't authenticated against.
   const paths = await ensureAppDirs();
+  const savedSettings = loadSavedSettings(paths.settingsFile);
 
   // Wire stream stall diagnostics into the debug log
   setStreamDiagnostic((phase, data) => {
-    log("INFO", "stream", phase, data as Record<string, unknown>);
+    // A session stuck on the non-streaming fallback costs real money and real
+    // latency; it does not belong in the INFO noise floor.
+    const level = phase === "non_streaming_session" ? "WARN" : "INFO";
+    log(level, "stream", phase, data as Record<string, unknown>);
   });
   setProviderDiagnostic((phase, data) => {
     log("INFO", "provider", phase, data as Record<string, unknown>);
@@ -422,49 +505,88 @@ async function runInkTUI(opts: {
   // Preload every logged-in provider's credentials for the model switcher.
   // Resolve each one BEFORE picking the active provider, so a dead OAuth
   // refresh token (preferredProvider expired) doesn't crash startup — we
-  // fall back to whichever other provider actually resolved.
+  // fall back to whichever other provider actually resolved. Keyed by
+  // auth-storage key (not always the provider id) — e.g. Xiaomi splits into
+  // "xiaomi" (Token Plan) and "xiaomi-credits" (API Credits, required for
+  // mimo-v2.5-pro-ultraspeed) since a user may hold either or both.
   const credentialsByProvider: Record<
     string,
     { accessToken: string; accountId?: string; projectId?: string; baseUrl?: string }
   > = {};
   const expiredProviders: Provider[] = [];
   for (const p of loggedInProviders) {
-    try {
-      const resolved = await authStorage.resolveCredentials(p);
-      credentialsByProvider[p] = {
-        accessToken: resolved.accessToken,
-        accountId: resolved.accountId,
-        projectId: resolved.projectId,
-        baseUrl: resolved.baseUrl,
-      };
-    } catch {
-      // Refresh failed (resolveCredentials wipes the bad creds when the
-      // refresh token is dead). Track so we can warn the user, and fall
-      // back to another working provider below.
-      expiredProviders.push(p);
+    // Every distinct storage key any of this provider's models might need —
+    // almost always just `[p]`; only providers with model-specific
+    // `authStorageKeys` (Xiaomi) contribute extra keys.
+    const storageKeys = new Set<string>([p]);
+    for (const m of getModelsForProvider(p)) {
+      for (const key of m.authStorageKeys ?? []) storageKeys.add(key);
     }
+    let resolvedAny = false;
+    for (const key of storageKeys) {
+      try {
+        const resolved = await authStorage.resolveCredentials(p, { storageKeys: [key] });
+        credentialsByProvider[key] = {
+          accessToken: resolved.accessToken,
+          accountId: resolved.accountId,
+          projectId: resolved.projectId,
+          baseUrl: resolved.baseUrl,
+        };
+        resolvedAny = true;
+      } catch {
+        // This particular storage key isn't configured (or its refresh token
+        // is dead) — other keys for this provider may still resolve.
+      }
+    }
+    // Refresh failed for every key (resolveCredentials wipes bad OAuth creds
+    // when the refresh token is dead). Track so we can warn the user, and
+    // fall back to another working provider below.
+    if (!resolvedAny) expiredProviders.push(p);
   }
 
-  // Fall back if the preferred provider didn't resolve. The settings file
-  // is NOT updated — user might re-login to the preferred one later and
+  // The model a provider should actually boot with, given which storage keys
+  // resolved: prefer the provider's default model, but for a provider like
+  // Xiaomi that splits credentials across models, fall back to whichever
+  // model's specific storage key DID resolve (e.g. a user who configured only
+  // API Credits, no Token Plan, must still land on mimo-v2.5-pro-ultraspeed,
+  // not get treated as logged out of Xiaomi entirely).
+  const resolvedKeyFor = (p: Provider, modelId: string): string | undefined =>
+    getAuthStorageKeys(p, modelId).find((key) => credentialsByProvider[key]);
+  const modelResolves = (p: Provider, modelId: string): boolean =>
+    resolvedKeyFor(p, modelId) !== undefined;
+  const resolvableModelFor = (p: Provider): string | undefined => {
+    const def = getDefaultModel(p).id;
+    if (modelResolves(p, def)) return def;
+    return getModelsForProvider(p).find((m) => modelResolves(p, m.id))?.id;
+  };
+
+  // Fall back if the preferred provider/model didn't resolve. The settings
+  // file is NOT updated — user might re-login to the preferred one later and
   // expect to come back. This is a per-launch override.
   let provider = preferredProvider;
   let model = preferredModel;
-  if (!credentialsByProvider[provider]) {
-    const fallback = loggedInProviders.find((p) => credentialsByProvider[p]);
-    if (!fallback) {
-      throw new Error(
-        `All logged-in providers expired or failed to authenticate. Run "${CODER_COMMAND} login" to re-authenticate.`,
+  if (!modelResolves(provider, model)) {
+    // Same provider, different model first — e.g. Xiaomi Credits-only users
+    // land on mimo-v2.5-pro-ultraspeed instead of bouncing to another provider.
+    const sameProviderModel = resolvableModelFor(provider);
+    if (sameProviderModel) {
+      model = sameProviderModel;
+    } else {
+      const fallback = loggedInProviders.find((p) => resolvableModelFor(p));
+      if (!fallback) {
+        throw new Error(
+          `All logged-in providers expired or failed to authenticate. Run "${CODER_COMMAND} login" to re-authenticate.`,
+        );
+      }
+      console.warn(
+        chalk.yellow(
+          `⚠ ${displayName(preferredProvider)} session expired — switched to ${displayName(fallback)} for this launch.\n` +
+            `  Run "${CODER_COMMAND} login" to re-authenticate ${displayName(preferredProvider)}.`,
+        ),
       );
+      provider = fallback;
+      model = resolvableModelFor(fallback)!;
     }
-    console.warn(
-      chalk.yellow(
-        `⚠ ${displayName(preferredProvider)} session expired — switched to ${displayName(fallback)} for this launch.\n` +
-          `  Run "${CODER_COMMAND} login" to re-authenticate ${displayName(preferredProvider)}.`,
-      ),
-    );
-    provider = fallback;
-    model = getDefaultModel(fallback).id;
   } else if (expiredProviders.length > 0) {
     console.warn(
       chalk.yellow(
@@ -486,7 +608,7 @@ async function runInkTUI(opts: {
 
   // Use the already-resolved credentials from the preload loop — no need
   // to re-resolve and risk hitting the same dead refresh path again.
-  const cached = credentialsByProvider[provider]!;
+  const cached = credentialsByProvider[resolvedKeyFor(provider, model)!]!;
   const creds = {
     accessToken: cached.accessToken,
     accountId: cached.accountId,
@@ -521,76 +643,125 @@ async function runInkTUI(opts: {
   // Holder so the (cwd-bound) tools can snapshot pre-mutation file state for
   // /rewind. The store is created once the session id is known (below).
   const checkpointRef: { current: CheckpointStore | null } = { current: null };
+  const reviewCoverageTracker = new ReviewCoverageTracker(cwd);
   const onPreFileMutation = (filePath: string): Promise<void> =>
     checkpointRef.current?.recordPreMutation(filePath) ?? Promise.resolve();
+  let activeProvider = provider;
+  let activeModel = model;
+  let activeThinking = opts.thinkingLevel;
 
-  const { tools, processManager, rebuildReadTool, lspManager } = createTools(cwd, {
+  const toolOptions: CreateToolsOptions = {
     agents,
     skills,
     provider,
     model,
     planModeRef,
     onPreFileMutation,
+    onFileRead: (filePath) => reviewCoverageTracker.recordRead(filePath),
+    onFileMutated: (filePath) => reviewCoverageTracker.recordChanged(filePath),
     lspDiagnostics: opts.lspDiagnostics,
+    getWriteGuardSettings: () => ({
+      allowOutsideWorkspaceWrites: opts.allowOutsideWorkspaceWrites ?? false,
+    }),
+    authStorage,
     onEnterPlan: (reason) => planToolCallbacks.onEnterPlan?.(reason),
     onExitPlan: (planPath) =>
       planToolCallbacks.onExitPlan?.(planPath) ?? Promise.resolve("Plan review is unavailable."),
-  });
+    getProvider: () => activeProvider,
+    getModel: () => activeModel,
+    getThinkingLevel: () => activeThinking,
+    getMaxPerModel: () => opts.subagentMaxPerModel,
+  };
+  const initialToolSet = await createTools(cwd, toolOptions);
+  const { tools, processManager, lspManager, subAgentManager } = initialToolSet;
+  const pendingRuntimeRef: { current: ProjectRuntime | undefined } = { current: undefined };
+  const rebuildReadTool = (model: string) => {
+    const rebuild = projectRuntimeRef.current.rebuildReadTool;
+    if (!rebuild) throw new Error("The active project has no read-tool builder.");
+    return rebuild(model);
+  };
 
-  // The active LSP pool follows the active tool set — rebuilds (pixel chdir)
-  // shut the old pool down and swap in the new one.
-  let activeLspManager = lspManager;
-
-  // Rebuilds the cwd-bound tools for a different project root. Used by the
-  // pixel-fix flow so the agent operates in the error's project, not in
-  // wherever Kleio Coder was launched from.
-  const rebuildToolsForCwd = (newCwd: string) => {
-    activeLspManager?.shutdownAll();
-    const { tools: rebuilt, lspManager: rebuiltLspManager } = createTools(newCwd, {
-      agents,
-      skills,
-      provider,
-      model,
-      planModeRef,
-      onPreFileMutation,
-      lspDiagnostics: opts.lspDiagnostics,
-      onEnterPlan: (reason) => planToolCallbacks.onEnterPlan?.(reason),
-      onExitPlan: (planPath) =>
-        planToolCallbacks.onExitPlan?.(planPath) ?? Promise.resolve("Plan review is unavailable."),
+  // Prepare a complete, isolated runtime before committing a Pixel project switch.
+  const prepareProjectRuntime = async (
+    newCwd: string,
+    sessionId: string,
+  ): Promise<PreparedProjectRuntime> => {
+    const targetProvider = activeProvider;
+    const providerApiKey =
+      targetProvider === "glm" ? credentialsByProvider["glm"]?.accessToken : undefined;
+    return prepareRuntime({
+      current: projectRuntimeRef,
+      pending: pendingRuntimeRef,
+      cwd: newCwd,
+      sessionId,
+      globalSkillsDir: paths.skillsDir,
+      globalAgentsDir: paths.agentsDir,
+      toolOptions: { ...toolOptions, provider: targetProvider, model: activeModel },
+      getMcpServers: () =>
+        getAllMcpServers(targetProvider, providerApiKey, newCwd, {
+          allowProjectScope: projectScopeAllowed(
+            savedSettings.trustProjectMcpServers,
+            savedSettings.trustedProjects,
+            newCwd,
+          ),
+        }),
+      // Startup failures are already surfaced in the TUI. Wait for settlement
+      // before disposing the old manager, without reattaching its tools later.
+      waitForStartup: () => initialMcpConnectPromise?.catch(() => undefined) ?? Promise.resolve(),
     });
-    activeLspManager = rebuiltLspManager;
-    return rebuilt;
   };
 
   // MCP startup can involve `npx` installing/booting servers. Do it after the
   // TUI paints so a slow network or npm cache never looks like "nothing happens".
   const mcpManager = new MCPClientManager();
+  const projectRuntimeRef: { current: ProjectRuntime } = {
+    current: { ...initialToolSet, cwd, skills, reviewCoverageTracker, mcpManager },
+  };
   let initialMcpConnectPromise: Promise<AgentTool[]> | undefined;
   const connectInitialMcpTools = async (): Promise<AgentTool[]> => {
+    if (projectRuntimeRef.current.mcpManager !== mcpManager) {
+      return projectRuntimeRef.current.tools.filter((tool) => tool.name.startsWith("mcp__"));
+    }
     initialMcpConnectPromise ??= (async () => {
       const providerApiKey =
         provider === "glm" ? credentialsByProvider["glm"]?.accessToken : undefined;
-      const servers = await getAllMcpServers(provider, providerApiKey, cwd);
+      const servers = await getAllMcpServers(provider, providerApiKey, cwd, {
+        allowProjectScope: projectScopeAllowed(
+          savedSettings.trustProjectMcpServers,
+          savedSettings.trustedProjects,
+          cwd,
+        ),
+      });
       return mcpManager.connectAll(servers);
     })();
     return initialMcpConnectPromise;
   };
 
-  const systemPrompt = await buildSystemPrompt(
-    cwd,
-    skills,
-    planModeRef.current,
-    undefined,
-    tools.map((tool) => tool.name),
-    undefined,
+  const toolNames = tools.map((tool) => tool.name);
+  const systemPrompt = applyAsyncSubagentPolicy(
+    await buildSystemPrompt(
+      cwd,
+      skills,
+      planModeRef.current,
+      undefined,
+      toolNames,
+      undefined,
+      provider,
+    ),
     provider,
+    model,
+    opts.thinkingLevel,
+    toolNames,
   );
 
   // Kill all background processes on exit (synchronous — catches all exit paths)
   process.on("exit", () => {
-    processManager.shutdownAll();
-    activeLspManager?.shutdownAll();
-    mcpManager.dispose().catch(() => {});
+    for (const runtime of [projectRuntimeRef.current, pendingRuntimeRef.current]) {
+      runtime?.subAgentManager?.shutdownAllNow();
+      runtime?.processManager?.shutdownAll();
+      runtime?.lspManager?.shutdownAll();
+      runtime?.mcpManager?.dispose().catch(() => {});
+    }
   });
 
   // Seed messages with system prompt
@@ -601,67 +772,167 @@ async function runInkTUI(opts: {
   let sessionPath: string | undefined;
   let sessionId: string | undefined;
   let initialHistory: CompletedItem[] | undefined;
+  let turnMetrics: TurnMetricPayload[] = [];
 
-  // Determine which session to resume (explicit path or most recent)
+  // IDs and physical paths both resolve to the newest checkpoint in their
+  // logical conversation before any restored messages are read.
   const explicitResumePath = opts.resumeSessionPath
-    ? opts.resumeSessionPath.includes("/")
-      ? opts.resumeSessionPath
-      : await sessionManager.findById(cwd, opts.resumeSessionPath)
+    ? await sessionManager.resolveCanonicalSession(opts.resumeSessionPath, cwd)
     : null;
   const resumePath =
     explicitResumePath ?? (opts.continueRecent ? await sessionManager.getMostRecent(cwd) : null);
 
   if (resumePath) {
     try {
-      const loaded = await sessionManager.load(resumePath);
-      const loadedMessages = sessionManager.getMessages(loaded.entries);
+      let loaded = await sessionManager.load(resumePath);
+      let loadedMessages = sessionManager.getMessages(loaded.entries);
+      turnMetrics = sessionManager.getTurnMetrics(loaded.entries);
 
       if (loadedMessages.length > 0) {
         messages.push(...loadedMessages);
-        sessionPath = resumePath;
+        sessionPath = loaded.path;
         sessionId = loaded.header.id;
         log("INFO", "session", `Restored session`, {
           path: resumePath,
           messageCount: String(loadedMessages.length),
         });
 
-        // Auto-compact on load if the restored session exceeds the context window.
-        // Without this, huge sessions (1M+ tokens) get loaded into memory and OOM.
+        // Auto-compact on load using the same configurable trigger as AgentSession.
         const contextWindow = getContextWindow(model, { provider, accountId: creds.accountId });
-        if (shouldCompact(messages, contextWindow, 0.8)) {
+        const policy = resolveCompactionPolicy({
+          provider,
+          model,
+          contextWindow,
+          threshold: savedSettings.compactThreshold,
+          accountId: creds.accountId,
+        });
+        const activeTokens = undefined;
+        log("INFO", "compaction", "CLI restore compaction decision", {
+          provider,
+          model,
+          transport: provider === "openai" && creds.accountId ? "codex_oauth" : "public_api",
+          contextWindow: String(contextWindow),
+          activeTokens: activeTokens === undefined ? "estimated" : String(activeTokens),
+          triggerLimit: String(policy.targetTokens),
+        });
+
+        if (
+          savedSettings.autoCompact &&
+          shouldCompact(messages, contextWindow, policy.threshold, activeTokens)
+        ) {
+          await subAgentManager?.hydrate(loaded.header.id);
           log("INFO", "session", `Restored session exceeds context — auto-compacting`);
           const compactionAbort = new AbortController();
           const onSigint = () => compactionAbort.abort();
           process.once("SIGINT", onSigint);
           try {
-            const compacted = await compact(messages, {
-              provider,
-              model,
-              apiKey: creds.accessToken,
-              accountId: creds.accountId,
-              projectId: creds.projectId,
-              baseUrl: cached.baseUrl,
-              contextWindow,
-              signal: compactionAbort.signal,
-            });
-            // Persist compacted continuation to a fresh session so future
-            // `kleio-coder continue` starts from the compacted checkpoint instead
-            // of repeatedly restoring the oversized source session.
-            const compactedSession = await createCompactedSessionCheckpoint(sessionManager, {
-              cwd,
-              provider,
-              model,
-              messages: compacted.messages,
-            });
-            sessionPath = compactedSession.path;
-            sessionId = compactedSession.id;
-            messages.length = 0;
-            messages.push(...compacted.messages);
-            log("INFO", "session", `Auto-compaction complete`, {
-              before: String(compacted.result.originalCount),
-              after: String(compacted.result.newCount),
-              path: sessionPath,
-            });
+            const conversationId = loaded.header.conversationId ?? loaded.header.id;
+            await sessionManager.withCompactionLease(
+              conversationId,
+              compactionAbort.signal,
+              async () => {
+                // A different process may have completed the checkpoint while
+                // this CLI was waiting. Adopt it and re-check before summarizing.
+                const canonicalPath = await sessionManager.resolveCanonicalSession(
+                  conversationId,
+                  cwd,
+                );
+                if (canonicalPath && canonicalPath !== loaded.path) {
+                  loaded = await sessionManager.load(canonicalPath);
+                  loadedMessages = sessionManager.getMessages(loaded.entries);
+                  turnMetrics = sessionManager.getTurnMetrics(loaded.entries);
+                  messages.length = 1;
+                  messages.push(...loadedMessages);
+                  sessionPath = loaded.path;
+                  sessionId = loaded.header.id;
+                }
+                if (!shouldCompact(messages, contextWindow, policy.threshold)) return;
+
+                const fingerprint = sourceFingerprint(messages);
+                const attempt = await sessionManager.readCompactionAttemptState(conversationId);
+                const attemptActive =
+                  !attempt?.expiresAt || Date.parse(attempt.expiresAt) > Date.now();
+                if (
+                  attempt?.fingerprint === fingerprint &&
+                  attempt.policyKey === policy.policyKey &&
+                  attemptActive &&
+                  (attempt.outcome === "failed" || attempt.outcome === "noop")
+                ) {
+                  return;
+                }
+
+                try {
+                  const compacted = await compact(messages, {
+                    provider,
+                    model,
+                    apiKey: creds.accessToken,
+                    accountId: creds.accountId,
+                    projectId: creds.projectId,
+                    baseUrl: cached.baseUrl,
+                    contextWindow,
+                    targetTokens: policy.targetTokens,
+                    signal: compactionAbort.signal,
+                  });
+                  if (!compacted.result.compacted) {
+                    await sessionManager.writeCompactionAttemptState(conversationId, {
+                      fingerprint,
+                      policyKey: policy.policyKey,
+                      outcome: "noop",
+                      updatedAt: new Date().toISOString(),
+                      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+                    });
+                    return;
+                  }
+
+                  const compactedSession = await createCompactedSessionCheckpoint(sessionManager, {
+                    cwd,
+                    provider,
+                    model,
+                    messages: compacted.messages,
+                    conversationId,
+                    generation: (loaded.header.generation ?? 0) + 1,
+                    parentSessionId: loaded.header.id,
+                    sourceFingerprint: fingerprint,
+                    preview: loaded.header.preview ?? findUserSessionPrompt(messages),
+                    title: [...loaded.entries]
+                      .reverse()
+                      .find((entry) => entry.type === "label")
+                      ?.label.trim(),
+                  });
+                  sessionPath = compactedSession.path;
+                  sessionId = compactedSession.id;
+                  for (const metric of turnMetrics) {
+                    await sessionManager.appendTurnMetric(sessionPath, metric);
+                  }
+                  await subAgentManager?.rebindParentSession(sessionId);
+                  messages.length = 0;
+                  messages.push(...compacted.messages);
+                  await sessionManager.writeCompactionAttemptState(conversationId, {
+                    fingerprint,
+                    policyKey: policy.policyKey,
+                    outcome: "success",
+                    checkpointId: compactedSession.id,
+                    updatedAt: new Date().toISOString(),
+                  });
+                  log("INFO", "session", `Auto-compaction complete`, {
+                    before: String(compacted.result.originalCount),
+                    after: String(compacted.result.newCount),
+                    path: sessionPath,
+                  });
+                } catch (error) {
+                  await sessionManager
+                    .writeCompactionAttemptState(conversationId, {
+                      fingerprint,
+                      policyKey: policy.policyKey,
+                      outcome: "failed",
+                      updatedAt: new Date().toISOString(),
+                      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+                    })
+                    .catch(() => {});
+                  throw error;
+                }
+              },
+            );
           } finally {
             process.off("SIGINT", onSigint);
           }
@@ -698,29 +969,32 @@ async function runInkTUI(opts: {
   // Now that the session id is finalized, back /rewind with a checkpoint store.
   if (sessionId) {
     checkpointRef.current = new CheckpointStore({ sessionId, cwd });
+    projectRuntimeRef.current.checkpointStore = checkpointRef.current;
+    await subAgentManager?.hydrate(sessionId);
   }
 
-  // Prune old session transcripts in the background — they're append-only
-  // JSONL and can reach 100MB+ each, so without cleanup ~/.gg/sessions grows
-  // unbounded and eventually fills the disk. Fire-and-forget: pruning must
-  // never delay or break startup. The active session is explicitly protected.
+  // Unified maintenance enforces retention first, then normalizes and archives
+  // cold sessions. Fire-and-forget: startup and TUI readiness never wait for it.
   {
     const { sessionRetentionDays } = loadSavedSettings(paths.settingsFile);
-    if (sessionRetentionDays > 0) {
-      const keepPaths = sessionPath ? [sessionPath] : [];
-      void sessionManager
-        .pruneOldSessions({ maxAgeDays: sessionRetentionDays, keepPaths })
-        .then(({ deletedFiles, freedBytes }) => {
-          if (deletedFiles > 0) {
-            log("INFO", "session", `Pruned old sessions`, {
-              deletedFiles: String(deletedFiles),
-              freedMB: (freedBytes / 1024 / 1024).toFixed(1),
-              retentionDays: String(sessionRetentionDays),
-            });
-          }
-        })
-        .catch(() => {});
-    }
+    const keepPaths = sessionPath ? [sessionPath] : [];
+    void sessionManager
+      .runMaintenance({ retentionDays: sessionRetentionDays, keepPaths })
+      .then((metrics) => {
+        if (metrics.deletedFiles > 0 || metrics.archivedFiles > 0 || metrics.failures > 0) {
+          log("INFO", "session", "Session maintenance complete", {
+            deletedFiles: String(metrics.deletedFiles),
+            freedMB: (metrics.deletedBytes / 1024 / 1024).toFixed(1),
+            archivedFiles: String(metrics.archivedFiles),
+            savedMB: (metrics.bytesSaved / 1024 / 1024).toFixed(1),
+            failures: String(metrics.failures),
+            retentionDays: String(sessionRetentionDays),
+          });
+        }
+      })
+      .catch(() => {});
+    // Sweep recoverable full tool outputs (~/.gg/tool-output/) older than 48h.
+    void cleanupToolOutputs().catch(() => {});
   }
 
   await renderApp({
@@ -740,10 +1014,14 @@ async function runInkTUI(opts: {
     loggedInProviders,
     credentialsByProvider,
     initialHistory,
+    initialTurnMetrics: turnMetrics,
     sessionsDir: paths.sessionsDir,
     sessionPath,
     sessionId,
     processManager,
+    subAgentManager,
+    lspManager,
+    reviewCoverageTracker,
     settingsFile: paths.settingsFile,
     mcpManager,
     authStorage,
@@ -752,12 +1030,19 @@ async function runInkTUI(opts: {
     checkpointStore: checkpointRef.current ?? undefined,
     initialOverlay: opts.initialOverlay,
     idealReviewEnabled: opts.idealReviewEnabled,
-    rebuildToolsForCwd,
+    projectRuntimeRef,
+    prepareProjectRuntime,
     rebuildReadTool,
     connectInitialMcpTools,
     planCallbacks: planToolCallbacks,
+    onRuntimeStateChange: (updates) => {
+      if (updates.provider) activeProvider = updates.provider;
+      if (updates.model) activeModel = updates.model;
+      if ("thinking" in updates) activeThinking = updates.thinking;
+    },
   });
 
+  await disposeProjectRuntime(projectRuntimeRef.current);
   closeLogger();
 }
 
@@ -784,18 +1069,24 @@ async function runSessions(): Promise<void> {
   const provider: Provider = saved2.provider ?? "anthropic";
 
   function getDefault(p: string): string {
-    if (p === "openai") return "gpt-5.5";
-    if (p === "gemini") return "gemini-3.1-flash-lite-preview";
-    if (p === "glm") return "glm-5.1";
-    if (p === "moonshot") return "kimi-k2.7-code";
+    if (p === "openai") return "gpt-5.6-sol";
+    if (p === "gemini") return "gemini-3.1-flash-lite";
+    if (p === "glm") return "glm-5.3";
+    if (p === "moonshot") return "kimi-k3";
     if (p === "minimax") return "MiniMax-M3";
     if (p === "deepseek") return "deepseek-v4-pro";
-    return "claude-opus-4-8";
+    if (p === "huggingface") return "Qwen/Qwen3-Coder-480B-A35B-Instruct";
+    if (p === "sakana") return "fugu";
+    if (p === "xai") return "grok-4.6";
+    return "claude-opus-5";
   }
 
   const model = saved2.model ?? getDefault(provider);
   const thinkingLevel: ThinkingLevel | undefined = saved2.thinkingEnabled
-    ? (saved2.thinkingLevel ?? getMaxThinkingLevel(model))
+    ? (saved2.thinkingLevel ??
+      getDefaultThinkingLevel(model, {
+        baseUrl: readStoredBaseUrlSync(paths.authFile, provider),
+      }))
     : undefined;
 
   closeLogger();
@@ -807,36 +1098,14 @@ async function runSessions(): Promise<void> {
     thinkingLevel,
     idealReviewEnabled: saved2.idealReviewEnabled,
     lspDiagnostics: saved2.lspDiagnostics,
+    allowOutsideWorkspaceWrites: saved2.allowOutsideWorkspaceWrites,
+    subagentMaxPerModel: saved2.subagentMaxPerModel,
     resumeSessionPath: selectedPath,
     theme: saved2.theme,
   });
 }
 
 // ── Telegram Setup ───────────────────────────────────────
-
-interface TelegramConfig {
-  botToken: string;
-  userId: number;
-}
-
-async function loadTelegramConfig(): Promise<TelegramConfig | null> {
-  try {
-    const raw = await fs.promises.readFile(getAppPaths().telegramFile, "utf-8");
-    const data = JSON.parse(raw) as TelegramConfig;
-    if (data.botToken && data.userId) return data;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function saveTelegramConfig(config: TelegramConfig): Promise<void> {
-  const paths = await ensureAppDirs();
-  await fs.promises.writeFile(paths.telegramFile, JSON.stringify(config, null, 2), {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
-}
 
 async function runTelegramSetup(): Promise<void> {
   clearVisibleScreen();
@@ -892,7 +1161,7 @@ async function runTelegramSetup(): Promise<void> {
     }
 
     // Validate token format (roughly: digits:alphanumeric)
-    if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) {
+    if (!isValidBotTokenFormat(botToken)) {
       console.log(chalk.hex("#ef4444")("\n  Invalid token format. Expected: 123456789:ABCdef..."));
       return;
     }
@@ -1010,7 +1279,8 @@ async function runServe(): Promise<void> {
   );
 
   const thinkingLevel: ThinkingLevel | undefined = saved3.thinkingEnabled
-    ? (saved3.thinkingLevel ?? getMaxThinkingLevel(model))
+    ? (saved3.thinkingLevel ??
+      getDefaultThinkingLevel(model, { baseUrl: authStorage.getStoredBaseUrl(provider) }))
     : undefined;
 
   initLogger(paths.logFile, {
@@ -1028,6 +1298,60 @@ async function runServe(): Promise<void> {
     version: CLI_VERSION,
     thinkingLevel,
     telegram: { botToken, userId },
+  });
+}
+
+// ── ACP (Agent Client Protocol over stdio) ───────────────
+
+/**
+ * Serve ggcoder as an ACP agent on stdio, for editors and remote clients that
+ * speak the protocol (Zed, pew2, anything from the ACP registry).
+ *
+ * The client spawns this process and owns its lifetime, so there is no banner,
+ * no prompt and no exit of our own choosing. stdout is the protocol stream:
+ * NOTHING else may write to it, which is why every diagnostic here goes to the
+ * log file or stderr.
+ */
+async function runAcp(): Promise<void> {
+  const { values: acpValues } = parseArgs({
+    options: {
+      provider: { type: "string" },
+      model: { type: "string" },
+      cwd: { type: "string" },
+    },
+    strict: true,
+  });
+
+  const savedAcp = loadSavedSettings();
+  const paths = await ensureAppDirs();
+  const authStorage = new AuthStorage(paths.authFile);
+  await authStorage.load();
+
+  const preferredProvider: Provider =
+    (acpValues.provider as Provider | undefined) ?? savedAcp.provider ?? "anthropic";
+  const { provider, model } = await resolveActiveProvider(
+    authStorage,
+    preferredProvider,
+    acpValues.model ?? savedAcp.model,
+  );
+
+  const thinkingLevel: ThinkingLevel | undefined = savedAcp.thinkingEnabled
+    ? (savedAcp.thinkingLevel ??
+      getDefaultThinkingLevel(model, { baseUrl: authStorage.getStoredBaseUrl(provider) }))
+    : undefined;
+
+  initLogger(paths.logFile, { version: CLI_VERSION, provider, model });
+  setEstimatorModel(model);
+
+  await runAcpModeCli({
+    provider,
+    model,
+    // ACP clients pass the project directory per session; until `session/new`
+    // honours it, the process's own cwd is the project, which is exactly how a
+    // client that spawns one agent per workspace already behaves.
+    cwd: acpValues.cwd ?? process.cwd(),
+    version: CLI_VERSION,
+    thinkingLevel,
   });
 }
 
@@ -1168,7 +1492,8 @@ async function runAgentHome(): Promise<void> {
   );
 
   const thinkingLevel: ThinkingLevel | undefined = saved4.thinkingEnabled
-    ? (saved4.thinkingLevel ?? getMaxThinkingLevel(model))
+    ? (saved4.thinkingLevel ??
+      getDefaultThinkingLevel(model, { baseUrl: authStorage.getStoredBaseUrl(provider) }))
     : undefined;
 
   initLogger(paths.logFile, {
@@ -1216,6 +1541,8 @@ async function resolveActiveProvider(
     "minimax",
     "deepseek",
     "openrouter",
+    "sakana",
+    "xai",
   ];
   const loggedInProviders: Provider[] = [];
   for (const p of allProviders) {
@@ -1360,15 +1687,38 @@ export function messagesToHistoryItems(msgs: Message[]): CompletedItem[] {
           case "tool_call": {
             flushText();
             const result = toolResults.get(block.id);
-            items.push({
-              kind: "tool_done",
-              name: block.name,
-              args: block.args,
-              result: result?.content ?? "",
-              isError: result?.isError ?? false,
-              durationMs: 0,
-              id: `restore-${id++}`,
-            });
+            if (block.name === "subagent" || block.name === "spawn_agent") {
+              items.push({
+                kind: "subagent_group",
+                agents: [
+                  {
+                    toolCallId: block.id,
+                    task: String(
+                      block.name === "spawn_agent"
+                        ? (block.args.task_name ?? block.args.task ?? "Async agent")
+                        : (block.args.task ?? "Sub-agent"),
+                    ),
+                    agentName: String(block.args.agent ?? "default"),
+                    status: result?.isError ? "error" : "done",
+                    toolUseCount: 0,
+                    tokenUsage: { input: 0, output: 0 },
+                    result: result?.content ?? "",
+                    durationMs: 0,
+                  },
+                ],
+                id: `restore-${id++}`,
+              });
+            } else {
+              items.push({
+                kind: "tool_done",
+                name: block.name,
+                args: block.args,
+                result: result?.content ?? "",
+                isError: result?.isError ?? false,
+                durationMs: 0,
+                id: `restore-${id++}`,
+              });
+            }
             break;
           }
           case "server_tool_call": {
