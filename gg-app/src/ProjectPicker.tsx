@@ -20,6 +20,8 @@ import { BackButton } from "./BackButton";
 import { WindowLayoutButton } from "./WindowLayoutButton";
 import { RadioButton } from "./RadioButton";
 import { NewProjectModal } from "./NewProjectModal";
+import { MetalButton } from "./MetalButton";
+import { useWindowFocused } from "./useWindowFocused";
 
 /**
  * Does this row point at another tool's transcript rather than a GG Coder
@@ -53,6 +55,7 @@ export function ProjectPicker({
   initialProjectPath,
   onClose,
 }: Props): React.ReactElement {
+  const windowFocused = useWindowFocused();
   const [projects, setProjects] = useState<DiscoveredProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<DiscoveredProject | null>(null);
@@ -255,13 +258,14 @@ export function ProjectPicker({
         )}
         <span className="picker-head-actions">
           {selected ? (
-            <button
+            <MetalButton
+              windowFocused={windowFocused}
               className="btn btn-primary btn-sm"
               disabled={busy}
               onClick={() => choose(selected.path)}
             >
               {"+ New session"}
-            </button>
+            </MetalButton>
           ) : (
             <>
               <button
@@ -272,9 +276,13 @@ export function ProjectPicker({
               >
                 {"Open existing"}
               </button>
-              <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
+              <MetalButton
+                windowFocused={windowFocused}
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowNew(true)}
+              >
                 {"+ New project"}
-              </button>
+              </MetalButton>
             </>
           )}
           <RadioButton />
@@ -297,9 +305,13 @@ export function ProjectPicker({
                 >
                   {"Open existing"}
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={() => setShowNew(true)}>
+                <MetalButton
+                  windowFocused={windowFocused}
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setShowNew(true)}
+                >
                   {"+ New project"}
-                </button>
+                </MetalButton>
               </span>
             </div>
           )}
@@ -357,13 +369,14 @@ export function ProjectPicker({
           {!sessionsLoading && sessions.length === 0 && (
             <div className="picker-empty">
               <span style={{ color: theme.textMuted }}>No previous sessions yet.</span>
-              <button
+              <MetalButton
+                windowFocused={windowFocused}
                 className="btn btn-primary btn-sm"
                 disabled={busy}
                 onClick={() => choose(selected.path)}
               >
                 {"+ New session"}
-              </button>
+              </MetalButton>
             </div>
           )}
           {!sessionsLoading && sessions.length > 0 && (

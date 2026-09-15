@@ -3,18 +3,27 @@
 This repository is the Kleio-owned downstream fork of
 [`KenKaiii/gg-framework`](https://github.com/KenKaiii/gg-framework).
 
-## Latest local integration
+## First engine integration (merged)
 
-- Inspected upstream snapshot: `3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1`
-- Upstream engine version: **5.59.3**, imported locally on **2026-09-11**
-- Original fork HEAD: `0c69b71e0804726c36b45ded9134d94643f64f7d`
-- Integration branch: `sync/upstream-2026-09-11`; backup: `backup/pre-upstream-2026-09-11`
-- State: pending normal merge, not committed, pushed, published, installed globally, or deployed
+PR [#1](https://github.com/fmckie/gg-framework/pull/1) imported upstream
+`3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1` (engine **5.59.3**, desktop **0.63.3**)
+and merged at `2a4ba011806ba6795b44c96d2b76261cfd3c98b2`. All six framework/app
+Linux, macOS and Windows jobs passed in post-merge run **34973614641**, including
+the blocking Windows installer build-and-launch smoke.
+
+## Next 44 commits (2026-09-15)
+
+- Pinned upstream snapshot: `fdab3f18ff204fbae2846686a7a7a2a3e8e04d94`
+- Engine **5.60.2**, desktop **0.65.0**: 44 commits after the first integration
+- Integration base: `2a4ba011806ba6795b44c96d2b76261cfd3c98b2`
+- Branch: `sync/upstream-fdab3f18`; `main` stays unchanged
+- State: pending integration for a draft PR, not a downstream release
 
 All five Kleio packages retain version **4.10.1-kleio.1**. Existing published
 artifacts do **not** contain this integration. The original fork point and its
-immutable baseline below remain unchanged. An upstream SHA in provenance is a
-source-import record, not a claim of committed ancestry or completed verification.
+immutable baseline below remain unchanged. Engine provenance and downstream
+versions are deliberately separate. No package, tag, deployment or merge is
+authorized by this import.
 
 ### Projects maintained downstream
 
@@ -34,27 +43,57 @@ Manager surface, runtime dependency pins, and real session data are unchanged.
 stream pass as the newer, normalized `preview`. Archive handling, checkpoint
 selection, redaction, and storage normalization remain upstream implementations.
 
-Local verification records are kept in `.git/upstream-sync/` for this pending
-merge. macOS workspace build/type/unit checks, lint/format, five-package version
-and source/packed identity checks, CLI smoke, and upstream size/startup gates
-passed. Pixel runtime-switch tests cover pending saves, run finalizers, checkpoint
-isolation, write boundaries, and failed preparation. Available SDK checks and the
-imported app's frontend, Rust, and disposable sidecar checks passed. Baseline
-native ABI, stale CLI fixture, and symlink-expectation failures remain recorded
-separately; none is a failing final workspace test. Original platform/live-gated
-tests were not enabled or removed.
+The workspace, Ink patch, security overrides, explicit build allowlist, fork
+release guards and Windows CI fixes remain intact. Two additional upstream UI
+patches preserve production style nonces. Zod 4 is pinned to upstream's **4.5.4**
+across the workspace to prevent incompatible schema types from mixed versions.
 
-**Not release-ready:** the dependency audit reports 114 full-graph alerts,
-including 18 production alerts (9 high, 7 moderate, 2 low). The installed image
-decoder includes a libheif version covered by
-[GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c); attachment
-processing reaches that decoder. Dependency remediation requires separate scope
-approval rather than silently changing the inspected upstream resolution set.
-This source integration is not a comprehensive security review.
+Internal diagnostics remain opt-in. Argument identifiers (even short ones) and
+normalized errors are hashed; raw error samples are never stored. Project paths
+are hashed, existing secret redaction is reused, maps/records/reads are bounded,
+and validated records are privately written by temp-then-rename. Old raw-format
+files are excluded from aggregation. Regression tests use disposable synthetic data.
 
-Windows/Linux CI, provider APIs, host-application/audio/screen integration, and
-signed/notarized installation require separate execution; no live deployment
-verification or publication approval is implied here.
+### Verification record
+
+Local macOS verification passed: complete workspace build/typecheck/test, lint,
+formatting, fixed versions, staged and packed identity checks, actual five-package
+archives with byte-for-byte audit parity, identity negative tests, runtime staging,
+sidecar bundle/smoke, all three size gates, startup gate, **515 desktop tests**,
+frontend production build, **77 Rust tests**, and unsigned native production build
+(`tauri build --no-bundle`). Existing opt-in live/LSP tests remain unrun; no test or
+CI gate was disabled by this integration.
+
+The frontend initially exceeded its unchanged size gate at **859.2 KiB**. Deferring
+closed settings/model-setup dialogs reduced initial JavaScript to **837.1 KiB**;
+no thresholds were relaxed. Regression tests cover real lazy dialogs, saving,
+Escape/focus return, and no automatic model download. The shared modal captures
+its opener before child autofocus, preserving keyboard focus on close. Seven
+retained files received only formatting required by the new Prettier version.
+
+Tauri JS/Rust and MediaPipe SDK/runtime alignment checks passed. Existing Chrome
+exercised real components in synthetic desktop/narrow fixtures: native keyboard
+activation, disabled controls, persisted toggle, reduced motion, draft retention
+and cleanup. Real-package nonce tests passed; production CSP was not weakened.
+Production geometry/CSP checks passed in Chrome at 50%, 95%, 100%, 125% and 200%
+zoom, including persisted toggles. The optional WebKit leg could not launch because
+its Playwright browser binary is not installed. Logs are ignored under
+`.git/upstream-44/`.
+
+This branch's six-job GitHub matrix is pending the draft PR. Full native
+screen-reader, live-provider, host-application/audio/screen and signed/notarized
+installation checks remain unverified. No camera, inference model downloads, real
+sessions or credentials were used; internal mode is enabled only in disposable tests.
+
+**Not release-ready:** the dependency audit reports **115** full-graph alerts
+(60 high, 46 moderate, 9 low), versus 114 (61/43/10); **20** production alerts
+(10 high, 8 moderate, 2 low), versus 18 (9/7/2). New adm-zip advisories
+**GHSA-xcpc-8h2w-3j85** and **GHSA-vwc7-r8mq-g2x9** arrive through Transformers 4 /
+ONNX's binary installer; that hook was not run locally. Existing Electron/Matey,
+LangChain/Boss and sharp/libheif findings remain. Attachment processing reaches
+the decoder covered by [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c).
+Dependency remediation requires separate scope approval; this import is not a
+comprehensive security review or a clean-audit claim.
 
 ## Original imported baseline
 

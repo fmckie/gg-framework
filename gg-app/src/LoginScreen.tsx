@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { theme } from "./theme";
 import { authStatus, subscribe, type AuthProvider, type SidecarEvent } from "./agent";
 import { Badge } from "./Badge";
 import { BackButton } from "./BackButton";
 import { ProviderLoginModal } from "./ProviderLoginModal";
-import { LocalModelsModal } from "./LocalModelsModal";
-import { HfPullModal } from "./HfPullModal";
+
 import { providerLogo } from "./provider-logos";
+
+// Local-model setup and downloads are explicit actions, not startup work.
+const LocalModelsModal = lazy(() =>
+  import("./LocalModelsModal").then((m) => ({ default: m.LocalModelsModal })),
+);
+const HfPullModal = lazy(() => import("./HfPullModal").then((m) => ({ default: m.HfPullModal })));
 
 interface Props {
   onClose: () => void;
@@ -180,9 +185,10 @@ export function LoginScreen({ onClose }: Props): React.ReactElement {
         />
       )}
 
-      {localOpen && <LocalModelsModal onClose={() => setLocalOpen(false)} />}
-
-      {hfOpen && <HfPullModal onClose={() => setHfOpen(false)} />}
+      <Suspense fallback={null}>
+        {localOpen && <LocalModelsModal onClose={() => setLocalOpen(false)} />}
+        {hfOpen && <HfPullModal onClose={() => setHfOpen(false)} />}
+      </Suspense>
     </div>
   );
 }

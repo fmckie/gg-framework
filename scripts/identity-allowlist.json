@@ -104,7 +104,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1354,
+        "tracked": 1357,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -185,7 +185,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 923,
+        "tracked": 943,
         "packed": 0
       },
       "bucket": "provenance",
@@ -284,7 +284,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 806,
+        "tracked": 814,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2372,7 +2372,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 631
+        "packed": 636
       },
       "bucket": "compatibility",
       "owner": "Manager build owner",
@@ -3707,6 +3707,48 @@
       "owner": "Kleio framework maintainers",
       "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260915-app-engine-notes",
+      "path": "gg-app/src/changelog.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "literal": "I refreshed `GG Coder`'s AI and voice engines and trimmed the code it ships with. Your desktop app and command-line tools get the same updated engine, with no new workflows to learn."
+      },
+      "expectedOccurrences": { "tracked": 1 },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
+      "removeWhen": "Only after a separately reviewed rewrite of this exact historical release note."
+    },
+    {
+      "id": "upstream-20260915-app-foundation-notes",
+      "path": "gg-app/src/changelog.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "literal": "A little housekeeping for your `GG Coder`. I refreshed the desktop foundations in this update, with no new buttons or workflows for you to learn."
+      },
+      "expectedOccurrences": { "tracked": 1 },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
+      "removeWhen": "Only after a separately reviewed rewrite of this exact historical release note."
+    },
+    {
+      "id": "upstream-20260915-app-compaction-notes",
+      "path": "gg-app/src/changelog.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": {
+        "literal": "Tell GG Coder what matters before shrinking a long conversation. I added `/compact [focus]` so you can name the decisions or topics you want the summary to prioritize, instead of leaving that choice entirely to the agent."
+      },
+      "expectedOccurrences": { "tracked": 1 },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
+      "removeWhen": "Only after a separately reviewed rewrite of this exact historical release note."
     },
     {
       "id": "upstream-20260911-a87c307bd826",

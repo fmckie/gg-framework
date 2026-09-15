@@ -807,8 +807,7 @@ export function findFirstJsxElementByName(
     const n = node as Record<string, unknown> & { type?: string };
     if (n.type === "JSXElement") {
       const opening = n.openingElement as
-        | { type?: string; name?: { type?: string; name?: string } }
-        | undefined;
+        { type?: string; name?: { type?: string; name?: string } } | undefined;
       if (opening?.type === "JSXOpeningElement" && opening.name) {
         const namedNode = opening.name;
         if (namedNode.type === "JSXIdentifier" && namedNode.name === name) {
