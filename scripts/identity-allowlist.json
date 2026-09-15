@@ -3,6 +3,186 @@
   "description": "Narrow exceptions for legacy machine contracts and immutable upstream provenance. Entries are ordered from specific to broad; expectedOccurrences locks each exception against growth.",
   "entries": [
     {
+      "id": "consumer-legacy-tarball-alias",
+      "path": "scripts/consumer-contract.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "@kenkaiiii/ggcoder" },
+      "expectedOccurrences": { "tracked": 2 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Bind the historical npm alias to the canonical local tarball; never allow a registry substitute.",
+      "removeWhen": "Only when the documented legacy npm alias is retired."
+    },
+    {
+      "id": "consumer-negative-fixture-identities",
+      "path": "scripts/consumer-contract.test.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|ggcoder|ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 18 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Frozen authored tarball fixtures exercise legacy aliases, retained noncanonical runtime closure, compatibility profiles, and deliberately invalid extra identities. These are test inputs and assertions, not product branding.",
+      "removeWhen": "When the corresponding public compatibility contract is deliberately retired; preserve negative coverage for every remaining identity."
+    },
+    {
+      "id": "consumer-runtime-compatibility-assertions",
+      "path": "scripts/consumer-fixture/consumer.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "kenkaiiii|ggcoder|ggboss", "flags": "giu" },
+      "expectedOccurrences": { "tracked": 9 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Public imports, historical CLI bins, session-home identifiers, MCP identifiers, and legacy user-agent assertions explicitly retain the documented compatibility profile.",
+      "removeWhen": "Only when the corresponding documented compatibility identifiers are retired."
+    },
+    {
+      "id": "consumer-declaration-legacy-imports",
+      "path": "scripts/consumer-fixture/consumer.ts",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "@kenkaiiii/ggcoder" },
+      "expectedOccurrences": { "tracked": 6 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Compile the historical package alias at its public root, models and auth entry points from installed tarball declarations.",
+      "removeWhen": "Only when the public legacy npm alias is retired."
+    },
+    {
+      "id": "audit-negative-identity-sentinel",
+      "path": "scripts/identity-audit.test.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "literal": "ggcoder" },
+      "expectedOccurrences": { "tracked": 1 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "One frozen legacy sentinel proves trusted policy, exact occurrence counts and unclassified-identity rejection in external trees.",
+      "removeWhen": "When the scanner no longer needs legacy identity regression fixtures."
+    },
+    {
+      "id": "ci-existing-gate-command-snapshots",
+      "path": "scripts/verify-ci-candidate.test.mjs",
+      "scope": "content",
+      "targets": ["tracked"],
+      "match": { "regex": "dist:ggcoder|packages/(ggcoder|gg-boss)/dist/cli\\.js", "flags": "gu" },
+      "expectedOccurrences": { "tracked": 5 },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Exact source assertions preserve existing CLI and performance gate commands at their current filesystem paths across all matrix legs.",
+      "removeWhen": "After coordinated source-directory and performance-budget-key migrations update the existing CI gates."
+    },
+    {
+      "id": "upstream-sync-coder-manifest-path",
+      "path": "scripts/upstream-sync-policy.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/ggcoder/package.json\": \"@kleio/coder\","
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The canonical Coder map must address its existing source-directory manifest while enforcing the Kleio package name; this is a filesystem key, not displayed branding.",
+      "removeWhen": "Only after a coordinated source-directory migration updates the manifest repository directory, provenance, and preservation checks."
+    },
+    {
+      "id": "upstream-sync-manager-manifest-path",
+      "path": "scripts/upstream-sync-policy.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/gg-boss/package.json\": \"@kleio/manager\""
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The canonical Manager map must address its existing source-directory manifest while enforcing the Kleio package name; renaming the key alone would stop identity validation.",
+      "removeWhen": "Only after a coordinated source-directory migration updates the manifest repository directory, provenance, and preservation checks."
+    },
+    {
+      "id": "upstream-sync-first-prompt-policy-path",
+      "path": "scripts/upstream-sync-policy.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/ggcoder/src/core/session-manager-first-prompt.test.ts\""
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The same existing session-title regression test appears once in protectedFiles to reject changes and once in requiredFiles to require baseline coverage for Desktop's firstPrompt contract.",
+      "removeWhen": "Only after moving the compatibility test and updating its protection, baseline requirement, and independent assertion together."
+    },
+    {
+      "id": "upstream-sync-retained-manager-path",
+      "path": "scripts/upstream-sync-policy.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/gg-boss\","
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "Retained-project validation must name the existing Manager directory recorded in fork provenance so an upstream retirement cannot remove Kleio Manager.",
+      "removeWhen": "Only after an approved Manager directory migration updates workspace membership, provenance, and preservation checks together."
+    },
+    {
+      "id": "upstream-sync-retained-eyes-path",
+      "path": "scripts/upstream-sync-policy.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/ggcoder-eyes\","
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The retained perception-probe workspace keeps its existing directory, package, and CLI contracts; this path checks project survival rather than introducing user-facing branding.",
+      "removeWhen": "Only after an approved probe-workspace identity migration updates its consumers, provenance, and preservation checks."
+    },
+    {
+      "id": "upstream-sync-first-prompt-assertion-path",
+      "path": "scripts/upstream-sync.test.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"packages/ggcoder/src/core/session-manager-first-prompt.test.ts\","
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio release engineering",
+      "reason": "The independent policy regression asserts that the existing firstPrompt test remains both required and protected; spelling its real path detects policy narrowing.",
+      "removeWhen": "Only after moving the compatibility test and updating this independent assertion alongside the preservation policy."
+    },
+    {
       "id": "preserved-pixel-release-build",
       "path": ".github/workflows/release.yml",
       "scope": "content",
@@ -104,12 +284,12 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1357,
+        "tracked": 1377,
         "packed": 0
       },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
-      "reason": "The audit policy must spell the legacy identities it classifies.",
+      "reason": "The audit policy must spell the legacy identities it classifies; the exact count includes six literal definitions for offline preservation and fourteen further definitions for public-consumer and CI regressions.",
       "removeWhen": "Remove each token only after its final compatibility or provenance entry is retired."
     },
     {

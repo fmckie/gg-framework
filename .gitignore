@@ -74,7 +74,21 @@ experiments/prompt-bench/.bench-sandbox-*
 /benchmarks/
 /experiments/bench-mark/
 /experiments/lean-code-bench/
-/scripts/
+# Keep local scratch scripts private; expose only approved verification tools.
+!/scripts/
+/scripts/*
+!/scripts/upstream-sync.mjs
+!/scripts/upstream-sync-policy.json
+!/scripts/upstream-sync.test.mjs
+!/scripts/verify-ci-candidate.mjs
+!/scripts/verify-ci-candidate.test.mjs
+!/scripts/consumer-contract.mjs
+!/scripts/consumer-contract.test.mjs
+!/scripts/consumer-fixture/
+/scripts/consumer-fixture/*
+!/scripts/consumer-fixture/consumer.mjs
+!/scripts/consumer-fixture/consumer.ts
+!/scripts/identity-audit.test.mjs
 CLAUDE.md
 packages/*/.bench-*.mjs
 
