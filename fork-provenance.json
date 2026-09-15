@@ -12,14 +12,26 @@
     "version": "4.10.1",
     "baselineTag": "upstream/4.10.1-cde19e9",
     "importedAt": "2026-07-17",
-    "lastImportedCommit": "3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1",
-    "lastImportedVersion": "5.59.3",
-    "lastImportedAt": "2026-09-11"
+    "lastImportedCommit": "fdab3f18ff204fbae2846686a7a7a2a3e8e04d94",
+    "lastImportedVersion": "5.60.2",
+    "lastImportedAt": "2026-09-15"
+  },
+  "previousIntegration": {
+    "pullRequest": "https://github.com/fmckie/gg-framework/pull/1",
+    "status": "merged",
+    "mergeCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
+    "upstreamCommit": "3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1",
+    "verification": "All six jobs passed in post-merge main run 34973614641"
   },
   "localIntegration": {
-    "branch": "sync/upstream-2026-09-11",
-    "baseCommit": "0c69b71e0804726c36b45ded9134d94643f64f7d",
-    "status": "pending-uncommitted-merge",
+    "branch": "sync/upstream-fdab3f18",
+    "baseCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
+    "upstreamCommits": 44,
+    "desktopVersion": "0.65.0",
+    "verification": "Local macOS build/check/test/lint/format, fixed versions, staged/packed identity, actual archives, negative checks, sidecar smoke, all size/startup gates, 515 app tests, 77 Rust tests and unsigned native production build passed; cross-platform results are tracked in PR #2 checks",
+    "status": "draft-pr-open",
+    "pullRequest": "https://github.com/fmckie/gg-framework/pull/2",
+    "integrationCommit": "9972757d69935e8fe7041316646acac30e5b0942",
     "published": false,
     "preservedProjects": [
       "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",

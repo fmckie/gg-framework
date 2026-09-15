@@ -104,7 +104,7 @@
     "verify:goal:e2e": "pnpm dlx tsx scripts/verify-goal-e2e.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.67",
+    "@anthropic-ai/sandbox-runtime": "0.0.75",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@kenkaiiii/agent-home-sdk": "^0.3.8",
     "@kleio/agent": "workspace:*",
@@ -133,7 +133,7 @@
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
-    "@huggingface/transformers": "^3.6.0",
+    "@huggingface/transformers": "4.2.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
     "ogg-opus-decoder": "^1.6.13",

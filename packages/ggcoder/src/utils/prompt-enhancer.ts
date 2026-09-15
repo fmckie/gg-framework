@@ -13,8 +13,7 @@ import {
  * difference via a tooltip.
  */
 export type PromptSegment =
-  | { kind: "text"; text: string }
-  | { kind: "term"; text: string; original: string; note?: string };
+  { kind: "text"; text: string } | { kind: "term"; text: string; original: string; note?: string };
 
 export interface EnhanceResult {
   /** The plain rewritten prompt — exactly what gets sent to the agent. */

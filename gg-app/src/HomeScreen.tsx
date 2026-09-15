@@ -1,14 +1,11 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Settings, Download } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AsciiLogo } from "./AsciiLogo";
 import { HomeBackdrop } from "./HomeBackdrop";
 import { MemeLayer } from "./MemeLayer";
-import { SettingsModal } from "./SettingsModal";
-import { TelegramSettingsModal } from "./TelegramSettingsModal";
-import { McpModal } from "./McpModal";
-import { SteroidsModal } from "./SteroidsModal";
+import { SettingsModal } from "./LazySettingsModal";
 import {
   waitForReady,
   getSettings,
@@ -28,6 +25,16 @@ import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { useAppUpdate } from "./update";
 import { toast } from "./toast";
+
+// Connection settings are only needed after an explicit action. Keep their
+// forms out of startup, following the existing What's New lazy window pattern.
+const TelegramSettingsModal = lazy(() =>
+  import("./TelegramSettingsModal").then((m) => ({ default: m.TelegramSettingsModal })),
+);
+const McpModal = lazy(() => import("./McpModal").then((m) => ({ default: m.McpModal })));
+const SteroidsModal = lazy(() =>
+  import("./SteroidsModal").then((m) => ({ default: m.SteroidsModal })),
+);
 
 interface Props {
   onProjects: () => void;
@@ -311,20 +318,22 @@ export function HomeScreen({
           }}
         />
       )}
-      {showTelegram && (
-        <TelegramSettingsModal
-          onClose={() => setShowTelegram(false)}
-          onSaved={() => setTelegramConfigured(true)}
-        />
-      )}
-      {showMcp && <McpModal onClose={() => setShowMcp(false)} />}
-      {showSteroids && (
-        <SteroidsModal
-          status={steroids}
-          onStatus={setSteroids}
-          onClose={() => setShowSteroids(false)}
-        />
-      )}
+      <Suspense fallback={null}>
+        {showTelegram && (
+          <TelegramSettingsModal
+            onClose={() => setShowTelegram(false)}
+            onSaved={() => setTelegramConfigured(true)}
+          />
+        )}
+        {showMcp && <McpModal onClose={() => setShowMcp(false)} />}
+        {showSteroids && (
+          <SteroidsModal
+            status={steroids}
+            onStatus={setSteroids}
+            onClose={() => setShowSteroids(false)}
+          />
+        )}
+      </Suspense>
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />
       )}

@@ -92,12 +92,7 @@ export type WorkspaceMode = "code" | "chat";
 export type ChatAgentId = "general" | "therapist" | "research";
 
 export type MemoryCategory =
-  | "identity"
-  | "preference"
-  | "project"
-  | "relationship"
-  | "health"
-  | "other";
+  "identity" | "preference" | "project" | "relationship" | "health" | "other";
 
 export interface Memory {
   id: string;
@@ -115,12 +110,7 @@ export interface MemorySnapshot {
 }
 
 export type JiwaCategory =
-  | "identity"
-  | "voice"
-  | "interaction"
-  | "boundaries"
-  | "workflow"
-  | "other";
+  "identity" | "voice" | "interaction" | "boundaries" | "workflow" | "other";
 
 export interface JiwaEntry {
   id: string;
@@ -415,8 +405,7 @@ export async function getSubscriptionUsage(
  * difference via a tooltip. Mirrors the sidecar's PromptSegment.
  */
 export type PromptSegment =
-  | { kind: "text"; text: string }
-  | { kind: "term"; text: string; original: string; note?: string };
+  { kind: "text"; text: string } | { kind: "term"; text: string; original: string; note?: string };
 
 export interface EnhanceResult {
   /** The plain rewritten prompt — exactly what gets sent to the agent. */

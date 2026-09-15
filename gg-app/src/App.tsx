@@ -2,6 +2,9 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, mem
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { theme } from "./theme";
+import { WorkingBeam } from "./WorkingBeam";
+import { MetalButton } from "./MetalButton";
+import { ActionMetal } from "./ActionMetal";
 import {
   waitForReady,
   getState,
@@ -113,7 +116,7 @@ import { BackButton } from "./BackButton";
 import { Badge } from "./Badge";
 import { AutopilotToggle } from "./AutopilotToggle";
 import { HomeScreen } from "./HomeScreen";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsModal } from "./LazySettingsModal";
 import { initialEntryView, type EntryView } from "./app-entry-view";
 import {
   showsQueuedBubble,
@@ -990,6 +993,7 @@ function App(): React.ReactElement {
   }, [state]);
 
   const windowFocused = useWindowFocused();
+  const sendDisabled = !input.trim() && attachments.length === 0 && mentionedPaths.length === 0;
   // Cosmetic work only belongs to a focused, visible, empty code composer.
   const animatePlaceholder =
     windowFocused && !needsProject && !showPicker && workspaceMode === "code" && input.length === 0;
@@ -2562,14 +2566,15 @@ function App(): React.ReactElement {
         </div>
         {workspaceMode === "chat" ? (
           <span className="picker-head-actions">
-            <button
+            <MetalButton
+              windowFocused={windowFocused}
               className="btn btn-primary btn-sm"
               disabled={running}
               title="Start a new chat"
               onClick={() => setConfirmNewSession(true)}
             >
               {"+ New"}
-            </button>
+            </MetalButton>
             <button
               className="btn btn-sm btn-ghost"
               title="View and curate chat memories and Jiwa"
@@ -2592,14 +2597,15 @@ function App(): React.ReactElement {
                   setKenPowerBanner(next ? "on" : "off");
                 }}
               />
-              <button
+              <MetalButton
+                windowFocused={windowFocused}
                 className="btn btn-primary btn-sm"
                 disabled={running}
                 title="Start a new session for this project"
                 onClick={() => setConfirmNewSession(true)}
               >
                 {"+ New"}
-              </button>
+              </MetalButton>
               <button
                 className="btn btn-sm btn-ghost"
                 title="Open your notes for this project"
@@ -2635,7 +2641,8 @@ function App(): React.ReactElement {
                 </button>
               ) : (
                 commitCommand && (
-                  <button
+                  <MetalButton
+                    windowFocused={windowFocused}
                     className={`btn btn-sm ${hasCommit ? "btn-success" : "btn-ghost"}`}
                     disabled={running}
                     title={hasCommit ? "Run /commit" : "Generate a /commit command"}
@@ -2647,7 +2654,7 @@ function App(): React.ReactElement {
                     }
                   >
                     {`/${commitCommand}`}
-                  </button>
+                  </MetalButton>
                 )
               )}
             </span>
@@ -2748,6 +2755,7 @@ function App(): React.ReactElement {
           scheduleInvalid ? " schedule-invalid" : ""
         }`}
       >
+        <WorkingBeam active={running || kenRunning || autopilotReviewing} />
         {scheduleDraft ? (
           <ScheduleHint input={input} caret={caret} onPickInterval={fillScheduleInterval} />
         ) : (
@@ -2906,16 +2914,15 @@ function App(): React.ReactElement {
               never moves. It stays on the text's line while the draft fits one
               line, and drops below with the field once the text wraps. */}
           <div className="inputactions-trailing">
+            <WorkingBeam active={running} size="sm" />
+            <ActionMetal
+              active={!running && !cancelling && !sendDisabled}
+              windowFocused={windowFocused}
+            />
             <button
               className="icon-circle icon-circle-primary"
               title={running ? "Stop the run" : "Send"}
-              disabled={
-                cancelling ||
-                (!running &&
-                  !input.trim() &&
-                  attachments.length === 0 &&
-                  mentionedPaths.length === 0)
-              }
+              disabled={cancelling || (!running && sendDisabled)}
               onClick={() => {
                 if (running) requestCancel();
                 else submit();
@@ -2932,15 +2939,22 @@ function App(): React.ReactElement {
           // stay clear of the status row's "esc to cancel". Always mounted (so it
           // can transition both ways); the `visible` class fades/slides it in
           // when there's text and out when there isn't.
-          <button
-            className={`enhance-pill${enhanceHintVisible ? " visible" : ""}${enhancing ? " enhancing" : ""}`}
-            title="Enhance prompt — clearer wording + correct terms"
-            disabled={enhancing || !enhanceHintVisible}
-            aria-hidden={!enhanceHintVisible}
-            onClick={() => void runEnhance()}
-          >
-            {enhancing ? "Enhancing…" : "Enhance?"}
-          </button>
+          <div className={`enhance-pill-host${enhanceHintVisible ? " visible" : ""}`}>
+            <ActionMetal
+              active={enhanceHintVisible && !enhancing}
+              windowFocused={windowFocused}
+              variant="button"
+            />
+            <button
+              className={`enhance-pill${enhancing ? " enhancing" : ""}`}
+              title="Enhance prompt — clearer wording + correct terms"
+              disabled={enhancing || !enhanceHintVisible}
+              aria-hidden={!enhanceHintVisible}
+              onClick={() => void runEnhance()}
+            >
+              {enhancing ? "Enhancing…" : "Enhance?"}
+            </button>
+          </div>
         )}
       </div>
 

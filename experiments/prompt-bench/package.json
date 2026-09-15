@@ -9,6 +9,6 @@
     "@kleio/agent": "workspace:*",
     "@kleio/ai": "workspace:*",
     "@kleio/coder": "workspace:*",
-    "zod": "^4.0.0"
+    "zod": "^4.5.4"
   }
 }

@@ -26,6 +26,11 @@ export function Modal({
 }): React.ReactElement {
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  // Capture before children commit: an autoFocus input otherwise steals the
+  // opener before the effect runs, leaving focus on body when it is removed.
+  const returnFocusRef = useRef(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const titleId = useId();
 
   useEffect(() => {
@@ -33,8 +38,7 @@ export function Modal({
   }, [onClose]);
 
   useEffect(() => {
-    const returnFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const returnFocus = returnFocusRef.current;
     const dialog = dialogRef.current;
     const initialFocus =
       dialog?.querySelector<HTMLElement>("[data-modal-initial-focus]") ??
