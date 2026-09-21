@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -84,6 +84,38 @@ function fixture(t) {
   writeFileSync(join(directory, ".npmrc"), "ignore-scripts=false\nignore-pnpmfile=false\n");
   return { home, directory, output, env, marker, manifest };
 }
+
+test("packageManager skips a newer pnpm bundle beside the requested pnpm 10 shim", (t) => {
+  // pnpm/action-setup on Windows: node_modules/pnpm is the v11 self-installer,
+  // which then places the requested v10 behind a shim under .bin/bin/. PATH order
+  // alone picked the v11 bundle, and every consumer install ran pnpm 11.
+  const root = mkdtempSync(join(tmpdir(), "kleio-pnpm-layout-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, "node_modules", ".bin");
+  const fakeEleven = join(root, "node_modules", "pnpm", "bin", "pnpm.cjs");
+  mkdirSync(dirname(fakeEleven), { recursive: true });
+  writeFileSync(fakeEleven, 'process.stdout.write("11.19.0\\n");\n');
+  // The real pnpm 10 is only reachable through a shim that names its script,
+  // exactly as cmd-shim writes it (relative to the shim's own directory).
+  assert.ok(tool.prefix[0], "test needs a script-based pnpm to point the shim at");
+  const shimDirectory = join(bin, "bin");
+  mkdirSync(shimDirectory, { recursive: true });
+  const target = relative(shimDirectory, tool.prefix[0]);
+  writeFileSync(
+    join(shimDirectory, "pnpm.cmd"),
+    `@"%~dp0\\node.exe"  "%~dp0\\${target.split(sep).join("\\")}" %*\r\n`,
+  );
+  writeFileSync(
+    join(shimDirectory, "pnpm"),
+    `#!/bin/sh\nexec node  "$basedir/${target.split(sep).join("/")}" "$@"\n`,
+  );
+  const saved = process.env.PATH;
+  process.env.PATH = bin + (process.platform === "win32" ? ";" : ":") + saved;
+  t.after(() => (process.env.PATH = saved));
+  const found = packageManager();
+  assert.notEqual(found.prefix[0], fakeEleven, "the pnpm 11 bundle must be rejected");
+  assert.equal(found.prefix[0], tool.prefix[0], "resolves through the shim to the real script");
+});
 
 test("isolated config paths are distinct empty files inside the home, never the null device", (t) => {
   const home = mkdtempSync(join(tmpdir(), "kleio-isolated-env-"));

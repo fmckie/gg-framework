@@ -93,27 +93,93 @@ export function run(command, args, cwd, env, timeout = 120_000) {
 }
 
 // Resolve the installed executable before entering any target directory. No shell/.cmd execution.
-export function packageManager() {
-  const candidates = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
-  for (const directory of candidates) {
-    for (const name of process.platform === "win32" ? ["pnpm.exe", "pnpm.cjs", "pnpm"] : ["pnpm"]) {
-      const path = join(directory, name);
-      if (!existsSync(path) || !lstatSync(realpathSync(path)).isFile()) continue;
-      const real = realpathSync(path);
-      if (/\.(?:c?js|mjs)$/.test(real)) return { command: process.execPath, prefix: [real] };
-      if (process.platform !== "win32" || real.endsWith(".exe"))
-        return { command: real, prefix: [] };
-    }
-    // pnpm/action-setup's Windows npm installation provides this JS entry.
-    for (const script of [
-      join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"),
-      join(directory, "..", "pnpm", "bin", "pnpm.cjs"),
-    ]) {
-      if (existsSync(script) && lstatSync(realpathSync(script)).isFile())
-        return { command: process.execPath, prefix: [realpathSync(script)] };
+// A candidate is only accepted once it proves to be pnpm 10 (the version this
+// contract was written against). Resolution goes by PATH order, but a directory
+// may expose several entries that are not the same pnpm: pnpm/action-setup on
+// Windows installs pnpm 11 under node_modules/pnpm and then has it install the
+// requested pnpm 10 into a store, leaving the v11 bundle beside the v10 shim.
+function pnpmVersion(tool) {
+  const result = spawnSync(tool.command, [...tool.prefix, "--version"], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 64 * 1024,
+    windowsHide: true,
+    killSignal: "SIGKILL",
+    env: {
+      PATH: process.env.PATH,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    },
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+// Shims written by pnpm/npm on Windows and POSIX carry the script they wrap.
+function shimTarget(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  const target =
+    text.match(/^#\s*cmd-shim-target=(.+)$/m)?.[1] ??
+    text.match(/"%~?dp0%?\\([^"]+\.c?js)"/)?.[1]?.replace(/\\/g, "/") ??
+    text.match(/\$basedir\/([^\s"']+\.c?js)/)?.[1];
+  if (!target) return undefined;
+  const resolved = isAbsolute(target) ? target : resolve(dirname(path), target);
+  return existsSync(resolved) ? realpathSync(resolved) : undefined;
+}
+
+function* pnpmCandidates(directory) {
+  const names =
+    process.platform === "win32"
+      ? ["pnpm.exe", "pnpm.cjs", "pnpm.cmd", "pnpm.CMD", "pnpm"]
+      : ["pnpm"];
+  for (const name of names) {
+    const path = join(directory, name);
+    if (!existsSync(path) || !lstatSync(realpathSync(path)).isFile()) continue;
+    const real = realpathSync(path);
+    if (/\.(?:c?js|mjs)$/.test(real)) yield { command: process.execPath, prefix: [real] };
+    else if (real.endsWith(".exe")) yield { command: real, prefix: [] };
+    else {
+      const script = shimTarget(real);
+      if (script) yield { command: process.execPath, prefix: [script] };
+      else if (process.platform !== "win32") yield { command: real, prefix: [] };
     }
   }
-  throw new Error("installed-pnpm-unavailable");
+  // pnpm/action-setup's Windows npm installation provides these JS entries; the
+  // v11 layout keeps the requested version's shim under a nested bin/.
+  for (const script of [
+    join(directory, "bin", "pnpm.cmd"),
+    join(directory, "bin", "pnpm"),
+    join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+    join(directory, "..", "pnpm", "bin", "pnpm.cjs"),
+  ]) {
+    if (!existsSync(script) || !lstatSync(realpathSync(script)).isFile()) continue;
+    const real = realpathSync(script);
+    if (/\.c?js$/.test(real)) yield { command: process.execPath, prefix: [real] };
+    else {
+      const target = shimTarget(real);
+      if (target) yield { command: process.execPath, prefix: [target] };
+    }
+  }
+}
+
+export function packageManager() {
+  const candidates = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+  const rejected = [];
+  for (const directory of candidates) {
+    if (!directory) continue;
+    for (const tool of pnpmCandidates(directory)) {
+      const version = pnpmVersion(tool);
+      if (/^10\./.test(version)) return tool;
+      rejected.push(`${tool.prefix[0] ?? tool.command} (${version || "unusable"})`);
+    }
+  }
+  const error = new Error("installed-pnpm-unavailable");
+  error.diagnostic = rejected.slice(0, 8).join("; ");
+  if (error.diagnostic) error.message += ": pnpm 10 required, found " + error.diagnostic;
+  throw error;
 }
 
 export function pnpm(tool, args, cwd, env, timeout = 120_000) {
