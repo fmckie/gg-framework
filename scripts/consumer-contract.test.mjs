@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { createRequire } from "node:module";
 import { devNull, tmpdir } from "node:os";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -446,10 +446,19 @@ test("two-phase population and offline replay suppress hooks and exclude credent
         pnpm(tool, ["config", "get", "registry"], event.consumer, f.env).trim(),
         "https://registry.npmjs.org/",
       );
+      // pnpm records the store dir it resolved. Compare canonical forms on both
+      // sides: on Windows the recorded path may differ from f.home in case,
+      // 8.3 aliasing or separator, while still being the disposable store.
       const modules = readFileSync(join(event.consumer, "node_modules/.modules.yaml"), "utf8");
+      // pnpm 10.3x writes this file as JSON, older 10.x as YAML; accept either.
+      const recorded =
+        modules.match(/^\s*"storeDir":\s*"(.+?)",?$/m)?.[1]?.replaceAll("\\\\", "\\") ??
+        modules.match(/^storeDir:\s*(.+)$/m)?.[1]?.trim();
+      assert.ok(recorded, "explicit disposable store: storeDir recorded\n" + modules);
+      const location = relative(realpathSync.native(f.home), realpathSync.native(recorded));
       assert.ok(
-        modules.replaceAll("\\", "/").includes(f.home.replaceAll("\\", "/")),
-        "explicit disposable store",
+        location && !location.startsWith("..") && !isAbsolute(location),
+        `explicit disposable store: ${recorded} is outside ${f.home}`,
       );
     }
     assert.equal(existsSync(f.marker), false);
