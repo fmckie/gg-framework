@@ -548,7 +548,11 @@ export function installConsumer(
     !cacheSeed || (offline && store === cacheSeed.store),
     "offline-seed-requires-disposable-store",
   );
-  const deadline = Date.now() + 120_000;
+  // Offline replays finish in seconds and keep the tight budget. The one
+  // registry-populating install downloads ~300 packages; hosted Windows runners
+  // have been observed cut off at 120 s with 131 of 310 fetched, so it gets a
+  // budget sized to the work rather than to a cold-cache lucky day.
+  const deadline = Date.now() + (offline ? 120_000 : 600_000);
   for (;;) {
     const remaining = deadline - Date.now();
     assert.ok(remaining > 0, "offline-install-time-limit");
