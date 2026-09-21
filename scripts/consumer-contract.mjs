@@ -26,6 +26,14 @@ const MAX_BYTES = 128 * 1024 * 1024;
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+// One canonical form for every path that is compared, contained or reported.
+// Plain realpathSync keeps whatever spelling it was given; on Windows os.tmpdir()
+// can be an 8.3 alias (C:\Users\RUNNER~1) while pnpm and git hand back the long
+// name, so equal locations compared unequal. The native variant expands aliases.
+function canonical(path) {
+  return realpathSync.native(path);
+}
+
 export function isolatedEnvironment(home) {
   mkdirSync(home, { recursive: true });
   // Empty files inside the isolated home, never os.devNull, for every path a
@@ -127,7 +135,7 @@ function shimTarget(path) {
     text.match(/\$basedir\/([^\s"']+\.c?js)/)?.[1];
   if (!target) return undefined;
   const resolved = isAbsolute(target) ? target : resolve(dirname(path), target);
-  return existsSync(resolved) ? realpathSync(resolved) : undefined;
+  return existsSync(resolved) ? canonical(resolved) : undefined;
 }
 
 function* pnpmCandidates(directory) {
@@ -137,8 +145,8 @@ function* pnpmCandidates(directory) {
       : ["pnpm"];
   for (const name of names) {
     const path = join(directory, name);
-    if (!existsSync(path) || !lstatSync(realpathSync(path)).isFile()) continue;
-    const real = realpathSync(path);
+    if (!existsSync(path) || !lstatSync(canonical(path)).isFile()) continue;
+    const real = canonical(path);
     if (/\.(?:c?js|mjs)$/.test(real)) yield { command: process.execPath, prefix: [real] };
     else if (real.endsWith(".exe")) yield { command: real, prefix: [] };
     else {
@@ -155,8 +163,8 @@ function* pnpmCandidates(directory) {
     join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"),
     join(directory, "..", "pnpm", "bin", "pnpm.cjs"),
   ]) {
-    if (!existsSync(script) || !lstatSync(realpathSync(script)).isFile()) continue;
-    const real = realpathSync(script);
+    if (!existsSync(script) || !lstatSync(canonical(script)).isFile()) continue;
+    const real = canonical(script);
     if (/\.c?js$/.test(real)) yield { command: process.execPath, prefix: [real] };
     else {
       const target = shimTarget(real);
@@ -200,9 +208,9 @@ export function pnpm(tool, args, cwd, env, timeout = 120_000) {
 }
 
 function contained(root, path) {
-  const location = relative(realpathSync(root), realpathSync(path));
+  const location = relative(canonical(root), canonical(path));
   assert.ok(location && !location.startsWith("..") && !isAbsolute(location), "path-outside-root");
-  return realpathSync(path);
+  return canonical(path);
 }
 
 function safeRelative(path) {
@@ -224,7 +232,7 @@ export function workspaceClosure(root, tool, env) {
   assert.ok(Array.isArray(listed) && listed.length < 200, "invalid-workspace-list");
   const workspaces = new Map();
   for (const item of listed) {
-    if (realpathSync(item.path) === realpathSync(root)) continue;
+    if (canonical(item.path) === canonical(root)) continue;
     const directory = contained(root, item.path);
     const manifestPath = join(directory, "package.json");
     assert.ok(
@@ -273,7 +281,7 @@ export function workspaceClosure(root, tool, env) {
     visit(name);
     assert.equal(
       closure.get(name).directory,
-      realpathSync(join(root, directory)),
+      canonical(join(root, directory)),
       "canonical-workspace-path",
     );
     assert.equal(closure.get(name).manifest.version, VERSION, "canonical-version");
@@ -355,9 +363,9 @@ export function offlineCacheSeed(metadataSource, storeSource, home) {
       lstatSync(path).isDirectory() && !lstatSync(path).isSymbolicLink(),
       "invalid-cache-source",
     );
-    const root = realpathSync(path);
-    const overlap = relative(root, realpathSync(home));
-    const reverse = relative(realpathSync(home), root);
+    const root = canonical(path);
+    const overlap = relative(root, canonical(home));
+    const reverse = relative(canonical(home), root);
     assert.ok(
       (overlap.startsWith("..") || isAbsolute(overlap)) &&
         (reverse.startsWith("..") || isAbsolute(reverse)),
@@ -592,7 +600,7 @@ export function installConsumer(
           ).trim();
           assert.ok(resolution.startsWith("file:"), "registry-workspace-substitute");
           const resolved = contained(consumer, fileURLToPath(resolution));
-          contained(realpathSync(join(consumer, "node_modules", name)), resolved);
+          contained(canonical(join(consumer, "node_modules", name)), resolved);
         }
       }
     }
@@ -682,10 +690,10 @@ export function compileConsumer(consumer, compiler, env) {
     consumer,
     env,
   );
-  const root = realpathSync(consumer);
-  const standardLibrary = realpathSync(join(dirname(realpathSync(compiler)), "..", "lib"));
+  const root = canonical(consumer);
+  const standardLibrary = canonical(join(dirname(canonical(compiler)), "..", "lib"));
   for (const file of output.trim().split(/\r?\n/)) {
-    const path = realpathSync(resolve(consumer, file));
+    const path = canonical(resolve(consumer, file));
     const location = relative(root, path);
     if (location && !location.startsWith("..") && !isAbsolute(location)) continue;
     // The compiler is tooling; only its own standard libraries may be external.
@@ -712,7 +720,7 @@ export async function runConsumerContracts({
     );
   // pnpm derives file-tarball cache keys relative to its real cwd. Resolve macOS
   // /var aliases before constructing paths, especially inside the trusted shell's temp home.
-  const home = realpathSync(mkdtempSync(join(tmpdir(), "kleio-consumer-")));
+  const home = canonical(mkdtempSync(join(tmpdir(), "kleio-consumer-")));
   const report = {
     candidateSha,
     outcomes: [],
@@ -731,7 +739,7 @@ export async function runConsumerContracts({
   };
   let stage = "pack";
   try {
-    root = realpathSync(root);
+    root = canonical(root);
     const env = isolatedEnvironment(join(home, "home"));
     assert.equal(
       run("git", ["-c", "core.fsmonitor=false", "rev-parse", "HEAD"], root, env).trim(),
@@ -849,7 +857,7 @@ export async function runConsumerContracts({
     error.report = report;
     throw error;
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

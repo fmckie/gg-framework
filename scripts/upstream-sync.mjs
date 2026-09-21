@@ -518,7 +518,10 @@ export function prepareCandidate(options) {
     return report;
   } finally {
     // This path is allocated internally; no caller-controlled output/cleanup path.
-    if (home && !keep) rmSync(home, { recursive: true, force: true });
+    // Retry: on Windows a just-exited git can still hold pack/index handles for a
+    // moment, and a single rmSync would silently leave the directory behind.
+    if (home && !keep)
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

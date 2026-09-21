@@ -198,7 +198,12 @@ function reconstruct(repo, membershipRepo, membershipTip, inputs, destination, e
     };
   } finally {
     if (report.candidateDirectory)
-      rmSync(dirname(report.candidateDirectory), { recursive: true, force: true });
+      rmSync(dirname(report.candidateDirectory), {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
   }
 }
 
@@ -223,7 +228,7 @@ export function reconstructLocal(options) {
       env,
     );
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    rmSync(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -263,7 +268,7 @@ export function reconstructPublic(options) {
     });
     return reconstruct(repo, repo, tip, options.inputs, options.destination, env);
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    rmSync(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -341,7 +346,7 @@ function runShell(kind, script) {
     });
     if (result.error || result.status !== 0) throw new Error("ci-child-failed");
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    rmSync(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
@@ -380,7 +385,7 @@ async function main(args) {
     );
     console.log(JSON.stringify(report));
   } finally {
-    rmSync(temporary, { recursive: true, force: true });
+    rmSync(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

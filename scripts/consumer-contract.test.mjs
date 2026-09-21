@@ -411,7 +411,10 @@ test("two-phase installation uses identical authoritative receipts in distinct f
     assert.deepEqual(manifest.dependencies, manifest.pnpm.overrides);
     for (const item of original) {
       assert.equal(manifest.dependencies[item.name], "file:" + item.tarball.replaceAll("\\", "/"));
-      assert.ok(result.packageRoots[item.name].startsWith(realpathSync(result.consumer) + sep));
+      // Package roots are canonical (8.3 aliases expanded on Windows); compare like for like.
+      assert.ok(
+        result.packageRoots[item.name].startsWith(realpathSync.native(result.consumer) + sep),
+      );
     }
     assert.equal(manifest.dependencies[LEGACY_CODER], manifest.dependencies["@kleio/coder"]);
   }
@@ -683,6 +686,25 @@ function runtime(f) {
     throw new Error(error.diagnostic, { cause: error });
   }
 }
+
+test("workspace closure is the same whether the root is spelled directly or through an alias", (t) => {
+  // Windows runners hand out os.tmpdir() as an 8.3 alias (C:\\Users\\RUNNER~1\\...)
+  // while pnpm reports long names; a symlinked root is the portable equivalent
+  // of one directory with two spellings. Both must canonicalise to one form.
+  const f = publicFixture(t);
+  const alias = join(f.home, "alias");
+  symlinkSync(f.root, alias, "dir");
+  const direct = workspaceClosure(f.root, tool, f.env);
+  const viaAlias = workspaceClosure(alias, tool, f.env);
+  assert.deepEqual([...viaAlias.keys()].sort(), [...direct.keys()].sort());
+  for (const [name, item] of direct) {
+    assert.equal(viaAlias.get(name).directory, item.directory);
+    assert.ok(
+      !item.directory.includes(sep + "alias" + sep),
+      "package paths are canonical, not aliased",
+    );
+  }
+});
 
 test("complete real tarball closure passes runtime and strict external declaration contracts offline", (t) => {
   const f = installedFixture(t);
