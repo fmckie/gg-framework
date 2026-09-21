@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -319,7 +326,7 @@ test("manual caller contexts reject malformed/stale inputs and non-default branc
 
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-ci-test-"));
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-ci-test-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const env = {
     ...isolatedEnvironment(join(home, "home")),

@@ -47,7 +47,9 @@ const coderRoot = join(
 );
 const compiler = join(coderRoot, "node_modules/typescript/bin/tsc");
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-pack-test-"));
+  // Native realpath so the fixture's spelling matches what pnpm, tsc and the
+  // scripts report (Windows runners hand out os.tmpdir() as an 8.3 alias).
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-pack-test-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, "package");
   const output = join(home, "tarballs");
@@ -89,7 +91,7 @@ test("packageManager skips a newer pnpm bundle beside the requested pnpm 10 shim
   // pnpm/action-setup on Windows: node_modules/pnpm is the v11 self-installer,
   // which then places the requested v10 behind a shim under .bin/bin/. PATH order
   // alone picked the v11 bundle, and every consumer install ran pnpm 11.
-  const root = mkdtempSync(join(tmpdir(), "kleio-pnpm-layout-"));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-pnpm-layout-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const bin = join(root, "node_modules", ".bin");
   const fakeEleven = join(root, "node_modules", "pnpm", "bin", "pnpm.cjs");
@@ -118,7 +120,7 @@ test("packageManager skips a newer pnpm bundle beside the requested pnpm 10 shim
 });
 
 test("isolated config paths are distinct empty files inside the home, never the null device", (t) => {
-  const home = mkdtempSync(join(tmpdir(), "kleio-isolated-env-"));
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-isolated-env-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const env = isolatedEnvironment(join(home, "h"));
   const files = [env.npm_config_userconfig, env.npm_config_globalconfig, env.GIT_CONFIG_GLOBAL];

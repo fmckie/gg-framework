@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,7 +11,7 @@ const script = new URL("./identity-audit.mjs", import.meta.url);
 const legacy = "ggcoder";
 
 async function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-audit-test-"));
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-audit-test-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const trusted = join(home, "trusted", "scripts");
   mkdirSync(trusted, { recursive: true });
