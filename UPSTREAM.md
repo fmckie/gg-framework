@@ -99,6 +99,11 @@ the decoder covered by [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-
 Dependency remediation requires separate scope approval; this import is not a
 comprehensive security review or a clean-audit claim.
 
+**2026-09-18 update:** root `pnpm.overrides` now pin `undici@7` ≥7.29, `sharp`
+≥0.35.4 and `adm-zip` ≥0.6.1, clearing every production alert on a `@kleio/*` path
+(prod 21 → 3, remaining three are Matey-only). Triage and accepted-risk list:
+[`docs/dependency-audit-2026-09-18.md`](docs/dependency-audit-2026-09-18.md).
+
 ## Original imported baseline
 
 - Upstream repository: `https://github.com/KenKaiii/gg-framework`

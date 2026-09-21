@@ -32,6 +32,16 @@ afterEach(async () => {
  */
 const BRIEF_BACKGROUND_COMMAND = `node -e "setTimeout(() => {}, 500)"`;
 
+/**
+ * Every manager here must log under the fake home. The default `bgDir` is the
+ * real `~/.gg/bg`, captured at module load, so `useFakeHome` does not redirect
+ * it — and the isolation test in process-manager-dev-server-repro watches that
+ * real directory while this file runs in a parallel worker.
+ */
+function newManager(): ProcessManager {
+  return new ProcessManager({ bgDir: path.join(tmpHome, "bg") });
+}
+
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -109,7 +119,7 @@ describe("renderBashOutput", () => {
 
 describe("createBashTool shell snapshot", () => {
   it("describes cmd.exe semantics when resolution falls back to cmd", () => {
-    const tool = createBashTool(tmpHome, new ProcessManager(), undefined, undefined, {
+    const tool = createBashTool(tmpHome, newManager(), undefined, undefined, {
       platform: "win32",
       env: {},
       exists: () => false,
@@ -127,7 +137,7 @@ describe("createBashTool shell snapshot", () => {
   });
 
   it("keeps the bash description byte-for-byte when a POSIX shell resolves", () => {
-    const tool = createBashTool(tmpHome, new ProcessManager(), undefined, undefined, {
+    const tool = createBashTool(tmpHome, newManager(), undefined, undefined, {
       platform: "darwin",
       env: {},
       exists: () => true,
@@ -147,7 +157,7 @@ describe("createBashTool shell snapshot", () => {
 
 describe("catastrophic-command guard", () => {
   it("refuses rm -rf / before any execution path runs", async () => {
-    const processManager = new ProcessManager();
+    const processManager = newManager();
     const tool = createBashTool(tmpHome, processManager);
 
     const result = await tool.execute(
@@ -162,7 +172,7 @@ describe("catastrophic-command guard", () => {
 
 describe("wake-condition validation", () => {
   it("refuses wake without run_in_background", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const result = await tool.execute(
       { command: "echo hi", wake: { pattern: "done" } },
       { signal: new AbortController().signal, toolCallId: "wake-1" },
@@ -171,7 +181,7 @@ describe("wake-condition validation", () => {
   });
 
   it("refuses an invalid wake pattern instead of arming a broken watcher", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const result = await tool.execute(
       { command: "echo hi", run_in_background: true, wake: { pattern: "([unclosed" } },
       { signal: new AbortController().signal, toolCallId: "wake-2" },
@@ -216,7 +226,7 @@ describe("network allowlist guard", () => {
   const policy = () => ({ mode: "allowlist" as const, allow: ["github.com"] });
 
   function tool() {
-    return createBashTool(tmpHome, new ProcessManager(), undefined, undefined, undefined, policy);
+    return createBashTool(tmpHome, newManager(), undefined, undefined, undefined, policy);
   }
 
   it("blocks a curl to a disallowed host", async () => {
@@ -260,13 +270,13 @@ describe.skipIf(process.platform === "win32")("createBashTool on a real POSIX sh
   // pipefail is what lets the verification gate count `check | tail` as
   // evidence: without it a red suite piped through tail exits 0 and reads green.
   it("reports the failing pipeline stage's exit code, not the limiter's", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const out = String(await tool.execute({ command: "false | tail -1" }, ctx("posix-pipefail")));
     expect(out).toContain("Exit code: 1");
   });
 
   it("still exits 0 for a passing command piped through a limiter", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const out = String(await tool.execute({ command: "echo ok | tail -1" }, ctx("posix-pipe-ok")));
     expect(out).toContain("ok");
     expect(out).toContain("Exit code: 0");
@@ -283,7 +293,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
     expect(resolved.isCmdFallback).toBe(false);
     expect(existsSync(resolved.file)).toBe(true);
 
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const out = String(await tool.execute({ command: "echo hello && pwd" }, ctx("win-bash")));
 
     expect(out).toContain("hello");
@@ -296,7 +306,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
   });
 
   it("propagates a non-zero exit code from Git Bash", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
     const out = String(await tool.execute({ command: "exit 3" }, ctx("win-bash-exit")));
     expect(out).toContain("Exit code: 3");
   });
@@ -309,7 +319,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
     expect(resolved.isCmdFallback).toBe(true);
     expect(existsSync(resolved.file)).toBe(true);
 
-    const tool = createBashTool(tmpHome, new ProcessManager(), undefined, undefined, shellOpts);
+    const tool = createBashTool(tmpHome, newManager(), undefined, undefined, shellOpts);
     const out = String(await tool.execute({ command: "echo hello-from-cmd" }, ctx("win-cmd")));
 
     expect(out).toContain("hello-from-cmd");
@@ -317,7 +327,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
   });
 
   it("propagates a non-zero exit code from cmd.exe", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager(), undefined, undefined, {
+    const tool = createBashTool(tmpHome, newManager(), undefined, undefined, {
       exists: () => false,
     });
     const out = String(await tool.execute({ command: "exit /b 4" }, ctx("win-cmd-exit")));
@@ -329,7 +339,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
     // an unquoted cwd would spawn in the wrong directory or fail outright.
     const spaced = path.join(tmpHome, "a dir with spaces");
     await fs.mkdir(spaced, { recursive: true });
-    const tool = createBashTool(spaced, new ProcessManager());
+    const tool = createBashTool(spaced, newManager());
 
     const out = String(await tool.execute({ command: "pwd" }, ctx("win-spaces")));
     expect(out.toLowerCase()).toContain("a dir with spaces");
@@ -347,7 +357,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
     // the escapes (`\U`, `\b` → backspace) and the write lands somewhere else.
     const pidFile = path.join(tmpHome, "grandchild.pid").replaceAll("\\", "/");
     const script = `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
 
     const out = String(
       await tool.execute(
@@ -381,7 +391,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
 
 describe("guessed-sleep guard", () => {
   it("redirects a bare sleep to task_output while a background process runs", async () => {
-    const processManager = new ProcessManager();
+    const processManager = newManager();
     const tool = createBashTool(tmpHome, processManager);
     const started = await processManager.start(BRIEF_BACKGROUND_COMMAND, tmpHome);
 
@@ -396,7 +406,7 @@ describe("guessed-sleep guard", () => {
   });
 
   it("allows a sleep when nothing is running in the background", async () => {
-    const tool = createBashTool(tmpHome, new ProcessManager());
+    const tool = createBashTool(tmpHome, newManager());
 
     const result = await tool.execute(
       { command: "sleep 0.1" },
@@ -409,7 +419,7 @@ describe("guessed-sleep guard", () => {
   // Letting a just-started dev server settle before curling it is legitimate:
   // no exit is ever coming, so there is nothing for wait_ms to return.
   it("allows a brief settle sleep even while a background process runs", async () => {
-    const processManager = new ProcessManager();
+    const processManager = newManager();
     const tool = createBashTool(tmpHome, processManager);
     await processManager.start(BRIEF_BACKGROUND_COMMAND, tmpHome);
 
