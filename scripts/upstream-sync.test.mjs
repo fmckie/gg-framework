@@ -10,12 +10,13 @@ import {
   readFileSync,
   readdirSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -29,13 +30,16 @@ const json = (data) => JSON.stringify(data, null, 2) + "\n";
 const file = (content, mode = "100644") => ({ content, mode });
 
 function environment(home) {
+  // Never os.devNull as a config path: on Windows it is \\.\nul, unreadable by git.
+  const gitconfig = join(home, ".isolated-gitconfig");
+  if (!existsSync(gitconfig)) writeFileSync(gitconfig, "");
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     HOME: home,
     USERPROFILE: home,
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: gitconfig,
     GIT_TERMINAL_PROMPT: "0",
     GIT_AUTHOR_NAME: "Fixture",
     GIT_AUTHOR_EMAIL: "fixture@localhost",
@@ -82,13 +86,16 @@ function snapshot(root) {
 }
 
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-sync-test-"));
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-sync-test-")));
   const repo = join(home, "source.git");
   const env = environment(home);
   const kept = [];
   t.after(() => {
-    for (const candidate of kept) rmSync(dirname(candidate), { recursive: true, force: true });
-    rmSync(home, { recursive: true, force: true });
+    // Retry: on Windows a just-exited git can briefly keep pack handles open and
+    // a single forced rmSync would silently leave the tree behind.
+    const options = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
+    for (const candidate of kept) rmSync(dirname(candidate), options);
+    rmSync(home, options);
   });
   mkdirSync(join(home, "empty-template"));
   runGit(repo, env, ["init", "--bare", "--template=" + join(home, "empty-template"), repo]);
@@ -336,9 +343,18 @@ test("clean merge preserves both histories and fork content in independent bare 
 
 test("repeat runs produce the same decision/tree and default runs clean their temporary directory", (t) => {
   const f = fixture(t);
-  const before = new Set(
-    readdirSync(tmpdir()).filter((name) => name.startsWith("kleio-candidate-")),
-  );
+  // Give this test its own tmpdir so the leak check only sees candidates it
+  // created: the other script suites run in parallel and prepare candidates too.
+  const scratch = join(f.home, "scratch-tmp");
+  mkdirSync(scratch);
+  const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+  for (const key of Object.keys(saved)) process.env[key] = scratch;
+  t.after(() => {
+    for (const [key, value] of Object.entries(saved))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  });
+  assert.equal(realpathSync.native(tmpdir()), scratch, "test-owned tmpdir in effect");
   const first = f.prepare();
   const second = f.prepare();
   assert.equal(first.status, "candidate-ready", json(first));
@@ -347,8 +363,9 @@ test("repeat runs produce the same decision/tree and default runs clean their te
   assert.equal(first.recipe, "parent-time-v1");
   assert.equal(first.candidateDirectory, undefined);
   assert.deepEqual(
-    new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("kleio-candidate-"))),
-    before,
+    readdirSync(scratch).filter((name) => name.startsWith("kleio-candidate-")),
+    [],
+    "default runs leave no candidate directory behind",
   );
 });
 

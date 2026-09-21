@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
@@ -16,8 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { dirname, join, sep } from "node:path";
+import { devNull, tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import {
@@ -46,7 +47,9 @@ const coderRoot = join(
 );
 const compiler = join(coderRoot, "node_modules/typescript/bin/tsc");
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-pack-test-"));
+  // Native realpath so the fixture's spelling matches what pnpm, tsc and the
+  // scripts report (Windows runners hand out os.tmpdir() as an 8.3 alias).
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-pack-test-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const directory = join(home, "package");
   const output = join(home, "tarballs");
@@ -83,6 +86,68 @@ function fixture(t) {
   writeFileSync(join(directory, ".npmrc"), "ignore-scripts=false\nignore-pnpmfile=false\n");
   return { home, directory, output, env, marker, manifest };
 }
+
+test("packageManager skips a newer pnpm bundle beside the requested pnpm 10 shim", (t) => {
+  // pnpm/action-setup on Windows: node_modules/pnpm is the v11 self-installer,
+  // which then places the requested v10 behind a shim under .bin/bin/. PATH order
+  // alone picked the v11 bundle, and every consumer install ran pnpm 11.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-pnpm-layout-")));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bin = join(root, "node_modules", ".bin");
+  const fakeEleven = join(root, "node_modules", "pnpm", "bin", "pnpm.cjs");
+  mkdirSync(dirname(fakeEleven), { recursive: true });
+  writeFileSync(fakeEleven, 'process.stdout.write("11.19.0\\n");\n');
+  // The real pnpm 10 is only reachable through a shim that names its script,
+  // exactly as cmd-shim writes it (relative to the shim's own directory).
+  assert.ok(tool.prefix[0], "test needs a script-based pnpm to point the shim at");
+  const shimDirectory = join(bin, "bin");
+  mkdirSync(shimDirectory, { recursive: true });
+  const target = relative(shimDirectory, tool.prefix[0]);
+  writeFileSync(
+    join(shimDirectory, "pnpm.cmd"),
+    `@"%~dp0\\node.exe"  "%~dp0\\${target.split(sep).join("\\")}" %*\r\n`,
+  );
+  writeFileSync(
+    join(shimDirectory, "pnpm"),
+    `#!/bin/sh\nexec node  "$basedir/${target.split(sep).join("/")}" "$@"\n`,
+  );
+  const saved = process.env.PATH;
+  process.env.PATH = bin + (process.platform === "win32" ? ";" : ":") + saved;
+  t.after(() => (process.env.PATH = saved));
+  const found = packageManager();
+  assert.notEqual(found.prefix[0], fakeEleven, "the pnpm 11 bundle must be rejected");
+  assert.equal(found.prefix[0], tool.prefix[0], "resolves through the shim to the real script");
+});
+
+test("isolated config paths are distinct empty files inside the home, never the null device", (t) => {
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-isolated-env-")));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const env = isolatedEnvironment(join(home, "h"));
+  const files = [env.npm_config_userconfig, env.npm_config_globalconfig, env.GIT_CONFIG_GLOBAL];
+  // pnpm >= 10.3x rejects one path loaded as both user and global config; on
+  // Windows os.devNull is \\.\nul, which git cannot access() as a config file.
+  assert.equal(new Set(files).size, files.length, "each config role gets its own file");
+  for (const file of files) {
+    assert.ok(file.startsWith(join(home, "h") + sep), "config lives inside the isolated home");
+    assert.equal(readFileSync(file, "utf8"), "", "no inherited settings");
+  }
+  for (const [key, value] of Object.entries(env))
+    assert.notEqual(value, devNull, key + " must not point at the null device");
+  // Calling again on the same home is idempotent: same paths, still empty.
+  const again = isolatedEnvironment(join(home, "h"));
+  assert.deepEqual(
+    [again.npm_config_userconfig, again.npm_config_globalconfig, again.GIT_CONFIG_GLOBAL],
+    files,
+  );
+  // Both tools must accept the files; these are the exact calls that broke in CI.
+  assert.equal(
+    pnpm(tool, ["config", "get", "registry"], join(home, "h"), env).trim(),
+    "https://registry.npmjs.org/",
+  );
+  const git = spawnSync("git", ["config", "--global", "--list"], { env, encoding: "utf8" });
+  assert.equal(git.status, 0, git.stderr);
+  assert.equal(git.stdout.trim(), "");
+});
 
 test("real pack/install suppress lifecycle and pnpmfile hooks and scrub credentials", (t) => {
   const f = fixture(t);
@@ -348,7 +413,10 @@ test("two-phase installation uses identical authoritative receipts in distinct f
     assert.deepEqual(manifest.dependencies, manifest.pnpm.overrides);
     for (const item of original) {
       assert.equal(manifest.dependencies[item.name], "file:" + item.tarball.replaceAll("\\", "/"));
-      assert.ok(result.packageRoots[item.name].startsWith(realpathSync(result.consumer) + sep));
+      // Package roots are canonical (8.3 aliases expanded on Windows); compare like for like.
+      assert.ok(
+        result.packageRoots[item.name].startsWith(realpathSync.native(result.consumer) + sep),
+      );
     }
     assert.equal(manifest.dependencies[LEGACY_CODER], manifest.dependencies["@kleio/coder"]);
   }
@@ -378,10 +446,19 @@ test("two-phase population and offline replay suppress hooks and exclude credent
         pnpm(tool, ["config", "get", "registry"], event.consumer, f.env).trim(),
         "https://registry.npmjs.org/",
       );
+      // pnpm records the store dir it resolved. Compare canonical forms on both
+      // sides: on Windows the recorded path may differ from f.home in case,
+      // 8.3 aliasing or separator, while still being the disposable store.
       const modules = readFileSync(join(event.consumer, "node_modules/.modules.yaml"), "utf8");
+      // pnpm 10.3x writes this file as JSON, older 10.x as YAML; accept either.
+      const recorded =
+        modules.match(/^\s*"storeDir":\s*"(.+?)",?$/m)?.[1]?.replaceAll("\\\\", "\\") ??
+        modules.match(/^storeDir:\s*(.+)$/m)?.[1]?.trim();
+      assert.ok(recorded, "explicit disposable store: storeDir recorded\n" + modules);
+      const location = relative(realpathSync.native(f.home), realpathSync.native(recorded));
       assert.ok(
-        modules.replaceAll("\\", "/").includes(f.home.replaceAll("\\", "/")),
-        "explicit disposable store",
+        location && !location.startsWith("..") && !isAbsolute(location),
+        `explicit disposable store: ${recorded} is outside ${f.home}`,
       );
     }
     assert.equal(existsSync(f.marker), false);
@@ -620,6 +697,25 @@ function runtime(f) {
     throw new Error(error.diagnostic, { cause: error });
   }
 }
+
+test("workspace closure is the same whether the root is spelled directly or through an alias", (t) => {
+  // Windows runners hand out os.tmpdir() as an 8.3 alias (C:\\Users\\RUNNER~1\\...)
+  // while pnpm reports long names; a symlinked root is the portable equivalent
+  // of one directory with two spellings. Both must canonicalise to one form.
+  const f = publicFixture(t);
+  const alias = join(f.home, "alias");
+  symlinkSync(f.root, alias, "dir");
+  const direct = workspaceClosure(f.root, tool, f.env);
+  const viaAlias = workspaceClosure(alias, tool, f.env);
+  assert.deepEqual([...viaAlias.keys()].sort(), [...direct.keys()].sort());
+  for (const [name, item] of direct) {
+    assert.equal(viaAlias.get(name).directory, item.directory);
+    assert.ok(
+      !item.directory.includes(sep + "alias" + sep),
+      "package paths are canonical, not aliased",
+    );
+  }
+});
 
 test("complete real tarball closure passes runtime and strict external declaration contracts offline", (t) => {
   const f = installedFixture(t);

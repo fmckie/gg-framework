@@ -14,7 +14,7 @@ import {
   writeFileSync,
   copyFileSync,
 } from "node:fs";
-import { devNull, homedir, tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_PACKAGES, auditInstalledPackages } from "./identity-audit.mjs";
@@ -26,8 +26,27 @@ const MAX_BYTES = 128 * 1024 * 1024;
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+// One canonical form for every path that is compared, contained or reported.
+// Plain realpathSync keeps whatever spelling it was given; on Windows os.tmpdir()
+// can be an 8.3 alias (C:\Users\RUNNER~1) while pnpm and git hand back the long
+// name, so equal locations compared unequal. The native variant expands aliases.
+function canonical(path) {
+  return realpathSync.native(path);
+}
+
 export function isolatedEnvironment(home) {
   mkdirSync(home, { recursive: true });
+  // Empty files inside the isolated home, never os.devNull, for every path a
+  // tool opens as a config file:
+  // - pnpm >= 10.3x refuses one path loaded as both "user" and "global" config
+  //   ("double-loading config ... previously loaded as user") and exits early.
+  // - On Windows devNull is the device path \\.\nul, which git cannot access()
+  //   as GIT_CONFIG_GLOBAL ("unable to access '\\.\nul': Invalid argument").
+  const userconfig = join(home, ".isolated-user.npmrc");
+  const globalconfig = join(home, ".isolated-global.npmrc");
+  const gitconfig = join(home, ".isolated-gitconfig");
+  for (const file of [userconfig, globalconfig, gitconfig])
+    if (!existsSync(file)) writeFileSync(file, "");
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
@@ -43,14 +62,14 @@ export function isolatedEnvironment(home) {
     CI: "true",
     NO_COLOR: "1",
     TERM: "dumb",
-    npm_config_userconfig: devNull,
-    npm_config_globalconfig: devNull,
+    npm_config_userconfig: userconfig,
+    npm_config_globalconfig: globalconfig,
     npm_config_ignore_scripts: "true",
     npm_config_ignore_pnpmfile: "true",
     npm_config_registry: "https://registry.npmjs.org/",
     npm_config_manage_package_manager_versions: "false",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: gitconfig,
     GIT_TERMINAL_PROMPT: "0",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_NO_LAZY_FETCH: "1",
@@ -82,27 +101,93 @@ export function run(command, args, cwd, env, timeout = 120_000) {
 }
 
 // Resolve the installed executable before entering any target directory. No shell/.cmd execution.
-export function packageManager() {
-  const candidates = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
-  for (const directory of candidates) {
-    for (const name of process.platform === "win32" ? ["pnpm.exe", "pnpm.cjs", "pnpm"] : ["pnpm"]) {
-      const path = join(directory, name);
-      if (!existsSync(path) || !lstatSync(realpathSync(path)).isFile()) continue;
-      const real = realpathSync(path);
-      if (/\.(?:c?js|mjs)$/.test(real)) return { command: process.execPath, prefix: [real] };
-      if (process.platform !== "win32" || real.endsWith(".exe"))
-        return { command: real, prefix: [] };
-    }
-    // pnpm/action-setup's Windows npm installation provides this JS entry.
-    for (const script of [
-      join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"),
-      join(directory, "..", "pnpm", "bin", "pnpm.cjs"),
-    ]) {
-      if (existsSync(script) && lstatSync(realpathSync(script)).isFile())
-        return { command: process.execPath, prefix: [realpathSync(script)] };
+// A candidate is only accepted once it proves to be pnpm 10 (the version this
+// contract was written against). Resolution goes by PATH order, but a directory
+// may expose several entries that are not the same pnpm: pnpm/action-setup on
+// Windows installs pnpm 11 under node_modules/pnpm and then has it install the
+// requested pnpm 10 into a store, leaving the v11 bundle beside the v10 shim.
+function pnpmVersion(tool) {
+  const result = spawnSync(tool.command, [...tool.prefix, "--version"], {
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 64 * 1024,
+    windowsHide: true,
+    killSignal: "SIGKILL",
+    env: {
+      PATH: process.env.PATH,
+      ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+    },
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+// Shims written by pnpm/npm on Windows and POSIX carry the script they wrap.
+function shimTarget(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  const target =
+    text.match(/^#\s*cmd-shim-target=(.+)$/m)?.[1] ??
+    text.match(/"%~?dp0%?\\([^"]+\.c?js)"/)?.[1]?.replace(/\\/g, "/") ??
+    text.match(/\$basedir\/([^\s"']+\.c?js)/)?.[1];
+  if (!target) return undefined;
+  const resolved = isAbsolute(target) ? target : resolve(dirname(path), target);
+  return existsSync(resolved) ? canonical(resolved) : undefined;
+}
+
+function* pnpmCandidates(directory) {
+  const names =
+    process.platform === "win32"
+      ? ["pnpm.exe", "pnpm.cjs", "pnpm.cmd", "pnpm.CMD", "pnpm"]
+      : ["pnpm"];
+  for (const name of names) {
+    const path = join(directory, name);
+    if (!existsSync(path) || !lstatSync(canonical(path)).isFile()) continue;
+    const real = canonical(path);
+    if (/\.(?:c?js|mjs)$/.test(real)) yield { command: process.execPath, prefix: [real] };
+    else if (real.endsWith(".exe")) yield { command: real, prefix: [] };
+    else {
+      const script = shimTarget(real);
+      if (script) yield { command: process.execPath, prefix: [script] };
+      else if (process.platform !== "win32") yield { command: real, prefix: [] };
     }
   }
-  throw new Error("installed-pnpm-unavailable");
+  // pnpm/action-setup's Windows npm installation provides these JS entries; the
+  // v11 layout keeps the requested version's shim under a nested bin/.
+  for (const script of [
+    join(directory, "bin", "pnpm.cmd"),
+    join(directory, "bin", "pnpm"),
+    join(directory, "node_modules", "pnpm", "bin", "pnpm.cjs"),
+    join(directory, "..", "pnpm", "bin", "pnpm.cjs"),
+  ]) {
+    if (!existsSync(script) || !lstatSync(canonical(script)).isFile()) continue;
+    const real = canonical(script);
+    if (/\.c?js$/.test(real)) yield { command: process.execPath, prefix: [real] };
+    else {
+      const target = shimTarget(real);
+      if (target) yield { command: process.execPath, prefix: [target] };
+    }
+  }
+}
+
+export function packageManager() {
+  const candidates = (process.env.PATH ?? "").split(process.platform === "win32" ? ";" : ":");
+  const rejected = [];
+  for (const directory of candidates) {
+    if (!directory) continue;
+    for (const tool of pnpmCandidates(directory)) {
+      const version = pnpmVersion(tool);
+      if (/^10\./.test(version)) return tool;
+      rejected.push(`${tool.prefix[0] ?? tool.command} (${version || "unusable"})`);
+    }
+  }
+  const error = new Error("installed-pnpm-unavailable");
+  error.diagnostic = rejected.slice(0, 8).join("; ");
+  if (error.diagnostic) error.message += ": pnpm 10 required, found " + error.diagnostic;
+  throw error;
 }
 
 export function pnpm(tool, args, cwd, env, timeout = 120_000) {
@@ -123,9 +208,9 @@ export function pnpm(tool, args, cwd, env, timeout = 120_000) {
 }
 
 function contained(root, path) {
-  const location = relative(realpathSync(root), realpathSync(path));
+  const location = relative(canonical(root), canonical(path));
   assert.ok(location && !location.startsWith("..") && !isAbsolute(location), "path-outside-root");
-  return realpathSync(path);
+  return canonical(path);
 }
 
 function safeRelative(path) {
@@ -147,7 +232,7 @@ export function workspaceClosure(root, tool, env) {
   assert.ok(Array.isArray(listed) && listed.length < 200, "invalid-workspace-list");
   const workspaces = new Map();
   for (const item of listed) {
-    if (realpathSync(item.path) === realpathSync(root)) continue;
+    if (canonical(item.path) === canonical(root)) continue;
     const directory = contained(root, item.path);
     const manifestPath = join(directory, "package.json");
     assert.ok(
@@ -196,7 +281,7 @@ export function workspaceClosure(root, tool, env) {
     visit(name);
     assert.equal(
       closure.get(name).directory,
-      realpathSync(join(root, directory)),
+      canonical(join(root, directory)),
       "canonical-workspace-path",
     );
     assert.equal(closure.get(name).manifest.version, VERSION, "canonical-version");
@@ -278,9 +363,9 @@ export function offlineCacheSeed(metadataSource, storeSource, home) {
       lstatSync(path).isDirectory() && !lstatSync(path).isSymbolicLink(),
       "invalid-cache-source",
     );
-    const root = realpathSync(path);
-    const overlap = relative(root, realpathSync(home));
-    const reverse = relative(realpathSync(home), root);
+    const root = canonical(path);
+    const overlap = relative(root, canonical(home));
+    const reverse = relative(canonical(home), root);
     assert.ok(
       (overlap.startsWith("..") || isAbsolute(overlap)) &&
         (reverse.startsWith("..") || isAbsolute(reverse)),
@@ -463,7 +548,11 @@ export function installConsumer(
     !cacheSeed || (offline && store === cacheSeed.store),
     "offline-seed-requires-disposable-store",
   );
-  const deadline = Date.now() + 120_000;
+  // Offline replays finish in seconds and keep the tight budget. The one
+  // registry-populating install downloads ~300 packages; hosted Windows runners
+  // have been observed cut off at 120 s with 131 of 310 fetched, so it gets a
+  // budget sized to the work rather than to a cold-cache lucky day.
+  const deadline = Date.now() + (offline ? 120_000 : 600_000);
   for (;;) {
     const remaining = deadline - Date.now();
     assert.ok(remaining > 0, "offline-install-time-limit");
@@ -515,7 +604,7 @@ export function installConsumer(
           ).trim();
           assert.ok(resolution.startsWith("file:"), "registry-workspace-substitute");
           const resolved = contained(consumer, fileURLToPath(resolution));
-          contained(realpathSync(join(consumer, "node_modules", name)), resolved);
+          contained(canonical(join(consumer, "node_modules", name)), resolved);
         }
       }
     }
@@ -605,10 +694,10 @@ export function compileConsumer(consumer, compiler, env) {
     consumer,
     env,
   );
-  const root = realpathSync(consumer);
-  const standardLibrary = realpathSync(join(dirname(realpathSync(compiler)), "..", "lib"));
+  const root = canonical(consumer);
+  const standardLibrary = canonical(join(dirname(canonical(compiler)), "..", "lib"));
   for (const file of output.trim().split(/\r?\n/)) {
-    const path = realpathSync(resolve(consumer, file));
+    const path = canonical(resolve(consumer, file));
     const location = relative(root, path);
     if (location && !location.startsWith("..") && !isAbsolute(location)) continue;
     // The compiler is tooling; only its own standard libraries may be external.
@@ -635,7 +724,7 @@ export async function runConsumerContracts({
     );
   // pnpm derives file-tarball cache keys relative to its real cwd. Resolve macOS
   // /var aliases before constructing paths, especially inside the trusted shell's temp home.
-  const home = realpathSync(mkdtempSync(join(tmpdir(), "kleio-consumer-")));
+  const home = canonical(mkdtempSync(join(tmpdir(), "kleio-consumer-")));
   const report = {
     candidateSha,
     outcomes: [],
@@ -654,7 +743,7 @@ export async function runConsumerContracts({
   };
   let stage = "pack";
   try {
-    root = realpathSync(root);
+    root = canonical(root);
     const env = isolatedEnvironment(join(home, "home"));
     assert.equal(
       run("git", ["-c", "core.fsmonitor=false", "rev-parse", "HEAD"], root, env).trim(),
@@ -772,7 +861,7 @@ export async function runConsumerContracts({
     error.report = report;
     throw error;
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

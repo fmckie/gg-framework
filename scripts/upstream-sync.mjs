@@ -13,8 +13,9 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -101,6 +102,14 @@ export function validateInputs(options) {
     throw new Blocked("unknown-option");
 }
 
+// Empty files, never os.devNull: on Windows devNull is the device path \\.\nul,
+// which git cannot access() when told to open it as a config/attributes file.
+function isolatedFile(home, name) {
+  const file = join(home, name);
+  if (!existsSync(file)) writeFileSync(file, "");
+  return file;
+}
+
 function isolatedEnvironment(home) {
   return {
     PATH: process.env.PATH,
@@ -113,7 +122,7 @@ function isolatedEnvironment(home) {
     TEMP: home,
     LC_ALL: "C",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: isolatedFile(home, ".isolated-gitconfig"),
     GIT_ATTR_NOSYSTEM: "1",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_NO_LAZY_FETCH: "1",
@@ -135,7 +144,7 @@ function git(context, args, { input, sourceObjects, maxBuffer = MAX_OUTPUT, stat
       "-c",
       "core.hooksPath=" + join(context.home, "disabled-hooks"),
       "-c",
-      "core.attributesFile=" + devNull,
+      "core.attributesFile=" + isolatedFile(context.home, ".isolated-gitattributes"),
       "-c",
       "protocol.allow=never",
       "-c",
@@ -509,7 +518,10 @@ export function prepareCandidate(options) {
     return report;
   } finally {
     // This path is allocated internally; no caller-controlled output/cleanup path.
-    if (home && !keep) rmSync(home, { recursive: true, force: true });
+    // Retry: on Windows a just-exited git can still hold pack/index handles for a
+    // moment, and a single rmSync would silently leave the directory behind.
+    if (home && !keep)
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 

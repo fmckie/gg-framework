@@ -43,7 +43,10 @@ jobs:
   test:
     name: ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # 30 not 15: on Windows the two verification gates (local regressions
+    # ~3 min, packed consumer contracts ~6 min) plus the vitest suite (~6 min)
+    # add up to ~21 min of wall time; Linux/macOS finish in about half that.
+    timeout-minutes: 30
     defaults:
       run:
         shell: node "${{ github.workspace }}/control/scripts/verify-ci-candidate.mjs" shell bash {0}

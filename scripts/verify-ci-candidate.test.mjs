@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,7 +78,9 @@ function workflowInvariants(source) {
     ],
   ];
   sections.forEach((section, index) => {
-    assert.ok(section.includes(`timeout-minutes: ${index === 0 ? 15 : 30}`), "existing-budget");
+    // Both jobs budget 30 minutes: the Windows test leg spends ~9 min in the two
+    // verification gates before a ~6 min vitest run, and the app leg builds an MSI.
+    assert.ok(section.includes("timeout-minutes: 30"), "existing-budget");
     assert.match(section, /runs-on: \$\{\{ matrix.os \}\}/);
     assert.match(section, /fail-fast: false/);
     assert.match(section, /os: \[ubuntu-latest, macos-latest, windows-latest\]/);
@@ -176,7 +185,7 @@ test("focused CI regression checks reject meaningful workflow mutations", () => 
     ["ubuntu-latest, macos-latest, windows-latest", "ubuntu-latest, macos-latest"],
     ["pnpm -r check", "echo removed"],
     ["pnpm -r test", "pnpm -r test || true"],
-    ["timeout-minutes: 15", "timeout-minutes: 60"],
+    ["timeout-minutes: 30", "timeout-minutes: 60"],
     ["fail-fast: false", "fail-fast: true"],
     ["ref: ${{ github.sha }}", "ref: main"],
     ["persist-credentials: false", "persist-credentials: true"],
@@ -319,7 +328,7 @@ test("manual caller contexts reject malformed/stale inputs and non-default branc
 
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 function fixture(t) {
-  const home = mkdtempSync(join(tmpdir(), "kleio-ci-test-"));
+  const home = realpathSync.native(mkdtempSync(join(tmpdir(), "kleio-ci-test-")));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const env = {
     ...isolatedEnvironment(join(home, "home")),
@@ -645,9 +654,14 @@ test("advancing source refs retains pinned inputs; rewritten upstream membership
 
 test("missing objects, no-op, conflict and changed verification policy reject without fallback", async (t) => {
   const f = fixture(t);
+  // A rejected git call names the subcommand and carries git's own reason, so a
+  // CI log never again reads just "rev-parse" with nothing to act on.
   assert.throws(
     () => reconstructLocal({ ...f.options, inputs: { ...f.inputs, upstream_sha: "f".repeat(40) } }),
-    /verification-git-failed: cat-file/,
+    (error) =>
+      /^verification-git-failed: cat-file\n/.test(error.message) &&
+      /\nfatal: .*(object|cat-file)/.test(error.message) &&
+      error.message.length < 1200,
   );
   assert.throws(
     () =>
@@ -680,4 +694,16 @@ test("missing objects, no-op, conflict and changed verification policy reject wi
       assert.throws(() => reconstructLocal({ ...f.options, inputs, context }), reason);
       assert.equal(existsSync(f.options.destination), false);
     });
+});
+
+test("verifier git calls carry safe.directory so a dropped global config cannot reject the pinned checkout", () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "verify-ci-candidate.mjs"),
+    "utf8",
+  );
+  // Hosted Windows runners own the workspace as BUILTIN\\Administrators; the only
+  // safe.directory entry lives in the global config that isolatedEnvironment drops.
+  assert.match(source, /"safe\.directory=\*",?\n\];/);
+  // Per-invocation only: the verifier never writes git config anywhere.
+  assert.doesNotMatch(source, /["']config["'],\s*["']--(global|system)["']/);
 });

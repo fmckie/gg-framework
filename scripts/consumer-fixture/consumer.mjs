@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const consumer = dirname(fileURLToPath(import.meta.url));
+// Native realpath: on Windows the consumer may be reached through an 8.3 alias
+// (C:\\Users\\RUNNER~1) while resolved modules come back with the long name.
+const consumer = realpathSync.native(dirname(fileURLToPath(import.meta.url)));
 const outcomes = [];
 async function contract(name, action) {
   try {
@@ -16,7 +19,7 @@ async function contract(name, action) {
   }
 }
 async function publicImport(specifier) {
-  const path = await realpath(fileURLToPath(import.meta.resolve(specifier)));
+  const path = realpathSync.native(fileURLToPath(import.meta.resolve(specifier)));
   const location = relative(consumer, path);
   assert.ok(
     location && !location.startsWith("..") && !isAbsolute(location),
@@ -131,7 +134,7 @@ await contract("installed-cli", async () => {
     ["@kleio/coder", ["kleio-coder", "ggcoder"], "Kleio Coder"],
     ["@kleio/manager", ["kleio-manager", "ggboss"], "Kleio Manager"],
   ]) {
-    const root = await realpath(join(consumer, "node_modules", name));
+    const root = realpathSync.native(join(consumer, "node_modules", name));
     const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     assert.equal(manifest.version, "4.10.1-kleio.1", "fixed-version");
     for (const command of commands) {
