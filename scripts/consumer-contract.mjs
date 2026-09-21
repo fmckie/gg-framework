@@ -28,6 +28,12 @@ export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex"
 
 export function isolatedEnvironment(home) {
   mkdirSync(home, { recursive: true });
+  // Two distinct empty files, not one shared null device: pnpm >= 10.3x refuses
+  // to load the same path as both "user" and "global" config ("double-loading
+  // config ... previously loaded as user") and exits before resolving anything.
+  const userconfig = join(home, ".isolated-user.npmrc");
+  const globalconfig = join(home, ".isolated-global.npmrc");
+  for (const file of [userconfig, globalconfig]) if (!existsSync(file)) writeFileSync(file, "");
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
@@ -43,8 +49,8 @@ export function isolatedEnvironment(home) {
     CI: "true",
     NO_COLOR: "1",
     TERM: "dumb",
-    npm_config_userconfig: devNull,
-    npm_config_globalconfig: devNull,
+    npm_config_userconfig: userconfig,
+    npm_config_globalconfig: globalconfig,
     npm_config_ignore_scripts: "true",
     npm_config_ignore_pnpmfile: "true",
     npm_config_registry: "https://registry.npmjs.org/",

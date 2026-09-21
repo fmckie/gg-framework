@@ -645,9 +645,14 @@ test("advancing source refs retains pinned inputs; rewritten upstream membership
 
 test("missing objects, no-op, conflict and changed verification policy reject without fallback", async (t) => {
   const f = fixture(t);
+  // A rejected git call names the subcommand and carries git's own reason, so a
+  // CI log never again reads just "rev-parse" with nothing to act on.
   assert.throws(
     () => reconstructLocal({ ...f.options, inputs: { ...f.inputs, upstream_sha: "f".repeat(40) } }),
-    /verification-git-failed: cat-file/,
+    (error) =>
+      /^verification-git-failed: cat-file\n/.test(error.message) &&
+      /\nfatal: .*(object|cat-file)/.test(error.message) &&
+      error.message.length < 1200,
   );
   assert.throws(
     () =>
@@ -680,4 +685,16 @@ test("missing objects, no-op, conflict and changed verification policy reject wi
       assert.throws(() => reconstructLocal({ ...f.options, inputs, context }), reason);
       assert.equal(existsSync(f.options.destination), false);
     });
+});
+
+test("verifier git calls carry safe.directory so a dropped global config cannot reject the pinned checkout", () => {
+  const source = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "verify-ci-candidate.mjs"),
+    "utf8",
+  );
+  // Hosted Windows runners own the workspace as BUILTIN\\Administrators; the only
+  // safe.directory entry lives in the global config that isolatedEnvironment drops.
+  assert.match(source, /"safe\.directory=\*",?\n\];/);
+  // Per-invocation only: the verifier never writes git config anywhere.
+  assert.doesNotMatch(source, /["']config["'],\s*["']--(global|system)["']/);
 });

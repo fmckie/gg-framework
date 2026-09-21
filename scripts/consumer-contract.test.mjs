@@ -84,6 +84,32 @@ function fixture(t) {
   return { home, directory, output, env, marker, manifest };
 }
 
+test("isolated npm config uses two distinct empty files so pnpm cannot double-load one path", (t) => {
+  const home = mkdtempSync(join(tmpdir(), "kleio-isolated-env-"));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const env = isolatedEnvironment(join(home, "h"));
+  const user = env.npm_config_userconfig;
+  const global = env.npm_config_globalconfig;
+  assert.notEqual(user, global, "pnpm >= 10.3x rejects one path loaded as both user and global");
+  for (const file of [user, global]) {
+    assert.ok(file.startsWith(join(home, "h") + sep), "config lives inside the isolated home");
+    assert.equal(readFileSync(file, "utf8"), "", "no inherited settings");
+  }
+  // Calling again on the same home is idempotent: same paths, still empty.
+  assert.deepEqual(
+    [env.npm_config_userconfig, env.npm_config_globalconfig],
+    (() => {
+      const again = isolatedEnvironment(join(home, "h"));
+      return [again.npm_config_userconfig, again.npm_config_globalconfig];
+    })(),
+  );
+  // The installed pnpm must accept the pair; this is what broke on 10.34.
+  assert.equal(
+    pnpm(tool, ["config", "get", "registry"], join(home, "h"), env).trim(),
+    "https://registry.npmjs.org/",
+  );
+});
+
 test("real pack/install suppress lifecycle and pnpmfile hooks and scrub credentials", (t) => {
   const f = fixture(t);
   const userconfig = join(f.home, "user.npmrc");

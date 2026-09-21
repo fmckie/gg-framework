@@ -39,6 +39,13 @@ const GIT_OPTIONS = [
   "transfer.fsckObjects=true",
   "-c",
   "gc.auto=0",
+  // Every directory below is chosen by this script (the control checkout or a
+  // temporary it created), and HEAD/tree identity is asserted separately, so
+  // git's owner heuristic adds nothing here. Without this, hosted Windows runners
+  // fail: the workspace is owned by BUILTIN\Administrators and the global config
+  // where actions/checkout registers safe.directory is deliberately not loaded.
+  "-c",
+  "safe.directory=*",
 ];
 
 function exactKeys(object, keys) {
@@ -104,8 +111,11 @@ function git(directory, args, env, { network = false, local = false, allowFailur
       windowsHide: true,
     },
   );
-  if (result.error || (!allowFailure && result.status !== 0))
-    throw new Error("verification-git-failed: " + args[0]);
+  if (result.error || (!allowFailure && result.status !== 0)) {
+    // Bounded diagnostics only; git's stderr is a log, never an input.
+    const detail = (result.error?.code ?? result.stderr ?? "").trim().slice(0, 1000);
+    throw new Error("verification-git-failed: " + args[0] + (detail ? "\n" + detail : ""));
+  }
   return allowFailure ? result.status : result.stdout.trim();
 }
 
