@@ -14,7 +14,7 @@ import {
   writeFileSync,
   copyFileSync,
 } from "node:fs";
-import { devNull, homedir, tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CANONICAL_PACKAGES, auditInstalledPackages } from "./identity-audit.mjs";
@@ -28,12 +28,17 @@ export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex"
 
 export function isolatedEnvironment(home) {
   mkdirSync(home, { recursive: true });
-  // Two distinct empty files, not one shared null device: pnpm >= 10.3x refuses
-  // to load the same path as both "user" and "global" config ("double-loading
-  // config ... previously loaded as user") and exits before resolving anything.
+  // Empty files inside the isolated home, never os.devNull, for every path a
+  // tool opens as a config file:
+  // - pnpm >= 10.3x refuses one path loaded as both "user" and "global" config
+  //   ("double-loading config ... previously loaded as user") and exits early.
+  // - On Windows devNull is the device path \\.\nul, which git cannot access()
+  //   as GIT_CONFIG_GLOBAL ("unable to access '\\.\nul': Invalid argument").
   const userconfig = join(home, ".isolated-user.npmrc");
   const globalconfig = join(home, ".isolated-global.npmrc");
-  for (const file of [userconfig, globalconfig]) if (!existsSync(file)) writeFileSync(file, "");
+  const gitconfig = join(home, ".isolated-gitconfig");
+  for (const file of [userconfig, globalconfig, gitconfig])
+    if (!existsSync(file)) writeFileSync(file, "");
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
@@ -56,7 +61,7 @@ export function isolatedEnvironment(home) {
     npm_config_registry: "https://registry.npmjs.org/",
     npm_config_manage_package_manager_versions: "false",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: gitconfig,
     GIT_TERMINAL_PROMPT: "0",
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_NO_LAZY_FETCH: "1",

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { execFile as execFileCallback } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { devNull } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -365,12 +366,24 @@ function exactOptions(options, keys) {
     throw new Error("invalid-audit-options");
 }
 
+// Verified-mode git must not read the operator's global config. An empty file is
+// used rather than os.devNull because on Windows devNull is the device path
+// \\.\nul, which git cannot access() as GIT_CONFIG_GLOBAL.
+let emptyGitConfig;
+function isolatedGitConfig() {
+  if (!emptyGitConfig) {
+    emptyGitConfig = join(mkdtempSync(join(tmpdir(), "kleio-identity-audit-")), "gitconfig");
+    writeFileSync(emptyGitConfig, "");
+  }
+  return emptyGitConfig;
+}
+
 function gitEnvironment() {
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: isolatedGitConfig(),
     GIT_NO_REPLACE_OBJECTS: "1",
     GIT_NO_LAZY_FETCH: "1",
     GIT_TERMINAL_PROMPT: "0",

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   copyFileSync,
@@ -16,7 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
@@ -84,30 +85,34 @@ function fixture(t) {
   return { home, directory, output, env, marker, manifest };
 }
 
-test("isolated npm config uses two distinct empty files so pnpm cannot double-load one path", (t) => {
+test("isolated config paths are distinct empty files inside the home, never the null device", (t) => {
   const home = mkdtempSync(join(tmpdir(), "kleio-isolated-env-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const env = isolatedEnvironment(join(home, "h"));
-  const user = env.npm_config_userconfig;
-  const global = env.npm_config_globalconfig;
-  assert.notEqual(user, global, "pnpm >= 10.3x rejects one path loaded as both user and global");
-  for (const file of [user, global]) {
+  const files = [env.npm_config_userconfig, env.npm_config_globalconfig, env.GIT_CONFIG_GLOBAL];
+  // pnpm >= 10.3x rejects one path loaded as both user and global config; on
+  // Windows os.devNull is \\.\nul, which git cannot access() as a config file.
+  assert.equal(new Set(files).size, files.length, "each config role gets its own file");
+  for (const file of files) {
     assert.ok(file.startsWith(join(home, "h") + sep), "config lives inside the isolated home");
     assert.equal(readFileSync(file, "utf8"), "", "no inherited settings");
   }
+  for (const [key, value] of Object.entries(env))
+    assert.notEqual(value, devNull, key + " must not point at the null device");
   // Calling again on the same home is idempotent: same paths, still empty.
+  const again = isolatedEnvironment(join(home, "h"));
   assert.deepEqual(
-    [env.npm_config_userconfig, env.npm_config_globalconfig],
-    (() => {
-      const again = isolatedEnvironment(join(home, "h"));
-      return [again.npm_config_userconfig, again.npm_config_globalconfig];
-    })(),
+    [again.npm_config_userconfig, again.npm_config_globalconfig, again.GIT_CONFIG_GLOBAL],
+    files,
   );
-  // The installed pnpm must accept the pair; this is what broke on 10.34.
+  // Both tools must accept the files; these are the exact calls that broke in CI.
   assert.equal(
     pnpm(tool, ["config", "get", "registry"], join(home, "h"), env).trim(),
     "https://registry.npmjs.org/",
   );
+  const git = spawnSync("git", ["config", "--global", "--list"], { env, encoding: "utf8" });
+  assert.equal(git.status, 0, git.stderr);
+  assert.equal(git.stdout.trim(), "");
 });
 
 test("real pack/install suppress lifecycle and pnpmfile hooks and scrub credentials", (t) => {

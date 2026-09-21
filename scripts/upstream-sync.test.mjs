@@ -15,7 +15,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -29,13 +29,16 @@ const json = (data) => JSON.stringify(data, null, 2) + "\n";
 const file = (content, mode = "100644") => ({ content, mode });
 
 function environment(home) {
+  // Never os.devNull as a config path: on Windows it is \\.\nul, unreadable by git.
+  const gitconfig = join(home, ".isolated-gitconfig");
+  if (!existsSync(gitconfig)) writeFileSync(gitconfig, "");
   return {
     PATH: process.env.PATH,
     ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     HOME: home,
     USERPROFILE: home,
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: gitconfig,
     GIT_TERMINAL_PROMPT: "0",
     GIT_AUTHOR_NAME: "Fixture",
     GIT_AUTHOR_EMAIL: "fixture@localhost",
