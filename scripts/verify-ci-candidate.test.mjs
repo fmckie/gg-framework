@@ -78,7 +78,9 @@ function workflowInvariants(source) {
     ],
   ];
   sections.forEach((section, index) => {
-    assert.ok(section.includes(`timeout-minutes: ${index === 0 ? 15 : 30}`), "existing-budget");
+    // Both jobs budget 30 minutes: the Windows test leg spends ~9 min in the two
+    // verification gates before a ~6 min vitest run, and the app leg builds an MSI.
+    assert.ok(section.includes("timeout-minutes: 30"), "existing-budget");
     assert.match(section, /runs-on: \$\{\{ matrix.os \}\}/);
     assert.match(section, /fail-fast: false/);
     assert.match(section, /os: \[ubuntu-latest, macos-latest, windows-latest\]/);
@@ -183,7 +185,7 @@ test("focused CI regression checks reject meaningful workflow mutations", () => 
     ["ubuntu-latest, macos-latest, windows-latest", "ubuntu-latest, macos-latest"],
     ["pnpm -r check", "echo removed"],
     ["pnpm -r test", "pnpm -r test || true"],
-    ["timeout-minutes: 15", "timeout-minutes: 60"],
+    ["timeout-minutes: 30", "timeout-minutes: 60"],
     ["fail-fast: false", "fail-fast: true"],
     ["ref: ${{ github.sha }}", "ref: main"],
     ["persist-credentials: false", "persist-credentials: true"],
