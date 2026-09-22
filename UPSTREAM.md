@@ -124,6 +124,32 @@ behavioral parity, while artifact comparisons must normalize exactly the five ma
 below and reject every other runtime delta. Version `.0` records that unshipped
 mechanical baseline; it must not be published.
 
+## Published releases
+
+| Version          | Tag               | Commit     | Engine | npm dist-tags     | Date       |
+| ---------------- | ----------------- | ---------- | ------ | ----------------- | ---------- |
+| `4.10.1-kleio.1` | `v4.10.1-kleio.1` | `0c69b71e` | 4.10.1 | superseded        | 2026-08-28 |
+| `5.60.2-kleio.1` | `v5.60.2-kleio.1` | `28c9162d` | 5.60.2 | `latest`, `kleio` | 2026-09-22 |
+
+All five fixed packages are published together, by hand from `main` at the tagged
+commit, after `pnpm -r build`, `verify:fixed-versions` and `audit:identity:packed`.
+`release.yml` only builds the desktop bundle and is gated to the upstream repository;
+it never publishes npm. Both dist-tags must move: the manager auto-updater installs
+`@kleio/manager@kleio`.
+
+### Publishing note (2026-09-22)
+
+`npm publish` printed `+ @kleio/<pkg>@5.60.2-kleio.1` for all five, yet three of
+them (`ai`, `core`, `coder`) did not appear in the registry, and re-publishing
+returned `409 Cannot publish over previously staged version` although
+`npm stage list` was empty. This is an open registry-side bug
+([npm/cli#9889](https://github.com/npm/cli/issues/9889)): the PUT is accepted and
+silently dropped. Re-running `npm publish` for the missing packages, spaced about
+a minute apart, eventually landed them (`E403` afterwards means "already
+published", which is the good outcome). Always confirm with the raw packument
+(`curl https://registry.npmjs.org/@kleio%2f<pkg>`) and a clean `npm i` into a
+temporary prefix rather than trusting the publish output.
+
 ## Package map
 
 | Upstream              | Downstream       |
