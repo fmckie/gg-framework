@@ -3787,11 +3787,12 @@ fn gaze_focus(
 // removed by REBUILDING the menu whenever the webview reports a change
 // (`set_update_available` / `set_remote_active`).
 
+/// Kleio remote-host support (all platforms). See `kleio/mod.rs`.
+mod kleio;
+
 /// Tray menu item ids. Kept as one list so the builder and the click handler
 /// can never drift apart.
 #[cfg(any(target_os = "macos", windows))]
-mod kleio;
-
 mod tray_id {
     pub const UPDATE: &str = "tray:update";
     pub const NEW_CHAT: &str = "tray:new-chat";
