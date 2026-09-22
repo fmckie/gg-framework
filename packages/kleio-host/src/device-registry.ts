@@ -8,7 +8,7 @@
 // device-registry.json is read as-is (plan decision D3).
 
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { Keychain } from "./file-keychain.js";
@@ -110,12 +110,32 @@ function toPaired(record: DeviceRecord): PairedDevice {
   };
 }
 
+/**
+ * Write-then-rename. On Windows a rename over a file that was itself just
+ * renamed into place (or is briefly held by an indexer/AV scan) fails with
+ * EPERM/EBUSY for a few milliseconds; POSIX never does. Retry briefly on those
+ * two codes only, and clean the temp file up on any failure.
+ */
 export async function atomicWrite(path: string, data: string, mode: number): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
-  await writeFile(tmp, data, { encoding: "utf8", mode });
-  await chmod(tmp, mode);
-  await rename(tmp, path);
+  try {
+    await writeFile(tmp, data, { encoding: "utf8", mode });
+    await chmod(tmp, mode);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(tmp, path);
+        return;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if ((code !== "EPERM" && code !== "EBUSY") || attempt >= 20) throw e;
+        await new Promise((r) => setTimeout(r, 10 * (attempt + 1)));
+      }
+    }
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
 }
 
 export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {

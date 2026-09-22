@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
+import { atomicWrite, createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import {
   createFileKeychain,
   generateMasterKey,
@@ -212,6 +212,29 @@ describe("device registry", () => {
     await expect(registry().init()).rejects.toThrow(/malformed record/);
     writeFileSync(storePath, JSON.stringify({ version: 2, devices: [] }), { mode: 0o600 });
     await expect(registry().init()).rejects.toThrow(/schema is invalid/);
+  });
+
+  it("survives rapid back-to-back writes (mint, revoke, touch) without a persist failure", async () => {
+    // Each call renames a fresh temp file over the store; Windows briefly
+    // refuses a rename over a just-renamed target. Ten rounds, no 'io' errors.
+    const reg = registry();
+    await reg.init();
+    for (let i = 0; i < 10; i += 1) {
+      const m = await reg.mint(`d${i}`);
+      expect(m.ok).toBe(true);
+      if (!m.ok) return;
+      await reg.touch(m.value.device.deviceId);
+      const r = await reg.revoke(m.value.device.deviceId);
+      expect(r.ok).toBe(true);
+    }
+    expect(reg.list().filter((d) => d.revoked)).toHaveLength(10);
+  });
+
+  it("atomicWrite leaves no temp file behind when the rename fails", async () => {
+    const target = join(home, "nope", "x.json");
+    await expect(atomicWrite(target, "{}", 0o600)).resolves.toBeUndefined();
+    const { readdirSync } = await import("node:fs");
+    expect(readdirSync(join(home, "nope")).filter((f) => f.includes(".tmp-"))).toEqual([]);
   });
 
   it("touch updates lastSeen without changing the token", async () => {
