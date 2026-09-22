@@ -1,0 +1,38 @@
+{
+  "name": "@kleio/host",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Kleio host: pairs devices and fronts the gg-app sidecar on a headless Mac over Tailscale",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fmckie/gg-framework.git",
+    "directory": "packages/kleio-host"
+  },
+  "bin": {
+    "kleio-host": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.4"
+  }
+}
