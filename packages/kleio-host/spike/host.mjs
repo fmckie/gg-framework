@@ -236,7 +236,11 @@ function tokenOk(header) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://kleio");
   if (url.pathname === "/kleio/health") {
-    return json(res, 200, { ok: true, sidecar: sidecarPort ? "up" : "down", sessions: sessions.size });
+    return json(res, 200, {
+      ok: true,
+      sidecar: sidecarPort ? "up" : "down",
+      sessions: [...sessions].map(([id, s]) => ({ id, seq: s.seq, subscribers: s.subs.size })),
+    });
   }
   const presented = req.headers["x-kleio-device-token"] ?? url.searchParams.get("device_token");
   if (!tokenOk(presented)) return json(res, 401, { error: "unauthorized" });

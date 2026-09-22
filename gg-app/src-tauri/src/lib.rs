@@ -230,6 +230,10 @@ fn restore_sibling_windows(window: &tauri::Window) {
 }
 
 fn sidecar_base(port: u16) -> String {
+    // kleio: registration point 1/3 — remote host replaces the loopback base.
+    if let Some(r) = kleio::remote() {
+        return r.base.clone();
+    }
     format!("http://127.0.0.1:{port}")
 }
 
@@ -3786,6 +3790,8 @@ fn gaze_focus(
 /// Tray menu item ids. Kept as one list so the builder and the click handler
 /// can never drift apart.
 #[cfg(any(target_os = "macos", windows))]
+mod kleio;
+
 mod tray_id {
     pub const UPDATE: &str = "tray:update";
     pub const NEW_CHAT: &str = "tray:new-chat";
@@ -4257,6 +4263,7 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
     // shares the connection pool with the proxy commands.
     let client = app.state::<reqwest::Client>().inner().clone();
     tauri::async_runtime::spawn(async move {
+        let mut last_event_id: Option<u64> = None;
         loop {
             // Stop once this window's active session has moved on (project switch
             // created a new session) or the window is gone — otherwise the old
@@ -4276,7 +4283,13 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                 sidecar_base(port),
                 urlencoding(&session_id)
             );
-            match client.get(&url).send().await {
+            // kleio: resume from the last frame id the host gave us (the local
+            // sidecar sends no id: lines, so this stays None locally).
+            let mut req = client.get(&url);
+            if let Some(id) = last_event_id {
+                req = req.header("Last-Event-ID", id.to_string());
+            }
+            match req.send().await {
                 Ok(res) => {
                     let mut stream = res.bytes_stream();
                     // Raw byte buffer — decode only at frame boundaries so a
@@ -4286,6 +4299,9 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                         let Ok(bytes) = chunk else { break };
                         buf.extend_from_slice(&bytes);
                         for frame in drain_sse_frames(&mut buf) {
+                            if let Some(id) = kleio::sse_frame_id(&frame) {
+                                last_event_id = Some(id);
+                            }
                             for line in frame.lines() {
                                 if let Some(payload) = line.strip_prefix("data: ") {
                                     if let Ok(value) =
@@ -5060,6 +5076,12 @@ pub fn run() {
         reqwest::header::HeaderValue::from_str(&daemon_token)
             .expect("uuid v4 is valid header ASCII"),
     );
+    // kleio: registration point 2/3 — the host checks a device token instead.
+    if let Some(r) = kleio::remote() {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&r.device_token) {
+            default_headers.insert(kleio::DEVICE_TOKEN_HEADER, v);
+        }
+    }
     let http_client = reqwest::Client::builder()
         .default_headers(default_headers)
         .build()
@@ -5096,6 +5118,7 @@ pub fn run() {
         .manage(TrayIntents::default())
         .manage(http_client)
         .invoke_handler(tauri::generate_handler![
+            kleio::kleio_remote_status, // kleio
             sidecar_port,
             dropped_path_info,
             permissions_status,
@@ -5207,7 +5230,12 @@ pub fn run() {
             // Spawn the ONE shared Node daemon before any window asks for a
             // session. Window session creation (in restore/setup) awaits its
             // `GG_APP_LISTENING` port via `await_daemon_port`.
-            spawn_daemon(app.handle().clone(), false);
+            // kleio: registration point 3/3 — remote host: nothing to spawn.
+            if kleio::remote().is_some() {
+                *app.state::<Daemon>().port.lock().unwrap() = Some(kleio::REMOTE_PORT_SENTINEL);
+            } else {
+                spawn_daemon(app.handle().clone(), false);
+            }
             // Restore the previous session's windows (each at its project +
             // session) when a workspace snapshot exists; otherwise build the
             // single default `main` window. Windows are built in code (not from
