@@ -1,0 +1,118 @@
+#!/bin/sh
+# Kleio host installer — run ON the Mac mini as the service user. Idempotent.
+#
+#   sh install-mini.sh            install/upgrade and start
+#   sh install-mini.sh uninstall  stop and remove the Kleio host jobs (state kept)
+#
+# Layout: $HOME/kleio-host/{dist,sidecar,node_modules?}  (code, rsync'd from the laptop)
+#         $HOME/Library/Application Support/Kleio/host   (state; see src/paths.ts)
+#
+# Two launchd jobs, so the proxy can be redeployed without killing runs:
+#   com.kleio.host.sidecar  — kleio-host sidecar  (supervises app-sidecar.mjs)
+#   com.kleio.host.serve    — kleio-host serve    (HTTP host on 127.0.0.1:8443)
+# Tailscale Serve fronts :8443 with TLS + tailnet ACL.
+set -eu
+
+CODE="$HOME/kleio-host"
+NODE="${KLEIO_NODE_BIN:-/opt/homebrew/bin/node}"
+TS="${TAILSCALE_BIN:-/usr/local/bin/tailscale}"
+PORT="${KLEIO_HOST_PORT:-8443}"
+AGENTS="$HOME/Library/LaunchAgents"
+UID_="$(id -u)"
+
+# Old agents from earlier Kleio/Atlas generations. Retired here so the mini
+# runs exactly one host. Their plists are moved aside, not deleted.
+LEGACY_LABELS="com.kleio.host-spike com.kleio.ios-ws-server com.kleio.control com.kleio.bridge com.atlas.host com.atlas.bridge com.atlas.control"
+
+bootout() { launchctl bootout "gui/$UID_/$1" 2>/dev/null || true; }
+
+retire_legacy() {
+  mkdir -p "$AGENTS/retired-by-kleio-host"
+  for label in $LEGACY_LABELS; do
+    bootout "$label"
+    if [ -f "$AGENTS/$label.plist" ]; then
+      mv -f "$AGENTS/$label.plist" "$AGENTS/retired-by-kleio-host/$label.plist"
+      echo "retired $label"
+    fi
+  done
+  # The old desktop app (Electron) bundle-launched its own servers; ask it to quit.
+  if pgrep -x Kleio >/dev/null 2>&1; then
+    osascript -e 'tell application "Kleio" to quit' 2>/dev/null || pkill -x Kleio || true
+    echo "asked the old Kleio desktop app to quit"
+  fi
+}
+
+write_plist() { # label, subcommand, extra-env-xml
+  cat > "$AGENTS/$1.plist" <<PL
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$1</string>
+  <key>ProgramArguments</key><array>
+    <string>$NODE</string>
+    <string>$CODE/dist/cli.js</string>
+    <string>$2</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>$HOME</string>
+    <key>KLEIO_HOST_PORT</key><string>$PORT</string>
+    <key>KLEIO_PUBLIC_URL</key><string>$PUBLIC_URL</string>
+    <key>KLEIO_SIDECAR_PATH</key><string>$CODE/sidecar/app-sidecar.mjs</string>
+    <key>KLEIO_NODE_BIN</key><string>$NODE</string>
+$3
+  </dict>
+  <key>WorkingDirectory</key><string>$HOME</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>$STATE/logs/$2.out.log</string>
+  <key>StandardErrorPath</key><string>$STATE/logs/$2.err.log</string>
+</dict></plist>
+PL
+}
+
+if [ "${1:-}" = "uninstall" ]; then
+  bootout com.kleio.host.serve
+  bootout com.kleio.host.sidecar
+  rm -f "$AGENTS/com.kleio.host.serve.plist" "$AGENTS/com.kleio.host.sidecar.plist"
+  "$TS" serve --https="$PORT" off 2>/dev/null || true
+  echo "kleio-host jobs removed; state kept under Application Support/Kleio/host"
+  exit 0
+fi
+
+[ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
+[ -x "$TS" ] || { echo "tailscale not found at $TS" >&2; exit 1; }
+[ -f "$CODE/dist/cli.js" ] || { echo "missing $CODE/dist/cli.js (rsync the package first)" >&2; exit 1; }
+[ -f "$CODE/sidecar/app-sidecar.mjs" ] || { echo "missing $CODE/sidecar/app-sidecar.mjs" >&2; exit 1; }
+
+DNS_NAME="$("$TS" status --json | "$NODE" -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"")')"
+PUBLIC_URL="https://$DNS_NAME:$PORT"
+STATE="$HOME/Library/Application Support/Kleio/host"
+mkdir -p "$STATE/logs"
+
+retire_legacy
+
+# Keys, registry, first admin token (prints once; idempotent afterwards).
+KLEIO_HOST_PORT="$PORT" KLEIO_PUBLIC_URL="$PUBLIC_URL" "$NODE" "$CODE/dist/cli.js" init
+
+write_plist com.kleio.host.sidecar sidecar ""
+write_plist com.kleio.host.serve serve ""
+
+# Restart both. The sidecar first so the endpoint file exists before serve reads it.
+for label in com.kleio.host.sidecar com.kleio.host.serve; do
+  bootout "$label"
+  launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist"
+  launchctl kickstart -k "gui/$UID_/$label"
+done
+
+# Tailscale Serve: clear whatever was on this port, then front the host.
+"$TS" serve --https="$PORT" off 2>/dev/null || true
+"$TS" serve --bg --https="$PORT" "http://127.0.0.1:$PORT" >/dev/null
+
+sleep 3
+echo
+echo "kleio-host installed."
+echo "  public:  $PUBLIC_URL"
+echo "  status:  $(curl -s "http://127.0.0.1:$PORT/kleio/health" || echo '(not yet up)')"
+echo "  pair:    $NODE $CODE/dist/cli.js pair"

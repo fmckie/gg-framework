@@ -59,7 +59,11 @@ describe("file keychain", () => {
     const kc = createFileKeychain({ keyPath });
     const enc = kc.encrypt("secret");
     if (!enc.ok) throw new Error("encrypt failed");
-    const flipped = enc.value.slice(0, -2) + (enc.value.endsWith("A") ? "BB" : "AA");
+    // Flip one bit inside the ciphertext (past the prefix, nonce and tag).
+    const prefix = "v1.hostKey.";
+    const payload = Buffer.from(enc.value.slice(prefix.length), "base64url");
+    payload[payload.length - 1] ^= 0x01;
+    const flipped = prefix + payload.toString("base64url");
     expect(kc.decrypt(flipped)).toMatchObject({ ok: false, error: { kind: "decrypt_failed" } });
     const otherKey = join(home, "other", "key");
     writeMasterKey(otherKey);
