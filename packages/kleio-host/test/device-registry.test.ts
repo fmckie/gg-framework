@@ -77,13 +77,16 @@ describe("file keychain", () => {
     });
   });
 
-  it("refuses a key file that is world-readable or in a loose directory", () => {
-    chmodSync(keyPath, 0o644);
-    expect(() => createFileKeychain({ keyPath })).toThrow(/mode 0600/);
-    chmodSync(keyPath, 0o600);
-    chmodSync(join(keyPath, ".."), 0o755);
-    expect(() => createFileKeychain({ keyPath })).toThrow(/mode 0700/);
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses a key file that is world-readable or in a loose directory",
+    () => {
+      chmodSync(keyPath, 0o644);
+      expect(() => createFileKeychain({ keyPath })).toThrow(/mode 0600/);
+      chmodSync(keyPath, 0o600);
+      chmodSync(join(keyPath, ".."), 0o755);
+      expect(() => createFileKeychain({ keyPath })).toThrow(/mode 0700/);
+    },
+  );
 
   it("refuses a key of the wrong length", () => {
     writeFileSync(keyPath, Buffer.alloc(MASTER_KEY_BYTES - 1), { mode: 0o600 });
@@ -108,7 +111,7 @@ describe("device registry", () => {
     const onDisk = readFileSync(storePath, "utf8");
     expect(onDisk).not.toContain(minted.value.token);
     expect(onDisk).toContain("v1.hostKey.");
-    expect(statSync(storePath).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(storePath).mode & 0o777).toBe(0o600);
   });
 
   it("reloads from disk with the same master key and still authenticates", async () => {

@@ -53,16 +53,25 @@ function mode(stat: Stats): number {
   return stat.mode & 0o777;
 }
 
+/**
+ * POSIX mode and uid checks are the point of this keychain: the key is only as
+ * private as its file. Windows has neither (chmod is a no-op, stat reports
+ * 0666/0777, uid is 0), so on win32 the ownership/mode checks are skipped and
+ * the caller must rely on NTFS ACLs. The host itself only ships for macOS;
+ * this keeps the package's tests meaningful on every CI runner.
+ */
+const POSIX_MODES = process.platform !== "win32";
+
 function loadMasterKey(keyPath: string, expectedUid: number): Buffer {
   const parentPath = dirname(keyPath);
   const parent = lstatSync(parentPath);
   if (!parent.isDirectory() || parent.isSymbolicLink()) {
     throw new Error(`headless key parent must be a regular directory: ${parentPath}`);
   }
-  if (parent.uid !== expectedUid) {
+  if (POSIX_MODES && parent.uid !== expectedUid) {
     throw new Error(`headless key parent has wrong owner: ${parentPath}`);
   }
-  if (mode(parent) !== 0o700) {
+  if (POSIX_MODES && mode(parent) !== 0o700) {
     throw new Error(`headless key parent must have mode 0700: ${parentPath}`);
   }
 
@@ -70,14 +79,14 @@ function loadMasterKey(keyPath: string, expectedUid: number): Buffer {
   if (!before.isFile() || before.isSymbolicLink()) {
     throw new Error(`headless master key must be a regular file: ${keyPath}`);
   }
-  if (before.uid !== expectedUid) {
+  if (POSIX_MODES && before.uid !== expectedUid) {
     throw new Error(`headless master key has wrong owner: ${keyPath}`);
   }
-  if (mode(before) !== 0o600) {
+  if (POSIX_MODES && mode(before) !== 0o600) {
     throw new Error(`headless master key must have mode 0600: ${keyPath}`);
   }
 
-  const fd = openSync(keyPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const fd = openSync(keyPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   try {
     const opened = fstatSync(fd);
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
