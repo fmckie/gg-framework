@@ -128,6 +128,8 @@ import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/RemoteHostModal"; // kleio: registration 1/3
+import { KleioBadge } from "./kleio/KleioBadge";
+import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { formatWorkspaceTitle, WorkspaceHeader } from "./WorkspaceHeader";
@@ -415,6 +417,7 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
+  const kleioRemote = useKleioRemote();
   const [rankCelebrateNonce, setRankCelebrateNonce] = useState<string | null>(null);
   const [xpChips, setXpChips] = useState<Array<{ id: string; label: string }>>([]);
   const lastProgressXpRef = useRef<number | null>(null);
@@ -2541,6 +2544,10 @@ function App(): React.ReactElement {
         onToggleNav={toggleNav}
         stripExtras={
           <>
+            <KleioBadge
+              active={kleioRemote.status?.active ?? null}
+              onClick={() => setShowKleioRemote(true)}
+            />
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
             {windowTotal > 1 && windowIndex !== null && (
               <span

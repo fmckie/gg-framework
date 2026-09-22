@@ -55,3 +55,14 @@ tauri-plugin-process = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# kleio (macOS only): the paired device token lives in the login Keychain and
+# admin actions sit behind a Touch ID gate. `security-framework` is already in
+# the tree via rustls-platform-verifier; `objc2-local-authentication` resolves
+# against the objc2/block2 copies Tauri already uses (no second objc2 tree).
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7"
+objc2-local-authentication = "0.3.2"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSError"] }
+block2 = "0.6"

@@ -1873,7 +1873,21 @@ fn is_valid_project_name(name: &str) -> bool {
 /// screen's "Your Projects" gate matches the sidecar's semantics). Never needs
 /// the sidecar.
 #[tauri::command]
-fn app_settings_get() -> serde_json::Value {
+async fn app_settings_get(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    // kleio: a paired host owns the projects root — the paths are the HOST's,
+    // so read them through the sidecar (session-scoped) instead of ~/.gg here.
+    if kleio::remote().is_some() {
+        let port = port_for(&webview).ok_or("daemon not ready")?;
+        let gg_sid = session_for(&webview).ok_or("session not ready")?;
+        return kleio::host_settings(&client, &sidecar_base(port), &gg_sid).await;
+    }
+    Ok(local_settings_get())
+}
+
+fn local_settings_get() -> serde_json::Value {
     let raw = std::fs::read_to_string(app_settings_path()).ok();
     let parsed = raw
         .as_deref()
@@ -1897,10 +1911,20 @@ fn app_settings_get() -> serde_json::Value {
 /// Native: write gg-app settings directly to ~/.gg/gg-app.json. Creates the
 /// ~/.gg directory if needed. Never needs the sidecar.
 #[tauri::command]
-fn app_settings_save(projects_root: String) -> Result<serde_json::Value, String> {
+async fn app_settings_save(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    projects_root: String,
+) -> Result<serde_json::Value, String> {
     let trimmed = projects_root.trim();
     if trimmed.is_empty() {
         return Err("projectsRoot is required".to_string());
+    }
+    // kleio: save on the host, not here.
+    if kleio::remote().is_some() {
+        let port = port_for(&webview).ok_or("daemon not ready")?;
+        let gg_sid = session_for(&webview).ok_or("session not ready")?;
+        return kleio::host_settings_save(&client, &sidecar_base(port), &gg_sid, trimmed).await;
     }
     let path = app_settings_path();
     if let Some(dir) = path.parent() {
@@ -1917,6 +1941,14 @@ fn app_settings_save(projects_root: String) -> Result<serde_json::Value, String>
 /// Never needs the sidecar.
 #[tauri::command]
 fn app_create_project(name: String) -> Result<serde_json::Value, String> {
+    // kleio: this creates a folder on THIS Mac; on a paired host that folder
+    // would be invisible to the sidecar. Say so rather than half-work.
+    if let Some(r) = kleio::remote() {
+        return Err(format!(
+            "Sessions run on {}. Create the project folder there (or in its projects root) and it will appear in the list.",
+            r.host
+        ));
+    }
     let name = name.trim();
     if !is_valid_project_name(name) {
         return Err(
@@ -1925,7 +1957,7 @@ fn app_create_project(name: String) -> Result<serde_json::Value, String> {
         );
     }
     // Resolve the projects root the same way app_settings_get does.
-    let settings = app_settings_get();
+    let settings = local_settings_get();
     let root = settings
         .get("projectsRoot")
         .and_then(|v| v.as_str())
@@ -3478,14 +3510,7 @@ async fn setup_windows(app: tauri::AppHandle, count: usize) -> Result<(), String
         // chrome (Overlay is a no-op / unsupported there) and the webview CSS
         // drops the mac traffic-light insets via the `.platform-*` class.
         let win = build_app_window(&app, &label)?;
-        start_window_session(
-            app.clone(),
-            label,
-            WorkspaceMode::Code,
-            ChatAgent::General,
-            default_cwd(),
-            None,
-        );
+        start_default_window_session(app.clone(), label);
         let _ = win.set_focus();
     }
     arrange_windows(&app, count);
@@ -3503,14 +3528,7 @@ async fn setup_windows(app: tauri::AppHandle, count: usize) -> Result<(), String
 async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
     let label = next_window_label(&app);
     let win = build_app_window(&app, &label)?;
-    start_window_session(
-        app.clone(),
-        label,
-        WorkspaceMode::Code,
-        ChatAgent::General,
-        default_cwd(),
-        None,
-    );
+    start_default_window_session(app.clone(), label);
     let _ = win.set_focus();
     broadcast_window_order(&app);
     Ok(())
@@ -3993,14 +4011,7 @@ fn dispatch_tray_action(app: tauri::AppHandle, action: &'static str) {
             app.state::<TrayIntents>().0.lock().unwrap().remove(&label);
             return;
         };
-        start_window_session(
-            app.clone(),
-            label,
-            WorkspaceMode::Code,
-            ChatAgent::General,
-            default_cwd(),
-            None,
-        );
+        start_default_window_session(app.clone(), label);
         let _ = win.set_focus();
         broadcast_window_order(&app);
     });
@@ -4731,12 +4742,16 @@ async fn daemon_create_session(
     session_path: Option<&str>,
 ) -> Result<String, String> {
     let client = app.state::<reqwest::Client>().inner().clone();
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "mode": mode,
         "chatAgent": chat_agent,
         "cwd": cwd.to_string_lossy(),
         "sessionPath": session_path,
     });
+    // kleio: no cwd → the sidecar uses its own default on the host.
+    if cwd == Path::new(kleio::HOST_DEFAULT_CWD) {
+        body.as_object_mut().map(|o| o.remove("cwd"));
+    }
     let res = client
         .post(format!("{}/session", sidecar_base(port)))
         .json(&body)
@@ -4963,25 +4978,45 @@ fn recreate_all_window_sessions(app: tauri::AppHandle) {
     }
 }
 
+/// Start the "default project" session for a freshly built window. Local: at
+/// `default_cwd()`. Paired to a Kleio host (kleio): a cwd here would be a path
+/// on THIS Mac, meaningless there — send none, and the host's sidecar opens
+/// its own default (its working directory). The picker lists host projects.
+fn start_default_window_session(app: tauri::AppHandle, label: String) {
+    let cwd = if kleio::remote().is_some() {
+        kleio::HOST_DEFAULT_CWD.into()
+    } else {
+        default_cwd()
+    };
+    start_window_session(
+        app,
+        label,
+        WorkspaceMode::Code,
+        ChatAgent::General,
+        cwd,
+        None,
+    );
+}
+
 /// Boot the app's windows. If a workspace snapshot has restorable windows (each
 /// with a cwd that still exists on disk), reopen one window per entry — pointed
 /// at its project + session, with saved geometry — and record a per-window
 /// restore target so the webview skips the picker. Otherwise fall back to the
 /// single default `main` window at the boot cwd (the picker then shows).
 fn restore_or_default_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let ws = read_workspace();
+    // kleio: snapshot cwds are paths on whichever machine ran the sessions;
+    // `exists()` can only vouch for this one. Paired to a host, start from the
+    // picker instead of guessing.
+    let ws = if kleio::remote().is_some() {
+        Workspace::default()
+    } else {
+        read_workspace()
+    };
     let entries = filter_restorable(ws.windows, |c| Path::new(c).exists());
     if entries.is_empty() {
         // Fresh boot / nothing to restore: the usual single main window.
         build_app_window(app, "main")?;
-        start_window_session(
-            app.clone(),
-            "main".into(),
-            WorkspaceMode::Code,
-            ChatAgent::General,
-            default_cwd(),
-            None,
-        );
+        start_default_window_session(app.clone(), "main".into());
         broadcast_window_order(app);
         return Ok(());
     }
@@ -5082,6 +5117,11 @@ pub fn run() {
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&r.device_token) {
             default_headers.insert(kleio::DEVICE_TOKEN_HEADER, v);
         }
+        if let Some(c) = r.control_credential.as_deref() {
+            if let Ok(v) = reqwest::header::HeaderValue::from_str(c) {
+                default_headers.insert(kleio::CONTROL_HEADER, v);
+            }
+        }
     }
     let http_client = reqwest::Client::builder()
         .default_headers(default_headers)
@@ -5118,8 +5158,16 @@ pub fn run() {
         .manage(TrayState::default())
         .manage(TrayIntents::default())
         .manage(http_client)
+        .manage(kleio::biometric::BiometricGate::default()) // kleio
         .invoke_handler(tauri::generate_handler![
             kleio::kleio_remote_status, // kleio
+            kleio::commands::kleio_pair,
+            kleio::commands::kleio_forget,
+            kleio::commands::kleio_devices,
+            kleio::commands::kleio_revoke,
+            kleio::commands::kleio_offer,
+            kleio::commands::kleio_admin_state,
+            kleio::commands::kleio_admin_lock,
             sidecar_port,
             dropped_path_info,
             permissions_status,

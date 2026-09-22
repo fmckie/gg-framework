@@ -6838,3 +6838,149 @@ select {
   display: flex;
   margin-top: 10px;
 }
+
+/* ── kleio: remote host badge + pane ─────────────────────────────────────── */
+.kleio-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 0 8px 0 6px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.kleio-badge:hover {
+  color: var(--text);
+}
+.kleio-badge:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.kleio-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.kleio-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.kleio-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+.kleio-code {
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.kleio-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.kleio-facts dt {
+  color: var(--text-muted);
+}
+.kleio-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.kleio-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  vertical-align: 1px;
+}
+.kleio-restart {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-2));
+}
+.kleio-inline-hint {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.kleio-admin-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+.kleio-devices {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.kleio-devices th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  padding: 4px 8px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.kleio-devices td {
+  padding: 8px 8px 8px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.kleio-devices tr.revoked td {
+  opacity: 0.5;
+}
+.kleio-devid {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.kleio-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.kleio-actions .btn + .btn {
+  margin-left: 6px;
+}
+.kleio-offer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.kleio-offer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kleio-offer-code {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 10px;
+}
+.kleio-offer-code code {
+  font-size: 22px;
+  letter-spacing: 0.15em;
+}

@@ -145,7 +145,7 @@ async function discoverGgcoderProjects(): Promise<DiscoveredProject[]> {
     // (what Rust's canonicalize used to hand the sidecar) resolves to the same
     // project as a plain `C:\proj` instead of listing a prefixed duplicate.
     const cwd = path.resolve(stripExtendedLengthPrefix(rawCwd));
-    if (!(await isDirectory(cwd))) return null;
+    if (!(await isDiscoverableDirectory(cwd))) return null;
 
     return {
       name: path.basename(cwd),
@@ -234,7 +234,7 @@ async function discoverClaudeProjects(): Promise<DiscoveredProject[]> {
 
     const cwd = (await readFirstFromJsonlDir(dir, claudeCwdExtractor)) ?? fallbackDashDecode(entry);
     if (!cwd) return null;
-    if (!(await isDirectory(cwd))) return null;
+    if (!(await isDiscoverableDirectory(cwd))) return null;
 
     return {
       name: path.basename(cwd),
@@ -277,7 +277,7 @@ async function discoverCodexProjects(): Promise<DiscoveredProject[]> {
   const results = await mapConcurrent(
     Array.from(byCwd),
     async ([cwd, mtime]): Promise<DiscoveredProject | null> => {
-      if (!(await isDirectory(cwd))) return null;
+      if (!(await isDiscoverableDirectory(cwd))) return null;
       return {
         name: path.basename(cwd),
         path: cwd,
@@ -351,10 +351,45 @@ function resolveProjectRoots(
   return Array.from(roots);
 }
 
+/**
+ * macOS folders behind a per-app privacy (TCC) consent. Touching one — even a
+ * `stat()` of a path below it — from a process without a grant is not an
+ * error: the kernel parks the call until someone answers the "would like to
+ * access" dialog. Attended, that is a prompt; unattended (a launchd host with
+ * nobody at the screen, `GG_APP_HEADLESS=1`) it is a hang for every caller of
+ * `/projects`, and each stalled call pins a libuv worker thread for good. A
+ * headless sidecar therefore never touches these folders: sessions under them
+ * still exist, they are just not listed. Attended installs are unchanged.
+ */
+const MACOS_CONSENT_FOLDERS = ["Desktop", "Documents", "Downloads"];
+
+function isConsentGated(p: string): boolean {
+  if (process.platform !== "darwin" || process.env.GG_APP_HEADLESS !== "1") return false;
+  // The candidate is deliberately NOT realpath'd: resolving a path below a
+  // gated folder is itself a gated syscall. Compare against home both as
+  // spelled and as resolved (tmp-based test homes live behind /private).
+  const resolved = path.resolve(p);
+  const homes = new Set([path.resolve(os.homedir()), resolveExistingPath(os.homedir())]);
+  for (const home of homes) {
+    for (const name of MACOS_CONSENT_FOLDERS) {
+      const folder = path.join(home, name);
+      if (resolved === folder || resolved.startsWith(folder + path.sep)) return true;
+    }
+  }
+  return false;
+}
+
+/** `isDirectory`, except that a consent-gated path is "no" without a syscall. */
+async function isDiscoverableDirectory(p: string): Promise<boolean> {
+  if (isConsentGated(p)) return false;
+  return isDirectory(p);
+}
+
 function isUnscannableRoot(dir: string): boolean {
   const resolved = resolveExistingPath(dir);
   if (resolved === resolveExistingPath(path.parse(resolved).root)) return true;
   if (resolved === resolveExistingPath(os.homedir())) return true;
+  if (isConsentGated(resolved)) return true;
   // Scratch checkouts and test fixtures cluster as direct children of the temp
   // dir, which would otherwise infer it as a root and list every stale
   // `tmp.XXXX` as a project. Resolve symlinks before comparing because macOS
@@ -381,6 +416,7 @@ function resolveExistingPath(dir: string): string {
 async function discoverFolderProjects(roots: string[]): Promise<DiscoveredProject[]> {
   const candidates: { name: string; path: string }[] = [];
   for (const root of roots) {
+    if (isConsentGated(root)) continue;
     let entries;
     try {
       entries = await fs.readdir(root, { withFileTypes: true });

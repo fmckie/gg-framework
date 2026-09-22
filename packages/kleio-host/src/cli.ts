@@ -92,6 +92,9 @@ async function sidecar(p: HostPaths): Promise<void> {
     nodeBin: process.env.KLEIO_NODE_BIN ?? process.execPath,
     sidecarPath,
     cwd: process.env.KLEIO_SIDECAR_CWD ?? p.work,
+    // Nobody is at this machine's screen: the sidecar must never touch a
+    // folder macOS would gate behind a privacy dialog (it hangs, not errors).
+    env: { GG_APP_HEADLESS: "1" },
     endpointPath: p.sidecarEndpoint,
     log,
   });
