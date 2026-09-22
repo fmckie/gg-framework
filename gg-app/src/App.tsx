@@ -127,6 +127,7 @@ import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
+import { RemoteHostModal } from "./kleio/RemoteHostModal"; // kleio: registration 1/3
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { formatWorkspaceTitle, WorkspaceHeader } from "./WorkspaceHeader";
@@ -413,6 +414,7 @@ function App(): React.ReactElement {
   const { autopilotReviewing, handleAutopilotEvent } = useAutopilot({ setItems, nextId });
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
+  const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
   const [rankCelebrateNonce, setRankCelebrateNonce] = useState<string | null>(null);
   const [xpChips, setXpChips] = useState<Array<{ id: string; label: string }>>([]);
   const lastProgressXpRef = useRef<number | null>(null);
@@ -1193,6 +1195,12 @@ function App(): React.ReactElement {
       if (e.code === "Backquote" && !e.altKey) {
         e.preventDefault();
         void focusWindowByOffset(e.shiftKey ? -1 : 1);
+        return;
+      }
+      // kleio: Cmd/Ctrl + Shift + K opens the remote-host pane (registration 3/3).
+      if (e.shiftKey && (e.key === "k" || e.key === "K") && !e.altKey) {
+        e.preventDefault();
+        setShowKleioRemote(true);
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.
@@ -3170,6 +3178,7 @@ function App(): React.ReactElement {
         />
       )}
 
+      {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />
       )}
