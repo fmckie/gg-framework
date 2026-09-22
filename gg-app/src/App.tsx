@@ -127,7 +127,7 @@ import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
-import { RemoteHostModal } from "./kleio/RemoteHostModal"; // kleio: registration 1/3
+import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
