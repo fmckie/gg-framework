@@ -22,7 +22,11 @@ UID_="$(id -u)"
 
 # Old agents from earlier Kleio/Atlas generations. Retired here so the mini
 # runs exactly one host. Their plists are moved aside, not deleted.
-LEGACY_LABELS="com.kleio.host-spike com.kleio.ios-ws-server com.kleio.control com.kleio.bridge com.atlas.host com.atlas.bridge com.atlas.control"
+LEGACY_LABELS="com.kleio.host-spike com.kleio.ios-ws-server com.kleio.control com.kleio.bridge com.kleio.desktop-host com.atlas.host com.atlas.bridge com.atlas.control com.atlas.ios-ws-server com.atlas.video-feature com.atlas.hermes.gateway com.atlas.hermes.autoupdate com.hermes.gateway com.noledge.host com.noledge.gateway"
+# Same generations, installed as root LaunchDaemons (PLAN.md §6). Files here are
+# only writable with sudo; the script does what it can unprivileged and prints
+# the exact command for the rest rather than failing or silently skipping.
+LEGACY_DAEMON_GLOB="com.atlas.* com.hermes.* com.noledge.* com.kleio.desktop-host*"
 
 # bootout returns before the job is actually gone; a bootstrap that races it
 # fails with "Input/output error". Wait until launchd no longer lists the label.
@@ -37,7 +41,15 @@ bootout() {
 
 retire_legacy() {
   mkdir -p "$AGENTS/retired-by-kleio-host"
-  for label in $LEGACY_LABELS; do
+  # Known labels first, then anything else in the user domain matching the old
+  # families, so a plist this list never heard of is still retired.
+  for f in $AGENTS/com.atlas.*.plist $AGENTS/com.hermes.*.plist $AGENTS/com.noledge.*.plist $AGENTS/com.kleio.*.plist; do
+    [ -f "$f" ] || continue
+    label=$(basename "$f" .plist)
+    case " $label " in *" com.kleio.host.sidecar "*|*" com.kleio.host.serve "*) continue ;; esac
+    LEGACY_LABELS="$LEGACY_LABELS $label"
+  done
+  for label in $(printf "%s\n" $LEGACY_LABELS | sort -u); do
     bootout "$label"
     if [ -f "$AGENTS/$label.plist" ]; then
       mv -f "$AGENTS/$label.plist" "$AGENTS/retired-by-kleio-host/$label.plist"
@@ -48,6 +60,33 @@ retire_legacy() {
   if pgrep -x Kleio >/dev/null 2>&1; then
     osascript -e 'tell application "Kleio" to quit' 2>/dev/null || pkill -x Kleio || true
     echo "asked the old Kleio desktop app to quit"
+  fi
+  retire_legacy_daemons
+}
+
+retire_legacy_daemons() {
+  found=""
+  for pattern in $LEGACY_DAEMON_GLOB; do
+    for f in /Library/LaunchDaemons/$pattern /Library/LaunchAgents/$pattern; do
+      [ -e "$f" ] && found="$found $f"
+    done
+  done
+  [ -n "$found" ] || return 0
+  # Unload whatever is loaded in the system domain (no-op when already disabled).
+  for f in $found; do
+    label=$(/usr/libexec/PlistBuddy -c "Print :Label" "$f" 2>/dev/null || true)
+    [ -n "$label" ] && sudo -n launchctl bootout "system/$label" 2>/dev/null && echo "unloaded system/$label"
+  done
+  dest=/Library/LaunchDaemons/retired-by-kleio-host
+  if sudo -n mkdir -p "$dest" 2>/dev/null; then
+    for f in $found; do sudo -n mv -f "$f" "$dest/" && echo "retired $f"; done
+  else
+    echo
+    echo "NOTE: root-owned legacy launchd files remain (loaded state: disabled):"
+    for f in $found; do echo "   $f"; done
+    echo "  They are not running and cannot start; to move them aside, run once as admin:"
+    echo "    sudo mkdir -p $dest && sudo mv$found $dest/"
+    echo
   fi
 }
 

@@ -27,9 +27,12 @@ rsync -az --delete gg-app/src-tauri/sidecar/    mini:kleio-host/sidecar/
 sh kleio-host/install-mini.sh          # idempotent; `uninstall` to remove jobs
 ```
 
-The installer retires the earlier `com.kleio.*` / `com.atlas.*` agents (plists moved to
-`LaunchAgents/retired-by-kleio-host/`), creates keys and the first admin device, and
-points `tailscale serve --https=8443` at the host.
+The installer retires the earlier `com.kleio.*` / `com.atlas.*` / `com.hermes.*` /
+`com.noledge.*` user agents (plists moved to `LaunchAgents/retired-by-kleio-host/`),
+creates keys and the first admin device, and points `tailscale serve --https=8443` at
+the host. Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
+allows it; otherwise they are listed with the one `sudo mv` to run (they are disabled
+in launchd and cannot start, so this is cleanup, not a blocker).
 
 ## Pair a device
 
