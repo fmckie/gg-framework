@@ -552,8 +552,12 @@ describe("host: session tracking (frames captured with no client attached)", () 
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     await new Promise((r) => setTimeout(r, 50));
 
-    // Proxy redeploy mid-run: the sidecar keeps streaming meanwhile.
+    // Proxy redeploy mid-run: the sidecar keeps streaming meanwhile. stop() must
+    // not wait for keep-alive sockets to drain; that is what made this time out
+    // on Windows CI.
+    const t0 = Date.now();
     await host.stop();
+    expect(Date.now() - t0).toBeLessThan(1000);
     for (let i = 4; i <= 6; i += 1)
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     host = await startHost();

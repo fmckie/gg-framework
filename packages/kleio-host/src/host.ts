@@ -602,9 +602,13 @@ export function createHost(options: HostOptions): Host {
       new Promise((resolve) => {
         for (const s of live.values()) {
           s.upstream?.destroy();
-          for (const sub of s.subs) sub.end();
+          for (const sub of s.subs) sub.destroy();
         }
+        // close() alone waits for idle keep-alive sockets to time out (65 s here,
+        // and slow to notice on Windows). Drop them: a stopping host has nothing
+        // more to say, and clients reconnect with Last-Event-ID anyway.
         server.close(() => resolve());
+        server.closeAllConnections();
         setTimeout(resolve, 2000).unref();
       }),
   };
