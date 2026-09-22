@@ -17,15 +17,16 @@ the blocking Windows installer build-and-launch smoke.
 - Engine **5.60.2**, desktop **0.65.0**: 44 commits after the first integration
 - Integration base: `2a4ba011806ba6795b44c96d2b76261cfd3c98b2`
 - Branch: `sync/upstream-fdab3f18`; `main` stays unchanged
-- Draft PR: [#2](https://github.com/fmckie/gg-framework/pull/2), open and unmerged
+- PR: [#2](https://github.com/fmckie/gg-framework/pull/2), merged at `99073ea3`
 - Integration commit: `9972757d69935e8fe7041316646acac30e5b0942`
-- State: pushed integration for review, not a downstream release
+- Verification gates: `79735cb4`; hosted-runner fixes and dependency overrides in
+  [#3](https://github.com/fmckie/gg-framework/pull/3)
 
-All five Kleio packages retain version **4.10.1-kleio.1**. Existing published
-artifacts do **not** contain this integration. The original fork point and its
-immutable baseline below remain unchanged. Engine provenance and downstream
-versions are deliberately separate. No package, tag, deployment or merge is
-authorized by this import.
+**Released as 5.60.2-kleio.1.** From this release the fixed version is
+`<imported engine version>-kleio.<n>` (enforced by `scripts/verify-fixed-versions.mjs`
+against `fork-provenance.json` `upstream.lastImportedVersion`), so a package never
+claims an engine it does not contain. The original fork point and its immutable
+baseline below remain unchanged.
 
 ### Projects maintained downstream
 

@@ -5,7 +5,11 @@ export default defineConfig([
     entry: ["src/index.ts"],
     format: ["esm", "cjs"],
     dts: true,
-    clean: true,
+    // No entry cleans: tsup builds the six configs concurrently, and a clean here
+    // ran inside the index DTS worker at buildStart, deleting every dist/*.d.ts
+    // after sibling entries (deno/browser/workers) had already emitted theirs.
+    // The build script empties dist once before tsup starts instead.
+    clean: false,
     sourcemap: true,
     // Inject `import.meta.url` shim into CJS output — local-sqlite.ts and
     // install.ts both call `createRequire(import.meta.url)`, which is empty

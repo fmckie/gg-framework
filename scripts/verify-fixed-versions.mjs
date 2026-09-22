@@ -31,9 +31,19 @@ const expectedNames = [...FIXED_PACKAGES.keys()];
 const expectedVersion = provenance.downstream?.currentFixedVersion;
 const declaredReleaseVersions = new Set(Object.values(provenance.releases ?? {}));
 
-if (typeof expectedVersion !== "string" || !/^4\.10\.1-kleio\.\d+$/.test(expectedVersion)) {
+// The fixed version is always <imported engine version>-kleio.<n>, so a package
+// never claims an engine it does not contain.
+const engineVersion = provenance.upstream?.lastImportedVersion ?? provenance.upstream?.version;
+const versionPattern = new RegExp(
+  `^${String(engineVersion).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-kleio\\.\\d+$`,
+);
+if (typeof engineVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(engineVersion)) {
   errors.push(
-    `fork-provenance.json downstream.currentFixedVersion must be a 4.10.1-kleio.* version; received ${JSON.stringify(expectedVersion)}`,
+    `fork-provenance.json upstream.lastImportedVersion must be an exact engine version; received ${JSON.stringify(engineVersion)}`,
+  );
+} else if (typeof expectedVersion !== "string" || !versionPattern.test(expectedVersion)) {
+  errors.push(
+    `fork-provenance.json downstream.currentFixedVersion must be a ${engineVersion}-kleio.* version; received ${JSON.stringify(expectedVersion)}`,
   );
 } else if (!declaredReleaseVersions.has(expectedVersion)) {
   errors.push(

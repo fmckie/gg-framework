@@ -4,7 +4,7 @@
     "repository": "https://github.com/fmckie/gg-framework",
     "releaseBranch": "main",
     "scope": "@kleio",
-    "currentFixedVersion": "4.10.1-kleio.1"
+    "currentFixedVersion": "5.60.2-kleio.1"
   },
   "upstream": {
     "repository": "https://github.com/KenKaiii/gg-framework",
@@ -55,7 +55,8 @@
   "releases": {
     "provenanceOnly": "4.10.1-kleio.0",
     "kleioRebrand": "4.10.1-kleio.1",
-    "sessionFirstPrompt": "4.10.1-kleio.1"
+    "sessionFirstPrompt": "4.10.1-kleio.1",
+    "engine5602": "5.60.2-kleio.1"
   },
   "packages": {
     "@kenkaiiii/gg-ai": "@kleio/ai",

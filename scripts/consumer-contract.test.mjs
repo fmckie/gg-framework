@@ -578,7 +578,7 @@ function publicFixture(t, mutation = () => {}) {
     mkdirSync(directory, { recursive: true });
     const manifest = {
       name,
-      version: "4.10.1-kleio.1",
+      version: "5.60.2-kleio.1",
       type: "module",
       files: ["dist"],
       exports: { ".": { types: "./dist/index.d.ts", import: "./dist/index.js" } },
@@ -653,7 +653,7 @@ export function buildSystemPrompt() {}
         ? { "kleio-coder": "./dist/cli.js", ggcoder: "./dist/cli.js" }
         : { "kleio-manager": "./dist/cli.js", ggboss: "./dist/cli.js" };
       files["dist/cli.js"] =
-        `console.log(process.argv.includes('--help') ? ${JSON.stringify(coder ? "Kleio Coder" : "Kleio Manager")} : '4.10.1-kleio.1');`;
+        `console.log(process.argv.includes('--help') ? ${JSON.stringify(coder ? "Kleio Coder" : "Kleio Manager")} : '5.60.2-kleio.1');`;
     }
     mutation(name, manifest, files);
     writeFileSync(join(directory, "package.json"), JSON.stringify(manifest));

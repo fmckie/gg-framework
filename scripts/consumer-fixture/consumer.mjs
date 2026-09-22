@@ -136,7 +136,7 @@ await contract("installed-cli", async () => {
   ]) {
     const root = realpathSync.native(join(consumer, "node_modules", name));
     const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-    assert.equal(manifest.version, "4.10.1-kleio.1", "fixed-version");
+    assert.equal(manifest.version, "5.60.2-kleio.1", "fixed-version");
     for (const command of commands) {
       assert.equal(manifest.bin[command], "./dist/cli.js", "bin-target");
       for (const flag of ["--help", "--version"]) {
@@ -159,7 +159,7 @@ await contract("installed-cli", async () => {
         });
         assert.equal(result.status, 0, command + " " + flag + ": " + result.stderr);
         assert.ok(
-          (result.stdout + result.stderr).includes(flag === "--help" ? branding : "4.10.1-kleio.1"),
+          (result.stdout + result.stderr).includes(flag === "--help" ? branding : "5.60.2-kleio.1"),
           command + " output",
         );
       }
