@@ -103,6 +103,33 @@ export function createHost(options: HostOptions): Host {
     return sidecar;
   }
 
+  function probeSidecar(ep: SidecarEndpoint): Promise<boolean> {
+    return new Promise((resolve) => {
+      const r = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path: "/state",
+          method: "GET",
+          headers: { host: `127.0.0.1:${ep.port}`, "x-gg-token": ep.token },
+          timeout: 1500,
+        },
+        (res) => {
+          res.resume();
+          // Any HTTP answer at all means the process behind the port is ours
+          // (it accepted the token); the sidecar answers 400 without a session.
+          resolve(res.statusCode !== 401 && res.statusCode !== 403);
+        },
+      );
+      r.on("timeout", () => {
+        r.destroy();
+        resolve(false);
+      });
+      r.on("error", () => resolve(false));
+      r.end();
+    });
+  }
+
   function authenticate(req: IncomingMessage): Auth | null {
     const header = req.headers[DEVICE_TOKEN_HEADER];
     const token =
@@ -237,7 +264,28 @@ export function createHost(options: HostOptions): Host {
     s.upstream = req;
   }
 
-  async function handleEvents(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  /** Open SSE responses by device, so a revoke can cut them at once. */
+  const streamsByDevice = new Map<string, Set<ServerResponse>>();
+
+  function dropStreams(deviceId: string): number {
+    const set = streamsByDevice.get(deviceId);
+    if (!set) return 0;
+    let n = 0;
+    for (const res of set) {
+      res.end();
+      res.destroy();
+      n += 1;
+    }
+    streamsByDevice.delete(deviceId);
+    return n;
+  }
+
+  async function handleEvents(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    deviceId: string,
+  ): Promise<void> {
     const sessionId =
       url.searchParams.get("session") ?? (req.headers["x-gg-session"] as string | undefined);
     if (!sessionId) return json(res, 400, { error: "session required" });
@@ -277,9 +325,13 @@ export function createHost(options: HostOptions): Host {
     }
     const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
     s.subs.add(res);
+    let mine = streamsByDevice.get(deviceId);
+    if (!mine) streamsByDevice.set(deviceId, (mine = new Set()));
+    mine.add(res);
     req.on("close", () => {
       clearInterval(ping);
       s.subs.delete(res);
+      mine.delete(res);
       // The upstream stays attached: the ring must keep filling while no client
       // is connected, or a restart/outage loses exactly the frames that matter.
     });
@@ -443,10 +495,13 @@ export function createHost(options: HostOptions): Host {
     const path = url.pathname;
 
     if (req.method === "GET" && path === "/kleio/health") {
-      const ep = await endpoint();
+      // Probe, don't trust the endpoint file: a supervisor that died leaves a
+      // stale file behind, and "up" would then be a lie until the next request.
+      const ep = await endpoint(true);
+      const alive = ep ? await probeSidecar(ep) : false;
       return json(res, 200, {
         ok: true,
-        sidecar: ep ? "up" : "down",
+        sidecar: alive ? "up" : ep ? "stale" : "down",
         devices: registry.list().filter((d) => !d.revoked).length,
         offer: offers.peek().active,
         sessions: [...live.entries()].map(([id, s]) => ({
@@ -485,7 +540,8 @@ export function createHost(options: HostOptions): Host {
         const r = await registry.revoke(revoke[1]!);
         if (!r.ok)
           return json(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.message });
-        log(`[admin] ${auth.device.label} revoked ${revoke[1]}`);
+        const cut = dropStreams(revoke[1]!);
+        log(`[admin] ${auth.device.label} revoked ${revoke[1]} (${cut} open stream(s) closed)`);
         return json(res, 200, { devices: r.value });
       }
       if (req.method === "POST" && path === "/kleio/pair/offer") {
@@ -515,7 +571,8 @@ export function createHost(options: HostOptions): Host {
       return json(res, 404, { error: "not found" });
     }
 
-    if (req.method === "GET" && path === "/events") return handleEvents(req, res, url);
+    if (req.method === "GET" && path === "/events")
+      return handleEvents(req, res, url, auth.device.deviceId);
     return proxy(req, res, url);
   }
 

@@ -267,7 +267,13 @@ describe("host: auth boundary", () => {
       (await call("GET", "/state", { headers: { [DEVICE_TOKEN_HEADER]: "nope" } })).status,
     ).toBe(401);
     expect((await call("GET", "/kleio/devices")).status).toBe(401);
-    expect(sidecar.seen.filter((s) => s.url !== "/kleio/health")).toHaveLength(0);
+    // Only the host's own health probe (GET /state with the sidecar token) may
+    // have reached the sidecar; no unauthenticated client request passes through.
+    expect(
+      sidecar.seen.filter(
+        (r) => !(r.method === "GET" && r.url === "/state" && r.token === sidecar.token),
+      ),
+    ).toHaveLength(0);
   });
 
   it("proxies an authenticated request with Host rewritten and the sidecar token added; never leaks the device token", async () => {
@@ -283,6 +289,27 @@ describe("host: auth boundary", () => {
     expect(seen.token).toBe(sidecar.token);
     // The fake records headers it got; make sure the device token was stripped.
     expect(JSON.stringify(seen)).not.toContain(admin.token);
+  });
+
+  it("revoking a device closes its open event streams, not just future requests", async () => {
+    const admin = await pairAdmin();
+    const victim = await registry.mint("Victim");
+    if (!victim.ok) throw new Error("mint");
+    let closed = false;
+    const stream = sse(
+      `/events?session=s9`,
+      { [DEVICE_TOKEN_HEADER]: victim.value.token },
+      () => {},
+    );
+    void stream.then(() => (closed = true));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(closed).toBe(false);
+    const r = await call("POST", `/kleio/devices/${victim.value.device.deviceId}/revoke`, {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+    });
+    expect(r.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(closed).toBe(true);
   });
 
   it("a revoked device is refused immediately", async () => {
@@ -563,6 +590,13 @@ describe("host: sidecar lifecycle", () => {
     const r = await call("GET", "/state", { headers: H });
     expect(r.status).toBe(200);
     expect(sidecar.seen.some((s) => s.url === "/state")).toBe(true);
+  });
+
+  it("health probes the sidecar: a stale endpoint file reports 'stale', not 'up'", async () => {
+    expect((await call("GET", "/kleio/health")).body.sidecar).toBe("up");
+    await sidecar.close();
+    expect((await call("GET", "/kleio/health")).body.sidecar).toBe("stale");
+    sidecar = await fakeSidecar(); // afterEach closes it
   });
 
   it("reports 503 when no sidecar endpoint is published", async () => {

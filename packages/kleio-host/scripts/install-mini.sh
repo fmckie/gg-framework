@@ -24,7 +24,16 @@ UID_="$(id -u)"
 # runs exactly one host. Their plists are moved aside, not deleted.
 LEGACY_LABELS="com.kleio.host-spike com.kleio.ios-ws-server com.kleio.control com.kleio.bridge com.atlas.host com.atlas.bridge com.atlas.control"
 
-bootout() { launchctl bootout "gui/$UID_/$1" 2>/dev/null || true; }
+# bootout returns before the job is actually gone; a bootstrap that races it
+# fails with "Input/output error". Wait until launchd no longer lists the label.
+bootout() {
+  launchctl bootout "gui/$UID_/$1" 2>/dev/null || true
+  i=0
+  while launchctl print "gui/$UID_/$1" >/dev/null 2>&1; do
+    i=$((i + 1)); [ "$i" -ge 100 ] && { echo "warning: $1 did not unload in 10s" >&2; break; }
+    sleep 0.1
+  done
+}
 
 retire_legacy() {
   mkdir -p "$AGENTS/retired-by-kleio-host"
@@ -84,6 +93,8 @@ fi
 [ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
 [ -x "$TS" ] || { echo "tailscale not found at $TS" >&2; exit 1; }
 [ -f "$CODE/dist/cli.js" ] || { echo "missing $CODE/dist/cli.js (rsync the package first)" >&2; exit 1; }
+# dist/ is ESM; without a package.json next to it Node reparses on every start.
+[ -f "$CODE/package.json" ] || printf '{ "type": "module" }\n' > "$CODE/package.json"
 [ -f "$CODE/sidecar/app-sidecar.mjs" ] || { echo "missing $CODE/sidecar/app-sidecar.mjs" >&2; exit 1; }
 
 DNS_NAME="$("$TS" status --json | "$NODE" -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"")')"
@@ -104,6 +115,7 @@ for label in com.kleio.host.sidecar com.kleio.host.serve; do
   bootout "$label"
   launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist"
   launchctl kickstart -k "gui/$UID_/$label"
+  launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || { echo "failed to start $label" >&2; exit 1; }
 done
 
 # Tailscale Serve: clear whatever was on this port, then front the host.
