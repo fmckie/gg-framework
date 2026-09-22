@@ -254,7 +254,13 @@ const server = http.createServer((req, res) => {
   headers.host = `127.0.0.1:${sidecarPort}`;
   headers["x-gg-token"] = sidecarToken;
   const up = http.request(
-    { host: "127.0.0.1", port: sidecarPort, method: req.method, path: url.pathname + url.search, headers },
+    {
+      host: "127.0.0.1",
+      port: sidecarPort,
+      method: req.method,
+      path: url.pathname + url.search,
+      headers,
+    },
     (ur) => {
       res.writeHead(ur.statusCode ?? 502, ur.headers);
       ur.pipe(res);
