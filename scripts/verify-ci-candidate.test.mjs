@@ -379,13 +379,13 @@ function fixture(t) {
       path,
       json({
         name,
-        version: "4.10.1-kleio.1",
+        version: "5.60.2-kleio.1",
         exports: { ".": "./dist/index.js" },
         repository: { directory: dirname(path) },
       }),
     );
   const provenance = {
-    downstream: { scope: "@kleio", currentFixedVersion: "4.10.1-kleio.1" },
+    downstream: { scope: "@kleio", currentFixedVersion: "5.60.2-kleio.1" },
     upstream: { lastImportedCommit: "0".repeat(40) },
     localIntegration: { preservedProjects: POLICY.retainedProjects },
     packages: Object.fromEntries(

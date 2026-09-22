@@ -1,5 +1,21 @@
 # @kleio/coder
 
+## 5.60.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.60.2**. The fixed version now follows `<engine>-kleio.<n>` so the number states which engine the package contains; the previous `4.10.1-kleio.1` was built on engine 4.10.1 and the packages published under it do not include anything below.
+
+- Engine: everything upstream shipped between 4.10.1 and 5.60.2 (PRs [#1](https://github.com/fmckie/gg-framework/pull/1) and [#2](https://github.com/fmckie/gg-framework/pull/2); provenance in `UPSTREAM.md`), with the `@kleio/*` rename, Kleio branding and `SessionManager.list()` `firstPrompt` carried forward.
+
+- Dependencies ([#3](https://github.com/fmckie/gg-framework/pull/3)): root overrides pin `undici@7` ≥ 7.29.1, `sharp` ≥ 0.35.4 and `adm-zip` ≥ 0.6.1, clearing every production audit alert on a `@kleio/*` path. Triage in `docs/dependency-audit-2026-09-18.md`.
+
+- Tests: `bash.test.ts` no longer writes background logs to the real `~/.gg/bg`.
+
+  - @kleio/ai@5.60.2-kleio.1
+  - @kleio/agent@5.60.2-kleio.1
+  - @kleio/core@5.60.2-kleio.1
+
 ## 4.10.1-kleio.1
 
 ### Patch Changes

@@ -21,7 +21,7 @@ import { CANONICAL_PACKAGES, auditInstalledPackages } from "./identity-audit.mjs
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 export const LEGACY_CODER = "@kenkaiiii/ggcoder";
-const VERSION = "4.10.1-kleio.1";
+const VERSION = "5.60.2-kleio.1";
 const MAX_BYTES = 128 * 1024 * 1024;
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
 export const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");

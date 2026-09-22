@@ -1,5 +1,11 @@
 # @kleio/agent
 
+## 5.60.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.60.2**; lockstep bump of the fixed `@kleio/*` group. See `@kleio/coder` for the release contents. Includes the dependency overrides from [#3](https://github.com/fmckie/gg-framework/pull/3) where this package's dependency graph reaches `undici`, `sharp` or `adm-zip`.
+
 ## 4.10.1-kleio.1
 
 ### Patch Changes
