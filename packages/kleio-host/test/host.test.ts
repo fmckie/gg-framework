@@ -9,7 +9,7 @@ import { createHost, CONTROL_HEADER, DEVICE_TOKEN_HEADER, type Host } from "../s
 import type { ApnsPusher } from "../src/apns.js";
 import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore, type PairOfferStore } from "../src/pair-offer.js";
-import { createRingStore } from "../src/sse-ring.js";
+import { createRingStore, type RingStore, type SessionRing } from "../src/sse-ring.js";
 import * as macaroon from "../src/macaroon.js";
 
 // ---------------------------------------------------------------- fake sidecar
@@ -150,7 +150,7 @@ const fakeApns: ApnsPusher = {
   },
 };
 
-async function startHost(): Promise<Host> {
+async function startHost(overrides: { rings?: RingStore } = {}): Promise<Host> {
   const h = createHost({
     apns: fakeApns,
     listenPort: 0,
@@ -158,7 +158,7 @@ async function startHost(): Promise<Host> {
     nodeId: NODE,
     registry,
     offers,
-    rings: createRingStore({ directory: join(home, "rings"), maxFrames: 50 }),
+    rings: overrides.rings ?? createRingStore({ directory: join(home, "rings"), maxFrames: 50 }),
     sidecarEndpointPath: join(home, "sidecar.json"),
     controlRootKey: ROOT,
     routinePollMs: 200,
@@ -599,30 +599,25 @@ describe("host: session tracking (frames captured with no client attached)", () 
     // Proxy redeploy mid-run: the sidecar keeps streaming meanwhile. stop() must
     // not wait for keep-alive sockets to drain; that is what made this time out
     // on Windows CI.
-    const mark = (m: string): void => console.log(`[restart-test] ${m} +${Date.now() - t0}ms`);
     const t0 = Date.now();
     await host.stop();
-    mark("stopped");
-    expect(Date.now() - t0).toBeLessThan(1000);
+    // Bounded: stop() flushes queued ring writes, but never past its 2 s budget.
+    expect(Date.now() - t0).toBeLessThan(2000);
     for (let i = 4; i <= 6; i += 1)
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     host = await startHost();
-    mark("restarted");
     await new Promise((r) => setTimeout(r, 100));
     for (let i = 7; i <= 9; i += 1)
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     await new Promise((r) => setTimeout(r, 50));
-    mark("emitted 7-9");
 
     // First-ever client attach, resuming from the beginning.
     const got: any[] = [];
     const p = sse(`/events?session=${sid}`, { ...H, "last-event-id": "0" }, (_id, d) => {
       got.push(d);
-      mark(`frame ${d.type}${d.n !== undefined ? ` n=${d.n}` : ""}`);
       return got.filter((x) => x.type === "text_delta").length >= 6;
     });
     await p;
-    mark("attached and replayed");
     const ns = got.filter((x) => x.type === "text_delta").map((x) => x.n);
     // Frames 4–6 were emitted while the proxy was down. The fake sidecar does
     // not buffer (neither does the real one), so those are the ones a proxy
@@ -633,6 +628,55 @@ describe("host: session tracking (frames captured with no client attached)", () 
     // loaded Windows CI runner has crossed vitest's default 5 s once. The
     // stop() latency assertion above is the real guard; this is headroom.
   }, 15_000);
+
+  it("stop() waits for queued ring writes, so a slow disk cannot leave a frame in flight", async () => {
+    // Windows CI: appendFile still held the ring file when the next host's
+    // load() read it, and that read never returned (15 s timeout). Give this
+    // host a ring store whose writes take 300 ms and pin that stop() does not
+    // resolve ahead of them.
+    await host.stop();
+    let landed = 0;
+    const slowRings = createRingStore({ directory: join(home, "rings"), maxFrames: 50 });
+    const slowWrites: Promise<void>[] = [];
+    const wrappedRings = new Map<string, SessionRing>();
+    const wrapped: RingStore = {
+      loaded: () => [...wrappedRings.values()],
+      async session(id) {
+        const have = wrappedRings.get(id);
+        if (have) return have;
+        const ring = await slowRings.session(id);
+        const w: SessionRing = {
+          ...ring,
+          push: (raw) => {
+            const f = ring.push(raw);
+            // The real store queues the append; model a disk that takes 300 ms.
+            slowWrites.push(new Promise((r) => setTimeout(() => ((landed += 1), r()), 300)));
+            return f;
+          },
+          flush: async () => {
+            await ring.flush();
+            await Promise.all(slowWrites);
+          },
+        };
+        wrappedRings.set(id, w);
+        return w;
+      },
+    };
+    host = await startHost({ rings: wrapped });
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const created = await call("POST", "/session", { headers: H, body: { mode: "chat" } });
+    const sid = created.body.sessionId as string;
+    await new Promise((r) => setTimeout(r, 50));
+    for (let i = 1; i <= 3; i += 1)
+      sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(landed).toBe(0);
+    expect(slowWrites.length).toBeGreaterThanOrEqual(3); // ready + 3 deltas
+    await host.stop();
+    expect(landed).toBe(slowWrites.length);
+    host = await startHost();
+  });
 });
 
 describe("host: routine sessions (created by the sidecar, never through the proxy)", () => {

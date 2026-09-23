@@ -753,8 +753,15 @@ export function createHost(options: HostOptions): Host {
         // close() alone waits for idle keep-alive sockets to time out (65 s here,
         // and slow to notice on Windows). Drop them: a stopping host has nothing
         // more to say, and clients reconnect with Last-Event-ID anyway.
-        server.close(() => resolve());
+        const closed = new Promise<void>((r) => server.close(() => r()));
         server.closeAllConnections();
+        // Ring appends are queued, not awaited, on the hot path. A host that
+        // resolves stop() with writes still in flight hands its successor a
+        // file another handle is mid-append on — fine on POSIX, a stall or a
+        // lost line on Windows (reproduced: the successor's readFile never
+        // returned). Let them land first, within the same 2 s stop budget.
+        const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
+        void Promise.all([closed, flushed]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),
   };
