@@ -119,6 +119,70 @@ describe("apnsConfigFromEnv", () => {
   });
 });
 
+describe("liveActivity", () => {
+  it("updates a Live Activity on its own token, topic and push type", async () => {
+    const p = pusher();
+    const r = await p.liveActivity(
+      { token: "cd".repeat(32), env: "sandbox" },
+      { event: "update", contentState: { step: "Tool", statusText: "Running bash" }, priority: 5 },
+    );
+    expect(r).toBe("ok");
+    const push = apple.pushes[0]!;
+    expect(push.path).toBe(`/3/device/${"cd".repeat(32)}`);
+    expect(push.headers["apns-topic"]).toBe("com.kleio.app.push-type.liveactivity");
+    expect(push.headers["apns-push-type"]).toBe("liveactivity");
+    expect(push.headers["apns-priority"]).toBe("5");
+    expect(push.body).toEqual({
+      aps: {
+        timestamp: Math.floor(clock / 1000),
+        event: "update",
+        "content-state": { step: "Tool", statusText: "Running bash" },
+      },
+    });
+  });
+
+  it("ends with priority 10 and a dismissal date", async () => {
+    const p = pusher();
+    await p.liveActivity(
+      { token: "cd".repeat(32), env: "sandbox" },
+      { event: "end", contentState: { done: true }, priority: 10, dismissalDate: 123 },
+    );
+    const push = apple.pushes[0]!;
+    expect(push.headers["apns-priority"]).toBe("10");
+    expect(push.body).toMatchObject({ aps: { event: "end", "dismissal-date": 123 } });
+  });
+
+  it("reports gone on 410, and sends nothing for the wrong env or when unconfigured", async () => {
+    const p = pusher();
+    expect(
+      await p.liveActivity(
+        { token: "ab".repeat(15) + "bad", env: "sandbox" },
+        { event: "update", contentState: {}, priority: 5 },
+      ),
+    ).toBe("gone");
+    expect(
+      await p.liveActivity(
+        { token: "cd".repeat(32), env: "production" },
+        { event: "update", contentState: {}, priority: 5 },
+      ),
+    ).toBe("failed");
+    expect(
+      await createApnsPusher({ config: null }).liveActivity(
+        { token: "cd".repeat(32), env: "sandbox" },
+        { event: "update", contentState: {}, priority: 5 },
+      ),
+    ).toBe("failed");
+    expect(apple.pushes).toHaveLength(1); // only the 410 one reached "Apple"
+  });
+
+  it("the alert nudge is unchanged by the shared transport: topic is the bare bundle id", async () => {
+    const p = pusher();
+    await p.notify({ sessionId: "s" }, [device({ push: reg("11".repeat(16)) })]);
+    expect(apple.pushes[0]!.headers["apns-topic"]).toBe("com.kleio.app");
+    expect(apple.pushes[0]!.headers["apns-push-type"]).toBe("alert");
+  });
+});
+
 describe("createApnsPusher", () => {
   it("is a no-op when unconfigured", async () => {
     const p = createApnsPusher({ config: null });
