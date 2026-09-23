@@ -67,6 +67,26 @@ export interface Nudge {
   readonly body?: string;
 }
 
+/** A Live Activity's own push token, registered by the phone for one session. */
+export interface LiveActivityTarget {
+  /** ActivityKit push token, hex. Not the device's alert token. */
+  readonly token: string;
+  readonly env: "sandbox" | "production";
+}
+
+export interface LiveActivityPush {
+  readonly event: "update" | "end";
+  /** Must decode as the app's `AgentActivityAttributes.ContentState`. */
+  readonly contentState: Record<string, unknown>;
+  /** Unix seconds; `end` only. When the lock screen should drop the activity. */
+  readonly dismissalDate?: number;
+  /** 10 = deliver now (end); 5 = may be batched by iOS (progress). */
+  readonly priority: 5 | 10;
+}
+
+/** `gone`: Apple says the activity token is no longer valid (410) — forget it. */
+export type LiveActivityResult = "ok" | "gone" | "failed";
+
 export interface ApnsPusher {
   readonly configured: boolean;
   /**
@@ -74,6 +94,12 @@ export interface ApnsPusher {
    * number of devices that accepted. Coalesced within MIN_PUSH_INTERVAL_MS.
    */
   notify(nudge: Nudge, devices: readonly PairedDevice[]): Promise<number>;
+  /**
+   * Update or end one Live Activity on the lock screen. Separate from
+   * `notify`: different token (the activity's), topic
+   * (`<bundle>.push-type.liveactivity`) and push type (`liveactivity`).
+   */
+  liveActivity(target: LiveActivityTarget, push: LiveActivityPush): Promise<LiveActivityResult>;
 }
 
 function base64url(input: string | Buffer): string {
@@ -111,8 +137,9 @@ export function createApnsPusher(opts: {
   const authToken = config ? createProviderTokenSigner(config, now) : null;
   let lastPushAt = 0;
 
+  // Both transports resolve the HTTP status, or 0 when there was no response.
   function sendHttp1(base: string, path: string, headers: Record<string, string>, body: string) {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<number>((resolve) => {
       const u = new URL(path, base);
       const req = httpRequest(
         {
@@ -125,26 +152,26 @@ export function createApnsPusher(opts: {
         },
         (res) => {
           res.resume();
-          res.on("end", () => resolve(res.statusCode === 200));
+          res.on("end", () => resolve(res.statusCode ?? 0));
         },
       );
       req.on("timeout", () => req.destroy());
-      req.on("error", () => resolve(false));
+      req.on("error", () => resolve(0));
       req.end(body);
     });
   }
 
   function sendHttp2(base: string, path: string, headers: Record<string, string>, body: string) {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<number>((resolve) => {
       const client = http2Connect(base);
-      const done = (ok: boolean): void => {
+      const done = (status: number): void => {
         client.close();
-        resolve(ok);
+        resolve(status);
       };
-      const timer = setTimeout(() => done(false), REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(() => done(0), REQUEST_TIMEOUT_MS);
       client.on("error", () => {
         clearTimeout(timer);
-        done(false);
+        done(0);
       });
       const req = client.request({
         [h2.HTTP2_HEADER_METHOD]: "POST",
@@ -156,22 +183,31 @@ export function createApnsPusher(opts: {
         clearTimeout(timer);
         const status = Number(h[h2.HTTP2_HEADER_STATUS]);
         req.resume();
-        req.on("end", () => done(status === 200));
+        req.on("end", () => done(status));
       });
       req.on("error", () => {
         clearTimeout(timer);
-        done(false);
+        done(0);
       });
       req.end(body);
     });
   }
 
-  async function send(cfg: ApnsConfig, push: PushRegistration, payload: unknown): Promise<boolean> {
-    const path = `/3/device/${push.token}`;
+  async function send(
+    cfg: ApnsConfig,
+    token: string,
+    payload: unknown,
+    kind: { pushType: "alert" | "liveactivity"; priority: 5 | 10 } = {
+      pushType: "alert",
+      priority: 10,
+    },
+  ): Promise<number> {
+    const path = `/3/device/${token}`;
     const headers: Record<string, string> = {
-      "apns-topic": cfg.bundleId,
-      "apns-push-type": "alert",
-      "apns-priority": "10",
+      "apns-topic":
+        kind.pushType === "liveactivity" ? `${cfg.bundleId}.push-type.liveactivity` : cfg.bundleId,
+      "apns-push-type": kind.pushType,
+      "apns-priority": String(kind.priority),
     };
     const body = JSON.stringify(payload);
     if (cfg.endpoint) return sendHttp1(cfg.endpoint, path, headers, body);
@@ -207,13 +243,39 @@ export function createApnsPusher(opts: {
         kleio: { sessionId: nudge.sessionId },
       };
       try {
-        const results = await Promise.allSettled(targets.map((d) => send(config, d.push, payload)));
-        const okCount = results.filter((r) => r.status === "fulfilled" && r.value).length;
+        const results = await Promise.allSettled(
+          targets.map((d) => send(config, d.push.token, payload)),
+        );
+        const okCount = results.filter((r) => r.status === "fulfilled" && r.value === 200).length;
         log(`[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.sessionId}`);
         return okCount;
       } catch (e) {
         log(`[apns] push failed: ${String(e)}`);
         return 0;
+      }
+    },
+    async liveActivity(target, push) {
+      if (!config || target.env !== config.env) return "failed";
+      const payload = {
+        aps: {
+          timestamp: Math.floor(now() / 1000),
+          event: push.event,
+          "content-state": push.contentState,
+          ...(push.dismissalDate !== undefined ? { "dismissal-date": push.dismissalDate } : {}),
+        },
+      };
+      try {
+        const status = await send(config, target.token, payload, {
+          pushType: "liveactivity",
+          priority: push.priority,
+        });
+        if (status === 200) return "ok";
+        if (status === 410) return "gone";
+        log(`[live] Apple answered ${status || "nothing"} for a ${push.event}`);
+        return "failed";
+      } catch (e) {
+        log(`[live] push failed: ${String(e)}`);
+        return "failed";
       }
     },
   };

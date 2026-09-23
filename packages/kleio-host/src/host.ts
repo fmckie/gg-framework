@@ -26,9 +26,14 @@ import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from 
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
+import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
+
+/** Frame types that change a Live Activity (see live-activity.ts). */
+const LIVE_FRAME_RE =
+  /"type":"(run_start|tool_call_start|tool_call_end|turn_end|agent_done|error|run_end)"/;
 
 export const DEVICE_TOKEN_HEADER = "x-kleio-device-token";
 export const CONTROL_HEADER = "x-kleio-control";
@@ -169,7 +174,7 @@ export function createHost(options: HostOptions): Host {
     const last = touched.get(device.deviceId) ?? 0;
     if (Date.now() - last > 60_000) {
       touched.set(device.deviceId, Date.now());
-      void registry.touch(device.deviceId);
+      void background(registry.touch(device.deviceId));
     }
     return { device, admin };
   }
@@ -261,6 +266,8 @@ export function createHost(options: HostOptions): Host {
             if (!raw.trim() || raw.startsWith(":") || raw.startsWith("retry:")) continue;
             const frame = s.ring.push(raw);
             for (const sub of s.subs) sub.write(frame.frame);
+            const lf = liveFrame(raw);
+            if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
             // A run finished and nobody was watching: one nudge per phone. The
             // content waits in the ring for the attach that follows.
             if (s.subs.size === 0 && options.apns?.configured && isRunEnd(raw)) {
@@ -375,16 +382,45 @@ export function createHost(options: HostOptions): Host {
   // Set by stop(). A poll that was already in flight when the host stopped
   // must not track sessions or open upstreams into a dead server.
   let stopped = false;
+  // Lock-screen Live Activities, updated from here while the phone is locked.
+  const liveActivities = createLiveActivityTracker({
+    apns: options.apns,
+    log,
+    now: () => (options.now?.() ?? new Date()).getTime(),
+  });
 
-  async function persistTracked(): Promise<void> {
-    await atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600);
+  // Disk writes this host started and nobody awaits on the request path.
+  // stop() waits for them, so a restart (or a test tearing its folder down)
+  // never races a write still landing.
+  const inflight = new Set<Promise<unknown>>();
+  function background<T>(p: Promise<T>): Promise<T> {
+    inflight.add(p);
+    void p.then(
+      () => inflight.delete(p),
+      () => inflight.delete(p),
+    );
+    return p;
+  }
+
+  // One sessions.json write at a time, each with the set as it is when its
+  // turn comes — two overlapping writes could otherwise land out of order and
+  // drop a session.
+  let trackedWrite: Promise<void> = Promise.resolve();
+  function persistTracked(): Promise<void> {
+    const next = trackedWrite
+      .catch(() => {})
+      .then(() => atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600));
+    trackedWrite = next;
+    return background(next);
   }
 
   async function track(sessionId: string): Promise<void> {
     if (tracked.has(sessionId)) return;
     tracked.add(sessionId);
-    await persistTracked().catch((e) => log(`[sse] persist tracked failed: ${String(e)}`));
+    // Tap the stream first: the sidecar starts sending at once, and waiting
+    // for the disk (hundreds of ms on a Windows runner) lost those frames.
     void ensureUpstream(sessionId).catch(() => {});
+    await persistTracked().catch((e) => log(`[sse] persist tracked failed: ${String(e)}`));
   }
 
   async function untrack(sessionId: string): Promise<void> {
@@ -477,6 +513,25 @@ export function createHost(options: HostOptions): Host {
   }
 
   /** Is this raw SSE frame the sidecar's end-of-run marker? Cheap check before parsing. */
+  /**
+   * The frames that change a Live Activity, parsed; everything else (the
+   * text_delta flood) is rejected by a substring check before any JSON work.
+   */
+  function liveFrame(raw: string): SidecarFrame | null {
+    if (!LIVE_FRAME_RE.test(raw)) return null;
+    const data = raw.match(/^data: (.*)$/m)?.[1];
+    if (!data) return null;
+    try {
+      const f = JSON.parse(data) as { type?: unknown; data?: unknown };
+      if (typeof f.type !== "string") return null;
+      const d =
+        typeof f.data === "object" && f.data !== null ? (f.data as Record<string, unknown>) : {};
+      return { type: f.type, data: d };
+    } catch {
+      return null;
+    }
+  }
+
   function isRunEnd(raw: string): boolean {
     if (!raw.includes('"run_end"')) return false;
     const data = raw.match(/^data: (.*)$/m)?.[1];
@@ -538,16 +593,22 @@ export function createHost(options: HostOptions): Host {
               ures.setEncoding("utf8");
               ures.on("data", (c: string) => (body += c));
               ures.on("end", () => {
-                try {
-                  const id = (JSON.parse(body) as { sessionId?: unknown }).sessionId;
-                  if (typeof id === "string") void track(id);
-                } catch {
-                  /* not ours to validate */
-                }
-                delete out["content-length"];
-                res.writeHead(200, { ...out, "content-length": Buffer.byteLength(body) });
-                res.end(body);
-                resolve("ok");
+                void (async () => {
+                  let id: unknown;
+                  try {
+                    id = (JSON.parse(body) as { sessionId?: unknown }).sessionId;
+                  } catch {
+                    /* not ours to validate */
+                  }
+                  // Answer only once the session is on disk: a client that has
+                  // the id must be able to rely on a host restart still
+                  // recording it.
+                  if (typeof id === "string") await track(id);
+                  delete out["content-length"];
+                  res.writeHead(200, { ...out, "content-length": Buffer.byteLength(body) });
+                  res.end(body);
+                  resolve("ok");
+                })();
               });
               ures.on("error", () => {
                 res.destroy();
@@ -645,6 +706,35 @@ export function createHost(options: HostOptions): Host {
     // A device registers (or clears) ITS OWN APNs token. Not an admin route:
     // a phone must be able to do this for itself; it can never touch another
     // device's record.
+    // A phone registers (or clears) the push token of ITS OWN Live Activity for
+    // one session, so the host can keep the lock screen current while the
+    // phone is locked. Not persisted (see live-activity.ts).
+    if (req.method === "POST" && path === "/kleio/live-activity") {
+      const body = await readBody(req, 1024);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let parsed: { sessionId?: unknown; token?: unknown; env?: unknown } = {};
+      try {
+        parsed = JSON.parse(body.toString("utf8")) as typeof parsed;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const sessionId = typeof parsed.sessionId === "string" ? parsed.sessionId : "";
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(sessionId)) return json(res, 400, { error: "bad_session" });
+      if (parsed.token === null) {
+        liveActivities.unregister(sessionId, auth.device.deviceId);
+        return json(res, 200, { ok: true });
+      }
+      const token = typeof parsed.token === "string" ? parsed.token.trim().toLowerCase() : "";
+      if (!/^[0-9a-f]{32,400}$/.test(token)) return json(res, 400, { error: "bad_token" });
+      liveActivities.register(sessionId, {
+        token,
+        env: parsed.env === "production" ? "production" : "sandbox",
+        deviceId: auth.device.deviceId,
+        registeredAt: (options.now?.() ?? new Date()).toISOString(),
+      });
+      return json(res, 200, { ok: true });
+    }
+
     if (req.method === "POST" && path === "/kleio/push") {
       const body = await readBody(req, 1024);
       if (body === null) return json(res, 413, { error: "bad_request" });
@@ -714,6 +804,7 @@ export function createHost(options: HostOptions): Host {
         if (!r.ok)
           return json(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.message });
         const cut = dropStreams(revoke[1]!);
+        liveActivities.dropDevice(revoke[1]!);
         log(`[admin] ${auth.device.label} revoked ${revoke[1]} (${cut} open stream(s) closed)`);
         return json(res, 200, { devices: r.value });
       }
@@ -782,6 +873,7 @@ export function createHost(options: HostOptions): Host {
     stop: () =>
       new Promise((resolve) => {
         stopped = true;
+        liveActivities.stop();
         if (routinePoll) clearInterval(routinePoll);
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);
@@ -801,7 +893,8 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        void Promise.all([closed, flushed]).then(() => resolve());
+        const written = Promise.allSettled([...inflight]);
+        void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),
   };
