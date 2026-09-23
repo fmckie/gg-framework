@@ -172,9 +172,21 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     );
   }
 
-  async function persistStore(): Promise<void> {
-    const doc: StoreDocument = { version: STORE_SCHEMA, devices: records };
-    await atomicWrite(storePath, `${JSON.stringify(doc, null, 2)}\n`, FILE_MODE);
+  // Writes go out one at a time, and each serialises `records` when its turn
+  // comes, not when it was asked for. Otherwise a slow lastSeen write that
+  // started before a mint finishes after it and puts back a device list
+  // without the new device (reproduced: the paired phone vanished on disk).
+  let writeChain: Promise<void> = Promise.resolve();
+
+  function persistStore(): Promise<void> {
+    const next = writeChain
+      .catch(() => {})
+      .then(() => {
+        const doc: StoreDocument = { version: STORE_SCHEMA, devices: records };
+        return atomicWrite(storePath, `${JSON.stringify(doc, null, 2)}\n`, FILE_MODE);
+      });
+    writeChain = next;
+    return next;
   }
 
   async function init(): Promise<void> {

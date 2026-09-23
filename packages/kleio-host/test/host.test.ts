@@ -1,8 +1,16 @@
-import { chmodSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, CONTROL_HEADER, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
@@ -160,8 +168,10 @@ const fakeApns: ApnsPusher = {
   },
 };
 
-async function startHost(overrides: { rings?: RingStore } = {}): Promise<Host> {
-  const h = createHost({
+async function startHost(
+  overrides: { rings?: RingStore; create?: typeof createHost } = {},
+): Promise<Host> {
+  const h = (overrides.create ?? createHost)({
     apns: fakeApns,
     diagnosticsDir: join(home, "logs"),
     listenPort: 0,
@@ -689,6 +699,90 @@ describe("host: session tracking (frames captured with no client attached)", () 
     expect(landed).toBe(slowWrites.length);
     host = await startHost();
   });
+});
+
+describe("host: slow disk (Windows runners)", () => {
+  /**
+   * A copy of the host (and its device-registry/atomicWrite) whose every disk
+   * write takes `ms` — a Windows runner scanning each new file. Rings are the
+   * harness's own and stay fast.
+   */
+  async function slowModules(ms: number) {
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const real = await importOriginal<typeof import("node:fs/promises")>();
+      return {
+        ...real,
+        writeFile: async (...args: Parameters<typeof real.writeFile>) => {
+          await new Promise((r) => setTimeout(r, ms));
+          return real.writeFile(...args);
+        },
+      };
+    });
+    const hostMod = await import("../src/host.js");
+    const regMod = await import("../src/device-registry.js");
+    vi.doUnmock("node:fs/promises");
+    return { createHost: hostMod.createHost, createDeviceRegistry: regMod.createDeviceRegistry };
+  }
+
+  it("records a new session's first frames even when saving it to disk is slow, and keeps it across a restart", async () => {
+    // Seen three times on windows-latest as a 15 s hang: the host waited for
+    // the sessions.json write before tapping the session's stream, so frames
+    // sent in the meantime were lost; and a restart before that write landed
+    // forgot the session.
+    const slow = await slowModules(300);
+    await host.stop();
+    host = await startHost({ create: slow.createHost });
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+
+    const created = await call("POST", "/session", { headers: H, body: { mode: "chat" } });
+    const sid = created.body.sessionId as string;
+    // The reply waits for the save, so the session survives this restart.
+    expect(JSON.parse(readFileSync(join(home, "sessions.json"), "utf8"))).toContain(sid);
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: 1 })}`);
+    await new Promise((r) => setTimeout(r, 50));
+    await host.stop();
+    host = await startHost({ create: slow.createHost });
+    await new Promise((r) => setTimeout(r, 100));
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: 2 })}`);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const got: any[] = [];
+    await sse(`/events?session=${sid}`, { ...H, "last-event-id": "0" }, (_id, d) => {
+      got.push(d);
+      return got.filter((x) => x.type === "text_delta").length >= 2;
+    });
+    expect(got.filter((x) => x.type === "text_delta").map((x) => x.n)).toEqual([1, 2]);
+  }, 15_000);
+
+  it("stop() waits for a lastSeen write it started, so nothing is still writing after it returns", async () => {
+    // Seen on ubuntu-latest: ENOTEMPTY removing secure/ after stop(), because
+    // a request's fire-and-forget lastSeen write was still creating its temp
+    // file.
+    const slow = await slowModules(300);
+    await host.stop();
+    registry = slow.createDeviceRegistry({
+      keychain: createFileKeychain({ keyPath: join(home, "secure", "headless-master.key") }),
+      storePath: join(home, "secure", "device-registry.json"),
+    });
+    await registry.init();
+    host = await startHost({ create: slow.createHost });
+    const admin = await pairAdmin();
+    // An authenticated request triggers the (slow) lastSeen write…
+    expect(
+      (await call("GET", "/kleio/devices", { headers: { [DEVICE_TOKEN_HEADER]: admin.token } }))
+        .status,
+    ).toBe(200);
+    // …and stop() does not return until it has landed.
+    await host.stop();
+    expect(readdirSync(join(home, "secure")).filter((f) => f.includes(".tmp"))).toEqual([]);
+    const saved = JSON.parse(readFileSync(join(home, "secure", "device-registry.json"), "utf8"));
+    expect(
+      saved.devices.find((d: { deviceId: string }) => d.deviceId === admin.deviceId).lastSeen,
+    ).toBeTruthy();
+    host = await startHost();
+  }, 15_000);
 });
 
 describe("host: routine sessions (created by the sidecar, never through the proxy)", () => {

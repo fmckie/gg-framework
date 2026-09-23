@@ -174,7 +174,7 @@ export function createHost(options: HostOptions): Host {
     const last = touched.get(device.deviceId) ?? 0;
     if (Date.now() - last > 60_000) {
       touched.set(device.deviceId, Date.now());
-      void registry.touch(device.deviceId);
+      void background(registry.touch(device.deviceId));
     }
     return { device, admin };
   }
@@ -389,15 +389,38 @@ export function createHost(options: HostOptions): Host {
     now: () => (options.now?.() ?? new Date()).getTime(),
   });
 
-  async function persistTracked(): Promise<void> {
-    await atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600);
+  // Disk writes this host started and nobody awaits on the request path.
+  // stop() waits for them, so a restart (or a test tearing its folder down)
+  // never races a write still landing.
+  const inflight = new Set<Promise<unknown>>();
+  function background<T>(p: Promise<T>): Promise<T> {
+    inflight.add(p);
+    void p.then(
+      () => inflight.delete(p),
+      () => inflight.delete(p),
+    );
+    return p;
+  }
+
+  // One sessions.json write at a time, each with the set as it is when its
+  // turn comes — two overlapping writes could otherwise land out of order and
+  // drop a session.
+  let trackedWrite: Promise<void> = Promise.resolve();
+  function persistTracked(): Promise<void> {
+    const next = trackedWrite
+      .catch(() => {})
+      .then(() => atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600));
+    trackedWrite = next;
+    return background(next);
   }
 
   async function track(sessionId: string): Promise<void> {
     if (tracked.has(sessionId)) return;
     tracked.add(sessionId);
-    await persistTracked().catch((e) => log(`[sse] persist tracked failed: ${String(e)}`));
+    // Tap the stream first: the sidecar starts sending at once, and waiting
+    // for the disk (hundreds of ms on a Windows runner) lost those frames.
     void ensureUpstream(sessionId).catch(() => {});
+    await persistTracked().catch((e) => log(`[sse] persist tracked failed: ${String(e)}`));
   }
 
   async function untrack(sessionId: string): Promise<void> {
@@ -570,16 +593,22 @@ export function createHost(options: HostOptions): Host {
               ures.setEncoding("utf8");
               ures.on("data", (c: string) => (body += c));
               ures.on("end", () => {
-                try {
-                  const id = (JSON.parse(body) as { sessionId?: unknown }).sessionId;
-                  if (typeof id === "string") void track(id);
-                } catch {
-                  /* not ours to validate */
-                }
-                delete out["content-length"];
-                res.writeHead(200, { ...out, "content-length": Buffer.byteLength(body) });
-                res.end(body);
-                resolve("ok");
+                void (async () => {
+                  let id: unknown;
+                  try {
+                    id = (JSON.parse(body) as { sessionId?: unknown }).sessionId;
+                  } catch {
+                    /* not ours to validate */
+                  }
+                  // Answer only once the session is on disk: a client that has
+                  // the id must be able to rely on a host restart still
+                  // recording it.
+                  if (typeof id === "string") await track(id);
+                  delete out["content-length"];
+                  res.writeHead(200, { ...out, "content-length": Buffer.byteLength(body) });
+                  res.end(body);
+                  resolve("ok");
+                })();
               });
               ures.on("error", () => {
                 res.destroy();
@@ -864,7 +893,8 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        void Promise.all([closed, flushed]).then(() => resolve());
+        const written = Promise.allSettled([...inflight]);
+        void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),
   };
