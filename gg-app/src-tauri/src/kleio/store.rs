@@ -69,20 +69,18 @@ pub fn clear(home: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// One dir per call, even for tests running in parallel in this process.
+    /// A timestamp is not unique enough: Windows' clock ticks coarsely, and two
+    /// tests sharing a dir saw one's "not json" under the other's load().
     fn tmp_home() -> PathBuf {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let d = std::env::temp_dir().join(format!(
             "kleio-store-{}-{}",
             std::process::id(),
-            rand_suffix()
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&d).unwrap();
         d
-    }
-    fn rand_suffix() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
     }
     fn rec() -> HostRecord {
         HostRecord {
