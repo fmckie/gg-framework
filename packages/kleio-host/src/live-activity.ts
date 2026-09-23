@@ -223,22 +223,35 @@ export function createLiveActivityTracker(opts: {
   }
   const pacing = new Map<string, Pace>();
 
+  // One in-flight push per activity. Sent in parallel, an update still in
+  // flight when the end goes out can reach Apple after it (seen on the mini),
+  // and the lock screen could flick back from "Done" to "Thinking…".
+  const chains = new Map<string, Promise<void>>();
+
   function send(sessionId: string, state: LiveContentState, event: "update" | "end"): void {
     const reg = regs.get(sessionId);
-    if (!reg || !opts.apns?.configured) return;
-    const sentAtS = Math.floor(now() / 1000);
-    void opts.apns
-      .liveActivity(reg, {
+    const apns = opts.apns;
+    if (!reg || !apns?.configured) return;
+    const prev = chains.get(sessionId) ?? Promise.resolve();
+    const next = prev.then(async () => {
+      const sentAtS = Math.floor(now() / 1000);
+      const result = await apns.liveActivity(reg, {
         event,
         contentState: { ...state, elapsedSeconds: Math.max(0, sentAtS - state.startedAt) },
         priority: event === "end" ? 10 : 5,
         ...(event === "end" ? { dismissalDate: sentAtS + DISMISS_AFTER_S } : {}),
-      })
-      .then((result) => {
-        log(`[live] ${sessionId} ${event} "${state.statusText}" → ${result}`);
-        // 410: the activity is gone (ended or dismissed on the phone).
-        if (result === "gone" && regs.get(sessionId) === reg) regs.delete(sessionId);
       });
+      log(`[live] ${sessionId} ${event} "${state.statusText}" → ${result}`);
+      // 410: the activity is gone (ended or dismissed on the phone).
+      if (result === "gone" && regs.get(sessionId) === reg) regs.delete(sessionId);
+    });
+    const settled = next.catch((e: unknown) =>
+      log(`[live] ${sessionId} ${event} failed: ${String(e)}`),
+    );
+    chains.set(sessionId, settled);
+    void settled.then(() => {
+      if (chains.get(sessionId) === settled) chains.delete(sessionId);
+    });
   }
 
   function schedule(sessionId: string, r: Reduced): void {
