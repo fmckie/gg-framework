@@ -156,6 +156,13 @@ import { loadCustomCommands } from "./core/custom-commands.js";
 import { discoverProjects } from "./core/project-discovery.js";
 import { listSidecarSessions } from "./app-sidecar-sessions.js";
 import {
+  createRoutineRunner,
+  createRoutineStore,
+  validateInput as validateRoutineInput,
+  type Routine,
+  type RoutineTarget,
+} from "./routines.js";
+import {
   loadTasksSync,
   saveTasksSync,
   pruneDoneTasksSync,
@@ -937,6 +944,67 @@ async function main(): Promise<void> {
   // cannot race two browser flows for the same provider into one auth file.
   const oauthInFlightProviders = new Set<string>();
 
+  // Routines (`/schedule`): daemon-owned so they fire with no window open.
+  // Each runs in its own session, created on first fire through the same
+  // `createSession` a window uses, and prompted over loopback `POST /prompt`
+  // so it goes through the full run-claim / autopilot / queue pipeline rather
+  // than a private side door. Every change fans out as a `routines` frame.
+  const routineStore = createRoutineStore({
+    file: path.join(paths.agentDir, "routines.json"),
+    log: (line) => log("WARN", "app-sidecar", line),
+  });
+  await routineStore.load();
+  const routinesPayload = (): { routines: Routine[] } => ({ routines: routineStore.list() });
+  const routineRunner = createRoutineRunner({
+    store: routineStore,
+    log: (line) => log("INFO", "app-sidecar", line),
+    onChange: () => broadcastAll("routines", routinesPayload()),
+    createTarget: async (routine): Promise<RoutineTarget> => {
+      const id = randomUUID();
+      const ctx = await createSession(
+        { auth, paths, progress, memoryStore, jiwaStore, broadcastAll, oauthInFlightProviders },
+        {
+          id,
+          mode: routine.mode,
+          chatAgent: parseChatAgentId(routine.chatAgent),
+          cwd: routine.cwd,
+        },
+      );
+      sessions.set(id, ctx);
+      log("INFO", "app-sidecar", "routine session created", {
+        id,
+        routine: routine.id,
+        cwd: routine.cwd,
+      });
+      return {
+        sessionId: id,
+        queuedPrompts: () => ctx.session.listQueuedMessages().map((m) => m.text),
+        prompt: async (text) => {
+          const addr = server.address() as AddressInfo;
+          const res = await fetch(`http://127.0.0.1:${addr.port}/prompt`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-gg-token": authToken,
+              "x-gg-session": id,
+            },
+            body: JSON.stringify({ text, attachments: [] }),
+          });
+          const body = (await res.json().catch(() => ({}))) as { queued?: boolean; error?: string };
+          if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+          return body.queued ? "queued" : "sent";
+        },
+        dispose: async () => {
+          if (sessions.get(id) === ctx) {
+            sessions.delete(id);
+            await ctx.dispose().catch(() => {});
+            log("INFO", "app-sidecar", "routine session disposed", { id, routine: routine.id });
+          }
+        },
+      };
+    },
+  });
+
   const memoryStore = new MemoryStore({
     onChange: ({ memories }) => {
       for (const ctx of sessions.values()) {
@@ -1241,6 +1309,66 @@ async function main(): Promise<void> {
       return;
     }
 
+    // ── Routines (daemon-level; a routine outlives any window) ──────────
+    if (method === "GET" && url === "/routines") {
+      // `sessions` includes finished routines' sessions on purpose: a Kleio
+      // host mirrors these into its replay ring, and a one-shot routine is
+      // gone from `routines` the instant it fires.
+      daemonJson(res, 200, { ...routinesPayload(), sessions: routineRunner.sessions() });
+      return;
+    }
+    if (method === "POST" && url === "/routines") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        let body: unknown;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          daemonJson(res, 400, { error: "invalid JSON body" });
+          return;
+        }
+        const v = validateRoutineInput(body);
+        if (!v.ok) {
+          daemonJson(res, 400, { error: v.error.message });
+          return;
+        }
+        try {
+          if (!(await fs.stat(v.value.cwd)).isDirectory()) throw new Error("not a directory");
+        } catch {
+          daemonJson(res, 400, { error: `cwd is not a directory on this host: ${v.value.cwd}` });
+          return;
+        }
+        const r = await routineStore.add(v.value);
+        if (!r.ok) {
+          daemonJson(res, r.error.kind === "limit" ? 409 : 500, { error: r.error.message });
+          return;
+        }
+        log("INFO", "app-sidecar", "routine added", {
+          id: r.value.id,
+          intervalMs: String(r.value.intervalMs),
+          runCount: String(r.value.runCount),
+        });
+        broadcastAll("routines", routinesPayload());
+        daemonJson(res, 200, { routine: r.value });
+      });
+      return;
+    }
+    if (method === "DELETE" && url.startsWith("/routines/")) {
+      const rid = decodeURIComponent(url.slice("/routines/".length));
+      void (async () => {
+        const r = await routineStore.remove(rid);
+        if (!r.ok) {
+          daemonJson(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.message });
+          return;
+        }
+        await routineRunner.release(rid);
+        log("INFO", "app-sidecar", "routine removed", { id: rid });
+        broadcastAll("routines", routinesPayload());
+        daemonJson(res, 200, { ok: true });
+      })();
+      return;
+    }
+
     // ── Per-session delegation ───────────────────────────────────────────
     const id = sessionIdFromReq(req, url);
     const ctx = id ? sessions.get(id) : undefined;
@@ -1256,6 +1384,11 @@ async function main(): Promise<void> {
     // knows the token — it set GG_APP_TOKEN; the field serves other spawners).
     process.stdout.write(`GG_APP_LISTENING ${addr.port} ${authToken}\n`);
     log("INFO", "app-sidecar", "daemon listening", { port: String(addr.port), host });
+    // Routines fire over loopback to this very server, so only tick once it
+    // is accepting connections.
+    routineRunner.start();
+    if (routineStore.list().length > 0)
+      log("INFO", "app-sidecar", "routines resumed", { count: String(routineStore.list().length) });
   });
 
   const shellPid = process.ppid;
@@ -1267,6 +1400,9 @@ async function main(): Promise<void> {
     scope: "app-sidecar",
     teardown: async () => {
       clearInterval(parentWatch);
+      // Routine sessions are in `sessions` too; stop the ticker first so no
+      // fire lands on a session mid-dispose.
+      void routineRunner.stop({ dispose: false });
       // Radio playback is app-wide (one stream across all windows), so it stops
       // at the daemon level, not per session.
       stopRadio();

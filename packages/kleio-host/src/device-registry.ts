@@ -26,6 +26,15 @@ export interface PairedDevice {
   readonly revoked: boolean;
   /** Whether this device holds a control credential (admin). */
   readonly admin: boolean;
+  /** APNs push registration, if the device (an iPhone) has one. */
+  readonly push: PushRegistration | null;
+}
+
+export interface PushRegistration {
+  /** APNs device token, hex. */
+  readonly token: string;
+  readonly env: "sandbox" | "production";
+  readonly registeredAt: string;
 }
 
 interface DeviceRecord {
@@ -38,6 +47,8 @@ interface DeviceRecord {
   readonly encToken: string;
   /** Absent in records written by older hosts; treated as false. */
   readonly admin?: boolean;
+  /** Absent for laptops and older records. Stored in the encrypted file. */
+  push?: PushRegistration | null;
 }
 
 interface StoreDocument {
@@ -68,6 +79,11 @@ export interface DeviceRegistry {
   revoke(deviceId: string): Promise<Result<PairedDevice[], RegistryError>>;
   /** Best-effort lastSeen update; never throws. Rate-limited by the caller. */
   touch(deviceId: string): Promise<void>;
+  /** Set (or clear with null) a device's APNs registration. */
+  setPush(
+    deviceId: string,
+    push: PushRegistration | null,
+  ): Promise<Result<PairedDevice, RegistryError>>;
   /**
    * Resolve a presented bearer to its device, or null. Constant-time over every
    * non-revoked token so timing never reveals which prefix matched.
@@ -107,6 +123,7 @@ function toPaired(record: DeviceRecord): PairedDevice {
     lastSeen: record.lastSeen,
     revoked: record.revoked,
     admin: record.admin === true,
+    push: record.push ?? null,
   };
 }
 
@@ -251,6 +268,22 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     return ok(list());
   }
 
+  async function setPush(
+    deviceId: string,
+    push: PushRegistration | null,
+  ): Promise<Result<PairedDevice, RegistryError>> {
+    const record = records.find((r) => r.deviceId === deviceId);
+    if (!record || record.revoked)
+      return err({ kind: "not_found", message: `no live device ${deviceId}` });
+    record.push = push;
+    try {
+      await persistStore();
+    } catch (e) {
+      return err({ kind: "io", message: messageOf(e) });
+    }
+    return ok(toPaired(record));
+  }
+
   async function touch(deviceId: string): Promise<void> {
     const record = records.find((r) => r.deviceId === deviceId);
     if (!record) return;
@@ -277,7 +310,7 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     return match ? toPaired(match) : null;
   }
 
-  return { init, list, get, mint, revoke, touch, authenticate };
+  return { init, list, setPush, get, mint, revoke, touch, authenticate };
 }
 
 function messageOf(e: unknown): string {

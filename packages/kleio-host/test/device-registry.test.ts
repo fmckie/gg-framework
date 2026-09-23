@@ -192,6 +192,8 @@ describe("device registry", () => {
         lastSeen: null,
         revoked: false,
         admin: false,
+        // Laptops, and records from before push existed, read as unregistered.
+        push: null,
       },
     ]);
     expect(reg.authenticate("legacy-raw-token")?.label).toBe("W's mac");

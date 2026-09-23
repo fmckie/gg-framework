@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { createDeviceRegistry } from "./device-registry.js";
 import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER } from "./host.js";
+import { apnsConfigFromEnv, createApnsPusher } from "./apns.js";
 import { createPairOfferStore } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
@@ -110,7 +111,14 @@ async function sidecar(p: HostPaths): Promise<void> {
 
 async function serve(p: HostPaths): Promise<void> {
   const registry = await openRegistry(p);
+  const apns = createApnsPusher({ config: apnsConfigFromEnv(), log });
+  log(
+    apns.configured
+      ? "[apns] configured"
+      : "[apns] not configured (KLEIO_APNS_* unset); nudges off",
+  );
   const host = createHost({
+    apns,
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     nodeId: new URL(publicBase()).hostname,

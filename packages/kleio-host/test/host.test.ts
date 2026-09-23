@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, CONTROL_HEADER, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
+import type { ApnsPusher } from "../src/apns.js";
 import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore, type PairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
@@ -19,6 +20,9 @@ interface FakeSidecar {
   token: string;
   seen: { method: string; url: string; host: string; token: string | undefined }[];
   emit(sessionId: string, frame: string): void;
+  /** What GET /routines reports as routine → session (the daemon's own sessions). */
+  routineSessions: Record<string, string>;
+  routines: { id: string; nextRunAt: number }[];
   close(): Promise<void>;
 }
 
@@ -26,6 +30,8 @@ async function fakeSidecar(): Promise<FakeSidecar> {
   const token = "sidecar-" + Math.random().toString(36).slice(2);
   const streams = new Map<string, Set<import("node:http").ServerResponse>>();
   const seen: FakeSidecar["seen"] = [];
+  const routineSessions: Record<string, string> = {};
+  const routines: { id: string; nextRunAt: number }[] = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     seen.push({
@@ -61,6 +67,10 @@ async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/routines") {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ routines, sessions: routineSessions }));
+    }
     if (url.pathname === "/state") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(
@@ -89,6 +99,8 @@ async function fakeSidecar(): Promise<FakeSidecar> {
     emit(sid, frame) {
       for (const r of streams.get(sid) ?? []) r.write(frame + "\n\n");
     },
+    routineSessions,
+    routines,
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();
@@ -115,8 +127,20 @@ function publishEndpoint(sc: FakeSidecar): void {
   );
 }
 
+/** Records nudges instead of calling Apple. */
+const nudges: { sessionId: string; devices: string[] }[] = [];
+const fakeApns: ApnsPusher = {
+  configured: true,
+  async notify(nudge, devices) {
+    const targets = devices.filter((d) => d.push && !d.revoked).map((d) => d.label);
+    nudges.push({ sessionId: nudge.sessionId, devices: targets });
+    return targets.length;
+  },
+};
+
 async function startHost(): Promise<Host> {
   const h = createHost({
+    apns: fakeApns,
     listenPort: 0,
     publicBaseUrl: `https://${NODE}:8443`,
     nodeId: NODE,
@@ -125,6 +149,7 @@ async function startHost(): Promise<Host> {
     rings: createRingStore({ directory: join(home, "rings"), maxFrames: 50 }),
     sidecarEndpointPath: join(home, "sidecar.json"),
     controlRootKey: ROOT,
+    routinePollMs: 200,
   });
   await h.start();
   hostPort = (h.server.address() as { port: number }).port;
@@ -132,6 +157,7 @@ async function startHost(): Promise<Host> {
 }
 
 beforeEach(async () => {
+  nudges.length = 0;
   home = mkdtempSync(join(tmpdir(), "kleio-host-it-"));
   const keyPath = join(home, "secure", "headless-master.key");
   mkdirSync(join(home, "secure"), { mode: 0o700 });
@@ -267,11 +293,17 @@ describe("host: auth boundary", () => {
       (await call("GET", "/state", { headers: { [DEVICE_TOKEN_HEADER]: "nope" } })).status,
     ).toBe(401);
     expect((await call("GET", "/kleio/devices")).status).toBe(401);
-    // Only the host's own health probe (GET /state with the sidecar token) may
-    // have reached the sidecar; no unauthenticated client request passes through.
+    // Only the host's own calls (health probe on /state, the routine-session
+    // poll on /routines — both with the sidecar token) may have reached the
+    // sidecar; no unauthenticated client request passes through.
     expect(
       sidecar.seen.filter(
-        (r) => !(r.method === "GET" && r.url === "/state" && r.token === sidecar.token),
+        (r) =>
+          !(
+            r.method === "GET" &&
+            (r.url === "/state" || r.url === "/routines") &&
+            r.token === sidecar.token
+          ),
       ),
     ).toHaveLength(0);
   });
@@ -583,6 +615,105 @@ describe("host: session tracking (frames captured with no client attached)", () 
     // loaded Windows CI runner has crossed vitest's default 5 s once. The
     // stop() latency assertion above is the real guard; this is headroom.
   }, 15_000);
+});
+
+describe("host: routine sessions (created by the sidecar, never through the proxy)", () => {
+  it("learns of a routine's session from GET /routines and records its frames for replay", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    // The sidecar fired a routine into a session of its own making.
+    sidecar.routineSessions["rtn-1"] = "routine-session-A";
+    // Nobody is attached. Wait for the poll, then emit while still unattached.
+    await new Promise((r) => setTimeout(r, 500));
+    for (const n of [1, 2, 3])
+      sidecar.emit("routine-session-A", `data: ${JSON.stringify({ type: "text_delta", n })}`);
+    await new Promise((r) => setTimeout(r, 100));
+    // A device that attaches later, from the beginning, gets the whole thing.
+    const got: any[] = [];
+    await sse(`/events?session=routine-session-A`, { ...H, "last-event-id": "0" }, (_id, d) => {
+      got.push(d);
+      return got.filter((x) => x.type === "text_delta").length >= 3;
+    });
+    expect(got.filter((x) => x.type === "text_delta").map((x) => x.n)).toEqual([1, 2, 3]);
+    // Persisted: a restarted host re-subscribes without asking the sidecar again.
+    expect(JSON.parse(readFileSync(join(home, "sessions.json"), "utf8"))).toContain(
+      "routine-session-A",
+    );
+  });
+
+  it("wakes right after a routine that is due before the next poll, so the first frames are not missed", async () => {
+    // Poll is 200 ms in tests; the routine is due in 60 ms. Its session must be
+    // tracked well before the next scheduled poll.
+    sidecar.routines.push({ id: "rtn-soon", nextRunAt: Date.now() + 60 });
+    await new Promise((r) => setTimeout(r, 250)); // one poll: sees "due soon", arms the wake
+    sidecar.routineSessions["rtn-soon"] = "routine-session-B";
+    // Wake fires at ~due+250ms from the poll that saw it; the next regular poll
+    // is at +200ms anyway. Either way, well under a second.
+    const trackedNow = (): string[] => {
+      try {
+        return JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+      } catch {
+        return [];
+      }
+    };
+    const deadline = Date.now() + 1_000;
+    while (Date.now() < deadline && !trackedNow().includes("routine-session-B"))
+      await new Promise((r) => setTimeout(r, 20));
+    expect(trackedNow()).toContain("routine-session-B");
+  });
+});
+
+describe("host: APNs nudge", () => {
+  it("a device registers its own push token; the nudge fires on run_end only when nobody is attached", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+
+    // Registration is self-service and validated.
+    expect(
+      (await call("POST", "/kleio/push", { headers: P, body: { token: "not hex" } })).status,
+    ).toBe(400);
+    const r = await call("POST", "/kleio/push", {
+      headers: P,
+      body: { token: "AB".repeat(16), env: "sandbox" },
+    });
+    expect(r.status).toBe(200);
+    expect((r.body.device as { push: { token: string; env: string } }).push).toMatchObject({
+      token: "ab".repeat(16),
+      env: "sandbox",
+    });
+    // Only the phone's own record changed; the token is on the encrypted store, not exposed to admins' device list beyond the shape.
+    expect(registry.get(phone.value.device.deviceId)?.push?.token).toBe("ab".repeat(16));
+    expect(registry.get(admin.deviceId)?.push).toBeNull();
+
+    // A session the sidecar streams into with nobody attached.
+    const created = await call("POST", "/session", { headers: A, body: { mode: "code" } });
+    const sid = created.body.sessionId as string;
+    await new Promise((r) => setTimeout(r, 50));
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: 1 })}`);
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_end", runState: "idle" })}`);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(nudges).toEqual([{ sessionId: sid, devices: ["Phone"] }]);
+
+    // Someone watching: no nudge.
+    const got: any[] = [];
+    const stream = sse(`/events?session=${sid}`, A, (_id, d) => {
+      got.push(d);
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_end", runState: "idle" })}`);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(nudges).toHaveLength(1);
+    stream.close();
+
+    // Clearing the registration stops nudges to that phone.
+    expect((await call("POST", "/kleio/push", { headers: P, body: { token: null } })).status).toBe(
+      200,
+    );
+    expect(registry.get(phone.value.device.deviceId)?.push).toBeNull();
+  });
 });
 
 describe("host: sidecar lifecycle", () => {
