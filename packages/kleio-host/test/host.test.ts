@@ -599,24 +599,30 @@ describe("host: session tracking (frames captured with no client attached)", () 
     // Proxy redeploy mid-run: the sidecar keeps streaming meanwhile. stop() must
     // not wait for keep-alive sockets to drain; that is what made this time out
     // on Windows CI.
+    const mark = (m: string): void => console.log(`[restart-test] ${m} +${Date.now() - t0}ms`);
     const t0 = Date.now();
     await host.stop();
+    mark("stopped");
     expect(Date.now() - t0).toBeLessThan(1000);
     for (let i = 4; i <= 6; i += 1)
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     host = await startHost();
+    mark("restarted");
     await new Promise((r) => setTimeout(r, 100));
     for (let i = 7; i <= 9; i += 1)
       sidecar.emit(sid, `data: ${JSON.stringify({ type: "text_delta", n: i })}`);
     await new Promise((r) => setTimeout(r, 50));
+    mark("emitted 7-9");
 
     // First-ever client attach, resuming from the beginning.
     const got: any[] = [];
     const p = sse(`/events?session=${sid}`, { ...H, "last-event-id": "0" }, (_id, d) => {
       got.push(d);
+      mark(`frame ${d.type}${d.n !== undefined ? ` n=${d.n}` : ""}`);
       return got.filter((x) => x.type === "text_delta").length >= 6;
     });
     await p;
+    mark("attached and replayed");
     const ns = got.filter((x) => x.type === "text_delta").map((x) => x.n);
     // Frames 4–6 were emitted while the proxy was down. The fake sidecar does
     // not buffer (neither does the real one), so those are the ones a proxy
