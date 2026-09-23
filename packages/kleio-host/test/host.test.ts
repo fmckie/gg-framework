@@ -23,6 +23,8 @@ interface FakeSidecar {
   /** What GET /routines reports as routine → session (the daemon's own sessions). */
   routineSessions: Record<string, string>;
   routines: { id: string; nextRunAt: number }[];
+  /** Hold GET /routines open this long before answering (0 = at once). */
+  routinesDelayMs: number;
   close(): Promise<void>;
 }
 
@@ -68,8 +70,13 @@ async function fakeSidecar(): Promise<FakeSidecar> {
       return;
     }
     if (req.method === "GET" && url.pathname === "/routines") {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ routines, sessions: routineSessions }));
+      const answer = (): void => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ routines, sessions: routineSessions }));
+      };
+      if (api.routinesDelayMs > 0) setTimeout(answer, api.routinesDelayMs);
+      else answer();
+      return;
     }
     if (url.pathname === "/state") {
       res.writeHead(200, { "content-type": "application/json" });
@@ -91,7 +98,7 @@ async function fakeSidecar(): Promise<FakeSidecar> {
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as { port: number }).port;
-  return {
+  const api: FakeSidecar = {
     server,
     port,
     token,
@@ -101,12 +108,17 @@ async function fakeSidecar(): Promise<FakeSidecar> {
     },
     routineSessions,
     routines,
+    routinesDelayMs: 0,
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();
+        // Same as the real host's stop(): close() alone waits for idle
+        // keep-alive sockets (a stopped host's poll connection, for one).
         server.close(() => r());
+        server.closeAllConnections();
       }),
   };
+  return api;
 }
 
 // ---------------------------------------------------------------- fixture
@@ -639,6 +651,32 @@ describe("host: routine sessions (created by the sidecar, never through the prox
     expect(JSON.parse(readFileSync(join(home, "sessions.json"), "utf8"))).toContain(
       "routine-session-A",
     );
+  });
+
+  it("a poll still in flight when the host stops does nothing once it lands — the next host owns the sessions", async () => {
+    // Windows CI: the poll start() kicks off answered AFTER stop(); the dead
+    // host then tracked the routine session and opened an upstream into its
+    // closed server, racing the live host for the same session.
+    sidecar.routinesDelayMs = 300;
+    sidecar.routineSessions["rtn-late"] = "routine-session-C";
+    const dead = host;
+    await host.stop(); // its start-time poll is still waiting on the sidecar
+    host = await startHost(); // new host: its own poll also sees rtn-late
+    await new Promise((r) => setTimeout(r, 600)); // both polls have landed
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    sidecar.emit("routine-session-C", `data: ${JSON.stringify({ type: "text_delta", n: 1 })}`);
+    await new Promise((r) => setTimeout(r, 100));
+    // Exactly one upstream tap on the session: the live host's.
+    const taps = sidecar.seen.filter((r) => r.url.includes("routine-session-C"));
+    expect(taps).toHaveLength(1);
+    const got: any[] = [];
+    await sse(`/events?session=routine-session-C`, { ...H, "last-event-id": "0" }, (_id, d) => {
+      got.push(d);
+      return d.type === "text_delta";
+    });
+    expect(got.filter((x) => x.type === "text_delta").map((x) => x.n)).toEqual([1]);
+    void dead;
   });
 
   it("wakes right after a routine that is due before the next poll, so the first frames are not missed", async () => {

@@ -219,6 +219,7 @@ export function createHost(options: HostOptions): Host {
   }
 
   async function ensureUpstream(sessionId: string): Promise<void> {
+    if (stopped) return;
     const s = await liveSession(sessionId);
     if (s.upstream) return;
     const ep = await endpoint();
@@ -365,6 +366,9 @@ export function createHost(options: HostOptions): Host {
   const tracked = new Set<string>();
   let routinePoll: NodeJS.Timeout | null = null;
   let routineWake: NodeJS.Timeout | null = null;
+  // Set by stop(). A poll that was already in flight when the host stopped
+  // must not track sessions or open upstreams into a dead server.
+  let stopped = false;
 
   async function persistTracked(): Promise<void> {
     await atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600);
@@ -403,6 +407,7 @@ export function createHost(options: HostOptions): Host {
    * is in the ring for whichever device attaches later.
    */
   async function trackRoutineSessions(): Promise<void> {
+    if (stopped) return;
     const ep = await endpoint();
     if (!ep) return;
     const body = await new Promise<string | null>((resolve) => {
@@ -430,7 +435,7 @@ export function createHost(options: HostOptions): Host {
       req.on("error", () => resolve(null));
       req.end();
     });
-    if (body === null) return;
+    if (body === null || stopped) return;
     let parsed: { sessions?: unknown; routines?: unknown };
     try {
       parsed = JSON.parse(body) as typeof parsed;
@@ -453,7 +458,7 @@ export function createHost(options: HostOptions): Host {
       .filter((t): t is number => typeof t === "number")
       .map((t) => t - (options.now?.() ?? new Date()).getTime())
       .filter((dt) => dt >= 0 && dt < (options.routinePollMs ?? 30_000));
-    if (soon.length > 0 && !routineWake) {
+    if (soon.length > 0 && !routineWake && !stopped) {
       routineWake = setTimeout(
         () => {
           routineWake = null;
@@ -736,6 +741,7 @@ export function createHost(options: HostOptions): Host {
       }),
     stop: () =>
       new Promise((resolve) => {
+        stopped = true;
         if (routinePoll) clearInterval(routinePoll);
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);
