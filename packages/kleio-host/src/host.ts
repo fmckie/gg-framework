@@ -24,7 +24,8 @@ import { dirname, join } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
-import type { DeviceRegistry, PairedDevice } from "./device-registry.js";
+import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
+import type { ApnsPusher } from "./apns.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
@@ -48,6 +49,15 @@ export interface HostOptions {
   readonly controlRootKey: string;
   readonly log?: (msg: string) => void;
   readonly now?: () => Date;
+  /**
+   * How often to ask the sidecar for routine sessions (ms). Routines fire with
+   * no client attached, so their sessions are never created through the proxy;
+   * this poll is how the ring learns of them. A routine's first run is at least
+   * a minute out, so 30 s never misses a frame. 0 disables.
+   */
+  readonly routinePollMs?: number;
+  /** APNs nudge sender. Unconfigured = no-op. */
+  readonly apns?: ApnsPusher;
 }
 
 export interface Host {
@@ -209,6 +219,7 @@ export function createHost(options: HostOptions): Host {
   }
 
   async function ensureUpstream(sessionId: string): Promise<void> {
+    if (stopped) return;
     const s = await liveSession(sessionId);
     if (s.upstream) return;
     const ep = await endpoint();
@@ -244,6 +255,13 @@ export function createHost(options: HostOptions): Host {
             if (!raw.trim() || raw.startsWith(":") || raw.startsWith("retry:")) continue;
             const frame = s.ring.push(raw);
             for (const sub of s.subs) sub.write(frame.frame);
+            // A run finished and nobody was watching: one nudge per phone. The
+            // content waits in the ring for the attach that follows.
+            if (s.subs.size === 0 && options.apns?.configured && isRunEnd(raw)) {
+              void options.apns
+                .notify({ sessionId }, registry.list())
+                .catch((e) => log(`[apns] ${String(e)}`));
+            }
           }
         });
         const gone = (): void => {
@@ -346,6 +364,11 @@ export function createHost(options: HostOptions): Host {
    */
   const trackedPath = join(dirname(options.sidecarEndpointPath), "sessions.json");
   const tracked = new Set<string>();
+  let routinePoll: NodeJS.Timeout | null = null;
+  let routineWake: NodeJS.Timeout | null = null;
+  // Set by stop(). A poll that was already in flight when the host stopped
+  // must not track sessions or open upstreams into a dead server.
+  let stopped = false;
 
   async function persistTracked(): Promise<void> {
     await atomicWrite(trackedPath, `${JSON.stringify([...tracked])}\n`, 0o600);
@@ -375,6 +398,88 @@ export function createHost(options: HostOptions): Host {
     }
     for (const id of tracked) void ensureUpstream(id).catch(() => {});
     if (tracked.size) log(`[sse] resubscribed ${tracked.size} tracked session(s)`);
+  }
+
+  /**
+   * Routine sessions are created by the sidecar itself (a routine fired), not
+   * through this proxy, so `track()` never saw them. Ask `GET /routines` for
+   * the routine→session map and track anything new, so a routine's transcript
+   * is in the ring for whichever device attaches later.
+   */
+  async function trackRoutineSessions(): Promise<void> {
+    if (stopped) return;
+    const ep = await endpoint();
+    if (!ep) return;
+    const body = await new Promise<string | null>((resolve) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path: "/routines",
+          method: "GET",
+          headers: { host: `127.0.0.1:${ep.port}`, "x-gg-token": ep.token },
+          timeout: 5_000,
+        },
+        (res) => {
+          if (res.statusCode !== 200) {
+            res.resume();
+            return resolve(null);
+          }
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+          res.on("error", () => resolve(null));
+        },
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      req.end();
+    });
+    if (body === null || stopped) return;
+    let parsed: { sessions?: unknown; routines?: unknown };
+    try {
+      parsed = JSON.parse(body) as typeof parsed;
+    } catch {
+      return;
+    }
+    const sessions = parsed.sessions;
+    if (typeof sessions === "object" && sessions !== null) {
+      for (const [routineId, sid] of Object.entries(sessions as Record<string, unknown>)) {
+        if (typeof sid !== "string" || tracked.has(sid)) continue;
+        log(`[routines] tracking session ${sid} for ${routineId}`);
+        await track(sid);
+      }
+    }
+    // A routine about to fire gets its session created at that moment; the
+    // ring should be tapped in before the first frame, not a poll later. When
+    // one is due within the next poll window, re-poll right after it fires.
+    const soon = (Array.isArray(parsed.routines) ? parsed.routines : [])
+      .map((r) => (r as { nextRunAt?: unknown }).nextRunAt)
+      .filter((t): t is number => typeof t === "number")
+      .map((t) => t - (options.now?.() ?? new Date()).getTime())
+      .filter((dt) => dt >= 0 && dt < (options.routinePollMs ?? 30_000));
+    if (soon.length > 0 && !routineWake && !stopped) {
+      routineWake = setTimeout(
+        () => {
+          routineWake = null;
+          void trackRoutineSessions().catch(() => {});
+        },
+        Math.min(...soon) + 250,
+      );
+      routineWake.unref();
+    }
+  }
+
+  /** Is this raw SSE frame the sidecar's end-of-run marker? Cheap check before parsing. */
+  function isRunEnd(raw: string): boolean {
+    if (!raw.includes('"run_end"')) return false;
+    const data = raw.match(/^data: (.*)$/m)?.[1];
+    if (!data) return false;
+    try {
+      return (JSON.parse(data) as { type?: unknown }).type === "run_end";
+    } catch {
+      return false;
+    }
   }
 
   // ------------------------------------------------------------------ proxy
@@ -531,6 +636,34 @@ export function createHost(options: HostOptions): Host {
     const auth = authenticate(req);
     if (!auth) return json(res, 401, { error: "unauthorized" });
 
+    // A device registers (or clears) ITS OWN APNs token. Not an admin route:
+    // a phone must be able to do this for itself; it can never touch another
+    // device's record.
+    if (req.method === "POST" && path === "/kleio/push") {
+      const body = await readBody(req, 1024);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let parsed: { token?: unknown; env?: unknown } = {};
+      try {
+        parsed = JSON.parse(body.toString("utf8")) as typeof parsed;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      let push: PushRegistration | null = null;
+      if (parsed.token !== null) {
+        const token = typeof parsed.token === "string" ? parsed.token.trim().toLowerCase() : "";
+        if (!/^[0-9a-f]{32,400}$/.test(token)) return json(res, 400, { error: "bad_token" });
+        const env = parsed.env === "production" ? "production" : "sandbox";
+        push = { token, env, registeredAt: (options.now?.() ?? new Date()).toISOString() };
+      }
+      const r = await registry.setPush(auth.device.deviceId, push);
+      if (!r.ok)
+        return json(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.message });
+      log(
+        `[push] ${auth.device.label} ${push ? `registered (${push.env})` : "cleared"} APNs token`,
+      );
+      return json(res, 200, { device: r.value });
+    }
+
     if (path.startsWith("/kleio/")) {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
       if (req.method === "GET" && path === "/kleio/devices")
@@ -595,11 +728,24 @@ export function createHost(options: HostOptions): Host {
           log(
             `[host] listening on http://${options.listenHost ?? "127.0.0.1"}:${options.listenPort}`,
           );
-          void resumeTracked().then(resolve, resolve);
+          void resumeTracked().then(() => {
+            const every = options.routinePollMs ?? 30_000;
+            if (every > 0) {
+              void trackRoutineSessions().catch(() => {});
+              routinePoll = setInterval(() => void trackRoutineSessions().catch(() => {}), every);
+              routinePoll.unref();
+            }
+            resolve();
+          }, resolve);
         });
       }),
     stop: () =>
       new Promise((resolve) => {
+        stopped = true;
+        if (routinePoll) clearInterval(routinePoll);
+        routinePoll = null;
+        if (routineWake) clearTimeout(routineWake);
+        routineWake = null;
         for (const s of live.values()) {
           s.upstream?.destroy();
           for (const sub of s.subs) sub.destroy();
@@ -607,8 +753,15 @@ export function createHost(options: HostOptions): Host {
         // close() alone waits for idle keep-alive sockets to time out (65 s here,
         // and slow to notice on Windows). Drop them: a stopping host has nothing
         // more to say, and clients reconnect with Last-Event-ID anyway.
-        server.close(() => resolve());
+        const closed = new Promise<void>((r) => server.close(() => r()));
         server.closeAllConnections();
+        // Ring appends are queued, not awaited, on the hot path. A host that
+        // resolves stop() with writes still in flight hands its successor a
+        // file another handle is mid-append on — fine on POSIX, a stall or a
+        // lost line on Windows (reproduced: the successor's readFile never
+        // returned). Let them land first, within the same 2 s stop budget.
+        const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
+        void Promise.all([closed, flushed]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),
   };

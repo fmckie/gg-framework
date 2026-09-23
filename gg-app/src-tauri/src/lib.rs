@@ -3352,6 +3352,74 @@ async fn agent_projects(
         .map_err(|e| e.to_string())
 }
 
+/// Routines (`/schedule`) are daemon-level: they outlive any window, and on a
+/// Kleio host they run with no window at all. Session-less proxies.
+#[tauri::command]
+async fn routines_list(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let res = client
+        .get(format!("{}/routines", sidecar_base(port)))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    res.json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn routines_add(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    routine: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let res = client
+        .post(format!("{}/routines", sidecar_base(port)))
+        .json(&routine)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    let body = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("routine refused")
+            .to_string());
+    }
+    Ok(body)
+}
+
+#[tauri::command]
+async fn routines_remove(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    id: String,
+) -> Result<(), String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let res = client
+        .delete(format!(
+            "{}/routines/{}",
+            sidecar_base(port),
+            urlencoding(&id)
+        ))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !res.status().is_success() {
+        return Err(format!("routine remove failed: HTTP {}", res.status()));
+    }
+    Ok(())
+}
+
 /// Proxy: list recent sessions for a project cwd.
 #[tauri::command]
 async fn agent_sessions(
@@ -5217,6 +5285,9 @@ pub fn run() {
             open_whatsnew_window,
             select_project,
             agent_projects,
+            routines_list,
+            routines_add,
+            routines_remove,
             agent_sessions,
             agent_files,
             agent_settings,

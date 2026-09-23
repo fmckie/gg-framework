@@ -88,7 +88,7 @@ import {
   parseScheduleCommand,
   withInterval,
 } from "./scheduleCommand";
-import { useSchedules } from "./useSchedules";
+import { useRoutines } from "./useRoutines";
 import { FileMentionMenu } from "./FileMentionMenu";
 import { ReferencedFiles, appendReferencedFiles, parseReferencedFiles } from "./ReferencedFiles";
 import { ContextMeter } from "./ContextMeter";
@@ -536,16 +536,16 @@ function App(): React.ReactElement {
   // Caret offset in the composer, tracked so the `/schedule` hint can highlight
   // the slot the user is currently typing in.
   const [caret, setCaret] = useState(0);
-  // `/schedule` runtime. Fires each due prompt through the normal send path,
-  // skipping any occurrence that comes due mid-run rather than stacking agents.
-  // In-memory for the life of the window — see useSchedules.
-  const { schedules, addSchedule, stopSchedule } = useSchedules({
-    queuedPrompts: useMemo(() => queuedMessages.map((m) => m.text), [queuedMessages]),
-    onFire: useCallback((prompt: string) => {
-      // keepInput: the user did not press Enter for this — leave whatever they
-      // are typing untouched.
-      submitTextRef.current(prompt, undefined, { keepInput: true });
-    }, []),
+  // `/schedule` runtime lives in the daemon (see useRoutines): a routine runs
+  // in its own session there and keeps firing with this window closed.
+  const {
+    routines: schedules,
+    addSchedule,
+    stopSchedule,
+  } = useRoutines({
+    cwd: state?.cwd,
+    mode: state?.mode === "chat" ? "chat" : "code",
+    chatAgent: state?.chatAgent,
   });
   // `@`-mention file picker state. `mention` is the active token being typed
   // (its query + where it starts in the input); `fileMatches` is the live
@@ -2180,16 +2180,26 @@ function App(): React.ReactElement {
     if (isScheduleDraft(input)) {
       const result = parseScheduleCommand(input);
       if (!result.ok) return;
-      addSchedule(result.value);
       // Confirm in the transcript, otherwise pressing Enter looks like it did
       // nothing: the first run is a whole interval away, so there is no other
-      // feedback until then.
+      // feedback until then. The daemon may still refuse (cap, bad cwd) — the
+      // row then flips to say why.
+      const rowId = nextId();
       pushItem({
         kind: "user",
-        id: nextId(),
+        id: rowId,
         text: trimmed,
         command: true,
         label: `Scheduled · ${describeSchedule(result.value)}`,
+      });
+      void addSchedule(result.value).catch((e: unknown) => {
+        setItems((prev) =>
+          prev.map((it) =>
+            it.id === rowId && it.kind === "user"
+              ? { ...it, label: `Not scheduled · ${String(e).replace(/^Error:\s*/, "")}` }
+              : it,
+          ),
+        );
       });
       recordHistory(trimmed);
       stickToBottomRef.current = true;
