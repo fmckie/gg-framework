@@ -153,6 +153,7 @@ const fakeApns: ApnsPusher = {
 async function startHost(overrides: { rings?: RingStore } = {}): Promise<Host> {
   const h = createHost({
     apns: fakeApns,
+    diagnosticsDir: join(home, "logs"),
     listenPort: 0,
     publicBaseUrl: `https://${NODE}:8443`,
     nodeId: NODE,
@@ -801,6 +802,41 @@ describe("host: APNs nudge", () => {
       200,
     );
     expect(registry.get(phone.value.device.deviceId)?.push).toBeNull();
+  });
+});
+
+describe("host: device diagnostics", () => {
+  it("appends a device's crash report as one stamped line; rejects non-objects and oversize", async () => {
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    expect(
+      (
+        await call("POST", "/kleio/diagnostics", {
+          headers: P,
+          body: { kind: "crash", stack: "0x1" },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await call("POST", "/kleio/diagnostics", { headers: P, body: [1, 2] })).status).toBe(
+      400,
+    );
+    expect(
+      (await call("POST", "/kleio/diagnostics", { headers: P, body: { pad: "x".repeat(70_000) } }))
+        .status,
+    ).toBe(413);
+    // Unauthenticated: never written.
+    expect((await call("POST", "/kleio/diagnostics", { body: { kind: "crash" } })).status).toBe(
+      401,
+    );
+    const lines = readFileSync(join(home, "logs", "diagnostics.jsonl"), "utf8")
+      .trim()
+      .split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      label: "Phone",
+      report: { kind: "crash", stack: "0x1" },
+    });
   });
 });
 

@@ -19,7 +19,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
@@ -58,6 +58,12 @@ export interface HostOptions {
   readonly routinePollMs?: number;
   /** APNs nudge sender. Unconfigured = no-op. */
   readonly apns?: ApnsPusher;
+  /**
+   * Where `POST /kleio/diagnostics` appends device crash/hang reports
+   * (`diagnostics.jsonl`, one JSON object per line, stamped with the device).
+   * Unset = the route answers 404.
+   */
+  readonly diagnosticsDir?: string;
 }
 
 export interface Host {
@@ -662,6 +668,40 @@ export function createHost(options: HostOptions): Host {
         `[push] ${auth.device.label} ${push ? `registered (${push.env})` : "cleared"} APNs token`,
       );
       return json(res, 200, { device: r.value });
+    }
+
+    // A device uploads its own MetricKit crash/hang report. Not admin: the
+    // phone must be able to do this for itself. Bounded, appended as one
+    // line, never parsed beyond "is it JSON" — it is diagnostic evidence,
+    // not input.
+    if (req.method === "POST" && path === "/kleio/diagnostics") {
+      const dir = options.diagnosticsDir;
+      if (!dir) return json(res, 404, { error: "not_found" });
+      const body = await readBody(req, 64 * 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let report: unknown;
+      try {
+        report = JSON.parse(body.toString("utf8"));
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      if (typeof report !== "object" || report === null || Array.isArray(report))
+        return json(res, 400, { error: "bad_request" });
+      const line = JSON.stringify({
+        receivedAt: (options.now?.() ?? new Date()).toISOString(),
+        deviceId: auth.device.deviceId,
+        label: auth.device.label,
+        report,
+      });
+      try {
+        await mkdir(dir, { recursive: true });
+        await appendFile(join(dir, "diagnostics.jsonl"), line + "\n", { mode: 0o600 });
+      } catch (e) {
+        log(`[diagnostics] write failed: ${String(e)}`);
+        return json(res, 500, { error: "io" });
+      }
+      log(`[diagnostics] report from ${auth.device.label}`);
+      return json(res, 200, { ok: true });
     }
 
     if (path.startsWith("/kleio/")) {
