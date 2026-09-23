@@ -2,8 +2,8 @@
 // (`~/.gg/routines.json`); this hook mirrors it. A routine fires whether or
 // not this window — or any window — is open, which on a Kleio host is the
 // whole point. The rules (skip missed, queue rather than drop, no duplicate in
-// the queue, one fire per tick, first run one interval out) live in
-// packages/ggcoder/src/routines.ts.
+// the queue, one fire per tick, first run one interval out) live in the
+// engine's `routines.ts` (@kleio/coder).
 
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
