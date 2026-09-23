@@ -119,6 +119,7 @@ async function serve(p: HostPaths): Promise<void> {
   );
   const host = createHost({
     apns,
+    diagnosticsDir: p.logs,
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     nodeId: new URL(publicBase()).hostname,
