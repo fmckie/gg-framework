@@ -44,10 +44,34 @@ node kleio-host/dist/cli.js revoke <deviceId>
 ```
 
 The device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem` and
-receives `{ baseUrl, host, token, label, deviceId }`. Every later request carries
-`x-kleio-device-token`. `GET /events?session=…` frames carry `id:`; reconnect with
-`Last-Event-ID` and the host replays what was missed (persisted ring, survives a host
-restart). Revoking a device closes its open streams immediately.
+receives `{ baseUrl, host, token, label, deviceId, controlCredential? }`. Every later
+request carries `x-kleio-device-token` (admin devices add `x-kleio-control`).
+`GET /events?session=…` frames carry `id:`; reconnect with `Last-Event-ID` and the
+host replays what was missed (persisted ring, survives a host restart). Revoking a
+device closes its open streams immediately.
+
+### From gg-app (the laptop)
+
+1. On the mini: `node kleio-host/dist/cli.js pair --admin` → `ABC-DEF`.
+2. In gg-app: **⌘⇧K** → host URL (`https://mac-mini-1.<tailnet>.ts.net:8443`) + the
+   code → **Pair** → **Restart now**.
+3. The title strip shows **on mac-mini-1**; sessions now run there. The picker lists
+   the mini's projects; "New project" points you at the mini.
+
+The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
+non-secret record to `~/.gg/kleio-remote.json`. Admin actions in the pane's
+**Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
+refuse without it. **Forget host** + restart returns to local mode. Env override for
+development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
+
+### Headless and macOS privacy prompts
+
+The host runs its sidecar with `GG_APP_HEADLESS=1`. Under launchd, reading
+`~/Desktop`, `~/Documents` or `~/Downloads` — even a `stat()` of a path below them —
+blocks on a "would like to access" dialog nobody at a headless Mac can answer, and
+each blocked call pins a libuv thread. With the flag, project discovery never touches
+those folders; keep the mini's projects under its projects root (default
+`~/gg-projects`) instead.
 
 ## Known limits
 

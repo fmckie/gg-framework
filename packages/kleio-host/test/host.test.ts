@@ -579,7 +579,10 @@ describe("host: session tracking (frames captured with no client attached)", () 
     // restart can never recover; everything else must be there, in order.
     expect(ns).toEqual([1, 2, 3, 7, 8, 9]);
     expect(got.filter((x) => x.type === "ready").length).toBeGreaterThanOrEqual(2);
-  });
+    // A full host stop + start plus four fixed sleeps: ~300 ms here, but a
+    // loaded Windows CI runner has crossed vitest's default 5 s once. The
+    // stop() latency assertion above is the real guard; this is headroom.
+  }, 15_000);
 });
 
 describe("host: sidecar lifecycle", () => {

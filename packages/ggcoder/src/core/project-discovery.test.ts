@@ -91,6 +91,7 @@ describe("discoverProjects (ggcoder store)", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
@@ -238,6 +239,49 @@ describe("discoverProjects (ggcoder store)", () => {
     const projects = await discoverProjects();
 
     expect(projects.some((project) => project.path === unrelatedFolder)).toBe(false);
+  });
+
+  it("headless on macOS: never touches Documents/Desktop — not as a root, not for a session cwd", async () => {
+    // Unattended, even a stat() below these parks on a privacy dialog nobody
+    // can answer. Sessions under them are skipped; nothing else changes.
+    vi.stubEnv("GG_APP_HEADLESS", "1");
+    const home = path.join(tmp, "home");
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    const documents = path.join(home, "Documents");
+    for (const name of ["one", "two", "three"]) {
+      const projectPath = path.join(documents, name);
+      await fs.mkdir(projectPath, { recursive: true });
+      await writeSession(path.join(state.sessionsDir, encodeCwd(projectPath)), projectPath);
+    }
+    await fs.mkdir(path.join(documents, "never-opened"), { recursive: true });
+    const elsewhere = path.join(home, "code", "fine");
+    await fs.mkdir(elsewhere, { recursive: true });
+    await writeSession(path.join(state.sessionsDir, encodeCwd(elsewhere)), elsewhere);
+    const statSpy = vi.spyOn(fs, "stat");
+
+    const projects = await discoverProjects({ projectsRoot: documents });
+
+    expect(projects.map((p) => p.path)).toEqual([elsewhere]);
+    const touched = statSpy.mock.calls.map((c) => String(c[0]));
+    expect(touched.some((p) => p.startsWith(documents))).toBe(false);
+  });
+
+  it("attended (no headless flag): Documents is scanned like any other folder", async () => {
+    const home = path.join(tmp, "home");
+    vi.spyOn(os, "homedir").mockReturnValue(home);
+    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    const documents = path.join(home, "Documents");
+    for (const name of ["one", "two", "three"]) {
+      const projectPath = path.join(documents, name);
+      await fs.mkdir(projectPath, { recursive: true });
+      await writeSession(path.join(state.sessionsDir, encodeCwd(projectPath)), projectPath);
+    }
+    await fs.mkdir(path.join(documents, "never-opened"), { recursive: true });
+
+    const projects = await discoverProjects();
+
+    expect(projects.some((p) => p.path === path.join(documents, "never-opened"))).toBe(true);
   });
 
   it("does not infer a root from too few projects, nor scan the home directory", async () => {
