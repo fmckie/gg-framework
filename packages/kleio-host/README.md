@@ -64,6 +64,30 @@ non-secret record to `~/.gg/kleio-remote.json`. Admin actions in the pane's
 refuse without it. **Forget host** + restart returns to local mode. Env override for
 development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
 
+### Routines (`/schedule`) run here
+
+A `/schedule` typed in gg-app is stored by the host's sidecar (`~/.gg/routines.json` on
+the mini) and fires there on its own ticker, in a session of its own, with no window open
+anywhere. Rules: first run one interval out; missed occurrences (sleep, restart) are skipped,
+never replayed; a fire during a run queues; no duplicate in the queue; cap 20. The host
+tracks each routine's session so its transcript is in the replay ring for whichever device
+attaches later.
+
+### Push nudges (APNs)
+
+When a run ends on a session with **no device attached**, the host sends one alert push per
+registered phone — a nudge only; the content replays from the ring on attach. Off unless all
+of these are set for `com.kleio.host.serve`:
+
+```
+KLEIO_APNS_KEY_PATH   Apple .p8 key      KLEIO_APNS_TEAM_ID    team id
+KLEIO_APNS_KEY_ID     key id             KLEIO_APNS_BUNDLE_ID  apns-topic
+KLEIO_APNS_ENV        sandbox | production (default sandbox)
+```
+
+A phone registers its token with `POST /kleio/push {token, env}` (own record only; `token:
+null` clears). Two completions inside 8 s produce one push.
+
 ### Headless and macOS privacy prompts
 
 The host runs its sidecar with `GG_APP_HEADLESS=1`. Under launchd, reading
