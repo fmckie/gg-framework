@@ -9,8 +9,18 @@
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
-// The sidecar itself is untouched. Its Host allowlist is satisfied because we
-// always send `127.0.0.1:<port>`.
+// The sidecar's Host allowlist is satisfied because we always send
+// `127.0.0.1:<port>`.
+//
+// The sidecar is the fork's, not stock gg-app's. Kleio relies on two engine
+// changes the fork carries outside Kleio's own directories:
+//   - persisted routines: the engine's `src/routines.ts` and the sidecar's
+//     `/routines` routes, so schedules run with no window open;
+//   - `GG_APP_HEADLESS=1` (set by this package's cli.ts): the engine's
+//     `core/project-discovery.ts` then skips
+//     macOS privacy prompts nobody is there to click.
+// Whether each goes upstream or stays a named touch point is P3 in
+// kleio-next/.gg/plans/step8-revised.md.
 
 import {
   createServer,
