@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1391,
+        "tracked": 1395,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2591,7 +2591,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 636
+        "packed": 660
       },
       "bucket": "compatibility",
       "owner": "Manager build owner",
@@ -5741,7 +5741,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 67
+        "packed": 66
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6122,25 +6122,6 @@
       },
       "expectedOccurrences": {
         "packed": 4
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
-      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
-    },
-    {
-      "id": "packed-20260911-96590c0d3275",
-      "path": "packages/ggcoder/dist/core/agents.js",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "regex": "(?:// forward-compatible with fields a newer ggcoder understands\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "packed": 1
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6539,7 +6520,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 37
+        "packed": 33
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7248,6 +7229,63 @@
       "owner": "Kleio framework maintainers",
       "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260924-96590c0d3275",
+      "path": "packages/ggcoder/dist/core/agents.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ with fields a newer ggcoder understands\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20260924-debc0c2efeb6",
+      "path": "packages/ggcoder/dist/core/ken-prompt.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:If indexing is genuinely needed, hand it to GG Coder, )",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20260924-0ae72e7d390a",
+      "path": "packages/gg-boss/dist/chunk-????????.js.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ with fields a newer ggcoder understands\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
     }
   ]
 }
