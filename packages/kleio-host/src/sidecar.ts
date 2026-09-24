@@ -2,7 +2,8 @@
 //
 // Runs `node app-sidecar.mjs` exactly as gg-app/src-tauri/src/lib.rs does:
 // GG_APP_PORT=0 (kernel-assigned), GG_APP_TOKEN=<random>, and the child prints
-// `GG_APP_LISTENING <port> <token>` once bound. The sidecar is NOT modified.
+// `GG_APP_LISTENING <port> <token>` once bound. The supervisor launches it
+// unchanged; the engine changes Kleio relies on are listed in host.ts.
 //
 // The chosen port and token are published to a 0600 "endpoint file" so the
 // proxy — a separate process under its own launchd job — can find the sidecar
