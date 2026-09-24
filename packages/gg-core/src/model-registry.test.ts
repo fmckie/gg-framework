@@ -110,26 +110,24 @@ describe("getFastModel", () => {
   });
 
   it("picks Haiku for Anthropic and Luna for OpenAI", () => {
-    expect(getFastModel("anthropic", "claude-opus-5").costTier).toBe("low");
-    expect(getFastModel("openai", "gpt-5.6-sol").id).toBe("gpt-5.6-luna");
+    expect(getFastModel("anthropic", "claude-opus-5-5").costTier).toBe("low");
+    expect(getFastModel("openai", "gpt-6-sol").id).toBe("gpt-6-luna");
   });
 });
 
 describe("model registry context windows", () => {
   it.each([
     ["gpt-6-astra", 1_050_000],
-    ["gpt-5.6-sol", 1_050_000],
-    ["gpt-5.6-terra", 1_050_000],
-    ["gpt-5.6-luna", 1_050_000],
+    ["gpt-6-sol", 1_050_000],
+    ["gpt-6-luna", 1_050_000],
   ] as const)("uses the %s public API context window without an OAuth account", (model, limit) => {
     expect(getContextWindow(model, { provider: "openai" })).toBe(limit);
   });
 
   it.each([
     ["gpt-6-astra", 272_000],
-    ["gpt-5.6-sol", 272_000],
-    ["gpt-5.6-terra", 272_000],
-    ["gpt-5.6-luna", 272_000],
+    ["gpt-6-sol", 272_000],
+    ["gpt-6-luna", 272_000],
   ] as const)("uses the %s Codex product window for OpenAI OAuth", (model, limit) => {
     const options = { provider: "openai" as const, accountId: "acct_123" };
     expect(usesOpenAICodexTransport(options)).toBe(true);
@@ -147,7 +145,7 @@ describe("model registry context windows", () => {
   });
 
   it("keeps the generic tool-output allowance outside Codex OAuth", () => {
-    expect(getToolResultCharLimit("gpt-5.6-sol", { provider: "openai" })).toBeUndefined();
+    expect(getToolResultCharLimit("gpt-6-sol", { provider: "openai" })).toBeUndefined();
     expect(
       getToolResultCharLimit("claude-sonnet-5", {
         provider: "anthropic",
@@ -197,8 +195,20 @@ describe("model registry context windows", () => {
     expect(
       getDefaultThinkingLevel("kimi-k2.7-code", { baseUrl: "https://api.kimi.com/coding/v1" }),
     ).toBe("high");
-    expect(getDefaultThinkingLevel("claude-opus-5")).toBe("max");
-    expect(getDefaultThinkingLevel("claude-opus-5")).toBe("max");
+    expect(getDefaultThinkingLevel("claude-opus-5-5")).toBe("max");
+    expect(getDefaultThinkingLevel("claude-opus-5-5")).toBe("max");
+  });
+
+  it("starts Codex models at their catalog default, not the ladder ceiling", () => {
+    // openai/codex models.json `default_reasoning_level`: the deep-reasoning
+    // flagship (Astra) ships "low", GPT-6 Sol/Luna "medium". Defaulting to
+    // maxThinkingLevel made fresh Astra sessions reason at max effort.
+    expect(getDefaultThinkingLevel("gpt-6-astra")).toBe("low");
+    expect(getDefaultThinkingLevel("gpt-6-sol")).toBe("medium");
+    expect(getDefaultThinkingLevel("gpt-6-luna")).toBe("medium");
+    // Ceilings are unchanged — users can still opt up.
+    expect(getModel("gpt-6-astra")?.maxThinkingLevel).toBe("ultra");
+    expect(getModel("gpt-6-luna")?.maxThinkingLevel).toBe("max");
   });
 
   it("pairs GLM-5.3 with its Flash sibling, both at a max thinking ceiling", () => {
@@ -239,10 +249,10 @@ describe("model registry context windows", () => {
     expect(getSummaryModel("glm", "glm-5.3").id).toBe("glm-5.3-flash");
   });
 
-  it("defaults xAI to Grok 4.6 and keeps 4.5 capped at high", () => {
+  it("defaults xAI to Grok 4.7 alone, retiring the superseded 4.6/4.5 ids", () => {
     expect(getDefaultModel("xai")).toMatchObject({
-      id: "grok-4.6",
-      name: "Grok 4.6",
+      id: "grok-4.7",
+      name: "Grok 4.7",
       provider: "xai",
       contextWindow: 500_000,
       maxOutputTokens: 131_072,
@@ -251,10 +261,13 @@ describe("model registry context windows", () => {
       supportsVideo: false,
       maxThinkingLevel: "xhigh",
     });
-    expect(getDefaultThinkingLevel("grok-4.6")).toBe("xhigh");
-    expect(getModelsForProvider("xai").map((model) => model.id)).toEqual(["grok-4.6", "grok-4.5"]);
-    // 4.5 stays registered as the legacy option without the new xhigh rung.
-    expect(getModel("grok-4.5")?.maxThinkingLevel).toBe("high");
+    expect(getDefaultThinkingLevel("grok-4.7")).toBe("xhigh");
+    expect(getModelsForProvider("xai").map((model) => model.id)).toEqual(["grok-4.7"]);
+    // Only the newest Grok ships — saved sessions on 4.6/4.5 fall back to the
+    // provider default.
+    for (const retired of ["grok-4.6", "grok-4.5"]) {
+      expect(getModel(retired), `${retired} retired`).toBeUndefined();
+    }
   });
 
   it("defaults MiniMax to the multimodal M3 with a 1M context window", () => {
@@ -275,16 +288,44 @@ describe("model registry context windows", () => {
     expect(getAuthStorageKey("anthropic", "claude-sonnet-5")).toBe("anthropic");
   });
 
-  it("mimo-v2.5-pro / mimo-v2.5 prefer the Token Plan key but fall back to API Credits", () => {
-    expect(getAuthStorageKeys("xiaomi", "mimo-v2.5-pro")).toEqual(["xiaomi", XIAOMI_CREDITS_KEY]);
-    expect(getAuthStorageKeys("xiaomi", "mimo-v2.5")).toEqual(["xiaomi", XIAOMI_CREDITS_KEY]);
-    // getAuthStorageKey() is the FIRST preference, not the only option.
-    expect(getAuthStorageKey("xiaomi", "mimo-v2.5-pro")).toBe("xiaomi");
+  it("defaults Xiaomi to the full-modal MiMo-V2.6-Pro and retires the V2.5 ids", () => {
+    expect(getDefaultModel("xiaomi")).toMatchObject({
+      id: "mimo-v2.6-pro",
+      name: "MiMo-V2.6-Pro",
+      provider: "xiaomi",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+      // The whole V2.6 series is natively full-modal — Pro is no longer
+      // text-only the way V2.5-Pro was.
+      supportsImages: true,
+      supportsVideo: true,
+      maxVideoBytes: 36 * 1024 * 1024,
+    });
+    expect(getModelsForProvider("xiaomi").map((model) => model.id)).toEqual([
+      "mimo-v2.6-pro",
+      "mimo-v2.6-flash",
+      "mimo-v2.6-pro-ultraspeed",
+    ]);
+    // V2.5 ids deprecate on the platform 2026-10-21 — retired here, saved
+    // sessions fall back to the provider default.
+    for (const retired of ["mimo-v2.5-pro", "mimo-v2.5", "mimo-v2.5-pro-ultraspeed"]) {
+      expect(getModel(retired), `${retired} retired`).toBeUndefined();
+    }
+    // Flash is the low-cost sibling, so scout routing drops to it.
+    expect(getFastModel("xiaomi", "mimo-v2.6-pro").id).toBe("mimo-v2.6-flash");
   });
 
-  it("mimo-v2.5-pro-ultraspeed is API-Credits only, with no Token Plan fallback", () => {
-    expect(getAuthStorageKeys("xiaomi", "mimo-v2.5-pro-ultraspeed")).toEqual([XIAOMI_CREDITS_KEY]);
-    expect(getAuthStorageKey("xiaomi", "mimo-v2.5-pro-ultraspeed")).toBe(XIAOMI_CREDITS_KEY);
+  it("mimo-v2.6-pro / mimo-v2.6-flash prefer the Token Plan key but fall back to API Credits", () => {
+    expect(getAuthStorageKeys("xiaomi", "mimo-v2.6-pro")).toEqual(["xiaomi", XIAOMI_CREDITS_KEY]);
+    expect(getAuthStorageKeys("xiaomi", "mimo-v2.6-flash")).toEqual(["xiaomi", XIAOMI_CREDITS_KEY]);
+    // getAuthStorageKey() is the FIRST preference, not the only option.
+    expect(getAuthStorageKey("xiaomi", "mimo-v2.6-pro")).toBe("xiaomi");
+  });
+
+  it("mimo-v2.6-pro-ultraspeed is API-Credits only, with no Token Plan fallback", () => {
+    expect(getAuthStorageKeys("xiaomi", "mimo-v2.6-pro-ultraspeed")).toEqual([XIAOMI_CREDITS_KEY]);
+    expect(getAuthStorageKey("xiaomi", "mimo-v2.6-pro-ultraspeed")).toBe(XIAOMI_CREDITS_KEY);
   });
 
   it("registers a Code Assist-supported Gemini default", () => {

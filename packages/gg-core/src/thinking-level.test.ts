@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { clearRuntimeModels, registerRuntimeModels } from "./model-registry.js";
 import {
+  clampThinkingForPlanMode,
   getNextThinkingLevel,
   getSupportedThinkingLevels,
   isThinkingLevelSupported,
@@ -27,25 +28,24 @@ describe("thinking-level helpers", () => {
     expect(getNextThinkingLevel("openai", "gpt-5.2", "high")).toBeUndefined();
   });
 
-  it("exposes Ultra only for GPT-5.6 models that support proactive delegation", () => {
+  it("exposes Ultra only for GPT-6 models that support proactive delegation", () => {
     const baseLevels = ["low", "medium", "high", "xhigh", "max"];
-    expect(getSupportedThinkingLevels("openai", "gpt-5.6-sol")).toEqual([...baseLevels, "ultra"]);
-    expect(getSupportedThinkingLevels("openai", "gpt-5.6-terra")).toEqual([...baseLevels, "ultra"]);
-    expect(getSupportedThinkingLevels("openai", "gpt-5.6-luna")).toEqual(baseLevels);
-    expect(getNextThinkingLevel("openai", "gpt-5.6-sol", "max")).toBe("ultra");
-    expect(getNextThinkingLevel("openai", "gpt-5.6-sol", "ultra")).toBeUndefined();
+    expect(getSupportedThinkingLevels("openai", "gpt-6-sol")).toEqual([...baseLevels, "ultra"]);
+    expect(getSupportedThinkingLevels("openai", "gpt-6-luna")).toEqual(baseLevels);
+    expect(getNextThinkingLevel("openai", "gpt-6-sol", "max")).toBe("ultra");
+    expect(getNextThinkingLevel("openai", "gpt-6-sol", "ultra")).toBeUndefined();
   });
 
   it("cycles Anthropic adaptive Opus models through max, including xhigh", () => {
-    expect(getSupportedThinkingLevels("anthropic", "claude-opus-5")).toEqual([
+    expect(getSupportedThinkingLevels("anthropic", "claude-opus-5-5")).toEqual([
       "low",
       "medium",
       "high",
       "xhigh",
       "max",
     ]);
-    expect(getNextThinkingLevel("anthropic", "claude-opus-5", "xhigh")).toBe("max");
-    expect(getNextThinkingLevel("anthropic", "claude-opus-5", "max")).toBeUndefined();
+    expect(getNextThinkingLevel("anthropic", "claude-opus-5-5", "xhigh")).toBe("max");
+    expect(getNextThinkingLevel("anthropic", "claude-opus-5-5", "max")).toBeUndefined();
   });
 
   it("cycles Anthropic adaptive Sonnet models without xhigh", () => {
@@ -70,27 +70,20 @@ describe("thinking-level helpers", () => {
     expect(isThinkingLevelSupported("anthropic", "claude-fable-5-1", "xhigh")).toBe(false);
   });
 
-  it("cycles xAI Grok 4.5 through low, medium, and high", () => {
-    expect(getSupportedThinkingLevels("xai", "grok-4.5")).toEqual(["low", "medium", "high"]);
-    expect(getNextThinkingLevel("xai", "grok-4.5", undefined)).toBe("low");
-    expect(getNextThinkingLevel("xai", "grok-4.5", "low")).toBe("medium");
-    expect(getNextThinkingLevel("xai", "grok-4.5", "medium")).toBe("high");
-    expect(getNextThinkingLevel("xai", "grok-4.5", "high")).toBeUndefined();
-    expect(isThinkingLevelSupported("xai", "grok-4.5", "xhigh")).toBe(false);
-  });
-
-  it("cycles xAI Grok 4.6 through low, medium, high, and its new xhigh rung", () => {
-    expect(getSupportedThinkingLevels("xai", "grok-4.6")).toEqual([
+  it("cycles xAI Grok 4.7 through low, medium, high, and its xhigh rung", () => {
+    expect(getSupportedThinkingLevels("xai", "grok-4.7")).toEqual([
       "low",
       "medium",
       "high",
       "xhigh",
     ]);
-    expect(getNextThinkingLevel("xai", "grok-4.6", undefined)).toBe("low");
-    expect(getNextThinkingLevel("xai", "grok-4.6", "high")).toBe("xhigh");
-    expect(getNextThinkingLevel("xai", "grok-4.6", "xhigh")).toBeUndefined();
-    expect(isThinkingLevelSupported("xai", "grok-4.6", "xhigh")).toBe(true);
-    expect(isThinkingLevelSupported("xai", "grok-4.6", "max")).toBe(false);
+    expect(getNextThinkingLevel("xai", "grok-4.7", undefined)).toBe("low");
+    expect(getNextThinkingLevel("xai", "grok-4.7", "low")).toBe("medium");
+    expect(getNextThinkingLevel("xai", "grok-4.7", "medium")).toBe("high");
+    expect(getNextThinkingLevel("xai", "grok-4.7", "high")).toBe("xhigh");
+    expect(getNextThinkingLevel("xai", "grok-4.7", "xhigh")).toBeUndefined();
+    expect(isThinkingLevelSupported("xai", "grok-4.7", "xhigh")).toBe(true);
+    expect(isThinkingLevelSupported("xai", "grok-4.7", "max")).toBe(false);
   });
 
   it("cycles Sakana Fugu through high and xhigh", () => {
@@ -250,5 +243,15 @@ describe("local models", () => {
 
   it("offers nothing for an unknown local id (never discovered)", () => {
     expect(getSupportedThinkingLevels("local", "local/ollama/ghost")).toEqual([]);
+  });
+
+  it("caps plan-mode thinking at medium, mirroring the Codex plan preset", () => {
+    expect(clampThinkingForPlanMode("ultra")).toBe("medium");
+    expect(clampThinkingForPlanMode("max")).toBe("medium");
+    expect(clampThinkingForPlanMode("xhigh")).toBe("medium");
+    expect(clampThinkingForPlanMode("high")).toBe("medium");
+    expect(clampThinkingForPlanMode("medium")).toBe("medium");
+    expect(clampThinkingForPlanMode("low")).toBe("low");
+    expect(clampThinkingForPlanMode(undefined)).toBeUndefined();
   });
 });

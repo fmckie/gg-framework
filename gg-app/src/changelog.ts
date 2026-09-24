@@ -22,6 +22,126 @@ export interface ChangelogEntry {
 /** Newest first. Prepended by the `/release` flow. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.70.3",
+    date: "2026-09-23",
+    items: [
+      "Your network rules stay in charge even while a page is loading. I made `web fetch` and `web search` stop when you block their destination, instead of letting an already-started request slip through.",
+      "No more accidental double moves. If the AI repeats the exact same `tool call` in one response, I run it once, but I still let it retry when your task actually changes.",
+      "A command that never started now says so. I fixed `shell` launch failures so you and the AI see the error right away instead of a result that looks successful.",
+    ],
+  },
+  {
+    version: "0.70.2",
+    date: "2026-09-23",
+    items: [
+      "GG Coder feels alive now. Your messages rise into the chat, tool steps slide in as they run, popups and menus fade away instead of vanishing, and every screen change glides with a soft `crossfade`. Hit `Show full output` on a long code block and it grows open smoothly instead of jumping.",
+      "Reviewing a plan is a proper moment now. The `YOUR PLAN` banner draws itself in line by line, your plan rises in underneath, and a stray Enter can never approve it by accident. It's fully keyboard friendly, so Tab stays right where your decision is.",
+      "Errors wait for you now. They stay on screen until you close them, and any notice holds still while you hover it, so nothing important slips past while you're looking away.",
+      "A calmer, cleaner look. The top bar keeps `/commit` as the one standout action, Ken's replies read in easy normal text with his signature teal stripe, and your project list is tidier with neat, lined-up times.",
+    ],
+  },
+  {
+    version: "0.70.1",
+    date: "2026-09-23",
+    items: [
+      "Every button now tells you what it does. I built slick new `tooltips` across the whole app that actually show up on Mac, pop in instantly as you glide between buttons, and never appear when you didn't ask for them.",
+      "GG Coder got a serious polish pass. Faint grey text is crisper and easier on the eyes, menus and popups now float in smoothly, and keyboard users get a clear `focus ring` so you always know where you are. Got `Reduce Motion` switched on? I calm every animation down for you now.",
+      "Squeeze your windows as small as you like. At narrow sizes the header buttons neatly wrap instead of sliding off the edge, your issue and PR counts stay fully readable, and the logo shrinks to fit.",
+    ],
+  },
+  {
+    version: "0.70.0",
+    date: "2026-09-23",
+    items: [
+      "OpenAI's brand new `GPT-6 Sol` and `GPT-6 Luna` just landed. Sol is your new OpenAI default, a serious coder that climbs all the way to `ultra` effort, and Luna is the lightning-fast, dirt-cheap sidekick I now hand your helper agents. Both read screenshots and remember a huge amount of your project at once.",
+      "Your secrets are safer than ever. I hide API keys and passwords from the AI, and now I also make sure it can never accidentally overwrite a real key in your files with the hidden placeholder it was shown. Your `.env` stays exactly as you left it.",
+    ],
+  },
+  {
+    version: "0.69.0",
+    date: "2026-09-23",
+    items: [
+      "`Claude Opus 5.5` just landed and I made it the flagship Anthropic pick. Anthropic built it for exactly the long coding sessions we live in, it thinks adaptively at every effort level up to `max`, and it dropped `20%` off the price at `$4/$20` per million tokens. Pick it in the model menu and it just works.",
+    ],
+  },
+  {
+    version: "0.68.0",
+    date: "2026-09-22",
+    items: [
+      "`Grok 4.7` is here and it's your new default on xAI. xAI built it for exactly what we do: hours of coding, agents that don't wander, and deep research. Same huge `500K` context and price as before, plus a new extra-deep `xhigh` thinking mode for the gnarliest problems.",
+      "Xiaomi's whole `MiMo-V2.6` family just landed. `MiMo-V2.6-Pro` now reads screenshots and watches video clips right alongside your code, the bargain `MiMo-V2.6-Flash` quietly handles the quick lookups so your bill stays tiny, and `UltraSpeed` returns when you want raw pace.",
+    ],
+  },
+  {
+    version: "0.67.1",
+    date: "2026-09-22",
+    items: [
+      "Long sessions just stay fast now. I taught the engine to slim a conversation down on a smart per-model budget before it ever gets heavy, so that sluggish crawl an hour into a big task is gone. A task that took `60 minutes` now finishes in around `10`.",
+      "No more phantom stalls on big prompts. The engine used to give up after `45 seconds` and restart from scratch; now it waits as long as the work actually needs, so you see far fewer random pauses and retries mid-task.",
+    ],
+  },
+  {
+    version: "0.67.0",
+    date: "2026-09-22",
+    items: [
+      "Ask for UI and get the real thing. Your agent can now browse `Bklit` and `Kokonutui` for actual components, pull their genuine source into your project, and wire up imports and dependencies for you. No more invented lookalikes. I watched it nail `6 out of 6` fresh builds in testing with the real library code, verbatim.",
+      "Animations that behave like an adult. New `Motion` guidance means the agent builds with real animation APIs, honors your `reduced motion` preference, and cleans up its own animation drivers on unmount. Smooth where it should be, still where you need it.",
+    ],
+  },
+  {
+    version: "0.66.4",
+    date: "2026-09-21",
+    items: [
+      "Less clutter, more care in the interfaces your agent builds. I tightened the `UI skill` to cut repetitive descriptions, reuse consistent controls, and check `keyboard focus` and `dropdowns` through real interactions instead of relying on screenshots alone.",
+    ],
+  },
+  {
+    version: "0.66.3",
+    date: "2026-09-21",
+    items: [
+      "Your agent's scratch files should keep work moving, not hold it up. I fixed temporary-file handling across `macOS`, `Linux`, and `Windows`, so your agent can read, write, and edit its scratch files without getting tripped up by the wrong folder.",
+    ],
+  },
+  {
+    version: "0.66.2",
+    date: "2026-09-21",
+    items: [
+      "Your pictures no longer get left behind in connected editors. I fixed missing `screenshots` and `generated images` in `ACP` connections, so you can see them as they arrive and when you reopen a saved chat.",
+    ],
+  },
+  {
+    version: "0.66.1",
+    date: "2026-09-20",
+    items: [
+      "Your `activity bar` now tells the story of the request you just made, not the last one. I separated earlier check warnings from fresh answers, gave research and background work clearer finish messages, and stopped blocked checks from leaving you waiting on a review that won't start.",
+    ],
+  },
+  {
+    version: "0.66.0",
+    date: "2026-09-20",
+    items: [
+      "Know what's happening without reading the whole chat. I rebuilt the `activity bar` with short, color-coded statuses and smooth transitions, so `Needs you` and `Not verified` stand out even after the work stops.",
+      "I tightened `Ken` and `Autopilot` reviews around what you actually asked for. Your latest decisions stay in focus, and reviews check for unfinished work without chasing endless optional improvements.",
+      "Your `slash commands` now listen to what you ask this time. I fixed custom instructions getting lost behind template defaults, so your chosen scope and format take priority.",
+    ],
+  },
+  {
+    version: "0.65.2",
+    date: "2026-09-19",
+    items: [
+      "Deep-thinking models just got dramatically faster out of the gate. New chats on models like `GPT-6 Astra` no longer start at maximum reasoning, and `plan mode` caps its deep thinking, so you get answers sooner and burn far less of your usage.",
+      "Your next message no longer waits for housekeeping. I moved context compaction into the background so it tidies up while you read the answer, which keeps long conversations snappy instead of pausing your next prompt.",
+    ],
+  },
+  {
+    version: "0.65.1",
+    date: "2026-09-16",
+    items: [
+      "Get the answer without digging through a checklist. I rewrote how `GG Coder` replies so you get a clear takeaway first, followed by a natural explanation that fits your question or coding task.",
+      "Changed your mind about a queued message? I fixed `queue cancellation` so older updates stay out of your way and cancelling one of two identical messages removes the right one. Your chat stays in step with what is actually waiting to run.",
+    ],
+  },
+  {
     version: "0.65.0",
     date: "2026-09-15",
     items: [

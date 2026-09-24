@@ -34,10 +34,10 @@ import { extractRequestIdFromMessage } from "../utils/request-id.js";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
 // Advertised Codex client version. The ChatGPT backend gates models on the
-// catalog's `minimal_client_version` (GPT-6 Astra needs >= 0.153.0) and
+// catalog's `minimal_client_version` (GPT-6 Sol/Luna need >= 0.155.0) and
 // rejects older clients with "requires a newer version of Codex". Track the
 // latest openai/codex `rust-v*` release when adding a model.
-const CODEX_CLIENT_VERSION = "0.153.4";
+const CODEX_CLIENT_VERSION = "0.155.1";
 // OpenAI's Codex CLI enables zstd request compression by default. Keep tiny
 // synthetic/API requests readable, but compress real agent payloads before they
 // hit the backend's finite Envoy retry buffer.
@@ -179,6 +179,15 @@ async function* runStream(
     summary: "auto",
     ...(responsesLite ? { context: "all_turns" } : {}),
   };
+  // Catalog parity: every responses-lite model (gpt-6-astra/sol/luna and the
+  // older gpt-5.6-sol/terra/luna) declares `support_verbosity: true` with
+  // `default_verbosity: "low"` in openai/codex models.json, and the Codex CLI
+  // sends `text.verbosity` accordingly. Omitting it leaves the server default
+  // in place, which produces noticeably longer outputs — slower turns and
+  // heavier usage burn on exactly these deep-reasoning models.
+  if (responsesLite) {
+    body.text = { verbosity: "low" };
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -283,7 +292,7 @@ async function* runStream(
     } else if (response.status === 404 && text.includes("does not exist")) {
       hint =
         "This model is not in OpenAI's current catalog for your ChatGPT account. " +
-        "Switch to GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Terra, or GPT-5.6 Luna via the model selector.";
+        "Switch to GPT-6 Astra, GPT-6 Sol, or GPT-6 Luna via the model selector.";
     }
 
     throw new ProviderError("openai", message, {

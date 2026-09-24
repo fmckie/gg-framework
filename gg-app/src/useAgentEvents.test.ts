@@ -35,6 +35,7 @@ const flushSubagents = async (): Promise<void> => {
 function setup(
   handleKenEvent: (e: SidecarEvent) => boolean = () => false,
   initialState: Partial<AgentState> = {},
+  handleAutopilotEvent: (e: SidecarEvent) => boolean = () => false,
 ) {
   let items: Item[] = [];
   let id = 0;
@@ -58,7 +59,7 @@ function setup(
   // model_change / ken_model_change spreads) apply against a base state.
   let agentState: AgentState | null = {
     provider: "anthropic",
-    model: "claude-opus-5",
+    model: "claude-opus-5-5",
     cwd: "/tmp/proj",
     running: false,
     ...initialState,
@@ -81,7 +82,8 @@ function setup(
     setItems: setItems as AgentEventsDeps["setItems"],
     nextId,
     handleKenEvent,
-    handleAutopilotEvent: () => false,
+    handleAutopilotEvent,
+    handleActivityEvent: vi.fn(),
     setState,
     setTasks: noop as unknown as AgentEventsDeps["setTasks"],
     setProjectTasks: noop as unknown as AgentEventsDeps["setProjectTasks"],
@@ -99,8 +101,8 @@ function setup(
     setPlanReview: ((u: string | null | ((p: string | null) => string | null)) => {
       planReview = typeof u === "function" ? u(planReview) : u;
     }) as AgentEventsDeps["setPlanReview"],
-    setQueuedCount: noop as unknown as AgentEventsDeps["setQueuedCount"],
-    setQueuedMessages: noop as unknown as AgentEventsDeps["setQueuedMessages"],
+    setQueuedCount: vi.fn<AgentEventsDeps["setQueuedCount"]>(),
+    setQueuedMessages: vi.fn<AgentEventsDeps["setQueuedMessages"]>(),
     setAttachments: noop as unknown as AgentEventsDeps["setAttachments"],
     setCommands: noop as unknown as AgentEventsDeps["setCommands"],
     setModels,
@@ -130,6 +132,17 @@ function setup(
 }
 
 describe("useAgentEvents", () => {
+  it("updates task activity before an autopilot delegate consumes its event", () => {
+    const { hook, deps } = setup(
+      () => false,
+      {},
+      () => true,
+    );
+    const review = ev("autopilot_review_start");
+    act(() => hook.result.current.handleEvent(review));
+    expect(deps.handleActivityEvent).toHaveBeenCalledWith(review);
+  });
+
   it("shows Unverified instead of completion and does not finish an approved plan", () => {
     const { hook, deps } = setup();
     act(() => hook.result.current.handleEvent(ev("run_start", {})));
@@ -144,6 +157,95 @@ describe("useAgentEvents", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("queued pill lifecycle", () => {
+    it("removes the cancelled duplicate, not the identical message still pending", () => {
+      const { hook, getItems, pushUserItem } = setup();
+      pushUserItem("same", true);
+      pushUserItem("same", true);
+      const firstId = getItems()[0]!.id;
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 2,
+            messages: [
+              { id: "a", text: "same" },
+              { id: "b", text: "same" },
+            ],
+          }),
+        ),
+      );
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 1,
+            messages: [{ id: "a", text: "same" }],
+            cancelledId: "b",
+          }),
+        ),
+      );
+      expect(getItems()).toEqual([
+        expect.objectContaining({ id: firstId, text: "same", queued: true }),
+      ]);
+    });
+
+    it("keeps newer enqueues and drains after cancellation, including repeated cancellation events", () => {
+      const { hook, getItems, pushUserItem, deps } = setup();
+      pushUserItem("cancel me", true);
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 1,
+            messages: [{ id: "a", text: "cancel me" }],
+          }),
+        ),
+      );
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 0,
+            messages: [],
+            cancelledId: "a",
+          }),
+        ),
+      );
+      expect(getItems()).toEqual([]);
+      pushUserItem("newer", true);
+      const pending = [{ id: "b", text: "newer" }];
+      act(() => hook.result.current.handleEvent(ev("queued", { count: 1, messages: pending })));
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 1,
+            messages: pending,
+            cancelledId: "a",
+          }),
+        ),
+      );
+      expect(deps.setQueuedMessages).toHaveBeenLastCalledWith(pending);
+      expect(getItems()).toEqual([expect.objectContaining({ text: "newer", queued: true })]);
+      act(() => hook.result.current.handleEvent(ev("queued", { count: 0, messages: [] })));
+      expect(deps.setQueuedCount).toHaveBeenLastCalledWith(0);
+      expect(deps.setQueuedMessages).toHaveBeenLastCalledWith([]);
+      expect(getItems()).toEqual([expect.objectContaining({ text: "newer", queued: false })]);
+    });
+
+    it("preserves consumed input when cancellation loses the race", () => {
+      const { hook, getItems, pushUserItem } = setup();
+      pushUserItem("already running", true);
+      act(() =>
+        hook.result.current.handleEvent(
+          ev("queued", {
+            count: 1,
+            messages: [{ id: "a", text: "already running" }],
+          }),
+        ),
+      );
+      act(() => hook.result.current.handleEvent(ev("queued", { count: 0, messages: [] })));
+      // Failed cancellation broadcasts the current list without a cancelled id.
+      act(() => hook.result.current.handleEvent(ev("queued", { count: 0, messages: [] })));
+      expect(getItems()).toEqual([
+        expect.objectContaining({ text: "already running", queued: false }),
+      ]);
+    });
     it("clears a bubble's queued pill as soon as the agent consumes it, mid-run", () => {
       const { hook, getItems, pushUserItem, setRunning } = setup();
       act(() => setRunning(true));
@@ -834,7 +936,7 @@ describe("useAgentEvents", () => {
       kenModel: "gpt-5.5",
       kenModelOverride: true,
       // GG Coder's own model is untouched by a Ken pin.
-      model: "claude-opus-5",
+      model: "claude-opus-5-5",
       provider: "anthropic",
     });
 
@@ -843,12 +945,12 @@ describe("useAgentEvents", () => {
       hook.result.current.handleEvent(
         ev("ken_model_change", {
           kenProvider: "anthropic",
-          kenModel: "claude-opus-5",
+          kenModel: "claude-opus-5-5",
           kenModelOverride: false,
         }),
       );
     });
-    expect(getState()).toMatchObject({ kenModel: "claude-opus-5", kenModelOverride: false });
+    expect(getState()).toMatchObject({ kenModel: "claude-opus-5-5", kenModelOverride: false });
   });
 
   it("plan_exit opens the human review modal when autopilot is off", () => {
@@ -1083,7 +1185,7 @@ describe("models_change", () => {
     // Connecting a provider unlocks its models; the sidecar fans models_change
     // out to every window because ~/.gg/auth.json is shared, not per-session.
     const unlocked = [
-      { id: "claude-opus-5", name: "Claude Opus 5", provider: "anthropic" },
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic" },
       { id: "gpt-6", name: "GPT-6", provider: "openai" },
     ];
     vi.mocked(listModels).mockResolvedValue(unlocked as never);
@@ -1098,7 +1200,7 @@ describe("models_change", () => {
   });
 
   it("keeps the existing list when the refresh itself fails", async () => {
-    const seeded = [{ id: "claude-opus-5", name: "Claude Opus 5", provider: "anthropic" }];
+    const seeded = [{ id: "claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic" }];
     vi.mocked(listModels).mockResolvedValue(seeded as never);
     const { hook, getModels } = setup();
     await act(async () => {
@@ -1119,7 +1221,7 @@ describe("models_change", () => {
   });
 
   it("clears the picker when the last provider is disconnected", async () => {
-    const seeded = [{ id: "claude-opus-5", name: "Claude Opus 5", provider: "anthropic" }];
+    const seeded = [{ id: "claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic" }];
     vi.mocked(listModels).mockResolvedValue(seeded as never);
     const { hook, getModels } = setup();
     await act(async () => {

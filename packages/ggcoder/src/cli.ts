@@ -77,6 +77,7 @@ import { setStreamDiagnostic } from "@kleio/agent";
 import { setProviderDiagnostic } from "@kleio/ai";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { PROMPT_COMMANDS } from "./core/prompt-commands.js";
+import { matchPromptCommand } from "./core/prompt-command-expansion.js";
 import { createTools, type CreateToolsOptions } from "./tools/index.js";
 import {
   disposeProjectRuntime,
@@ -332,7 +333,7 @@ function main(): void {
   if (values.json) {
     const message = positionals[0] ?? "";
     const jsonProvider = (values.provider ?? "anthropic") as Provider;
-    const jsonModel = values.model ?? "claude-opus-5";
+    const jsonModel = values.model ?? "claude-opus-5-5";
     const maxTurns = values["max-turns"] ? parseInt(values["max-turns"], 10) : undefined;
     const systemPrompt = values["system-prompt"];
     // An agent definition's body: composed with the Tools/context/Environment
@@ -387,7 +388,7 @@ function main(): void {
   // RPC mode — headless JSON-over-stdio for IDE integrations
   if (values.rpc) {
     const rpcProvider = (values.provider ?? "anthropic") as Provider;
-    const rpcModel = values.model ?? "claude-opus-5";
+    const rpcModel = values.model ?? "claude-opus-5-5";
     const systemPrompt = values["system-prompt"];
     const cwd = process.cwd();
     runRpcMode({
@@ -409,7 +410,7 @@ function main(): void {
   const provider: Provider = saved.provider ?? "anthropic";
 
   function getHardcodedDefault(p: string): string {
-    if (p === "openai") return "gpt-5.6-sol";
+    if (p === "openai") return "gpt-6-sol";
     if (p === "gemini") return "gemini-3.1-flash-lite";
     if (p === "glm") return "glm-5.3";
     if (p === "moonshot") return "kimi-k3";
@@ -418,8 +419,8 @@ function main(): void {
     if (p === "huggingface") return "Qwen/Qwen3-Coder-480B-A35B-Instruct";
     if (p === "openrouter") return "qwen/qwen3.6-plus";
     if (p === "sakana") return "fugu";
-    if (p === "xai") return "grok-4.6";
-    return "claude-opus-5";
+    if (p === "xai") return "grok-4.7";
+    return "claude-opus-5-5";
   }
 
   const model: string = saved.model ?? getHardcodedDefault(provider);
@@ -508,7 +509,7 @@ async function runInkTUI(opts: {
   // fall back to whichever other provider actually resolved. Keyed by
   // auth-storage key (not always the provider id) — e.g. Xiaomi splits into
   // "xiaomi" (Token Plan) and "xiaomi-credits" (API Credits, required for
-  // mimo-v2.5-pro-ultraspeed) since a user may hold either or both.
+  // mimo-v2.6-pro-ultraspeed) since a user may hold either or both.
   const credentialsByProvider: Record<
     string,
     { accessToken: string; accountId?: string; projectId?: string; baseUrl?: string }
@@ -548,7 +549,7 @@ async function runInkTUI(opts: {
   // resolved: prefer the provider's default model, but for a provider like
   // Xiaomi that splits credentials across models, fall back to whichever
   // model's specific storage key DID resolve (e.g. a user who configured only
-  // API Credits, no Token Plan, must still land on mimo-v2.5-pro-ultraspeed,
+  // API Credits, no Token Plan, must still land on mimo-v2.6-pro-ultraspeed,
   // not get treated as logged out of Xiaomi entirely).
   const resolvedKeyFor = (p: Provider, modelId: string): string | undefined =>
     getAuthStorageKeys(p, modelId).find((key) => credentialsByProvider[key]);
@@ -567,7 +568,7 @@ async function runInkTUI(opts: {
   let model = preferredModel;
   if (!modelResolves(provider, model)) {
     // Same provider, different model first — e.g. Xiaomi Credits-only users
-    // land on mimo-v2.5-pro-ultraspeed instead of bouncing to another provider.
+    // land on mimo-v2.6-pro-ultraspeed instead of bouncing to another provider.
     const sameProviderModel = resolvableModelFor(provider);
     if (sameProviderModel) {
       model = sameProviderModel;
@@ -818,7 +819,13 @@ async function runInkTUI(opts: {
 
         if (
           savedSettings.autoCompact &&
-          shouldCompact(messages, contextWindow, policy.threshold, activeTokens)
+          shouldCompact(
+            messages,
+            contextWindow,
+            policy.threshold,
+            activeTokens,
+            policy.targetTokens,
+          )
         ) {
           await subAgentManager?.hydrate(loaded.header.id);
           log("INFO", "session", `Restored session exceeds context — auto-compacting`);
@@ -846,7 +853,16 @@ async function runInkTUI(opts: {
                   sessionPath = loaded.path;
                   sessionId = loaded.header.id;
                 }
-                if (!shouldCompact(messages, contextWindow, policy.threshold)) return;
+                if (
+                  !shouldCompact(
+                    messages,
+                    contextWindow,
+                    policy.threshold,
+                    undefined,
+                    policy.targetTokens,
+                  )
+                )
+                  return;
 
                 const fingerprint = sourceFingerprint(messages);
                 const attempt = await sessionManager.readCompactionAttemptState(conversationId);
@@ -1069,7 +1085,7 @@ async function runSessions(): Promise<void> {
   const provider: Provider = saved2.provider ?? "anthropic";
 
   function getDefault(p: string): string {
-    if (p === "openai") return "gpt-5.6-sol";
+    if (p === "openai") return "gpt-6-sol";
     if (p === "gemini") return "gemini-3.1-flash-lite";
     if (p === "glm") return "glm-5.3";
     if (p === "moonshot") return "kimi-k3";
@@ -1077,8 +1093,8 @@ async function runSessions(): Promise<void> {
     if (p === "deepseek") return "deepseek-v4-pro";
     if (p === "huggingface") return "Qwen/Qwen3-Coder-480B-A35B-Instruct";
     if (p === "sakana") return "fugu";
-    if (p === "xai") return "grok-4.6";
-    return "claude-opus-5";
+    if (p === "xai") return "grok-4.7";
+    return "claude-opus-5-5";
   }
 
   const model = saved2.model ?? getDefault(provider);
@@ -1579,15 +1595,9 @@ function extractText(content: string | Array<{ type: string; text?: string }>): 
 }
 
 function restoredPromptCommandDisplayText(text: string): string | null {
-  for (const command of PROMPT_COMMANDS) {
-    if (text === command.prompt) return `/${command.name}`;
-    const prefix = `${command.prompt}\n\n## User Instructions\n\n`;
-    if (text.startsWith(prefix)) {
-      const args = text.slice(prefix.length).trim();
-      return args ? `/${command.name} ${args}` : `/${command.name}`;
-    }
-  }
-  return null;
+  const match = matchPromptCommand(text, PROMPT_COMMANDS);
+  if (!match) return null;
+  return `/${match.command.name}${match.args ? ` ${match.args}` : ""}`;
 }
 
 export function messagesToHistoryItems(msgs: Message[]): CompletedItem[] {

@@ -627,8 +627,8 @@ describe("OpenAI transform", () => {
 describe("toAnthropicThinking", () => {
   // Opus 4.8 is no longer in ggcoder's model picker, but gg-ai is a standalone
   // library and Anthropic still serves that ID — keep the wire format correct.
-  it("passes Anthropic adaptive effort levels through for Opus 5 (and legacy 4.8)", () => {
-    for (const model of ["claude-opus-5", "claude-opus-4-8"]) {
+  it("passes Anthropic adaptive effort levels through for Opus 5.5 / 5 (and legacy 4.8)", () => {
+    for (const model of ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]) {
       for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
         const result = toAnthropicThinking(level, MAX_TOKENS, model);
         expect(result.outputConfig).toEqual({ effort: level });
@@ -678,7 +678,7 @@ describe("toAnthropicThinking", () => {
 describe("toOpenAIReasoningEffort", () => {
   it("clamps client-only max and ultra levels to OpenAI's xhigh effort", () => {
     expect(toOpenAIReasoningEffort("max", "gpt-5.5")).toBe("xhigh");
-    expect(toOpenAIReasoningEffort("ultra", "gpt-5.6-sol")).toBe("xhigh");
+    expect(toOpenAIReasoningEffort("ultra", "gpt-6-sol")).toBe("xhigh");
   });
 });
 
@@ -749,13 +749,13 @@ describe("toOpenAITools strict sampling", () => {
       },
     ];
     const [first] = toOpenAITools(tools, { strict: true });
-    const wire = (first as { function: { strict?: boolean; parameters: Record<string, any> } })
-      .function;
+    if (first?.type !== "function") throw new Error("Expected a function tool");
+    const wire = first.function;
     expect(wire.strict).toBe(true);
     const params = wire.parameters;
-    expect(params.required).toEqual(["filePath", "offset"]);
-    expect(params.additionalProperties).toBe(false);
-    expect(params.properties.offset).toEqual({
+    expect(params).toHaveProperty("required", ["filePath", "offset"]);
+    expect(params).toHaveProperty("additionalProperties", false);
+    expect(params).toHaveProperty("properties.offset", {
       anyOf: [{ type: "number" }, { type: "null" }],
     });
   });

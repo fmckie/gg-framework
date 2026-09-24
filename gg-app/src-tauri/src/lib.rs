@@ -2226,7 +2226,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "anthropic",
         label: "Anthropic",
-        description: "Claude Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5",
+        description: "Claude Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2238,7 +2238,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "openai",
         label: "OpenAI",
-        description: "GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna",
+        description: "GPT-6 Astra, GPT-6 Sol, GPT-6 Luna",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -4387,6 +4387,13 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                                     if let Ok(value) =
                                         serde_json::from_str::<serde_json::Value>(payload)
                                     {
+                                        let state: State<Windows> = app.state();
+                                        let map = state.map.lock().unwrap();
+                                        if map.get(&label).and_then(|w| w.session_id.as_deref())
+                                            != Some(session_id.as_str())
+                                        {
+                                            return;
+                                        }
                                         let _ = app.emit_to(
                                             EventTarget::webview_window(label.clone()),
                                             "agent-event",
@@ -4402,6 +4409,22 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                 Err(e) => {
                     log::error!("failed to connect to event stream: {e}");
                 }
+            }
+            // Do not leave a stale working/success label while the stream is down,
+            // and never deliver an old session's disconnect to its replacement.
+            {
+                let state: State<Windows> = app.state();
+                let map = state.map.lock().unwrap();
+                if map.get(&label).and_then(|w| w.session_id.as_deref())
+                    != Some(session_id.as_str())
+                {
+                    return;
+                }
+                let _ = app.emit_to(
+                    EventTarget::webview_window(label.clone()),
+                    "agent-event",
+                    serde_json::json!({ "type": "connection_lost", "data": {} }),
+                );
             }
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }

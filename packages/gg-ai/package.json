@@ -1,6 +1,6 @@
 {
   "name": "@kleio/ai",
-  "version": "5.60.2-kleio.1",
+  "version": "5.64.1-kleio.1",
   "type": "module",
   "description": "Unified LLM streaming API for Anthropic, OpenAI, and Gemini",
   "license": "MIT",

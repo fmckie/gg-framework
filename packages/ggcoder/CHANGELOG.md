@@ -30,6 +30,138 @@
   - @kleio/agent@4.10.1-kleio.1
   - @kleio/core@4.10.1-kleio.1
 
+## 5.64.1
+
+### Patch Changes
+
+- Stop web requests when network access is revoked, prevent duplicate tool calls, and report shell launch failures accurately.
+  - @kenkaiiii/gg-ai@5.64.1
+  - @kenkaiiii/gg-agent@5.64.1
+  - @kenkaiiii/gg-core@5.64.1
+
+## 5.64.0
+
+### Minor Changes
+
+- 4800b0f: Add GPT-6 Sol (`gpt-6-sol`) and GPT-6 Luna (`gpt-6-luna`), released 2026-09-22, and retire the GPT-5.6 family (Sol, Terra, Luna). There is no GPT-6 Terra — OpenAI's Codex catalog upgrades 5.6 Terra to 6 Sol. Both new models get 1.05M context on the public Responses API and 272K on the ChatGPT OAuth/Codex route, 128K output, text+image input, and the responses-lite transport. Sol costs $2/$10 per MTok, defaults to `medium` effort, and runs the full ladder up to `ultra`, where it gets the proactive async-subagent orchestration prompt. Luna costs $0.10/$0.50 per MTok, defaults to `medium`, and tops out at `max`.
+
+  GPT-6 Sol is now the OpenAI default (registry, CLI, benchmarks), and GPT-6 Luna is the fast model for subagents. The login hub, footer names, README, and the "not in catalog" error hint list GPT-6 Astra, Sol, and Luna. A saved session still on a GPT-5.6 id falls back to the provider default on next start.
+
+### Patch Changes
+
+- Updated dependencies [4800b0f]
+  - @kenkaiiii/gg-ai@5.64.0
+  - @kenkaiiii/gg-core@5.64.0
+  - @kenkaiiii/gg-agent@5.64.0
+
+## 5.63.0
+
+### Minor Changes
+
+- Add Claude Opus 5.5 (`claude-opus-5-5`) and retire the Opus 5 entry. Fable-5.1-class output at $4/$20 per MTok with 1M context and the full adaptive effort ladder; provider pages, CLI defaults, and footers now name Opus 5.5. Fast mode (gated `speed: "fast"` research preview) is documented but not wired up.
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.63.0
+- @kenkaiiii/gg-agent@5.63.0
+- @kenkaiiii/gg-core@5.63.0
+
+## 5.62.0
+
+### Minor Changes
+
+- Add the newly released Grok 4.7 and Xiaomi MiMo-V2.6 family to the model registry. xAI defaults to Grok 4.7 (500K context, image input, reasoning up to xhigh) and retires the superseded Grok 4.6/4.5. Xiaomi ships the full-modal MiMo-V2.6-Pro (new default), low-cost MiMo-V2.6-Flash (now the fast/scout model), and API-Credits-only MiMo-V2.6-Pro-UltraSpeed, retiring the V2.5 ids ahead of their 2026-10-21 platform deprecation. Login provider descriptions and the video-support guidance are updated to match.
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.62.0
+- @kenkaiiii/gg-agent@5.62.0
+- @kenkaiiii/gg-core@5.62.0
+
+## 5.61.1
+
+### Patch Changes
+
+- Fix slow agent turns on large contexts: latency-capped compaction triggers (evidence-based per provider), prompt-scaled first-event stream timeout, and per-turn prompt-cache health observability.
+  - @kenkaiiii/gg-ai@5.61.1
+  - @kenkaiiii/gg-agent@5.61.1
+  - @kenkaiiii/gg-core@5.61.1
+
+## 5.61.0
+
+### Minor Changes
+
+- Add real UI library integration: `ui_registry` discovers and inspects public Bklit/Kokonut components, supporting shadcn source, and Motion animation APIs; `ui_adopt` plans and adopts registry source into React projects with TypeScript import relocation, prerequisite/conflict checks, attribution, and never overwrites user files. Bundled `evidence-led-ui` skill now routes relevant React UI work to these tools.
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.61.0
+- @kenkaiiii/gg-agent@5.61.0
+- @kenkaiiii/gg-core@5.61.0
+
+## 5.60.9
+
+### Patch Changes
+
+- Tighten UI skill guidance for shared focus indicators, dropdown interaction checks, and concise supporting copy that preserves essential instructions.
+  - @kenkaiiii/gg-ai@5.60.9
+  - @kenkaiiii/gg-agent@5.60.9
+  - @kenkaiiii/gg-core@5.60.9
+
+## 5.60.8
+
+### Patch Changes
+
+- Fix temporary-file access across macOS, Linux, and Windows, including Git Bash /tmp paths, while preserving workspace write protections.
+  - @kenkaiiii/gg-ai@5.60.8
+  - @kenkaiiii/gg-agent@5.60.8
+  - @kenkaiiii/gg-core@5.60.8
+
+## 5.60.7
+
+### Patch Changes
+
+- Fix missing tool images in ACP clients during live updates and when restoring saved conversations.
+  - @kenkaiiii/gg-ai@5.60.7
+  - @kenkaiiii/gg-agent@5.60.7
+  - @kenkaiiii/gg-core@5.60.7
+
+## 5.60.6
+
+### Patch Changes
+
+- Keep verification results scoped to the current request and prevent blocked checks from advertising a pending review handoff.
+  - @kenkaiiii/gg-ai@5.60.6
+  - @kenkaiiii/gg-agent@5.60.6
+  - @kenkaiiii/gg-core@5.60.6
+
+## 5.60.5
+
+### Patch Changes
+
+- Fix slash-command argument precedence and preserve user intent in Ken reviews. Report verification, retry, cancellation, and review outcomes from observed lifecycle events, keeping interrupted responses and pending work distinct from passing checks.
+  - @kenkaiiii/gg-ai@5.60.5
+  - @kenkaiiii/gg-agent@5.60.5
+  - @kenkaiiii/gg-core@5.60.5
+
+## 5.60.4
+
+### Patch Changes
+
+- Fix runaway deep-reasoning burn: new sessions on Codex flagship models start at the vendor-declared default thinking level instead of the ceiling, plan mode caps reasoning effort at `medium`, and responses-lite models send low verbosity for catalog parity. Also compact in the background after the final response so the next prompt doesn't pay the summarizer latency.
+  - @kenkaiiii/gg-ai@5.60.4
+  - @kenkaiiii/gg-agent@5.60.4
+  - @kenkaiiii/gg-core@5.60.4
+
+## 5.60.3
+
+### Patch Changes
+
+- Make replies easier to scan with message-aware takeaways and natural explanations, and fix queued-message cancellation races and duplicate message removal in GG App.
+  - @kenkaiiii/gg-ai@5.60.3
+  - @kenkaiiii/gg-agent@5.60.3
+  - @kenkaiiii/gg-core@5.60.3
+
 ## 5.60.2
 
 ### Patch Changes
