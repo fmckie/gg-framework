@@ -1,62 +1,75 @@
-// Verified OKLCH/APCA design tokens (Warp × Linear × Resend synthesis).
-// Mirrors the :root custom properties in App.css so inline-style consumers and
-// the stylesheet share one source of truth. Existing key names are kept as
-// aliases (new hex values) to minimize component churn.
+// Design tokens for inline-style consumers. Every value points at the matching
+// :root custom property in App.css, so the stylesheet is the single source of
+// truth: change a colour there and every `theme.X` reader follows. Existing
+// key names are kept as aliases to avoid component churn.
 //
-// `borderStrong`, `userText` and `userBackground` have no `theme.X` reader — they
-// are consumed through their CSS vars. Keep them: completeness of the mirror is
-// this file's job. An alias with neither a `theme.X` reader nor a CSS var is
-// simply dead.
+// These are `var(--x)` strings, so they work anywhere CSS parses a value
+// (style props, `color-mix()`, custom properties). They do NOT work where CSS
+// isn't involved: canvas `fillStyle`, SVG presentation attributes, or string
+// math like appending hex alpha. For canvas use `resolveColor()`; for SVG put
+// the colour in `style`; for alpha use `color-mix(in srgb, X N%, transparent)`.
+//
+// `borderStrong`, `userText` and `userBackground` have no `theme.X` reader;
+// they are kept so the mirror of the stylesheet's roles stays complete.
 export const theme = {
-  // Surfaces — near-black, separated by lightness alone. Borders are alpha
-  // white in the stylesheet; these opaque values are the closest solid
-  // equivalents for the few inline-style consumers that need one.
-  background: "#0a0a0c",
-  surface1: "#141519",
-  surface2: "#1c1e23",
-  border: "#22242a",
-  borderStrong: "#2f3138",
+  // Surfaces: near-black, separated by lightness alone.
+  background: "var(--bg)",
+  surface1: "var(--surface-1)",
+  surface2: "var(--surface-2)",
+  border: "var(--border)",
+  borderStrong: "var(--border-strong)",
 
-  // Text — one ink at four levels.
-  text: "#f2f3f7",
-  textSecondary: "#c8c9d2",
-  textMuted: "#9a9ba5",
-  textDim: "#63646e",
+  // Text: one ink at four levels.
+  text: "var(--text)",
+  textSecondary: "var(--text-secondary)",
+  textMuted: "var(--text-muted)",
+  textDim: "var(--text-dim)",
 
-  // Accent — periwinkle, luminous enough to carry near-black text on a fill.
-  primary: "#b0b6ff",
+  // Accent: periwinkle, luminous enough to carry near-black text on a fill.
+  primary: "var(--primary)",
   // The ink that fill carries. Anything placed ON a primary surface (a badge
   // inside a selected pill, for one) has to switch to this or it is unreadable.
-  onPrimary: "#0c0e26",
-  secondary: "#b0b6ff",
-  success: "#7fe89a",
-  warning: "#f0cf63",
-  error: "#ff6b60",
-  info: "#62e8d8",
+  onPrimary: "var(--on-primary)",
+  secondary: "var(--secondary)",
+  success: "var(--success)",
+  warning: "var(--warning)",
+  error: "var(--error)",
+  info: "var(--info)",
 
   // Aliases mapped onto the accent family for existing consumers.
-  accent: "#b0b6ff",
-  code: "#f2f3f7",
-  language: "#62e8d8",
-  footerText: "#9a9ba5",
-  commandColor: "#b0b6ff",
+  accent: "var(--primary)",
+  code: "var(--text)",
+  language: "var(--info)",
+  footerText: "var(--text-muted)",
+  commandColor: "var(--primary)",
 
-  inputBackground: "#141519",
+  inputBackground: "var(--surface-1)",
 
-  // User text + chip — mirrors the ggcoder TUI (commandColor #818cf8 on the
-  // #374151 message fill). Shared by the user bubble and the chat input so the
+  // User text + chip: shared by the user bubble and the chat input so the
   // "this is you" color reads identically in both places.
-  userText: "#f2f3f7",
-  userBackground: "#26272c",
+  userText: "var(--user-text)",
+  userBackground: "var(--user-bg)",
 
-  // Ken Kai (mentor agent) — soft cyan. Used as the FULL text color of Ken's
+  // Ken Kai (mentor agent): soft cyan. Used as the FULL text color of Ken's
   // replies (and the @Ken active chip in the input), so it must read well as
-  // body text on the dark canvas: a lighter, calmer hue than the saturated
-  // magenta it replaced (which vibrated as full paragraphs). Distinct from the
-  // GG Coder blue dot and the greener `info` teal — the color IS the only
-  // signal that a reply is Ken's, not GG Coder's.
-  ken: "#62e8d8",
+  // body text on the dark canvas. Distinct from the GG Coder blue dot and the
+  // greener `info` teal: the color IS the only signal that a reply is Ken's.
+  ken: "var(--ken)",
 } as const;
 
-// User-message chip background — mirrors USER_MESSAGE_BACKGROUND in the TUI.
+// User-message chip background: mirrors USER_MESSAGE_BACKGROUND in the TUI.
 export const USER_MESSAGE_BACKGROUND = "#26272c";
+
+const VAR_REF = /^var\((--[\w-]+)\)$/;
+
+/**
+ * Resolve a `theme` value to a concrete colour for non-CSS consumers (canvas).
+ * Reads the live custom property, so it always matches the stylesheet. Plain
+ * colours pass through; an unresolvable reference comes back unchanged, which
+ * canvas ignores rather than throwing.
+ */
+export function resolveColor(value: string, root: Element = document.documentElement): string {
+  const name = VAR_REF.exec(value)?.[1];
+  if (!name) return value;
+  return getComputedStyle(root).getPropertyValue(name).trim() || value;
+}

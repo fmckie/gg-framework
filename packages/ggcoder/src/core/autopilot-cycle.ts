@@ -10,10 +10,9 @@
  *    reviews the PLAN itself — approve (auto-accept + implement, then the next
  *    round work-reviews the implementation), send revision feedback, or hand a
  *    genuine user-level decision to the human. Verdict mapping for plans:
- *    `all_clear` ⇒ approve, and `ignore` ALSO maps to approve — "nothing to
- *    object to" on a plan means it's sound (autopilot has no user blocker for
- *    plans by design). Unparseable output still stops as HUMAN upstream (the
- *    verdict parser returns HUMAN for garbage) — never a blind loop.
+ *    Only `all_clear` approves. `ignore` stops for a human instead of granting
+ *    implicit permission to implement. Unparseable output also stops as HUMAN
+ *    upstream (the verdict parser returns HUMAN for garbage).
  *  - WORK branch: the classic review of a finished turn (ALL_CLEAR / IGNORE /
  *    HUMAN / PROMPT), unchanged.
  *
@@ -159,14 +158,21 @@ export async function driveAutopilotCycle(deps: AutopilotCycleDeps): Promise<voi
         await deps.runPrompt(body);
         continue;
       }
-      // all_clear — and ignore mapped to approve ("nothing to object to" on a
-      // plan means it's sound; plans never get a silent-ignore user blocker).
-      const reason =
-        verdict.kind === "all_clear" && verdict.evidenceLimitation
-          ? CORPUS_UNVERIFIED_REASON
-          : undefined;
+      // Only an explicit approval can authorize implementation of a plan.
+      if (verdict.kind !== "all_clear") {
+        deps.emit({
+          type: "autopilot_human",
+          data: {
+            reason: "Ken did not explicitly approve the plan. Review it before implementation.",
+          },
+        });
+        return;
+      }
+      const reason = verdict.evidenceLimitation ? CORPUS_UNVERIFIED_REASON : undefined;
       const ok = await deps.acceptPlan(reason);
-      if (!ok) return; // generation went stale — the user's manual action won
+      // Acceptance awaits session/plan setup. A cancellation during that await
+      // must win before we dispatch any implementation, even if setup succeeded.
+      if (!ok || deps.isCancelled()) return;
       await deps.runImplement();
       // Next round: normal work review of the implementation.
       continue;

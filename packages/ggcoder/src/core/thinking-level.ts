@@ -4,4 +4,5 @@ export {
   getSupportedThinkingLevels,
   isThinkingLevelSupported,
   getNextThinkingLevel,
+  clampThinkingForPlanMode,
 } from "@kleio/core";

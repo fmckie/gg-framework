@@ -366,7 +366,7 @@ describe("driveAutopilotCycle — plan branch", () => {
     expect(deps.emitted).toEqual([{ type: "autopilot_done", data: {} }]);
   });
 
-  it("IGNORE on a plan maps to approve (no user blocker for plans)", async () => {
+  it("IGNORE on a plan stops without accepting or implementing it", async () => {
     const pending = pendingFlag();
     const deps = makeDeps(
       [{ kind: "all_clear" }],
@@ -380,8 +380,18 @@ describe("driveAutopilotCycle — plan branch", () => {
       [{ kind: "ignore" }],
     );
     await driveAutopilotCycle(deps);
-    expect(deps.counters.implemented).toBe(1);
-    expect(deps.emitted).toEqual([{ type: "autopilot_done", data: {} }]);
+    expect(pending.get()).toBe(true);
+    expect(deps.counters.implemented).toBe(0);
+    expect(deps.review).not.toHaveBeenCalled();
+    expect(deps.injected).toEqual([]);
+    expect(deps.emitted).toEqual([
+      {
+        type: "autopilot_human",
+        data: {
+          reason: "Ken did not explicitly approve the plan. Review it before implementation.",
+        },
+      },
+    ]);
   });
 
   it("plan revision → resubmit → approve", async () => {
@@ -448,6 +458,42 @@ describe("driveAutopilotCycle — plan branch", () => {
     expect(deps.emitted).toEqual([
       { type: "autopilot_human", data: { reason: "destructive migration needs a user call" } },
     ]);
+  });
+
+  it("does not implement when cancelled while plan acceptance is awaiting", async () => {
+    let cancelled = false;
+    let releaseAcceptance!: () => void;
+    let acceptanceEntered!: () => void;
+    const accepted = new Promise<void>((resolve) => {
+      releaseAcceptance = resolve;
+    });
+    const entered = new Promise<void>((resolve) => {
+      acceptanceEntered = resolve;
+    });
+    const acceptPlan = vi.fn(async () => {
+      acceptanceEntered();
+      await accepted;
+      return true;
+    });
+    const deps = makeDeps(
+      [],
+      {
+        planPending: () => true,
+        isCancelled: () => cancelled,
+        acceptPlan,
+      },
+      [{ kind: "all_clear" }],
+    );
+    const cycle = driveAutopilotCycle(deps);
+    await entered;
+    cancelled = true;
+    releaseAcceptance();
+    await cycle;
+    expect(acceptPlan).toHaveBeenCalledOnce();
+    expect(deps.counters.implemented).toBe(0);
+    expect(deps.review).not.toHaveBeenCalled();
+    expect(deps.emitted).toEqual([]);
+    expect(deps.injected).toEqual([]);
   });
 
   it("acceptPlan returning false (stale generation — user acted) exits silently", async () => {

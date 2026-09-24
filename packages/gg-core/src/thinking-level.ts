@@ -16,12 +16,12 @@ const OPENAI_GPT_56_THINKING_LEVELS: readonly ThinkingLevel[] = [
 const SAKANA_THINKING_LEVELS: readonly ThinkingLevel[] = ["high", "xhigh", "max"];
 const DEEPSEEK_THINKING_LEVELS: readonly ThinkingLevel[] = ["low", "high", "max"];
 // Grok reasoning models take reasoning_effort low/medium/high (server default
-// high; reasoning can't be fully disabled — "off" just omits the param). Grok
-// 4.6 adds an `xhigh` top rung (docs: low/medium/high default/xhigh); 4.5
-// keeps its `high` ceiling because each model slices this ladder by its
-// registry maxThinkingLevel.
+// high; reasoning can't be fully disabled — "off" just omits the param). The
+// registered Grok (4.7) exposes the full ladder including the `xhigh` top
+// rung (docs: low/medium/high default/xhigh); each model slices this ladder
+// by its registry maxThinkingLevel.
 const XAI_THINKING_LEVELS: readonly ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
-// Opus 5 / 4.7 expose the full ladder including xhigh ("extended capability for
+// Opus 5.x / 4.7 expose the full ladder including xhigh ("extended capability for
 // long-horizon work"). Other adaptive Anthropic models omit xhigh and would 400.
 const ANTHROPIC_XHIGH_THINKING_LEVELS: readonly ThinkingLevel[] = [
   "low",
@@ -185,4 +185,33 @@ export function getNextThinkingLevel(
   const index = supportedLevels.indexOf(current);
   if (index === -1) return supportedLevels[0];
   return supportedLevels[index + 1];
+}
+
+/**
+ * Reasoning effort ceiling applied while plan mode is active. Mirrors the
+ * Codex CLI's `plan_mode_reasoning_effort` preset (currently `medium`):
+ * plan mode is read-only exploration, and deep-reasoning models left at
+ * high/xhigh/max spend enormous thinking budgets re-deriving context they
+ * could not have acted on anyway.
+ */
+export const PLAN_MODE_THINKING_CAP: ThinkingLevel = "medium";
+
+const THINKING_LADDER: readonly ThinkingLevel[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "ultra",
+];
+
+/** Clamp a thinking level down to the plan-mode cap. Pass-through for
+ * `undefined` (thinking off) and already-low levels. */
+export function clampThinkingForPlanMode(
+  level: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
+  if (!level) return level;
+  return THINKING_LADDER.indexOf(level) > THINKING_LADDER.indexOf(PLAN_MODE_THINKING_CAP)
+    ? PLAN_MODE_THINKING_CAP
+    : level;
 }

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useDialogFocus } from "./dialog-focus";
 import { theme } from "./theme";
 import { YourPlanLogo } from "./PlanModeLogo";
 import { Markdown } from "./Markdown";
@@ -30,13 +31,49 @@ export function PlanReviewModal({
 }: Props): React.ReactElement {
   const [feedbackMode, setFeedbackMode] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const feedbackButtonRef = useRef<HTMLButtonElement>(null);
+  const refocusFeedbackButton = useRef(false);
+  // No Escape handler: every outcome here (accept, revise, reject) is a real
+  // decision, so Escape must not quietly pick one.
+  useDialogFocus(dialogRef);
+
+  // Leaving feedback mode unmounts the focused textarea; hand focus back to
+  // the button that opened it instead of dropping it on <body>.
+  useEffect(() => {
+    if (feedbackMode || !refocusFeedbackButton.current) return;
+    refocusFeedbackButton.current = false;
+    feedbackButtonRef.current?.focus();
+  }, [feedbackMode]);
+
+  const closeFeedback = (): void => {
+    refocusFeedbackButton.current = true;
+    setFeedbackMode(false);
+  };
 
   return (
-    <div className="plan-review">
-      <div className="plan-review-banner">
+    <div
+      ref={dialogRef}
+      className="plan-review"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Review plan"
+      tabIndex={-1}
+    >
+      {/* ASCII-art banner: decorative, and gibberish when read aloud. */}
+      <div className="plan-review-banner" aria-hidden="true">
         <YourPlanLogo />
       </div>
-      <div className="plan-review-body">
+      {/* Initial focus lands on the scrollable plan, not on Accept: an Enter
+          already in flight from the composer must not approve the plan, and
+          focus here lets arrow keys scroll a long plan. */}
+      <div
+        className="plan-review-body"
+        role="region"
+        aria-label="Plan"
+        tabIndex={0}
+        data-modal-initial-focus
+      >
         <Markdown>{content || "_(plan is empty)_"}</Markdown>
       </div>
 
@@ -60,7 +97,7 @@ export function PlanReviewModal({
                   e.preventDefault();
                   if (feedback.trim()) onFeedback(feedback.trim());
                 } else if (e.key === "Escape") {
-                  setFeedbackMode(false);
+                  closeFeedback();
                 }
               }}
             />
@@ -69,7 +106,7 @@ export function PlanReviewModal({
                 {"\u2318\u23CE to send \u00b7 Esc to cancel"}
               </span>
               <span className="plan-feedback-buttons">
-                <button className="btn btn-ghost btn-sm" onClick={() => setFeedbackMode(false)}>
+                <button className="btn btn-ghost btn-sm" onClick={closeFeedback}>
                   Cancel
                 </button>
                 <button
@@ -87,7 +124,11 @@ export function PlanReviewModal({
             <button className="btn btn-primary" onClick={onAccept}>
               Accept
             </button>
-            <button className="btn btn-ghost" onClick={() => setFeedbackMode(true)}>
+            <button
+              ref={feedbackButtonRef}
+              className="btn btn-ghost"
+              onClick={() => setFeedbackMode(true)}
+            >
               Feedback
             </button>
             <button className="btn btn-ghost plan-reject" onClick={onReject}>

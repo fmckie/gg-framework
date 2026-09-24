@@ -54,6 +54,7 @@ import {
   type WorkflowCommandSpec,
 } from "./core/autopilot-gate.js";
 import { driveAutopilotCycle, frameAutopilotInjection } from "./core/autopilot-cycle.js";
+import { describeRunVerification, describeTurnVerification } from "./core/run-status.js";
 import { validateKenModelPref, effectiveKenModel, type KenModelPref } from "./core/ken-model.js";
 import type { KenTurnPayload, AppMarkerPayload, RunOutcome } from "./core/session-manager.js";
 import {
@@ -796,7 +797,7 @@ async function runJsonModeIfRequested(): Promise<boolean> {
   await runJsonMode({
     message: positionals[0] ?? "",
     provider: (values.provider ?? "anthropic") as Provider,
-    model: values.model ?? "claude-opus-5",
+    model: values.model ?? "claude-opus-5-5",
     cwd: process.cwd(),
     systemPrompt: values["system-prompt"],
     agentPrompt: values["agent-prompt"],
@@ -2462,6 +2463,10 @@ async function createSession(
     recordApprovedPlanMarkers(d.text);
   });
   session.eventBus.on("thinking_delta", (d) => broadcast("thinking_delta", d));
+  session.eventBus.on("retry", (d) => {
+    if (!d.silent) broadcast("retry", { reason: d.reason, attempt: d.attempt, delayMs: d.delayMs });
+  });
+  session.eventBus.on("max_turns", (d) => broadcast("max_turns", d));
   // The agent consumed queued steering at a turn boundary. Re-broadcast as the
   // usual `queued` depth update so the webview drops the pending affordance the
   // moment the message lands in the loop, not at run_end.
@@ -2785,8 +2790,10 @@ async function createSession(
     // his own Ideal self-review adds latency and can corrupt the verdict shape.
     ken.setIdealReviewSuppressed(true);
     await ken.initialize();
-    // Deliberately no bus bridge: the review is silent. Errors surface via the
-    // runAutopilotReview try/catch as autopilot_error frames.
+    // Keep review text/tools silent; report usage only for whole-task accounting.
+    ken.eventBus.on("turn_end", (d) => {
+      broadcast("autopilot_usage", { outputTokens: d.usage.outputTokens });
+    });
     kenAutoSession = ken;
     log("INFO", "app-sidecar", "ken autopilot session ready", {
       provider: target.provider,
@@ -2835,7 +2842,11 @@ async function createSession(
 
   // Core provider-run bracket. Standalone runs own a lifecycle generation;
   // injected autopilot runs share the cycle's outer generation.
-  async function runAgent(label: string, run: () => Promise<void>): Promise<void> {
+  async function runAgent(
+    label: string,
+    run: () => Promise<void>,
+    reviewPending: () => boolean = () => false,
+  ): Promise<void> {
     const ownsGeneration = !runLifecycle.running;
     const generation = ownsGeneration
       ? runLifecycle.begin(abortOwnedWork).generation
@@ -2847,7 +2858,11 @@ async function createSession(
     const cancelGenAtStart = cancelGeneration;
     const assistantsBeforeRun = countAssistantMessages(session.getMessages());
     let runSucceeded = false;
-    broadcast("run_start", { text: label, runState: runLifecycle.state });
+    broadcast("run_start", {
+      text: label,
+      runState: runLifecycle.state,
+      continued: !ownsGeneration,
+    });
     try {
       if (!runLifecycle.isCancellationRequested(generation)) await run();
       runSucceeded = true;
@@ -2921,6 +2936,20 @@ async function createSession(
         broadcast("run_end", {
           ...(cancelled ? { cancelled: true } : {}),
           ...(verificationProblem ? { unverified: true } : {}),
+          failed: !cancelled && !runSucceeded,
+          // The cycle refuses an unresolved verification gate. Do not advertise
+          // a review handoff that will exit before emitting any review events.
+          reviewPending:
+            !cancelled &&
+            runSucceeded &&
+            !verificationProblem &&
+            (reviewPending() || !ownsGeneration),
+          ...describeRunVerification(session.getVerificationEvidence(), verificationProblem),
+          turnVerification: describeTurnVerification(
+            session.getRunVerificationActivity(),
+            verificationProblem,
+          ),
+          ...(verificationProblem ? { verificationReason: verificationProblem } : {}),
           runState: runLifecycle.state,
         });
       }
@@ -3195,13 +3224,17 @@ async function createSession(
           isWorkflowCommandText(next.text, await loadWorkflowCommandSpecs());
         const assistantsBefore = countAssistantMessages(session.getMessages());
         const messagesBefore = session.getMessages().length;
-        await runAgent(next.text, async () => {
-          if (next.attachments.length > 0) {
-            await session.promptWithAttachments(next.text, next.attachments);
-          } else {
-            await session.prompt(next.text);
-          }
-        });
+        await runAgent(
+          next.text,
+          async () => {
+            if (next.attachments.length > 0) {
+              await session.promptWithAttachments(next.text, next.attachments);
+            } else {
+              await session.prompt(next.text);
+            }
+          },
+          () => autopilot,
+        );
         const decision = shouldStartAutopilotCycle({
           enabled: autopilot,
           cancelled: autopilotCancelled,
@@ -3224,7 +3257,8 @@ async function createSession(
             kind: decision.kind,
           });
           await runAutopilotCycle(next.text);
-        } else if (autopilot) {
+        } else {
+          broadcast("autopilot_ignored", { reason: decision.reason });
           log("INFO", "app-sidecar", "autopilot skipped (queued turn)", {
             reason: decision.reason,
           });
@@ -3545,6 +3579,7 @@ async function createSession(
             mode,
             chatAgent,
             running,
+            reviewPending: autopilotActive,
             runState: runLifecycle.state,
             thinkingLevel: session.getThinkingLevel() ?? null,
             supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
@@ -4340,20 +4375,24 @@ async function createSession(
           clearPendingPlan();
           const assistantsBefore = countAssistantMessages(session.getMessages());
           const messagesBefore = session.getMessages().length;
-          await runAgent(text, async () => {
-            if (attachments.length > 0) {
-              // Persist each attachment under .gg/uploads so files are inspectable
-              // by the agent's tools, then prompt with the media as native blocks.
-              const prepared = await prepareAttachments(cwd, attachments);
-              await session.promptWithAttachments(text, prepared);
-            } else {
-              // Pass the raw text straight through. AgentSession.prompt() is the
-              // single source of truth for slash-command expansion (built-in +
-              // `.gg/commands/*.md` custom), so the agent gets the right body
-              // while the webview keeps showing the short `/name`.
-              await session.prompt(text);
-            }
-          });
+          await runAgent(
+            text,
+            async () => {
+              if (attachments.length > 0) {
+                // Persist each attachment under .gg/uploads so files are inspectable
+                // by the agent's tools, then prompt with the media as native blocks.
+                const prepared = await prepareAttachments(cwd, attachments);
+                await session.promptWithAttachments(text, prepared);
+              } else {
+                // Pass the raw text straight through. AgentSession.prompt() is the
+                // single source of truth for slash-command expansion (built-in +
+                // `.gg/commands/*.md` custom), so the agent gets the right body
+                // while the webview keeps showing the short `/name`.
+                await session.prompt(text);
+              }
+            },
+            () => autopilot,
+          );
           // After the user's run settles, kick off Ken's auto-review loop — but
           // only when the turn is actually reviewable (shouldStartAutopilotCycle):
           // workflow commands (/compare, /expand, …) end with reports or
@@ -4384,7 +4423,8 @@ async function createSession(
           if (decision.start) {
             log("INFO", "app-sidecar", "autopilot cycle starting", { kind: decision.kind });
             await runAutopilotCycle(text);
-          } else if (autopilot) {
+          } else {
+            broadcast("autopilot_ignored", { reason: decision.reason });
             log("INFO", "app-sidecar", "autopilot skipped", { reason: decision.reason });
           }
           // A prompt sent while Ken was reviewing (build idle) queued but had no
@@ -4821,10 +4861,14 @@ async function createSession(
         }
         // `false` means it already drained into the run between render and
         // click. That is a race, not an error, so report it as a normal result
-        // and let the client reconcile from the fresh list.
+        // and let the client reconcile through the ordered event stream.
         const cancelled = session.cancelQueuedMessage(id);
         const queued = session.listQueuedMessages();
-        broadcast("queued", { count: queued.length, messages: queued });
+        broadcast("queued", {
+          count: queued.length,
+          messages: queued,
+          ...(cancelled ? { cancelledId: id } : {}),
+        });
         json(res, 200, { cancelled, queued });
       });
       return;

@@ -113,13 +113,13 @@ describe("buildSystemPrompt", () => {
     // Research and quality now share the compact workflow contract.
     expect(prompt).not.toContain("## Research & Verification");
     expect(prompt).not.toContain("## Code Quality");
-    expect(prompt).toContain("Woops I just farted!");
-    expect(prompt).toContain("never repeat, never force, never explain");
-    // The one-approach rule must carve out command flows that ship their own
-    // A/B/C option list, or the model second-guesses those prompts.
-    expect(prompt).toContain(
-      "ONE recommended approach — default to X, switch to Y only when [condition] — not a menu, unless a command's flow defines its own options.",
-    );
+    expect(prompt).toContain("Match the tone to the conversation");
+    expect(prompt).not.toContain("Woops I just farted!");
+    // A recommendation stays focused while allowing requested comparisons
+    // and command flows that define their own options.
+    expect(prompt).toContain("When recommending a next step, lead with your preferred approach");
+    expect(prompt).toContain("Explain alternatives when the user asks or a decision requires them");
+    expect(prompt).toContain("Follow any options defined by the command's flow");
     // The ask has exactly one channel, and the routing rule is about WHETHER a
     // question exists, not how important it is. This prompt has no `ask_user`,
     // so the ask falls back to a dedicated markdown blockquote (rendered with a
@@ -216,10 +216,10 @@ describe("buildSystemPrompt", () => {
   });
 
   it.each([
-    [[], "6b584e17161089263de4d0b59bc347b5b2787c88e4211dce643da1000dcd3b9e"],
-    [["ask_user"], "207ab1fb6d7da730cd7754bb46e3fd22a2225671e6f26246b896a509025890aa"],
+    [[], "053a56f7fb6ac65dd616a03535395d0bd9d17fc8ac079e9770a42eeb4caeafd5"],
+    [["ask_user"], "0614207ce6921c12ad1ad0a6e4ffaf9d9a280420856e2cacd018c20df3c46f20"],
   ] as const)(
-    "preserves the explicit-status response policy with tools %j",
+    "preserves the message-aware takeaway policy with tools %j",
     async (toolNames, hash) => {
       const cwd = await makeProject();
       const prompt = await buildSystemPrompt(cwd, undefined, false, undefined, toolNames);
@@ -227,19 +227,43 @@ describe("buildSystemPrompt", () => {
         .slice(sectionIndex(prompt, "## How to Talk"), sectionIndex(prompt, "## How to Work"))
         .trimEnd();
       for (const rule of [
-        "Final reply starts with a bold status:",
-        "DONE (requested scope completed)",
-        "NOT FIXED (problem remains)",
-        "UNVERIFIED (changed, not verified)",
-        "BLOCKED (cannot proceed)",
-        "NEEDS APPROVAL (awaiting your decision)",
-        'required user action or "No action needed,"',
-        "investigation is not implementation; implementation is not verification or deployment",
-        "Surface remaining limitations and pending deployment beside the outcome",
-        'Never say "all clear" with unresolved work',
-        "Approval questions still use the ask channel below",
+        "readers with ADHD or dyslexia",
+        "short, bold sentence answering the current message",
+        "the answer to a question",
+        "the key idea in an explanation",
+        "the recommendation for a decision",
+        "the actual outcome of requested work",
+        "Include any qualification that changes its meaning",
+        "short paragraphs, one idea each, separated by whitespace",
+        "Use bullets for separate facts and numbered steps for ordered actions",
+        "Bold sparingly",
+        "Match length to complexity",
+        "Distinguish implemented, tested, committed, and released when relevant",
+        "Put limitations that affect the answer beside the takeaway",
+        "Match certainty to evidence",
+        "State the next step when user action is required",
+        "For requested work, default to action",
       ]) {
         expect(talk).toContain(rule);
+      }
+      for (const obsolete of [
+        "Final reply starts with a bold status",
+        "DONE",
+        "NOT FIXED",
+        "UNVERIFIED",
+        "BLOCKED",
+        "NEEDS APPROVAL",
+        "No action needed",
+        "Budget:",
+        "inside the budget",
+        "One line per item",
+        "max 5 items",
+        "No preamble, no recap, no hedging",
+        "only when the user must act on it",
+        "Cut what they can't act on",
+        "absurd interjection",
+      ]) {
+        expect(talk).not.toContain(obsolete);
       }
       expect(createHash("sha256").update(talk).digest("hex")).toBe(hash);
     },
@@ -289,21 +313,14 @@ describe("buildSystemPrompt", () => {
     expect(prompt.match(/^\s*`?> /gm) ?? []).toHaveLength(0);
     expect(prompt.match(/`> \*\*/g) ?? []).toHaveLength(1);
 
-    // The budget is the whole reply or it is nothing. Every earlier version
-    // carved out the parts that actually carried the bloat (step lists, the
-    // ask, batched question lists), so a 900-word reply satisfied every rule.
-    // These assertions keep the cap total and the escape hatches deleted.
-    expect(talk).toContain("Prose, lists, headers, the ask — everything counts, nothing is exempt");
-    expect(talk).toContain("each with your pick, inside the budget");
-    expect(talk).not.toContain("prose only; a step list or the ask doesn't count");
-    expect(talk).not.toContain("exempt from the reply and list caps");
-    expect(talk).not.toContain("Question lists are payload");
-    // "exempt" survives in exactly one place: the line that denies exemptions.
-    expect(talk.match(/exempt/g) ?? []).toHaveLength(1);
+    // Response length follows the question, including the fallback ask. A
+    // dangling budget reference would silently restore the rigid reply shape.
+    expect(talk).toContain("Match length to complexity");
+    expect(talk).toContain("each with your pick.");
+    expect(talk).not.toContain("budget");
+    expect(talk).not.toContain("exempt");
 
-    // Cutting How to Talk was the point: it competes with the task for the
-    // model's attention, so the meta-instructions stay smaller than the reply
-    // budget they enforce is generous.
+    // Keep the instructions themselves compact, without capping user answers.
     expect(talk.split(/\s+/).filter(Boolean).length).toBeLessThan(360);
 
     // Mid-turn speech and the cut rule must agree: a bare "finding" cannot both
@@ -368,20 +385,18 @@ describe("buildSystemPrompt", () => {
     for (const required of [
       "works directly in the user's codebase",
       "completing tasks end-to-end",
-      "**Budget: ~120 words, whole reply.**",
-      "everything counts, nothing is exempt",
-      "**One line per item, ≤15 words, max 5 items.**",
+      "**Lead with the takeaway.**",
+      "Make it useful on its own",
+      "**Explain naturally.**",
       "Take every safe, reversible step the goal implies",
       "never ask permission, merely suggest it, or leave it for the user",
       "ONE action that unblocks you",
-      "what already works so finished work is never buried",
-      "conclusion, not investigation",
-      // Jargon is opt-in, not default: an identifier only earns a mention when
-      // the user has to act on it, and then it carries its stake in the same
-      // breath. Everything else is described by behavior, not by name.
+      "**Describe progress precisely.**",
+      "keeping only what helps the user understand or act",
+      // Explanations can name code even when no user action is required.
       "**Plain words by default.**",
-      "only when the user must act on it",
-      "say what it does, not what it's called",
+      "Explain necessary technical terms briefly",
+      "name code when it helps answer the question or locate an action",
       "Read relevant files before changing them",
       "Re-read after formatters or other disk mutations",
       "use editing tools, not shell writes",

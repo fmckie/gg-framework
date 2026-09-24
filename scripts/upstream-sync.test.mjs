@@ -24,7 +24,7 @@ import { prepareCandidate } from "./upstream-sync.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./upstream-sync.mjs", import.meta.url));
 const POLICY = JSON.parse(readFileSync(new URL("./upstream-sync-policy.json", import.meta.url)));
-const VERSION = "5.60.2-kleio.1";
+const VERSION = "5.64.1-kleio.1";
 const CORE = "packages/gg-core/package.json";
 const json = (data) => JSON.stringify(data, null, 2) + "\n";
 const file = (content, mode = "100644") => ({ content, mode });

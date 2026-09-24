@@ -4,7 +4,7 @@
     "repository": "https://github.com/fmckie/gg-framework",
     "releaseBranch": "main",
     "scope": "@kleio",
-    "currentFixedVersion": "5.60.2-kleio.1"
+    "currentFixedVersion": "5.64.1-kleio.1"
   },
   "upstream": {
     "repository": "https://github.com/KenKaiii/gg-framework",
@@ -12,18 +12,11 @@
     "version": "4.10.1",
     "baselineTag": "upstream/4.10.1-cde19e9",
     "importedAt": "2026-07-17",
-    "lastImportedCommit": "fdab3f18ff204fbae2846686a7a7a2a3e8e04d94",
-    "lastImportedVersion": "5.60.2",
-    "lastImportedAt": "2026-09-15"
+    "lastImportedCommit": "3d36e760b54f6268a3a01ec5546d2744c383ba12",
+    "lastImportedVersion": "5.64.1",
+    "lastImportedAt": "2026-09-24"
   },
   "previousIntegration": {
-    "pullRequest": "https://github.com/fmckie/gg-framework/pull/1",
-    "status": "merged",
-    "mergeCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
-    "upstreamCommit": "3a4eb7e83fe19eebc74aa539d5fa940822f8cdd1",
-    "verification": "All six jobs passed in post-merge main run 34973614641"
-  },
-  "localIntegration": {
     "branch": "sync/upstream-fdab3f18",
     "baseCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
     "upstreamCommits": 44,
@@ -37,7 +30,14 @@
     "publishedAs": "5.60.2-kleio.1",
     "publishedTag": "v5.60.2-kleio.1",
     "publishedCommit": "28c9162d",
-    "publishedAt": "2026-09-22",
+    "publishedAt": "2026-09-22"
+  },
+  "localIntegration": {
+    "branch": "sync/upstream-3d36e760",
+    "baseCommit": "fba4a4dc",
+    "upstreamCommits": 49,
+    "desktopVersion": "0.70.3",
+    "status": "pending",
     "preservedProjects": [
       "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",
       "packages/gg-pixel", "packages/gg-pixel-go", "packages/gg-pixel-py",
@@ -61,7 +61,8 @@
     "provenanceOnly": "4.10.1-kleio.0",
     "kleioRebrand": "4.10.1-kleio.1",
     "sessionFirstPrompt": "4.10.1-kleio.1",
-    "engine5602": "5.60.2-kleio.1"
+    "engine5602": "5.60.2-kleio.1",
+    "engine5641": "5.64.1-kleio.1"
   },
   "packages": {
     "@kenkaiiii/gg-ai": "@kleio/ai",
