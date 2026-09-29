@@ -70,6 +70,12 @@ export interface HomeThreads {
   /** The home session id as last recorded (after load()), else null. */
   sessionId(): string | null;
   resolve(): Promise<Result<HomeThread, HomeThreadError>>;
+  /**
+   * Replace the home thread with a brand-new conversation (the phone's "new
+   * conversation" button). The old transcript stays on disk; durable memory
+   * and Jiwa carry over because they are not per-session.
+   */
+  startNew(): Promise<Result<HomeThread, HomeThreadError>>;
   /** A run ended on `sessionId`: if it is home, learn its transcript path. */
   onRunEnd(sessionId: string): Promise<void>;
   /** Settles once every home.json write started so far has landed. */
@@ -119,6 +125,7 @@ export function createHomeThreads(options: HomeThreadOptions): HomeThreads {
   let record: HomeRecord | null = null;
   let loading: Promise<void> | null = null;
   let resolving: Promise<Result<HomeThread, HomeThreadError>> | null = null;
+  let starting: Promise<Result<HomeThread, HomeThreadError>> | null = null;
 
   function current(): Promise<HomeRecord | null> {
     loading ??= readFile(options.statePath, "utf8").then(
@@ -231,14 +238,44 @@ export function createHomeThreads(options: HomeThreadOptions): HomeThreads {
     return ok({ sessionId, sessionPath, created: true, agent: AGENT });
   }
 
+  async function startNow(): Promise<Result<HomeThread, HomeThreadError>> {
+    const old = (await current())?.sessionId ?? null;
+    await mkdir(options.cwd, { recursive: true });
+    const made = await create(null);
+    if (!made.ok) return made;
+    const sessionId = made.value;
+    await options.track(sessionId);
+    const st = await options.call("GET", "/state", { session: sessionId });
+    const sessionPath = st?.status === 200 ? field(st.body, "sessionPath") : null;
+    const at = now().toISOString();
+    await save({ sessionId, sessionPath, createdAt: at, updatedAt: at });
+    // The old conversation is finished with; stop recording it. Its sidecar
+    // session is left alone (a reply may still be streaming to a device).
+    if (old && old !== sessionId) await options.untrack(old);
+    log(`[home] new conversation: session ${sessionId}${old ? ` replaces ${old}` : ""}`);
+    return ok({ sessionId, sessionPath, created: true, agent: AGENT });
+  }
+
   return {
     load: () => current().then((r) => r?.sessionId ?? null),
     sessionId: () => record?.sessionId ?? null,
     resolve() {
+      // A fresh home is on its way: hand out that one, not the one it replaces.
+      if (starting) return starting;
       resolving ??= resolveNow().finally(() => {
         resolving = null;
       });
       return resolving;
+    },
+    startNew() {
+      // Two taps (or two devices) at once make one new conversation, not two.
+      starting ??= (async () => {
+        await resolving?.catch(() => {});
+        return startNow();
+      })().finally(() => {
+        starting = null;
+      });
+      return starting;
     },
     async onRunEnd(sessionId) {
       if ((await current())?.sessionId !== sessionId) return;

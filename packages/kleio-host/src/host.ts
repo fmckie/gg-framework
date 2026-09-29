@@ -6,7 +6,8 @@
 //   - device-authenticated (x-kleio-device-token): everything under the
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
-//     GET /kleio/home, the pinned home thread (see home-thread.ts).
+//     GET /kleio/home, the pinned home thread (see home-thread.ts);
+//     POST /kleio/home/new starts a fresh one.
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
@@ -888,6 +889,14 @@ export function createHost(options: HostOptions): Host {
     if (req.method === "GET" && path === "/kleio/home") {
       if (!home) return json(res, 404, { error: "not_found" });
       const r = await background(home.resolve());
+      return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
+    // Start a fresh home conversation; every device follows on its next
+    // GET /kleio/home. Same shape as GET, created: true.
+    if (req.method === "POST" && path === "/kleio/home/new") {
+      if (!home) return json(res, 404, { error: "not_found" });
+      const r = await background(home.startNew());
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
     }
 

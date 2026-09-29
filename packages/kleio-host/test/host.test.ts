@@ -1268,6 +1268,59 @@ describe("host: home thread (GET /kleio/home)", () => {
     expect(posts(sidecar)).toBe(2);
   });
 
+  it("POST /kleio/home/new starts a fresh conversation every device then opens", async () => {
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token }; // not admin
+    const path = transcript("old.jsonl");
+    const old = (await call("GET", "/kleio/home", { headers: P })).body.sessionId as string;
+    await settle();
+    sidecar.sessions.set(old, path);
+    runEnd(old);
+    await settle();
+
+    const fresh = await call("POST", "/kleio/home/new", { headers: P });
+    expect(fresh.status).toBe(200);
+    expect(fresh.body).toEqual({
+      sessionId: expect.stringMatching(/^created-/),
+      sessionPath: null,
+      created: true,
+      agent: "general",
+    });
+    expect(fresh.body.sessionId).not.toBe(old);
+    // Brand new: the old transcript is NOT resumed.
+    expect(sidecar.creates.at(-1)).toEqual({
+      mode: "chat",
+      chatAgent: "general",
+      cwd: join(home, "Kleio"),
+    });
+    expect(homeJson()).toMatchObject({ sessionId: fresh.body.sessionId, sessionPath: null });
+    const tracked = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+    expect(tracked).toContain(fresh.body.sessionId);
+    expect(tracked).not.toContain(old);
+
+    // Every device now gets the new one.
+    const next = await call("GET", "/kleio/home", { headers: P });
+    expect(next.body).toMatchObject({ sessionId: fresh.body.sessionId, created: false });
+    expect(posts(sidecar)).toBe(2);
+  });
+
+  it("two taps at once make one new conversation; needs a token", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    await call("GET", "/kleio/home", { headers: H });
+    const [a, b, c] = await Promise.all([
+      call("POST", "/kleio/home/new", { headers: H }),
+      call("POST", "/kleio/home/new", { headers: H }),
+      call("GET", "/kleio/home", { headers: H }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.body.sessionId).toBe(a.body.sessionId);
+    expect(c.body.sessionId).toBe(a.body.sessionId);
+    expect(posts(sidecar)).toBe(2);
+    expect((await call("POST", "/kleio/home/new")).status).toBe(401);
+  });
+
   it("an unreachable or failing sidecar is a 502", async () => {
     const admin = await pairAdmin();
     const H = { [DEVICE_TOKEN_HEADER]: admin.token };

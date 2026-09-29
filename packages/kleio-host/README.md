@@ -100,6 +100,16 @@ GET /kleio/home  → 200 { sessionId, sessionPath: string | null, created, agent
 or `?session=`), e.g. `/prompt`, `/events`, `/memories`. On a 404 from any of them, call
 `/kleio/home` again.
 
+**New conversation:** `POST /kleio/home/new` has the same shape as the GET, with
+`created: true`.
+
+- Starts a brand-new home session (no transcript resumed) and pins it.
+- Stops recording the old one.
+- Every device follows on its next `GET /kleio/home`.
+- Old transcripts stay on disk under `~/.gg/chat-sessions/general/`, and durable memory and Jiwa
+  carry over.
+- Two taps at once make one conversation.
+
 Session cwd: `KLEIO_HOME_CWD` (default `~/Kleio`, created if missing).
 
 ### Push nudges (APNs)
