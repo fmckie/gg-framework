@@ -7,7 +7,8 @@
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
-//     POST /kleio/home/new starts a fresh one.
+//     POST /kleio/home/new starts a fresh one. /kleio/blobs/* and
+//     GET /kleio/models, the Blobs (see blobs.ts).
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
@@ -28,6 +29,7 @@ import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from 
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
+import { createBlobs, DEFAULT_BLOB_MODEL } from "./blobs.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
@@ -77,6 +79,13 @@ export interface HostOptions {
    * passes `KLEIO_HOME_CWD`, default `~/Kleio`. Unset = the route answers 404.
    */
   readonly homeCwd?: string;
+  /**
+   * Model of a Blob whose `model` is null. The CLI passes
+   * `KLEIO_BLOB_DEFAULT_MODEL`; default DEFAULT_BLOB_MODEL.
+   */
+  readonly blobDefaultModel?: string;
+  /** How often the Blob scheduler looks for a due schedule (ms). 0 disables. Default 5 s. */
+  readonly blobTickMs?: number;
 }
 
 export interface Host {
@@ -276,16 +285,18 @@ export function createHost(options: HostOptions): Host {
             for (const sub of s.subs) sub.write(frame.frame);
             const lf = liveFrame(raw);
             if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
+            const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
             if (!isRunEnd(raw)) continue;
             // The home thread's transcript path appears at its first run end
             // and moves on compaction; re-learn it whoever is watching.
             if (home)
               void background(home.onRunEnd(sessionId).catch((e) => log(`[home] ${String(e)}`)));
             // A run finished and nobody was watching: one nudge per phone. The
-            // content waits in the ring for the attach that follows.
-            if (s.subs.size === 0 && options.apns?.configured) {
+            // content waits in the ring for the attach that follows. A Blob's
+            // scheduled result is the point, so it is sent whoever is watching.
+            if ((blobNudge || s.subs.size === 0) && options.apns?.configured) {
               void options.apns
-                .notify({ sessionId }, registry.list())
+                .notify(blobNudge ?? { sessionId }, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
             }
           }
@@ -522,10 +533,34 @@ export function createHost(options: HostOptions): Host {
       })
     : null;
 
-  /** Tap the stored home session at start, so it records with no device attached. */
+  const blobs = home
+    ? createBlobs({
+        statePath: join(dirname(options.sidecarEndpointPath), "blobs.json"),
+        cwdRoot: join(options.homeCwd!, "blobs"),
+        defaultModel: options.blobDefaultModel || DEFAULT_BLOB_MODEL,
+        call: sidecarCall,
+        track,
+        untrack,
+        homeSession: () => home.resolve(),
+        log,
+        now,
+      })
+    : null;
+  let blobTicker: NodeJS.Timeout | null = null;
+
+  /**
+   * Tap the stored home and Blob sessions at start, so they record with no
+   * device attached; Blob schedules missed while down are skipped forward.
+   */
   async function resumeHome(): Promise<void> {
     const id = await home?.load();
     if (id) await track(id);
+    for (const sid of (await blobs?.load()) ?? []) await track(sid);
+    const every = options.blobTickMs ?? 5_000;
+    if (blobs && every > 0 && !stopped) {
+      blobTicker = setInterval(() => void background(blobs.tick()), every);
+      blobTicker.unref();
+    }
   }
 
   /**
@@ -900,6 +935,21 @@ export function createHost(options: HostOptions): Host {
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
     }
 
+    // Blobs and the model list. Any paired device, like the home thread.
+    if (blobs) {
+      const r = await background(
+        blobs.route(req.method ?? "GET", path, async () => {
+          const body = await readBody(req, 64 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
     if (path.startsWith("/kleio/")) {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
       if (req.method === "GET" && path === "/kleio/devices")
@@ -986,6 +1036,8 @@ export function createHost(options: HostOptions): Host {
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);
         routineWake = null;
+        if (blobTicker) clearInterval(blobTicker);
+        blobTicker = null;
         for (const s of live.values()) {
           s.upstream?.destroy();
           for (const sub of s.subs) sub.destroy();
@@ -1001,7 +1053,7 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        const written = Promise.allSettled([...inflight, home?.flush()]);
+        const written = Promise.allSettled([...inflight, home?.flush(), blobs?.flush()]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),

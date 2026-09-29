@@ -112,6 +112,36 @@ or `?session=`), e.g. `/prompt`, `/events`, `/memories`. On a 404 from any of th
 
 Session cwd: `KLEIO_HOME_CWD` (default `~/Kleio`, created if missing).
 
+### Blobs (`/kleio/blobs`)
+
+Named helpers with a job, each with its own pinned conversation and schedules, stored in
+`blobs.json` (runs in `runs-<blobId>.jsonl`, last 100).
+
+- **Session:** a sidecar chat session with a **persona** (name + job) in place of General's
+  role prompt. It shares durable memory and Jiwa with Kleio and has no handoff.
+- **Cwd and model:** cwd is `<KLEIO_HOME_CWD>/blobs/<id>`, and the model is pinned per Blob
+  (default `KLEIO_BLOB_DEFAULT_MODEL`, else Tinfoil Kimi K3).
+- **Access:** any paired device; not admin-only.
+- **Caps:** 12 Blobs, 10 schedules per Blob.
+
+| Route                                                               |                                                                                                                                           |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET/POST /kleio/blobs`, `PATCH/DELETE /kleio/blobs/:id`            | CRUD. A change to name, job or model retires the live session; the next open resumes the same transcript with the new persona.            |
+| `GET /kleio/blobs/:id/session`, `POST …/new`                        | Same semantics as `/kleio/home` and `/kleio/home/new`. A model the sidecar refuses is a 502 `model unavailable` (never a cloud fallback). |
+| `POST/PATCH/DELETE …/schedules[/:sid]`, `POST …/schedules/:sid/run` | Schedules: `interval` (≥ 15 min), `daily`/`weekly` at HH:MM in an IANA zone (DST-correct), `once`.                                        |
+| `GET …/runs`                                                        | Newest first, max 50.                                                                                                                     |
+| `GET /kleio/models`                                                 | `{models:[{id,label,private}], defaultBlobModel}`, private first.                                                                         |
+
+**Scheduler** (5 s tick):
+
+- Missed occurrences are skipped, never replayed.
+- At most one fire per tick.
+- A busy conversation logs the occurrence as `skipped`.
+- A fire prompts the Blob's own conversation with `⏰ Scheduled task "<label>": …`.
+- At its run end the run is closed with a 280-char summary.
+- A `notify` schedule sends an APNs alert titled `<emoji> <name>` **even while a device is
+  attached**.
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per

@@ -266,7 +266,8 @@ export function createPinnedThread(options: PinnedThreadOptions): PinnedThread {
       await store.put({ ...rest, updatedAt: now().toISOString() });
       await options.untrack(sessionId);
       const r = await options.call("DELETE", `/session/${encodeURIComponent(sessionId)}`);
-      if (r?.status !== 200) log(`[${name}] disposing ${sessionId}: ${r ? r.status : "unreachable"}`);
+      if (r?.status !== 200)
+        log(`[${name}] disposing ${sessionId}: ${r ? r.status : "unreachable"}`);
       log(`[${name}] retired session ${sessionId}`);
       return sessionId;
     },
