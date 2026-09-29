@@ -126,3 +126,10 @@ export function createChatAgent(
 export function sessionsDirForChatAgent(coderSessionsDir: string, value: unknown): string {
   return chatAgentSessionsDir(coderSessionsDir, parseChatAgentId(value));
 }
+
+export {
+  createPersonaChatAgent,
+  parseChatPersona,
+  buildPersonaRolePrompt,
+  type ChatPersona,
+} from "./persona.js";
