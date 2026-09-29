@@ -128,8 +128,9 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
           session: req.headers["x-gg-session"] as string | undefined,
           body: JSON.parse(body),
         });
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, echoed: JSON.parse(body) }));
+        // Like the real sidecar: 202 once the run is claimed.
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(JSON.stringify({ accepted: true, echoed: JSON.parse(body) }));
       });
       return;
     }

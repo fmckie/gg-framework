@@ -241,8 +241,8 @@ describe("host: auth boundary", () => {
       headers: { [DEVICE_TOKEN_HEADER]: admin.token, "x-gg-session": "s1" },
       body: { text: "hi" },
     });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ok: true, echoed: { text: "hi" } });
+    expect(r.status).toBe(202);
+    expect(r.body).toEqual({ accepted: true, echoed: { text: "hi" } });
     const seen = sidecar.seen.at(-1)!;
     expect(seen.host).toBe(`127.0.0.1:${sidecar.port}`);
     expect(seen.token).toBe(sidecar.token);

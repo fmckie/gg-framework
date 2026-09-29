@@ -493,7 +493,9 @@ export function createBlobs(options: BlobsOptions): Blobs {
       timeoutMs: 30_000,
     });
     await done;
-    if (r?.status === 200) {
+    // The sidecar answers 202 (accepted, or queued behind a run the checks
+    // above didn't see); either way the run's frames will close it.
+    if (r && r.status >= 200 && r.status < 300) {
       log(`[blobs] ${blobId} "${s.label}" fired in ${sessionId}`);
       return open.get(blobId)?.run ?? run;
     }
