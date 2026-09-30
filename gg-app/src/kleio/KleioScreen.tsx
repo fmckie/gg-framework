@@ -1,25 +1,24 @@
-// Kleio's own full-screen pages — Blobs, Groups and Apps — built like Ken's
-// Settings screen: a header with Back and the page's name, a scrolling body of
-// glass cards, and the capsule tab bar at the bottom. Everything comes from the
-// Kleio host (the Mac mini), so the phone and every Mac stay in sync.
+// Kleio's own full-screen pages — Agents (Blobs, in the code and on the host)
+// and Groups — built like Ken's Settings screen: a header with Back and the
+// page's name, a scrolling body of glass cards, and the capsule tab bar at the
+// bottom. Everything comes from the Kleio host (the Mac mini), so the phone and
+// every Mac stay in sync. Apps moved to Settings.
 
 import { useState } from "react";
-import { ChatsCircleIcon, CirclesThreeIcon, PuzzlePieceIcon } from "@phosphor-icons/react";
+import { ChatsCircleIcon, CirclesThreeIcon } from "@phosphor-icons/react";
 import { BackButton } from "../BackButton";
 import { SettingsHeaderProvider } from "../settings-header";
 import { SettingsTabBar, type SettingsTab } from "../SettingsTabBar";
-import { AppsPage } from "./AppsPage";
 import { BlobsPage } from "./BlobsPage";
 import { GroupsPage } from "./GroupsPage";
 
-export type KleioScreenTab = "blobs" | "groups" | "apps";
+export type KleioScreenTab = "blobs" | "groups";
 
 const PANEL_ID = "kleio-screen-panel";
 
 const TABS: SettingsTab<KleioScreenTab>[] = [
-  { id: "blobs", label: "Blobs", icon: CirclesThreeIcon },
+  { id: "blobs", label: "Agents", icon: CirclesThreeIcon },
   { id: "groups", label: "Groups", icon: ChatsCircleIcon },
-  { id: "apps", label: "Apps", icon: PuzzlePieceIcon },
 ];
 
 interface Props {
@@ -61,7 +60,6 @@ export function KleioScreen({ initialTab = "blobs", onClose }: Props): React.Rea
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
             {tab === "blobs" && <BlobsPage />}
             {tab === "groups" && <GroupsPage />}
-            {tab === "apps" && <AppsPage />}
           </div>
         </SettingsHeaderProvider>
       </div>

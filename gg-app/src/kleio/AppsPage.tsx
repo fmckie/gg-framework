@@ -231,7 +231,7 @@ export function AppsPage(): React.ReactElement {
       >
         <p className="kleio-page-intro">
           Put a Composio API key in the host's <code>composio.key</code> file and restart the Kleio
-          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every Blob.
+          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every agent.
         </p>
       </SettingsCard>
     );
@@ -251,7 +251,7 @@ export function AppsPage(): React.ReactElement {
       </SettingsHeaderStatus>
 
       <p className="kleio-page-intro">
-        Connected apps work for Kleio and every Blob — read your mail, check your calendar, update
+        Connected apps work for Kleio and every agent — read your mail, check your calendar, update
         Notion. You sign in once, in your browser.
       </p>
 
@@ -262,7 +262,7 @@ export function AppsPage(): React.ReactElement {
       )}
 
       {connections.length > 0 && (
-        <SettingsCard title="Your apps" description="Kleio and your Blobs can use these now.">
+        <SettingsCard title="Your apps" description="Kleio and your agents can use these now.">
           <ul className="app-mine">
             {connections.map((c) => {
               const state = connectionState(c.status);

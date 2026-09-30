@@ -111,13 +111,13 @@ export function GroupsPage(): React.ReactElement {
     <div className="kleio-section">
       <div className="kleio-row-between">
         <p className="modal-hint" style={{ color: theme.textMuted, margin: 0 }}>
-          Put Blobs in a room together. @mention one to ask just them.
+          Bring agents together in a group chat. @mention one to ask just them.
         </p>
         <button
           type="button"
           className="btn btn-primary btn-sm"
           disabled={blobs.length === 0}
-          title={blobs.length === 0 ? "Make a Blob first" : undefined}
+          title={blobs.length === 0 ? "Create an agent first" : undefined}
           onClick={() => setEditing("new")}
         >
           New group

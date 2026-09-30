@@ -107,7 +107,7 @@ export function BlobsPage(): React.ReactElement {
     return (
       <div className="blob-editor">
         <SettingsCard
-          title={blob ? `Edit ${blob.name}` : "New Blob"}
+          title={blob ? `Edit ${blob.name}` : "New agent"}
           description={
             blob
               ? "Change its name, look, job or brain."
@@ -132,13 +132,13 @@ export function BlobsPage(): React.ReactElement {
         <p className="blob-empty-line">Loading…</p>
       ) : (
         <p className="blob-empty-line">
-          That Blob is gone.{" "}
+          That agent no longer exists.{" "}
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => setView({ kind: "list" })}
           >
-            All Blobs
+            All agents
           </button>
         </p>
       );
@@ -165,7 +165,7 @@ export function BlobsPage(): React.ReactElement {
           <Badge color={working > 0 ? theme.success : undefined}>
             {working > 0
               ? `${working} working`
-              : `${blobs.length} Blob${blobs.length === 1 ? "" : "s"}`}
+              : `${blobs.length} agent${blobs.length === 1 ? "" : "s"}`}
           </Badge>
         )}
       </SettingsHeaderStatus>
@@ -176,12 +176,12 @@ export function BlobsPage(): React.ReactElement {
           onClick={() => setView({ kind: "create" })}
         >
           <PlusIcon size={14} weight="bold" aria-hidden="true" />
-          New Blob
+          New agent
         </button>
       </SettingsHeaderAction>
 
       <p className="kleio-page-intro">
-        Little helpers with one job each. They run on your Mac mini, on a schedule or when you ask,
+        Each agent does one job for you. They run on your Mac mini, on a schedule or when you ask,
         and share Kleio's memory of you.
       </p>
 
@@ -200,7 +200,7 @@ export function BlobsPage(): React.ReactElement {
       ) : blobs !== null && blobs.length === 0 ? (
         <div className="blob-empty">
           <BlobFace emoji="🫧" color="sky" size={64} />
-          <h2>No Blobs yet</h2>
+          <h2>No agents yet</h2>
           <p>
             Make one and tell it what to do — “Send me the AI news every morning at 8”, “Plan three
             dinners every Sunday”.
@@ -211,7 +211,7 @@ export function BlobsPage(): React.ReactElement {
             onClick={() => setView({ kind: "create" })}
           >
             <PlusIcon size={16} weight="bold" aria-hidden="true" />
-            Make your first Blob
+            Create your first agent
           </button>
         </div>
       ) : (
@@ -262,7 +262,7 @@ export function BlobsPage(): React.ReactElement {
             <span className="blob-card-new-plus" aria-hidden="true">
               <PlusIcon size={20} weight="bold" />
             </span>
-            <span className="blob-card-new-label">Make a new Blob</span>
+            <span className="blob-card-new-label">Create an agent</span>
           </button>
         </div>
       )}
@@ -315,7 +315,7 @@ function BlobProfile({
       <SettingsHeaderAction>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onBack}>
           <ArrowLeftIcon size={14} weight="bold" aria-hidden="true" />
-          All Blobs
+          All agents
         </button>
       </SettingsHeaderAction>
 

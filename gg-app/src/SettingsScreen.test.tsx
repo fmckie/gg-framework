@@ -23,6 +23,8 @@ vi.mock("./kleio/LazyConnectionPage", async () => {
     ),
   };
 });
+vi.mock("./kleio/LazyAppsPage", () => ({ AppsPage: () => <p>apps page</p> }));
+vi.mock("./kleio/AboutPage", () => ({ AboutPage: () => <p>about page</p> }));
 vi.mock("./LoginScreen", async () => {
   const { SettingsHeaderStatus } = await import("./settings-header");
   return {
@@ -107,6 +109,29 @@ describe("SettingsScreen", () => {
     const check = screen.getByRole("button", { name: "Check again" });
     // In the header bar's right-aligned action group, not the page body.
     expect(check.closest(".settings-head-actions")).not.toBeNull();
+  });
+
+  it("has Apps (moved from the home screen) and About", async () => {
+    await renderScreen();
+
+    const labels = screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"));
+    expect(labels).toEqual([
+      "General",
+      "AI Providers",
+      "Connection",
+      "Apps",
+      "MCP",
+      "Steroids",
+      "About",
+    ]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Apps" }));
+    expect(heading()).toBe("Apps");
+    expect(screen.getByText("apps page")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "About" }));
+    expect(heading()).toBe("About");
+    expect(screen.getByText("about page")).toBeTruthy();
   });
 
   it("clears a page's header buttons when another tab opens", async () => {

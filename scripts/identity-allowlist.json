@@ -7515,8 +7515,8 @@
       "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
     },
     {
-      "id": "kleio-separation-gg-app-src-kleio-kleiohome-test-tsx",
-      "path": "gg-app/src/kleio/KleioHome.test.tsx",
+      "id": "kleio-separation-gg-app-src-kleio-aboutpage-test-tsx",
+      "path": "gg-app/src/kleio/AboutPage.test.tsx",
       "scope": "content",
       "targets": [
         "tracked"
@@ -7530,18 +7530,18 @@
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
       "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {
-      "id": "kleio-separation-gg-app-src-kleio-kleiohome-tsx",
-      "path": "gg-app/src/kleio/KleioHome.tsx",
+      "id": "kleio-separation-gg-app-src-kleio-aboutpage-tsx",
+      "path": "gg-app/src/kleio/AboutPage.tsx",
       "scope": "content",
       "targets": [
         "tracked"
       ],
       "match": {
-        "regex": "(?:<div className=\"home-byline home-links\">Built on GG Coder by Ken Kai<\\/div>)",
+        "regex": "(?:<p className=\"about-credit\">Built on GG Coder by Ken Kai<\\/p>)",
         "flags": "gu"
       },
       "expectedOccurrences": {
@@ -7549,7 +7549,7 @@
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
       "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {

@@ -135,7 +135,7 @@ export function ConnectionPage(): React.ReactElement {
         <div className="settings-col">
           <SettingsCard
             title="Mac mini"
-            description="Kleio's brain lives here. Chats, Blobs and code all run on it, so they keep going when this Mac sleeps."
+            description="Kleio's brain lives here. Chats, agents and code all run on it, so they keep going when this Mac sleeps."
           >
             <dl className="conn-facts">
               <Fact label="Address">

@@ -133,7 +133,6 @@ import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
 import { KleioScreen } from "./kleio/LazyKleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
-import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
@@ -426,8 +425,7 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
-  // kleio: Blobs, Groups and Apps — a screen from Home, an overlay over a workspace.
-  const [kleioTab, setKleioTab] = useState<KleioScreenTab>("blobs");
+  // kleio: Agents and Groups — a screen from Home, an overlay over a workspace.
   const [showKleioOverlay, setShowKleioOverlay] = useState(false);
   const kleioRemote = useKleioRemote();
   const kleioActiveRef = useRef(false);
@@ -1256,7 +1254,7 @@ function App(): React.ReactElement {
         setShowKleioRemote(true);
         return;
       }
-      // kleio: Cmd/Ctrl + Shift + L opens Blobs, Groups and Apps (remote mode only).
+      // kleio: Cmd/Ctrl + Shift + L opens Agents and Groups (remote mode only).
       if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
         setShowKleioOverlay(true);
@@ -2541,18 +2539,7 @@ function App(): React.ReactElement {
                 setEntryView("projects");
               })
             }
-            onBlobs={() =>
-              withViewTransition(() => {
-                setKleioTab("blobs");
-                setEntryView("kleio");
-              })
-            }
-            onApps={() =>
-              withViewTransition(() => {
-                setKleioTab("apps");
-                setEntryView("kleio");
-              })
-            }
+            onBlobs={() => withViewTransition(() => setEntryView("kleio"))}
             onSettings={(tab) =>
               withViewTransition(() => {
                 setSettingsTab(tab ?? "general");
@@ -2562,10 +2549,7 @@ function App(): React.ReactElement {
             refreshSignal={homeRefreshSignal}
           />
         ) : entryView === "kleio" ? (
-          <KleioScreen
-            initialTab={kleioTab}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
-          />
+          <KleioScreen onClose={() => withViewTransition(() => setEntryView("home"))} />
         ) : entryView === "settings" ? (
           <SettingsScreen
             initialTab={settingsTab}
@@ -2673,10 +2657,10 @@ function App(): React.ReactElement {
                 type="button"
                 className="kleio-badge kleio-open"
                 onClick={() => setShowKleioOverlay(true)}
-                title="Blobs, group chats and apps · ⌘⇧L"
-                aria-label="Open Blobs, groups and apps"
+                title="Agents and group chats · ⌘⇧L"
+                aria-label="Open agents and groups"
               >
-                Blobs
+                Agents
               </button>
             )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />

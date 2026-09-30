@@ -516,7 +516,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
     };
 
     const b = find(blobId);
-    if (!b) return failed("blob deleted");
+    if (!b) return failed("agent deleted");
     if (isBusy(b)) return skipped();
     const session = await thread(blobId).resolve();
     if (!session.ok)
@@ -666,11 +666,11 @@ export function createBlobs(options: BlobsOptions): Blobs {
    */
   async function autoSchedule(blobId: string, timezone: string): Promise<AutoSchedules> {
     const b = find(blobId);
-    if (!b) return { status: "failed", count: 0, error: "blob deleted" };
+    if (!b) return { status: "failed", count: 0, error: "agent deleted" };
     const r = await extract(b.job, effectiveModel(b), timezone);
     const cur = find(blobId);
     if (!r.ok || !cur) {
-      const error = r.ok ? "blob deleted" : r.error;
+      const error = r.ok ? "agent deleted" : r.error;
       log(`[blobs] ${blobId} auto-schedules failed: ${error}`);
       return { status: "failed", count: 0, error };
     }
@@ -686,7 +686,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
       return {
         status: "failed",
         count: 0,
-        error: `A blob can have at most ${MAX_SCHEDULES} schedules`,
+        error: `An agent can have at most ${MAX_SCHEDULES} schedules`,
       };
     return { status: added.length > 0 ? "ok" : "none", count: added.length };
   }
@@ -705,7 +705,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
   async function createBlob(input: unknown): Promise<Reply> {
     const o = object(input);
     if (blobs.length >= MAX_BLOBS)
-      throw new Invalid(`You can have at most ${MAX_BLOBS} blobs; delete one first`);
+      throw new Invalid(`You can have at most ${MAX_BLOBS} agents; delete one first`);
     const timezone = zone(o.timezone);
     const auto = o.autoSchedule === undefined ? true : bool(o.autoSchedule, "autoSchedule");
     const at = now().toISOString();
@@ -757,7 +757,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
     // session so the next open resumes the transcript with the new ones.
     if (next.name !== b.name || next.job !== b.job || next.model !== b.model) {
       await thread(b.id).retire();
-      closeRun(b.id, { outcome: "error", error: "blob changed during the run" });
+      closeRun(b.id, { outcome: "error", error: "agent changed during the run" });
       await options.onChanged?.(b.id);
     }
     const autoSchedules =
@@ -791,7 +791,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
 
   async function addSchedule(b: Blob, input: unknown): Promise<Reply> {
     if (b.schedules.length >= MAX_SCHEDULES)
-      throw new Invalid(`A blob can have at most ${MAX_SCHEDULES} schedules`);
+      throw new Invalid(`An agent can have at most ${MAX_SCHEDULES} schedules`);
     const fields = scheduleFields(object(input));
     const t = now().getTime();
     if (fields.kind === "once" && Date.parse(fields.at!) <= t)
@@ -874,7 +874,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
     }
     const m = path.match(/^\/kleio\/blobs\/(b_[0-9a-f]{8})(\/.*)?$/);
     const b = m ? find(m[1]!) : undefined;
-    if (!b) return { status: 404, body: { error: "no such blob" } };
+    if (!b) return { status: 404, body: { error: "no such agent" } };
     const rest = m![2] ?? "";
     if (rest === "") {
       if (method === "PATCH") return patchBlob(b, await body());

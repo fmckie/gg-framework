@@ -44,7 +44,7 @@ export function modelOptions(list: ModelList | null): DropdownOption[] {
     {
       value: DEFAULT,
       label: `Default${def ? ` — ${def.label}` : ""}`,
-      description: "The host's standard Blob brain",
+      description: "The host's standard brain for agents",
     },
     ...(list?.models ?? []).map((m) => ({
       value: m.id,
@@ -117,7 +117,7 @@ export function BlobForm({
         void save();
       }}
     >
-      {heading && <h3 className="kleio-h3">{blob ? `Edit ${blob.name}` : "New Blob"}</h3>}
+      {heading && <h3 className="kleio-h3">{blob ? `Edit ${blob.name}` : "New agent"}</h3>}
       <div className="kleio-form-row">
         <label className="kleio-field kleio-field-grow">
           <span className="modal-label">Name</span>

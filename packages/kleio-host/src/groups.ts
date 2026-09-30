@@ -520,7 +520,7 @@ export function createGroups(options: GroupsOptions): Groups {
   }
 
   async function validMembers(v: unknown): Promise<string[]> {
-    const bad = `members must be 1–${MAX_MEMBERS} of your Blobs`;
+    const bad = `members must be 1–${MAX_MEMBERS} of your agents`;
     if (!Array.isArray(v) || v.length < 1 || v.length > MAX_MEMBERS) throw new Invalid(bad);
     if (new Set(v).size !== v.length) throw new Invalid("members must not repeat");
     for (const id of v)

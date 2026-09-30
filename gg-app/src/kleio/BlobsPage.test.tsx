@@ -110,19 +110,19 @@ describe("BlobsPage", () => {
     await waitFor(() => expect(deleteBlob).toHaveBeenCalledWith("b1"));
   });
 
-  it("opens the new-Blob form from the card at the end of the grid", async () => {
+  it("opens the new-agent form from the card at the end of the grid", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Make a new Blob" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create an agent" }));
     expect(screen.getByText("new blob form")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
   });
 
-  it("welcomes you with a first-Blob prompt when there are none", async () => {
+  it("welcomes you with a first-agent prompt when there are none", async () => {
     vi.mocked(listBlobs).mockResolvedValue([]);
     await renderPage();
-    expect(screen.getByRole("heading", { name: "No Blobs yet" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Make your first Blob/ }));
+    expect(screen.getByRole("heading", { name: "No agents yet" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Create your first agent/ }));
     expect(screen.getByText("new blob form")).toBeTruthy();
   });
 
