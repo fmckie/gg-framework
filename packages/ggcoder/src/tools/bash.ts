@@ -30,6 +30,37 @@ function sandboxAwareEnv(sandboxed: boolean): Record<string, string> {
 
 const DEFAULT_TIMEOUT = 120_000; // 120 seconds
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MB — cap buffered output to prevent OOM
+/**
+ * How long to keep collecting output after the shell exits while something it
+ * left behind (`cmd &`, `nohup cmd`) still holds its stdout/stderr open.
+ */
+const LEFTOVER_DRAIN_MS = 1_000;
+
+/**
+ * Result for a call whose Stop arrived while the launch was still being
+ * prepared. Wording matches the agent loop's result for a tool call that never
+ * reached its tool.
+ */
+const CANCELLED_BEFORE_START =
+  "Exit code: CANCELLED\n`bash` was cancelled before it started, so it had no effect. Safe to retry.";
+
+/**
+ * SIGKILL what is left of the process group the shell led, returning whether
+ * anything was there to stop. Group-only: once the shell has exited its lone
+ * pid may already belong to an unrelated process. Windows has no process
+ * groups, and taskkill /T cannot find the tree of a parent that already
+ * exited, so leftovers there are left running.
+ */
+function killLeftoverGroup(pid: number): boolean {
+  if (process.platform === "win32") return false;
+  try {
+    process.kill(-pid, "SIGKILL");
+    return true;
+  } catch {
+    // The group is empty: whatever still holds the output left it (setsid).
+    return false;
+  }
+}
 /** A sleep at least this long is a guess at when something finishes, not a
  *  settle pause before poking a service that is already up. */
 const GUESSED_WAIT_SECONDS = 10;
@@ -261,6 +292,7 @@ export function createBashTool(
             return `Error: OS sandbox unavailable; command was not run: ${(error as Error).message}`;
           }
         }
+        if (context.signal.aborted) return CANCELLED_BEFORE_START;
         const res = await sessionShell.run(
           command,
           timeoutMs ?? DEFAULT_TIMEOUT,
@@ -283,6 +315,7 @@ export function createBashTool(
         } catch (error) {
           return `Error: OS sandbox unavailable; command was not run: ${(error as Error).message}`;
         }
+        if (context.signal.aborted) return CANCELLED_BEFORE_START;
         const result = await processManager.start(command, cwd, launch, wakeRules);
         return (
           `Background process started.\n` +
@@ -317,6 +350,9 @@ export function createBashTool(
       } catch (error) {
         return `Exit code: 1\nOS sandbox unavailable; command was not run: ${(error as Error).message}`;
       }
+      // Stop may have landed while the launch was being prepared. The abort
+      // listener below would never fire for an already-aborted signal.
+      if (context.signal.aborted) return CANCELLED_BEFORE_START;
 
       return new Promise<string>((resolve, reject) => {
         const child = ops.spawn(launch.file, launch.args, {
@@ -368,8 +404,24 @@ export function createBashTool(
         };
         context.signal.addEventListener("abort", onAbort, { once: true });
 
+        // "close" waits for every holder of the stdout/stderr pipes, and a
+        // process the command left running (`cmd &`, `nohup cmd`) inherits them,
+        // so without this the call hangs until the timeout. Once the shell
+        // itself exits, let late output drain briefly, then stop the leftovers
+        // and release the pipes so "close" fires.
+        let leftover: "stopped" | "detached" | undefined;
+        let drainTimer: ReturnType<typeof setTimeout> | undefined;
+        child.on("exit", () => {
+          drainTimer = setTimeout(() => {
+            leftover = child.pid && killLeftoverGroup(child.pid) ? "stopped" : "detached";
+            child.stdout?.destroy();
+            child.stderr?.destroy();
+          }, LEFTOVER_DRAIN_MS);
+        });
+
         child.on("close", async (code) => {
           clearTimeout(timer);
+          clearTimeout(drainTimer);
           context.signal.removeEventListener("abort", onAbort);
 
           const rawOutput = Buffer.concat(chunks).toString("utf-8");
@@ -389,6 +441,17 @@ export function createBashTool(
               "Install Git for Windows to get bash.]\n" +
               output;
           }
+          if (leftover && !killed) {
+            const fate =
+              leftover === "stopped"
+                ? "so it was stopped"
+                : "so its later output was not captured; it may still be running";
+            output =
+              `[The command exited, but a process it left running in the background ` +
+              `(& or nohup) still held its output ${LEFTOVER_DRAIN_MS / 1000}s later, ${fate}. ` +
+              `Use run_in_background=true for anything that should keep running.]\n` +
+              output;
+          }
 
           const exitCode = timedOut
             ? `TIMEOUT (${effectiveTimeout}ms)`
@@ -401,6 +464,7 @@ export function createBashTool(
 
         child.on("error", (err) => {
           clearTimeout(timer);
+          clearTimeout(drainTimer);
           context.signal.removeEventListener("abort", onAbort);
           reject(new Error(`Exit code: 1\nFailed to spawn: ${err.message}`));
         });

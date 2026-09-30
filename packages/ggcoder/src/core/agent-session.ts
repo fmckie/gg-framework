@@ -501,6 +501,9 @@ export class AgentSession {
    *  creation). Called from switchModel so video-capable models get the
    *  read-tool's native-video path after a mid-session model change. */
   private rebuildReadTool: ((model: string) => AgentTool) | undefined;
+  /** Forgets every file read; called whenever the conversation is replaced or
+   *  rewound, so the model must re-read a file before changing it. */
+  private clearReadTracker: (() => void) | undefined;
   private skills: Skill[] = [];
   private cacheKeyLogged = false;
   // ── Self-correction hook state (mirrors the TUI's useAgentLoop refs) ──
@@ -796,6 +799,7 @@ export class AgentSession {
       tools: builtInTools,
       processManager,
       rebuildReadTool,
+      clearReadTracker,
       lspManager,
       subAgentManager,
     } = await createTools(this.cwd, {
@@ -888,6 +892,7 @@ export class AgentSession {
       }
     }
     this.rebuildReadTool = rebuildReadTool;
+    this.clearReadTracker = clearReadTracker;
     this.processManager = processManager;
     this.lspManager = lspManager;
     this.subAgentManager = subAgentManager;
@@ -3469,6 +3474,7 @@ export class AgentSession {
     const basePrompt = await this.buildBasePrompt(false, undefined);
     this.baseSystemPrompt = basePrompt;
     this.messages = [{ role: "system", content: this.withSystemPromptTail(basePrompt) }];
+    this.clearReadTracker?.();
     // Fresh conversation — new entries must not chain onto the old DAG's leaf.
     this.currentLeafId = null;
     // Transient sessions (Ken chat/autopilot, subagent spawns) never touch the
@@ -3527,6 +3533,8 @@ export class AgentSession {
     const systemMsg = this.messages[0];
     this.messages = [systemMsg, ...branchMessages];
     this.lastPersistedIndex = this.messages.length;
+    // Reads made in the dropped messages are no longer in the model's context.
+    this.clearReadTracker?.();
 
     this.eventBus.emit("branch_created", {
       leafId: this.currentLeafId,
@@ -4506,6 +4514,8 @@ export class AgentSession {
     // not fail when Anthropic's stricter many-image limit activates later.
     const systemMsg = this.messages[0]; // Already built
     this.messages = [systemMsg, ...loadedMessages];
+    // Reads recorded for the previous conversation don't carry over.
+    this.clearReadTracker?.();
     const normalizedImageCount = await normalizeMessageImages(this.messages);
     if (normalizedImageCount > 0) {
       log("INFO", "session", `Resized ${normalizedImageCount} restored session image(s)`);

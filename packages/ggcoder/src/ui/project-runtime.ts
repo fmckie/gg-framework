@@ -16,6 +16,7 @@ export interface ProjectRuntime {
   tools: AgentTool[];
   skills?: Skill[];
   rebuildReadTool?: (model: string) => AgentTool;
+  clearReadTracker?: () => void;
   processManager?: ProcessManager;
   subAgentManager?: SubAgentManager;
   lspManager?: LspManager;

@@ -155,6 +155,12 @@ export interface CreateToolsResult {
    */
   rebuildReadTool: (model: string) => AgentTool;
   /**
+   * Forget every file read. Call whenever the conversation is replaced or
+   * rewound: the reads it recorded are no longer in the model's context, so
+   * the model must read a file again before editing or overwriting it.
+   */
+  clearReadTracker: () => void;
+  /**
    * Language-server pool backing edit/write diagnostics. Present only when
    * enabled and running against the local filesystem; callers wire
    * `shutdownAll()` into their exit/cleanup paths alongside processManager.
@@ -328,7 +334,9 @@ export async function createTools(
   const rebuildReadTool = (model: string): AgentTool =>
     createReadTool(cwd, readFiles, ops, opts?.onFileRead, getVideoByteLimit(model));
 
-  return { tools, processManager, rebuildReadTool, lspManager, subAgentManager };
+  const clearReadTracker = (): void => readFiles.clear();
+
+  return { tools, processManager, rebuildReadTool, clearReadTracker, lspManager, subAgentManager };
 }
 
 export { createReadTool } from "./read.js";

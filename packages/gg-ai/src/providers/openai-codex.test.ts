@@ -1494,6 +1494,175 @@ describe("streamOpenAICodex", () => {
   });
 });
 
+describe("streamOpenAICodex cut-off replies", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function run(events: Record<string, unknown>[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => createSseResponse(events)),
+    );
+    const result = streamOpenAICodex({
+      provider: "openai",
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "hi" }],
+      apiKey: "token",
+      accountId: "acct",
+    });
+    const seen: Array<{ type: string }> = [];
+    try {
+      for await (const event of result) seen.push(event);
+    } catch {
+      // the response promise carries the failure
+    }
+    return { result, seen };
+  }
+
+  const cutOffCall = [
+    {
+      type: "response.output_item.added",
+      item: { type: "function_call", call_id: "call_1", id: "item_1", name: "bash" },
+    },
+    {
+      type: "response.function_call_arguments.delta",
+      item_id: "item_1",
+      delta: '{"command":"rm -rf build && npm run bui',
+    },
+  ];
+
+  it("fails a stream that stops before the reply finishes instead of running a cut-off tool call", async () => {
+    const { result, seen } = await run(cutOffCall);
+
+    await expect(result.response).rejects.toMatchObject({
+      statusCode: 504,
+      message: expect.stringContaining("ended before completion"),
+    });
+    expect(seen.some((event) => event.type === "toolcall_done")).toBe(false);
+  });
+
+  it("refuses a completed reply that still holds an unfinished tool call", async () => {
+    const { result } = await run([
+      ...cutOffCall,
+      { type: "response.completed", response: { usage: { input_tokens: 10, output_tokens: 5 } } },
+    ]);
+
+    await expect(result.response).rejects.toMatchObject({
+      statusCode: 502,
+      message: expect.stringContaining("unfinished tool call: bash"),
+    });
+  });
+
+  it("reports a reply cut off at the output limit as max_tokens, keeping its text", async () => {
+    const { result } = await run([
+      { type: "response.output_item.added", item: { type: "message", id: "msg_1" } },
+      {
+        type: "response.output_text.delta",
+        item_id: "msg_1",
+        content_index: 0,
+        delta: "The fix is to change the",
+      },
+      {
+        type: "response.incomplete",
+        response: {
+          status: "incomplete",
+          incomplete_details: { reason: "max_output_tokens" },
+          usage: { input_tokens: 10, output_tokens: 5 },
+        },
+      },
+    ]);
+
+    await expect(result.response).resolves.toMatchObject({
+      message: { content: [{ type: "text", text: "The fix is to change the" }] },
+      stopReason: "max_tokens",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+  });
+
+  it("reports a reply stopped by the content filter as a refusal", async () => {
+    const { result } = await run([
+      {
+        type: "response.incomplete",
+        response: { status: "incomplete", incomplete_details: { reason: "content_filter" } },
+      },
+    ]);
+
+    await expect(result.response).resolves.toMatchObject({ stopReason: "refusal" });
+  });
+
+  it("keeps finished tool calls and drops the cut-off one when the reply hits the output limit", async () => {
+    const { result } = await run([
+      {
+        type: "response.output_item.added",
+        item: { type: "function_call", call_id: "call_0", id: "item_0", name: "read" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_0",
+        delta: '{"file_path":"a.ts"}',
+      },
+      {
+        type: "response.output_item.done",
+        item: { type: "function_call", call_id: "call_0", id: "item_0" },
+      },
+      ...cutOffCall,
+      {
+        type: "response.incomplete",
+        response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } },
+      },
+    ]);
+
+    const response = await result.response;
+    expect(response.stopReason).toBe("max_tokens");
+    expect(response.message.content).toEqual([
+      { type: "tool_call", id: "call_0|item_0", name: "read", args: { file_path: "a.ts" } },
+    ]);
+  });
+
+  // Encrypted reasoning round-trips into the next request, where the server
+  // expects an item after each reasoning item. The reasoning that led into the
+  // dropped call would otherwise be left dangling at the end of the message.
+  it("drops reasoning that only led into the cut-off tool call", async () => {
+    const reasoning = (id: string) => ({
+      type: "response.output_item.done",
+      item: { type: "reasoning", id, encrypted_content: `ENC_${id}`, summary: [] },
+    });
+    const { result } = await run([
+      reasoning("rs_1"),
+      {
+        type: "response.output_item.added",
+        item: { type: "function_call", call_id: "call_0", id: "item_0", name: "read" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item_0",
+        delta: '{"file_path":"a.ts"}',
+      },
+      {
+        type: "response.output_item.done",
+        item: { type: "function_call", call_id: "call_0", id: "item_0" },
+      },
+      reasoning("rs_2"),
+      ...cutOffCall,
+      {
+        type: "response.incomplete",
+        response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } },
+      },
+    ]);
+
+    const response = await result.response;
+    expect(response.stopReason).toBe("max_tokens");
+    expect(response.message.content).toEqual([
+      {
+        type: "raw",
+        data: { type: "reasoning", id: "rs_1", encrypted_content: "ENC_rs_1", summary: [] },
+      },
+      { type: "tool_call", id: "call_0|item_0", name: "read", args: { file_path: "a.ts" } },
+    ]);
+  });
+});
+
 describe("toCodexTools strict sampling", () => {
   it("marks strictifiable tools strict:true and falls back to strict:null otherwise", async () => {
     vi.stubGlobal(

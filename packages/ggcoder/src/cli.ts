@@ -681,6 +681,8 @@ async function runInkTUI(opts: {
     if (!rebuild) throw new Error("The active project has no read-tool builder.");
     return rebuild(model);
   };
+  // Resets replace the conversation, so the active project's recorded reads must go.
+  const clearReadTracker = () => projectRuntimeRef.current.clearReadTracker?.();
 
   // Prepare a complete, isolated runtime before committing a Pixel project switch.
   const prepareProjectRuntime = async (
@@ -1049,6 +1051,7 @@ async function runInkTUI(opts: {
     projectRuntimeRef,
     prepareProjectRuntime,
     rebuildReadTool,
+    clearReadTracker,
     connectInitialMcpTools,
     planCallbacks: planToolCallbacks,
     onRuntimeStateChange: (updates) => {

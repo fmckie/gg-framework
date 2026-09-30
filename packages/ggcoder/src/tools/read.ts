@@ -13,7 +13,7 @@ import {
   readFileBounded,
   type ToolOperations,
 } from "./operations.js";
-import { recordRead, type ReadTracker } from "./read-tracker.js";
+import { countLines, recordRead, type ReadTracker } from "./read-tracker.js";
 import { lineHash } from "../core/hashline.js";
 import {
   IMAGE_EXTENSIONS,
@@ -279,8 +279,6 @@ export function createReadTool(
         throw err;
       }
       const stat = await ops.stat(resolved);
-      recordRead(readFiles, resolved, raw, stat.mtimeMs);
-      await onFileRead?.(resolved);
       let lines = raw.split("\n");
 
       // Apply offset/limit
@@ -290,6 +288,27 @@ export function createReadTool(
 
       const content = lines.join("\n");
       const result = truncateHead(content);
+      // A line longer than the byte cap can never be shown, and truncateHead
+      // keeps nothing when it opens the window. Name it and point past it,
+      // counting it as seen: otherwise a full-file write could never proceed.
+      if (result.truncated && result.keptLines === 0) {
+        const lineNo = startLine + 1;
+        const bytes = Buffer.byteLength(lines[0] ?? "", "utf-8");
+        recordRead(readFiles, resolved, raw, stat.mtimeMs, [lineNo, lineNo]);
+        await onFileRead?.(resolved);
+        const next =
+          lineNo < countLines(raw)
+            ? `Use offset=${lineNo + 1} to read the rest, or bash`
+            : "Use bash";
+        return `[Line ${lineNo} is too long to show (${bytes} bytes). ${next} (e.g. cut -c1-2000) to inspect it.]`;
+      }
+      // Record exactly which lines the model is shown: a full-file write is only
+      // allowed once it has seen every line (see assertFullySeen).
+      recordRead(readFiles, resolved, raw, stat.mtimeMs, [
+        startLine + 1,
+        startLine + result.keptLines,
+      ]);
+      await onFileRead?.(resolved);
 
       // Prepend line numbers (cat -n style). With `anchors`, also prefix each
       // line with a `hash│` content anchor. The hash is computed from the REAL
