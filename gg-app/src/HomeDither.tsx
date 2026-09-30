@@ -56,7 +56,14 @@ class BackdropBoundary extends Component<{ children: React.ReactNode }, { failed
  * - Reduced motion draws one still frame, with no pointer response.
  * - No WebGL: nothing renders, and the plain background shows.
  */
-export function HomeDither(): React.ReactElement | null {
+export function HomeDither({
+  waveColor = WAVE_COLOR,
+  backgroundColor = BACKGROUND_COLOR,
+}: {
+  /** RGB 0–1; defaults to the neutral grey waves on black. */
+  waveColor?: readonly [number, number, number];
+  backgroundColor?: readonly [number, number, number];
+} = {}): React.ReactElement | null {
   const focused = useWindowFocused();
   const [reduced] = useState(prefersReducedMotion);
   const [supported] = useState(webglAvailable);
@@ -76,8 +83,8 @@ export function HomeDither(): React.ReactElement | null {
         <BackdropBoundary>
           <Suspense fallback={null}>
             <Dither
-              waveColor={WAVE_COLOR}
-              backgroundColor={BACKGROUND_COLOR}
+              waveColor={waveColor}
+              backgroundColor={backgroundColor}
               colorNum={4}
               pixelSize={2}
               waveAmplitude={0.3}

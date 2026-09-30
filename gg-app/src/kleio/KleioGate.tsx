@@ -5,7 +5,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AsciiLogo } from "../AsciiLogo";
+import { KleioMark } from "./KleioMark";
 import { RemoteHostModal } from "./LazyRemoteHostModal";
 import { useKleioRemote } from "./useKleioRemote";
 
@@ -76,7 +76,7 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
     <div className="kleio-gate">
       <div className="kleio-gate-drag" data-tauri-drag-region />
       <div className="kleio-gate-card" role="main">
-        <AsciiLogo />
+        <KleioMark small />
         {body}
       </div>
       {pairing && (

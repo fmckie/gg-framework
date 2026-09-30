@@ -53,7 +53,8 @@ import {
 } from "./kleioApi";
 import { ThreadChat, errorText } from "./ThreadChat";
 
-type Tab = "kleio" | "blobs" | "groups" | "apps";
+export type KleioTab = "kleio" | "blobs" | "groups" | "apps";
+type Tab = KleioTab;
 const TABS: { id: Tab; label: string }[] = [
   { id: "kleio", label: "Kleio" },
   { id: "blobs", label: "Blobs" },
@@ -61,8 +62,14 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "apps", label: "Apps" },
 ];
 
-export function KleioPane({ onClose }: { onClose: () => void }): React.ReactElement {
-  const [tab, setTab] = useState<Tab>("kleio");
+export function KleioPane({
+  onClose,
+  initialTab = "kleio",
+}: {
+  onClose: () => void;
+  initialTab?: KleioTab;
+}): React.ReactElement {
+  const [tab, setTab] = useState<Tab>(initialTab);
   return (
     <Modal
       title={

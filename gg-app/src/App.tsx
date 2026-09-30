@@ -119,7 +119,6 @@ import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
 import { Badge } from "./Badge";
 import { AutopilotToggle } from "./AutopilotToggle";
-import { HomeScreen } from "./HomeScreen";
 import { SettingsModal } from "./LazySettingsModal";
 import { initialEntryView, type EntryView } from "./app-entry-view";
 import {
@@ -133,6 +132,8 @@ import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
 import { KleioPane } from "./kleio/LazyKleioPane";
+import { KleioHome } from "./kleio/KleioHome";
+import type { KleioTab } from "./kleio/KleioPane";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
@@ -426,6 +427,7 @@ function App(): React.ReactElement {
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
   const [showKleioPane, setShowKleioPane] = useState(false);
+  const [kleioPaneTab, setKleioPaneTab] = useState<KleioTab>("kleio");
   const kleioRemote = useKleioRemote();
   const kleioActiveRef = useRef(false);
   kleioActiveRef.current = Boolean(kleioRemote.status?.active);
@@ -1256,6 +1258,7 @@ function App(): React.ReactElement {
       // kleio: Cmd/Ctrl + Shift + L opens the Kleio pane (remote mode only).
       if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
+        setKleioPaneTab("kleio");
         setShowKleioPane(true);
         return;
       }
@@ -2524,23 +2527,15 @@ function App(): React.ReactElement {
     return (
       <div className="app" style={{ background: theme.background }}>
         {entryView === "home" ? (
-          <HomeScreen
-            onProjects={() =>
+          <KleioHome
+            onKleio={(tab) => {
+              setKleioPaneTab(tab);
+              setShowKleioPane(true);
+            }}
+            onCode={() =>
               withViewTransition(() => {
                 setWorkspaceMode("code");
                 setEntryView("projects");
-              })
-            }
-            onChat={() =>
-              withViewTransition(() => {
-                setWorkspaceMode("chat");
-                setEntryView("chats");
-              })
-            }
-            onMotion={() =>
-              withViewTransition(() => {
-                setWorkspaceMode("motion");
-                setEntryView("motion");
               })
             }
             onSettings={(tab) =>
@@ -2549,6 +2544,7 @@ function App(): React.ReactElement {
                 setEntryView("settings");
               })
             }
+            onConnection={() => setShowKleioRemote(true)}
             refreshSignal={homeRefreshSignal}
           />
         ) : entryView === "settings" ? (
@@ -2581,6 +2577,10 @@ function App(): React.ReactElement {
           />
         )}
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
+        {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
+        {showKleioPane && kleioRemote.status?.active && (
+          <KleioPane initialTab={kleioPaneTab} onClose={() => setShowKleioPane(false)} />
+        )}
         <Toaster />
       </div>
     );
@@ -2650,7 +2650,10 @@ function App(): React.ReactElement {
               <button
                 type="button"
                 className="kleio-badge kleio-open"
-                onClick={() => setShowKleioPane(true)}
+                onClick={() => {
+                  setKleioPaneTab("kleio");
+                  setShowKleioPane(true);
+                }}
                 title="Kleio, Blobs, group chats and apps · ⌘⇧L"
                 aria-label="Open Kleio"
               >
@@ -3324,7 +3327,7 @@ function App(): React.ReactElement {
 
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
       {showKleioPane && kleioRemote.status?.active && (
-        <KleioPane onClose={() => setShowKleioPane(false)} />
+        <KleioPane initialTab={kleioPaneTab} onClose={() => setShowKleioPane(false)} />
       )}
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />

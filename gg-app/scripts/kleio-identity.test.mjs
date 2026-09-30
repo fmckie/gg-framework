@@ -35,6 +35,16 @@ describe("Kleio Desktop identity", () => {
     }
   });
 
+  it("wears Kleio's look: the theme loads after Ken's styles, and home is Kleio's", () => {
+    const main = readFileSync(join(root, "src/main.tsx"), "utf8");
+    const app = readFileSync(join(root, "src/App.tsx"), "utf8");
+    expect(main.indexOf('import "./kleio/kleio-theme.css"')).toBeGreaterThan(
+      main.indexOf('import App from "./App"'),
+    );
+    expect(app).toContain("<KleioHome");
+    expect(app).not.toContain("<HomeScreen");
+  });
+
   it("updates only from the fork, never Ken's releases", () => {
     const endpoints = conf.plugins?.updater?.endpoints ?? [];
     for (const url of endpoints) expect(url).toContain("github.com/fmckie/");

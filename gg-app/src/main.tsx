@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { error as logError, attachConsole } from "@tauri-apps/plugin-log";
 import App from "./App";
 import { KleioGate } from "./kleio/KleioGate";
+// After App (App.css, glass.css): Kleio's crimson and white override Ken's tokens.
+import "./kleio/kleio-theme.css";
 import { ZoomController } from "./ZoomController";
 import { TooltipLayer } from "./TooltipLayer";
 import { WhatsNewModal } from "./WhatsNewModal";

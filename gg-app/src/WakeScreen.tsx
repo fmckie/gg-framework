@@ -103,6 +103,12 @@ function MatrixRain(): React.ReactElement {
     let raf = 0;
     let last = 0;
     const STEP = 70; // ms between rain advances (~14fps — calm, cheap)
+    // A theme can recolour the rain through these properties (canvas can't
+    // read var() itself); unset, it is the brand periwinkle/blue.
+    const css = getComputedStyle(document.documentElement);
+    const rainLead = css.getPropertyValue("--wake-rain-lead").trim() || "#9b8cf7";
+    const rainTail = css.getPropertyValue("--wake-rain").trim() || "rgba(77, 157, 255, 0.55)";
+    const rainFade = css.getPropertyValue("--wake-fade").trim() || "rgba(15, 17, 21, 0.18)";
 
     function frame(now: number) {
       raf = requestAnimationFrame(frame);
@@ -110,7 +116,7 @@ function MatrixRain(): React.ReactElement {
       last = now;
 
       // Trail fade — translucent wash over the prior frame.
-      ctx.fillStyle = "rgba(15, 17, 21, 0.18)";
+      ctx.fillStyle = rainFade;
       ctx.fillRect(0, 0, width, height);
       // Canvas 2D cannot resolve CSS var(), so spell out the mono stack (matches
       // the --mono token) instead of silently falling back to the default font.
@@ -121,7 +127,7 @@ function MatrixRain(): React.ReactElement {
         const x = i * FONT_SIZE;
         const y = drops[i] * FONT_SIZE;
         // Brand periwinkle/blue rain — bright lead glyph, dim tail.
-        ctx.fillStyle = Math.random() > 0.97 ? "#9b8cf7" : "rgba(77, 157, 255, 0.55)";
+        ctx.fillStyle = Math.random() > 0.97 ? rainLead : rainTail;
         ctx.fillText(ch, x, y);
         if (y > height && Math.random() > 0.975) drops[i] = 0;
         else drops[i]++;
