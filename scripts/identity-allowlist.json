@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1452,
+        "tracked": 1458,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2571,7 +2571,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 660
+        "packed": 662
       },
       "bucket": "compatibility",
       "owner": "Manager build owner",
@@ -7306,6 +7306,25 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
+      "id": "packed-20260930-2767f57b6bb0",
+      "path": "packages/ggcoder/assets/motion/bin/contact-sheet.mjs",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:fail\\(\"Contact sheets need the HyperFrames bundled with GG\\. Reinstall GG Coder to restore Motion mode\\.\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
       "id": "upstream-20260930-bf0e207d5869",
       "path": "packages/ggcoder/assets/motion/bin/hyperframes.mjs",
       "scope": "content",
@@ -7325,6 +7344,25 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
+      "id": "packed-20260930-bf0e207d5869",
+      "path": "packages/ggcoder/assets/motion/bin/hyperframes.mjs",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"The HyperFrames CLI bundled with GG is missing\\. Reinstall GG Coder to restore Motion mode\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
       "id": "upstream-20260930-0dbf2ea38777",
       "path": "packages/ggcoder/assets/motion/references/README.md",
       "scope": "content",
@@ -7342,6 +7380,25 @@
       "owner": "Kleio framework maintainers",
       "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260930-0dbf2ea38777",
+      "path": "packages/ggcoder/assets/motion/references/README.md",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:from the ggcoder package\\. It uses installed Playwright\\/Sharp and blocks network)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
     },
     {
       "id": "kleio-separation-gg-app-scripts-kleio-identity-test-mjs",
