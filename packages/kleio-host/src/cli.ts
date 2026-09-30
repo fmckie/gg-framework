@@ -121,6 +121,15 @@ async function serve(p: HostPaths): Promise<void> {
     apns,
     diagnosticsDir: p.logs,
     homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
+    ...(process.env.KLEIO_BLOB_DEFAULT_MODEL
+      ? { blobDefaultModel: process.env.KLEIO_BLOB_DEFAULT_MODEL }
+      : {}),
+    composio: {
+      ...(process.env.KLEIO_COMPOSIO_API_KEY ? { apiKey: process.env.KLEIO_COMPOSIO_API_KEY } : {}),
+      ...(process.env.KLEIO_COMPOSIO_BASE_URL
+        ? { baseUrl: process.env.KLEIO_COMPOSIO_BASE_URL }
+        : {}),
+    },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     nodeId: new URL(publicBase()).hostname,

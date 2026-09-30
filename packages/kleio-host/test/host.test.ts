@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer, request as httpRequest, type Server } from "node:http";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,149 +19,7 @@ import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore, type PairOfferStore } from "../src/pair-offer.js";
 import { createRingStore, type RingStore, type SessionRing } from "../src/sse-ring.js";
 import * as macaroon from "../src/macaroon.js";
-
-// ---------------------------------------------------------------- fake sidecar
-
-interface FakeSidecar {
-  server: Server;
-  port: number;
-  token: string;
-  seen: { method: string; url: string; host: string; token: string | undefined }[];
-  emit(sessionId: string, frame: string): void;
-  /** What GET /routines reports as routine → session (the daemon's own sessions). */
-  routineSessions: Record<string, string>;
-  routines: { id: string; nextRunAt: number }[];
-  /** Hold GET /routines open this long before answering (0 = at once). */
-  routinesDelayMs: number;
-  /** Sessions this process created, id → the sessionPath its /state reports. */
-  sessions: Map<string, string>;
-  /** Bodies of every POST /session. */
-  creates: any[];
-  /** POST /session answers 500 when it carries a sessionPath / always. */
-  failResume: boolean;
-  failCreate: boolean;
-  close(): Promise<void>;
-}
-
-/** Unique across fake sidecars, so a "restarted" sidecar never reuses an id. */
-let createdCount = 0;
-
-async function fakeSidecar(): Promise<FakeSidecar> {
-  const token = "sidecar-" + Math.random().toString(36).slice(2);
-  const streams = new Map<string, Set<import("node:http").ServerResponse>>();
-  const seen: FakeSidecar["seen"] = [];
-  const routineSessions: Record<string, string> = {};
-  const routines: { id: string; nextRunAt: number }[] = [];
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://x");
-    seen.push({
-      method: req.method ?? "",
-      url: req.url ?? "",
-      host: req.headers.host ?? "",
-      token: req.headers["x-gg-token"] as string | undefined,
-    });
-    // Mimic the real sidecar: loopback Host allowlist + token.
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host ?? "")) {
-      res.writeHead(403);
-      return res.end("bad host");
-    }
-    if (req.headers["x-gg-token"] !== token) {
-      res.writeHead(401);
-      return res.end("bad token");
-    }
-    if (url.pathname === "/events") {
-      const sid = url.searchParams.get("session") ?? "none";
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify({ type: "ready", session: sid })}\n\n`);
-      let set = streams.get(sid);
-      if (!set) streams.set(sid, (set = new Set()));
-      set.add(res);
-      req.on("close", () => set!.delete(res));
-      return;
-    }
-    if (req.method === "POST" && url.pathname === "/session") {
-      let raw = "";
-      req.on("data", (c) => (raw += c));
-      req.on("end", () => {
-        const body = raw ? JSON.parse(raw) : {};
-        api.creates.push(body);
-        if (api.failCreate || (api.failResume && body.sessionPath)) {
-          res.writeHead(500, { "content-type": "application/json" });
-          return res.end(JSON.stringify({ error: "cannot open transcript" }));
-        }
-        const id = `created-${(createdCount += 1)}`;
-        api.sessions.set(id, typeof body.sessionPath === "string" ? body.sessionPath : "");
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ sessionId: id }));
-      });
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/routines") {
-      const answer = (): void => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ routines, sessions: routineSessions }));
-      };
-      if (api.routinesDelayMs > 0) setTimeout(answer, api.routinesDelayMs);
-      else answer();
-      return;
-    }
-    if (url.pathname === "/state") {
-      // Like the real sidecar, a session this process does not know is a 404.
-      // Created ones report their transcript path ("" until it exists).
-      const sid = req.headers["x-gg-session"] as string | undefined;
-      if (sid?.startsWith("created-") && !api.sessions.has(sid)) {
-        res.writeHead(404, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ error: "unknown session" }));
-      }
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(
-        JSON.stringify({
-          runState: "idle",
-          session: sid ?? null,
-          ...(sid && api.sessions.has(sid) ? { sessionPath: api.sessions.get(sid) } : {}),
-        }),
-      );
-    }
-    if (req.method === "POST" && url.pathname === "/prompt") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, echoed: JSON.parse(body) }));
-      });
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const port = (server.address() as { port: number }).port;
-  const api: FakeSidecar = {
-    server,
-    port,
-    token,
-    seen,
-    emit(sid, frame) {
-      for (const r of streams.get(sid) ?? []) r.write(frame + "\n\n");
-    },
-    routineSessions,
-    routines,
-    routinesDelayMs: 0,
-    sessions: new Map(),
-    creates: [],
-    failResume: false,
-    failCreate: false,
-    close: () =>
-      new Promise((r) => {
-        for (const set of streams.values()) for (const s of set) s.destroy();
-        // Same as the real host's stop(): close() alone waits for idle
-        // keep-alive sockets (a stopped host's poll connection, for one).
-        server.close(() => r());
-        server.closeAllConnections();
-      }),
-  };
-  return api;
-}
+import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
 // ---------------------------------------------------------------- fixture
 
@@ -383,8 +241,8 @@ describe("host: auth boundary", () => {
       headers: { [DEVICE_TOKEN_HEADER]: admin.token, "x-gg-session": "s1" },
       body: { text: "hi" },
     });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ok: true, echoed: { text: "hi" } });
+    expect(r.status).toBe(202);
+    expect(r.body).toEqual({ accepted: true, echoed: { text: "hi" } });
     const seen = sidecar.seen.at(-1)!;
     expect(seen.host).toBe(`127.0.0.1:${sidecar.port}`);
     expect(seen.token).toBe(sidecar.token);

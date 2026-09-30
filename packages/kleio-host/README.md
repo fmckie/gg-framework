@@ -112,6 +112,99 @@ or `?session=`), e.g. `/prompt`, `/events`, `/memories`. On a 404 from any of th
 
 Session cwd: `KLEIO_HOME_CWD` (default `~/Kleio`, created if missing).
 
+### Blobs (`/kleio/blobs`)
+
+Named helpers with a job, each with its own pinned conversation and schedules, stored in
+`blobs.json` (runs in `runs-<blobId>.jsonl`, last 100).
+
+- **Session:** a sidecar chat session with a **persona** (name + job) in place of General's
+  role prompt. It shares durable memory and Jiwa with Kleio and has no handoff.
+- **Cwd and model:** cwd is `<KLEIO_HOME_CWD>/blobs/<id>`, and the model is pinned per Blob
+  (default `KLEIO_BLOB_DEFAULT_MODEL`, else Tinfoil Kimi K3).
+- **Access:** any paired device; not admin-only.
+- **Caps:** 12 Blobs, 10 schedules per Blob.
+
+| Route                                                               |                                                                                                                                           |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET/POST /kleio/blobs`, `PATCH/DELETE /kleio/blobs/:id`            | CRUD. A change to name, job or model retires the live session; the next open resumes the same transcript with the new persona.            |
+| `GET /kleio/blobs/:id/session`, `POST …/new`                        | Same semantics as `/kleio/home` and `/kleio/home/new`. A model the sidecar refuses is a 502 `model unavailable` (never a cloud fallback). |
+| `POST/PATCH/DELETE …/schedules[/:sid]`, `POST …/schedules/:sid/run` | Schedules: `interval` (≥ 15 min), `daily`/`weekly` at HH:MM in an IANA zone (DST-correct), `once`.                                        |
+| `GET …/runs`                                                        | Newest first, max 50.                                                                                                                     |
+| `GET /kleio/models`                                                 | `{models:[{id,label,private}], defaultBlobModel}`, private first.                                                                         |
+
+**Scheduler** (5 s tick):
+
+- Missed occurrences are skipped, never replayed.
+- At most one fire per tick.
+- A busy conversation logs the occurrence as `skipped`.
+- A fire prompts the Blob's own conversation with `⏰ Scheduled task "<label>": …`.
+- At its run end the run is closed with a 280-char summary.
+- A `notify` schedule sends an APNs alert titled `<emoji> <name>` **even while a device is
+  attached**.
+
+**Auto-schedules:** `POST /kleio/blobs` (and a `PATCH` that changes `job`) reads timing out of
+the job with the sidecar's one-shot `POST /complete` on the Blob's model (25 s, never a cloud
+fallback) and adds up to 5 schedules with `source:"auto"`.
+
+- Body extras: `timezone` (IANA, default `Europe/London`) and `autoSchedule` (default `true`).
+- The answer gains `autoSchedules: {status: ok|none|failed, count, error?}` whenever it ran; the
+  Blob is saved either way.
+- A re-read replaces only the `auto` schedules (a failed one leaves them); `manual` ones
+  (`POST …/schedules`, and anything saved before) are never touched.
+- `POST /kleio/blobs/suggest-schedules {job, model?, timezone?}` → `{schedules}`: a preview
+  with no writes (502 `{error}` when the read fails).
+
+### Group chats (`/kleio/groups`)
+
+Several Blobs in one conversation with you, stored in `groups.json`. Messages are kept in
+`group-<id>.jsonl` (the last 500). Limits: 20 groups, 1–8 members each.
+
+- **Who replies:** a message's `@mentions` reply; if there are none, every member replies in
+  order.
+- **Handing on:** a reply that `@mentions` another member passes the turn to them. The limit is
+  6 Blob turns per message of yours.
+- **Staying quiet:** a Blob with nothing to add answers `PASS`, and nothing is posted.
+- **Sessions:** each (group, Blob) pair has its own pinned conversation (cwd
+  `<KLEIO_HOME_CWD>/groups/<gid>/<bid>`). Its persona is the Blob's job plus a short group
+  addendum. Each turn is prompted with the messages that Blob hasn't seen yet.
+- **Clients:** poll `GET …/messages?after=<seq>` about every 1.5 s while the chat is on screen.
+- **Notifications:** one APNs push per exchange (`kleio.groupId`), and only when no device polled
+  in the last 20 s.
+- **Blob changes:** deleting a Blob removes it from its groups. Renaming it, or changing its job
+  or model, retires its group conversations, so they resume with the new persona.
+
+### Apps (`/kleio/connections`, Composio)
+
+Every Kleio conversation (home, Blobs, group members) gets Composio's Tool Router tools. They
+search apps, run their actions, and offer a connect link when an app isn't linked yet.
+
+- **Identity:** one Composio `userId` per install (`kleio_<hex>`, in `composio.json`) and one
+  Tool Router session.
+- **Tools:** the session's MCP URL goes into this machine's global `~/.gg/mcp.json` as
+  `mcpServers.composio`. The write merges and preserves every other server, and the file is
+  mode 0600. When that entry changes, idle conversations are retired, so their next turn loads
+  the tools.
+
+**Routes** (any paired device):
+
+- `GET /kleio/connections` returns `{configured, connections:[{id, toolkit, name, logo, status,
+createdAt}]}`.
+- `GET /kleio/connections/toolkits?search=&cursor=` returns `{toolkits:[…], nextCursor}`.
+- `POST /kleio/connections {toolkit}` returns `{redirectUrl, connectionId}`. Open it in a web sheet.
+- `DELETE /kleio/connections/:id`.
+- `GET /kleio/connections/callback?status=` is **unauthenticated**. It serves a fixed page that
+  redirects to `kleio://connections?status=success|failed`.
+
+**Errors:** with no key, the list says `configured:false` and the other routes answer 503. A
+Composio error is a 502 `{error:"composio", status, detail}`.
+
+**Key:** set `KLEIO_COMPOSIO_API_KEY`, or put the key in `<state dir>/composio.key` (mode 0600;
+`~/Library/Application Support/Kleio/host/composio.key` on the mini), then restart the host. The
+key never appears in a response or log.
+
+**Privacy:** Composio sees tool arguments and results and stores the app logins. It is less
+private than Tinfoil.
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per
