@@ -35,7 +35,9 @@ export function extractionPrompt(at: Date, timeZone: string): string {
     'instruction to the helper),"kind":"interval"|"daily"|"weekly"|"once","everyMinutes":int≥15?,',
     '"time":"HH:MM"?,"days":[0-6]? (0=Sunday),"at":ISO-8601 with offset?}]}',
     'Rules: only timing the job states or clearly implies. "every morning" = daily 08:00,',
-    '"evening" = 18:00, "weekdays" = days [1,2,3,4,5], "hourly" = interval 60. Relative times',
+    '"evening" = 18:00, "weekdays" = kind "weekly" with days [1,2,3,4,5], "weekends" = kind',
+    '"weekly" with days [0,6], "hourly" = interval 60. "daily" means every day: any named days',
+    'make it "weekly". Relative times',
     '("tomorrow at 9", "in 2 hours") are "once". No timing → {"schedules":[]}. At most 5.',
     `Now: ${wallClock(at, timeZone)} in ${timeZone}.`,
   ].join("\n");

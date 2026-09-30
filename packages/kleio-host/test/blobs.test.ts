@@ -368,6 +368,35 @@ describe("blobs: auto-schedules", () => {
     "Anything else? {not json}",
   ].join("\n");
 
+  it("a 'daily' that names days becomes weekly; seven named days become daily", async () => {
+    sidecar.completeText = JSON.stringify({
+      schedules: [
+        {
+          label: "Dinner idea",
+          prompt: "Suggest dinner.",
+          kind: "daily",
+          time: "17:30",
+          days: [1, 2, 3, 4, 5],
+        },
+        {
+          label: "Every day",
+          prompt: "Hi.",
+          kind: "weekly",
+          time: "09:00",
+          days: [0, 1, 2, 3, 4, 5, 6],
+        },
+      ],
+    });
+    const r = await call("POST", "/kleio/blobs", { name: "Chef", job: "Every weekday at 17:30…" });
+    expect(r.body.autoSchedules).toEqual({ status: "ok", count: 2 });
+    const [weekday, everyDay] = r.body.blob.schedules;
+    expect(weekday).toMatchObject({ kind: "weekly", time: "17:30", days: [1, 2, 3, 4, 5] });
+    // Sat 24 Oct 2026 07:00Z → next weekday 17:30 London is Mon 26 Oct (GMT).
+    expect(weekday.nextRunAt).toBe("2026-10-26T17:30:00.000Z");
+    expect(everyDay).toMatchObject({ kind: "daily", time: "09:00" });
+    expect(everyDay.days).toBeUndefined();
+  });
+
   it("create with timing: adds auto schedules with nextRunAt and source auto", async () => {
     sidecar.completeText = TIMED;
     const r = await call("POST", "/kleio/blobs", {

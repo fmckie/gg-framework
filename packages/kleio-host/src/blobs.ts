@@ -626,9 +626,26 @@ export function createBlobs(options: BlobsOptions): Blobs {
         days,
         at: when,
       } = item as Record<string, unknown>;
+      // A "daily" that names days is a weekly one (models write "daily" for
+      // "every weekday at 17:30"); a full week of days is plain daily.
+      const named = Array.isArray(days) ? [...new Set(days)] : [];
+      const fixedKind =
+        kind === "daily" && named.length > 0 && named.length < 7
+          ? "weekly"
+          : kind === "weekly" && named.length === 7
+            ? "daily"
+            : kind;
       try {
         const f = scheduleFields({
-          ...{ label, prompt, kind, everyMinutes, time, days, at: when },
+          ...{
+            label,
+            prompt,
+            kind: fixedKind,
+            everyMinutes,
+            time,
+            days: fixedKind === "daily" ? undefined : days,
+            at: when,
+          },
           timezone,
           enabled: true,
           notify: true,
