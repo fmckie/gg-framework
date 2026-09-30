@@ -132,6 +132,7 @@ import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
+import { KleioPane } from "./kleio/LazyKleioPane";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
@@ -424,7 +425,10 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
+  const [showKleioPane, setShowKleioPane] = useState(false);
   const kleioRemote = useKleioRemote();
+  const kleioActiveRef = useRef(false);
+  kleioActiveRef.current = Boolean(kleioRemote.status?.active);
   const [rankCelebrateNonce, setRankCelebrateNonce] = useState<string | null>(null);
   const [xpChips, setXpChips] = useState<Array<{ id: string; label: string }>>([]);
   const lastProgressXpRef = useRef<number | null>(null);
@@ -1247,6 +1251,12 @@ function App(): React.ReactElement {
       if (e.shiftKey && (e.key === "k" || e.key === "K") && !e.altKey) {
         e.preventDefault();
         setShowKleioRemote(true);
+        return;
+      }
+      // kleio: Cmd/Ctrl + Shift + L opens the Kleio pane (remote mode only).
+      if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
+        e.preventDefault();
+        setShowKleioPane(true);
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.
@@ -2636,6 +2646,17 @@ function App(): React.ReactElement {
               active={kleioRemote.status?.active ?? null}
               onClick={() => setShowKleioRemote(true)}
             />
+            {kleioRemote.status?.active && (
+              <button
+                type="button"
+                className="kleio-badge kleio-open"
+                onClick={() => setShowKleioPane(true)}
+                title="Kleio, Blobs, group chats and apps · ⌘⇧L"
+                aria-label="Open Kleio"
+              >
+                Kleio
+              </button>
+            )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
             {windowTotal > 1 && windowIndex !== null && (
               <span
@@ -3302,6 +3323,9 @@ function App(): React.ReactElement {
       )}
 
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
+      {showKleioPane && kleioRemote.status?.active && (
+        <KleioPane onClose={() => setShowKleioPane(false)} />
+      )}
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />
       )}
