@@ -12,6 +12,7 @@ import { Markdown } from "../Markdown";
 import { theme } from "../theme";
 import {
   KleioApiError,
+  errorText,
   threadCancel,
   threadHistory,
   threadPrompt,
@@ -21,11 +22,6 @@ import {
 
 const POLL_RUNNING_MS = 1500;
 const POLL_IDLE_MS = 5000;
-
-export function errorText(e: unknown): string {
-  if (e instanceof KleioApiError) return e.detail ? `${e.message}: ${e.detail}` : e.message;
-  return e instanceof Error ? e.message : String(e);
-}
 
 export function ThreadChat({
   label,

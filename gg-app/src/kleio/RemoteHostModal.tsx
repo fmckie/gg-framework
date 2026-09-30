@@ -483,8 +483,9 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
           <div className="kleio-offer-code" role="status">
             <code>{offer.display}</code>
             <span className="modal-hint">
-              {offer.admin ? "admin · " : ""}expires {relTime(offer.expiresAt)}. Enter it on the
-              other device with this host&apos;s URL.
+              {offer.admin ? "admin · " : ""}expires{" "}
+              {relTime(new Date(offer.expiresAt).toISOString())}. Enter it on the other device with
+              this host&apos;s URL.
             </span>
           </div>
         )}

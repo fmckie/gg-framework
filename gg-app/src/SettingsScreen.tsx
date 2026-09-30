@@ -3,38 +3,22 @@ import {
   GearSixIcon,
   KeyIcon,
   PuzzlePieceIcon,
-  PaperPlaneTiltIcon,
+  ShareNetworkIcon,
   SyringeIcon,
 } from "@phosphor-icons/react";
 import { BackButton } from "./BackButton";
-import { Badge } from "./Badge";
 import { EmbeddedModal } from "./modal-embed";
 import { SettingsModal } from "./SettingsModal";
 import { LoginScreen } from "./LoginScreen";
-import { TelegramSettingsModal } from "./TelegramSettingsModal";
 import { McpModal } from "./McpModal";
 import { SteroidsModal } from "./SteroidsModal";
+import { ConnectionPage } from "./kleio/ConnectionPage";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
-import {
-  SettingsHeaderAction,
-  SettingsHeaderProvider,
-  SettingsHeaderStatus,
-} from "./settings-header";
-import {
-  waitForReady,
-  authStatus,
-  getServeStatus,
-  startServe,
-  stopServe,
-  setRemoteActive,
-  getSteroidsStatus,
-  onSteroidsChange,
-  type SteroidsStatus,
-} from "./agent";
-import { theme } from "./theme";
+import { SettingsHeaderProvider } from "./settings-header";
+import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
 import { toast } from "./toast";
 
-export type SettingsTabId = "general" | "providers" | "remote" | "mcp" | "steroids";
+export type SettingsTabId = "general" | "providers" | "connection" | "mcp" | "steroids";
 
 interface Props {
   onClose: () => void;
@@ -72,7 +56,9 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
   const tabs: SettingsTab<SettingsTabId>[] = [
     { id: "general", label: "General", icon: GearSixIcon },
     { id: "providers", label: "AI Providers", icon: KeyIcon },
-    { id: "remote", label: "Remote", icon: PaperPlaneTiltIcon },
+    // kleio: the Mac mini, Tailscale and the iPhone app take the place of
+    // upstream's Telegram "Remote" page (the phone app is Kleio's remote).
+    { id: "connection", label: "Connection", icon: ShareNetworkIcon },
     { id: "mcp", label: "MCP", icon: PuzzlePieceIcon },
     {
       id: "steroids",
@@ -122,7 +108,7 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
               </EmbeddedModal>
             )}
             {tab === "providers" && <LoginScreen />}
-            {tab === "remote" && <RemotePage />}
+            {tab === "connection" && <ConnectionPage />}
             {tab === "mcp" && (
               <EmbeddedModal>
                 <McpModal onClose={stay} />
@@ -139,84 +125,5 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
 
       <SettingsTabBar tabs={tabs} selected={tab} onSelect={selectTab} panelId={PANEL_ID} />
     </div>
-  );
-}
-
-/**
- * Remote: serve this machine to your Telegram bot (formerly the home screen's
- * Remote button). Start/stop sits in the header bar; the page is the bot's
- * setup.
- */
-function RemotePage(): React.ReactElement {
-  const [serving, setServing] = useState(false);
-  const [configured, setConfigured] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  async function refresh(): Promise<void> {
-    await waitForReady();
-    const serve = await getServeStatus();
-    setServing(serve.running);
-    setConfigured(serve.configured);
-  }
-
-  useEffect(() => {
-    void refresh().catch(() => {});
-  }, []);
-
-  async function toggle(): Promise<void> {
-    if (busy) return;
-    setBusy(true);
-    try {
-      if (!serving) {
-        // The bot hands messages to an agent, so serving needs a provider.
-        const providers = await authStatus();
-        if (!providers.some((p) => p.connected)) {
-          toast("Connect an AI provider first.", "warning");
-          return;
-        }
-      }
-      if (serving) {
-        await stopServe();
-        setServing(false);
-        // Keep the macOS tray's Remote label in step.
-        void setRemoteActive(false);
-        toast("Stopped serving.", "success");
-      } else {
-        await startServe();
-        setServing(true);
-        void setRemoteActive(true);
-        toast("Serving on Telegram — message your bot.", "success");
-      }
-    } catch (e) {
-      toast(`Serve failed: ${e instanceof Error ? e.message : String(e)}`, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    // Start/stop lives in the header bar and Live/Off beside the page name, so
-    // the page itself is just the bot's setup.
-    <>
-      <SettingsHeaderStatus>
-        <Badge color={serving ? theme.success : undefined}>{serving ? "Live" : "Off"}</Badge>
-      </SettingsHeaderStatus>
-      <SettingsHeaderAction>
-        <button
-          className={serving ? "btn btn-ghost btn-sm" : "btn btn-primary btn-sm"}
-          type="button"
-          disabled={busy || (!serving && !configured)}
-          title={
-            !serving && !configured ? "Save your bot first" : "Message your agent from your phone"
-          }
-          onClick={() => void toggle()}
-        >
-          {busy ? "Working\u2026" : serving ? "Stop serving" : "Start serving"}
-        </button>
-      </SettingsHeaderAction>
-      <EmbeddedModal>
-        <TelegramSettingsModal onClose={() => {}} onSaved={() => void refresh().catch(() => {})} />
-      </EmbeddedModal>
-    </>
   );
 }

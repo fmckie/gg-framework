@@ -15,11 +15,11 @@ import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
-import { authStatus, getSettings, waitForReady } from "../agent";
+import { authStatus, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
 import { useAppUpdate } from "../update";
-import type { KleioTab } from "./KleioPane";
 import { KleioMark } from "./KleioMark";
+import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
 
 /** Deep crimson waves on the warm near-black (RGB 0–1). The dither snaps each
@@ -29,13 +29,15 @@ const KLEIO_WAVES = [0.22, 0.03, 0.05] as const;
 const KLEIO_BACKGROUND = [0.047, 0.035, 0.039] as const;
 
 interface Props {
-  /** Open the Kleio pane at a tab: the assistant, Blobs or Apps. */
-  onKleio: (tab: KleioTab) => void;
+  /** Chat with Kleio: upstream's Chat screen (the general agent), on the Mac mini. */
+  onChat: () => void;
   /** Coding projects on the Mac mini. */
   onCode: () => void;
+  /** Kleio's helpers. */
+  onBlobs: () => void;
+  /** Apps Kleio and the Blobs can use (Composio). */
+  onApps: () => void;
   onSettings: (tab?: SettingsTabId) => void;
-  /** The connection to the Mac mini (pairing, devices). */
-  onConnection: () => void;
   refreshSignal?: number;
 }
 
@@ -45,14 +47,15 @@ export function shortHost(host: string): string {
 }
 
 export function KleioHome({
-  onKleio,
+  onChat,
   onCode,
+  onBlobs,
+  onApps,
   onSettings,
-  onConnection,
   refreshSignal = 0,
 }: Props): React.ReactElement {
   const { status } = useKleioRemote();
-  const [codeReady, setCodeReady] = useState<{ folder: boolean; providers: boolean } | null>(null);
+  const [ready, setReady] = useState<{ folder: boolean; model: boolean } | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const appUpdate = useAppUpdate();
   const backgroundOn = useHomeBackgroundEnabled();
@@ -63,17 +66,22 @@ export function KleioHome({
       .catch(() => {});
   }, []);
 
-  // Coding needs a projects folder and a provider on the Mac mini. Unknown
-  // (the host didn't answer yet) never blocks: the project picker explains.
+  // Chat and Code need a model on the Mac mini: a signed-in provider, or a
+  // private one (Tinfoil, Ollama) that is running. Code also needs a projects
+  // folder. Unknown (the host didn't answer yet) never blocks: the next screen
+  // explains.
   async function refresh(): Promise<void> {
     await waitForReady().catch(() => {});
-    const [settings, providers] = await Promise.all([
+    const [settings, providers, local] = await Promise.all([
       getSettings().catch(() => null),
       authStatus().catch(() => null),
+      getLocalModels().catch(() => null),
     ]);
-    setCodeReady({
+    const signedIn = providers ? providers.some((p) => p.connected) : null;
+    const localReady = local ? hasUsableLocalModel(local) : null;
+    setReady({
       folder: settings ? (settings.configured ?? Boolean(settings.projectsRoot)) : true,
-      providers: providers ? providers.some((p) => p.connected) : true,
+      model: signedIn === true || localReady === true || (signedIn === null && localReady === null),
     });
   }
 
@@ -88,17 +96,24 @@ export function KleioHome({
     if (refreshSignal > 0) void refresh();
   }, [refreshSignal]);
 
-  const ready = codeReady === null || (codeReady.folder && codeReady.providers);
+  const modelReady = ready === null || ready.model;
+  const codeReady = ready === null || (ready.folder && ready.model);
+
+  function needModel(): void {
+    toast("Connect an AI model first.", "warning");
+    onSettings("providers");
+  }
+
+  function openChat(): void {
+    if (modelReady) return onChat();
+    needModel();
+  }
 
   function openCode(): void {
-    if (ready) return onCode();
-    if (!codeReady?.folder) {
-      toast("Set a projects folder on your Mac mini first.", "warning");
-      onSettings("general");
-    } else {
-      toast("Connect an AI provider first.", "warning");
-      onSettings("providers");
-    }
+    if (codeReady) return onCode();
+    if (!ready?.model) return needModel();
+    toast("Set a projects folder on your Mac mini first.", "warning");
+    onSettings("general");
   }
 
   const host = status?.active?.host;
@@ -111,7 +126,7 @@ export function KleioHome({
           type="button"
           className="kleio-status"
           title="Connection to your Mac mini"
-          onClick={onConnection}
+          onClick={() => onSettings("connection")}
         >
           <span className="kleio-status-dot" aria-hidden="true" />
           {host ? `Connected to ${shortHost(host)}` : "Connected to your Mac mini"}
@@ -122,30 +137,27 @@ export function KleioHome({
       <div className="home-actions">
         <button
           type="button"
-          className="btn btn-primary home-action"
-          onClick={() => onKleio("kleio")}
+          className={`btn btn-primary home-action${modelReady ? "" : " is-dimmed"}`}
+          aria-disabled={modelReady ? undefined : true}
+          onClick={openChat}
         >
           <SparkleIcon size={18} weight="bold" aria-hidden="true" />
           Kleio
         </button>
         <button
           type="button"
-          className={`btn btn-ghost home-action${ready ? "" : " is-dimmed"}`}
-          aria-disabled={ready ? undefined : true}
+          className={`btn btn-ghost home-action${codeReady ? "" : " is-dimmed"}`}
+          aria-disabled={codeReady ? undefined : true}
           onClick={openCode}
         >
           <CodeIcon size={18} weight="bold" aria-hidden="true" />
           Code
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost home-action"
-          onClick={() => onKleio("blobs")}
-        >
+        <button type="button" className="btn btn-ghost home-action" onClick={onBlobs}>
           <CirclesThreeIcon size={18} weight="bold" aria-hidden="true" />
           Blobs
         </button>
-        <button type="button" className="btn btn-ghost home-action" onClick={() => onKleio("apps")}>
+        <button type="button" className="btn btn-ghost home-action" onClick={onApps}>
           <PuzzlePieceIcon size={18} weight="bold" aria-hidden="true" />
           Apps
         </button>

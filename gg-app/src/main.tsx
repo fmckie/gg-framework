@@ -5,6 +5,8 @@ import App from "./App";
 import { KleioGate } from "./kleio/KleioGate";
 // After App (App.css, glass.css): Kleio's crimson and white override Ken's tokens.
 import "./kleio/kleio-theme.css";
+// Kleio's own pages (Blobs, Groups, Apps, Connection), on Ken's glass system.
+import "./kleio/kleio-pages.css";
 import { ZoomController } from "./ZoomController";
 import { TooltipLayer } from "./TooltipLayer";
 import { WhatsNewModal } from "./WhatsNewModal";

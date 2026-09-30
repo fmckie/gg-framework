@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { authStatus, getSettings } from "../agent";
+import { authStatus, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
 import { KleioHome, shortHost } from "./KleioHome";
 
@@ -29,14 +29,26 @@ vi.mock("../agent", () => ({
   waitForReady: vi.fn(async () => undefined),
   getSettings: vi.fn(),
   authStatus: vi.fn(),
+  getLocalModels: vi.fn(),
 }));
+
+const TOOL_MODEL = {
+  id: "local/tinfoil/kimi-k3",
+  rawId: "kimi-k3",
+  contextWindow: 128_000,
+  contextWindowKnown: true,
+  supportsTools: true,
+  supportsImages: false,
+  supportsThinking: false,
+};
 
 function renderHome() {
   const props = {
-    onKleio: vi.fn(),
+    onChat: vi.fn(),
     onCode: vi.fn(),
+    onBlobs: vi.fn(),
+    onApps: vi.fn(),
     onSettings: vi.fn(),
-    onConnection: vi.fn(),
   };
   render(<KleioHome {...props} />);
   return props;
@@ -44,10 +56,11 @@ function renderHome() {
 
 beforeEach(() => {
   vi.mocked(getSettings).mockResolvedValue({
-    projectsRoot: "/Users/me/gg-projects",
+    projectsRoot: "/Users/me/kleio-projects",
     configured: true,
   });
   vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: true }] as never);
+  vi.mocked(getLocalModels).mockResolvedValue({ endpoints: [] });
 });
 afterEach(() => {
   cleanup();
@@ -66,18 +79,22 @@ describe("KleioHome", () => {
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
-  it("opens the Kleio pane at the right tab", () => {
+  it("Kleio opens the chat; Blobs and Apps open their pages", async () => {
     const p = renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
     fireEvent.click(screen.getByRole("button", { name: /Blobs/ }));
     fireEvent.click(screen.getByRole("button", { name: /Apps/ }));
-    expect(p.onKleio.mock.calls).toEqual([["kleio"], ["blobs"], ["apps"]]);
+    expect(p.onChat).toHaveBeenCalledOnce();
+    expect(p.onBlobs).toHaveBeenCalledOnce();
+    expect(p.onApps).toHaveBeenCalledOnce();
   });
 
-  it("shows the Mac mini and opens the connection settings", () => {
+  it("shows the Mac mini and opens the Connection settings", async () => {
     const p = renderHome();
     fireEvent.click(screen.getByRole("button", { name: /Connected to mac-mini-1/ }));
-    expect(p.onConnection).toHaveBeenCalledOnce();
+    expect(p.onSettings).toHaveBeenCalledWith("connection");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
   });
 
   it("Code goes to the projects when the Mac mini is set up", async () => {
@@ -89,15 +106,54 @@ describe("KleioHome", () => {
     });
   });
 
-  it("Code without a provider points to Settings instead", async () => {
+  it("counts a running private model (Tinfoil) as ready, with no provider signed in", async () => {
+    vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: false }] as never);
+    vi.mocked(getLocalModels).mockResolvedValue({
+      endpoints: [
+        {
+          id: "tinfoil",
+          label: "Tinfoil",
+          baseUrl: "http://127.0.0.1:3301/v1",
+          kind: "custom",
+          custom: true,
+          reachable: true,
+          models: [TOOL_MODEL],
+        },
+      ],
+    });
+    const p = renderHome();
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: /Code/ }));
+      expect(p.onCode).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    expect(p.onChat).toHaveBeenCalledOnce();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  it("without any model, Kleio and Code point to AI Providers instead", async () => {
     vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: false }] as never);
     const p = renderHome();
     const code = screen.getByRole("button", { name: /Code/ });
     await waitFor(() => expect(code.getAttribute("aria-disabled")).toBe("true"));
     fireEvent.click(code);
+    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
     expect(p.onCode).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith("Connect an AI provider first.", "warning");
-    expect(p.onSettings).toHaveBeenCalledWith("providers");
+    expect(p.onChat).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Connect an AI model first.", "warning");
+    expect(p.onSettings.mock.calls).toEqual([["providers"], ["providers"]]);
+  });
+
+  it("Code without a projects folder points to General", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ projectsRoot: "", configured: false });
+    const p = renderHome();
+    const code = screen.getByRole("button", { name: /Code/ });
+    await waitFor(() => expect(code.getAttribute("aria-disabled")).toBe("true"));
+    fireEvent.click(code);
+    expect(p.onCode).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Set a projects folder on your Mac mini first.", "warning");
+    expect(p.onSettings).toHaveBeenCalledWith("general");
   });
 
   it("shortens the tailnet host", () => {

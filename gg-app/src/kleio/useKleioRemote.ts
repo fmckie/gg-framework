@@ -38,7 +38,8 @@ export interface Device {
 
 export interface PairOffer {
   display: string;
-  expiresAt: string;
+  /** Epoch milliseconds (the host's `expiresAt`, passed through by Rust). */
+  expiresAt: number;
   admin: boolean;
 }
 
@@ -58,7 +59,35 @@ export const kleio = {
   offer: (admin: boolean) => invoke<PairOffer>("kleio_offer", { admin }),
   adminState: () => invoke<AdminState>("kleio_admin_state"),
   adminLock: () => invoke<void>("kleio_admin_lock"),
+  tailscale: () => invoke<TailscaleStatus>("kleio_tailscale_status"),
 };
+
+/** One machine on the tailnet (kleio/tailscale.rs). */
+export interface TailscaleNode {
+  name: string;
+  dnsName: string;
+  ip: string | null;
+  os: string | null;
+  online: boolean;
+  lastSeen: string | null;
+  /** A direct path is up, rather than a relay. */
+  direct: boolean;
+  relay: string | null;
+}
+
+/** This Mac's Tailscale, and the paired Mac mini as a peer on it. */
+export interface TailscaleStatus {
+  installed: boolean;
+  running: boolean;
+  backendState: string | null;
+  tailnet: string | null;
+  magicDnsSuffix: string | null;
+  version: string | null;
+  health: string[];
+  self: TailscaleNode | null;
+  host: TailscaleNode | null;
+  error: string | null;
+}
 
 export function useKleioRemote(): { status: RemoteStatus | null; refresh: () => Promise<void> } {
   const [status, setStatus] = useState<RemoteStatus | null>(null);

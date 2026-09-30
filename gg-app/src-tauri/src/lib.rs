@@ -626,6 +626,9 @@ fn port_for(webview: &WebviewWindow) -> Option<u16> {
 
 /// The daemon session id for the window that issued a command, or `None` until
 /// the daemon's `POST /session` has returned for this window.
+/// kleio: a remote call made before this window's host session is up.
+const STILL_CONNECTING: &str = "Still connecting to your Mac mini — try again in a moment.";
+
 fn session_for(webview: &WebviewWindow) -> Option<String> {
     let windows: State<Windows> = webview.state();
     let map = windows.map.lock().unwrap();
@@ -2441,12 +2444,19 @@ fn resolve_apikey_target(
 /// key on file as backup", and the UI needs that to explain itself and to offer
 /// a per-method disconnect.
 #[tauri::command]
-async fn app_auth_status() -> serde_json::Value {
+async fn app_auth_status(webview: WebviewWindow) -> serde_json::Value {
     // kleio: providers live on the Kleio host; Kleio keeps no local credentials.
+    // The host's sidecar only answers /auth/* for a live session, so send this
+    // window's.
     if kleio::remote().is_some() {
-        return kleio::host_auth("GET", "/auth/status", None)
-            .await
-            .unwrap_or_else(|_| serde_json::json!({ "providers": [] }));
+        let result = match session_for(&webview) {
+            Some(gg_sid) => kleio::host_auth("GET", "/auth/status", None, &gg_sid).await,
+            None => Err(STILL_CONNECTING.to_string()),
+        };
+        return result.unwrap_or_else(|e| {
+            log::warn!("host auth status failed: {e}");
+            serde_json::json!({ "providers": [], "error": e })
+        });
     }
     // Parse the auth file into a JSON object; missing/invalid → empty (no creds).
     let creds = std::fs::read_to_string(auth_file_path())
@@ -2734,14 +2744,16 @@ fn write_auth_file(contents: &str) -> Result<(), String> {
 /// unknown defaults to the first/primary variant. Returns `{ ok: true }`.
 #[tauri::command]
 async fn app_auth_apikey(
+    webview: WebviewWindow,
     provider: String,
     key: String,
     variant: Option<String>,
 ) -> Result<serde_json::Value, String> {
     // kleio: the key is stored on the Kleio host, where the engine runs.
     if kleio::remote().is_some() {
+        let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
         let body = serde_json::json!({ "provider": provider, "key": key, "variant": variant });
-        return kleio::host_auth("POST", "/auth/apikey", Some(body)).await;
+        return kleio::host_auth("POST", "/auth/apikey", Some(body), &gg_sid).await;
     }
     let key = key.trim();
     if key.is_empty() {
@@ -2764,13 +2776,15 @@ async fn app_auth_apikey(
 #[tauri::command]
 async fn app_auth_logout(
     app: tauri::AppHandle,
+    webview: WebviewWindow,
     provider: String,
     method: Option<String>,
 ) -> Result<serde_json::Value, String> {
     // kleio: disconnect on the Kleio host (its sidecar tells the windows).
     if kleio::remote().is_some() {
+        let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
         let body = serde_json::json!({ "provider": provider, "method": method });
-        return kleio::host_auth("POST", "/auth/logout", Some(body)).await;
+        return kleio::host_auth("POST", "/auth/logout", Some(body), &gg_sid).await;
     }
     if let Some(m) = method.as_deref() {
         if m != "oauth" && m != "apikey" {
@@ -3990,17 +4004,21 @@ fn build_tray_menu(
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        tray_id::REMOTE,
-        if status.remote_active {
-            "Remote \u{b7} Turn off"
-        } else {
-            "Remote"
-        },
-        true,
-        None::<&str>,
-    )?)?;
+    // kleio: no Telegram serving — the Kleio iPhone app is the remote. The
+    // item stays upstream's, just not offered here.
+    if !kleio::REMOTE_ONLY {
+        menu.append(&MenuItem::with_id(
+            app,
+            tray_id::REMOTE,
+            if status.remote_active {
+                "Remote \u{b7} Turn off"
+            } else {
+                "Remote"
+            },
+            true,
+            None::<&str>,
+        )?)?;
+    }
     menu.append(&MenuItem::with_id(
         app,
         tray_id::SETTINGS,
@@ -5294,6 +5312,7 @@ pub fn run() {
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
             kleio::commands::kleio_api,
+            kleio::tailscale::kleio_tailscale_status,
             sidecar_port,
             dropped_path_info,
             permissions_status,

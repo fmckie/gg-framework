@@ -178,7 +178,8 @@ export interface Connection {
   id: string;
   toolkit: string;
   name: string;
-  logo: string;
+  /** Composio's free-form logo link; null when it has none. Not rendered. */
+  logo: string | null;
   status: string;
   createdAt: string;
 }
@@ -191,7 +192,8 @@ export interface ConnectionList {
 export interface Toolkit {
   slug: string;
   name: string;
-  logo: string;
+  /** Composio's free-form logo link; null when it has none. Not rendered. */
+  logo: string | null;
   description: string;
   categories: string[];
 }
@@ -235,6 +237,12 @@ export class KleioApiError extends Error {
   }
 }
 
+/** A failed call, in words for the page. */
+export function errorText(e: unknown): string {
+  if (e instanceof KleioApiError) return e.detail ? `${e.message}: ${e.detail}` : e.message;
+  return e instanceof Error ? e.message : String(e);
+}
+
 function errorFrom(status: number, body: unknown): KleioApiError {
   const o = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const msg = typeof o.error === "string" ? o.error : `request failed (HTTP ${status})`;
@@ -276,6 +284,28 @@ function query(params: Record<string, string | number | undefined>): string {
 
 const blobPath = (id: string): string => `/kleio/blobs/${enc(id)}`;
 const groupPath = (id: string): string => `/kleio/groups/${enc(id)}`;
+
+// ─── host health ────────────────────────────────────────────────────────────
+
+/** The engine's state behind the host: `up`, `stale` (its record outlived it), `down`. */
+export type SidecarHealth = "up" | "stale" | "down";
+
+export interface HostHealth {
+  sidecar: SidecarHealth;
+  /** Paired devices that are not revoked. */
+  devices: number;
+  /** Round trip for this call, measured here. */
+  latencyMs: number;
+}
+
+export const hostHealth = async (): Promise<HostHealth> => {
+  const started = performance.now();
+  const body = await call<Record<string, unknown>>("GET", "/kleio/health");
+  const latencyMs = Math.round(performance.now() - started);
+  const sidecar = body.sidecar === "up" || body.sidecar === "stale" ? body.sidecar : "down";
+  const devices = typeof body.devices === "number" ? body.devices : 0;
+  return { sidecar, devices, latencyMs };
+};
 
 // ─── home thread ────────────────────────────────────────────────────────────
 

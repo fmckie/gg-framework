@@ -19,6 +19,7 @@ pub mod commands;
 pub use commands::host_auth;
 pub mod keychain;
 pub mod store;
+pub mod tailscale;
 
 use std::sync::OnceLock;
 

@@ -131,9 +131,9 @@ import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
-import { KleioPane } from "./kleio/LazyKleioPane";
+import { KleioScreen } from "./kleio/LazyKleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
-import type { KleioTab } from "./kleio/KleioPane";
+import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
@@ -426,8 +426,9 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
-  const [showKleioPane, setShowKleioPane] = useState(false);
-  const [kleioPaneTab, setKleioPaneTab] = useState<KleioTab>("kleio");
+  // kleio: Blobs, Groups and Apps — a screen from Home, an overlay over a workspace.
+  const [kleioTab, setKleioTab] = useState<KleioScreenTab>("blobs");
+  const [showKleioOverlay, setShowKleioOverlay] = useState(false);
   const kleioRemote = useKleioRemote();
   const kleioActiveRef = useRef(false);
   kleioActiveRef.current = Boolean(kleioRemote.status?.active);
@@ -1255,11 +1256,10 @@ function App(): React.ReactElement {
         setShowKleioRemote(true);
         return;
       }
-      // kleio: Cmd/Ctrl + Shift + L opens the Kleio pane (remote mode only).
+      // kleio: Cmd/Ctrl + Shift + L opens Blobs, Groups and Apps (remote mode only).
       if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
-        setKleioPaneTab("kleio");
-        setShowKleioPane(true);
+        setShowKleioOverlay(true);
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.
@@ -2528,14 +2528,29 @@ function App(): React.ReactElement {
       <div className="app" style={{ background: theme.background }}>
         {entryView === "home" ? (
           <KleioHome
-            onKleio={(tab) => {
-              setKleioPaneTab(tab);
-              setShowKleioPane(true);
-            }}
+            // The Kleio button is upstream's Chat button: the general agent.
+            onChat={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("chat");
+                setEntryView("chats");
+              })
+            }
             onCode={() =>
               withViewTransition(() => {
                 setWorkspaceMode("code");
                 setEntryView("projects");
+              })
+            }
+            onBlobs={() =>
+              withViewTransition(() => {
+                setKleioTab("blobs");
+                setEntryView("kleio");
+              })
+            }
+            onApps={() =>
+              withViewTransition(() => {
+                setKleioTab("apps");
+                setEntryView("kleio");
               })
             }
             onSettings={(tab) =>
@@ -2544,8 +2559,12 @@ function App(): React.ReactElement {
                 setEntryView("settings");
               })
             }
-            onConnection={() => setShowKleioRemote(true)}
             refreshSignal={homeRefreshSignal}
+          />
+        ) : entryView === "kleio" ? (
+          <KleioScreen
+            initialTab={kleioTab}
+            onClose={() => withViewTransition(() => setEntryView("home"))}
           />
         ) : entryView === "settings" ? (
           <SettingsScreen
@@ -2578,8 +2597,11 @@ function App(): React.ReactElement {
         )}
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
         {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
-        {showKleioPane && kleioRemote.status?.active && (
-          <KleioPane initialTab={kleioPaneTab} onClose={() => setShowKleioPane(false)} />
+        {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
+        {showKleioOverlay && kleioRemote.status?.active && (
+          <div className="kleio-overlay">
+            <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+          </div>
         )}
         <Toaster />
       </div>
@@ -2650,14 +2672,11 @@ function App(): React.ReactElement {
               <button
                 type="button"
                 className="kleio-badge kleio-open"
-                onClick={() => {
-                  setKleioPaneTab("kleio");
-                  setShowKleioPane(true);
-                }}
-                title="Kleio, Blobs, group chats and apps · ⌘⇧L"
-                aria-label="Open Kleio"
+                onClick={() => setShowKleioOverlay(true)}
+                title="Blobs, group chats and apps · ⌘⇧L"
+                aria-label="Open Blobs, groups and apps"
               >
-                Kleio
+                Blobs
               </button>
             )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
@@ -3326,8 +3345,10 @@ function App(): React.ReactElement {
       )}
 
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
-      {showKleioPane && kleioRemote.status?.active && (
-        <KleioPane initialTab={kleioPaneTab} onClose={() => setShowKleioPane(false)} />
+      {showKleioOverlay && kleioRemote.status?.active && (
+        <div className="kleio-overlay">
+          <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+        </div>
       )}
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />

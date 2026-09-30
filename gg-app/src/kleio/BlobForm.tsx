@@ -6,12 +6,12 @@ import { useEffect, useState } from "react";
 import { Dropdown, type DropdownOption } from "../Dropdown";
 import { theme } from "../theme";
 import { BLOB_COLOR_HEX, systemTimezone } from "./blobFormat";
-import { errorText } from "./ThreadChat";
 import {
   BLOB_COLORS,
   createBlob,
   listModels,
   updateBlob,
+  errorText,
   type Blob,
   type BlobColor,
   type BlobSaved,
@@ -58,11 +58,14 @@ export function BlobForm({
   blob,
   onSaved,
   onCancel,
+  heading = true,
 }: {
   /** Absent = create. */
   blob?: Blob;
   onSaved: (saved: BlobSaved) => void;
   onCancel: () => void;
+  /** Its own "New Blob" / "Edit …" title; off when a card already names it. */
+  heading?: boolean;
 }): React.ReactElement {
   const [name, setName] = useState(blob?.name ?? "");
   const [emoji, setEmoji] = useState(blob?.emoji ?? "🫧");
@@ -114,7 +117,7 @@ export function BlobForm({
         void save();
       }}
     >
-      <h3 className="kleio-h3">{blob ? `Edit ${blob.name}` : "New Blob"}</h3>
+      {heading && <h3 className="kleio-h3">{blob ? `Edit ${blob.name}` : "New Blob"}</h3>}
       <div className="kleio-form-row">
         <label className="kleio-field kleio-field-grow">
           <span className="modal-label">Name</span>

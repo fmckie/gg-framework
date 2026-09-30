@@ -7,7 +7,22 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 vi.mock("./SettingsModal", () => ({ SettingsModal: () => <p>general page</p> }));
 vi.mock("./McpModal", () => ({ McpModal: () => <p>mcp page</p> }));
 vi.mock("./SteroidsModal", () => ({ SteroidsModal: () => <p>steroids page</p> }));
-vi.mock("./TelegramSettingsModal", () => ({ TelegramSettingsModal: () => <p>telegram setup</p> }));
+vi.mock("./kleio/ConnectionPage", async () => {
+  const { SettingsHeaderAction, SettingsHeaderStatus } = await import("./settings-header");
+  return {
+    ConnectionPage: () => (
+      <>
+        <SettingsHeaderStatus>
+          <span>Connected</span>
+        </SettingsHeaderStatus>
+        <SettingsHeaderAction>
+          <button type="button">Check again</button>
+        </SettingsHeaderAction>
+        <p>connection page</p>
+      </>
+    ),
+  };
+});
 vi.mock("./LoginScreen", async () => {
   const { SettingsHeaderStatus } = await import("./settings-header");
   return {
@@ -23,11 +38,6 @@ vi.mock("./LoginScreen", async () => {
 });
 vi.mock("./agent", () => ({
   waitForReady: () => Promise.resolve(),
-  authStatus: () => Promise.resolve([]),
-  getServeStatus: () => Promise.resolve({ running: false, configured: false }),
-  startServe: vi.fn(),
-  stopServe: vi.fn(),
-  setRemoteActive: vi.fn(),
   getSteroidsStatus: () => Promise.resolve({ installed: true, connected: true }),
   onSteroidsChange: () => () => {},
 }));
@@ -86,28 +96,26 @@ describe("SettingsScreen", () => {
     expect(screen.queryByText("3 connected")).toBeNull();
   });
 
-  it("puts Remote's state and its start button in the header bar", async () => {
-    await renderScreen({ initialTab: "remote" });
+  it("has Connection in place of the Telegram Remote page", async () => {
+    await renderScreen({ initialTab: "connection" });
 
-    expect(heading()).toBe("Remote");
+    expect(heading()).toBe("Connection");
+    expect(screen.getByText("connection page")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Remote" })).toBeNull();
     const header = document.querySelector(".picker-head");
-    expect(header?.textContent).toContain("Off");
-    const start = screen.getByRole("button", { name: "Start serving" });
+    expect(header?.textContent).toContain("Connected");
+    const check = screen.getByRole("button", { name: "Check again" });
     // In the header bar's right-aligned action group, not the page body.
-    expect(start.closest(".settings-head-actions")).not.toBeNull();
-    // No bot configured yet: serving cannot start, and the hover says why.
-    expect(start.hasAttribute("disabled")).toBe(true);
-    expect(start.getAttribute("title")).toBe("Save your bot first");
-    expect(screen.getByText("telegram setup")).toBeTruthy();
+    expect(check.closest(".settings-head-actions")).not.toBeNull();
   });
 
   it("clears a page's header buttons when another tab opens", async () => {
-    await renderScreen({ initialTab: "remote" });
-    expect(screen.queryByRole("button", { name: "Start serving" })).not.toBeNull();
+    await renderScreen({ initialTab: "connection" });
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
 
-    expect(screen.queryByRole("button", { name: "Start serving" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
   });
 
   it("goes back with the Back button", async () => {

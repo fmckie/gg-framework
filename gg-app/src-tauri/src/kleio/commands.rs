@@ -606,17 +606,24 @@ fn auth_route_allowed(method: &str, path: &str) -> bool {
 /// Kleio keeps no local credentials, so status, API keys and disconnects all go
 /// to the host. Device-authenticated like `kleio_api`; a non-2xx answer is an
 /// Err carrying the host's message.
+///
+/// `gg_session` is the calling window's sidecar session. The sidecar serves
+/// `/auth/*` inside its per-session handler and answers 404 "unknown session"
+/// without one — so it is required, like every other session-scoped route.
 pub async fn host_auth(
     method: &str,
     path: &str,
     body: Option<serde_json::Value>,
+    gg_session: &str,
 ) -> Result<serde_json::Value, String> {
     if !auth_route_allowed(method, path) {
         return Err(format!("host_auth: {method} {path} not allowed"));
     }
     let r = super::remote().ok_or("Not connected to your Mac mini.")?;
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-    let mut req = api_client(r)?.request(m, format!("{}{}", r.base, path));
+    let mut req = api_client(r)?
+        .request(m, format!("{}{}", r.base, path))
+        .header("x-gg-session", gg_session);
     if let Some(b) = body {
         req = req.json(&b);
     }

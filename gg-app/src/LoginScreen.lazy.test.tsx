@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { LoginScreen } from "./LoginScreen";
 
 const native = vi.hoisted(() => ({
-  authStatus: vi.fn(async () => []),
+  authStatusWithError: vi.fn(async () => ({ providers: [], error: null })),
   subscribe: vi.fn(() => vi.fn()),
   getLocalModels: vi.fn(async () => ({ endpoints: [] })),
   scanLocalModels: vi.fn(async () => ({ endpoints: [] })),
@@ -19,15 +19,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("loads local-model and download forms only after selection, without starting a download", async () => {
+it("loads local-model and download forms only after selection, without scanning or downloading", async () => {
   render(<LoginScreen onClose={vi.fn()} />);
   const local = await screen.findByRole("button", { name: /Ollama/i });
-  expect(native.getLocalModels).not.toHaveBeenCalled();
+  // The tiles show the last scan (a cheap read); probing waits for the form.
+  await waitFor(() => expect(native.getLocalModels).toHaveBeenCalledTimes(1));
+  expect(native.scanLocalModels).not.toHaveBeenCalled();
   expect(native.hfPullStatus).not.toHaveBeenCalled();
   local.focus();
   fireEvent.click(local);
   await screen.findByRole("dialog", { name: /Ollama/i });
-  await waitFor(() => expect(native.getLocalModels).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(native.scanLocalModels).toHaveBeenCalledTimes(1));
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(local);

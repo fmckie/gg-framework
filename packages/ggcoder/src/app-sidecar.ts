@@ -60,6 +60,7 @@ import {
 import { driveAutopilotCycle, frameAutopilotInjection } from "./core/autopilot-cycle.js";
 import { describeRunVerification, describeTurnVerification } from "./core/run-status.js";
 import { validateKenModelPref, effectiveKenModel, type KenModelPref } from "./core/ken-model.js";
+import { projectsWithin, resolveAppSettingsPaths } from "./core/app-settings-paths.js";
 import type { KenTurnPayload, AppMarkerPayload, RunOutcome } from "./core/session-manager.js";
 import {
   normalizeAutopilotMarkersForHistory,
@@ -391,12 +392,14 @@ function stringArray(value: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+// An embedder (the Kleio host) may give this sidecar its own settings file and
+// projects folder, apart from the upstream app's — see core/app-settings-paths.ts.
 function appSettingsFile(): string {
-  return path.join(os.homedir(), ".gg", "gg-app.json");
+  return resolveAppSettingsPaths(process.env, os.homedir()).settingsFile;
 }
 
 function defaultProjectsRoot(): string {
-  return path.join(os.homedir(), "gg-projects");
+  return resolveAppSettingsPaths(process.env, os.homedir()).defaultProjectsRoot;
 }
 
 /** Normalize a project cwd to a stable settings key so trailing slashes /
@@ -3955,6 +3958,8 @@ async function createSession(
         } catch {
           configured = false;
         }
+        // A folder the embedder chose is a choice too: nothing to set up first.
+        configured ||= resolveAppSettingsPaths(process.env, os.homedir()).projectsRootFromEnv;
         // Only projectsRoot + configured flag are webview-facing; the
         // per-project model map is internal persistence, never shipped out.
         json(res, 200, { projectsRoot: s.projectsRoot, configured });
@@ -4062,14 +4067,19 @@ async function createSession(
       // Session stores (ggcoder + Claude Code + Codex) for projects with
       // history, plus a filesystem scan of the configured projects folder so
       // projects you have not opened yet are still listed.
+      // An embedder can ask for its own projects only (the Kleio host), so the
+      // list never mixes in folders other tools opened on the same machine.
       void loadAppSettings()
-        .then(({ projectsRoot, projectRoots, hiddenProjects }) =>
-          discoverProjects({
+        .then(async ({ projectsRoot, projectRoots, hiddenProjects }) => {
+          const projects = await discoverProjects({
             projectsRoot,
             extraRoots: projectRoots,
             hiddenPaths: hiddenProjects,
-          }),
-        )
+          });
+          return resolveAppSettingsPaths(process.env, os.homedir()).ownProjectsOnly
+            ? projectsWithin(projects, [projectsRoot, ...(projectRoots ?? [])])
+            : projects;
+        })
         .then((projects) => json(res, 200, { projects }))
         .catch((err) => {
           log("ERROR", "app-sidecar", "discoverProjects failed", {

@@ -165,9 +165,10 @@ describe("RemoteHostModal — admin", () => {
       },
       kleio_offer: (args) => {
         expect(args).toEqual({ admin: true });
+        // Epoch ms, as the host sends it (Rust passes it through as a u64).
         return {
           display: "QRS-TUV",
-          expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+          expiresAt: Date.now() + 5 * 60_000,
           admin: true,
         };
       },
@@ -188,6 +189,7 @@ describe("RemoteHostModal — admin", () => {
     fireEvent.click(screen.getByLabelText("Make the new device an admin"));
     fireEvent.click(screen.getByRole("button", { name: "New pair code" }));
     await screen.findByText("QRS-TUV");
+    expect(screen.getByText(/expires in 5 min/)).toBeDefined();
   });
 
   it("explains a Touch ID refusal instead of a raw error", async () => {

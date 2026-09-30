@@ -844,12 +844,23 @@ export interface AuthProvider {
  * login ACTIONS (OAuth, key save, logout) still go through the sidecar.
  */
 export async function authStatus(): Promise<AuthProvider[]> {
+  return (await authStatusWithError()).providers;
+}
+
+export interface AuthStatusResult {
+  providers: AuthProvider[];
+  /** Why the list couldn't be read (kleio: e.g. the Mac mini isn't answering). */
+  error: string | null;
+}
+
+/** `authStatus`, keeping the reason when the list couldn't be read. */
+export async function authStatusWithError(): Promise<AuthStatusResult> {
   try {
-    const res = await invoke<{ providers: AuthProvider[] }>("app_auth_status");
-    return res.providers ?? [];
+    const res = await invoke<{ providers?: AuthProvider[]; error?: string }>("app_auth_status");
+    return { providers: res.providers ?? [], error: res.error ?? null };
   } catch (e) {
     await logError(`app_auth_status failed: ${String(e)}`);
-    return [];
+    return { providers: [], error: String(e).replace(/^Error:\s*/, "") };
   }
 }
 

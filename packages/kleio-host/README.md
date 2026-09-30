@@ -112,6 +112,18 @@ or `?session=`), e.g. `/prompt`, `/events`, `/memories`. On a 404 from any of th
 
 Session cwd: `KLEIO_HOME_CWD` (default `~/Kleio`, created if missing).
 
+**Coding projects:** Kleio keeps its own projects folder and app settings, so it never shares
+them with the upstream desktop app on the same Mac (it keeps `~/gg-projects` and `~/.gg/gg-app.json`).
+
+- Projects folder: `KLEIO_PROJECTS_DIR` (default `~/kleio-projects`, created if missing).
+- App settings: `KLEIO_SETTINGS_FILE` (default `~/.gg/kleio-app.json`).
+- Kleio's project list shows only projects inside its projects folder (and any extra folders
+  you add), not every project other coding tools on the Mac mini have opened.
+- Both must be absolute paths. The host passes them to the sidecar as `GG_APP_PROJECTS_DIR`
+  and `GG_APP_SETTINGS_FILE`.
+- Provider sign-ins (`~/.gg/auth.json`) and local model endpoints (Ollama, Tinfoil) stay
+  shared: they belong to the machine.
+
 ### Blobs (`/kleio/blobs`)
 
 Named helpers with a job, each with its own pinned conversation and schedules, stored in
