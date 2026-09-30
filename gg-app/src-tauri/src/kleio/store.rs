@@ -1,4 +1,4 @@
-//! The paired-host record, `~/.gg/kleio-remote.json`. Non-secret only: the
+//! The paired-host record, `~/.kleio/remote.json`. Non-secret only: the
 //! device token and control credential are in the Keychain (`keychain.rs`).
 //! Same home-dir-file convention as `gg-app.json` / `gg-app-workspace.json`.
 
@@ -28,11 +28,11 @@ pub fn load(home: &Path) -> Option<HostRecord> {
     match serde_json::from_str::<HostRecord>(&raw) {
         Ok(r) if r.base_url.starts_with("https://") && !r.device_id.is_empty() => Some(r),
         Ok(_) => {
-            log::warn!("kleio: ignoring kleio-remote.json (not https or no deviceId)");
+            log::warn!("kleio: ignoring ~/.kleio/remote.json (not https or no deviceId)");
             None
         }
         Err(e) => {
-            log::warn!("kleio: ignoring unreadable kleio-remote.json: {e}");
+            log::warn!("kleio: ignoring unreadable ~/.kleio/remote.json: {e}");
             None
         }
     }

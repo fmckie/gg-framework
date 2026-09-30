@@ -1,6 +1,6 @@
 //! Secrets for the paired host live in the user's login Keychain (macOS only).
 //! One generic-password item per secret, keyed by host so two hosts never
-//! collide. Nothing secret is ever written to `~/.gg`.
+//! collide. Nothing secret is ever written to disk (`~/.kleio`).
 
 #[cfg(target_os = "macos")]
 const SERVICE: &str = "com.kleio.gg-app";

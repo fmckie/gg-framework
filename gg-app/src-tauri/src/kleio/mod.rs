@@ -6,7 +6,7 @@
 //!
 //! Activation, in priority order, decided once at boot:
 //!   1. Environment (dev override): KLEIO_HOST_URL + KLEIO_DEVICE_TOKEN.
-//!   2. A paired host: `~/.gg/kleio-remote.json` (`store.rs`) plus the device
+//!   2. A paired host: `~/.kleio/remote.json` (`store.rs`) plus the device
 //!      token from the login Keychain (`keychain.rs`). Pairing happens in the
 //!      app (`commands.rs`) and takes effect on the next launch.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
