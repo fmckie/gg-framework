@@ -165,26 +165,27 @@ export interface Blobs {
   modelOf(b: Blob): string;
 }
 
-class Invalid extends Error {}
+// Validators shared with groups.ts. An Invalid is a 400 with its message.
+export class Invalid extends Error {}
 
-const hex = (): string => randomBytes(4).toString("hex");
+export const hex = (): string => randomBytes(4).toString("hex");
 const chars = (s: string): number => [...s].length;
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-function text(v: unknown, name: string, max: number): string {
+export function text(v: unknown, name: string, max: number): string {
   if (typeof v !== "string" || !v.trim()) throw new Invalid(`${name} is required`);
   const s = v.trim();
   if (chars(s) > max) throw new Invalid(`${name} must be at most ${max} characters`);
   return s;
 }
 
-function emoji(v: unknown): string {
+export function emoji(v: unknown): string {
   if (typeof v !== "string" || [...segmenter.segment(v.trim())].length !== 1)
     throw new Invalid("emoji must be a single emoji");
   return v.trim();
 }
 
-function color(v: unknown): BlobColor {
+export function color(v: unknown): BlobColor {
   if (!BLOB_COLORS.includes(v as BlobColor))
     throw new Invalid(`color must be one of ${BLOB_COLORS.join(", ")}`);
   return v as BlobColor;
@@ -209,7 +210,7 @@ function zone(v: unknown): string {
   return timezone;
 }
 
-function object(v: unknown): Record<string, unknown> {
+export function object(v: unknown): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v))
     throw new Invalid("body must be a JSON object");
   return v as Record<string, unknown>;
