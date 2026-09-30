@@ -452,6 +452,148 @@ pub fn kleio_admin_lock(gate: State<'_, BiometricGate>) {
     gate.lock();
 }
 
+// ─── product routes (Kleio / Blobs / Groups / Apps panes) ─────────────────
+//
+// One generic, device-authenticated call for the phone-app product routes the
+// desktop mirrors. Deliberately NOT the shared proxy client: that one also
+// carries the admin control credential, which these routes never need. The
+// allow-list below is the whole attack surface — the webview can't reach any
+// other host route (pairing, devices, schedules, the OAuth callback) through it.
+
+/// Blob create/patch waits for the auto-schedule model call (~25 s on the host).
+const API_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Ordinary sidecar routes the pane may call against a specific session (the
+/// home thread or a Blob's chat): the compact chat view. `/memories` (and
+/// below) is matched separately.
+const SESSION_ROUTES: &[&str] = &["/state", "/history", "/prompt", "/cancel"];
+
+#[derive(serde::Serialize, Debug)]
+pub struct ApiResponse {
+    pub status: u16,
+    pub body: serde_json::Value,
+}
+
+fn safe_segment(s: &str) -> bool {
+    !s.is_empty()
+        && s != "."
+        && s != ".."
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~'))
+}
+
+fn safe_query(q: &str) -> bool {
+    q.bytes().all(|b| {
+        b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'-' | b'_' | b'.' | b'~' | b'=' | b'&' | b'%' | b'+' | b':' | b','
+            )
+    })
+}
+
+/// Session ids are sidecar UUID-ish tokens; anything else never reaches a header.
+fn safe_session(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+/// `true` when `segs` (the path split on `/`) is `root` itself or below it.
+fn under(segs: &[&str], root: &[&str]) -> bool {
+    segs.len() >= root.len() && segs[..root.len()] == *root
+}
+
+/// The allow-list. `Ok(true)` = a session-scoped route (needs `session`),
+/// `Ok(false)` = a product route (must not carry one).
+fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, String> {
+    if !matches!(method, "GET" | "POST" | "PATCH" | "PUT" | "DELETE") {
+        return Err(format!("kleio_api: method {method} not allowed"));
+    }
+    let (p, q) = match path.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (path, None),
+    };
+    let reject = || Err(format!("kleio_api: path not allowed: {path}"));
+    let Some(rest) = p.strip_prefix('/') else {
+        return reject();
+    };
+    let segs: Vec<&str> = rest.split('/').collect();
+    if !segs.iter().all(|s| safe_segment(s)) || q.is_some_and(|q| !safe_query(q)) {
+        return reject();
+    }
+    let product = matches!(
+        segs.as_slice(),
+        ["kleio", "home"] | ["kleio", "home", "new"] | ["kleio", "models"]
+    ) || under(&segs, &["kleio", "blobs"])
+        || under(&segs, &["kleio", "groups"])
+        || (under(&segs, &["kleio", "connections"])
+            && !under(&segs, &["kleio", "connections", "callback"]));
+    let scoped = under(&segs, &["memories"]) || SESSION_ROUTES.contains(&p);
+    match (product, scoped, session) {
+        (true, _, None) => Ok(false),
+        (true, _, Some(_)) => Err("kleio_api: product routes take no session".into()),
+        (false, true, Some(s)) if safe_session(s) => Ok(true),
+        (false, true, Some(_)) => Err("kleio_api: bad session id".into()),
+        (false, true, None) => Err(format!("kleio_api: {p} needs a session")),
+        _ => reject(),
+    }
+}
+
+fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c);
+    }
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(
+        DEVICE_TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_str(&r.device_token)
+            .map_err(|_| "device token is not header-safe".to_string())?,
+    );
+    let c = reqwest::Client::builder()
+        .default_headers(h)
+        .timeout(API_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(CLIENT.get_or_init(|| c))
+}
+
+/// Device-authenticated call to a Kleio product route (remote mode only).
+/// Non-2xx statuses are returned, not raised, so the pane can tell a 404
+/// ("stale session, re-open") from a 502 ("model unavailable").
+#[tauri::command]
+pub async fn kleio_api(
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+    session: Option<String>,
+) -> Result<ApiResponse, String> {
+    let r = super::remote().ok_or("kleio_api: not connected to a Kleio host")?;
+    let method = method.to_ascii_uppercase();
+    let scoped = check_route(&method, &path, session.as_deref())?;
+    let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+    let mut req = api_client(r)?.request(m, format!("{}{}", r.base, path));
+    if scoped {
+        if let Some(s) = session.as_deref() {
+            req = req.header("x-gg-session", s);
+        }
+    }
+    if let Some(b) = body {
+        req = req.json(&b);
+    }
+    let res = req.send().await.map_err(|e| root_cause(&e))?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(|e| root_cause(&e))?;
+    let body = if text.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text))
+    };
+    Ok(ApiResponse { status, body })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,6 +643,91 @@ mod tests {
         assert_eq!(n.len(), 32);
         assert!(n.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
         assert_ne!(n, random_hex(16));
+    }
+
+    #[test]
+    fn kleio_api_allows_product_routes() {
+        for (m, p) in [
+            ("GET", "/kleio/home"),
+            ("POST", "/kleio/home/new"),
+            ("GET", "/kleio/models"),
+            ("GET", "/kleio/blobs"),
+            ("POST", "/kleio/blobs"),
+            ("PATCH", "/kleio/blobs/b_1"),
+            ("DELETE", "/kleio/blobs/b_1"),
+            ("GET", "/kleio/blobs/b_1/session"),
+            ("POST", "/kleio/blobs/b_1/session/new"),
+            ("POST", "/kleio/blobs/b_1/schedules/s-2/run"),
+            ("GET", "/kleio/blobs/b_1/runs?limit=20"),
+            ("GET", "/kleio/groups"),
+            (
+                "GET",
+                "/kleio/groups/g1/messages?before=2026-09-30T10%3A00%3A00Z&limit=50",
+            ),
+            ("GET", "/kleio/connections"),
+            ("GET", "/kleio/connections/toolkits"),
+            ("POST", "/kleio/connections/gmail/connect"),
+        ] {
+            assert_eq!(check_route(m, p, None), Ok(false), "{m} {p}");
+        }
+    }
+
+    #[test]
+    fn kleio_api_scopes_session_routes() {
+        for p in [
+            "/memories",
+            "/memories/m-1",
+            "/state",
+            "/history",
+            "/prompt",
+            "/cancel",
+        ] {
+            assert_eq!(check_route("GET", p, Some("sess-1_a")), Ok(true), "{p}");
+            assert!(check_route("GET", p, None).is_err(), "{p} without session");
+        }
+        assert!(check_route("GET", "/state", Some("a b")).is_err());
+        assert!(check_route("GET", "/state", Some("x\r\ny: z")).is_err());
+        assert!(check_route("GET", "/state", Some(&"a".repeat(129))).is_err());
+        assert!(check_route("GET", "/kleio/home", Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_rejects_everything_else() {
+        for p in [
+            "/kleio/connections/callback",
+            "/kleio/connections/callback?code=x",
+            "/kleio/connections/callback/x",
+            "/kleio/pair/redeem",
+            "/kleio/pair/offer",
+            "/kleio/devices",
+            "/kleio/devices/d1/revoke",
+            "/kleio/push",
+            "/kleio/health",
+            "/kleio/home/other",
+            "/kleio/homes",
+            "/kleio/blobsx",
+            "/kleio/models/x",
+            "/kleio/blobs/../devices",
+            "/kleio/blobs/./x",
+            "/kleio/blobs//x",
+            "/kleio/blobs/%2e%2e/devices",
+            "/kleio/blobs/x#frag",
+            "/kleio/blobs?x=<y>",
+            "/schedule",
+            "/session",
+            "/settings",
+            "/statex",
+            "/state/x",
+            "kleio/home",
+            "//evil.example/kleio/home",
+            "https://evil.example/kleio/home",
+            "",
+        ] {
+            assert!(check_route("GET", p, None).is_err(), "{p}");
+            assert!(check_route("GET", p, Some("s1")).is_err(), "{p} + session");
+        }
+        assert!(check_route("TRACE", "/kleio/home", None).is_err());
+        assert!(check_route("CONNECT", "/kleio/home", None).is_err());
     }
 
     #[test]

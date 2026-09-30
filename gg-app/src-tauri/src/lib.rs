@@ -5259,6 +5259,7 @@ pub fn run() {
             kleio::commands::kleio_offer,
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
+            kleio::commands::kleio_api,
             sidecar_port,
             dropped_path_info,
             permissions_status,
