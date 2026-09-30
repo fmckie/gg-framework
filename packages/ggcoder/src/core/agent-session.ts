@@ -20,6 +20,12 @@ import {
 } from "@kleio/ai";
 import { EventBus } from "./event-bus.js";
 import {
+  COMPLETION_REVIEW_STATE_KIND,
+  type CompletionReview,
+  type CompletionReviewRequest,
+  type CompletionReviewResponse,
+} from "./completion-review.js";
+import {
   SlashCommandRegistry,
   createBuiltinCommands,
   type SlashCommandContext,
@@ -97,7 +103,11 @@ import { MCPClientManager, getAllMcpServers } from "./mcp/index.js";
 import type { MCPElicitHandler } from "./mcp/index.js";
 import type { MCPServerConfig } from "./mcp/types.js";
 import { clampMcpToolDescription, DeferredToolCatalog } from "./mcp/deferred-catalog.js";
-import { CONTEXT_LIMITS, resolveContextLimits, type ContextLimits } from "./context-limits.js";
+import {
+  CONTEXT_LIMITS,
+  resolveSessionContextLimits,
+  type ContextLimits,
+} from "./context-limits.js";
 import { McpCatalogCache, type CachedTool } from "./mcp/catalog-cache.js";
 import {
   describeDropped,
@@ -158,6 +168,7 @@ import {
   INDEPENDENT_REVIEW_SCORE_THRESHOLD,
   parseReviewerFindings,
   REVIEWER_TOOLS,
+  REVIEWER_TURN_TIMEOUT_MS,
   REVIEWER_WAIT_MS,
 } from "./ideal-review-subagent.js";
 import { buildEnvDeltaMessage } from "./env-delta.js";
@@ -219,6 +230,14 @@ function isTerminalSubAgentState(state: SubAgentState): boolean {
   );
 }
 
+/** Per-prompt run controls. */
+export interface PromptRunOptions {
+  /** Offer the model no tools for this prompt. */
+  disableTools?: boolean;
+  /** Hold reasoning effort at the plan-mode ceiling for this prompt. */
+  capThinking?: boolean;
+}
+
 export interface AgentSessionOptions {
   provider: Provider;
   model: string;
@@ -239,6 +258,12 @@ export interface AgentSessionOptions {
   agentPrompt?: string;
   /** Whether `agentPrompt` composition includes project instruction files. Default `"project"`. */
   agentContext?: "project" | "none";
+  /**
+   * Who `agentPrompt` speaks to. `"subagent"` (default) appends the delegated
+   * child's return contract; `"primary"` is a user-facing specialist (Motion)
+   * that keeps the Tools/Environment scaffolding but answers the user directly.
+   */
+  agentRole?: "subagent" | "primary";
   /** Synchronous volatile prompt suffix, refreshed immediately before every run. */
   getSystemPromptTail?: () => string;
   sessionId?: string;
@@ -350,6 +375,18 @@ export interface AgentSessionOptions {
   semanticLoopJudge?: (prompt: string) => Promise<string>;
   /** Load project skills/agents and create local .gg directories. Defaults to true. */
   projectCustomization?: boolean;
+  /**
+   * Use exactly this skill set instead of discovering bundled/global/project
+   * skills. A mode with a private skill bundle (Motion) passes its own list so
+   * its skills stay invisible to every other mode, and vice versa.
+   */
+  skills?: readonly Skill[];
+  /**
+   * Mode-specific defaults for prompt byte budgets. The user's `contextLimits`
+   * setting still overrides these. Motion raises its skill-catalog budget
+   * because its skill set is a fixed, bundled one (never untrusted files).
+   */
+  contextLimits?: Partial<ContextLimits>;
   /** Register global + bundled subagents without loading project customization. */
   globalSubagents?: boolean;
   /** Load GG Coder extensions. Defaults to true. */
@@ -358,6 +395,8 @@ export interface AgentSessionOptions {
   orchestrationPrompt?: boolean;
   /** Host-provided tools appended to this session only (for example, chat delegation). */
   additionalTools?: AgentTool[];
+  /** Mode-owned completion policy; absent in Coder/chat/worker sessions. */
+  completionReview?: CompletionReview;
 }
 
 // ── Tool-result policy ─────────────────────────────────────
@@ -707,7 +746,10 @@ export class AgentSession {
     // Load settings & auth
     this.settingsManager = new SettingsManager(paths.settingsFile);
     await this.settingsManager.load();
-    this.contextLimits = resolveContextLimits(this.settingsManager.get("contextLimits"));
+    this.contextLimits = resolveSessionContextLimits(
+      this.opts.contextLimits,
+      this.settingsManager.get("contextLimits"),
+    );
 
     this.authStorage = new AuthStorage(paths.authFile);
     await this.authStorage.load();
@@ -722,7 +764,10 @@ export class AgentSession {
       await fs.mkdir(path.join(localGGDir, "skills"), { recursive: true });
       await fs.mkdir(path.join(localGGDir, "commands"), { recursive: true });
       await fs.mkdir(path.join(localGGDir, "agents"), { recursive: true });
-
+    }
+    if (this.opts.skills) {
+      this.skills = [...this.opts.skills];
+    } else if (projectCustomization) {
       this.skills = await discoverSkills({
         globalSkillsDir: paths.skillsDir,
         projectDir: this.cwd,
@@ -1281,6 +1326,8 @@ export class AgentSession {
 
   /**
    * Process user input. Handles slash commands or runs agent loop.
+   * `capThinking` holds reasoning effort at the plan-mode ceiling for this
+   * prompt — for turns that must answer quickly from what is already known.
    */
   async prompt(
     content: string,
@@ -1289,7 +1336,7 @@ export class AgentSession {
       kind: "prompt",
       visibility: "transcript",
     },
-    options: { disableTools?: boolean } = {},
+    options: PromptRunOptions = {},
   ): Promise<void> {
     await this.settlePostTurnCompaction();
     await this.adoptDeferredCheckpointBeforePrompt();
@@ -1425,6 +1472,7 @@ export class AgentSession {
    * is the verbatim user ask, pinned for post-compaction re-grounding.
    */
   private resetHookState(originalRequest: string): void {
+    this.opts.completionReview?.begin(originalRequest);
     this.lspManager?.clearPendingDiagnostics();
     this.hookStats = {
       changedLines: 0,
@@ -1485,21 +1533,33 @@ export class AgentSession {
    * ideal-review decisions match across the CLI and the app.
    */
   private async trackHookEvent(event: AgentEvent): Promise<void> {
+    if (this.opts.completionReview) {
+      await this.opts.completionReview.track(event);
+      if (event.type === "checkpoint") await this.persistCompletionReviewState();
+    }
     switch (event.type) {
       case "text_delta":
         this.hookText += event.text;
         break;
-      case "tool_call_start":
+      case "tool_call_start": {
         this.hookToolCalls.set(event.toolCallId, {
           name: event.name,
           args: event.args ?? {},
           revision: this.verificationGate.revision,
         });
+        const startClassification =
+          event.name === "bash" && typeof event.args?.command === "string"
+            ? classifyVerificationCommand(event.args.command)
+            : null;
         if (
-          event.name === "bash" &&
+          startClassification &&
           typeof event.args?.command === "string" &&
           (isVerificationCommand(event.args.command) ||
-            classifyVerificationCommand(event.args.command).accepted)
+            startClassification.accepted ||
+            // Must match the tool_call_end predicate: a snapshot-eligible
+            // command that never captured a "before" snapshot is misread at
+            // the end as an uncomparable workspace and re-arms the gate.
+            startClassification.snapshotEligible === true)
         ) {
           // A check that can rewrite files (--fix, build scripts, emitters)
           // invalidates earlier in-flight evidence AND marks the run as
@@ -1508,7 +1568,7 @@ export class AgentSession {
           // it poisoned the gate on green output and re-armed the hook into
           // every later question turn.
           this.verificationGate.recordVerificationAttempt();
-          const classification = classifyVerificationCommand(event.args.command);
+          const classification = startClassification;
           if (classification.snapshotEligible && event.args.persist !== true) {
             const call = this.hookToolCalls.get(event.toolCallId)!;
             call.sourceSnapshot = await captureVerificationSnapshot(this.opts.cwd, [
@@ -1525,6 +1585,7 @@ export class AgentSession {
           await this.persistVerificationState();
         }
         break;
+      }
       case "tool_call_end": {
         const call = this.hookToolCalls.get(event.toolCallId);
         const name = call?.name ?? "";
@@ -1910,6 +1971,63 @@ export class AgentSession {
     })();
   }
 
+  /** Fresh image-only critique context, using the active transport and auth routing. */
+  private async callCompletionReviewer(
+    request: CompletionReviewRequest,
+    signal: AbortSignal,
+  ): Promise<CompletionReviewResponse> {
+    const model = this.model;
+    const provider = this.provider;
+    const thinking = this.thinkingLevel;
+    const configuredBaseUrl = this.baseUrl;
+    if (getModel(model)?.supportsImages !== true)
+      throw new Error("Active model has no confirmed image support");
+    signal.throwIfAborted();
+    try {
+      const creds = await this.authStorage.resolveCredentials(provider, {
+        storageKeys: this.currentAuthStorageKeys(),
+      });
+      const baseUrl = configuredBaseUrl ?? creds.baseUrl;
+      const result = stream({
+        provider,
+        model,
+        messages: [
+          { role: "system", content: request.instruction },
+          { role: "user", content: [{ type: "text", text: request.context }, ...request.images] },
+        ],
+        maxTokens: 4000,
+        thinking,
+        apiKey: creds.accessToken,
+        accountId: creds.accountId,
+        projectId: creds.projectId,
+        baseUrl,
+        signal,
+        transportSessionId: this.sessionId || this.transportSessionId,
+        defaultHeaders:
+          provider === "moonshot" && isKimiCodingEndpoint(baseUrl)
+            ? kimiCodingHeaders()
+            : undefined,
+        userAgent: provider === "anthropic" ? await getClaudeCliUserAgent() : undefined,
+        supportsImages: true,
+      });
+      const response = await result.response;
+      const content = response.message.content;
+      const text =
+        typeof content === "string"
+          ? content
+          : content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n");
+      if (text.length > 32_768) throw new Error("Review response exceeded its limit");
+      return { text, model, provider, thinking };
+    } catch {
+      // Provider errors may contain transport details; never copy them to tools/artifacts.
+      signal.throwIfAborted();
+      throw new Error("Active model review unavailable or invalid; no verdict recorded");
+    }
+  }
+
   /** One-shot judge call on the session's ACTIVE model — deliberately not a
    *  cheaper routing: judging a model's own failure patterns with a weaker
    *  model swaps false negatives for false positives. */
@@ -1969,9 +2087,12 @@ export class AgentSession {
         triggerReasons: decision.reasons,
       });
       // Active model forced at spawn time — never routed to a fast/review model.
+      // The reviewer's own time limit ends it with a verdict on what it read;
+      // the wait below is only a backstop against a hung child.
       const snapshot = await this.subAgentManager.spawn(taskName, task, undefined, {
         model: this.model,
         tools: REVIEWER_TOOLS,
+        turnTimeoutMs: REVIEWER_TURN_TIMEOUT_MS,
       });
       agentId = snapshot.agent_id;
       const waited = await this.subAgentManager.wait([agentId], "all", REVIEWER_WAIT_MS);
@@ -1987,7 +2108,11 @@ export class AgentSession {
       }
       const findings = parseReviewerFindings(agent.output ?? "");
       if (!findings) {
-        log("WARN", "ideal", "Independent reviewer output unparseable; falling back", { agentId });
+        log("WARN", "ideal", "Independent reviewer output unparseable; falling back", {
+          agentId,
+          state: agent.state,
+          ...(agent.error ? { error: agent.error } : {}),
+        });
         return [];
       }
       if (findings.clean) {
@@ -2068,6 +2193,7 @@ export class AgentSession {
    * the flash, so this errs toward arming.
    */
   private wouldInjectIdealReview(): boolean {
+    if (this.opts.completionReview?.armed) return true;
     if (this.opts.selfCorrectionHooks === false || this.idealReviewSuppressed) return false;
     // Mid-review a stop still injects: the coverage follow-up while files are
     // unread, or its escalation once the budget is spent. Both make the model
@@ -2215,6 +2341,25 @@ export class AgentSession {
     // verification demand above instead of manufacturing a separate hook.
     if (diagnosticMessages.length > 0) return diagnosticMessages;
 
+    if (this.opts.completionReview) {
+      const followUp = await this.opts.completionReview.followUp(
+        (request, signal) => this.callCompletionReviewer(request, signal),
+        this.opts.signal,
+      );
+      await this.persistCompletionReviewState();
+      if (followUp) {
+        this.eventBus.emit("hook", { kind: "ideal" });
+        this.refreshHookArming();
+        return [
+          {
+            role: "user",
+            content: followUp,
+            provenance: { source: "runtime", kind: "notification", visibility: "hidden" },
+          },
+        ];
+      }
+      this.refreshHookArming();
+    }
     if (this.opts.selfCorrectionHooks === false || this.idealReviewSuppressed) return null;
 
     if (this.idealReviewPhase === "reviewing") {
@@ -2344,7 +2489,7 @@ export class AgentSession {
   }
 
   /** Auto-compact if needed, run agent loop with auth retry, and persist messages. */
-  private async runLoop(options: { disableTools?: boolean } = {}): Promise<void> {
+  private async runLoop(options: PromptRunOptions = {}): Promise<void> {
     // Languages are re-detected at each task boundary so a project scaffolded
     // during the previous turn gets its packs; the prompt is rebuilt only when
     // the set grows, keeping the cached prefix stable otherwise.
@@ -2474,10 +2619,12 @@ export class AgentSession {
         // Plan mode caps effort at medium (Codex `plan_mode_reasoning_effort`
         // preset): read-only exploration doesn't need xhigh/max reasoning, and
         // deep-reasoning models left at the ceiling burn enormous thinking
-        // budgets re-deriving context they cannot act on.
-        thinking: this.planModeRef.current
-          ? clampThinkingForPlanMode(this.thinkingLevel)
-          : this.thinkingLevel,
+        // budgets re-deriving context they cannot act on. A capped prompt
+        // (a sub-agent's timed answer) gets the same ceiling for the same reason.
+        thinking:
+          this.planModeRef.current || options.capThinking
+            ? clampThinkingForPlanMode(this.thinkingLevel)
+            : this.thinkingLevel,
         apiKey,
         // Per-turn credential resolution. A run can span many minutes; if any
         // process sharing auth.json refreshes this grant meanwhile, the token
@@ -3672,6 +3819,7 @@ export class AgentSession {
         toolNames,
         deferredToolNames,
         context: this.opts.agentContext,
+        role: this.opts.agentRole,
         environment: this.recordRenderedEnvironment(),
         contextLimits: this.contextLimits,
       });
@@ -3985,7 +4133,20 @@ export class AgentSession {
     );
   }
 
+  private async persistCompletionReviewState(): Promise<void> {
+    if (!this.sessionPath || !this.opts.completionReview) return;
+    await this.sessionManager.appendEntry(this.sessionPath, {
+      type: "custom",
+      kind: COMPLETION_REVIEW_STATE_KIND,
+      id: crypto.randomUUID(),
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      data: this.opts.completionReview.snapshot(),
+    });
+  }
+
   private async persistVerificationState(): Promise<void> {
+    if (this.opts.completionReview) await this.persistCompletionReviewState();
     if (!this.sessionPath) return;
     const entry: CustomEntry = {
       type: "custom",
@@ -4271,6 +4432,12 @@ export class AgentSession {
     const loaded = await this.sessionManager.load(canonicalPath);
     // Use the leaf from the header to walk the correct branch
     const loadedMessages = this.sessionManager.getMessages(loaded.entries, loaded.header.leafId);
+    const savedCompletionReview = [...loaded.entries]
+      .reverse()
+      .find((entry) => entry.type === "custom" && entry.kind === COMPLETION_REVIEW_STATE_KIND);
+    this.opts.completionReview?.restore(
+      savedCompletionReview?.type === "custom" ? savedCompletionReview.data : null,
+    );
     this.backgroundVerification.clear();
     const savedVerification = [...loaded.entries]
       .reverse()

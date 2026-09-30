@@ -1,22 +1,52 @@
 import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import { useDialogFocus } from "./dialog-focus";
 import { withViewTransition } from "./view-transition";
+import { ModalEmbedProvider, useModalEmbedState } from "./modal-embed";
 
-/** Reusable centered modal with Escape, focus containment, and focus return. */
-export function Modal({
-  title,
-  children,
-  onClose,
-  className,
-}: {
+interface ModalProps {
   title: React.ReactNode;
   children: React.ReactNode;
   onClose: () => void;
   /** Extra class on the `.modal` box (e.g. width overrides). */
   className?: string;
-}): React.ReactElement {
+}
+
+/**
+ * Reusable centered modal with Escape, focus containment, and focus return.
+ * Inside `<EmbeddedModal>` (the Settings screen's tabs) it renders its content
+ * as a page section instead.
+ */
+export function Modal(props: ModalProps): React.ReactElement {
+  return useModalEmbedState() === "embed" ? (
+    <ModalSection {...props} />
+  ) : (
+    <ModalDialog {...props} />
+  );
+}
+
+/**
+ * The page form: the modal's content in flow, nothing floating. Its title is
+ * the section's accessible name only; the page header names it on screen.
+ */
+function ModalSection({ title, children, className }: ModalProps): React.ReactElement {
+  const titleId = useId();
+  return (
+    <section
+      className={className ? `settings-panel ${className}` : "settings-panel"}
+      aria-labelledby={titleId}
+    >
+      <h2 id={titleId} className="sr-only">
+        {title}
+      </h2>
+      <ModalEmbedProvider state="panel">{children}</ModalEmbedProvider>
+    </section>
+  );
+}
+
+function ModalDialog({ title, children, onClose, className }: ModalProps): React.ReactElement {
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   // The modal's own dismissals (Escape, backdrop, ×) animate out. Closes the
@@ -57,10 +87,12 @@ export function Modal({
             title="Close"
             onClick={dismiss}
           >
-            {"\u00d7"}
+            <XIcon size={14} weight="bold" aria-hidden="true" />
           </button>
         </div>
-        {children}
+        {/* A dialog's own contents are never embedded, even when a page
+            section opened it. */}
+        <ModalEmbedProvider state="none">{children}</ModalEmbedProvider>
       </div>
     </div>,
     document.body,

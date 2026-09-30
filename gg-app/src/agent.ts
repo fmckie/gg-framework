@@ -88,8 +88,13 @@ export interface BackgroundTask {
   exitCode: number | null;
 }
 
-export type WorkspaceMode = "code" | "chat";
+export type WorkspaceMode = "code" | "chat" | "motion";
 export type ChatAgentId = "general" | "therapist" | "research";
+
+/** Product name shown when a window has no project context to title it. */
+export function workspaceProductName(mode: WorkspaceMode): string {
+  return mode === "chat" ? "GG Chat" : mode === "motion" ? "GG Motion" : "GG Coder";
+}
 
 export type MemoryCategory =
   "identity" | "preference" | "project" | "relationship" | "health" | "other";
@@ -953,9 +958,14 @@ export interface RadioState {
   volume: number;
 }
 
-/** Read app-wide radio state (stations, playback, and volume). */
+/**
+ * Read app-wide radio state (stations, playback, and volume). Waits for the
+ * sidecar first: the titlebar button asks on mount, which at launch lands
+ * before the daemon is up and would otherwise fail with "daemon not ready".
+ */
 export async function getRadioState(): Promise<RadioState> {
   try {
+    await waitForReady();
     const res = await invoke<RadioState>("agent_radio_state");
     return {
       stations: res.stations ?? [],
@@ -1288,10 +1298,13 @@ export async function searchFiles(query: string): Promise<FileHit[]> {
   }
 }
 
-/** List the latest sessions for a project, one chat agent, or every chat agent. */
+/**
+ * List the latest sessions for a project, one chat agent, every chat agent
+ * (`"all"`), or GG Motion (`"motion"`).
+ */
 export async function listSessions(
   cwd: string,
-  chatAgent?: ChatAgentId | "all",
+  chatAgent?: ChatAgentId | "all" | "motion",
 ): Promise<RecentSession[]> {
   try {
     const res = await invoke<{ sessions: RecentSession[] }>("agent_sessions", {

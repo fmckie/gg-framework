@@ -637,6 +637,19 @@ describe("toAnthropicThinking", () => {
     }
   });
 
+  it.each(["claude-sonnet-5-5", "claude-sonnet-5.5"])(
+    "passes every adaptive effort through for %s",
+    (model) => {
+      for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
+        expect(toAnthropicThinking(level, MAX_TOKENS, model)).toEqual({
+          thinking: { type: "adaptive" },
+          maxTokens: MAX_TOKENS,
+          outputConfig: { effort: level },
+        });
+      }
+    },
+  );
+
   it("clamps xhigh to high on adaptive Anthropic models that do not support xhigh", () => {
     expect(toAnthropicThinking("xhigh", MAX_TOKENS, "claude-sonnet-5").outputConfig).toEqual({
       effort: "high",
@@ -678,7 +691,7 @@ describe("toAnthropicThinking", () => {
 describe("toOpenAIReasoningEffort", () => {
   it("clamps client-only max and ultra levels to OpenAI's xhigh effort", () => {
     expect(toOpenAIReasoningEffort("max", "gpt-5.5")).toBe("xhigh");
-    expect(toOpenAIReasoningEffort("ultra", "gpt-6-sol")).toBe("xhigh");
+    expect(toOpenAIReasoningEffort("ultra", "gpt-6.1-sol")).toBe("xhigh");
   });
 });
 

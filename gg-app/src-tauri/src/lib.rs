@@ -60,6 +60,7 @@ struct Daemon {
 #[serde(rename_all = "lowercase")]
 enum WorkspaceMode {
     Chat,
+    Motion,
     #[default]
     #[serde(other)]
     Code,
@@ -404,6 +405,9 @@ fn orphan_killset(snapshot: &[ProcInfo], self_pid: i32, ledger_pgids: &HashSet<i
 /// Pure parser for `ps -eo pid=,ppid=,pgid=,command=` output (one row per
 /// line). Column padding (multiple spaces) is collapsed by `split_whitespace`.
 /// Available on all platforms so the parsing can be unit-tested.
+/// On Windows its only caller is `#[cfg(unix)]`, so outside tests it is dead
+/// there; the allow is scoped to non-Unix so Unix builds still flag real rot.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn parse_ps_output(stdout: &str) -> Vec<ProcInfo> {
     stdout
         .lines()
@@ -430,9 +434,9 @@ fn parse_ps_output(stdout: &str) -> Vec<ProcInfo> {
 /// `pid|ppid|command` (see `process_snapshot` on Windows). The command field
 /// may contain `|` and spaces — `splitn(3, '|')` captures it verbatim.
 /// Available on all platforms so the parsing can be unit-tested.
-/// `allow(dead_code)`: on Unix its only caller is `#[cfg(not(unix))]`, so the
-/// compiler flags it as dead; on Windows it IS used by `process_snapshot`.
-#[allow(dead_code)]
+/// On Unix its only caller is `#[cfg(not(unix))]`, so outside tests it is dead
+/// there; the allow is scoped to Unix so Windows builds still flag real rot.
+#[cfg_attr(unix, allow(dead_code))]
 fn parse_cim_output(stdout: &str) -> Vec<ProcInfo> {
     stdout
         .lines()
@@ -740,7 +744,7 @@ fn strip_file_location_suffix(path: &str) -> &str {
         if suffix.is_empty() || !suffix.chars().all(|c| c.is_ascii_digit()) {
             break;
         }
-        let last_sep = path[..colon].rfind(|c| c == '/' || c == '\\').unwrap_or(0);
+        let last_sep = path[..colon].rfind(['/', '\\']).unwrap_or(0);
         if colon <= last_sep {
             break;
         }
@@ -2226,7 +2230,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "anthropic",
         label: "Anthropic",
-        description: "Claude Fable 5.1, Opus 5.5, Sonnet 5, Haiku 4.5",
+        description: "Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 4.5",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2238,7 +2242,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "openai",
         label: "OpenAI",
-        description: "GPT-6 Astra, GPT-6 Sol, GPT-6 Luna",
+        description: "GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2250,7 +2254,8 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "gemini",
         label: "Gemini",
-        description: "Gemini 3.7 Flash, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
+        description:
+            "Gemini 3.8 Flash, 3.5 Flash Lite, 3.7 Flash, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2262,7 +2267,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "xai",
         label: "xAI (Grok)",
-        description: "Grok 4.6, Grok 4.5 · OAuth or API key",
+        description: "Grok 4.7 · OAuth or API key",
         methods: &["oauth", "apikey"],
         oauth_key: Some("xai-oauth"),
         oauth_label: Some("Grok OAuth"),
@@ -2289,7 +2294,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "moonshot",
         label: "Moonshot",
-        description: "Kimi K3, K2.7 Code · OAuth or API key",
+        description: "Kimi K3, K2.8 Preview (Kimi sign-in), K2.7 Code · OAuth or API key",
         methods: &["oauth", "apikey"],
         oauth_key: Some("moonshot-oauth"),
         oauth_label: Some("Kimi OAuth"),
@@ -2341,7 +2346,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
         value: "xiaomi",
         label: "Xiaomi (MiMo)",
         description:
-            "MiMo-V2.5-Pro, MiMo-V2.5-Pro-UltraSpeed, MiMo-V2.5 · Token Plan or API Credits",
+            "MiMo-V2.6-Pro, MiMo-V2.6-Flash, MiMo-V2.6-Pro-UltraSpeed · Token Plan or API Credits",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2364,7 +2369,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "deepseek",
         label: "DeepSeek",
-        description: "DeepSeek V4 Pro, V4 Flash",
+        description: "DeepSeek V4 Pro, V4.1 Flash",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2376,7 +2381,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "sakana",
         label: "Sakana (Fugu)",
-        description: "Fugu, Fugu Ultra",
+        description: "Fugu, Fugu Max, Fugu Ultra",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2388,7 +2393,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "openrouter",
         label: "OpenRouter",
-        description: "Qwen3.6-Plus · multi-provider gateway",
+        description: "Qwen3.8 Max · multi-provider gateway",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -5685,6 +5690,17 @@ mod tests {
     }
 
     #[test]
+    fn workspace_restores_motion_mode() {
+        let motion: Workspace =
+            serde_json::from_str(r#"{ "windows": [{ "mode": "motion", "cwd": "/p/a" }] }"#)
+                .unwrap();
+        assert_eq!(motion.windows[0].mode, WorkspaceMode::Motion);
+        assert!(serde_json::to_string(&motion)
+            .unwrap()
+            .contains(r#""mode":"motion""#));
+    }
+
+    #[test]
     fn restore_target_serializes_mode_and_session_path() {
         let target = RestoreEntry {
             mode: WorkspaceMode::Chat,
@@ -6561,7 +6577,7 @@ mod tests {
         );
         let removed = map.remove("main").and_then(|w| w.session_id);
         assert_eq!(removed.as_deref(), Some("id-1"));
-        assert!(map.get("main").is_none());
+        assert!(!map.contains_key("main"));
         // Peer survives with its own session.
         assert_eq!(
             map.get("project-1").unwrap().session_id.as_deref(),

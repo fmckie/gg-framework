@@ -35,7 +35,8 @@ describe("lazy settings", () => {
     const trigger = screen.getByRole("button", { name: "Open settings" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    // The lazy chunk can take over a second to import under a full parallel run.
+    const dialog = await screen.findByRole("dialog", { name: "Settings" }, { timeout: 5000 });
     const input = within(dialog).getByRole("textbox");
     await waitFor(() => expect((input as HTMLInputElement).value).toBe("/synthetic/projects"));
     fireEvent.change(input, { target: { value: "/synthetic/updated" } });
@@ -45,7 +46,7 @@ describe("lazy settings", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(trigger);
     fireEvent.click(trigger);
-    await screen.findByRole("dialog", { name: "Settings" });
+    await screen.findByRole("dialog", { name: "Settings" }, { timeout: 5000 });
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);

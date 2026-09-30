@@ -36,6 +36,7 @@ import {
   switchChatAgent,
   type ChatAgentId,
 } from "./chat-agents/index.js";
+import { createMotionAgentSession } from "./motion-agent/motion-agent.js";
 import { buildJiwaTools, JiwaStore } from "./chat-agents/jiwa.js";
 import { buildMemoryTools, MemoryStore } from "./chat-agents/memory.js";
 import { buildKenSystemPrompt, buildKenAutopilotSystemPrompt } from "./core/ken-prompt.js";
@@ -1057,9 +1058,18 @@ async function main(): Promise<void> {
   // the provider value so a malformed header can neither hammer the endpoint
   // nor suppress usage data forever.
   const usageRateLimitedUntil = new Map<SubscriptionUsageProvider, number>();
+  // Providers currently in a logged rate-limit episode (cleared on success).
+  const usageRateLimitLogged = new Set<SubscriptionUsageProvider>();
   const USAGE_RATE_LIMIT_FALLBACK_BACKOFF_MS = 30 * 60_000;
   const USAGE_RATE_LIMIT_MIN_BACKOFF_MS = 60_000;
   const USAGE_RATE_LIMIT_MAX_BACKOFF_MS = 24 * 60 * 60_000;
+
+  function clearUsageRateLimit(provider: SubscriptionUsageProvider): void {
+    usageRateLimitedUntil.delete(provider);
+    if (usageRateLimitLogged.delete(provider)) {
+      log("INFO", "app-sidecar", "subscription usage recovered", { provider });
+    }
+  }
 
   async function fetchUsageProvider(provider: SubscriptionUsageProvider): Promise<UsageResult> {
     const displayName =
@@ -1080,7 +1090,7 @@ async function main(): Promise<void> {
           ...(await fetchSubscriptionUsage(provider, credentials)),
           connected: true as const,
         };
-        usageRateLimitedUntil.delete(provider);
+        clearUsageRateLimit(provider);
         return snapshot;
       } catch (error) {
         // A provider can revoke an access token before its stored expiry. Refresh
@@ -1098,16 +1108,15 @@ async function main(): Promise<void> {
             ...(await fetchSubscriptionUsage(provider, credentials)),
             connected: true as const,
           };
-          usageRateLimitedUntil.delete(provider);
+          clearUsageRateLimit(provider);
           return snapshot;
         }
         throw error;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      let backoffMs: number | undefined;
       if (error instanceof SubscriptionUsageError && error.status === 429) {
-        backoffMs = Math.min(
+        const backoffMs = Math.min(
           USAGE_RATE_LIMIT_MAX_BACKOFF_MS,
           Math.max(
             USAGE_RATE_LIMIT_MIN_BACKOFF_MS,
@@ -1115,12 +1124,19 @@ async function main(): Promise<void> {
           ),
         );
         usageRateLimitedUntil.set(provider, Date.now() + backoffMs);
+        // Rate limits on this auxiliary endpoint are expected (every GG process
+        // on the machine polls it) and already handled by the backoff plus the
+        // last-good replay. Log the transition, not every retry.
+        if (!usageRateLimitLogged.has(provider)) {
+          usageRateLimitLogged.add(provider);
+          log("INFO", "app-sidecar", "subscription usage rate-limited; backing off", {
+            provider,
+            backoffMs: String(backoffMs),
+          });
+        }
+      } else {
+        log("WARN", "app-sidecar", "subscription usage fetch failed", { provider, message });
       }
-      log("WARN", "app-sidecar", "subscription usage fetch failed", {
-        provider,
-        message,
-        ...(backoffMs !== undefined && { backoffMs: String(backoffMs) }),
-      });
 
       const connected = await auth.hasProviderAuth(authKey);
       // Transient failures (notably the 429s these auxiliary quota endpoints
@@ -1231,7 +1247,7 @@ async function main(): Promise<void> {
         } catch {
           /* empty/invalid body → defaults below */
         }
-        const mode: WorkspaceMode = body.mode === "chat" ? "chat" : "code";
+        const mode = parseWorkspaceMode(body.mode);
         const chatAgent = parseChatAgentId(body.chatAgent);
         const sessionCwd =
           typeof body.cwd === "string" && body.cwd
@@ -1628,7 +1644,12 @@ async function createProgressManager(
   return { snapshot, awardRun, dispose };
 }
 
-type WorkspaceMode = "code" | "chat";
+type WorkspaceMode = "code" | "chat" | "motion";
+
+/** Unknown or missing modes fall back to the coding agent. */
+function parseWorkspaceMode(value: unknown): WorkspaceMode {
+  return value === "chat" || value === "motion" ? value : "code";
+}
 
 interface SessionContext {
   id: string;
@@ -1684,6 +1705,9 @@ async function createSession(
   const mode = opts.mode;
   let chatAgent = opts.chatAgent;
   const cwd = opts.cwd;
+  // Motion's workspace is a dedicated folder the app names inside the projects
+  // root; create it on first use so a fresh install can start a video at once.
+  if (mode === "motion") await fs.mkdir(cwd, { recursive: true });
   // Base host for parsing request-URL query params (value is irrelevant to
   // parsing); the daemon owns the real listen host.
   const host = "127.0.0.1";
@@ -1902,6 +1926,12 @@ async function createSession(
           });
         });
       },
+    });
+  } else if (mode === "motion") {
+    session = await createMotionAgentSession({
+      ...baseSessionOptions,
+      sessionsDir: paths.sessionsDir,
+      additionalTools: [askUserTool],
     });
   } else {
     session = new AgentSession({
@@ -3783,7 +3813,8 @@ async function createSession(
       }
       const requestedAgent = new URL(url, `http://${host}`).searchParams.get("chatAgent");
       // An omitted chatAgent means coding history; chat callers identify one
-      // agent or request the combined, recency-sorted "all" listing.
+      // agent or request the combined, recency-sorted "all" listing; the
+      // reserved value "motion" lists Motion sessions.
       void listSidecarSessions(target, requestedAgent, paths.sessionsDir)
         .then((sessions) => json(res, 200, { sessions }))
         .catch(() => json(res, 200, { sessions: [] }));
@@ -4209,7 +4240,7 @@ async function createSession(
     }
 
     if (method === "GET" && url === "/commands") {
-      if (mode === "chat") {
+      if (mode !== "code") {
         json(res, 200, { commands: [] });
         return;
       }
@@ -4442,8 +4473,10 @@ async function createSession(
     // webview keeps the bubbles separate. The context digest is assembled fresh
     // from the BUILD session's transcript each turn (one-way mirror).
     if (method === "POST" && url === "/ken/prompt") {
-      if (mode === "chat") {
-        json(res, 404, { error: "Ken is not available in GG Chat." });
+      if (mode !== "code") {
+        json(res, 404, {
+          error: `Ken is not available in GG ${mode === "chat" ? "Chat" : "Motion"}.`,
+        });
         return;
       }
       void readBody(req, res).then(async (raw) => {
@@ -4506,8 +4539,10 @@ async function createSession(
     }
 
     if (method === "POST" && url === "/autopilot") {
-      if (mode === "chat") {
-        json(res, 404, { error: "Autopilot is not available in GG Chat." });
+      if (mode !== "code") {
+        json(res, 404, {
+          error: `Autopilot is not available in GG ${mode === "chat" ? "Chat" : "Motion"}.`,
+        });
         return;
       }
       void readBody(req, res).then(async (raw) => {

@@ -2,7 +2,7 @@ import { memo, useCallback, useContext, useMemo, useRef, useState, createContext
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { Check, Copy, CornerDownLeft } from "lucide-react";
+import { CheckIcon, CopyIcon, ArrowElbowDownLeftIcon } from "@phosphor-icons/react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { openProjectPath, sendPrompt } from "./agent";
 import { codeLanguage, codeNodeText } from "./markdown-prompt";
@@ -161,7 +161,7 @@ function PromptBlock({ body }: { body: string }): React.ReactElement {
           disabled={sent}
           title={sent ? "Sent to GG Coder" : "Send this prompt to GG Coder"}
         >
-          {sent ? <Check size={12} /> : <CornerDownLeft size={12} />}
+          {sent ? <CheckIcon size={12} /> : <ArrowElbowDownLeftIcon size={12} />}
           {sent ? "Sent" : "Send to GG Coder"}
         </button>
       )}
@@ -227,7 +227,7 @@ function CodeBlock({ children }: { children?: React.ReactNode }): React.ReactEle
         aria-label={copied ? "Copied" : "Copy code"}
         title={copied ? "Copied" : "Copy code"}
       >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
+        {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
         {copied ? "Copied" : "Copy"}
       </button>
       <pre

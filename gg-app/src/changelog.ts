@@ -22,6 +22,72 @@ export interface ChangelogEntry {
 /** Newest first. Prepended by the `/release` flow. */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "0.73.2",
+    date: "2026-09-30",
+    items: [
+      "Scrolling finally listens to you. I fixed the chat yanking you back to the bottom while the AI is still typing, so scroll up to reread anything and it stays exactly where you put it. Scroll back down and `auto-scroll` picks right back up.",
+      "`GG Motion` now turns your tweaks around faster. I taught it to check just the moments it changed, skip re-checking anything that stayed the same, and see far more of what needs fixing in one go. Your finished video still gets the same careful full check.",
+      "Helpers that hit their time limit now bring back what they found. One could work for `10 minutes` and still come back empty-handed, and the reviewer that double-checks your bigger changes could get cut off before giving its verdict. I fixed both, so no effort goes to waste.",
+      "I gave the whole app a silkier feel. Tooltips now fade away gently instead of blinking out, buttons and links glide into their hover colors, and in a narrow window the `uncommitted` count shrinks to just its number so your project name stays readable.",
+    ],
+  },
+  {
+    version: "0.73.1",
+    date: "2026-09-30",
+    items: [
+      "`GPT-6.1 Sol` now works when you sign in with your ChatGPT account. OpenAI only hands it out to the newest Codex apps, so I brought GG Coder right up to date. Your new default model is ready to roll.",
+    ],
+  },
+  {
+    version: "0.73.0",
+    date: "2026-09-30",
+    items: [
+      "Meet `GG Motion`, my brand new video studio. Hit the Motion button on the home screen, describe the video you want, and it plans, designs and renders a real `MP4` for you with its own fonts, music and sound effects. It's still a work in progress, so expect it to keep getting better with every update. For the best results, switch to `Thinking max`: it takes longer, but the videos come out noticeably better.",
+      "Fresh brains just landed. `GPT-6.1 Sol` is the new OpenAI default and `Claude Sonnet 5.5` takes over for Anthropic, both sharper than the models they replace. Just pick them and go.",
+      "Helpers that report back honestly. When a helper agent got stuck partway through a task, its half-finished notes could come back looking like a finished answer. Now a stuck helper clearly reports that it failed, so the main agent never builds on work that didn't happen.",
+    ],
+  },
+  {
+    version: "0.72.1",
+    date: "2026-09-28",
+    items: [
+      "The `Radio` is ready the moment GG Coder opens. I fixed a startup hiccup where it could ask for your stations before the app had fully woken up, so your music is there from the very first click.",
+      "Typing and sending feels smoother. I tidied up how the chat box resizes itself, so it glides to the right size without tripping over its own feet every time you hit send.",
+    ],
+  },
+  {
+    version: "0.72.0",
+    date: "2026-09-28",
+    items: [
+      "Your home screen now moves. I added a living `dithered wave` background that drifts behind your projects and pauses whenever the window is out of focus, so it never burns your battery. Not your vibe? Turn it off under Settings, Effects.",
+      "Settings got a proper home. Instead of a cramped popup, you now get a full `Settings` screen with tabs for General, AI Providers, Remote, MCP and Steroids, and a tab bar that glides smoothly between them.",
+      "The whole app got a fresh coat of paint. I swapped in a crisper icon set, restyled the sign-in screen, and polished menus, popups and notifications so everything feels cleaner and more consistent.",
+    ],
+  },
+  {
+    version: "0.71.0",
+    date: "2026-09-28",
+    items: [
+      "Four fresh brains just landed in your model picker. Sign in with Kimi and you get `Kimi K2.8 Preview` with a huge 1M memory and video support, `DeepSeek V4.1 Flash` can now look at your screenshots, Sakana's new `Fugu Max` joins the lineup, and OpenRouter now starts on the mighty `Qwen3.8 Max`. Pick the one that fits the job and keep right on going.",
+      "Your Kimi sign-in now stays fresh on its own. When your login quietly expired, the new Kimi model could fail out of nowhere. I made it renew in the background, so you just keep chatting.",
+      "GG Coder stops nagging you after simple housekeeping. Quick commands like `git status` could trick it into thinking your work still needed re-checking. I taught it the difference, so it only asks for proof when something actually changed.",
+    ],
+  },
+  {
+    version: "0.70.5",
+    date: "2026-09-27",
+    items: [
+      "Big edits and deep thinking now go all the way through. The AI used to get cut off halfway through writing a large file, then start over and hit the same wall again. I gave big file edits up to `5 minutes` of quiet and deep thinking up to `10 minutes`, so your biggest changes land on the first try. If a retry does happen after a long wait, I now show it on screen instead of hiding it.",
+    ],
+  },
+  {
+    version: "0.70.4",
+    date: "2026-09-26",
+    items: [
+      "No more blank screens when the AI asks you a few quick questions. When a question card had two or more `Yes / No` questions, the whole window could go empty. I fixed the root cause, and now the app sets aside any card it can't draw instead of wiping your screen. Your sessions stay right where you left them.",
+    ],
+  },
+  {
     version: "0.70.3",
     date: "2026-09-23",
     items: [

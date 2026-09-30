@@ -12,6 +12,51 @@
 
 - Lockstep version bump for the fixed `@kleio/*` group; no source change in this package. See `@kleio/coder` for the release contents (`SessionManager.list()` now exposes `firstPrompt`).
 
+## 5.66.2
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.66.2
+
+## 5.66.1
+
+### Patch Changes
+
+- Updated dependencies [7dd643f]
+  - @kenkaiiii/gg-ai@5.66.1
+
+## 5.66.0
+
+### Patch Changes
+
+- Updated dependencies
+- Updated dependencies [331e868]
+  - @kenkaiiii/gg-ai@5.66.0
+
+## 5.65.1
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.65.1
+
+## 5.65.0
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.65.0
+
+## 5.64.3
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.64.3
+
+## 5.64.2
+
+### Patch Changes
+
+- @kenkaiiii/gg-ai@5.64.2
+
 ## 5.64.1
 
 ### Patch Changes

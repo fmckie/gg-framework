@@ -105,6 +105,29 @@ describe("ChatPicker", () => {
     expect(screen.queryByRole("tab")).toBeNull();
   });
 
+  it("opens Motion in its own folder and lists only Motion sessions", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces/", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([]);
+    selectWorkspaceMock.mockResolvedValue();
+    const onChosen = vi.fn();
+
+    render(<ChatPicker mode="motion" onChosen={onChosen} />);
+
+    expect(await screen.findByText("No motion sessions yet.")).toBeDefined();
+    expect(listSessionsMock).toHaveBeenCalledWith("/workspaces/GG Motion", "motion");
+    fireEvent.click(screen.getAllByRole("button", { name: "+ New video" })[0]);
+    await waitFor(() => {
+      expect(selectWorkspaceMock).toHaveBeenCalledWith(
+        "motion",
+        "/workspaces/GG Motion",
+        undefined,
+        "general",
+      );
+      expect(onChosen).toHaveBeenCalledWith("/workspaces/GG Motion");
+    });
+  });
+
   it("shows a clear prerequisite error when projectsRoot is unavailable", async () => {
     getSettingsMock.mockResolvedValue(null);
 

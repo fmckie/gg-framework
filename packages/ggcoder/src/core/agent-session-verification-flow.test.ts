@@ -577,6 +577,18 @@ describe("verification gate flow", () => {
     expect(digest).not.toContain("background or persistent commands are not bounded evidence");
   });
 
+  it.each([
+    "git status --short && git diff --stat",
+    "rm -r scratch.html && git status --short && echo CLEAN",
+  ])("does not demand verification after ordinary shell work: %s", async (command) => {
+    const { internal } = await makeSession();
+    execFileSync("git", ["init", "--quiet"], { cwd: tmpProject });
+    await fs.writeFile(path.join(tmpProject, "subject.mjs"), "export const value = 1;\n");
+    await simulateToolCall(internal, "bash", { command });
+    expect(internal.getVerificationProblem()).toBeNull();
+    expect(internal.getVerificationEvidence()).toEqual([]);
+  });
+
   it("persists unresolved verification and requires fresh evidence after resuming", async () => {
     const { internal } = await makeSession(false);
     await simulateToolCall(internal, "edit", { file_path: "subject.ts" });

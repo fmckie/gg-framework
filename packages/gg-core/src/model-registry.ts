@@ -1,6 +1,6 @@
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { isKimiCodingEndpoint } from "./oauth/kimi.js";
-import { XIAOMI_CREDITS_KEY } from "./auth-storage.js";
+import { MOONSHOT_OAUTH_KEY, XIAOMI_CREDITS_KEY } from "./auth-storage.js";
 
 export interface ModelInfo {
   id: string;
@@ -18,8 +18,8 @@ export interface ModelInfo {
   /**
    * Vendor-declared default reasoning level (Codex models.json
    * `default_reasoning_level`). When present, fresh sessions start here rather
-   * than at the ceiling: the deep-reasoning flagships (Astra ships "low",
-   * GPT-6 Sol/Luna "medium") think dramatically longer per rung, so defaulting to
+   * than at the ceiling: the deep-reasoning models (Astra and GPT-6.1 Sol ship
+   * "low", GPT-6 Luna "medium") think dramatically longer per rung, so defaulting to
    * `maxThinkingLevel` made new sessions pathologically slow.
    */
   defaultThinkingLevel?: ThinkingLevel;
@@ -41,10 +41,10 @@ export interface ModelInfo {
   /**
    * The top reasoning tier this model genuinely uses. Used when thinking is
    * enabled to pick the strongest setting per model:
-   *   - OpenAI GPT-6 Astra / Sol: `ultra` (Codex orchestration preset above `max`)
+   *   - OpenAI GPT-6 Astra / GPT-6.1 Sol: `ultra` (Codex orchestration preset above `max`)
    *   - OpenAI GPT-6 Luna: `max`
    *   - OpenAI Pro/Codex/old: clamped to what the model accepts
-   *   - Claude Fable 5.1 / Fable 5 / Mythos 5, Opus 5.5 and Sonnet 5: `max`
+   *   - Claude Fable 5.1 / Fable 5 / Mythos 5, Opus 5.5 and Sonnet 5.5: `max`
    *     (the Fable / Mythos line uses always-on adaptive thinking, low→max)
    *   - Claude Haiku 4.5: `high` (no adaptive `max` tier)
    *   - Kimi K3: `max` (always-on reasoning; currently the only API effort)
@@ -133,8 +133,10 @@ export const MODELS: ModelInfo[] = [
     maxThinkingLevel: "max",
   },
   {
-    id: "claude-sonnet-5",
-    name: "Claude Sonnet 5",
+    // Released 2026-09-28 — replaces Sonnet 5 at $2/$10 MTok, with the same
+    // 1M context / 128K output and adaptive thinking, now including xhigh.
+    id: "claude-sonnet-5-5",
+    name: "Claude Sonnet 5.5",
     provider: "anthropic",
     contextWindow: 1_000_000,
     maxOutputTokens: 128_000,
@@ -159,7 +161,7 @@ export const MODELS: ModelInfo[] = [
   // ── OpenAI (Codex) ─────────────────────────────────────
   {
     // GPT-6 Astra — "Our most capable model for complex, demanding work."
-    // (Codex catalog priority 1, listed for every ChatGPT plan, requires a
+    // (Codex catalog priority 2, listed for every ChatGPT plan, requires a
     // Codex client >= 0.153.0 — see CODEX_CLIENT_VERSION). Same split as 5.6:
     // 1.05M on the public Responses API, 272K on the ChatGPT OAuth route
     // (openai/codex models.json, `gpt-6-astra`). Reasoning ladder low → medium
@@ -183,32 +185,36 @@ export const MODELS: ModelInfo[] = [
   },
   // GPT-6 Sol + Luna — released 2026-09-22 below Astra, replacing the whole
   // GPT-5.6 family (Sol/Terra/Luna; there is no GPT-6 Terra — OpenAI's Codex
-  // catalog upgrades 5.6 Terra to 6 Sol). Both need a Codex client >= 0.155.0
-  // on the ChatGPT OAuth route. Same window split as Astra: 1.05M on the public
-  // Responses API, 272K on the Codex route; 128K output, text+image input,
-  // freeform apply_patch, responses-lite transport. The 5.6 ids are retired —
-  // a saved session on one falls back to the provider default on next start.
+  // catalog upgrades 5.6 Terra to 6 Sol). GPT-6.1 Sol (2026-09-29) then replaced
+  // GPT-6 Sol. Same window split as Astra: 1.05M on the public Responses API,
+  // 272K on the Codex route; 128K output, text+image input, freeform
+  // apply_patch, responses-lite transport. The GPT-5.6 ids and `gpt-6-sol` are
+  // retired — a saved session on one falls back to the provider default on
+  // next start.
   {
-    // Sol — "Workhorse model for coding and everyday work." (Codex priority 2,
-    // default medium). $2/$10 MTok. Ladder low → medium → high → xhigh → max →
-    // ultra; ultra is the Codex orchestration preset (max effort on the wire +
-    // proactive local subagent delegation).
-    id: "gpt-6-sol",
-    name: "GPT-6 Sol",
+    // GPT-6.1 Sol — "Latest workhorse model for coding and everyday work."
+    // (Codex priority 1, default low). The catalog says Codex client >= 0.153.0,
+    // but the ChatGPT backend only serves it from 0.159.0 (see
+    // CODEX_CLIENT_VERSION). $2/$10 MTok, cached input $0.10. Ladder low →
+    // medium → high → xhigh → max → ultra; ultra is the Codex orchestration
+    // preset (max effort on the wire + proactive local subagent delegation).
+    id: "gpt-6.1-sol",
+    name: "GPT-6.1 Sol",
     provider: "openai",
     contextWindow: 1_050_000,
     codexContextWindow: 272_000,
     maxOutputTokens: 128_000,
     supportsThinking: true,
-    defaultThinkingLevel: "medium",
+    defaultThinkingLevel: "low",
     supportsImages: true,
     supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "ultra",
   },
   {
-    // Luna — "Fast and affordable model for easier tasks." (Codex priority 3,
-    // default medium). $0.10/$0.50 MTok. Reasoning tops out at `max`.
+    // Luna — "Fast and affordable model for easier tasks." (Codex priority 4,
+    // default medium, needs a Codex client >= 0.155.0). $0.10/$0.50 MTok.
+    // Reasoning tops out at `max`.
     id: "gpt-6-luna",
     name: "GPT-6 Luna",
     provider: "openai",
@@ -224,13 +230,27 @@ export const MODELS: ModelInfo[] = [
   },
   // ── Sakana (Fugu) ──────────────────────────────────────
   // Sakana Fugu is a multi-agent system surfaced as a standard LLM via the
-  // OpenAI-compatible Sakana API (https://api.sakana.ai/v1). Both models take
-  // text + image input. Plain Fugu stops at xhigh; Ultra v1.1 also supports max.
-  // `fugu` routes across all providers; `fugu-ultra` is
-  // the heavier tier (may need larger client timeouts on complex tasks).
+  // OpenAI-compatible Sakana API (https://api.sakana.ai/v1). All three take
+  // text + image input (verified against the live /models list, 2026-09-28).
+  // `fugu` balances latency and quality; `fugu-max` (v1.0, 2026-09-11) is the
+  // cost tier over the largest open-weight pool ($2/$6 per 1M); `fugu-ultra`
+  // is the heavier quality tier (may need larger client timeouts). Plain Fugu
+  // and Fugu Max stop at xhigh — Sakana documents max as the same effort there.
   {
     id: "fugu",
     name: "Fugu",
+    provider: "sakana",
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    supportsThinking: true,
+    supportsImages: true,
+    supportsVideo: false,
+    costTier: "medium",
+    maxThinkingLevel: "xhigh",
+  },
+  {
+    id: "fugu-max",
+    name: "Fugu Max",
     provider: "sakana",
     contextWindow: 1_000_000,
     maxOutputTokens: 128_000,
@@ -250,7 +270,7 @@ export const MODELS: ModelInfo[] = [
     supportsImages: true,
     supportsVideo: false,
     costTier: "high",
-    // The rolling alias now serves v1.1, which adds a distinct max effort.
+    // The rolling alias now serves v2.0 (2026-09-11), which keeps max effort.
     maxThinkingLevel: "max",
   },
   // ── xAI (Grok) ─────────────────────────────────────────
@@ -394,7 +414,27 @@ export const MODELS: ModelInfo[] = [
     costTier: "high",
     maxThinkingLevel: "max",
   },
-  // Retain the cheaper dedicated coding model as an explicit alternative.
+  // K2.8 Preview (2026-09-11) is served only on the Kimi For Coding OAuth
+  // endpoint, under its rolling `kimi-for-coding` id (live /models, 2026-09-28:
+  // display_name "K2.8 Preview", 1M context, image + video input, efforts
+  // low/high/max default max). The public API-key endpoint does not serve it,
+  // so it resolves from the Kimi sign-in credential only.
+  {
+    id: "kimi-for-coding",
+    name: "Kimi K2.8 Preview",
+    provider: "moonshot",
+    contextWindow: 1_048_576,
+    maxOutputTokens: 131_072,
+    supportsThinking: true,
+    supportsImages: true,
+    supportsVideo: true,
+    maxVideoBytes: 100 * 1024 * 1024,
+    costTier: "medium",
+    maxThinkingLevel: "max",
+    authStorageKeys: [MOONSHOT_OAUTH_KEY],
+  },
+  // K2.7 Code is requested by its pinned id (not the `kimi-for-coding` alias
+  // that moved to K2.8), so it stays the real K2.7 on both endpoints.
   {
     id: "kimi-k2.7-code",
     name: "Kimi K2.7 Code",
@@ -525,10 +565,14 @@ export const MODELS: ModelInfo[] = [
     authStorageKeys: [XIAOMI_CREDITS_KEY],
   },
   // ── DeepSeek ───────────────────────────────────────────
+  // The live /models list (2026-09-28) serves exactly `deepseek-flash` and
+  // `deepseek-v4-pro`. V4 Flash and V4 Flash Vision Exp are retired; their old
+  // ids only temporarily route to V4.1 Flash, so they are retired here too.
   {
     // `deepseek-v4-pro` now serves DeepSeek-V4-Pro-0813 (released 2026-08-13,
     // first STABLE V4 Pro — supersedes the April preview; calling name
     // unchanged, same 1.6T/49B MoE). 1M context, text-only, low/high/max effort.
+    // DeepSeek reversed its planned 2026-09-14 retirement, so it stays served.
     // Docs abbreviate output as 384K; use the same conservative 384,000-token
     // application cap across V4 models rather than mixing decimal/binary units.
     id: "deepseek-v4-pro",
@@ -543,21 +587,10 @@ export const MODELS: ModelInfo[] = [
     maxThinkingLevel: "max",
   },
   {
-    id: "deepseek-v4-flash",
-    name: "DeepSeek V4 Flash",
-    provider: "deepseek",
-    contextWindow: 1_048_576,
-    maxOutputTokens: 384_000,
-    supportsThinking: true,
-    supportsImages: false,
-    supportsVideo: false,
-    costTier: "low",
-    maxThinkingLevel: "max",
-  },
-  // Opt-in experimental vision sibling; never replaces the stable summary model.
-  {
-    id: "deepseek-v4-flash-vision-exp",
-    name: "DeepSeek V4 Flash Vision (Experimental)",
+    // `deepseek-flash` is the rolling alias for the latest Flash — currently
+    // V4.1 Flash (2026-09-10): native image input, 1M context, 384K output.
+    id: "deepseek-flash",
+    name: "DeepSeek V4.1 Flash",
     provider: "deepseek",
     contextWindow: 1_048_576,
     maxOutputTokens: 384_000,
@@ -569,11 +602,13 @@ export const MODELS: ModelInfo[] = [
   },
   // ── OpenRouter ─────────────────────────────────────────
   {
-    id: "qwen/qwen3.6-plus",
-    name: "Qwen3.6-Plus",
+    // Qwen3.8 Max — Alibaba's flagship (live /endpoints, 2026-09-28): 1M
+    // context, 131,072 output, text + image + video input, reasoning on.
+    id: "qwen/qwen3.8-max",
+    name: "Qwen3.8 Max",
     provider: "openrouter",
     contextWindow: 1_000_000,
-    maxOutputTokens: 65_536,
+    maxOutputTokens: 131_072,
     supportsThinking: true,
     supportsImages: true,
     supportsVideo: true,
@@ -697,7 +732,7 @@ export function getVideoByteLimit(modelId: string): number | undefined {
 
 export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "xiaomi") return MODELS.find((m) => m.id === "mimo-v2.6-pro")!;
-  if (provider === "openai") return MODELS.find((m) => m.id === "gpt-6-sol")!;
+  if (provider === "openai") return MODELS.find((m) => m.id === "gpt-6.1-sol")!;
   if (provider === "gemini") return MODELS.find((m) => m.id === "gemini-3.1-flash-lite")!;
   if (provider === "glm") return MODELS.find((m) => m.id === "glm-5.3")!;
   if (provider === "moonshot") return MODELS.find((m) => m.id === "kimi-k3")!;
@@ -705,7 +740,7 @@ export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "deepseek") return MODELS.find((m) => m.id === "deepseek-v4-pro")!;
   if (provider === "huggingface")
     return MODELS.find((m) => m.id === "Qwen/Qwen3-Coder-480B-A35B-Instruct")!;
-  if (provider === "openrouter") return MODELS.find((m) => m.id === "qwen/qwen3.6-plus")!;
+  if (provider === "openrouter") return MODELS.find((m) => m.id === "qwen/qwen3.8-max")!;
   if (provider === "sakana") return MODELS.find((m) => m.id === "fugu")!;
   if (provider === "xai") return MODELS.find((m) => m.id === "grok-4.7")!;
   // Local models only exist once discovery has run, and there's no "the" local
@@ -715,7 +750,7 @@ export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "local") {
     return getModelsForProvider("local")[0] ?? PLACEHOLDER_LOCAL_MODEL;
   }
-  return MODELS.find((m) => m.id === "claude-sonnet-5")!;
+  return MODELS.find((m) => m.id === "claude-sonnet-5-5")!;
 }
 
 /**
@@ -797,7 +832,7 @@ export function getDefaultThinkingLevel(
 
 /**
  * Get the model to use for compaction summarization.
- * - Anthropic: always Sonnet 5
+ * - Anthropic: always Sonnet 5.5
  * - OpenAI: cheapest (Codex Mini)
  * - Gemini: use the current model
  * - GLM: GLM-5.3-Flash (the registered low-cost sibling)
@@ -805,7 +840,7 @@ export function getDefaultThinkingLevel(
  */
 export function getSummaryModel(provider: Provider, currentModelId: string): ModelInfo {
   if (provider === "anthropic") {
-    return MODELS.find((m) => m.id === "claude-sonnet-5")!;
+    return MODELS.find((m) => m.id === "claude-sonnet-5-5")!;
   }
   if (
     provider === "openai" ||

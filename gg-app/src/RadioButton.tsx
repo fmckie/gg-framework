@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pause, Play, Radio, Volume2 } from "lucide-react";
+import { PauseIcon, PlayIcon, RadioIcon, SpeakerHighIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import { getRadioState, setRadio, setRadioVolume, type RadioStation } from "./agent";
 import { Modal } from "./Modal";
@@ -93,7 +93,7 @@ export function RadioButton(): React.ReactElement {
         style={playing ? { color: theme.accent } : undefined}
         onClick={() => setOpen(true)}
       >
-        <Radio size={16} />
+        <RadioIcon size={16} />
       </button>
       {open && (
         <Modal title="Internet Radio" onClose={() => setOpen(false)} className="radio-modal">
@@ -122,7 +122,7 @@ export function RadioButton(): React.ReactElement {
               disabled={busy || !selected}
               onClick={() => void togglePlayback()}
             >
-              {playing ? <Pause size={17} /> : <Play size={17} />}
+              {playing ? <PauseIcon size={17} /> : <PlayIcon size={17} />}
               {playing ? "Pause" : "Play"}
             </button>
           </div>
@@ -134,7 +134,7 @@ export function RadioButton(): React.ReactElement {
             <span style={{ color: theme.textDim }}>{volume}%</span>
           </div>
           <div className="radio-volume-row">
-            <Volume2 size={17} color={theme.textMuted} />
+            <SpeakerHighIcon size={17} color={theme.textMuted} />
             <div className="radio-volume-slider">
               <div className="radio-volume-track">
                 <div className="radio-volume-fill" style={{ width: `${volume}%` }} />

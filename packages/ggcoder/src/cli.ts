@@ -410,14 +410,14 @@ function main(): void {
   const provider: Provider = saved.provider ?? "anthropic";
 
   function getHardcodedDefault(p: string): string {
-    if (p === "openai") return "gpt-6-sol";
+    if (p === "openai") return "gpt-6.1-sol";
     if (p === "gemini") return "gemini-3.1-flash-lite";
     if (p === "glm") return "glm-5.3";
     if (p === "moonshot") return "kimi-k3";
     if (p === "minimax") return "MiniMax-M3";
     if (p === "deepseek") return "deepseek-v4-pro";
     if (p === "huggingface") return "Qwen/Qwen3-Coder-480B-A35B-Instruct";
-    if (p === "openrouter") return "qwen/qwen3.6-plus";
+    if (p === "openrouter") return "qwen/qwen3.8-max";
     if (p === "sakana") return "fugu";
     if (p === "xai") return "grok-4.7";
     return "claude-opus-5-5";
@@ -1085,7 +1085,7 @@ async function runSessions(): Promise<void> {
   const provider: Provider = saved2.provider ?? "anthropic";
 
   function getDefault(p: string): string {
-    if (p === "openai") return "gpt-6-sol";
+    if (p === "openai") return "gpt-6.1-sol";
     if (p === "gemini") return "gemini-3.1-flash-lite";
     if (p === "glm") return "glm-5.3";
     if (p === "moonshot") return "kimi-k3";

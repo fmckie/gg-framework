@@ -4,7 +4,7 @@
     "repository": "https://github.com/fmckie/gg-framework",
     "releaseBranch": "main",
     "scope": "@kleio",
-    "currentFixedVersion": "5.64.1-kleio.1"
+    "currentFixedVersion": "5.66.2-kleio.1"
   },
   "upstream": {
     "repository": "https://github.com/KenKaiii/gg-framework",
@@ -12,9 +12,9 @@
     "version": "4.10.1",
     "baselineTag": "upstream/4.10.1-cde19e9",
     "importedAt": "2026-07-17",
-    "lastImportedCommit": "3d36e760b54f6268a3a01ec5546d2744c383ba12",
-    "lastImportedVersion": "5.64.1",
-    "lastImportedAt": "2026-09-24"
+    "lastImportedCommit": "3f2bb6bc716198dc223365520374363a56bff051",
+    "lastImportedVersion": "5.66.2",
+    "lastImportedAt": "2026-09-30"
   },
   "previousIntegration": {
     "branch": "sync/upstream-fdab3f18",
@@ -62,7 +62,8 @@
     "kleioRebrand": "4.10.1-kleio.1",
     "sessionFirstPrompt": "4.10.1-kleio.1",
     "engine5602": "5.60.2-kleio.1",
-    "engine5641": "5.64.1-kleio.1"
+    "engine5641": "5.64.1-kleio.1",
+    "engine5662": "5.66.2-kleio.1"
   },
   "packages": {
     "@kenkaiiii/gg-ai": "@kleio/ai",

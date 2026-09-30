@@ -6,25 +6,25 @@ import {
 
 describe("AgentSession tool-result policy", () => {
   it("passes the Codex 10k-token approximation for OpenAI OAuth sessions", () => {
-    expect(resolveSessionToolResultCharLimit("gpt-6-sol", "openai", "acct_123")).toBe(40_000);
+    expect(resolveSessionToolResultCharLimit("gpt-6.1-sol", "openai", "acct_123")).toBe(40_000);
   });
 
   it("retains the generic context-relative allowance for other transports", () => {
-    expect(resolveSessionToolResultCharLimit("claude-sonnet-5", "anthropic", "acct_123")).toBe(
+    expect(resolveSessionToolResultCharLimit("claude-sonnet-5-5", "anthropic", "acct_123")).toBe(
       1_050_000,
     );
-    expect(resolveSessionToolResultCharLimit("gpt-6-sol", "openai")).toBe(1_102_500);
+    expect(resolveSessionToolResultCharLimit("gpt-6.1-sol", "openai")).toBe(1_102_500);
   });
 });
 
 describe("AgentSession per-turn tool-result budget", () => {
   it("scales with the context window at 15% of context chars", () => {
-    // claude-sonnet-5: 1M-token window → ceiling applies.
-    expect(resolveSessionTurnToolResultCharLimit("claude-sonnet-5", "anthropic", "acct_123")).toBe(
-      240_000,
-    );
-    // OpenAI public API gpt-6-sol: 15% of ctx*3.5, within floor/ceiling.
-    const publicApi = resolveSessionTurnToolResultCharLimit("gpt-6-sol", "openai");
+    // claude-sonnet-5-5: 1M-token window → ceiling applies.
+    expect(
+      resolveSessionTurnToolResultCharLimit("claude-sonnet-5-5", "anthropic", "acct_123"),
+    ).toBe(240_000);
+    // OpenAI public API gpt-6.1-sol: 15% of ctx*3.5, within floor/ceiling.
+    const publicApi = resolveSessionTurnToolResultCharLimit("gpt-6.1-sol", "openai");
     expect(publicApi).toBeGreaterThanOrEqual(100_000);
     expect(publicApi).toBeLessThanOrEqual(240_000);
   });

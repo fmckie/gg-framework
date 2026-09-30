@@ -92,6 +92,51 @@ describe("model registry invariants", () => {
   });
 });
 
+describe("Claude Sonnet 5.5", () => {
+  it("replaces Sonnet 5 in the catalog and Anthropic defaults", () => {
+    const model = getModel("claude-sonnet-5-5");
+    expect(model).toEqual({
+      id: "claude-sonnet-5-5",
+      name: "Claude Sonnet 5.5",
+      provider: "anthropic",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      supportsImages: true,
+      supportsVideo: false,
+      costTier: "medium",
+      maxThinkingLevel: "max",
+    });
+    expect(getModelsForProvider("anthropic")).toContain(model);
+    expect(getModel("claude-sonnet-5")).toBeUndefined();
+    expect(getDefaultModel("anthropic")).toBe(model);
+    expect(getSummaryModel("anthropic", "claude-opus-5-5")).toBe(model);
+  });
+});
+
+describe("GPT-6.1 Sol", () => {
+  it("replaces GPT-6 Sol in the catalog and OpenAI defaults", () => {
+    const model = getModel("gpt-6.1-sol");
+    expect(model).toEqual({
+      id: "gpt-6.1-sol",
+      name: "GPT-6.1 Sol",
+      provider: "openai",
+      contextWindow: 1_050_000,
+      codexContextWindow: 272_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      defaultThinkingLevel: "low",
+      supportsImages: true,
+      supportsVideo: false,
+      costTier: "medium",
+      maxThinkingLevel: "ultra",
+    });
+    expect(getModelsForProvider("openai")).toContain(model);
+    expect(getModel("gpt-6-sol")).toBeUndefined();
+    expect(getDefaultModel("openai")).toBe(model);
+  });
+});
+
 describe("getFastModel", () => {
   it("routes to a low-tier sibling within the same provider", () => {
     for (const provider of PROVIDERS) {
@@ -111,14 +156,14 @@ describe("getFastModel", () => {
 
   it("picks Haiku for Anthropic and Luna for OpenAI", () => {
     expect(getFastModel("anthropic", "claude-opus-5-5").costTier).toBe("low");
-    expect(getFastModel("openai", "gpt-6-sol").id).toBe("gpt-6-luna");
+    expect(getFastModel("openai", "gpt-6.1-sol").id).toBe("gpt-6-luna");
   });
 });
 
 describe("model registry context windows", () => {
   it.each([
     ["gpt-6-astra", 1_050_000],
-    ["gpt-6-sol", 1_050_000],
+    ["gpt-6.1-sol", 1_050_000],
     ["gpt-6-luna", 1_050_000],
   ] as const)("uses the %s public API context window without an OAuth account", (model, limit) => {
     expect(getContextWindow(model, { provider: "openai" })).toBe(limit);
@@ -126,7 +171,7 @@ describe("model registry context windows", () => {
 
   it.each([
     ["gpt-6-astra", 272_000],
-    ["gpt-6-sol", 272_000],
+    ["gpt-6.1-sol", 272_000],
     ["gpt-6-luna", 272_000],
   ] as const)("uses the %s Codex product window for OpenAI OAuth", (model, limit) => {
     const options = { provider: "openai" as const, accountId: "acct_123" };
@@ -145,9 +190,9 @@ describe("model registry context windows", () => {
   });
 
   it("keeps the generic tool-output allowance outside Codex OAuth", () => {
-    expect(getToolResultCharLimit("gpt-6-sol", { provider: "openai" })).toBeUndefined();
+    expect(getToolResultCharLimit("gpt-6.1-sol", { provider: "openai" })).toBeUndefined();
     expect(
-      getToolResultCharLimit("claude-sonnet-5", {
+      getToolResultCharLimit("claude-sonnet-5-5", {
         provider: "anthropic",
         accountId: "acct_123",
       }),
@@ -157,7 +202,7 @@ describe("model registry context windows", () => {
   it("keeps non-OpenAI providers on their model context windows", () => {
     expect(usesOpenAICodexTransport({ provider: "anthropic", accountId: "acct_123" })).toBe(false);
     expect(
-      getContextWindow("claude-sonnet-5", { provider: "anthropic", accountId: "acct_123" }),
+      getContextWindow("claude-sonnet-5-5", { provider: "anthropic", accountId: "acct_123" }),
     ).toBe(1_000_000);
   });
 
@@ -175,8 +220,18 @@ describe("model registry context windows", () => {
     });
     expect(getModelsForProvider("moonshot").map((model) => model.id)).toEqual([
       "kimi-k3",
+      "kimi-for-coding",
       "kimi-k2.7-code",
     ]);
+    // K2.8 Preview only exists on the Kimi sign-in endpoint, and is never
+    // mislabelled with the K2.7 name it replaced behind the rolling alias.
+    expect(getModel("kimi-for-coding")).toMatchObject({
+      name: "Kimi K2.8 Preview",
+      contextWindow: 1_048_576,
+      maxThinkingLevel: "max",
+      authStorageKeys: ["moonshot-oauth"],
+    });
+    expect(getAuthStorageKeys("moonshot", "kimi-for-coding")).toEqual(["moonshot-oauth"]);
     expect(getContextWindow("kimi-k3", { provider: "moonshot" })).toBe(1_048_576);
   });
 
@@ -201,10 +256,10 @@ describe("model registry context windows", () => {
 
   it("starts Codex models at their catalog default, not the ladder ceiling", () => {
     // openai/codex models.json `default_reasoning_level`: the deep-reasoning
-    // flagship (Astra) ships "low", GPT-6 Sol/Luna "medium". Defaulting to
+    // models (Astra, GPT-6.1 Sol) ship "low", GPT-6 Luna "medium". Defaulting to
     // maxThinkingLevel made fresh Astra sessions reason at max effort.
     expect(getDefaultThinkingLevel("gpt-6-astra")).toBe("low");
-    expect(getDefaultThinkingLevel("gpt-6-sol")).toBe("medium");
+    expect(getDefaultThinkingLevel("gpt-6.1-sol")).toBe("low");
     expect(getDefaultThinkingLevel("gpt-6-luna")).toBe("medium");
     // Ceilings are unchanged — users can still opt up.
     expect(getModel("gpt-6-astra")?.maxThinkingLevel).toBe("ultra");
@@ -284,8 +339,8 @@ describe("model registry context windows", () => {
   });
 
   it("every other provider defaults to a single-entry [provider] auth-storage key", () => {
-    expect(getAuthStorageKeys("anthropic", "claude-sonnet-5")).toEqual(["anthropic"]);
-    expect(getAuthStorageKey("anthropic", "claude-sonnet-5")).toBe("anthropic");
+    expect(getAuthStorageKeys("anthropic", "claude-sonnet-5-5")).toEqual(["anthropic"]);
+    expect(getAuthStorageKey("anthropic", "claude-sonnet-5-5")).toBe("anthropic");
   });
 
   it("defaults Xiaomi to the full-modal MiMo-V2.6-Pro and retires the V2.5 ids", () => {
@@ -372,29 +427,48 @@ describe("model registry context windows", () => {
     });
   });
 
-  it("adds experimental DeepSeek vision without replacing stable summaries", () => {
-    expect(getModel("deepseek-v4-flash-vision-exp")).toMatchObject({
+  it("serves exactly DeepSeek's live models, with V4.1 Flash reading images", () => {
+    expect(getModelsForProvider("deepseek").map((model) => model.id)).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-flash",
+    ]);
+    expect(getModel("deepseek-flash")).toMatchObject({
+      name: "DeepSeek V4.1 Flash",
       supportsImages: true,
       supportsVideo: false,
       contextWindow: 1_048_576,
       maxOutputTokens: 384_000,
       maxThinkingLevel: "max",
     });
-    expect(getSummaryModel("deepseek", "deepseek-v4-flash-vision-exp").id).toBe(
-      "deepseek-v4-flash",
-    );
+    // Retired V4 Flash ids only route temporarily, so they are not registered.
+    expect(getModel("deepseek-v4-flash")).toBeUndefined();
+    expect(getModel("deepseek-v4-flash-vision-exp")).toBeUndefined();
+    expect(getSummaryModel("deepseek", "deepseek-v4-pro").id).toBe("deepseek-flash");
     expect(
       getModelsForProvider("deepseek").every((model) => model.maxOutputTokens === 384_000),
     ).toBe(true);
   });
 
   it("enables Qwen image/video input with bounded inline video payloads", () => {
-    expect(getModel("qwen/qwen3.6-plus")).toMatchObject({
+    expect(getDefaultModel("openrouter")).toMatchObject({
+      id: "qwen/qwen3.8-max",
       supportsImages: true,
       supportsVideo: true,
       maxVideoBytes: 20 * 1024 * 1024,
       contextWindow: 1_000_000,
-      maxOutputTokens: 65_536,
+      maxOutputTokens: 131_072,
+    });
+  });
+
+  it("registers Sakana's Fugu Max beside Fugu and Fugu Ultra", () => {
+    expect(getModelsForProvider("sakana").map((model) => model.id)).toEqual([
+      "fugu",
+      "fugu-max",
+      "fugu-ultra",
+    ]);
+    expect(getModel("fugu-max")).toMatchObject({
+      supportsImages: true,
+      maxThinkingLevel: "xhigh",
     });
   });
 

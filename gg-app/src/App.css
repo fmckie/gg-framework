@@ -99,6 +99,38 @@
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-glow: cubic-bezier(0.33, 0, 0.15, 1);
+  /* The Settings tab bar's spring, from yaatuber's tab bar (Glance's
+     `.spring(response: 0.35, dampingFraction: 0.82)`) sampled into linear():
+     it settles in 0.5s with a ~1% overshoot. SettingsTabBar.tsx reads both
+     values for the animations it runs, so script and CSS cannot disagree. */
+  --duration-spring: 0.5s;
+  --ease-spring: linear(
+    0,
+    0.0569,
+    0.1852,
+    0.3389,
+    0.4905,
+    0.6252,
+    0.7369,
+    0.8246,
+    0.8902,
+    0.9371,
+    0.9689,
+    0.9894,
+    1.0016,
+    1.008,
+    1.0107,
+    1.011,
+    1.0101,
+    1.0085,
+    1.0068,
+    1.0051,
+    1.0037,
+    1.0026,
+    1.0017,
+    1.001,
+    1
+  );
   /* Surfaces that appear on demand (modals, menus, popovers) share one entrance. */
   --dur-enter: 160ms;
   /* Leaving is quicker than arriving: the user already decided, so get out of
@@ -226,6 +258,9 @@
   scale: 0.99;
 }
 .picker-item:active,
+.slash-item.active {
+  background: var(--surface-1);
+}
 .slash-item:active {
   background: var(--surface-2);
 }
@@ -334,10 +369,10 @@
   border-radius: var(--radius-pill);
   flex: 0 0 auto;
 }
-/* Nav icon buttons (Radio, Windows, …) hold a stroked lucide SVG. Animating the
+/* Nav icon buttons (Radio, Windows, …) hold an icon SVG. Animating the
    .btn-ghost `filter: brightness()` over a stroked icon re-rasterizes it on a
    filter layer every frame → visible shimmer/jitter. Brighten the icon via
-   `color` instead (lucide strokes use currentColor): same hover read as the
+   `color` instead (the icons paint with currentColor): same hover read as the
    text buttons, zero re-raster, zero movement. */
 .btn-nav-icon:hover:not(:disabled) {
   filter: none;
@@ -675,7 +710,6 @@ select {
    One-shot reveals are deliberately NOT listed: paused at 0% with `both` they
    would hold new content invisible in a background window. */
 .app:not(.window-focused)::before,
-.app:not(.window-focused) .home-steroids-btn,
 .app:not(.window-focused) .queued-pill,
 .app:not(.window-focused) .queued-dot,
 .app:not(.window-focused) .shimmer-text,
@@ -692,12 +726,9 @@ select {
 .app:not(.window-focused) .title-usage-particle {
   animation-play-state: paused;
 }
-/* The logo runs reveal-up THEN ggshimmer (see .home > .ascii-logo). Pause only
-   the shimmer: a one-shot reveal paused at 0% held the banner invisible whenever
-   Home mounted while another window was focused. */
-.app:not(.window-focused) .home > .ascii-logo {
-  animation-play-state: running, paused;
-}
+/* The logo's one-shot reveal is never paused: paused at 0% it held the banner
+   invisible whenever Home mounted while another window was focused. Its
+   shimmer and glitch loops (on .ascii-logo-glitch) pause instead. */
 /* Everything else in the shell paints above the glow. Modals are portalled to
    <body> (see Modal.tsx), so they sit outside this stacking context entirely
    rather than being trapped by it. */
@@ -812,187 +843,254 @@ select {
   text-align: center;
   overflow: hidden;
 }
-/* Ambient constellation backdrop — the lowest layer, under the meme cards and
-   all content. Vignette-masked so it fades at the edges. Non-interactive. */
-.home-backdrop {
+/* The dithered-waves backdrop (HomeDither.tsx): fills the whole home screen,
+   edge to edge, under all content. It never takes pointer events itself (the
+   effect reads them from .home). */
+.home-dither {
   position: absolute;
   inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.dither-canvas {
   width: 100%;
   height: 100%;
-  z-index: 0;
-  opacity: 0.55;
-  pointer-events: none;
-  mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, #000 30%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 75% 75% at 50% 50%, #000 30%, transparent 100%);
 }
-/* Decorative floating meme cards — behind the logo/buttons, non-interactive. */
-.meme-layer {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0;
-}
-.meme-card {
-  position: absolute;
-  /* The GIF is the card — caption overlays it, no padded container. */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 220px;
-  height: 170px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lg);
-  background: var(--surface-1);
-  opacity: 0;
-  /* --rot (set inline per card) is folded into the keyframe so the card can
-     rise + scale into place instead of popping, while keeping its tilt. */
-  --rot: 0deg;
-  animation: meme-fade 6s var(--ease-out) forwards;
-}
-@keyframes meme-fade {
-  0% {
-    opacity: 0;
-    transform: rotate(var(--rot)) scale(0.9) translateY(10px);
-  }
-  12%,
-  84% {
-    opacity: 0.85;
-    transform: rotate(var(--rot)) scale(1) translateY(0);
-  }
-  100% {
-    opacity: 0;
-    transform: rotate(var(--rot)) scale(0.97) translateY(-6px);
-  }
-}
-/* Reduced motion: the card still appears and leaves on the same 6s lifetime,
-   but only fades, holding its tilt instead of rising and scaling. */
-@keyframes meme-fade-still {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  12%,
-  84% {
-    opacity: 0.85;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .meme-card {
-    transform: rotate(var(--rot));
-    animation-name: meme-fade-still;
-  }
-}
-.meme-gif {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.meme-emoji {
-  font-size: 64px;
-  line-height: 1;
-}
-/* Caption sits on top of the GIF, pinned to the bottom over a dark scrim so
-   it stays legible against any frame. */
-.meme-caption {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: 16px 8px 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: #fff;
-  text-align: center;
-  line-height: 1.25;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
-}
-/* Home content sits above the meme layer. */
+/* Home content sits above the backdrop. Text over the waves gets a soft dark
+   halo so it stays readable across bright stretches of dots. */
 .home > .ascii-logo,
+.home > .home-version-row,
 .home > .home-tagline,
-.home > .home-byline,
-.home > .home-actions,
-.home > .home-update,
-.home > .home-version,
-.home > .home-version-row {
+.home > .home-actions {
   position: relative;
   z-index: 1;
 }
+.home-version-row,
+.home-tagline,
+.home-action-note,
+.home-links,
+.home-version-corner {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 12px rgb(0 0 0 / 0.8);
+}
 /* Entry: each block fades + rises in sequence so the page assembles smoothly
-   on load instead of snapping in all at once. The logo keeps its infinite
-   shimmer, so it gets BOTH animations (reveal-up once + ggshimmer looping). */
-.home > .home-update,
-.home > .home-version,
+   on load instead of snapping in all at once. The logo's shimmer and glitch
+   loops run on its inner .ascii-logo-glitch. */
 .home > .home-version-row,
 .home > .home-tagline,
-.home > .home-byline,
-.home > .home-actions {
+.home > .home-actions,
+.home > .home-settings,
+.home > .home-links,
+.home > .home-version-corner {
   animation: reveal-up 460ms var(--ease-out) both;
 }
-.home > .ascii-logo {
-  animation:
-    reveal-up 460ms var(--ease-out) both,
-    ggshimmer 4s linear infinite;
-  animation-delay: 120ms, 0s;
-}
-.home > .home-update,
-.home > .home-version,
 .home > .home-version-row {
   animation-delay: 40ms;
+}
+.home > .ascii-logo {
+  animation: reveal-up 460ms var(--ease-out) 120ms both;
 }
 .home > .home-tagline {
   animation-delay: 240ms;
 }
-.home > .home-byline {
+.home > .home-actions {
   animation-delay: 340ms;
 }
-.home > .home-actions {
-  animation-delay: 440ms;
+.home > .home-settings,
+.home > .home-links,
+.home > .home-version-corner {
+  animation-delay: 460ms;
 }
 @media (prefers-reduced-motion: reduce) {
-  .home > .home-update,
-  .home > .home-version,
   .home > .home-version-row,
   .home > .home-tagline,
-  .home > .home-byline,
-  .home > .home-actions {
+  .home > .home-actions,
+  .home > .home-settings,
+  .home > .home-links,
+  .home > .home-version-corner {
     animation: none;
   }
   .home > .ascii-logo {
-    animation: ggshimmer 4s linear infinite;
+    animation: none;
   }
+}
+/* Edges: Settings top-right, your links bottom-centre, the version (or the
+   update button) bottom-left. */
+/* Spans the width and centres its content, rather than translate(-50%):
+   the entry animation (reveal-up) owns transform. Only the links themselves
+   take clicks, so the strip around them stays a window drag area. */
+.home > .home-links {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  margin: 0;
+  justify-content: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.home > .home-links > * {
+  pointer-events: auto;
+}
+.home > .home-version-corner {
+  position: absolute;
+  z-index: 1;
+  left: 20px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
 }
 
 .ascii-logo {
   font-family: var(--mono);
-  /* 63 mono columns ≈ 38em wide, so 12px needs ~455px. Scale down below that
-     instead of overflowing both edges on very narrow viewports. */
-  font-size: min(12px, 100vw / 40);
-  line-height: 1.05;
+  /* 89 mono columns ≈ 54em wide, so 9px needs ~480px (about the old banner's
+     footprint). Scale down below that instead of overflowing both edges on
+     very narrow viewports. */
+  font-size: min(9px, 100vw / 57);
+  /* The font draws curves with half blocks (▄ ▀), so rows must touch: any
+     extra leading shows as horizontal gaps through every letter. */
+  line-height: 1;
   white-space: pre;
-  /* Brand gradient (blue → periwinkle → blue), wider than the text so the
-     animated position shift reads as a shimmer sweep across the letters. */
+}
+.ascii-logo-line {
+  white-space: pre;
+}
+/* ── Banner glitch loop ──
+   Movement only, no colour. A 5s cycle, still most of the time, with two
+   short bursts near its end (~140ms, then ~80ms): the banner jolts a pixel,
+   and one or two thin bands of rows tear sideways by a few pixels, then it all
+   snaps back. The tearing bands are white copies painted from data-text,
+   clipped to a sliver of rows, so they add no text to the page. */
+/* The white shimmer is painted here, on the element whose text it is: WebKit
+   (the macOS app) clips a text background only to the element's own text, so
+   painted on .ascii-logo it left these letters transparent. */
+.ascii-logo-glitch {
+  position: relative;
+  /* White, with a faint brighter band wider than the text, so the animated
+     position shift still reads as a gentle shimmer across the letters. */
   background: linear-gradient(
     100deg,
-    #4d9dff 0%,
-    #6f8ff7 25%,
-    #9b8cf7 50%,
-    #6f8ff7 75%,
-    #4d9dff 100%
+    #e4e6ee 0%,
+    #f2f3f8 25%,
+    #ffffff 50%,
+    #f2f3f8 75%,
+    #e4e6ee 100%
   );
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: ggshimmer 4s linear infinite;
+  animation:
+    ggshimmer 4s linear infinite,
+    gg-glitch-shake 5s steps(1, end) infinite;
 }
-.ascii-logo-line {
+.ascii-logo-glitch::before,
+.ascii-logo-glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
   white-space: pre;
+  pointer-events: none;
+  opacity: 0;
+  /* The banner paints its white through background-clip: text; the copies
+     opt out and fill with the same white, so a tear shows as shape, not
+     colour. */
+  background: none;
+  color: #f2f3f8;
+  -webkit-text-fill-color: currentColor;
+}
+.ascii-logo-glitch::before {
+  animation: gg-glitch-tear-a 5s steps(1, end) infinite;
+}
+.ascii-logo-glitch::after {
+  animation: gg-glitch-tear-b 5s steps(1, end) infinite;
+}
+/* Burst windows: 82–85% (≈150ms) and 93–94.6% (≈80ms) of the cycle. */
+@keyframes gg-glitch-shake {
+  0%,
+  82%,
+  85%,
+  93%,
+  94.6%,
+  100% {
+    transform: none;
+  }
+  82.1% {
+    transform: translateX(-1px);
+  }
+  83.4% {
+    transform: translateX(1px);
+  }
+  93.1% {
+    transform: translateX(1px);
+  }
+}
+@keyframes gg-glitch-tear-a {
+  0%,
+  82%,
+  85%,
+  93%,
+  94.6%,
+  100% {
+    opacity: 0;
+    transform: none;
+    clip-path: inset(0 0 0 0);
+  }
+  82.1% {
+    opacity: 1;
+    transform: translateX(-4px);
+    clip-path: inset(22% 0 66% 0);
+  }
+  83.4% {
+    opacity: 1;
+    transform: translateX(3px);
+    clip-path: inset(56% 0 33% 0);
+  }
+  93.1% {
+    opacity: 1;
+    transform: translateX(-3px);
+    clip-path: inset(68% 0 21% 0);
+  }
+}
+@keyframes gg-glitch-tear-b {
+  0%,
+  82%,
+  85%,
+  93%,
+  94.6%,
+  100% {
+    opacity: 0;
+    transform: none;
+    clip-path: inset(0 0 0 0);
+  }
+  82.1% {
+    opacity: 1;
+    transform: translateX(3px);
+    clip-path: inset(44% 0 44% 0);
+  }
+  83.4% {
+    opacity: 1;
+    transform: translateX(-2px);
+    clip-path: inset(11% 0 78% 0);
+  }
+}
+/* Background windows and reduced motion: no glitch. */
+.app:not(.window-focused) .ascii-logo-glitch,
+.app:not(.window-focused) .ascii-logo-glitch::before,
+.app:not(.window-focused) .ascii-logo-glitch::after {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the slow shimmer (as before); drop the glitch. */
+  .ascii-logo-glitch {
+    animation: ggshimmer 4s linear infinite;
+  }
+  .ascii-logo-glitch::before,
+  .ascii-logo-glitch::after {
+    animation: none;
+  }
 }
 
 /* ── Ken power banner (Autopilot on/off) ──────────────────────────────────
@@ -1092,7 +1190,7 @@ select {
 .home-tagline {
   margin-top: -12px;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text);
 }
 .home-byline {
   margin-top: -18px;
@@ -1100,92 +1198,301 @@ select {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text);
 }
 .home-byline-sep {
-  color: var(--border-strong);
+  color: var(--text-secondary);
 }
 .home-link {
-  color: var(--primary);
-  text-decoration: none;
+  color: #fff;
+  /* The underline is always drawn but clear at rest, so hover fades it in and
+     out (as .markdown a does); switching the line on would snap. */
+  text-decoration: underline;
+  text-decoration-color: transparent;
   cursor: pointer;
-  transition: color var(--t-fast);
+  transition:
+    color var(--t-fast),
+    text-decoration-color var(--t-fast);
 }
 .home-link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
+/* ── Home actions ──
+   The three ways in (Code, Chat, Motion) as big pills under the banner, and Settings as
+   a gear pinned to the bottom-right corner. */
 .home-actions {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(280px, 80vw);
+  gap: 12px;
 }
-/* Home navigation uses the same compact sizing as modal actions. */
-.home-btn {
-  width: 100%;
-  font-size: 13px;
-  padding: 8px 16px;
+.home-action {
+  gap: 8px;
+  min-width: 132px;
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
 }
-/* Home action rows share width; primary row fits Code, Chat, and Settings. */
-.home-projects-row {
+/* A pill with a caption hung under it (Motion's "Still in process"). The
+   caption is out of flow, so the three pills stay level and the home column
+   keeps its centring. */
+.home-action-slot {
+  position: relative;
   display: flex;
-  gap: 10px;
+}
+.home-action-note {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 8px;
+  /* Flex centring keeps an over-long caption centred instead of spilling right. */
+  display: flex;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.3;
+  /* Full-strength ink like the tagline and byline: dimmer text got lost over
+     bright stretches of the waves. Size keeps it secondary. */
+  color: var(--text);
+}
+.home-settings {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+}
+
+/* ── Settings screen ──
+   Full-screen Settings: the shared picker header, a scrolling page, and
+   yaatuber's floating tab capsule over the bottom. The page reserves the
+   capsule's height as bottom padding so its last row scrolls clear of it. */
+.settings-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  /* Full width, with the header's 20px side padding so the page's edges line
+     up with the Back button and title above it. The bottom keeps the last row
+     scrollable clear of the tab capsule. */
+  padding: 20px 20px 104px;
+}
+/* A panel: what a dialog shows, drawn in page form (modal-embed.tsx). Its
+   sections are cards, stacked with even gaps. */
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* One card per section on every page: a head (title + one-line description),
+   then its fields. Page buttons live in the header bar, not here. */
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+}
+.settings-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-section-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+/* Inside a card the card's own gap spaces fields, so the dialog margins go. */
+.settings-card :is(.modal-row, .mcp-scope-toggle, .modal-hint, .modal-error, .mcp-list) {
+  margin: 0;
+}
+.settings-card .modal-input {
   width: 100%;
 }
-.home-projects-row .home-btn {
-  flex: 1 1 auto;
+/* The providers grid brings its own padding for its standalone screen. */
+.settings-card .login-grid {
+  padding: 0;
 }
-.home-primary-row {
+/* Page arrival. The first page rises in like the other screens' rows
+   (reveal-up); switching tabs crossfades the new page in, as yaatuber's
+   settings do (Glance's page crossfade, 280ms ease-in-out). */
+.settings-page.is-entering {
+  animation: reveal-up var(--dur-row) var(--ease-out) both;
+}
+.settings-page.is-switching {
+  animation: fade-in 280ms ease-in-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-page.is-entering,
+  .settings-page.is-switching {
+    animation: none;
+  }
+}
+/* Two columns where a page has two independent halves (General: effects |
+   project folder; Remote: serving | bot setup; MCP: servers | add one). In a
+   dialog the wrappers are transparent, so the same markup stays one column
+   there. On the page they sit side by side from 760px and stack below. */
+.settings-cols,
+.settings-col {
+  display: contents;
+}
+.settings-page .settings-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.settings-page .settings-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+@media (min-width: 760px) {
+  .settings-page .settings-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 40px;
+  }
+}
+/* The page's status (e.g. "3 connected") beside its name in the header. */
+.settings-head-status {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
-.home-primary-row .home-btn {
-  min-width: 0;
-  padding-inline: 12px;
+.settings-head-status:empty {
+  display: none;
+}
+/* The open page's buttons sit in the shared .picker-head-actions group (the
+   same one "+ New project" uses), so they match it exactly; hidden when the
+   page has none. */
+.settings-head-actions:empty {
+  display: none;
+}
+
+/* The tab capsule. Sizes are yaatuber's (Glance's SettingsMetrics): bar 54
+   tall with 6 of inline padding, tabs 42 tall with 11 of padding (14 when
+   showing a label), a 19px glyph, a 13px label 7 from it. */
+.settings-tab-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.settings-screen {
+  position: relative;
+}
+/* The page name is an h1 here (the screen's heading); keep the picker look. */
+.settings-screen h1.picker-title {
+  margin: 0;
+}
+.settings-tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 54px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+}
+/* One element that travels between tabs, so a change reads as the pill
+   moving. Hidden until the first measurement places it. */
+.settings-tabs-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  pointer-events: none;
+  visibility: hidden;
+}
+.settings-tabs-pill.is-placed {
+  visibility: visible;
+}
+.settings-tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 42px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color var(--t-fast),
+    background-color var(--t-fast);
+}
+/* Hover only lightens a tab (yaatuber's `--overlay` wash); the pill moves
+   on selection, never on hover. */
+.settings-tab:hover:not(.is-active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.settings-tab.is-active {
+  padding: 0 14px;
+  color: var(--text);
+}
+.settings-tab-icon {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+/* Only the selected tab shows its label. `display: none` keeps the others
+   out of layout; every tab carries an aria-label, so each is still announced
+   by name. */
+.settings-tab-label {
+  display: none;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.settings-tab.is-active .settings-tab-label {
+  display: inline;
+}
+/* Steroids not connected yet. */
+.settings-tab-alert {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--steroids);
+  box-shadow: 0 0 6px var(--steroids-glow);
 }
 .home-settings {
   flex: 0 0 auto;
   width: 36px;
   height: 36px;
-}
-/* Steroids button: red shimmer pill (same sweep mechanism as .ascii-logo).
-   Not connected → glowing + pulsing so the missing upgrade is impossible to
-   miss; connected → calm red pill, no pulse. */
-.home-steroids-btn {
-  border-color: transparent;
-  color: #fff;
-  background: linear-gradient(
-    100deg,
-    var(--steroids-deep) 0%,
-    var(--steroids) 50%,
-    var(--steroids-deep) 100%
-  );
-  background-size: 220% 100%;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  animation: ggshimmer 3s linear infinite;
-}
-.home-steroids-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-.home-steroids-btn.is-unroided {
-  box-shadow:
-    0 0 0 1px var(--steroids),
-    0 0 18px var(--steroids-glow);
-  animation:
-    ggshimmer 3s linear infinite,
-    glow-pulse 3.4s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .home-steroids-btn,
-  .home-steroids-btn.is-unroided {
-    animation: none;
-  }
-}
-/* Serve button while live: glossy green pill, so "on" reads at a glance. */
-.home-serve-active {
-  background: var(--success);
-  color: var(--on-success);
-  border-color: transparent;
-  box-shadow: none;
 }
 /* Dimmed (prerequisites unmet): muted but still clickable so it can toast.
    Hold brightness flat on hover so it reads as inactive, not interactive. */
@@ -1453,8 +1760,8 @@ select {
   border-radius: 50%;
   background: var(--project-accent);
   /* The title row is baseline-aligned, so nudge the dot onto the text's optical
-     centre instead of letting it sit on the baseline. */
-  transform: translateY(-1px);
+     (cap-height) centre instead of letting it sit on the baseline. */
+  transform: translateY(-1.5px);
 }
 .chat-head-strip {
   display: flex;
@@ -1466,9 +1773,14 @@ select {
   /* Native chrome (Windows/Linux): no traffic lights, so no left gutter. */
   padding: 0 var(--rail);
 }
-/* macOS: left padding clears the traffic lights so the title sits right of them. */
+/* macOS: left padding clears the traffic lights so the title sits right of them.
+   At the plain 19px midpoint the text read ~2px low beside the lights. Trading
+   1.5px of height for bottom padding keeps the row 38px tall but lifts its
+   centre to 18.25px, where the text's cap-height middle meets the lights'
+   centre (measured on a Retina screenshot, 2 device px per CSS px). */
 .platform-macos .chat-head-strip {
-  padding: 0 var(--rail) 0 82px;
+  height: 36.5px;
+  padding: 0 var(--rail) 1.5px 82px;
 }
 /* The visible window title shows project context: cwd, current branch, then the
    uncommitted-file count and GitHub issue/PR chips. It grows into available
@@ -1482,6 +1794,12 @@ select {
   white-space: nowrap;
   display: flex;
   align-items: baseline;
+  /* Queried by the uncommitted-count steps below, which need the room the
+     title actually has: the window width minus the macOS traffic-light gutter,
+     the usage meter and the window pill. (Its width never depended on its
+     content anyway: it is the strip's only growing item, so it always fills
+     what's left.) */
+  container: chat-head-title / inline-size;
   font-family: var(--sans);
   font-size: 13px;
   font-weight: 500;
@@ -1532,9 +1850,10 @@ select {
   /* Quad-tile widths: the folder had already shrunk to nothing, leaving the
      accent dot and a leading separator. Drop it and that separator explicitly
      so the whole counts get the room. (The separator to drop is the one not
-     preceded by a count chip; the dirty count before it is hidden at 520px.) */
+     preceded by a count chip; the uncommitted count before it goes too.) */
   /* Direct children only: the CI indicator keeps its own separator. */
   .chat-head-cwd,
+  .chat-head-uncommitted,
   .chat-head-title > .chat-head-sep:not(.chat-head-github + .chat-head-sep) {
     display: none;
   }
@@ -1543,9 +1862,34 @@ select {
   /* Near the 480px minimum window the strip also carries the macOS traffic-light
      gutter and the usage meter; folder + dirty + issues + PRs don't fit, and the
      issues chip was hard-clipped mid-word. Keep identity (folder, elastic) +
-     the GitHub counts. */
-  .chat-head-dirty,
-  .chat-head-sep:has(+ .chat-head-dirty) {
+     the GitHub counts: the added-roots chip drops whole. */
+  .chat-head-dirty:not(.chat-head-uncommitted),
+  .chat-head-sep:has(+ .chat-head-dirty:not(.chat-head-uncommitted)) {
+    display: none;
+  }
+}
+/* The uncommitted count gives way in two steps, and only to make room for the
+   other counts (issues, PRs, CI); beside the folder alone it stays whole.
+   First it condenses to its number ("12 uncommitted" → "12", ~80px back),
+   then it drops. The widths are tuned on typical counts ("4 issues │ 1 PR")
+   so the folder name keeps a few readable characters at each step. The word
+   stays readable to screen readers (the .sr-only pattern), and the tooltip
+   still spells it out. */
+@container chat-head-title (max-width: 290px) {
+  .chat-head-title:has(.chat-head-github) .chat-head-uncommitted-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+@container chat-head-title (max-width: 190px) {
+  .chat-head-title:has(.chat-head-github) > .chat-head-uncommitted,
+  .chat-head-title:has(.chat-head-github) > .chat-head-sep:has(+ .chat-head-uncommitted) {
     display: none;
   }
 }
@@ -1562,6 +1906,7 @@ select {
   font: inherit;
   cursor: pointer;
   text-align: left;
+  transition: color var(--t-fast);
 }
 .chat-head-link:hover:not(:disabled) {
   color: var(--text);
@@ -1581,6 +1926,7 @@ select {
   font: inherit;
   color: var(--text-muted);
   cursor: pointer;
+  transition: color var(--t-fast);
   /* Compact, high-signal counts — never truncate or wrap; the narrow-window
      cascade above drops other segments whole so these stay readable. */
   flex: none;
@@ -2061,6 +2407,10 @@ select {
   color: var(--text);
   font-size: 14px;
   cursor: pointer;
+  transition:
+    color var(--t-fast),
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 /* Hover and keyboard both land on `.active`, so the pointer and the arrow keys
    can never highlight two different rows at once. */
@@ -2421,6 +2771,7 @@ select {
   gap: 8px;
   padding: 6px 6px;
   border-radius: var(--radius-button);
+  transition: background-color var(--t-fast);
 }
 .tasks-item:hover {
   background: var(--surface-1);
@@ -2517,6 +2868,8 @@ select {
   border-radius: var(--radius-button);
   font-size: 12px;
   cursor: pointer;
+  /* HfPullModal sets the highlighted row's border colour inline. */
+  transition: border-color var(--t-fast);
 }
 .hf-result-name {
   overflow: hidden;
@@ -2591,6 +2944,9 @@ select {
   gap: 8px;
   padding: 6px 6px;
   border-radius: var(--radius-button);
+  transition:
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 .mcp-item:hover {
   background: var(--surface-1);
@@ -2717,7 +3073,15 @@ select {
   transition:
     opacity var(--t-fast),
     color var(--t-fast),
-    background-color var(--t-fast);
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+/* Small dismiss buttons holding the drawn X icon (hide, delete, cancel):
+   centre the icon exactly, whatever padding each button carries. */
+:is(.picker-hide, .mcp-delete, .tasks-delete, .queued-cancel) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .picker-item-wrap:hover .picker-hide,
 .picker-hide:focus-visible {
@@ -2744,7 +3108,8 @@ select {
   transition:
     color var(--t-fast),
     background-color var(--t-fast),
-    border-color var(--t-fast);
+    border-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 .picker-item:hover {
   background: var(--surface-1);
@@ -2782,25 +3147,20 @@ select {
   font-size: 14px;
   font-weight: 600;
 }
+/* A project's sources (gg-coder, Claude Code, Codex, Folder) as tinted pills
+   in a row; a session from another tool leads its meta line with one. */
 .picker-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
 }
 .picker-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--sans);
   font-size: 12px;
-}
-/* Origin tag on a session row that came from another coding tool. Sits inline
-   ahead of the message count; the hue is the signal, matching the project
-   list's source colors. */
-.picker-source-tag {
-  font-weight: 600;
-}
-.picker-source-tag::after {
-  content: " \00b7 ";
-  color: var(--text-dim);
-  font-weight: 400;
 }
 
 /* ── Reusable pill badge ── */
@@ -2988,6 +3348,7 @@ select {
     background var(--t-fast),
     border-color var(--t-fast),
     color var(--t-fast),
+    box-shadow var(--t-fast),
     visibility 0s linear var(--dur-enter);
 }
 .export-chat.visible {
@@ -3001,6 +3362,7 @@ select {
     background var(--t-fast),
     border-color var(--t-fast),
     color var(--t-fast),
+    box-shadow var(--t-fast),
     visibility 0s;
 }
 .export-chat.visible:hover {
@@ -3018,16 +3380,25 @@ select {
   color: var(--text-muted);
 }
 @media (prefers-reduced-motion: reduce) {
+  /* No travel; the fade and the hover colours stay. */
   .export-chat {
     transform: none;
     transition:
       opacity var(--dur-enter) var(--ease-out),
+      background var(--t-fast),
+      border-color var(--t-fast),
+      color var(--t-fast),
+      box-shadow var(--t-fast),
       visibility 0s linear var(--dur-enter);
   }
   .export-chat.visible {
     transform: none;
     transition:
       opacity var(--dur-enter) var(--ease-out),
+      background var(--t-fast),
+      border-color var(--t-fast),
+      color var(--t-fast),
+      box-shadow var(--t-fast),
       visibility 0s;
   }
 }
@@ -4582,9 +4953,20 @@ select {
 .gg-tooltip[data-side="bottom"] {
   --enter-y: -3px;
 }
+/* Leaving: TooltipLayer holds the last hint for EXIT_MS (keep equal to
+   --dur-exit) so it sinks back toward its control instead of vanishing.
+   Clicks and hovers go straight through it. */
+.gg-tooltip[data-leaving] {
+  --exit-y: var(--enter-y);
+  pointer-events: none;
+  animation: surface-out var(--dur-exit) var(--ease-in) forwards;
+}
 @media (prefers-reduced-motion: reduce) {
   .gg-tooltip {
     animation-name: fade-in;
+  }
+  .gg-tooltip[data-leaving] {
+    animation-name: fade-out;
   }
 }
 
@@ -4775,6 +5157,7 @@ select {
 }
 .img-card-clickable {
   cursor: pointer;
+  transition: border-color var(--t-fast);
 }
 .img-card-clickable:hover,
 .img-card-clickable:focus-visible {
@@ -4838,6 +5221,7 @@ select {
   gap: 10px;
   width: 100%;
   border: none;
+  background: transparent;
   border-radius: var(--radius-button);
   font-family: var(--sans);
   text-align: left;
@@ -4845,7 +5229,8 @@ select {
   cursor: pointer;
   transition:
     color var(--t-fast),
-    background-color var(--t-fast);
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
 }
 .slash-name {
   font-family: var(--sans);
@@ -5011,14 +5396,18 @@ select {
   font-size: 13px;
   cursor: pointer;
   padding: 0;
-  transition: color var(--t-fast);
+  /* Underline drawn clear at rest so hover fades it (see .home-link). */
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition:
+    color var(--t-fast),
+    text-decoration-color var(--t-fast);
 }
 .cancel:hover:not(:disabled) {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .cancel:disabled {
   cursor: wait;
-  text-decoration: none;
 }
 
 /* App-update banner — its own row below the footer so it reads as a distinct,
@@ -5215,7 +5604,7 @@ select {
   font-family: var(--sans);
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-dim);
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 /* Small text button to the right of the version that re-opens the What's-new
@@ -5227,13 +5616,19 @@ select {
   font-family: var(--sans);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text);
   cursor: pointer;
   letter-spacing: -0.005em;
-  transition: color var(--t-fast);
+  /* Underline drawn clear at rest so hover fades it (see .home-link). */
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition:
+    color var(--t-fast),
+    text-decoration-color var(--t-fast);
 }
 .home-whatsnew:hover {
-  color: var(--text);
+  color: #fff;
+  text-decoration-color: currentColor;
 }
 
 .footer {
@@ -5359,6 +5754,19 @@ select {
 }
 .wake-cursor-rest {
   color: var(--secondary);
+}
+/* Motion's one-click starting points: a wrapping row just above the activity
+   bar, aligned to the same rail as the rest of the live region. */
+.motion-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px var(--rail);
+}
+.motion-starter {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
   .wake-cursor {
@@ -6003,6 +6411,7 @@ select {
   overflow: visible;
   transition:
     filter var(--t-fast),
+    background-color var(--t-fast),
     box-shadow var(--t-fast),
     color var(--t-fast);
 }
@@ -6785,6 +7194,10 @@ select {
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
+  transition:
+    color var(--t-fast),
+    background-color var(--t-fast),
+    border-color var(--t-fast);
 }
 .memory-delete:hover:not(:disabled) {
   border-color: var(--border);
