@@ -14,7 +14,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createDeviceRegistry } from "./device-registry.js";
 import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
@@ -120,6 +120,7 @@ async function serve(p: HostPaths): Promise<void> {
   const host = createHost({
     apns,
     diagnosticsDir: p.logs,
+    homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     nodeId: new URL(publicBase()).hostname,

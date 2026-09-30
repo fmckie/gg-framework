@@ -5,7 +5,9 @@
 //   - unauthenticated: GET /kleio/health, POST /kleio/pair/redeem
 //   - device-authenticated (x-kleio-device-token): everything under the
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
-//     added; plus GET /events, which is intercepted for id/replay.
+//     added; plus GET /events, which is intercepted for id/replay, and
+//     GET /kleio/home, the pinned home thread (see home-thread.ts);
+//     POST /kleio/home/new starts a fresh one.
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
@@ -26,6 +28,7 @@ import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from 
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
+import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
@@ -69,6 +72,11 @@ export interface HostOptions {
    * Unset = the route answers 404.
    */
   readonly diagnosticsDir?: string;
+  /**
+   * cwd of the home thread (`GET /kleio/home`); created if missing. The CLI
+   * passes `KLEIO_HOME_CWD`, default `~/Kleio`. Unset = the route answers 404.
+   */
+  readonly homeCwd?: string;
 }
 
 export interface Host {
@@ -268,9 +276,14 @@ export function createHost(options: HostOptions): Host {
             for (const sub of s.subs) sub.write(frame.frame);
             const lf = liveFrame(raw);
             if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
+            if (!isRunEnd(raw)) continue;
+            // The home thread's transcript path appears at its first run end
+            // and moves on compaction; re-learn it whoever is watching.
+            if (home)
+              void background(home.onRunEnd(sessionId).catch((e) => log(`[home] ${String(e)}`)));
             // A run finished and nobody was watching: one nudge per phone. The
             // content waits in the ring for the attach that follows.
-            if (s.subs.size === 0 && options.apns?.configured && isRunEnd(raw)) {
+            if (s.subs.size === 0 && options.apns?.configured) {
               void options.apns
                 .notify({ sessionId }, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
@@ -440,6 +453,79 @@ export function createHost(options: HostOptions): Host {
     }
     for (const id of tracked) void ensureUpstream(id).catch(() => {});
     if (tracked.size) log(`[sse] resubscribed ${tracked.size} tracked session(s)`);
+  }
+
+  /**
+   * A call the host makes to the sidecar on its own behalf. null = unreachable.
+   * A refused connection re-reads the endpoint file and tries once more, as
+   * proxy() does: the sidecar may have respawned on a new port. The session
+   * goes in `x-gg-session`, never `?session=`: the sidecar matches per-session
+   * routes on the raw URL, so `/state?session=…` is its 404, not its /state.
+   */
+  const sidecarCall: SidecarCall = async (method, path, opts = {}) => {
+    const data = opts.body === undefined ? undefined : Buffer.from(JSON.stringify(opts.body));
+    const once = (ep: SidecarEndpoint): Promise<SidecarReply | "refused" | null> =>
+      new Promise((resolve) => {
+        const req = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: ep.port,
+            path,
+            method,
+            headers: {
+              host: `127.0.0.1:${ep.port}`,
+              "x-gg-token": ep.token,
+              ...(opts.session ? { "x-gg-session": opts.session } : {}),
+              ...(data
+                ? { "content-type": "application/json", "content-length": data.length }
+                : {}),
+            },
+            timeout: opts.timeoutMs ?? 5_000,
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () =>
+              resolve({
+                status: res.statusCode ?? 0,
+                body: Buffer.concat(chunks).toString("utf8"),
+              }),
+            );
+            res.on("error", () => resolve(null));
+          },
+        );
+        req.on("timeout", () => req.destroy());
+        req.on("error", (e) =>
+          resolve((e as NodeJS.ErrnoException).code === "ECONNREFUSED" ? "refused" : null),
+        );
+        req.end(data);
+      });
+    const first = await endpoint();
+    if (!first) return null;
+    const r = await once(first);
+    if (r !== "refused") return r;
+    const fresh = await endpoint(true);
+    if (!fresh || (fresh.port === first.port && fresh.token === first.token)) return null;
+    const again = await once(fresh);
+    return again === "refused" ? null : again;
+  };
+
+  const home = options.homeCwd
+    ? createHomeThreads({
+        statePath: join(dirname(options.sidecarEndpointPath), "home.json"),
+        cwd: options.homeCwd,
+        call: sidecarCall,
+        track,
+        untrack,
+        log,
+        now,
+      })
+    : null;
+
+  /** Tap the stored home session at start, so it records with no device attached. */
+  async function resumeHome(): Promise<void> {
+    const id = await home?.load();
+    if (id) await track(id);
   }
 
   /**
@@ -676,11 +762,15 @@ export function createHost(options: HostOptions): Host {
         sidecar: alive ? "up" : ep ? "stale" : "down",
         devices: registry.list().filter((d) => !d.revoked).length,
         offer: offers.peek().active,
-        sessions: [...live.entries()].map(([id, s]) => ({
-          id,
-          seq: s.ring.seq(),
-          subscribers: s.subs.size,
-        })),
+        // The home thread's id is not advertised on this open route; devices
+        // get it from GET /kleio/home.
+        sessions: [...live.entries()]
+          .filter(([id]) => id !== home?.sessionId())
+          .map(([id, s]) => ({
+            id,
+            seq: s.ring.seq(),
+            subscribers: s.subs.size,
+          })),
       });
     }
 
@@ -794,6 +884,22 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, { ok: true });
     }
 
+    // The pinned home thread. Any paired device, not admin-only: it is the
+    // conversation every device opens.
+    if (req.method === "GET" && path === "/kleio/home") {
+      if (!home) return json(res, 404, { error: "not_found" });
+      const r = await background(home.resolve());
+      return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
+    // Start a fresh home conversation; every device follows on its next
+    // GET /kleio/home. Same shape as GET, created: true.
+    if (req.method === "POST" && path === "/kleio/home/new") {
+      if (!home) return json(res, 404, { error: "not_found" });
+      const r = await background(home.startNew());
+      return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
     if (path.startsWith("/kleio/")) {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
       if (req.method === "GET" && path === "/kleio/devices")
@@ -859,15 +965,17 @@ export function createHost(options: HostOptions): Host {
           log(
             `[host] listening on http://${options.listenHost ?? "127.0.0.1"}:${options.listenPort}`,
           );
-          void resumeTracked().then(() => {
-            const every = options.routinePollMs ?? 30_000;
-            if (every > 0) {
-              void trackRoutineSessions().catch(() => {});
-              routinePoll = setInterval(() => void trackRoutineSessions().catch(() => {}), every);
-              routinePoll.unref();
-            }
-            resolve();
-          }, resolve);
+          void resumeTracked()
+            .then(resumeHome)
+            .then(() => {
+              const every = options.routinePollMs ?? 30_000;
+              if (every > 0) {
+                void trackRoutineSessions().catch(() => {});
+                routinePoll = setInterval(() => void trackRoutineSessions().catch(() => {}), every);
+                routinePoll.unref();
+              }
+              resolve();
+            }, resolve);
         });
       }),
     stop: () =>
@@ -893,7 +1001,7 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        const written = Promise.allSettled([...inflight]);
+        const written = Promise.allSettled([...inflight, home?.flush()]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),

@@ -73,6 +73,45 @@ never replayed; a fire during a run queues; no duplicate in the queue; cap 20. T
 tracks each routine's session so its transcript is in the replay ring for whichever device
 attaches later.
 
+### Home thread (`/kleio/home`)
+
+One pinned assistant conversation that every paired device opens: a sidecar chat session
+(`mode: "chat"`, agent `general`, so memory, Jiwa and handoff to Therapist/Research all
+apply). Any paired device may call it; it is not admin-only.
+
+```
+GET /kleio/home  → 200 { sessionId, sessionPath: string | null, created, agent: "general" }
+                 → 502 { error: "sidecar unavailable" | "sidecar error", detail? }
+```
+
+- **Idempotent:** overlapping calls share one answer, so two devices can never make two
+  homes.
+- **State:** kept in `home.json` next to `sessions.json`.
+- **Sidecar restart:** the stored id dies with the process. The next call creates a session
+  that resumes the stored transcript under a new id. If that transcript is gone or refused,
+  it starts a fresh home rather than retrying.
+- **Transcript path:** learnt at the home session's run ends and re-read after each one,
+  since compaction moves it.
+- **Replay:** the home session is tracked at start, so its events are in the replay ring with
+  no device attached.
+- **`/kleio/health`:** does not list the home id.
+
+**Clients:** use the returned `sessionId` on the ordinary per-session routes (`x-gg-session`
+or `?session=`), e.g. `/prompt`, `/events`, `/memories`. On a 404 from any of them, call
+`/kleio/home` again.
+
+**New conversation:** `POST /kleio/home/new` has the same shape as the GET, with
+`created: true`.
+
+- Starts a brand-new home session (no transcript resumed) and pins it.
+- Stops recording the old one.
+- Every device follows on its next `GET /kleio/home`.
+- Old transcripts stay on disk under `~/.gg/chat-sessions/general/`, and durable memory and Jiwa
+  carry over.
+- Two taps at once make one conversation.
+
+Session cwd: `KLEIO_HOME_CWD` (default `~/Kleio`, created if missing).
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per
