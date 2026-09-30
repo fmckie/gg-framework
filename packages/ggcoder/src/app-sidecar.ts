@@ -32,9 +32,12 @@ import {
   CHAT_AGENT_IDS,
   chatAgentSessionsDir,
   createChatAgent,
+  createPersonaChatAgent,
   parseChatAgentId,
+  parseChatPersona,
   switchChatAgent,
   type ChatAgentId,
+  type ChatPersona,
 } from "./chat-agents/index.js";
 import { createMotionAgentSession } from "./motion-agent/motion-agent.js";
 import { buildJiwaTools, JiwaStore } from "./chat-agents/jiwa.js";
@@ -144,6 +147,11 @@ import {
   registerRuntimeModels,
 } from "./core/model-registry.js";
 import { resolveStartOrFallback } from "./core/resolve-start.js";
+import {
+  CompletionTimeoutError,
+  completeOnce,
+  parseCompleteRequest,
+} from "./core/one-shot-complete.js";
 import { getGitBranch, getGitDirtyFileCount, isGitRepo } from "./utils/git.js";
 import { getGitHubOpenCounts, getGitHubRepoSlug } from "./utils/github.js";
 import { startGitHubCIPoll, type GitHubCI } from "./utils/github-ci.js";
@@ -230,6 +238,99 @@ async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** POST /session asked for a model that can't be started; the daemon answers 409. */
+class ModelUnavailableError extends Error {
+  constructor(
+    readonly modelId: string,
+    readonly reason: string,
+  ) {
+    super(`model unavailable: ${modelId}`);
+    this.name = "ModelUnavailableError";
+  }
+}
+
+/**
+ * Local models only exist once discovery has registered them, and the
+ * per-session scan runs after the model is chosen. For a project pinned to one
+ * (e.g. a Tinfoil proxy) or an explicitly requested local model, discover first
+ * — bounded, never fatal — so the pin can win.
+ */
+async function discoverLocalModelForPin(modelId: string): Promise<void> {
+  try {
+    const { models } = await withTimeout(
+      discoverLocalModels(await listAllEndpoints(), { force: false }),
+      LOCAL_PIN_DISCOVERY_TIMEOUT_MS,
+    );
+    registerRuntimeModels(models);
+  } catch (err) {
+    log("WARN", "app-sidecar", "local model discovery for a pinned project failed", {
+      model: modelId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Why local `modelId` can't be selected right now (`problem`), or no problem
+ * when it can. Also returns the fresh endpoint probe so a session can keep its
+ * cached view honest. Non-local ids have no blocker.
+ */
+async function probeLocalModelBlocker(
+  modelId: string,
+): Promise<{ problem?: string; probe?: LocalEndpointProbe }> {
+  const parsed = parseLocalModelId(modelId);
+  if (!parsed) return {};
+  const endpoints = await listAllEndpoints();
+  const endpoint = endpoints.find((e) => e.id === parsed.endpointId);
+  if (!endpoint) {
+    return { problem: `Unknown local endpoint "${parsed.endpointId}" — re-scan for local models.` };
+  }
+  const probe = await probeEndpoint(endpoint);
+  if (!probe.reachable) {
+    return {
+      problem: `${endpoint.label} isn't running at ${endpoint.baseUrl}. Start it and scan again.`,
+      probe,
+    };
+  }
+  const model = probe.models.find((m) => m.rawId === parsed.rawId);
+  if (!model) {
+    return { problem: `${endpoint.label} no longer serves "${parsed.rawId}".`, probe };
+  }
+  if (!model.supportsTools) {
+    return {
+      problem: `${parsed.rawId} has no tool calling, so it can't run the agent. Pick a tool-capable model.`,
+      probe,
+    };
+  }
+  registerRuntimeModels(probe.models.map((m) => localModelInfo(m, endpoint)));
+  return { probe };
+}
+
+/**
+ * Resolve an explicitly requested start model, failing closed: an unknown,
+ * blocked, or unauthenticated model throws ModelUnavailableError instead of
+ * falling back (possibly to a cloud provider — privacy matters here).
+ */
+async function requireStartModel(
+  auth: AuthStorage,
+  modelId: string,
+): Promise<{ provider: Provider; id: string }> {
+  if (!getModel(modelId) && parseLocalModelId(modelId)) {
+    await discoverLocalModelForPin(modelId);
+  }
+  const target = getModel(modelId);
+  if (!target) throw new ModelUnavailableError(modelId, "not registered");
+  const { problem, probe } = await probeLocalModelBlocker(target.id);
+  if (problem) throw new ModelUnavailableError(modelId, problem);
+  // A reachable local endpoint's credential carries its baseUrl into the
+  // stream call; write it now (as a scan would) so a cold daemon can use it.
+  if (probe) await syncEndpointCredentials([probe.endpoint], { auth });
+  if (!(await auth.hasProviderAuth(target.provider))) {
+    throw new ModelUnavailableError(modelId, `provider ${target.provider} is not connected`);
+  }
+  return { provider: target.provider, id: target.id };
 }
 
 const ALL_PROVIDERS: Provider[] = [
@@ -1264,8 +1365,14 @@ async function main(): Promise<void> {
     if (method === "POST" && url === "/session") {
       void daemonReadBody(req, res).then(async (raw) => {
         if (raw === null) return;
-        let body: { mode?: unknown; chatAgent?: unknown; cwd?: unknown; sessionPath?: unknown } =
-          {};
+        let body: {
+          mode?: unknown;
+          chatAgent?: unknown;
+          cwd?: unknown;
+          sessionPath?: unknown;
+          persona?: unknown;
+          model?: unknown;
+        } = {};
         try {
           body = raw ? (JSON.parse(raw) as typeof body) : {};
         } catch {
@@ -1273,6 +1380,24 @@ async function main(): Promise<void> {
         }
         const mode = parseWorkspaceMode(body.mode);
         const chatAgent = parseChatAgentId(body.chatAgent);
+        let persona: ChatPersona | undefined;
+        if (body.persona !== undefined) {
+          if (mode !== "chat") {
+            daemonJson(res, 400, { error: 'persona requires mode "chat"' });
+            return;
+          }
+          const parsed = parseChatPersona(body.persona);
+          if ("error" in parsed) {
+            daemonJson(res, 400, { error: parsed.error });
+            return;
+          }
+          persona = parsed;
+        }
+        if (body.model !== undefined && (typeof body.model !== "string" || !body.model)) {
+          daemonJson(res, 400, { error: "model must be a non-empty string" });
+          return;
+        }
+        const requestedModel = body.model;
         const sessionCwd =
           typeof body.cwd === "string" && body.cwd
             ? body.cwd
@@ -1291,7 +1416,15 @@ async function main(): Promise<void> {
               broadcastAll,
               oauthInFlightProviders,
             },
-            { id, mode, chatAgent, cwd: sessionCwd, sessionPath },
+            {
+              id,
+              mode,
+              chatAgent,
+              cwd: sessionCwd,
+              sessionPath,
+              persona,
+              model: requestedModel,
+            },
           );
           sessions.set(id, ctx);
           log("INFO", "app-sidecar", "session created", {
@@ -1299,12 +1432,94 @@ async function main(): Promise<void> {
             mode,
             chatAgent,
             cwd: sessionCwd,
+            ...(persona ? { persona: persona.name } : {}),
+            ...(requestedModel ? { model: requestedModel } : {}),
           });
           daemonJson(res, 200, { sessionId: id });
         } catch (err) {
+          if (err instanceof ModelUnavailableError) {
+            log("WARN", "app-sidecar", "session create refused: model unavailable", {
+              model: err.modelId,
+              reason: err.reason,
+            });
+            daemonJson(res, 409, { error: err.message });
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           log("ERROR", "app-sidecar", "session create failed", { message });
           daemonJson(res, 500, { error: message });
+        }
+      });
+      return;
+    }
+
+    // One-shot completion (no tools, thinking off, not session-scoped):
+    // { model, system?, prompt, maxTokens?, timeoutMs? } → { text, model }.
+    // The model resolves exactly like POST /session's `model`, failing closed
+    // (409). Logs model and duration only — never the prompt.
+    if (method === "POST" && url === "/complete") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        let body: unknown;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          daemonJson(res, 400, { error: "invalid JSON body" });
+          return;
+        }
+        const input = parseCompleteRequest(body);
+        if ("error" in input) {
+          daemonJson(res, 400, { error: input.error });
+          return;
+        }
+        // Stop paying for tokens nobody will read once the caller hangs up.
+        const clientGone = new AbortController();
+        res.on("close", () => {
+          if (!res.writableEnded) clientGone.abort();
+        });
+        const started = Date.now();
+        let model = input.model;
+        try {
+          const target = await requireStartModel(auth, input.model);
+          model = target.id;
+          const text = await completeOnce({
+            auth,
+            provider: target.provider,
+            model: target.id,
+            system: input.system,
+            prompt: input.prompt,
+            maxTokens: input.maxTokens,
+            timeoutMs: input.timeoutMs,
+            signal: clientGone.signal,
+          });
+          log("INFO", "app-sidecar", "complete done", {
+            model,
+            ms: String(Date.now() - started),
+          });
+          daemonJson(res, 200, { text, model });
+        } catch (err) {
+          if (err instanceof ModelUnavailableError) {
+            log("WARN", "app-sidecar", "complete refused: model unavailable", {
+              model: err.modelId,
+              reason: err.reason,
+            });
+            daemonJson(res, 409, { error: err.message });
+            return;
+          }
+          const { status, statusCode } = (err ?? {}) as { status?: unknown; statusCode?: unknown };
+          const httpStatus = status ?? statusCode;
+          // Provider errors can echo request content, so log only the class.
+          log("WARN", "app-sidecar", "complete failed", {
+            model,
+            ms: String(Date.now() - started),
+            error: err instanceof Error ? err.name : "unknown",
+            ...(typeof httpStatus === "number" ? { status: String(httpStatus) } : {}),
+          });
+          const message =
+            err instanceof CompletionTimeoutError
+              ? err.message
+              : `completion failed: ${err instanceof Error ? err.message : String(err)}`;
+          daemonJson(res, 502, { error: message });
         }
       });
       return;
@@ -1722,12 +1937,17 @@ async function createSession(
     chatAgent: ChatAgentId;
     cwd: string;
     sessionPath?: string;
+    /** Chat-only helper persona; never persisted, re-sent by the host on resume. */
+    persona?: ChatPersona;
+    /** Start on this model (fail closed: throws ModelUnavailableError, never falls back). */
+    model?: string;
   },
 ): Promise<SessionContext> {
   const { auth, progress, memoryStore, jiwaStore, broadcastAll, oauthInFlightProviders } = deps;
   const paths = deps.paths;
   const mode = opts.mode;
-  let chatAgent = opts.chatAgent;
+  // Persona transcripts live under General so sessionPath resume keeps working.
+  let chatAgent: ChatAgentId = opts.persona ? "general" : opts.chatAgent;
   const cwd = opts.cwd;
   // Motion's workspace is a dedicated folder the app names inside the projects
   // root; create it on first use so a fresh install can start a video at once.
@@ -1746,25 +1966,20 @@ async function createSession(
   // window reading the same single global slot that the last writer clobbered
   // (the old bug — switching models in one window reset every other window).
   const projectPrefs = await loadProjectModelPrefs(cwd);
-  const preferred: Provider = projectPrefs?.provider ?? saved.provider ?? "anthropic";
-  const savedModel = projectPrefs?.model ?? saved.model;
+  let preferred: Provider = projectPrefs?.provider ?? saved.provider ?? "anthropic";
+  let savedModel = projectPrefs?.model ?? saved.model;
   // Local models only exist once discovery has registered them, and the
   // per-session scan below runs after the model is chosen. For a project pinned
   // to one (e.g. a Tinfoil proxy), discover first — bounded, never fatal — so
   // the pin can win instead of the session falling back to a cloud provider.
-  if (preferred === "local" && savedModel && !getModel(savedModel)) {
-    try {
-      const { models } = await withTimeout(
-        discoverLocalModels(await listAllEndpoints(), { force: false }),
-        LOCAL_PIN_DISCOVERY_TIMEOUT_MS,
-      );
-      registerRuntimeModels(models);
-    } catch (err) {
-      log("WARN", "app-sidecar", "local model discovery for a pinned project failed", {
-        model: savedModel,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  if (opts.model) {
+    // An explicit model fails closed: unknown/blocked → ModelUnavailableError
+    // (409), never a silent fallback to a cloud provider.
+    const target = await requireStartModel(auth, opts.model);
+    preferred = target.provider;
+    savedModel = target.id;
+  } else if (preferred === "local" && savedModel && !getModel(savedModel)) {
+    await discoverLocalModelForPin(savedModel);
     if (!getModel(savedModel)) {
       log("WARN", "app-sidecar", "pinned local model unavailable; using a fallback provider", {
         model: savedModel,
@@ -1782,6 +1997,9 @@ async function createSession(
     preferred,
     savedModel,
   );
+  if (opts.model && (!loggedIn || model !== opts.model)) {
+    throw new ModelUnavailableError(opts.model, `resolved to ${provider}/${model} instead`);
+  }
   if (!loggedIn) {
     log("WARN", "app-sidecar", "no provider configured — booting logged-out for login", {
       fallbackProvider: provider,
@@ -1955,7 +2173,7 @@ async function createSession(
   };
   let session!: AgentSession;
   if (mode === "chat") {
-    session = createChatAgent(chatAgent, {
+    const chatOptions = {
       ...baseSessionOptions,
       sessionsDir: paths.sessionsDir,
       additionalTools: [
@@ -1965,16 +2183,24 @@ async function createSession(
       ],
       getSystemPromptTail: () =>
         `${memoryStore.renderForPrompt()}\n\n${jiwaStore.renderForPrompt()}`,
-      onAgentChange: async (nextAgent) => {
-        chatAgent = nextAgent;
-        broadcast("chat_agent_change", { chatAgent: nextAgent });
-        await session.persistAppMarker("agent_handoff", { chatAgent: nextAgent }).catch((error) => {
-          log("WARN", "app-sidecar", "agent handoff marker persist failed", {
-            message: error instanceof Error ? error.message : String(error),
-          });
+    };
+    // A persona runs on General's transcript namespace with no handoff tool.
+    session = opts.persona
+      ? createPersonaChatAgent(opts.persona, chatOptions)
+      : createChatAgent(chatAgent, {
+          ...chatOptions,
+          onAgentChange: async (nextAgent) => {
+            chatAgent = nextAgent;
+            broadcast("chat_agent_change", { chatAgent: nextAgent });
+            await session
+              .persistAppMarker("agent_handoff", { chatAgent: nextAgent })
+              .catch((error) => {
+                log("WARN", "app-sidecar", "agent handoff marker persist failed", {
+                  message: error instanceof Error ? error.message : String(error),
+                });
+              });
+          },
         });
-      },
-    });
   } else if (mode === "motion") {
     session = await createMotionAgentSession({
       ...baseSessionOptions,
@@ -2008,7 +2234,9 @@ async function createSession(
     });
   }
   await session.initialize();
-  if (mode === "chat") {
+  // Persona sessions never hand off, so a resumed transcript's handoff marker
+  // (from a pre-persona life) must not swap the persona's prompt out.
+  if (mode === "chat" && !opts.persona) {
     const restoredAgent = [...session.getAppMarkers()]
       .reverse()
       .find((marker) => marker.kind === "agent_handoff")?.data.chatAgent;
@@ -2016,6 +2244,21 @@ async function createSession(
       chatAgent = parseChatAgentId(restoredAgent);
       await switchChatAgent(session, chatAgent, false);
     }
+  }
+  // Pin an explicitly requested model for THIS project only (gg-app.json); never
+  // the global ~/.gg/settings.json. Saved only once the session actually exists.
+  if (opts.model) {
+    await saveProjectModelPrefs(cwd, {
+      provider,
+      model,
+      thinkingEnabled: !!session.getThinkingLevel(),
+      thinkingLevel: session.getThinkingLevel() ?? undefined,
+    }).catch((error) => {
+      log("WARN", "app-sidecar", "project model pin persist failed", {
+        model,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
   log("INFO", "app-sidecar", "session ready", { provider, model, mode, chatAgent, cwd });
 
@@ -2320,28 +2563,12 @@ async function createSession(
    * that has since been shut down.
    */
   async function localModelBlocker(modelId: string): Promise<string | undefined> {
-    const parsed = parseLocalModelId(modelId);
-    if (!parsed) return undefined;
-    const endpoints = await listAllEndpoints();
-    const endpoint = endpoints.find((e) => e.id === parsed.endpointId);
-    if (!endpoint)
-      return `Unknown local endpoint "${parsed.endpointId}" — re-scan for local models.`;
-
-    const probe = await probeEndpoint(endpoint);
+    const { problem, probe } = await probeLocalModelBlocker(modelId);
     // Keep the cached view honest: this probe is fresher than the last scan.
-    localProbes = localProbes.map((p) => (p.endpoint.id === endpoint.id ? probe : p));
-    if (!probe.reachable) {
-      return `${endpoint.label} isn't running at ${endpoint.baseUrl}. Start it and scan again.`;
+    if (probe) {
+      localProbes = localProbes.map((p) => (p.endpoint.id === probe.endpoint.id ? probe : p));
     }
-    const model = probe.models.find((m) => m.rawId === parsed.rawId);
-    if (!model) {
-      return `${endpoint.label} no longer serves "${parsed.rawId}".`;
-    }
-    if (!model.supportsTools) {
-      return `${parsed.rawId} has no tool calling, so it can't run the agent. Pick a tool-capable model.`;
-    }
-    registerRuntimeModels(probe.models.map((m) => localModelInfo(m, endpoint)));
-    return undefined;
+    return problem;
   }
 
   /**
