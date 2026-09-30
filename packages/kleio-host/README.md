@@ -173,6 +173,38 @@ Several Blobs in one conversation with you, stored in `groups.json`. Messages ar
 - **Blob changes:** deleting a Blob removes it from its groups. Renaming it, or changing its job
   or model, retires its group conversations, so they resume with the new persona.
 
+### Apps (`/kleio/connections`, Composio)
+
+Every Kleio conversation (home, Blobs, group members) gets Composio's Tool Router tools. They
+search apps, run their actions, and offer a connect link when an app isn't linked yet.
+
+- **Identity:** one Composio `userId` per install (`kleio_<hex>`, in `composio.json`) and one
+  Tool Router session.
+- **Tools:** the session's MCP URL goes into this machine's global `~/.gg/mcp.json` as
+  `mcpServers.composio`. The write merges and preserves every other server, and the file is
+  mode 0600. When that entry changes, idle conversations are retired, so their next turn loads
+  the tools.
+
+**Routes** (any paired device):
+
+- `GET /kleio/connections` returns `{configured, connections:[{id, toolkit, name, logo, status,
+createdAt}]}`.
+- `GET /kleio/connections/toolkits?search=&cursor=` returns `{toolkits:[…], nextCursor}`.
+- `POST /kleio/connections {toolkit}` returns `{redirectUrl, connectionId}`. Open it in a web sheet.
+- `DELETE /kleio/connections/:id`.
+- `GET /kleio/connections/callback?status=` is **unauthenticated**. It serves a fixed page that
+  redirects to `kleio://connections?status=success|failed`.
+
+**Errors:** with no key, the list says `configured:false` and the other routes answer 503. A
+Composio error is a 502 `{error:"composio", status, detail}`.
+
+**Key:** set `KLEIO_COMPOSIO_API_KEY`, or put the key in `<state dir>/composio.key` (mode 0600;
+`~/Library/Application Support/Kleio/host/composio.key` on the mini), then restart the host. The
+key never appears in a response or log.
+
+**Privacy:** Composio sees tool arguments and results and stores the app logins. It is less
+private than Tinfoil.
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per

@@ -28,7 +28,12 @@ import {
   type Reply,
 } from "./blobs.js";
 import { atomicWrite } from "./device-registry.js";
-import { createPinnedThread, type PinnedThread, type SidecarCall } from "./pinned-thread.js";
+import {
+  createPinnedThread,
+  sessionIdle,
+  type PinnedThread,
+  type SidecarCall,
+} from "./pinned-thread.js";
 
 export interface GroupSession {
   readonly sessionId?: string;
@@ -103,6 +108,11 @@ export interface Groups {
   onBlobDeleted(blobId: string): Promise<void>;
   /** A Blob's name, job or model changed: retire the conversations that describe it. */
   onBlobChanged(blobId: string): Promise<void>;
+  /**
+   * Retire every member conversation that isn't mid-turn, so its next turn
+   * loads the current MCP tools (a new app connection). Returns how many.
+   */
+  retireIdle(): Promise<number>;
   /** Settles once every write started so far has landed, and every turn has finished. */
   flush(): Promise<void>;
 }
@@ -745,6 +755,19 @@ export function createGroups(options: GroupsOptions): Groups {
       for (const g of groups.filter((x) => x.members.includes(blobId)))
         for (const id of g.members) await retire(g.id, id);
       await save();
+    },
+    async retireIdle() {
+      await loaded();
+      let n = 0;
+      for (const g of groups)
+        for (const [bid, sess] of Object.entries(g.sessions)) {
+          if (!sess.sessionId || conductors.get(g.id)?.typing === bid) continue;
+          if (!(await sessionIdle(options.call, sess.sessionId))) continue;
+          await retire(g.id, bid);
+          n += 1;
+        }
+      if (n) await save();
+      return n;
     },
     async flush() {
       await Promise.all([...conductors.values()].map((c) => c.running));

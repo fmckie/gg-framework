@@ -23,6 +23,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
@@ -30,6 +31,7 @@ import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
+import { createConnections } from "./connections.js";
 import { createGroups, type Groups } from "./groups.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
@@ -89,6 +91,17 @@ export interface HostOptions {
   readonly blobTickMs?: number;
   /** How long one Blob's turn in a group chat may run (default 120 s). */
   readonly groupTurnTimeoutMs?: number;
+  /**
+   * App connections (Composio). Absent = the routes answer "not set up".
+   * `keyPath` defaults to <state dir>/composio.key; `ggHome` to ~/.gg.
+   */
+  readonly composio?: {
+    readonly apiKey?: string;
+    readonly keyPath?: string;
+    readonly baseUrl?: string;
+    readonly ggHome?: string;
+    readonly fetch?: typeof fetch;
+  };
 }
 
 export interface Host {
@@ -578,6 +591,29 @@ export function createHost(options: HostOptions): Host {
       })
     : null;
 
+  // App connections. Created whenever the home thread exists; the routes say
+  // "not set up" until a Composio key is present.
+  const connections = home
+    ? createConnections({
+        statePath: join(dirname(options.sidecarEndpointPath), "composio.json"),
+        keyPath:
+          options.composio?.keyPath ?? join(dirname(options.sidecarEndpointPath), "composio.key"),
+        ...(options.composio?.apiKey ? { apiKey: options.composio.apiKey } : {}),
+        ...(options.composio?.baseUrl ? { baseUrl: options.composio.baseUrl } : {}),
+        ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
+        publicBaseUrl: options.publicBaseUrl,
+        ggHome: options.composio?.ggHome ?? join(homedir(), ".gg"),
+        // New tools: idle conversations are retired so their next turn loads them.
+        onToolsChanged: async () => {
+          await home.retireIdle();
+          await blobs?.retireIdle();
+          await groups?.retireIdle();
+        },
+        log,
+        now,
+      })
+    : null;
+
   /**
    * Tap the stored home and Blob sessions at start, so they record with no
    * device attached; Blob schedules missed while down are skipped forward.
@@ -587,6 +623,8 @@ export function createHost(options: HostOptions): Host {
     if (id) await track(id);
     for (const sid of (await blobs?.load()) ?? []) await track(sid);
     for (const sid of (await groups?.load()) ?? []) await track(sid);
+    // After everything is tracked, so a tools change can retire idle threads.
+    if (connections) void background(connections.ensure());
     const every = options.blobTickMs ?? 5_000;
     if (blobs && every > 0 && !stopped) {
       blobTicker = setInterval(() => void background(blobs.tick()), every);
@@ -818,6 +856,23 @@ export function createHost(options: HostOptions): Host {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
+    // Composio's OAuth landing page: no token (a browser lands here), fixed HTML.
+    if (connections) {
+      const page = connections.callback(req.method ?? "GET", path, url.searchParams);
+      if (page) {
+        const data = Buffer.from(page.html);
+        res.writeHead(page.status, {
+          "content-type": "text/html; charset=utf-8",
+          "content-length": data.length,
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+          "referrer-policy": "no-referrer",
+        });
+        res.end(data);
+        return;
+      }
+    }
+
     if (req.method === "GET" && path === "/kleio/health") {
       // Probe, don't trust the endpoint file: a supervisor that died leaves a
       // stale file behind, and "up" would then be a lie until the next request.
@@ -971,6 +1026,21 @@ export function createHost(options: HostOptions): Host {
       const r = await background(
         blobs.route(req.method ?? "GET", path, async () => {
           const body = await readBody(req, 64 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
+    // App connections (Composio). Any paired device.
+    if (connections) {
+      const r = await background(
+        connections.route(req.method ?? "GET", path, url.searchParams, async () => {
+          const body = await readBody(req, 16 * 1024);
           try {
             return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
           } catch {
