@@ -1086,7 +1086,10 @@ describe("host: home thread (GET /kleio/home)", () => {
     await settle();
     sidecar.sessions.set(old, path);
     runEnd(old);
-    await settle();
+    // The host records the transcript path in the background; poll for it
+    // rather than trusting one short pause (slow Windows runners miss it).
+    const t = Date.now();
+    while (homeJson().sessionPath !== path && Date.now() - t < 5000) await settle(20);
     expect(homeJson().sessionPath).toBe(path);
 
     await restartSidecarAndHost();

@@ -5,9 +5,11 @@
 // restores any of these fails here.
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the pathname is "/D:/...".
+const root = fileURLToPath(new URL("..", import.meta.url));
 const conf = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
 
 function rustFiles(dir) {

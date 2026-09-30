@@ -273,6 +273,14 @@ describe("apps: setup", () => {
     // than a fixed pause, so wait for the session call itself.
     const isCreate = (s: { path: string }): boolean => s.path === "/api/v3.1/tool_router/session";
     await until(() => composio.seen.some(isCreate));
+    // ...and for the MCP entry, the last thing setup writes.
+    await until(() => {
+      try {
+        return Boolean(mcpFile().mcpServers?.composio);
+      } catch {
+        return false;
+      }
+    });
     await settle();
 
     const creates = composio.seen.filter(isCreate);
@@ -293,7 +301,9 @@ describe("apps: setup", () => {
       url: "https://mcp.test/tool_router/v3/trs_1/mcp",
       headers: { "x-api-key": KEY },
     });
-    expect(statSync(join(ggHome, "mcp.json")).mode & 0o777).toBe(0o600);
+    // Unix permission bits; Windows has none to check (as in device-registry.test.ts).
+    if (process.platform !== "win32")
+      expect(statSync(join(ggHome, "mcp.json")).mode & 0o777).toBe(0o600);
     const state = JSON.parse(readFileSync(join(home, "composio.json"), "utf8"));
     expect(state).toMatchObject({ sessionId: "trs_1", userId: creates[0]!.body.user_id });
 

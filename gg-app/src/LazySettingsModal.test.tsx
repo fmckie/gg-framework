@@ -50,5 +50,7 @@ describe("lazy settings", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
-  });
+    // Each lazy-chunk wait above allows 5 s on its own, so the test as a whole
+    // needs more than vitest's 5 s default (slow Windows runners hit it).
+  }, 20_000);
 });
