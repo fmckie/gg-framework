@@ -72,9 +72,9 @@ jobs:
           CANDIDATE_INPUTS: ${{ toJSON(inputs) }}
         run: node scripts/verify-ci-candidate.mjs materialize
 
+      # pnpm version comes from the candidate package.json's packageManager field.
       - uses: pnpm/action-setup@v6
         with:
-          version: 10
           package_json_file: subject/package.json
           cache: false
           cache_dependency_path: subject/pnpm-lock.yaml
@@ -173,9 +173,9 @@ jobs:
           CANDIDATE_INPUTS: ${{ toJSON(inputs) }}
         run: node scripts/verify-ci-candidate.mjs materialize
 
+      # pnpm version comes from the candidate package.json's packageManager field.
       - uses: pnpm/action-setup@v6
         with:
-          version: 10
           package_json_file: subject/package.json
           cache: false
           cache_dependency_path: subject/pnpm-lock.yaml
