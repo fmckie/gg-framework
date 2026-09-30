@@ -195,6 +195,14 @@ interface OpenAIModelListEntry {
   id?: string;
   /** vLLM sometimes reports the real window here. */
   max_model_len?: number;
+  /** OpenAI-compatible gateways (e.g. Tinfoil's router) report it here instead. */
+  context_window?: number;
+  /** Gateway model kind; anything but "chat" (embedding, audio, tts…) can't drive an agent. */
+  type?: string;
+  /** Gateway-declared tool support; only an explicit `false` is believed. */
+  tool_calling?: boolean;
+  /** Gateway-declared image input. */
+  multimodal?: boolean;
 }
 interface OpenAIModelList {
   data?: OpenAIModelListEntry[];
@@ -276,7 +284,9 @@ async function enrich(
   if (endpoint.kind === "lmstudio") return enrichLmStudio(endpoint, entries, options);
   if (endpoint.kind === "ollama") return enrichOllama(endpoint, entries, options);
   if (endpoint.kind === "llamacpp") return enrichLlamaCpp(endpoint, entries, options);
-  return entries.map((entry) => genericModel(endpoint, entry));
+  return entries
+    .filter((entry) => typeof entry.type !== "string" || entry.type === "chat")
+    .map((entry) => genericModel(endpoint, entry));
 }
 
 /**
@@ -289,14 +299,14 @@ function genericModel(
   endpoint: LocalEndpoint,
   entry: OpenAIModelListEntry & { id: string },
 ): LocalModel {
-  const declared = contextLength(entry.max_model_len);
+  const declared = contextLength(entry.max_model_len) ?? contextLength(entry.context_window);
   return {
     rawId: entry.id,
     endpointId: endpoint.id,
     contextWindow: declared ?? FALLBACK_CONTEXT_WINDOW,
     contextWindowKnown: declared !== undefined,
-    supportsTools: true,
-    supportsImages: false,
+    supportsTools: entry.tool_calling !== false,
+    supportsImages: entry.multimodal === true,
     supportsThinking: false,
   };
 }

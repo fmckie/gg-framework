@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Provider } from "@kleio/ai";
-import { getDefaultModel } from "./model-registry.js";
+import { getDefaultModel, registerRuntimeModels, clearRuntimeModels } from "./model-registry.js";
 import { resolveStartOrFallback, type ProviderAuthLookup } from "./resolve-start.js";
 
 const ALL: Provider[] = [
@@ -78,5 +78,54 @@ describe("resolveStartOrFallback", () => {
     // Both gemini and glm connected; ALL lists gemini before glm.
     const res = await resolveStartOrFallback(auth("glm", "gemini"), ALL, "anthropic", undefined);
     expect(res.provider).toBe("gemini");
+  });
+
+  describe("a project pinned to a local model (provider outside the fixed list)", () => {
+    const LOCAL_ID = "local/custom-127-0-0-1-3301/kimi-k3";
+    const register = (): void =>
+      registerRuntimeModels([
+        {
+          id: LOCAL_ID,
+          name: "kimi-k3",
+          provider: "local",
+          contextWindow: 262144,
+          maxOutputTokens: 8192,
+          supportsThinking: false,
+          supportsImages: true,
+          supportsVideo: false,
+          costTier: "low",
+          maxThinkingLevel: "high",
+        },
+      ]);
+    const cleanup = (): void => clearRuntimeModels((m) => m.provider === "local");
+
+    it("keeps the pin when the model is registered and the endpoint is authed", async () => {
+      register();
+      try {
+        const res = await resolveStartOrFallback(auth("openai", "local"), ALL, "local", LOCAL_ID);
+        expect(res).toEqual({ provider: "local", model: LOCAL_ID, loggedIn: true });
+      } finally {
+        cleanup();
+      }
+    });
+
+    it("falls back to a cloud provider when the local model isn't discovered", async () => {
+      const res = await resolveStartOrFallback(auth("openai", "local"), ALL, "local", LOCAL_ID);
+      expect(res).toEqual({
+        provider: "openai",
+        model: getDefaultModel("openai").id,
+        loggedIn: true,
+      });
+    });
+
+    it("falls back when the endpoint has no credential", async () => {
+      register();
+      try {
+        const res = await resolveStartOrFallback(auth("openai"), ALL, "local", LOCAL_ID);
+        expect(res.provider).toBe("openai");
+      } finally {
+        cleanup();
+      }
+    });
   });
 });

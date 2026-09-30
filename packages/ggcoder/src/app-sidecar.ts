@@ -214,6 +214,24 @@ const AUTOMATION_PROVENANCE: MessageProvenance = {
   visibility: "hidden",
 };
 
+/** How long a new session waits to discover a project's pinned local model. */
+const LOCAL_PIN_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/** Reject after `ms` (the timer never outlives the race). */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const ALL_PROVIDERS: Provider[] = [
   // US
   "anthropic",
@@ -290,6 +308,12 @@ async function loadAppSettings(): Promise<AppSettings> {
   try {
     const raw = JSON.parse(await fs.readFile(appSettingsFile(), "utf-8")) as Partial<AppSettings>;
     return {
+      // Keep every key this function doesn't validate. gg-app.json is shared:
+      // local-endpoint-store keeps custom endpoints (with their API keys) under
+      // `localEndpoints`, and saveAppSettings rewrites the whole file — so
+      // listing only known keys here erased them on every model switch, and
+      // the next local scan then deleted the endpoint's credential.
+      ...raw,
       projectsRoot:
         typeof raw.projectsRoot === "string" && raw.projectsRoot.trim()
           ? raw.projectsRoot
@@ -1724,6 +1748,30 @@ async function createSession(
   const projectPrefs = await loadProjectModelPrefs(cwd);
   const preferred: Provider = projectPrefs?.provider ?? saved.provider ?? "anthropic";
   const savedModel = projectPrefs?.model ?? saved.model;
+  // Local models only exist once discovery has registered them, and the
+  // per-session scan below runs after the model is chosen. For a project pinned
+  // to one (e.g. a Tinfoil proxy), discover first — bounded, never fatal — so
+  // the pin can win instead of the session falling back to a cloud provider.
+  if (preferred === "local" && savedModel && !getModel(savedModel)) {
+    try {
+      const { models } = await withTimeout(
+        discoverLocalModels(await listAllEndpoints(), { force: false }),
+        LOCAL_PIN_DISCOVERY_TIMEOUT_MS,
+      );
+      registerRuntimeModels(models);
+    } catch (err) {
+      log("WARN", "app-sidecar", "local model discovery for a pinned project failed", {
+        model: savedModel,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (!getModel(savedModel)) {
+      log("WARN", "app-sidecar", "pinned local model unavailable; using a fallback provider", {
+        model: savedModel,
+        cwd,
+      });
+    }
+  }
   // Boot-tolerant: when no provider is configured this returns a logged-out
   // fallback instead of throwing, so the sidecar still listens and the login
   // endpoints are reachable for a fresh user (throwing here used to kill the
