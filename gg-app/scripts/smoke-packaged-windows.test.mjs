@@ -15,6 +15,7 @@ import {
   collectOwnedProcessIds,
   discoverChangedMsi,
   discoverPackagedLayout,
+  launchEvidence,
   removeTemporaryDirectory,
   snapshotMsiArtifacts,
   waitFor,
@@ -89,6 +90,93 @@ describe("packaged Windows smoke artifact discovery", () => {
     writeFileSync(join(install, "ggnode.exe"), "node");
 
     expect(() => discoverPackagedLayout(root)).toThrow("packaged sidecar resource missing");
+  });
+});
+
+describe("packaged Windows smoke launch evidence (Kleio: remote-only)", () => {
+  function packagedLayout() {
+    const root = temporaryDirectory();
+    const install = join(root, "PFiles64", "Kleio");
+    mkdirSync(join(install, "sidecar"), { recursive: true });
+    writeFileSync(join(install, "gg-app.exe"), "app");
+    writeFileSync(join(install, "ggnode.exe"), "node");
+    writeFileSync(join(install, "sidecar", "app-sidecar.mjs"), "sidecar");
+    return discoverPackagedLayout(root);
+  }
+  const APP_PID = 4100;
+  const appProcess = (layout) => ({
+    ProcessId: APP_PID,
+    ParentProcessId: 1,
+    ExecutablePath: layout.executable,
+  });
+  const engine = (layout, over = {}) => ({
+    ProcessId: 4200,
+    ParentProcessId: APP_PID,
+    ExecutablePath: layout.node,
+    CommandLine: `"${layout.node}" "${layout.sidecar}"`,
+    ...over,
+  });
+
+  it("sees the packaged app with its window and no local engine", () => {
+    const layout = packagedLayout();
+    expect(
+      launchEvidence({
+        processes: [appProcess(layout)],
+        visiblePids: new Set([APP_PID]),
+        layout,
+        appPid: APP_PID,
+      }),
+    ).toEqual({ app: true, window: true, localEngine: false });
+  });
+
+  it("is not ready until the window is visible", () => {
+    const layout = packagedLayout();
+    const found = launchEvidence({
+      processes: [appProcess(layout)],
+      visiblePids: new Set([9999]),
+      layout,
+      appPid: APP_PID,
+    });
+    expect(found).toEqual({ app: true, window: false, localEngine: false });
+  });
+
+  it("catches the packaged app starting a local engine", () => {
+    const layout = packagedLayout();
+    const found = launchEvidence({
+      processes: [appProcess(layout), engine(layout)],
+      visiblePids: new Set([APP_PID]),
+      layout,
+      appPid: APP_PID,
+    });
+    expect(found.localEngine).toBe(true);
+  });
+
+  it("ignores node processes that aren't the app's packaged engine", () => {
+    const layout = packagedLayout();
+    const found = launchEvidence({
+      processes: [
+        appProcess(layout),
+        // The runner's own node, a child of someone else, or running another script.
+        engine(layout, { ExecutablePath: join(tmpdir(), "node.exe") }),
+        engine(layout, { ParentProcessId: 77 }),
+        engine(layout, { CommandLine: `"${layout.node}" other.mjs` }),
+      ],
+      visiblePids: new Set([APP_PID]),
+      layout,
+      appPid: APP_PID,
+    });
+    expect(found.localEngine).toBe(false);
+  });
+
+  it("does not mistake another exe for the packaged app", () => {
+    const layout = packagedLayout();
+    const found = launchEvidence({
+      processes: [{ ...appProcess(layout), ExecutablePath: join(tmpdir(), "gg-app.exe") }],
+      visiblePids: new Set([APP_PID]),
+      layout,
+      appPid: APP_PID,
+    });
+    expect(found.app).toBe(false);
   });
 });
 
