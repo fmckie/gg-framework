@@ -108,6 +108,16 @@ export function field(body: string, key: string): string | null {
   }
 }
 
+/**
+ * False when the sidecar reports `sessionId` mid-run. A session it cannot
+ * report on (unreachable, gone) counts as idle: there is no run to disturb.
+ */
+export async function sessionIdle(call: SidecarCall, sessionId: string): Promise<boolean> {
+  const st = await call("GET", "/state", { session: sessionId });
+  const state = st?.status === 200 ? field(st.body, "runState") : null;
+  return !state || state === "idle";
+}
+
 export function createPinnedThread(options: PinnedThreadOptions): PinnedThread {
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());

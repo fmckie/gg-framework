@@ -15,6 +15,7 @@ import {
   type PinnedSession,
   type PinnedSessionError,
   type SidecarCall,
+  sessionIdle,
 } from "./pinned-thread.js";
 import type { Result } from "./result.js";
 
@@ -52,6 +53,11 @@ export interface HomeThreads {
   startNew(): Promise<Result<HomeThread, HomeThreadError>>;
   /** A run ended on `sessionId`: if it is home, learn its transcript path. */
   onRunEnd(sessionId: string): Promise<void>;
+  /**
+   * Retire the live home session unless it is mid-run, so the next open
+   * resumes the transcript with the current MCP tools. True when retired.
+   */
+  retireIdle(): Promise<boolean>;
   /** Settles once every home.json write started so far has landed. */
   flush(): Promise<void>;
 }
@@ -121,6 +127,11 @@ export function createHomeThreads(options: HomeThreadOptions): HomeThreads {
     resolve: () => thread.resolve(),
     startNew: () => thread.startNew(),
     onRunEnd: (sessionId) => thread.onRunEnd(sessionId),
+    async retireIdle() {
+      const sid = (await current())?.sessionId;
+      if (!sid || !(await sessionIdle(options.call, sid))) return false;
+      return (await thread.retire()) !== null;
+    },
     flush: () => writes.catch(() => {}),
   };
 }

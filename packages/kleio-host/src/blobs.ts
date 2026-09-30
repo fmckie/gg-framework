@@ -43,6 +43,7 @@ import {
   type PinnedSessionError,
   type PinnedThread,
   type SidecarCall,
+  sessionIdle,
 } from "./pinned-thread.js";
 import { err, ok, type Result } from "./result.js";
 
@@ -157,6 +158,11 @@ export interface Blobs {
   onFrame(sessionId: string, raw: string): Nudge | null;
   /** Fire at most one due schedule. */
   tick(): Promise<void>;
+  /**
+   * Retire every Blob session that is not mid-run, so its next open resumes
+   * the transcript with the current MCP tools. Returns how many were retired.
+   */
+  retireIdle(): Promise<number>;
   /** Settles once every write started so far has landed. */
   flush(): Promise<void>;
   /** A Blob by id, once blobs.json is loaded. */
@@ -985,6 +991,15 @@ export function createBlobs(options: BlobsOptions): Blobs {
     },
     onFrame,
     tick,
+    async retireIdle() {
+      await loaded();
+      let n = 0;
+      for (const b of [...blobs]) {
+        if (!b.sessionId || isBusy(b) || !(await sessionIdle(options.call, b.sessionId))) continue;
+        if (await thread(b.id).retire()) n += 1;
+      }
+      return n;
+    },
     flush: async () => {
       await writes.catch(() => {});
       await Promise.allSettled(runWrites.values());
