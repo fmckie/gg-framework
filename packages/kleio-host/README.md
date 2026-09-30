@@ -154,6 +154,25 @@ fallback) and adds up to 5 schedules with `source:"auto"`.
 - `POST /kleio/blobs/suggest-schedules {job, model?, timezone?}` → `{schedules}`: a preview
   with no writes (502 `{error}` when the read fails).
 
+### Group chats (`/kleio/groups`)
+
+Several Blobs in one conversation with you, stored in `groups.json`. Messages are kept in
+`group-<id>.jsonl` (the last 500). Limits: 20 groups, 1–8 members each.
+
+- **Who replies:** a message's `@mentions` reply; if there are none, every member replies in
+  order.
+- **Handing on:** a reply that `@mentions` another member passes the turn to them. The limit is
+  6 Blob turns per message of yours.
+- **Staying quiet:** a Blob with nothing to add answers `PASS`, and nothing is posted.
+- **Sessions:** each (group, Blob) pair has its own pinned conversation (cwd
+  `<KLEIO_HOME_CWD>/groups/<gid>/<bid>`). Its persona is the Blob's job plus a short group
+  addendum. Each turn is prompted with the messages that Blob hasn't seen yet.
+- **Clients:** poll `GET …/messages?after=<seq>` about every 1.5 s while the chat is on screen.
+- **Notifications:** one APNs push per exchange (`kleio.groupId`), and only when no device polled
+  in the last 20 s.
+- **Blob changes:** deleting a Blob removes it from its groups. Renaming it, or changing its job
+  or model, retires its group conversations, so they resume with the new persona.
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per

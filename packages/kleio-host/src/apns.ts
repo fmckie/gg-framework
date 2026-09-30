@@ -256,7 +256,9 @@ export function createApnsPusher(opts: {
           targets.map((d) => send(config, d.push.token, payload)),
         );
         const okCount = results.filter((r) => r.status === "fulfilled" && r.value === 200).length;
-        log(`[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.groupId ?? nudge.sessionId}`);
+        log(
+          `[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.groupId ?? nudge.sessionId}`,
+        );
         return okCount;
       } catch (e) {
         log(`[apns] push failed: ${String(e)}`);

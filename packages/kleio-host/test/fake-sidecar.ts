@@ -30,6 +30,14 @@ export interface FakeSidecar {
   runStates: Map<string, string>;
   /** Every POST /prompt: its x-gg-session and body. */
   prompts: { session: string | undefined; body: any }[];
+  /**
+   * When set, every POST /prompt is answered like a real run: run_start, the
+   * returned text as text_delta frames, run_end. null = no reply (the test
+   * drives the frames itself).
+   */
+  autoReply: ((sessionId: string, promptText: string) => string | null) | null;
+  /** Each created session id's POST /session body. */
+  createdBodies: Map<string, any>;
   /** Ids of every DELETE /session/:id. */
   disposed: string[];
   /** What GET /models answers. */
@@ -93,6 +101,7 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
           return res.end(JSON.stringify({ error: "cannot open transcript" }));
         }
         const id = `created-${(createdCount += 1)}`;
+        api.createdBodies.set(id, body);
         api.sessions.set(id, typeof body.sessionPath === "string" ? body.sessionPath : "");
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ sessionId: id }));
@@ -136,6 +145,18 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
         // Like the real sidecar: 202 once the run is claimed.
         res.writeHead(202, { "content-type": "application/json" });
         res.end(JSON.stringify({ accepted: true, echoed: JSON.parse(body) }));
+        const sid = req.headers["x-gg-session"] as string | undefined;
+        const reply =
+          sid && api.autoReply ? api.autoReply(sid, String(JSON.parse(body).text)) : null;
+        if (sid && reply !== null) {
+          const say = (type: string, data: unknown = {}): void =>
+            api.emit(sid, `data: ${JSON.stringify({ type, data })}`);
+          setTimeout(() => {
+            say("run_start");
+            if (reply) say("text_delta", { text: reply });
+            say("run_end", {});
+          }, 5);
+        }
       });
       return;
     }
@@ -190,6 +211,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     unavailableModel: null,
     runStates: new Map(),
     prompts: [],
+    autoReply: null,
+    createdBodies: new Map(),
     disposed: [],
     models: [],
     completions: [],

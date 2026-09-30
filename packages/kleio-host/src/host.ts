@@ -29,7 +29,8 @@ import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from 
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
-import { createBlobs, DEFAULT_BLOB_MODEL } from "./blobs.js";
+import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
+import { createGroups, type Groups } from "./groups.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
@@ -86,6 +87,8 @@ export interface HostOptions {
   readonly blobDefaultModel?: string;
   /** How often the Blob scheduler looks for a due schedule (ms). 0 disables. Default 5 s. */
   readonly blobTickMs?: number;
+  /** How long one Blob's turn in a group chat may run (default 120 s). */
+  readonly groupTurnTimeoutMs?: number;
 }
 
 export interface Host {
@@ -286,6 +289,7 @@ export function createHost(options: HostOptions): Host {
             const lf = liveFrame(raw);
             if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
             const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
+            groups?.onFrame(sessionId, raw);
             if (!isRunEnd(raw)) continue;
             // The home thread's transcript path appears at its first run end
             // and moves on compaction; re-learn it whoever is watching.
@@ -294,7 +298,10 @@ export function createHost(options: HostOptions): Host {
             // A run finished and nobody was watching: one nudge per phone. The
             // content waits in the ring for the attach that follows. A Blob's
             // scheduled result is the point, so it is sent whoever is watching.
-            if ((blobNudge || s.subs.size === 0) && options.apns?.configured) {
+            // A group member's turn is announced by the group (one push per
+            // exchange), never per session.
+            const groupTurn = groups?.owns(sessionId) ?? false;
+            if (!groupTurn && (blobNudge || s.subs.size === 0) && options.apns?.configured) {
               void options.apns
                 .notify(blobNudge ?? { sessionId }, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
@@ -533,7 +540,7 @@ export function createHost(options: HostOptions): Host {
       })
     : null;
 
-  const blobs = home
+  const blobs: Blobs | null = home
     ? createBlobs({
         statePath: join(dirname(options.sidecarEndpointPath), "blobs.json"),
         cwdRoot: join(options.homeCwd!, "blobs"),
@@ -542,11 +549,34 @@ export function createHost(options: HostOptions): Host {
         track,
         untrack,
         homeSession: () => home.resolve(),
+        // Groups is created below; these run only on a request, after that.
+        onDeleted: (blobId): Promise<void> => groups?.onBlobDeleted(blobId) ?? Promise.resolve(),
+        onChanged: (blobId): Promise<void> => groups?.onBlobChanged(blobId) ?? Promise.resolve(),
         log,
         now,
       })
     : null;
   let blobTicker: NodeJS.Timeout | null = null;
+
+  const groups: Groups | null = blobs
+    ? createGroups({
+        statePath: join(dirname(options.sidecarEndpointPath), "groups.json"),
+        cwdRoot: join(options.homeCwd!, "groups"),
+        call: sidecarCall,
+        track,
+        untrack,
+        findBlob: (id) => blobs.find(id),
+        modelOf: (b) => blobs.modelOf(b),
+        notify: async (n) => {
+          if (options.apns?.configured) await options.apns.notify(n, registry.list());
+        },
+        ...(options.groupTurnTimeoutMs !== undefined
+          ? { turnTimeoutMs: options.groupTurnTimeoutMs }
+          : {}),
+        log,
+        now,
+      })
+    : null;
 
   /**
    * Tap the stored home and Blob sessions at start, so they record with no
@@ -556,6 +586,7 @@ export function createHost(options: HostOptions): Host {
     const id = await home?.load();
     if (id) await track(id);
     for (const sid of (await blobs?.load()) ?? []) await track(sid);
+    for (const sid of (await groups?.load()) ?? []) await track(sid);
     const every = options.blobTickMs ?? 5_000;
     if (blobs && every > 0 && !stopped) {
       blobTicker = setInterval(() => void background(blobs.tick()), every);
@@ -950,6 +981,21 @@ export function createHost(options: HostOptions): Host {
       if (r) return json(res, r.status, r.body);
     }
 
+    // Group chats. Any paired device, like Blobs.
+    if (groups) {
+      const r = await background(
+        groups.route(req.method ?? "GET", path, url.searchParams, async () => {
+          const body = await readBody(req, 64 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
     if (path.startsWith("/kleio/")) {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
       if (req.method === "GET" && path === "/kleio/devices")
@@ -1053,7 +1099,12 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        const written = Promise.allSettled([...inflight, home?.flush(), blobs?.flush()]);
+        const written = Promise.allSettled([
+          ...inflight,
+          home?.flush(),
+          blobs?.flush(),
+          groups?.flush(),
+        ]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),
