@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "dist:ggcoder": {
-      "bytes": 6581268,
-      "recorded_at": "2026-09-23T11:41:49.223Z"
+      "bytes": 6950315,
+      "recorded_at": "2026-09-30T16:13:10.642Z"
     },
     "sidecar": {
       "bytes": 8157676,
       "recorded_at": "2026-08-20T20:12:18.316Z"
     },
     "frontend:initial": {
-      "bytes": 845843,
-      "recorded_at": "2026-09-07T14:38:04.389Z"
+      "bytes": 992932,
+      "recorded_at": "2026-09-30T16:13:10.695Z"
     }
   },
   "startup": {

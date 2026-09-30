@@ -1,0 +1,238 @@
+/* ── Kleio's look ────────────────────────────────────────────────────────────
+   The icon's crimson and white, carried through Ken's near-black design
+   system. Loaded after App.css and glass.css (see main.tsx), so it overrides
+   tokens plus the few solid fills that pair a colour with its label; every
+   component that reads `var(--primary)` or `theme.primary` follows on its own.
+   GG Coder is a separate app and never loads this file.
+
+   Why two reds: one red cannot both read as text on near-black (needs ≥4.5:1
+   against --bg) and carry a white label as a fill (needs ≥4.5:1 against white);
+   those ranges don't overlap. So --primary is the bright red for text, icons,
+   focus rings and highlights, and --kleio-crimson (the icon's red, lifted for
+   a dark UI) is the fill behind white labels. */
+
+:root {
+  /* Brand. */
+  --kleio-red: #8b1521; /* the icon */
+  --kleio-crimson: #c8283a; /* fills behind white labels: 5.5:1 */
+  --kleio-crimson-hi: #d53446; /* hover: 4.8:1 */
+
+  /* Surfaces and ink: Ken's near-black, warmed a touch toward the red. */
+  --bg: #0c090a;
+  --surface-1: #161213;
+  --surface-2: #1f1a1b;
+  --surface-3: #282223;
+  --text: #f6f1f1;
+  --text-secondary: #d3c9ca;
+  --text-muted: #a69c9d;
+  --text-dim: #8f8586;
+
+  /* Accent for text, icons, focus and highlights: 6.5:1 on --bg. */
+  --primary: #ff5c69;
+  --primary-hi: #ff7a85;
+  /* Ink for any luminous --primary fill not restyled below. */
+  --on-primary: #2a0508;
+  --secondary: #ff5c69;
+
+  /* The ambient window glow, Ken's glass accent (primary buttons, the send
+     button) and progress fills. */
+  --glow: #b3202f;
+  --glass-accent-base: #c8283a;
+  --flux-from: #b3202f;
+  --flux-to: #ff8a95;
+
+  /* The empty-workspace rain (WakeScreen). */
+  --wake-rain-lead: #ff7a85;
+  --wake-rain: rgba(200, 40, 58, 0.55);
+  --wake-fade: rgba(12, 9, 10, 0.18);
+}
+
+/* ── Solid fills: crimson with a white label, like the icon ── */
+.modal-btn.primary,
+.plan-step-check,
+.enhance-pill,
+.ask-options .btn.btn-primary {
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+.modal-btn.primary:hover:not(:disabled),
+.enhance-pill:hover:not(:disabled),
+.ask-options .btn-primary:hover:not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+.btn-primary .ask-row-hint {
+  color: rgb(255 255 255 / 0.8);
+}
+.btn-primary .ask-num {
+  color: rgb(255 255 255 / 0.72);
+}
+/* Checkboxes and radios: crimson when on, with a white tick or dot. */
+.modal-radio input[type="checkbox"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E");
+}
+.modal-radio input[type="radio"] {
+  background-image: radial-gradient(circle, #fff 0 34%, transparent 38%);
+}
+.modal-radio input:is([type="checkbox"], [type="radio"]):checked {
+  background-color: var(--kleio-crimson);
+  border-color: var(--kleio-crimson);
+  box-shadow:
+    var(--liquid-rim-soft-small),
+    0 0 10px color-mix(in oklab, var(--kleio-crimson) 45%, transparent);
+}
+.modal-radio input:is([type="checkbox"], [type="radio"]):checked:hover:not(:disabled) {
+  background-color: var(--kleio-crimson-hi);
+  border-color: var(--kleio-crimson-hi);
+}
+
+/* No glass (reduced transparency / more contrast): Ken's fallback is a
+   luminous fill with dark ink; Kleio's is crimson with white. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .modal-btn.primary,
+  .btn-primary,
+  .icon-circle-primary,
+  .inputactions-trailing:has(> .action-metal.metal-fx-root) > .icon-circle-primary,
+  .enhance-pill,
+  .enhance-pill-host:has(> .action-metal.metal-fx-root) > .enhance-pill {
+    background: var(--kleio-crimson);
+    color: #fff;
+  }
+  .modal-btn.primary:hover:not(:disabled),
+  .btn-primary:hover:not(:disabled),
+  .icon-circle-primary:hover:not(:disabled),
+  .enhance-pill:hover:not(:disabled),
+  .enhance-pill-host:has(> .action-metal.metal-fx-root) > .enhance-pill:hover:not(:disabled) {
+    background: var(--kleio-crimson-hi);
+    color: #fff;
+  }
+}
+
+/* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
+.kleio-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+.kleio-mark-img {
+  display: block;
+  width: 112px;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 8px 28px rgb(0 0 0 / 0.55));
+}
+.kleio-wordmark {
+  font-family: Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 60px;
+  line-height: 1;
+  /* The trailing letter-space is cancelled so the word stays centred. */
+  letter-spacing: 0.32em;
+  margin-right: -0.32em;
+  color: #fff;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 0.5);
+}
+.kleio-mark.is-small .kleio-mark-img {
+  width: 84px;
+}
+.kleio-mark.is-small .kleio-wordmark {
+  font-size: 42px;
+}
+
+/* ── Home ── Ken's layout and entry animation (.home and friends), with a
+   crimson wash over the dithered waves in place of his neutral grey. */
+.home.kleio-home::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      58% 52% at 50% 44%,
+      color-mix(in srgb, var(--kleio-red) 58%, transparent),
+      transparent 74%
+    ),
+    radial-gradient(
+      42% 42% at 100% 100%,
+      color-mix(in srgb, var(--kleio-red) 30%, transparent),
+      transparent 80%
+    );
+}
+.home > .kleio-mark {
+  position: relative;
+  z-index: 1;
+  animation: reveal-up 460ms var(--ease-out) 120ms both;
+}
+.kleio-home .home-tagline {
+  margin-top: -6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.kleio-home .home-action.btn-primary {
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+.kleio-home .home-action.btn-primary:hover:not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+.kleio-home .home-action.btn-ghost {
+  background: rgb(255 255 255 / 0.08);
+  color: var(--text);
+}
+.kleio-home .home-action.btn-ghost:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.14);
+}
+.kleio-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  color: var(--text-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.kleio-status:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: var(--text);
+}
+.kleio-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+}
+.kleio-home .home-byline {
+  color: var(--text-muted);
+}
+
+/* ── Connect / can't-reach screens: the same crimson wash ── */
+.kleio-gate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 65% at 50% 44%,
+    color-mix(in srgb, var(--kleio-red) 48%, transparent) 0%,
+    color-mix(in srgb, var(--kleio-red) 16%, transparent) 45%,
+    transparent 85%
+  );
+}
+.kleio-gate-card {
+  position: relative;
+}

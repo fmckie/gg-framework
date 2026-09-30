@@ -6,7 +6,7 @@
 //!
 //! Activation, in priority order, decided once at boot:
 //!   1. Environment (dev override): KLEIO_HOST_URL + KLEIO_DEVICE_TOKEN.
-//!   2. A paired host: `~/.gg/kleio-remote.json` (`store.rs`) plus the device
+//!   2. A paired host: `~/.kleio/remote.json` (`store.rs`) plus the device
 //!      token from the login Keychain (`keychain.rs`). Pairing happens in the
 //!      app (`commands.rs`) and takes effect on the next launch.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
@@ -16,8 +16,10 @@
 
 pub mod biometric;
 pub mod commands;
+pub use commands::host_auth;
 pub mod keychain;
 pub mod store;
+pub mod tailscale;
 
 use std::sync::OnceLock;
 
@@ -154,6 +156,18 @@ pub const CONTROL_HEADER: &str = "x-kleio-control";
 /// the port as a readiness signal and passes it back to Rust commands.
 pub const REMOTE_PORT_SENTINEL: u16 = 1;
 
+/// Kleio's own local state directory (`~/.kleio`). The desktop app keeps its
+/// few local files here and never in `~/.gg`, which belongs to GG Coder and the
+/// `ggcoder` CLI on the same Mac. Everything else lives on the Kleio host.
+pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".kleio")
+}
+
+/// Kleio Desktop is a client of the Kleio host and nothing else: it never
+/// spawns a local engine (sidecar), never sweeps sidecar processes (those on
+/// this Mac belong to GG Coder), and shows a connect screen until paired.
+pub const REMOTE_ONLY: bool = true;
+
 /// Parse the `id:` line from one SSE frame, if any.
 pub fn sse_frame_id(frame: &str) -> Option<u64> {
     frame
@@ -165,6 +179,13 @@ pub fn sse_frame_id(frame: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kleio_state_is_never_gg_coders() {
+        let dir = state_dir(std::path::Path::new("/Users/someone"));
+        assert_eq!(dir, std::path::PathBuf::from("/Users/someone/.kleio"));
+        assert!(REMOTE_ONLY);
+    }
 
     #[test]
     fn parses_id_line() {

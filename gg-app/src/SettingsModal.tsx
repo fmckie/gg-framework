@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { theme } from "./theme";
 import { Modal } from "./Modal";
+import { ModalDismissButton, useModalEmbedState } from "./modal-embed";
 import { Badge } from "./Badge";
 import {
   getSettings,
@@ -12,8 +13,9 @@ import {
 } from "./agent";
 import { toast } from "./toast";
 import { SoundButton } from "./SoundButton";
-import { MemesButton } from "./MemesButton";
-import { GgUiButton } from "./GgUiButton";
+import { HomeBackgroundButton } from "./HomeBackgroundButton";
+import { SettingsSection } from "./settings-section";
+import { SettingsHeaderAction } from "./settings-header";
 
 interface Props {
   onClose: () => void;
@@ -22,6 +24,7 @@ interface Props {
 }
 
 export function SettingsModal({ onClose, onSaved }: Props): React.ReactElement {
+  const embedded = useModalEmbedState() === "embed";
   const [projectsRoot, setProjectsRoot] = useState("");
   const [busy, setBusy] = useState(false);
   const [permissions, setPermissions] = useState<PermissionsStatus | null>(null);
@@ -67,60 +70,83 @@ export function SettingsModal({ onClose, onSaved }: Props): React.ReactElement {
     }
   }
 
+  // On the Settings screen this is the General tab; the screen already says
+  // "Settings".
+  const saveButton = (
+    <button
+      // In the Settings header it matches the nav bars' small buttons.
+      className={embedded ? "btn btn-primary btn-sm" : "modal-btn primary"}
+      disabled={busy}
+      onClick={() => void save()}
+    >
+      {busy ? "Saving\u2026" : "Save"}
+    </button>
+  );
+
   return (
-    <Modal title="Settings" onClose={onClose}>
-      {permissions?.applicable && (
-        <>
-          <div className="modal-label" style={{ color: theme.textMuted }}>
-            Permissions
-          </div>
-          <div className="modal-row">
-            <button
-              className="modal-btn"
-              onClick={() => void openPermissionsSettings()}
-              disabled={permissions.granted}
-            >
-              {permissions.granted ? "Permissions granted" : "Grant Permissions…"}
-            </button>
-            <Badge color={permissions.granted ? theme.success : theme.textMuted}>
-              {permissions.granted ? "Granted" : "Not granted"}
-            </Badge>
-          </div>
-        </>
-      )}
-      <div className="modal-label" style={{ color: theme.textMuted }}>
-        Effects
-      </div>
-      <div className="modal-row">
-        <SoundButton variant="settings" />
-        <MemesButton variant="settings" />
-        <GgUiButton />
-      </div>
-      <div className="modal-label" style={{ color: theme.textMuted }}>
-        Project folder
-      </div>
-      <div className="modal-hint" style={{ color: theme.textDim }}>
-        New projects are created inside this folder.
-      </div>
-      <div className="modal-row">
-        <input
-          className="modal-input"
-          style={{ color: theme.text, background: theme.inputBackground }}
-          value={projectsRoot}
-          placeholder="/Users/you/gg-projects"
-          onChange={(e) => setProjectsRoot(e.target.value)}
-        />
-        <button className="modal-btn" onClick={() => void browse()}>
-          {"Browse\u2026"}
-        </button>
-      </div>
-      <div className="modal-actions">
-        <button className="modal-btn" onClick={onClose}>
-          Cancel
-        </button>
-        <button className="modal-btn primary" disabled={busy} onClick={() => void save()}>
-          {busy ? "Saving\u2026" : "Save"}
-        </button>
+    <Modal title={embedded ? "General" : "Settings"} onClose={onClose}>
+      {/* Columns only on the Settings screen; in the dialog they are
+          transparent (see .settings-cols in App.css). */}
+      <div className="settings-cols">
+        <div className="settings-col">
+          {permissions?.applicable && (
+            <SettingsSection title="Permissions" description="Full Disk Access for GG Coder.">
+              <div className="modal-row">
+                <button
+                  className="modal-btn"
+                  onClick={() => void openPermissionsSettings()}
+                  disabled={permissions.granted}
+                >
+                  {permissions.granted ? "Permissions granted" : "Grant Permissions…"}
+                </button>
+                <Badge color={permissions.granted ? theme.success : theme.textMuted}>
+                  {permissions.granted ? "Granted" : "Not granted"}
+                </Badge>
+              </div>
+            </SettingsSection>
+          )}
+          <SettingsSection
+            title="Effects"
+            description="Sounds, and the home screen's moving background."
+          >
+            <div className="modal-row">
+              <SoundButton variant="settings" />
+              <HomeBackgroundButton />
+            </div>
+          </SettingsSection>
+        </div>
+        <div className="settings-col">
+          {embedded && <SettingsHeaderAction>{saveButton}</SettingsHeaderAction>}
+          <SettingsSection
+            title="Project folder"
+            description="Where new projects are created."
+            dialogHint={
+              <div className="modal-hint" style={{ color: theme.textDim }}>
+                New projects are created inside this folder.
+              </div>
+            }
+          >
+            <div className="modal-row">
+              <input
+                className="modal-input"
+                style={{ color: theme.text, background: theme.inputBackground }}
+                value={projectsRoot}
+                placeholder="/Users/you/gg-projects"
+                onChange={(e) => setProjectsRoot(e.target.value)}
+              />
+              <button className="modal-btn" onClick={() => void browse()}>
+                {"Browse\u2026"}
+              </button>
+            </div>
+          </SettingsSection>
+          {/* On the page, Save sits in the screen's header bar instead. */}
+          {!embedded && (
+            <div className="modal-actions">
+              <ModalDismissButton onClick={onClose}>Cancel</ModalDismissButton>
+              {saveButton}
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );

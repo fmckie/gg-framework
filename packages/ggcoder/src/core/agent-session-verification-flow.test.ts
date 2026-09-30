@@ -22,6 +22,7 @@ import type { VerificationEvidence } from "./verification-evidence.js";
 
 interface FlowInternals {
   sessionPath: string;
+  resetHookState(originalRequest: string): void;
   processManager: ProcessManager;
   getHookFollowUpMessages(): Promise<Message[] | null>;
   getVerificationProblem(): string | null;
@@ -171,6 +172,32 @@ const artifactBuild =
   "import fs from 'node:fs'; fs.mkdirSync('dist', {recursive:true}); fs.writeFileSync('dist/app.js', 'generated');\n";
 
 describe("verification gate flow", () => {
+  it.each([true, false])(
+    "keeps real check results out of the next read-only turn (passed=%s)",
+    async (passed) => {
+      const { internal } = await makeSession();
+      await prepareBuildProject("");
+      if (!passed)
+        await fs.writeFile(path.join(tmpProject, "subject.mjs"), "export const value = 2;\n");
+      await runRealCheck(internal, "npm run check");
+      expect(
+        session!
+          .getRunVerificationActivity()
+          .evidence.some((entry) => entry.status === (passed ? "passed" : "failed")),
+      ).toBe(true);
+      const problem = internal.getVerificationProblem();
+      const evidence = internal.getVerificationEvidence();
+      internal.resetHookState("Explain what you found. Do not edit anything.");
+      await simulateToolCall(internal, "read", { file_path: "subject.mjs" });
+      expect(session!.getRunVerificationActivity()).toEqual({
+        changed: false,
+        checked: false,
+        evidence: [],
+      });
+      expect(internal.getVerificationProblem()).toBe(problem);
+      expect(internal.getVerificationEvidence()).toEqual(evidence);
+    },
+  );
   it.each([false, true])(
     "preserves earlier verification after a mixed check/help chain (background=%s)",
     async (background) => {
@@ -548,6 +575,18 @@ describe("verification gate flow", () => {
     });
     expect(digest).toContain(`PASSED: \`${command}\``);
     expect(digest).not.toContain("background or persistent commands are not bounded evidence");
+  });
+
+  it.each([
+    "git status --short && git diff --stat",
+    "rm -r scratch.html && git status --short && echo CLEAN",
+  ])("does not demand verification after ordinary shell work: %s", async (command) => {
+    const { internal } = await makeSession();
+    execFileSync("git", ["init", "--quiet"], { cwd: tmpProject });
+    await fs.writeFile(path.join(tmpProject, "subject.mjs"), "export const value = 1;\n");
+    await simulateToolCall(internal, "bash", { command });
+    expect(internal.getVerificationProblem()).toBeNull();
+    expect(internal.getVerificationEvidence()).toEqual([]);
   });
 
   it("persists unresolved verification and requires fresh evidence after resuming", async () => {

@@ -36,6 +36,18 @@ export async function resolveStartOrFallback(
   preferred: Provider,
   savedModel: string | undefined,
 ): Promise<ResolvedStartResult> {
+  // Providers outside the fixed list (local endpoints: Ollama, LM Studio, a
+  // Tinfoil proxy) have no "default model", so they count only when the saved
+  // model itself is registered (discovery has run) and its endpoint is authed.
+  // Without this, a project pinned to a local model always booted on the first
+  // logged-in cloud provider instead, silently.
+  if (!allProviders.includes(preferred) && savedModel) {
+    const saved = getModel(savedModel);
+    if (saved?.provider === preferred && (await auth.hasProviderAuth(preferred))) {
+      return { provider: preferred, model: saved.id, loggedIn: true };
+    }
+  }
+
   const loggedIn: Provider[] = [];
   for (const p of allProviders) {
     if (await auth.hasProviderAuth(p)) loggedIn.push(p);

@@ -28,6 +28,12 @@ const CHAT_LINES = [
   "Talk to me. I\u2019m listening.",
 ] as const;
 
+const MOTION_LINES = [
+  "Lights\u2026",
+  "Drop in a website, a PDF, or an idea.",
+  "Tell me what to make. Let\u2019s make it move.",
+] as const;
+
 const TYPE_MS = 55; // per-character type speed
 const HOLD_MS = 1400; // pause once a line finishes typing
 const ERASE_MS = 22; // per-character erase speed
@@ -97,6 +103,12 @@ function MatrixRain(): React.ReactElement {
     let raf = 0;
     let last = 0;
     const STEP = 70; // ms between rain advances (~14fps — calm, cheap)
+    // A theme can recolour the rain through these properties (canvas can't
+    // read var() itself); unset, it is the brand periwinkle/blue.
+    const css = getComputedStyle(document.documentElement);
+    const rainLead = css.getPropertyValue("--wake-rain-lead").trim() || "#9b8cf7";
+    const rainTail = css.getPropertyValue("--wake-rain").trim() || "rgba(77, 157, 255, 0.55)";
+    const rainFade = css.getPropertyValue("--wake-fade").trim() || "rgba(15, 17, 21, 0.18)";
 
     function frame(now: number) {
       raf = requestAnimationFrame(frame);
@@ -104,7 +116,7 @@ function MatrixRain(): React.ReactElement {
       last = now;
 
       // Trail fade — translucent wash over the prior frame.
-      ctx.fillStyle = "rgba(15, 17, 21, 0.18)";
+      ctx.fillStyle = rainFade;
       ctx.fillRect(0, 0, width, height);
       // Canvas 2D cannot resolve CSS var(), so spell out the mono stack (matches
       // the --mono token) instead of silently falling back to the default font.
@@ -115,7 +127,7 @@ function MatrixRain(): React.ReactElement {
         const x = i * FONT_SIZE;
         const y = drops[i] * FONT_SIZE;
         // Brand periwinkle/blue rain — bright lead glyph, dim tail.
-        ctx.fillStyle = Math.random() > 0.97 ? "#9b8cf7" : "rgba(77, 157, 255, 0.55)";
+        ctx.fillStyle = Math.random() > 0.97 ? rainLead : rainTail;
         ctx.fillText(ch, x, y);
         if (y > height && Math.random() > 0.975) drops[i] = 0;
         else drops[i]++;
@@ -161,9 +173,15 @@ function MatrixRain(): React.ReactElement {
   return <canvas ref={canvasRef} className="wake-rain" aria-hidden="true" />;
 }
 
-export function WakeScreen({ chat = false }: { chat?: boolean }): React.ReactElement {
+export function WakeScreen({
+  chat = false,
+  motion = false,
+}: {
+  chat?: boolean;
+  motion?: boolean;
+}): React.ReactElement {
   const reduced = prefersReducedMotion();
-  const lines = chat ? CHAT_LINES : CODE_LINES;
+  const lines = motion ? MOTION_LINES : chat ? CHAT_LINES : CODE_LINES;
   const [text, setText] = useState(reduced ? lines[lines.length - 1] : "");
   const [done, setDone] = useState(reduced);
 

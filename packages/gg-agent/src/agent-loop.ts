@@ -10,8 +10,10 @@ import {
   type Usage,
   type ContentPart,
   type AssistantMessage,
+  environmentSecrets,
   isHardBillingMessage,
   redactValue,
+  type RedactionOptions,
   sliceHead,
   sliceTail,
 } from "@kleio/ai";
@@ -35,6 +37,18 @@ import {
 const DEFAULT_MAX_TURNS = 300;
 /** Per-tool cancellation ceiling; a tool may raise it via `timeoutMs`. */
 const DEFAULT_TOOL_TIMEOUT_MS = 300_000;
+
+let _toolRedaction: RedactionOptions | undefined;
+/**
+ * Tool output is redacted with the process's own credential values (exact
+ * match) on top of the format-based detectors, so `cat .env` or `env` cannot
+ * leak a real key even when it does not look like one. Computed once: the
+ * environment's secrets do not change during a run.
+ */
+function toolRedactionOptions(): RedactionOptions {
+  _toolRedaction ??= { secrets: environmentSecrets(process.env) };
+  return _toolRedaction;
+}
 
 /**
  * Lightweight stream diagnostic callback. When set, the agent loop calls this
@@ -479,6 +493,72 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+// ── Prompt-size scaling for the first-event watchdog ─────────────────────
+// A remote provider must prefill the ENTIRE prompt before its first token, and
+// prefill speed is finite: GLM's public transport measured ~3-5K tok/s
+// uncached (213K-token prompt → 44-68s to first event, 2026-09-22 sidecar
+// log). A fixed 45s budget below real prefill time turns every large-context
+// turn into a false stall: abort + full re-prefill, multiplying the very
+// latency it was meant to cap. The budget scales with prompt size (2× the
+// observed worst-case slope) up to a ceiling, mirroring the local-backend
+// exemption — aborting early only guarantees a cold retry.
+const PREFILL_TIMEOUT_MS_PER_1K_TOKENS = 640; // 2× observed worst (~0.32ms/token)
+const STREAM_FIRST_EVENT_TIMEOUT_MS = 45_000; // 45s base — Opus can think long before the first event
+const STREAM_FIRST_EVENT_TIMEOUT_MAX_MS = 180_000;
+const STREAM_FIRST_EVENT_TIMEOUT_SCALE_MIN_TOKENS = 20_000; // below this, 45s is plenty
+
+/**
+ * First-event timeout scaled to prompt size, or null when the fixed budget
+ * already covers the prompt (small prompts keep the snappy 45s stall
+ * detection). Only the plain remote path scales — local backends and
+ * silent-reasoning providers carry their own larger budgets.
+ */
+export function scaledFirstEventTimeoutMs(promptTokens: number): number | null {
+  if (promptTokens < STREAM_FIRST_EVENT_TIMEOUT_SCALE_MIN_TOKENS) return null;
+  return Math.min(
+    STREAM_FIRST_EVENT_TIMEOUT_MAX_MS,
+    STREAM_FIRST_EVENT_TIMEOUT_MS + (promptTokens / 1000) * PREFILL_TIMEOUT_MS_PER_1K_TOKENS,
+  );
+}
+
+// ── Prompt-cache health observability ───────────────────────────────────
+// Compaction latency caps are set per provider from measured behavior, and
+// the measurement that matters is the cache-hit ratio on large prompts: a
+// provider whose implicit cache misses often behaves exactly like GLM's
+// public transport (full re-prefill every turn) even if it advertises
+// caching. Usage is normalized so inputTokens EXCLUDES cache hits (Anthropic
+// convention — see extractOpenAIUsage), so the served-from-cache share of the
+// prompt is cacheRead / (input + cacheRead + cacheWrite).
+const CACHE_HEALTH_MIN_PROMPT_TOKENS = 40_000; // below this, misses are cheap
+const CACHE_HEALTH_LOW_RATIO = 0.5; // less than half served from cache on a large prompt
+
+export interface CacheHealth {
+  /** Served-from-cache share of the prompt, or null when the prompt is too
+   *  small for the ratio to matter. */
+  ratio: number | null;
+  promptTokens: number;
+  cacheRead: number;
+  low: boolean;
+}
+
+/** Per-turn prompt-cache health from normalized provider usage. */
+export function assessCacheHealth(usage: Usage): CacheHealth {
+  const input = usage.inputTokens ?? 0;
+  const cacheRead = usage.cacheRead ?? 0;
+  const cacheWrite = usage.cacheWrite ?? 0;
+  const promptTokens = input + cacheRead + cacheWrite;
+  if (promptTokens < CACHE_HEALTH_MIN_PROMPT_TOKENS) {
+    return { ratio: null, promptTokens, cacheRead, low: false };
+  }
+  const ratio = cacheRead / promptTokens;
+  return {
+    ratio,
+    promptTokens,
+    cacheRead,
+    low: ratio < CACHE_HEALTH_LOW_RATIO,
+  };
+}
+
 export async function* agentLoop(
   messages: Message[],
   options: AgentOptions,
@@ -558,6 +638,9 @@ export async function* agentLoop(
   let providerCalls = 0;
   let nonStreamingCalls = 0;
   let warnedNonStreaming = false;
+  // Prompt-cache health warns once per run — every turn still logs a
+  // cache_health diag line, but the miss alert must not spam a long session.
+  let warnedPromptCacheMiss = false;
   // A rejected output budget is worth exactly one retry: the ceiling the
   // provider named is applied to the replay, so a second failure means the
   // limit was not the problem and retrying again just burns the same tokens.
@@ -570,7 +653,8 @@ export async function* agentLoop(
   });
   const OVERLOAD_BASE_DELAY_MS = 2_000;
   const OVERLOAD_MAX_DELAY_MS = 30_000;
-  const STREAM_FIRST_EVENT_TIMEOUT_MS = 45_000; // 45s to get first event (Opus thinks long)
+  // (The 45s first-event base and its prompt-size scaling live at module scope
+  // — see scaledFirstEventTimeoutMs.)
   // 90s of true API silence between events once streaming starts. This measures
   // only time the *API* was quiet -- the timer is armed after we finish yielding
   // each event downstream, so slow UI/consumer render time is excluded (see the
@@ -578,6 +662,13 @@ export async function* agentLoop(
   // false aborts on large `write`/`edit` tool-call streams when the Ink UI lagged
   // tens of seconds behind. 90s matches Claude Code's default idle watchdog.
   const STREAM_IDLE_TIMEOUT_MS = 90_000; // 90s of API silence between events
+  // While a tool call's input is still open (toolcall_delta seen, no
+  // toolcall_done yet), silence is expected: without fine-grained tool
+  // streaming Anthropic buffers and validates tool input server-side, so a
+  // large `write`/`edit` arrives in bursts with multi-minute gaps. 90s here
+  // killed healthy large edits mid-generation and every replay regenerated
+  // the same edit and died the same way.
+  const STREAM_TOOL_INPUT_IDLE_TIMEOUT_MS = 300_000; // 5min idle inside an open tool call
   // Anthropic models can pause 10-20s mid-stream while computing the next chunk
   // (e.g. generating tool call args for a large write).  10s was too aggressive
   // and caused false "stream stalled" errors, especially in plan mode.
@@ -588,14 +679,25 @@ export async function* agentLoop(
   const STREAM_OUTPUT_HARD_TIMEOUT_MS = 300_000; // 5min hard cap once output is flowing
   // Reasoning models (MiMo) can pause 3-5 minutes between thinking and output
   // generation.  Once we've seen thinking events, extend timeouts significantly.
-  const STREAM_THINKING_IDLE_TIMEOUT_MS = 300_000; // 5min idle after thinking
-  const STREAM_THINKING_HARD_TIMEOUT_MS = 600_000; // 10min hard cap with thinking
+  // Adaptive-thinking Anthropic models stream no thinking text by default: a
+  // thinking block opens and then the wire is silent until it closes. Big
+  // planning turns were observed thinking silently for 3.5-4min and past 5min,
+  // so 5min here aborted real work and replayed it from zero.
+  const STREAM_THINKING_IDLE_TIMEOUT_MS = 600_000; // 10min idle after thinking
+  const STREAM_THINKING_HARD_TIMEOUT_MS = 900_000; // 15min hard cap with thinking
   // Non-streaming mode has no per-event idle -- the entire response arrives in
   // one HTTP round-trip. Use a single generous hard cap instead. This matches
   // Claude Code's v2.1.110/111 behaviour: cap non-streaming retries so API
   // unreachability doesn't cause multi-minute hangs, but not so aggressively
   // that slow-but-healthy backends get killed.
   const NON_STREAMING_HARD_TIMEOUT_MS = 300_000; // 5min for full non-streaming response
+  // A thinking turn replayed non-streaming must still fit silent thinking plus
+  // the full visible output in one round-trip, so it gets the thinking cap.
+  const nonStreamingHardTimeoutMs =
+    options.thinking != null ? STREAM_THINKING_HARD_TIMEOUT_MS : NON_STREAMING_HARD_TIMEOUT_MS;
+  // A stall retry is announced when the failed attempt already kept the user
+  // waiting this long; quick transient blips stay silent.
+  const VISIBLE_STALL_AFTER_MS = 60_000;
   // Some providers reason silently server-side and emit no reasoning deltas, so
   // their pre-output phase looks like dead air and never earns the dynamic
   // thinking timeout extension below. This is always true for Sakana Fugu and
@@ -613,12 +715,12 @@ export async function* agentLoop(
   // loopback hosts entirely — the 90s inter-event timer still arms as soon as
   // the first event lands, and the caller's abort signal is untouched.
   const localBackend = isLocalBackendUrl(options.baseUrl);
-  const firstEventTimeoutMs = localBackend
+  const baseFirstEventTimeoutMs = localBackend
     ? Number.POSITIVE_INFINITY
     : usesSilentReasoningBudget
       ? STREAM_THINKING_IDLE_TIMEOUT_MS // 5min before first visible token
       : STREAM_FIRST_EVENT_TIMEOUT_MS; // 45s
-  const initialHardTimeoutMs =
+  const baseHardTimeoutMs =
     localBackend || usesSilentReasoningBudget
       ? STREAM_THINKING_HARD_TIMEOUT_MS // 10min absolute cap before output
       : STREAM_HARD_TIMEOUT_MS; // 90s
@@ -640,21 +742,37 @@ export async function* agentLoop(
       if (logicalTurnStartedAt === 0) logicalTurnStartedAt = Date.now();
       toolMap = new Map((options.tools ?? []).map((t) => [t.name, t]));
 
-      // Estimate message payload size for diagnostics.
-      // Gated behind _diagFn — the char-counting loop is O(n) over the
-      // full message history and runs every turn. Skip it entirely when
-      // no diagnostic callback is registered (production default).
-      if (_diagFn) {
-        let msgChars = 0;
-        for (const m of messages) {
-          if (typeof m.content === "string") msgChars += m.content.length;
-          else if (Array.isArray(m.content)) {
-            for (const p of m.content) {
-              if ("text" in p && typeof p.text === "string") msgChars += p.text.length;
-              if ("content" in p && typeof p.content === "string") msgChars += p.content.length;
-            }
+      // Estimate message payload size for diagnostics AND for scaling the
+      // first-event watchdog with prompt size. The char-counting loop is O(n)
+      // over the full message history and runs every turn — cheap (a
+      // sub-millisecond scan of a few hundred KB) even uncondensed.
+      let msgChars = 0;
+      for (const m of messages) {
+        if (typeof m.content === "string") msgChars += m.content.length;
+        else if (Array.isArray(m.content)) {
+          for (const p of m.content) {
+            if ("text" in p && typeof p.text === "string") msgChars += p.text.length;
+            if ("content" in p && typeof p.content === "string") msgChars += p.content.length;
           }
         }
+      }
+      // Scale the first-event watchdog on the plain remote path: prefill time
+      // grows linearly with prompt tokens (~3-5K tok/s observed), so a large
+      // prompt legitimately needs longer than 45s to reach its first event.
+      let firstEventTimeoutMs: number;
+      let initialHardTimeoutMs: number;
+      if (baseFirstEventTimeoutMs === STREAM_FIRST_EVENT_TIMEOUT_MS) {
+        const promptTokens = Math.ceil(msgChars / 3); // conservative: ~3 chars/token
+        const scaled = scaledFirstEventTimeoutMs(promptTokens);
+        firstEventTimeoutMs = scaled ?? baseFirstEventTimeoutMs;
+        // The hard cap must never fire before the first-event budget or it
+        // becomes the abort path instead of the safety net.
+        initialHardTimeoutMs = Math.max(baseHardTimeoutMs, firstEventTimeoutMs + 30_000);
+      } else {
+        firstEventTimeoutMs = baseFirstEventTimeoutMs;
+        initialHardTimeoutMs = baseHardTimeoutMs;
+      }
+      if (_diagFn) {
         diag("turn_start", {
           turn,
           messages: messages.length,
@@ -745,20 +863,25 @@ export async function* agentLoop(
       //  - Before first event: STREAM_FIRST_EVENT_TIMEOUT_MS (45s) -- Opus can
       //    take 30s+ to start on large contexts, that's not a stall.
       //  - After output event (text_delta, server_toolcall): STREAM_IDLE_TIMEOUT_MS
-      //    (10s) -- once output is streaming, 10s of silence is dead. Retry fast.
-      //  - After thinking events only: STREAM_THINKING_IDLE_TIMEOUT_MS (5min) --
-      //    reasoning models (MiMo) can pause minutes between thinking and output.
+      //    (90s) -- once output is streaming, sustained silence is a stall.
+      //    Inside an open tool call the budget is STREAM_TOOL_INPUT_IDLE_TIMEOUT_MS
+      //    (5min), since buffered tool input legitimately arrives in bursts.
+      //  - After thinking events only: STREAM_THINKING_IDLE_TIMEOUT_MS (10min) --
+      //    thinking can be silent on the wire for minutes before output.
       //
       // In non-streaming fallback mode the entire response arrives in a single
       // HTTP round-trip, so the idle timer is disabled -- only the hard timeout
       // applies. Synthesized events all arrive at once when the response returns.
       let hasReceivedEvent = false;
       let hasReceivedThinking = false;
+      let toolInputOpen = false;
       const resetIdleTimer = () => {
         if (useNonStreamingFallback) return; // no inter-event idle in non-streaming mode
         if (idleTimer) clearTimeout(idleTimer);
         const timeoutMs = hasReceivedEvent
-          ? STREAM_IDLE_TIMEOUT_MS
+          ? toolInputOpen
+            ? STREAM_TOOL_INPUT_IDLE_TIMEOUT_MS
+            : STREAM_IDLE_TIMEOUT_MS
           : hasReceivedThinking
             ? STREAM_THINKING_IDLE_TIMEOUT_MS
             : firstEventTimeoutMs;
@@ -771,7 +894,9 @@ export async function* agentLoop(
             lastEventType,
             maxConsumerLagMs,
             phase: hasReceivedEvent
-              ? "mid_stream"
+              ? toolInputOpen
+                ? "mid_tool_input"
+                : "mid_stream"
               : hasReceivedThinking
                 ? "post_thinking"
                 : "first_event",
@@ -788,7 +913,7 @@ export async function* agentLoop(
       // Non-streaming fallback uses a single larger cap since there's no stream
       // to observe -- just wait for the full response up to the cap.
       let hardTimeoutMs = useNonStreamingFallback
-        ? NON_STREAMING_HARD_TIMEOUT_MS
+        ? nonStreamingHardTimeoutMs
         : initialHardTimeoutMs;
       hardTimer = setTimeout(() => {
         diag("hard_timeout_fired", {
@@ -910,6 +1035,8 @@ export async function* agentLoop(
           if (firstProviderEventAt === undefined) firstProviderEventAt = pullTime;
           eventTypeCounts[event.type] = (eventTypeCounts[event.type] ?? 0) + 1;
           lastEventType = event.type;
+          if (event.type === "toolcall_delta") toolInputOpen = true;
+          else if (event.type === "toolcall_done") toolInputOpen = false;
 
           // Flip to mid-stream timeout on confirmed output events — text
           // deltas, completed tool calls, and tool call deltas (large file
@@ -1319,7 +1446,7 @@ export async function* agentLoop(
             attempt: stallRetries,
             maxAttempts: MAX_STALL_RETRIES,
             delayMs,
-            silent: stallRetries <= 2,
+            silent: stallRetries <= 2 && Date.now() - streamCallStart < VISIBLE_STALL_AFTER_MS,
             ...(preservedChars > 0 ? { preservedChars } : {}),
           };
           await abortableSleep(delayMs, options.signal);
@@ -1465,6 +1592,34 @@ export async function* agentLoop(
       }
       if (response.usage.cacheWrite) {
         totalUsage.cacheWrite = (totalUsage.cacheWrite ?? 0) + response.usage.cacheWrite;
+      }
+
+      // Per-turn prompt-cache health. This is the evidence that decides
+      // which providers need a latency cap in resolveCompactionPolicy: a
+      // large prompt consistently served mostly uncached is the GLM pattern.
+      const cacheHealth = assessCacheHealth(response.usage);
+      if (cacheHealth.ratio !== null) {
+        diag("cache_health", {
+          promptTokens: cacheHealth.promptTokens,
+          cacheRead: cacheHealth.cacheRead,
+          ratio: Math.round(cacheHealth.ratio * 100) / 100,
+          provider: options.provider,
+          model: options.model,
+        });
+        if (cacheHealth.low && !warnedPromptCacheMiss) {
+          warnedPromptCacheMiss = true;
+          diag("prompt_cache_miss", {
+            promptTokens: cacheHealth.promptTokens,
+            cacheRead: cacheHealth.cacheRead,
+            ratio: Math.round(cacheHealth.ratio * 100) / 100,
+            provider: options.provider,
+            model: options.model,
+            impact:
+              "large prompts are consistently served mostly uncached — every turn re-prefills " +
+              "the whole context; if this persists, lower the provider's compaction latency cap " +
+              "(resolveCompactionPolicy)",
+          });
+        }
       }
 
       // Append assistant message and anchor the provider's authoritative usage
@@ -1645,6 +1800,7 @@ export async function* agentLoop(
         toolMap,
         invalidToolArgumentCounts,
         markFatalToolArgumentError,
+        seenToolCalls: new Set<string>(),
       };
       const hasSequentialToolCall = toolCalls.some(
         (toolCall) => toolMap.get(toolCall.name)?.executionMode === "sequential",
@@ -1800,6 +1956,18 @@ export async function* agentLoop(
   };
 }
 
+function canonicalToolArgs(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalToolArgs);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, canonicalToolArgs(v)]),
+    );
+  }
+  return value;
+}
+
 interface ToolExecutionRecord {
   toolCallId: string;
   content: ToolResultContent;
@@ -1808,6 +1976,7 @@ interface ToolExecutionRecord {
 
 interface ToolBatchExecutionOptions {
   signal?: AbortSignal;
+  seenToolCalls: Set<string>;
   maxToolResultChars?: number;
   maxTurnToolResultChars?: number;
   toolMap: Map<string, AgentTool>;
@@ -1861,6 +2030,24 @@ async function executeSingleToolCall(
   let invalidArgAttempt: number | undefined;
 
   const tool = options.toolMap.get(toolCall.name);
+  if (tool) {
+    // Only deduplicate within this assistant response. Sort object keys so
+    // semantically identical provider JSON cannot run a side effect twice.
+    const signature = JSON.stringify([toolCall.name, canonicalToolArgs(toolCall.args)]);
+    if (options.seenToolCalls.has(signature)) {
+      const content =
+        "Tool call cancelled: an identical call already appeared in this response; this call was not executed.";
+      pushEvent({
+        type: "tool_call_end" as const,
+        toolCallId: toolCall.id,
+        result: content,
+        isError: true,
+        durationMs: Date.now() - startTime,
+      });
+      return { toolCallId: toolCall.id, content, isError: true };
+    }
+    options.seenToolCalls.add(signature);
+  }
   if (!tool) {
     resultContent = `Unknown tool: ${toolCall.name}`;
     isError = true;
@@ -1906,8 +2093,8 @@ async function executeSingleToolCall(
       };
       const raw = await tool.execute(parsed, ctx);
       const normalized = normalizeToolResult(raw);
-      resultContent = redactValue(normalized.content);
-      details = redactValue(normalized.details);
+      resultContent = redactValue(normalized.content, toolRedactionOptions());
+      details = redactValue(normalized.details, toolRedactionOptions());
       for (const key of options.invalidToolArgumentCounts.keys()) {
         if (key.startsWith(`${toolCall.name}:`)) options.invalidToolArgumentCounts.delete(key);
       }
@@ -1955,15 +2142,18 @@ async function executeSingleToolCall(
           );
         }
       } else {
-        resultContent = redactValue(err instanceof Error ? err.message : String(err));
+        resultContent = redactValue(
+          err instanceof Error ? err.message : String(err),
+          toolRedactionOptions(),
+        );
       }
     }
   }
 
   // All tool output crosses both an event boundary and the provider-context
   // boundary below. Sanitize every branch, including unknown/validation errors.
-  resultContent = redactValue(resultContent);
-  details = redactValue(details);
+  resultContent = redactValue(resultContent, toolRedactionOptions());
+  details = redactValue(details, toolRedactionOptions());
 
   const durationMs = Date.now() - startTime;
 
@@ -2034,7 +2224,14 @@ async function* executeToolCallsMixed(
       for (const phase of phases) {
         if (options.signal?.aborted) break;
         if (phase.sequential) {
-          // Single sequential tool
+          // A different sequential call can change state (e.g. edit between
+          // reads, or cd between identical bash commands). Do not deduplicate
+          // across it; consecutive identical calls still run only once.
+          const signature = JSON.stringify([
+            phase.sequential.name,
+            canonicalToolArgs(phase.sequential.args),
+          ]);
+          if (!options.seenToolCalls.has(signature)) options.seenToolCalls.clear();
           dispatchedIds.add(phase.sequential.id);
           const record = await executeSingleToolCall(phase.sequential, options, (event) =>
             pushToolEvent(eventStream, state, event),

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { SettingsModal } from "./LazySettingsModal";
 
@@ -12,6 +12,13 @@ const native = vi.hoisted(() => ({
 vi.mock("./agent", () => ({ ...native, openPermissionsSettings: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("./toast", () => ({ toast: vi.fn() }));
+
+// Transform the lazy chunk up front: on Windows CI one cold import of the
+// settings module took over 5 s. Warming the module cache doesn't render or
+// read anything, so the test still proves settings aren't read before opening.
+beforeAll(async () => {
+  await import("./SettingsModal");
+}, 60_000);
 
 afterEach(() => {
   cleanup();
@@ -35,7 +42,8 @@ describe("lazy settings", () => {
     const trigger = screen.getByRole("button", { name: "Open settings" });
     trigger.focus();
     fireEvent.click(trigger);
-    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    // The lazy chunk can take over a second to import under a full parallel run.
+    const dialog = await screen.findByRole("dialog", { name: "Settings" }, { timeout: 5000 });
     const input = within(dialog).getByRole("textbox");
     await waitFor(() => expect((input as HTMLInputElement).value).toBe("/synthetic/projects"));
     fireEvent.change(input, { target: { value: "/synthetic/updated" } });
@@ -45,9 +53,11 @@ describe("lazy settings", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(trigger);
     fireEvent.click(trigger);
-    await screen.findByRole("dialog", { name: "Settings" });
+    await screen.findByRole("dialog", { name: "Settings" }, { timeout: 5000 });
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
-  });
+    // Each lazy-chunk wait above allows 5 s on its own, so the test as a whole
+    // needs more than vitest's 5 s default (slow Windows runners hit it).
+  }, 20_000);
 });

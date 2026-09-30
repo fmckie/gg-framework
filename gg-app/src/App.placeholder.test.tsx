@@ -1,17 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, render } from "@testing-library/react";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type AppComponent from "./App";
-
-let App: typeof AppComponent;
-
-beforeAll(async () => {
-  mockWindows("main");
-  mockIPC(() => new Promise(() => {}));
-  App = (await import("./App")).default;
-});
+// Install native mocks before importing the real app. Keep its module loading in
+// collection, outside the hook timeout: cold Windows imports can exceed 10s.
+mockWindows("main");
+mockIPC(() => new Promise(() => {}));
+const { default: App } = await import("./App");
 
 beforeEach(() => {
   vi.useFakeTimers();

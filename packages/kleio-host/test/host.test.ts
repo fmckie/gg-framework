@@ -7,7 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { createServer, request as httpRequest, type Server } from "node:http";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,115 +19,7 @@ import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore, type PairOfferStore } from "../src/pair-offer.js";
 import { createRingStore, type RingStore, type SessionRing } from "../src/sse-ring.js";
 import * as macaroon from "../src/macaroon.js";
-
-// ---------------------------------------------------------------- fake sidecar
-
-interface FakeSidecar {
-  server: Server;
-  port: number;
-  token: string;
-  seen: { method: string; url: string; host: string; token: string | undefined }[];
-  emit(sessionId: string, frame: string): void;
-  /** What GET /routines reports as routine → session (the daemon's own sessions). */
-  routineSessions: Record<string, string>;
-  routines: { id: string; nextRunAt: number }[];
-  /** Hold GET /routines open this long before answering (0 = at once). */
-  routinesDelayMs: number;
-  close(): Promise<void>;
-}
-
-async function fakeSidecar(): Promise<FakeSidecar> {
-  const token = "sidecar-" + Math.random().toString(36).slice(2);
-  const streams = new Map<string, Set<import("node:http").ServerResponse>>();
-  const seen: FakeSidecar["seen"] = [];
-  const routineSessions: Record<string, string> = {};
-  const routines: { id: string; nextRunAt: number }[] = [];
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://x");
-    seen.push({
-      method: req.method ?? "",
-      url: req.url ?? "",
-      host: req.headers.host ?? "",
-      token: req.headers["x-gg-token"] as string | undefined,
-    });
-    // Mimic the real sidecar: loopback Host allowlist + token.
-    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host ?? "")) {
-      res.writeHead(403);
-      return res.end("bad host");
-    }
-    if (req.headers["x-gg-token"] !== token) {
-      res.writeHead(401);
-      return res.end("bad token");
-    }
-    if (url.pathname === "/events") {
-      const sid = url.searchParams.get("session") ?? "none";
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify({ type: "ready", session: sid })}\n\n`);
-      let set = streams.get(sid);
-      if (!set) streams.set(sid, (set = new Set()));
-      set.add(res);
-      req.on("close", () => set!.delete(res));
-      return;
-    }
-    if (req.method === "POST" && url.pathname === "/session") {
-      req.resume();
-      req.on("end", () => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ sessionId: "created-" + seen.length }));
-      });
-      return;
-    }
-    if (req.method === "GET" && url.pathname === "/routines") {
-      const answer = (): void => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ routines, sessions: routineSessions }));
-      };
-      if (api.routinesDelayMs > 0) setTimeout(answer, api.routinesDelayMs);
-      else answer();
-      return;
-    }
-    if (url.pathname === "/state") {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(
-        JSON.stringify({ runState: "idle", session: req.headers["x-gg-session"] ?? null }),
-      );
-    }
-    if (req.method === "POST" && url.pathname === "/prompt") {
-      let body = "";
-      req.on("data", (c) => (body += c));
-      req.on("end", () => {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, echoed: JSON.parse(body) }));
-      });
-      return;
-    }
-    res.writeHead(404);
-    res.end();
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const port = (server.address() as { port: number }).port;
-  const api: FakeSidecar = {
-    server,
-    port,
-    token,
-    seen,
-    emit(sid, frame) {
-      for (const r of streams.get(sid) ?? []) r.write(frame + "\n\n");
-    },
-    routineSessions,
-    routines,
-    routinesDelayMs: 0,
-    close: () =>
-      new Promise((r) => {
-        for (const set of streams.values()) for (const s of set) s.destroy();
-        // Same as the real host's stop(): close() alone waits for idle
-        // keep-alive sockets (a stopped host's poll connection, for one).
-        server.close(() => r());
-        server.closeAllConnections();
-      }),
-  };
-  return api;
-}
+import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
 // ---------------------------------------------------------------- fixture
 
@@ -183,6 +75,7 @@ async function startHost(
     sidecarEndpointPath: join(home, "sidecar.json"),
     controlRootKey: ROOT,
     routinePollMs: 200,
+    homeCwd: join(home, "Kleio"),
   });
   await h.start();
   hostPort = (h.server.address() as { port: number }).port;
@@ -348,8 +241,8 @@ describe("host: auth boundary", () => {
       headers: { [DEVICE_TOKEN_HEADER]: admin.token, "x-gg-session": "s1" },
       body: { text: "hi" },
     });
-    expect(r.status).toBe(200);
-    expect(r.body).toEqual({ ok: true, echoed: { text: "hi" } });
+    expect(r.status).toBe(202);
+    expect(r.body).toEqual({ accepted: true, echoed: { text: "hi" } });
     const seen = sidecar.seen.at(-1)!;
     expect(seen.host).toBe(`127.0.0.1:${sidecar.port}`);
     expect(seen.token).toBe(sidecar.token);
@@ -1070,5 +963,250 @@ describe("host: sidecar lifecycle", () => {
     expect(
       (await call("GET", "/state", { headers: { [DEVICE_TOKEN_HEADER]: admin.token } })).status,
     ).toBe(503);
+  });
+});
+
+describe("host: home thread (GET /kleio/home)", () => {
+  const settle = (ms = 50): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const homeJson = (): any => JSON.parse(readFileSync(join(home, "home.json"), "utf8"));
+  /** Poll for work the host does in the background (slow CI runners outlast a fixed pause). */
+  const until = async (check: () => boolean, ms = 5000): Promise<void> => {
+    const t = Date.now();
+    while (!check()) {
+      if (Date.now() - t > ms) throw new Error("timed out waiting");
+      await settle(20);
+    }
+  };
+  /** Wait until home.json records `path`; the host writes it at run end. */
+  const recorded = async (path: string): Promise<void> => {
+    await until(() => {
+      try {
+        return homeJson().sessionPath === path;
+      } catch {
+        return false;
+      }
+    });
+    expect(homeJson().sessionPath).toBe(path);
+  };
+  const posts = (sc: FakeSidecar): number =>
+    sc.seen.filter((s) => s.method === "POST" && s.url === "/session").length;
+  const runEnd = (sid: string): void =>
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_end", runState: "idle" })}`);
+
+  /** A transcript file on disk, so a resume is attempted rather than skipped. */
+  function transcript(name: string): string {
+    mkdirSync(join(home, "transcripts"), { recursive: true });
+    const p = join(home, "transcripts", name);
+    writeFileSync(p, "{}\n");
+    return p;
+  }
+
+  async function restartSidecarAndHost(): Promise<void> {
+    await host.stop();
+    await sidecar.close();
+    // home.json alone must be enough to tap the stored id again.
+    rmSync(join(home, "sessions.json"), { force: true });
+    sidecar = await fakeSidecar();
+    publishEndpoint(sidecar);
+    host = await startHost();
+  }
+
+  it("the first call creates a general chat session in homeCwd; the next returns it", async () => {
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token }; // not admin
+
+    const first = await call("GET", "/kleio/home", { headers: P });
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({
+      sessionId: expect.stringMatching(/^created-/),
+      sessionPath: null,
+      created: true,
+      agent: "general",
+    });
+    expect(sidecar.creates).toEqual([
+      { mode: "chat", chatAgent: "general", cwd: join(home, "Kleio") },
+    ]);
+    expect(readdirSync(home)).toContain("Kleio");
+    expect(homeJson()).toMatchObject({ sessionId: first.body.sessionId, sessionPath: null });
+
+    const second = await call("GET", "/kleio/home", { headers: P });
+    expect(second.status).toBe(200);
+    expect(second.body).toEqual({ ...first.body, created: false });
+    expect(posts(sidecar)).toBe(1);
+  });
+
+  it("two devices opening at once share one session", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const [a, b] = await Promise.all([
+      call("GET", "/kleio/home", { headers: H }),
+      call("GET", "/kleio/home", { headers: H }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.body.sessionId).toBe(a.body.sessionId);
+    expect(posts(sidecar)).toBe(1);
+  });
+
+  it("needs a device token; health never shows the home id", async () => {
+    expect((await call("GET", "/kleio/home")).status).toBe(401);
+    expect(
+      (await call("GET", "/kleio/home", { headers: { [DEVICE_TOKEN_HEADER]: "nope" } })).status,
+    ).toBe(401);
+    expect(posts(sidecar)).toBe(0);
+
+    const admin = await pairAdmin();
+    const sid = (
+      await call("GET", "/kleio/home", { headers: { [DEVICE_TOKEN_HEADER]: admin.token } })
+    ).body.sessionId as string;
+    await settle(); // the home session's upstream is live, so it is in `live`
+    const health = await call("GET", "/kleio/health");
+    expect(health.status).toBe(200);
+    expect(JSON.stringify(health.body)).not.toContain(sid);
+  });
+
+  it("learns the transcript path at run end, follows compaction, never forgets it", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const sid = (await call("GET", "/kleio/home", { headers: H })).body.sessionId as string;
+    await settle();
+
+    // First message written: the path exists now; learnt with nobody attached.
+    sidecar.sessions.set(sid, "/t/first.jsonl");
+    runEnd(sid);
+    await recorded("/t/first.jsonl");
+    expect((await call("GET", "/kleio/home", { headers: H })).body.sessionPath).toBe(
+      "/t/first.jsonl",
+    );
+
+    // Compaction moved it, while a device is watching (the APNs nudge is
+    // gated on nobody watching; this must not be).
+    const stream = sse(`/events?session=${sid}`, H, () => {});
+    await settle();
+    sidecar.sessions.set(sid, "/t/compacted.jsonl");
+    runEnd(sid);
+    await recorded("/t/compacted.jsonl");
+    stream.close();
+
+    // An empty answer never replaces a known path.
+    sidecar.sessions.set(sid, "");
+    runEnd(sid);
+    await settle();
+    expect(homeJson().sessionPath).toBe("/t/compacted.jsonl");
+  });
+
+  it("after a sidecar and host restart, resumes the stored transcript under a new id", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const path = transcript("home.jsonl");
+    const old = (await call("GET", "/kleio/home", { headers: H })).body.sessionId as string;
+    await settle();
+    sidecar.sessions.set(old, path);
+    runEnd(old);
+    await recorded(path);
+
+    await restartSidecarAndHost();
+    // On start the stored id is tapped at once, with no device attached.
+    await until(() => sidecar.seen.some((s) => s.url === `/events?session=${old}`));
+
+    const r = await call("GET", "/kleio/home", { headers: H });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ sessionPath: path, created: true, agent: "general" });
+    expect(r.body.sessionId).not.toBe(old);
+    expect(sidecar.creates).toEqual([
+      { mode: "chat", chatAgent: "general", cwd: join(home, "Kleio"), sessionPath: path },
+    ]);
+    expect(homeJson()).toMatchObject({ sessionId: r.body.sessionId, sessionPath: path });
+  });
+
+  it("a transcript the sidecar refuses costs one fresh session, not a loop", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const path = transcript("broken.jsonl");
+    const old = (await call("GET", "/kleio/home", { headers: H })).body.sessionId as string;
+    await settle();
+    sidecar.sessions.set(old, path);
+    runEnd(old);
+    await recorded(path);
+
+    await restartSidecarAndHost();
+    sidecar.failResume = true;
+    const r = await call("GET", "/kleio/home", { headers: H });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ sessionPath: null, created: true });
+    expect(sidecar.creates.map((b) => b.sessionPath)).toEqual([path, undefined]);
+    expect(homeJson()).toMatchObject({ sessionId: r.body.sessionId, sessionPath: null });
+    // Settled: the next call finds the new session alive.
+    expect((await call("GET", "/kleio/home", { headers: H })).body.created).toBe(false);
+    expect(posts(sidecar)).toBe(2);
+  });
+
+  it("POST /kleio/home/new starts a fresh conversation every device then opens", async () => {
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token }; // not admin
+    const path = transcript("old.jsonl");
+    const old = (await call("GET", "/kleio/home", { headers: P })).body.sessionId as string;
+    await settle();
+    sidecar.sessions.set(old, path);
+    runEnd(old);
+    // Recorded first, so "not resumed" below is about /kleio/home/new.
+    await recorded(path);
+
+    const fresh = await call("POST", "/kleio/home/new", { headers: P });
+    expect(fresh.status).toBe(200);
+    expect(fresh.body).toEqual({
+      sessionId: expect.stringMatching(/^created-/),
+      sessionPath: null,
+      created: true,
+      agent: "general",
+    });
+    expect(fresh.body.sessionId).not.toBe(old);
+    // Brand new: the old transcript is NOT resumed.
+    expect(sidecar.creates.at(-1)).toEqual({
+      mode: "chat",
+      chatAgent: "general",
+      cwd: join(home, "Kleio"),
+    });
+    expect(homeJson()).toMatchObject({ sessionId: fresh.body.sessionId, sessionPath: null });
+    const tracked = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+    expect(tracked).toContain(fresh.body.sessionId);
+    expect(tracked).not.toContain(old);
+
+    // Every device now gets the new one.
+    const next = await call("GET", "/kleio/home", { headers: P });
+    expect(next.body).toMatchObject({ sessionId: fresh.body.sessionId, created: false });
+    expect(posts(sidecar)).toBe(2);
+  });
+
+  it("two taps at once make one new conversation; needs a token", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    await call("GET", "/kleio/home", { headers: H });
+    const [a, b, c] = await Promise.all([
+      call("POST", "/kleio/home/new", { headers: H }),
+      call("POST", "/kleio/home/new", { headers: H }),
+      call("GET", "/kleio/home", { headers: H }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.body.sessionId).toBe(a.body.sessionId);
+    expect(c.body.sessionId).toBe(a.body.sessionId);
+    expect(posts(sidecar)).toBe(2);
+    expect((await call("POST", "/kleio/home/new")).status).toBe(401);
+  });
+
+  it("an unreachable or failing sidecar is a 502", async () => {
+    const admin = await pairAdmin();
+    const H = { [DEVICE_TOKEN_HEADER]: admin.token };
+    sidecar.failCreate = true;
+    const failed = await call("GET", "/kleio/home", { headers: H });
+    expect(failed.status).toBe(502);
+    expect(failed.body).toEqual({ error: "sidecar error", detail: "POST /session -> 500" });
+
+    await sidecar.close();
+    const down = await call("GET", "/kleio/home", { headers: H });
+    expect(down.status).toBe(502);
+    expect(down.body).toEqual({ error: "sidecar unavailable" });
+    sidecar = await fakeSidecar(); // afterEach closes it
   });
 });

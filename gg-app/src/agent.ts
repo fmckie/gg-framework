@@ -88,8 +88,14 @@ export interface BackgroundTask {
   exitCode: number | null;
 }
 
-export type WorkspaceMode = "code" | "chat";
+export type WorkspaceMode = "code" | "chat" | "motion";
 export type ChatAgentId = "general" | "therapist" | "research";
+
+/** Product name shown when a window has no project context to title it. */
+export function workspaceProductName(mode: WorkspaceMode): string {
+  // kleio: Kleio Desktop's own names, so it never reads as GG Coder.
+  return mode === "chat" ? "Kleio Chat" : mode === "motion" ? "Kleio Motion" : "Kleio Coder";
+}
 
 export type MemoryCategory =
   "identity" | "preference" | "project" | "relationship" | "health" | "other";
@@ -838,12 +844,23 @@ export interface AuthProvider {
  * login ACTIONS (OAuth, key save, logout) still go through the sidecar.
  */
 export async function authStatus(): Promise<AuthProvider[]> {
+  return (await authStatusWithError()).providers;
+}
+
+export interface AuthStatusResult {
+  providers: AuthProvider[];
+  /** Why the list couldn't be read (kleio: e.g. the Mac mini isn't answering). */
+  error: string | null;
+}
+
+/** `authStatus`, keeping the reason when the list couldn't be read. */
+export async function authStatusWithError(): Promise<AuthStatusResult> {
   try {
-    const res = await invoke<{ providers: AuthProvider[] }>("app_auth_status");
-    return res.providers ?? [];
+    const res = await invoke<{ providers?: AuthProvider[]; error?: string }>("app_auth_status");
+    return { providers: res.providers ?? [], error: res.error ?? null };
   } catch (e) {
     await logError(`app_auth_status failed: ${String(e)}`);
-    return [];
+    return { providers: [], error: String(e).replace(/^Error:\s*/, "") };
   }
 }
 
@@ -953,9 +970,14 @@ export interface RadioState {
   volume: number;
 }
 
-/** Read app-wide radio state (stations, playback, and volume). */
+/**
+ * Read app-wide radio state (stations, playback, and volume). Waits for the
+ * sidecar first: the titlebar button asks on mount, which at launch lands
+ * before the daemon is up and would otherwise fail with "daemon not ready".
+ */
 export async function getRadioState(): Promise<RadioState> {
   try {
+    await waitForReady();
     const res = await invoke<RadioState>("agent_radio_state");
     return {
       stations: res.stations ?? [],
@@ -989,18 +1011,17 @@ export interface QueuedMessage {
 /**
  * Cancel one pending queued message by id.
  *
- * Returns the remaining queue, or null if the call itself failed. A `cancelled:
- * false` from the sidecar is NOT a failure: it means the agent consumed the
- * message between the row rendering and the click landing, so the caller should
- * simply reconcile to the returned list.
+ * Returns the explicit cancellation verdict, or null on transport failure.
+ * Queue state is owned exclusively by ordered sidecar events: the HTTP response
+ * may arrive after newer enqueue/drain events and must never replace their state.
  */
-export async function cancelQueued(id: string): Promise<QueuedMessage[] | null> {
+export async function cancelQueued(id: string): Promise<boolean | null> {
   try {
     const res = await invoke<{ cancelled?: boolean; queued?: QueuedMessage[] }>(
       "agent_cancel_queued",
       { id },
     );
-    return res.queued ?? [];
+    return res.cancelled === true;
   } catch (e) {
     await logError(`agent_cancel_queued failed: ${String(e)}`);
     return null;
@@ -1289,10 +1310,13 @@ export async function searchFiles(query: string): Promise<FileHit[]> {
   }
 }
 
-/** List the latest sessions for a project, one chat agent, or every chat agent. */
+/**
+ * List the latest sessions for a project, one chat agent, every chat agent
+ * (`"all"`), or GG Motion (`"motion"`).
+ */
 export async function listSessions(
   cwd: string,
-  chatAgent?: ChatAgentId | "all",
+  chatAgent?: ChatAgentId | "all" | "motion",
 ): Promise<RecentSession[]> {
   try {
     const res = await invoke<{ sessions: RecentSession[] }>("agent_sessions", {

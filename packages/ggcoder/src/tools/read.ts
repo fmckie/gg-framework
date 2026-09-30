@@ -74,15 +74,29 @@ export const BINARY_EXTENSIONS = new Set([
   ".idx",
 ]);
 
+// Models sometimes pass a line range such as "[98, 242]" as `offset`. Zod's
+// default "expected number, received string" did not teach Haiku the right
+// shape: it repeated the range until three identical invalid calls stopped the
+// whole run. Name the fix. A schema-level `error` also covers `.int()`/`.min()`,
+// so each message must hold for every way the field can be wrong.
 const ReadParams = z.object({
   file_path: z.string().describe("The file path to read"),
   offset: z
-    .number()
+    .number({
+      error:
+        "offset must be ONE line number (an integer >= 1), not a range or string. " +
+        "To read lines 98-242, pass offset: 98 and limit: 145.",
+    })
     .int()
     .min(1)
     .optional()
     .describe("Line number to start reading from (1-based)"),
-  limit: z.number().int().min(1).optional().describe("Maximum number of lines to read"),
+  limit: z
+    .number({ error: "limit must be ONE line count (an integer >= 1), not a range or string." })
+    .int()
+    .min(1)
+    .optional()
+    .describe("Maximum number of lines to read"),
   anchors: z
     .boolean()
     .optional()

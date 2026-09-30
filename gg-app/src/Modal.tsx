@@ -1,86 +1,59 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
+import { useDialogFocus } from "./dialog-focus";
+import { withViewTransition } from "./view-transition";
+import { ModalEmbedProvider, useModalEmbedState } from "./modal-embed";
 
-const FOCUSABLE_SELECTOR = [
-  "button:not([disabled])",
-  "a[href]",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex='-1'])",
-].join(",");
-
-/** Reusable centered modal with Escape, focus containment, and focus return. */
-export function Modal({
-  title,
-  children,
-  onClose,
-  className,
-}: {
+interface ModalProps {
   title: React.ReactNode;
   children: React.ReactNode;
   onClose: () => void;
   /** Extra class on the `.modal` box (e.g. width overrides). */
   className?: string;
-}): React.ReactElement {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  // Capture before children commit: an autoFocus input otherwise steals the
-  // opener before the effect runs, leaving focus on body when it is removed.
-  const returnFocusRef = useRef(
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+}
+
+/**
+ * Reusable centered modal with Escape, focus containment, and focus return.
+ * Inside `<EmbeddedModal>` (the Settings screen's tabs) it renders its content
+ * as a page section instead.
+ */
+export function Modal(props: ModalProps): React.ReactElement {
+  return useModalEmbedState() === "embed" ? (
+    <ModalSection {...props} />
+  ) : (
+    <ModalDialog {...props} />
   );
+}
+
+/**
+ * The page form: the modal's content in flow, nothing floating. Its title is
+ * the section's accessible name only; the page header names it on screen.
+ */
+function ModalSection({ title, children, className }: ModalProps): React.ReactElement {
   const titleId = useId();
+  return (
+    <section
+      className={className ? `settings-panel ${className}` : "settings-panel"}
+      aria-labelledby={titleId}
+    >
+      <h2 id={titleId} className="sr-only">
+        {title}
+      </h2>
+      <ModalEmbedProvider state="panel">{children}</ModalEmbedProvider>
+    </section>
+  );
+}
 
-  useEffect(() => {
-    onCloseRef.current = onClose;
-  }, [onClose]);
-
-  useEffect(() => {
-    const returnFocus = returnFocusRef.current;
-    const dialog = dialogRef.current;
-    const initialFocus =
-      dialog?.querySelector<HTMLElement>("[data-modal-initial-focus]") ??
-      dialog?.querySelector<HTMLElement>("[role='tab'][aria-selected='true']") ??
-      dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??
-      dialog;
-    initialFocus?.focus();
-
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !dialog) return;
-      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-        (element) => !element.hidden && element.getAttribute("aria-hidden") !== "true",
-      );
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
-      if (
-        event.shiftKey &&
-        (document.activeElement === first || document.activeElement === dialog)
-      ) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      returnFocus?.focus();
-    };
-  }, []);
+function ModalDialog({ title, children, onClose, className }: ModalProps): React.ReactElement {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // The modal's own dismissals (Escape, backdrop, ×) animate out. Closes the
+  // parent triggers itself (Save, Cancel) stay instant: they usually open the
+  // next thing, and a fading ghost would sit over it.
+  const dismiss = (): void => withViewTransition(onClose);
+  useDialogFocus(dialogRef, dismiss);
 
   // Portalled to <body>. A modal opened from a trigger nested inside the app
   // shell (the radio button lives in the nav bar) would otherwise be trapped in
@@ -91,7 +64,7 @@ export function Modal({
     <div
       className="modal-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) dismiss();
       }}
     >
       <div
@@ -112,12 +85,14 @@ export function Modal({
             type="button"
             aria-label="Close"
             title="Close"
-            onClick={onClose}
+            onClick={dismiss}
           >
-            {"\u00d7"}
+            <XIcon size={14} weight="bold" aria-hidden="true" />
           </button>
         </div>
-        {children}
+        {/* A dialog's own contents are never embedded, even when a page
+            section opened it. */}
+        <ModalEmbedProvider state="none">{children}</ModalEmbedProvider>
       </div>
     </div>,
     document.body,

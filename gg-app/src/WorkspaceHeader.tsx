@@ -1,7 +1,14 @@
 import type { ReactNode } from "react";
-import { openProjectPath, openUrl, type WorkspaceMode, type GitHubCI } from "./agent";
+import {
+  openProjectPath,
+  openUrl,
+  workspaceProductName,
+  type WorkspaceMode,
+  type GitHubCI,
+} from "./agent";
 import { CIIndicator } from "./CIIndicator";
 import { projectAccent } from "./projectAccent";
+import { formatWorkspaceTitle, pluralize } from "./workspace-title";
 
 interface WorkspaceHeaderProps {
   workspaceMode: WorkspaceMode;
@@ -22,32 +29,6 @@ interface WorkspaceHeaderProps {
   children: ReactNode;
 }
 
-function pluralize(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
-export function formatWorkspaceTitle(
-  cwd: string | undefined,
-  gitBranch: string | null | undefined,
-  fallback: string,
-  gitDirtyFileCount = 0,
-  gitHubIssues: number | null = null,
-  gitHubPRs: number | null = null,
-  additionalRoots: string[] = [],
-): string {
-  const directory = cwd?.split(/[\\/]/).filter(Boolean).pop();
-  if (!directory) return fallback;
-  const segments = [directory];
-  if (additionalRoots.length > 0)
-    segments.push(`+${pluralize(additionalRoots.length, "root", "roots")}`);
-  if (gitBranch) segments.push(`⎇ ${gitBranch}`);
-  if (gitDirtyFileCount > 0) segments.push(`${gitDirtyFileCount} uncommitted`);
-  if (gitHubIssues !== null && gitHubIssues > 0)
-    segments.push(pluralize(gitHubIssues, "issue", "issues"));
-  if (gitHubPRs !== null && gitHubPRs > 0) segments.push(pluralize(gitHubPRs, "PR", "PRs"));
-  return segments.join(" │ ");
-}
-
 /** Shared code/chat titlebar and collapsible workspace navigation. */
 export function WorkspaceHeader({
   workspaceMode,
@@ -64,7 +45,7 @@ export function WorkspaceHeader({
   stripExtras,
   children,
 }: WorkspaceHeaderProps): React.ReactElement {
-  const fallbackTitle = workspaceMode === "chat" ? "GG Chat" : "GG Coder";
+  const fallbackTitle = workspaceProductName(workspaceMode);
   const directory = cwd?.split(/[\\/]/).filter(Boolean).pop();
   // Stable per-project colour, so a wall of identical dark windows becomes
   // identifiable at a glance. Published as a CSS variable (not just inlined on
@@ -104,7 +85,7 @@ export function WorkspaceHeader({
               </button>
               {gitBranch && (
                 <>
-                  <span className="chat-head-sep" data-tauri-drag-region>
+                  <span className="chat-head-sep" aria-hidden="true" data-tauri-drag-region>
                     {"│"}
                   </span>
                   {gitHubRepoUrl ? (
@@ -125,7 +106,7 @@ export function WorkspaceHeader({
               )}
               {additionalRoots.length > 0 && (
                 <>
-                  <span className="chat-head-sep" data-tauri-drag-region>
+                  <span className="chat-head-sep" aria-hidden="true" data-tauri-drag-region>
                     {"│"}
                   </span>
                   <span
@@ -139,21 +120,27 @@ export function WorkspaceHeader({
               )}
               {gitDirtyFileCount > 0 && (
                 <>
-                  <span className="chat-head-sep" data-tauri-drag-region>
+                  <span className="chat-head-sep" aria-hidden="true" data-tauri-drag-region>
                     {"│"}
                   </span>
                   <span
-                    className="chat-head-dirty"
+                    className="chat-head-dirty chat-head-uncommitted"
                     data-tauri-drag-region
                     title={`${gitDirtyFileCount} file${gitDirtyFileCount === 1 ? "" : "s"} not committed`}
                   >
-                    {`${gitDirtyFileCount} uncommitted`}
+                    {gitDirtyFileCount}
+                    {/* Its own element so narrow windows can drop the word and
+                        keep the count (App.css). It carries the drag attribute
+                        too: Tauri drags only from the element that has it. */}
+                    <span className="chat-head-uncommitted-label" data-tauri-drag-region>
+                      {" uncommitted"}
+                    </span>
                   </span>
                 </>
               )}
               {gitHubIssues !== null && gitHubIssues > 0 && (
                 <>
-                  <span className="chat-head-sep" data-tauri-drag-region>
+                  <span className="chat-head-sep" aria-hidden="true" data-tauri-drag-region>
                     {"│"}
                   </span>
                   <button
@@ -169,7 +156,7 @@ export function WorkspaceHeader({
               )}
               {gitHubPRs !== null && gitHubPRs > 0 && (
                 <>
-                  <span className="chat-head-sep" data-tauri-drag-region>
+                  <span className="chat-head-sep" aria-hidden="true" data-tauri-drag-region>
                     {"│"}
                   </span>
                   <button

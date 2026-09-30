@@ -15,5 +15,8 @@ describe("desktop verification settlement", () => {
     expect(settlement).toContain('log("WARN", "app-sidecar", "verification incomplete"');
     expect(settlement).toContain('verificationProblem ? "unverified"');
     expect(settlement).toContain("unverified: true");
+    expect(settlement).toMatch(
+      /reviewPending:\s*!cancelled\s*&&\s*runSucceeded\s*&&\s*!verificationProblem/,
+    );
   });
 });

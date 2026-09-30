@@ -1,8 +1,14 @@
 // Windows PACKAGED-app smoke: build an MSI, administratively extract it into a
 // temporary directory, launch the extracted app with a throwaway user profile,
-// and prove the packaged WebView shell and the bundled Node sidecar come up
-// together with a visible window. Nothing is installed, no existing user
-// profile is touched, and the whole process tree is reaped afterwards.
+// and prove the packaged WebView shell comes up with a visible window. Nothing
+// is installed, no existing user profile is touched, and the whole process tree
+// is reaped afterwards.
+//
+// kleio: Kleio Desktop is remote-only (REMOTE_ONLY in src-tauri/src/kleio/
+// mod.rs). It shows its connect screen until paired and never starts the
+// bundled engine, which would read and write ~/.gg (the upstream app's). So the
+// smoke proves the opposite of upstream's: a visible window that stays up, and
+// NO packaged-node sidecar child, for a few seconds after it appears.
 //
 // Why this exists: `smoke-sidecar.mjs` proves the bundled RUNTIME loads, but it
 // runs the sidecar directly. It cannot catch the failures Windows users
@@ -148,6 +154,34 @@ export function discoverPackagedLayout(extractRoot) {
     sidecar: realpathSync.native(sidecar),
   };
 }
+
+/**
+ * kleio: what the launched packaged app is doing, from one process snapshot:
+ * running as the packaged exe, owning a visible window, and whether it started
+ * a local engine (the packaged node running the packaged sidecar, as a child).
+ */
+export function launchEvidence({ processes, visiblePids, layout, appPid }) {
+  const app = processes.some(
+    (entry) =>
+      entry.ProcessId === appPid &&
+      entry.ExecutablePath &&
+      normalizePath(entry.ExecutablePath) === normalizePath(layout.executable),
+  );
+  const localEngine = processes.some(
+    (entry) =>
+      entry.ParentProcessId === appPid &&
+      entry.ExecutablePath &&
+      normalizePath(entry.ExecutablePath) === normalizePath(layout.node) &&
+      normalizeEvidence(entry.CommandLine ?? "").includes(normalizeEvidence(layout.sidecar)),
+  );
+  return { app, window: visiblePids.has(appPid), localEngine };
+}
+
+export const LOCAL_ENGINE_FAILURE =
+  "packaged app started a local engine; Kleio Desktop must only use the paired Mac mini";
+
+/** kleio: how long the window must stay up with no local engine once shown. */
+const STAYS_UP_MS = 5000;
 
 export async function waitFor(description, probe, options = {}) {
   const timeoutMs = options.timeoutMs ?? 60000;
@@ -372,7 +406,6 @@ async function main() {
   const projectDir = join(smokeRoot, "project");
   const msiLog = join(smokeRoot, "msi-extract.log");
   let appPid;
-  let packagedNode;
 
   try {
     const artifactArgument = process.argv.indexOf("--artifact");
@@ -409,7 +442,6 @@ async function main() {
       windowsHide: false,
     });
     appPid = child.pid;
-    packagedNode = layout.node;
     // stdio is ignored (see above), so the exit code is the only crash evidence
     // this runner can report. Without it a flaky launch and a real startup
     // crash produce the same one-line failure.
@@ -418,31 +450,35 @@ async function main() {
       exited = { code, signal };
     });
 
-    await waitFor("packaged app window and bundled sidecar", () => {
+    const evidence = () => {
       if (!processExists(appPid)) {
         const how = exited
           ? `code ${exited.code === null ? "null" : `0x${(exited.code >>> 0).toString(16)}`}, signal ${exited.signal}`
           : "exit status unknown";
         throw new StopWaitingError(`packaged app exited early (${how})`);
       }
-      const processes = processSnapshot();
-      const app = processes.find(
-        (entry) =>
-          entry.ProcessId === appPid &&
-          entry.ExecutablePath &&
-          normalizePath(entry.ExecutablePath) === normalizePath(layout.executable),
-      );
-      // The sidecar must be the PACKAGED ggnode running the PACKAGED bundle,
-      // as a child of the app — not some node the runner happened to have.
-      const node = processes.find(
-        (entry) =>
-          entry.ParentProcessId === appPid &&
-          entry.ExecutablePath &&
-          normalizePath(entry.ExecutablePath) === normalizePath(layout.node) &&
-          normalizeEvidence(entry.CommandLine ?? "").includes(normalizeEvidence(layout.sidecar)),
-      );
-      return app && node && visibleWindowPids().has(appPid);
+      const found = launchEvidence({
+        processes: processSnapshot(),
+        visiblePids: visibleWindowPids(),
+        layout,
+        appPid,
+      });
+      if (found.localEngine) throw new StopWaitingError(LOCAL_ENGINE_FAILURE);
+      return found;
+    };
+
+    await waitFor("packaged app window", () => {
+      const found = evidence();
+      return found.app && found.window;
     });
+    // kleio: shown is not enough — it must stay up on its connect screen, still
+    // without a local engine (a late spawn or a crash after painting fails here).
+    const shownAt = Date.now();
+    while (Date.now() - shownAt < STAYS_UP_MS) {
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 500));
+      const found = evidence();
+      if (!found.app || !found.window) fail("packaged app window went away after it appeared");
+    }
   } finally {
     let processCleanupError;
     try {
@@ -466,7 +502,7 @@ async function main() {
     if (processCleanupError) throw processCleanupError;
   }
 
-  console.log(`SMOKE PASS: pid=${appPid} packagedNode=${packagedNode}`);
+  console.log(`SMOKE PASS: pid=${appPid} window=visible localEngine=none (remote-only)`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";

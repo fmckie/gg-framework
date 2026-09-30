@@ -14,7 +14,7 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import { join } from "node:path";
 import { createDeviceRegistry } from "./device-registry.js";
 import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
@@ -24,6 +24,7 @@ import { createPairOfferStore } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
 import { createSidecarSupervisor } from "./sidecar.js";
+import { sidecarAppEnv } from "./sidecar-env.js";
 
 const log = (msg: string): void => {
   process.stdout.write(`${new Date().toISOString()} ${msg}\n`);
@@ -89,13 +90,15 @@ async function init(p: HostPaths): Promise<void> {
 async function sidecar(p: HostPaths): Promise<void> {
   const sidecarPath = process.env.KLEIO_SIDECAR_PATH;
   if (!sidecarPath) throw new Error("KLEIO_SIDECAR_PATH must point at app-sidecar.mjs");
+  // Kleio's own settings file and projects folder, apart from the upstream app's.
+  const env = sidecarAppEnv(process.env, homedir());
+  mkdirSync(env.GG_APP_PROJECTS_DIR, { recursive: true });
+  log(`[sidecar] projects folder ${env.GG_APP_PROJECTS_DIR}`);
   const sup = createSidecarSupervisor({
     nodeBin: process.env.KLEIO_NODE_BIN ?? process.execPath,
     sidecarPath,
     cwd: process.env.KLEIO_SIDECAR_CWD ?? p.work,
-    // Nobody is at this machine's screen: the sidecar must never touch a
-    // folder macOS would gate behind a privacy dialog (it hangs, not errors).
-    env: { GG_APP_HEADLESS: "1" },
+    env,
     endpointPath: p.sidecarEndpoint,
     log,
   });
@@ -120,6 +123,16 @@ async function serve(p: HostPaths): Promise<void> {
   const host = createHost({
     apns,
     diagnosticsDir: p.logs,
+    homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
+    ...(process.env.KLEIO_BLOB_DEFAULT_MODEL
+      ? { blobDefaultModel: process.env.KLEIO_BLOB_DEFAULT_MODEL }
+      : {}),
+    composio: {
+      ...(process.env.KLEIO_COMPOSIO_API_KEY ? { apiKey: process.env.KLEIO_COMPOSIO_API_KEY } : {}),
+      ...(process.env.KLEIO_COMPOSIO_BASE_URL
+        ? { baseUrl: process.env.KLEIO_COMPOSIO_BASE_URL }
+        : {}),
+    },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     nodeId: new URL(publicBase()).hostname,

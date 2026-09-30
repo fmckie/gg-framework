@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import { recentChangelog } from "./changelog";
 import { Confetti } from "./Confetti";
@@ -17,6 +18,9 @@ import { Badge } from "./Badge";
 const HIGHLIGHT_TERMS = [
   "MiMo-V2.5-Pro-UltraSpeed",
   "GPT-6 Astra",
+  "GPT-6.1 Sol",
+  "GPT-6 Sol",
+  "GPT-6 Luna",
   "GPT-5.6 Ultra",
   "GPT-5.6",
   "GPT-5.5",
@@ -106,7 +110,7 @@ export function WhatsNewWindow(): React.ReactElement {
           title="Close"
           onClick={closeSelf}
         >
-          {"\u00d7"}
+          <XIcon size={14} weight="bold" aria-hidden="true" />
         </button>
       </div>
       <div className="whatsnew-scroll">

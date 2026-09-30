@@ -32,6 +32,10 @@ const outFile = join(outDir, "app-sidecar.mjs");
 const nodeModulesOut = join(outDir, "node_modules");
 const bundledSkillsSource = join(repoRoot, "packages", "ggcoder", "assets", "skills");
 const bundledSkillsOut = join(outDir, "skills");
+// Motion mode's runtime bundle (authored skills + launcher). Kept apart from
+// `skills/` so its skills never enter coder or chat discovery.
+const motionBundleSource = join(repoRoot, "packages", "ggcoder", "assets", "motion");
+const motionBundleOut = join(outDir, "motion");
 
 // Packages that must NOT be inlined: native addons, lazily-loaded optional
 // heavy deps, and child-process entry points that esbuild cannot discover.
@@ -55,6 +59,9 @@ const EXTERNAL = [
   "typescript",
   // source_path spawns opensrc's CLI by physical path; it is never imported.
   "opensrc",
+  // Motion mode runs the HyperFrames CLI through motion/bin/hyperframes.mjs,
+  // which resolves this package from the sidecar's node_modules at runtime.
+  "hyperframes",
   // Bash launches SRT's physical CLI as a child process for per-session OS
   // sandboxing; keep its platform binaries and CLI files on disk.
   "@anthropic-ai/sandbox-runtime",
@@ -308,9 +315,20 @@ async function main() {
   if (!existsSync(bundledSkillsSource)) {
     throw new Error(`bundled skills missing: ${bundledSkillsSource}`);
   }
+  if (!existsSync(join(motionBundleSource, "plugin.json"))) {
+    throw new Error(`motion bundle missing: ${motionBundleSource}`);
+  }
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   cpSync(bundledSkillsSource, bundledSkillsOut, { recursive: true });
+  cpSync(motionBundleSource, motionBundleOut, {
+    recursive: true,
+    filter: (source) => {
+      const parts = relative(motionBundleSource, source).split(sep);
+      // Scratch files and After Effects sources are never release assets.
+      return !(parts.includes("__pycache__") || /\.(?:aep|aepx|pyc)$/i.test(source));
+    },
+  });
 
   await build({
     entryPoints: [sidecarEntry],

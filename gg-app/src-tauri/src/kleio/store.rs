@@ -1,4 +1,4 @@
-//! The paired-host record, `~/.gg/kleio-remote.json`. Non-secret only: the
+//! The paired-host record, `~/.kleio/remote.json`. Non-secret only: the
 //! device token and control credential are in the Keychain (`keychain.rs`).
 //! Same home-dir-file convention as `gg-app.json` / `gg-app-workspace.json`.
 
@@ -20,7 +20,7 @@ pub struct HostRecord {
 }
 
 pub fn path(home: &Path) -> PathBuf {
-    home.join(".gg").join("kleio-remote.json")
+    super::state_dir(home).join("remote.json")
 }
 
 pub fn load(home: &Path) -> Option<HostRecord> {
@@ -28,11 +28,11 @@ pub fn load(home: &Path) -> Option<HostRecord> {
     match serde_json::from_str::<HostRecord>(&raw) {
         Ok(r) if r.base_url.starts_with("https://") && !r.device_id.is_empty() => Some(r),
         Ok(_) => {
-            log::warn!("kleio: ignoring kleio-remote.json (not https or no deviceId)");
+            log::warn!("kleio: ignoring ~/.kleio/remote.json (not https or no deviceId)");
             None
         }
         Err(e) => {
-            log::warn!("kleio: ignoring unreadable kleio-remote.json: {e}");
+            log::warn!("kleio: ignoring unreadable ~/.kleio/remote.json: {e}");
             None
         }
     }
@@ -100,7 +100,7 @@ mod tests {
         save(&home, &rec()).unwrap();
         assert_eq!(load(&home), Some(rec()));
         // No temp file left behind.
-        let leftovers: Vec<_> = std::fs::read_dir(home.join(".gg"))
+        let leftovers: Vec<_> = std::fs::read_dir(crate::kleio::state_dir(&home))
             .unwrap()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn rejects_http_and_garbage() {
         let home = tmp_home();
-        std::fs::create_dir_all(home.join(".gg")).unwrap();
+        std::fs::create_dir_all(crate::kleio::state_dir(&home)).unwrap();
         std::fs::write(
             path(&home),
             r#"{"baseUrl":"http://x","host":"x","deviceId":"d","label":"l","pairedAt":"t"}"#,
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn older_record_without_admin_reads_as_non_admin() {
         let home = tmp_home();
-        std::fs::create_dir_all(home.join(".gg")).unwrap();
+        std::fs::create_dir_all(crate::kleio::state_dir(&home)).unwrap();
         std::fs::write(
             path(&home),
             r#"{"baseUrl":"https://x","host":"x","deviceId":"d","label":"l","pairedAt":"t"}"#,

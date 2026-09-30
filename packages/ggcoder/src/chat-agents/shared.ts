@@ -59,6 +59,7 @@ export function createChatAgentSession(
   agentId: ChatAgentId,
   systemPrompt: string,
   options: ChatAgentOptions,
+  overrides: { promptCacheKeyPrefix?: string } = {},
 ): AgentSession {
   const { sessionsDir, onAgentChange: _onAgentChange, ...sessionOptions } = options;
   const sessionRootDir = chatAgentSessionsDir(sessionsDir, agentId);
@@ -82,7 +83,7 @@ export function createChatAgentSession(
       sessionOptions.cwd,
       handoffEnabled === true,
     ),
-    promptCacheKeyPrefix: `ggchat:${agentId}`,
+    promptCacheKeyPrefix: overrides.promptCacheKeyPrefix ?? `ggchat:${agentId}`,
     sessionRootDir,
     coderSlashCommands: false,
     selfCorrectionHooks: false,

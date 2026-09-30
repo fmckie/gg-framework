@@ -3,6 +3,8 @@ import { createInterface } from "node:readline";
 
 let running = false;
 let timer;
+// Task text of a "hold" turn: it stays running until a queued message releases it.
+let heldTask;
 let contextTurns = 0;
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
@@ -10,6 +12,7 @@ const ack = (frame, extra = {}) =>
   emit({ type: "ack", request_id: frame.request_id, ok: true, ...extra });
 const complete = (status = "completed", output = `turn-${contextTurns}`) => {
   clearTimeout(timer);
+  heldTask = undefined;
   running = false;
   emit({ type: "state", state: status === "interrupted" ? "interrupted" : "idle" });
   emit({
@@ -58,12 +61,19 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         usage: { inputTokens: 10, outputTokens: 2, cacheRead: 20, cacheWrite: 5 },
       },
     });
+    // A timer only approximates "still running": process startup on a loaded
+    // runner can outlast it. A "hold" turn runs until the test releases it.
+    if (/hold/.test(frame.task)) {
+      heldTask = frame.task;
+      return;
+    }
     const delay = /slow/.test(frame.task) ? 150 : 15;
     timer = setTimeout(() => complete("completed", `${frame.task}|context:${contextTurns}`), delay);
     return;
   }
   if (frame.command === "queue_message") {
     ack(frame, { queued: running ? 1 : 0 });
+    if (heldTask !== undefined) complete("completed", `${heldTask}|context:${contextTurns}`);
     return;
   }
   if (frame.command === "interrupt") {

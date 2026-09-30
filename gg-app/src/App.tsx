@@ -5,6 +5,7 @@ import { theme } from "./theme";
 import { WorkingBeam } from "./WorkingBeam";
 import { MetalButton } from "./MetalButton";
 import { ActionMetal } from "./ActionMetal";
+import { withViewTransition } from "./view-transition";
 import {
   waitForReady,
   getState,
@@ -48,6 +49,7 @@ import {
   windowLabel,
   setWindowTitle,
   openProjectPath,
+  workspaceProductName,
   type AgentState,
   type WorkspaceMode,
   type ModelOption,
@@ -68,8 +70,9 @@ import { dropSupersededAsks, mergeAskAnswers } from "./ask-user";
 import { glowPlacement, glowStateFor, glowVars } from "./window-glow";
 import { ActivityBar } from "./ActivityBar";
 import { autosizeComposer } from "./composer-autosize";
+import { pinAfterScroll, pinAfterWheel } from "./transcript-pin";
 import { KenActivityBar } from "./KenActivityBar";
-import { AutopilotReviewBar } from "./AutopilotReviewBar";
+import { useTaskActivity } from "./useTaskActivity";
 import { useKenMentor } from "./useKenMentor";
 import { useAutopilot } from "./useAutopilot";
 import { useAgentEvents, HOOK_PRESENTATION, type HookKind } from "./useAgentEvents";
@@ -98,6 +101,7 @@ import { NotesModal } from "./NotesModal";
 import { MemoryModal } from "./MemoryModal";
 import { ShimmerText } from "./ShimmerText";
 import { WakeScreen } from "./WakeScreen";
+import { MotionStarters } from "./MotionStarters";
 import { ConfirmModal } from "./ConfirmModal";
 import { InitGitModal } from "./InitGitModal";
 import { PlanModeLogo } from "./PlanModeLogo";
@@ -115,7 +119,6 @@ import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
 import { Badge } from "./Badge";
 import { AutopilotToggle } from "./AutopilotToggle";
-import { HomeScreen } from "./HomeScreen";
 import { SettingsModal } from "./LazySettingsModal";
 import { initialEntryView, type EntryView } from "./app-entry-view";
 import {
@@ -128,20 +131,24 @@ import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
+import { KleioScreen } from "./kleio/LazyKleioScreen";
+import { KleioHome } from "./kleio/KleioHome";
+import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
-import { formatWorkspaceTitle, WorkspaceHeader } from "./WorkspaceHeader";
+import { WorkspaceHeader } from "./WorkspaceHeader";
+import { formatWorkspaceTitle } from "./workspace-title";
 import { useProgress } from "./useProgress";
-import { LoginScreen } from "./LoginScreen";
+import { SettingsScreen, type SettingsTabId } from "./SettingsScreen";
 import { Markdown, PromptSendProvider } from "./Markdown";
 import { FooterSkeleton, TranscriptSkeleton, Skeleton } from "./Skeleton";
 import { useAppUpdate } from "./update";
 import { recoverPromptLabel } from "./prompt-labels";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
-import { Paperclip, AtSign, ArrowUp, Square } from "lucide-react";
+import { PaperclipIcon, AtIcon, ArrowUpIcon, SquareIcon, PlusIcon } from "@phosphor-icons/react";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -149,6 +156,8 @@ import { toast } from "./toast";
 import { fileToPending, toWire, attachmentToPending, type PendingAttachment } from "./attachments";
 import { basename } from "./tool-format";
 import "./App.css";
+// Liquid glass trial layer (from veditor-app). Delete this line to revert.
+import "./glass.css";
 
 const DEFAULT_INPUT_PLACEHOLDER = "Type a message, / commands, @ files, @Ken for help";
 const INPUT_PLACEHOLDERS = [
@@ -417,7 +426,12 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
+  // kleio: Blobs, Groups and Apps — a screen from Home, an overlay over a workspace.
+  const [kleioTab, setKleioTab] = useState<KleioScreenTab>("blobs");
+  const [showKleioOverlay, setShowKleioOverlay] = useState(false);
   const kleioRemote = useKleioRemote();
+  const kleioActiveRef = useRef(false);
+  kleioActiveRef.current = Boolean(kleioRemote.status?.active);
   const [rankCelebrateNonce, setRankCelebrateNonce] = useState<string | null>(null);
   const [xpChips, setXpChips] = useState<Array<{ id: string; label: string }>>([]);
   const lastProgressXpRef = useRef<number | null>(null);
@@ -576,10 +590,12 @@ function App(): React.ReactElement {
   const [restoreChecked, setRestoreChecked] = useState(false);
   // Every window starts from the mode-neutral home screen before choosing Code or Chat.
   const [entryView, setEntryView] = useState<EntryView>(initialEntryView(isSecondaryWindow));
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
   // Re-open the matching session picker over an already-open workspace.
   const [showPicker, setShowPicker] = useState(false);
   // Bumped on each workspace/session choice to force re-hydration.
   const [hydrateNonce, setHydrateNonce] = useState(0);
+  const { activity, handleActivityEvent } = useTaskActivity(hydrateNonce);
   // New-session confirmation modal + in-flight guard.
   const [confirmNewSession, setConfirmNewSession] = useState(false);
   // Hide/show the nav button row (the bar + centered title always stay).
@@ -797,6 +813,11 @@ function App(): React.ReactElement {
   // reveal fully-formed in one pass instead of popping in piecemeal (cwd, git,
   // thinking, model each arriving separately would reflow the bar mid-load).
   const [hydrated, setHydrated] = useState(false);
+  // First transcript id that should animate in. Everything restored by a
+  // hydrate gets a lower id, so reopening a session (or switching projects)
+  // lands instantly and only rows that arrive live afterwards rise into place.
+  // Infinity while hydrating: nothing animates until the history is settled.
+  const [liveFromId, setLiveFromId] = useState(Number.POSITIVE_INFINITY);
 
   const readyRef = useRef(false);
   // Bumped by every hydrate. Lets work that outlives a hydrate (a project
@@ -816,16 +837,24 @@ function App(): React.ReactElement {
 
   // Whether the transcript is "pinned" to the bottom. Auto-scroll only runs
   // while pinned. The user scrolling up un-pins it — so they can read freely
-  // even while the agent keeps streaming — and scrolling back to the bottom
-  // re-pins. Default true so a fresh transcript follows the newest output.
+  // even while the agent keeps streaming — and scrolling back down to the
+  // bottom re-pins (rules in transcript-pin.ts). Default true so a fresh
+  // transcript follows the newest output.
   const stickToBottomRef = useRef(true);
+  // The transcript's offset as last seen by a scroll event or left by our own
+  // scrollToBottom — the baseline that tells an up-scroll from a down-scroll.
+  const lastScrollTopRef = useRef(0);
 
   // Pin to the bottom. Images (screenshots / attachments) load asynchronously
   // and grow the content after this fires, so it's also called from each image's
   // onLoad to keep the newest content visible.
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight });
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    // A reader's scroll landing in this same frame shares one scroll event with
+    // this jump; measuring it from the pre-jump offset would read up as down.
+    lastScrollTopRef.current = el.scrollTop;
   }, []);
 
   // Same as scrollToBottom, but a no-op while the user has scrolled up to read.
@@ -833,15 +862,23 @@ function App(): React.ReactElement {
     if (stickToBottomRef.current) scrollToBottom();
   }, [scrollToBottom]);
 
-  // Track the user's scroll intent. Any real scroll that lands more than a
-  // small threshold above the bottom un-pins; returning to (near) the bottom
-  // re-pins. Our own programmatic scrollToBottom lands at the bottom, so it
-  // simply keeps the pin set — no need to distinguish it from a user scroll.
+  // Track the user's scroll intent by direction, not distance: while a reply
+  // streams, every commit re-pins, so any "near the bottom" allowance snapped a
+  // small scroll up straight back down. The wheel handler runs before the
+  // scroll it causes, so a commit landing in between can't erase the move.
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottomRef.current = distanceFromBottom <= 48;
+    stickToBottomRef.current = pinAfterScroll(
+      stickToBottomRef.current,
+      lastScrollTopRef.current,
+      el,
+    );
+    lastScrollTopRef.current = el.scrollTop;
+  }, []);
+  const onTranscriptWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    const el = scrollRef.current;
+    if (el) stickToBottomRef.current = pinAfterWheel(stickToBottomRef.current, e, el);
   }, []);
 
   // The "Drop files to attach" overlay must never outlive the drag. macOS keeps
@@ -958,6 +995,7 @@ function App(): React.ReactElement {
   const attachTranscript = useCallback(
     (el: HTMLDivElement | null) => {
       scrollRef.current = el;
+      if (el) lastScrollTopRef.current = el.scrollTop;
       transcriptRoRef.current?.disconnect();
       transcriptRoRef.current = null;
       if (!el || typeof ResizeObserver === "undefined") return;
@@ -1089,7 +1127,7 @@ function App(): React.ReactElement {
 
   // Keep the native window title aligned with the visible title-bar context.
   useEffect(() => {
-    const fallbackTitle = workspaceMode === "chat" ? "GG Chat" : "GG Coder";
+    const fallbackTitle = workspaceProductName(workspaceMode);
     const title =
       !needsProject && !showPicker
         ? formatWorkspaceTitle(
@@ -1143,22 +1181,34 @@ function App(): React.ReactElement {
   // is acted on; reacting to height would feed our own resize back in as a loop.
   // Attached via a callback ref because the composer unmounts whenever a
   // picker/home view takes over the window.
-  const inputRoRef = useRef<ResizeObserver | null>(null);
+  //
+  // The resize runs on the next frame, not inside the callback: autosizing
+  // changes this same textarea's height (and width, via is-multiline), and
+  // resizing an observed element from its own callback leaves a notification
+  // undelivered, which WebKit reports as "ResizeObserver loop completed with
+  // undelivered notifications" on every send.
+  const inputRoRef = useRef<{ observer: ResizeObserver; cancel: () => void } | null>(null);
   const attachInput = useCallback(
     (el: HTMLTextAreaElement | null) => {
       inputRef.current = el;
-      inputRoRef.current?.disconnect();
+      inputRoRef.current?.observer.disconnect();
+      inputRoRef.current?.cancel();
       inputRoRef.current = null;
       if (!el || typeof ResizeObserver === "undefined") return;
       let lastWidth = el.clientWidth;
+      let frame = 0;
       const ro = new ResizeObserver(() => {
         const width = el.clientWidth;
         if (width === lastWidth) return;
         lastWidth = width;
-        autosizeInput();
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          autosizeInput();
+        });
       });
       ro.observe(el);
-      inputRoRef.current = ro;
+      inputRoRef.current = { observer: ro, cancel: () => cancelAnimationFrame(frame) };
     },
     [autosizeInput],
   );
@@ -1204,6 +1254,12 @@ function App(): React.ReactElement {
       if (e.shiftKey && (e.key === "k" || e.key === "K") && !e.altKey) {
         e.preventDefault();
         setShowKleioRemote(true);
+        return;
+      }
+      // kleio: Cmd/Ctrl + Shift + L opens Blobs, Groups and Apps (remote mode only).
+      if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
+        e.preventDefault();
+        setShowKleioOverlay(true);
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.
@@ -1303,6 +1359,7 @@ function App(): React.ReactElement {
     nextId,
     handleKenEvent,
     handleAutopilotEvent,
+    handleActivityEvent,
     setState,
     setTasks,
     setProjectTasks,
@@ -1338,6 +1395,7 @@ function App(): React.ReactElement {
     const generation = ++hydrateGenerationRef.current;
     readyRef.current = false;
     setHydrated(false);
+    setLiveFromId(Number.POSITIVE_INFINITY);
     setStatus("connecting to agent\u2026");
     try {
       await waitForReady();
@@ -1487,6 +1545,7 @@ function App(): React.ReactElement {
     } finally {
       // Reveal the footer + chrome now that everything we know about the
       // session is in hand — one fade-in, no staggered reflow.
+      setLiveFromId(idSeq + 1);
       setHydrated(true);
     }
   }, []);
@@ -1504,7 +1563,8 @@ function App(): React.ReactElement {
       .then((target) => {
         if (target) {
           setWorkspaceMode(target.mode);
-          onProjectChosen();
+          // No crossfade on boot: there's no previous screen to fade from.
+          resetForChosenProject();
         }
       })
       .finally(() => setRestoreChecked(true));
@@ -1703,6 +1763,18 @@ function App(): React.ReactElement {
   // Default repo name = the project folder name.
   const defaultRepoName = (state?.cwd ?? "").split(/[\\/]/).filter(Boolean).pop() ?? "";
 
+  /** Put text in the composer with the caret at the end, ready to finish and send. */
+  function fillComposer(text: string): void {
+    setInput(text);
+    setCaret(text.length);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(text.length, text.length);
+    });
+  }
+
   /**
    * Fill the interval slot from a preset chip. Replaces an existing interval
    * rather than appending, so clicking `1h` after `15m` swaps it instead of
@@ -1720,31 +1792,9 @@ function App(): React.ReactElement {
     });
   }
 
-  /**
-   * Cancel one pending queued message. The sidecar returns the remaining queue,
-   * which we adopt wholesale rather than filtering locally: the agent may have
-   * consumed messages between render and click, so its list is authoritative.
-   */
+  /** Ordered queue events own both pending rows and cancelled transcript bubbles. */
   function handleCancelQueued(id: string): void {
-    const cancelledText = queuedMessages.find((m) => m.id === id)?.text;
-    void cancelQueued(id).then((remaining) => {
-      if (remaining === null) return;
-      setQueuedMessages(remaining);
-      setQueuedCount(remaining.length);
-      // Drop the transcript bubble for a message that will now never run.
-      // Leaving it would clear its `queued` flag on the next queue broadcast and
-      // render it identically to a message the agent actually received.
-      // Only remove it if the sidecar really dropped it: a cancel that lost the
-      // race (already consumed) comes back with the text still in the queue.
-      if (cancelledText === undefined) return;
-      if (remaining.some((m) => m.id === id)) return;
-      setItems((prev) => {
-        const index = prev.findIndex(
-          (it) => it.kind === "user" && it.queued && it.text === cancelledText,
-        );
-        return index === -1 ? prev : [...prev.slice(0, index), ...prev.slice(index + 1)];
-      });
-    });
+    void cancelQueued(id);
   }
 
   function pickSlashCommand(cmd: SlashCommand): void {
@@ -2431,6 +2481,10 @@ function App(): React.ReactElement {
   // the hydrate effect even when needsProject is already false (switching
   // sessions from the reopened picker), which flipping the boolean alone won't.
   function onProjectChosen(): void {
+    // Picker → workspace crossfades like every other screen change.
+    withViewTransition(resetForChosenProject);
+  }
+  function resetForChosenProject(): void {
     stickToBottomRef.current = true;
     setItems([]);
     setLiveToolFeed([]);
@@ -2473,30 +2527,82 @@ function App(): React.ReactElement {
     return (
       <div className="app" style={{ background: theme.background }}>
         {entryView === "home" ? (
-          <HomeScreen
-            onProjects={() => {
-              setWorkspaceMode("code");
-              setEntryView("projects");
-            }}
-            onChat={() => {
-              setWorkspaceMode("chat");
-              setEntryView("chats");
-            }}
-            onLogin={() => setEntryView("login")}
+          <KleioHome
+            // The Kleio button is upstream's Chat button: the general agent.
+            onChat={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("chat");
+                setEntryView("chats");
+              })
+            }
+            onCode={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("code");
+                setEntryView("projects");
+              })
+            }
+            onBlobs={() =>
+              withViewTransition(() => {
+                setKleioTab("blobs");
+                setEntryView("kleio");
+              })
+            }
+            onApps={() =>
+              withViewTransition(() => {
+                setKleioTab("apps");
+                setEntryView("kleio");
+              })
+            }
+            onSettings={(tab) =>
+              withViewTransition(() => {
+                setSettingsTab(tab ?? "general");
+                setEntryView("settings");
+              })
+            }
             refreshSignal={homeRefreshSignal}
           />
-        ) : entryView === "login" ? (
-          <LoginScreen onClose={() => setEntryView("home")} />
+        ) : entryView === "kleio" ? (
+          <KleioScreen
+            initialTab={kleioTab}
+            onClose={() => withViewTransition(() => setEntryView("home"))}
+          />
+        ) : entryView === "settings" ? (
+          <SettingsScreen
+            initialTab={settingsTab}
+            onClose={() =>
+              withViewTransition(() => {
+                setEntryView("home");
+                // Settings may have changed the folder or providers.
+                setHomeRefreshSignal((n) => n + 1);
+              })
+            }
+          />
         ) : entryView === "chats" ? (
-          <ChatPicker onChosen={onProjectChosen} onClose={() => setEntryView("home")} />
+          <ChatPicker
+            onChosen={onProjectChosen}
+            onClose={() => withViewTransition(() => setEntryView("home"))}
+          />
+        ) : entryView === "motion" ? (
+          <ChatPicker
+            mode="motion"
+            onChosen={onProjectChosen}
+            onClose={() => withViewTransition(() => setEntryView("home"))}
+          />
         ) : (
           <ProjectPicker
             onChosen={onProjectChosen}
             // Every window can return to the mode-neutral home screen.
-            onClose={() => setEntryView("home")}
+            onClose={() => withViewTransition(() => setEntryView("home"))}
           />
         )}
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
+        {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
+        {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
+        {showKleioOverlay && kleioRemote.status?.active && (
+          <div className="kleio-overlay">
+            <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+          </div>
+        )}
         <Toaster />
       </div>
     );
@@ -2506,20 +2612,24 @@ function App(): React.ReactElement {
   // to the home screen; choosing a session resets and re-hydrates this window.
   if (showPicker) {
     const pickerProps = {
-      onChosen: () => {
-        setShowPicker(false);
-        onProjectChosen();
-      },
-      onClose: () => {
-        setShowPicker(false);
-        setNeedsProject(true);
-        setEntryView("home" as const);
-      },
+      onChosen: () =>
+        withViewTransition(() => {
+          setShowPicker(false);
+          resetForChosenProject();
+        }),
+      onClose: () =>
+        withViewTransition(() => {
+          setShowPicker(false);
+          setNeedsProject(true);
+          setEntryView("home" as const);
+        }),
     };
     return (
       <div className="app" style={{ background: theme.background }}>
         {workspaceMode === "chat" ? (
           <ChatPicker initialAgent={state?.chatAgent ?? "general"} {...pickerProps} />
+        ) : workspaceMode === "motion" ? (
+          <ChatPicker mode="motion" {...pickerProps} />
         ) : (
           <ProjectPicker initialProjectPath={state?.cwd ?? null} {...pickerProps} />
         )}
@@ -2558,6 +2668,17 @@ function App(): React.ReactElement {
               active={kleioRemote.status?.active ?? null}
               onClick={() => setShowKleioRemote(true)}
             />
+            {kleioRemote.status?.active && (
+              <button
+                type="button"
+                className="kleio-badge kleio-open"
+                onClick={() => setShowKleioOverlay(true)}
+                title="Blobs, group chats and apps · ⌘⇧L"
+                aria-label="Open Blobs, groups and apps"
+              >
+                Blobs
+              </button>
+            )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
             {windowTotal > 1 && windowIndex !== null && (
               <span
@@ -2572,8 +2693,14 @@ function App(): React.ReactElement {
         }
       >
         <BackButton
-          label={workspaceMode === "chat" ? "Back to chats" : "Back to this project's sessions"}
-          onClick={() => setShowPicker(true)}
+          label={
+            workspaceMode === "chat"
+              ? "Back to chats"
+              : workspaceMode === "motion"
+                ? "Back to motion sessions"
+                : "Back to this project's sessions"
+          }
+          onClick={() => withViewTransition(() => setShowPicker(true))}
         />
         <div className="rank-badge-wrap">
           <RankBadge
@@ -2589,24 +2716,27 @@ function App(): React.ReactElement {
             ))}
           </div>
         </div>
-        {workspaceMode === "chat" ? (
+        {workspaceMode !== "code" ? (
           <span className="picker-head-actions">
             <MetalButton
               windowFocused={windowFocused}
               className="btn btn-primary btn-sm"
               disabled={running}
-              title="Start a new chat"
+              title={workspaceMode === "motion" ? "Start a new video session" : "Start a new chat"}
               onClick={() => setConfirmNewSession(true)}
             >
-              {"+ New"}
+              <PlusIcon size={14} aria-hidden="true" />
+              New
             </MetalButton>
-            <button
-              className="btn btn-sm btn-ghost"
-              title="View and curate chat memories and Jiwa"
-              onClick={() => setShowMemories(true)}
-            >
-              Brain
-            </button>
+            {workspaceMode === "chat" && (
+              <button
+                className="btn btn-sm btn-ghost"
+                title="View and curate chat memories and Jiwa"
+                onClick={() => setShowMemories(true)}
+              >
+                Brain
+              </button>
+            )}
             <RadioButton />
             <WindowLayoutButton />
           </span>
@@ -2622,15 +2752,17 @@ function App(): React.ReactElement {
                   setKenPowerBanner(next ? "on" : "off");
                 }}
               />
-              <MetalButton
-                windowFocused={windowFocused}
-                className="btn btn-primary btn-sm"
+              {/* Quiet here on purpose: in a project the header's one accent is
+                  the commit action, so New sits with the other tools. */}
+              <button
+                className="btn btn-sm btn-ghost"
                 disabled={running}
                 title="Start a new session for this project"
                 onClick={() => setConfirmNewSession(true)}
               >
-                {"+ New"}
-              </MetalButton>
+                <PlusIcon size={14} aria-hidden="true" />
+                New
+              </button>
               <button
                 className="btn btn-sm btn-ghost"
                 title="Open your notes for this project"
@@ -2702,14 +2834,19 @@ function App(): React.ReactElement {
         {workspaceMode === "code" && kenPowerBanner && (
           <KenPowerBanner mode={kenPowerBanner} onDone={() => setKenPowerBanner(null)} />
         )}
-        <div className="transcript" ref={attachTranscript} onScroll={onTranscriptScroll}>
+        <div
+          className="transcript"
+          ref={attachTranscript}
+          onScroll={onTranscriptScroll}
+          onWheel={onTranscriptWheel}
+        >
           {!hydrated && items.length === 0 ? (
             <TranscriptSkeleton />
           ) : (
             <>
               {items.length === 0 &&
                 (status === "ready" ? (
-                  <WakeScreen chat={workspaceMode === "chat"} />
+                  <WakeScreen chat={workspaceMode === "chat"} motion={workspaceMode === "motion"} />
                 ) : (
                   <div className="line transcript-reveal" style={{ color: theme.textDim }}>
                     {`\u273b ${status}`}
@@ -2720,6 +2857,7 @@ function App(): React.ReactElement {
                   <TranscriptRow
                     key={it.id}
                     item={it}
+                    animateIn={it.id >= liveFromId}
                     onContentGrow={maybeScrollToBottom}
                     onAskAnswer={answerAsk}
                     onAskType={typeAskInstead}
@@ -2739,8 +2877,10 @@ function App(): React.ReactElement {
       </div>
 
       <div className="liveregion">
-        {workspaceMode === "code" && autopilotReviewing && (
-          <AutopilotReviewBar onCancel={requestCancel} />
+        {/* Motion's starting points sit just above the activity bar and go away
+            once the conversation has its first message. */}
+        {workspaceMode === "motion" && hydrated && items.length === 0 && !running && (
+          <MotionStarters onPick={fillComposer} />
         )}
         {workspaceMode === "code" && kenRunning && (
           <KenActivityBar
@@ -2753,20 +2893,19 @@ function App(): React.ReactElement {
           />
         )}
         {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
-        {/* Ken's bar (chat OR autopilot review) REPLACES the main bar while the
-            build is idle — otherwise the idle "Ready for work" line stacks under
-            Ken's spinner. When the build is also running, both bars show. */}
-        {(workspaceMode === "chat" || running || (!kenRunning && !autopilotReviewing)) && (
+        {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
+        {(workspaceMode !== "code" || running || autopilotReviewing || !kenRunning) && (
           <ActivityBar
             running={running}
+            activity={activity}
             cancelling={cancelling}
             tokens={tokens}
             doneStatus={doneStatus}
             isThinking={isThinking}
             thinkingStartTs={thinkingStartTs}
             thinkingAccumMs={thinkingAccumMs}
-            planTotal={workspaceMode === "chat" ? 0 : planTotal}
-            planDone={workspaceMode === "chat" ? 0 : Math.min(planDone.size, planTotal)}
+            planTotal={workspaceMode !== "code" ? 0 : planTotal}
+            planDone={workspaceMode !== "code" ? 0 : Math.min(planDone.size, planTotal)}
             onCancel={requestCancel}
             toolsHidden={toolsHidden}
             hasToolFeed={liveToolFeed.length > 0}
@@ -2822,7 +2961,7 @@ function App(): React.ReactElement {
             title="Attach files"
             onClick={() => fileInputRef.current?.click()}
           >
-            <Paperclip size={15} />
+            <PaperclipIcon size={15} />
           </button>
           <div className="input-stack">
             {enhanceAnim && (
@@ -2855,7 +2994,13 @@ function App(): React.ReactElement {
               // submit the un-enhanced draft mid-animation.
               readOnly={enhanceAnim !== null}
               value={input}
-              placeholder={workspaceMode === "chat" ? "Ask anything\u2026" : displayPlaceholder}
+              placeholder={
+                workspaceMode === "chat"
+                  ? "Ask anything\u2026"
+                  : workspaceMode === "motion"
+                    ? "Describe a video, paste a link, or drop a PDF\u2026"
+                    : displayPlaceholder
+              }
               onPaste={(e) => {
                 const files = Array.from(e.clipboardData.files);
                 if (files.length > 0) {
@@ -2953,7 +3098,7 @@ function App(): React.ReactElement {
                 else submit();
               }}
             >
-              {running ? <Square size={12} fill="currentColor" /> : <ArrowUp size={16} />}
+              {running ? <SquareIcon size={12} weight="fill" /> : <ArrowUpIcon size={16} />}
             </button>
           </div>
         </div>
@@ -2984,14 +3129,18 @@ function App(): React.ReactElement {
       </div>
 
       <div
-        className={`footer${workspaceMode === "chat" ? " footer-chat" : ""}`}
+        className={`footer${workspaceMode !== "code" ? " footer-chat" : ""}`}
         style={{ color: theme.footerText }}
       >
         {!hydrated ? (
           <FooterSkeleton />
         ) : (
           <>
-            {workspaceMode === "chat" ? (
+            {workspaceMode === "motion" ? (
+              <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
+                Motion Agent
+              </span>
+            ) : workspaceMode === "chat" ? (
               <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
                 {state?.chatAgent === "therapist"
                   ? "Therapist Agent"
@@ -3074,7 +3223,7 @@ function App(): React.ReactElement {
                   currentModel={state?.model ?? ""}
                   onSelect={onSelectModel}
                   disabled={running}
-                  title={workspaceMode === "chat" ? "Switch GG's model" : "Switch GG Coder's model"}
+                  title={`Switch ${workspaceMode === "chat" ? "GG" : workspaceProductName(workspaceMode)}'s model`}
                 />
               </span>
               {workspaceMode === "code" && (
@@ -3196,6 +3345,11 @@ function App(): React.ReactElement {
       )}
 
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
+      {showKleioOverlay && kleioRemote.status?.active && (
+        <div className="kleio-overlay">
+          <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+        </div>
+      )}
       {showScorecard && progress && (
         <ScorecardModal snapshot={progress} onClose={() => setShowScorecard(false)} />
       )}
@@ -3250,6 +3404,43 @@ function StreamingMarkdown({
 // (the one actively streaming) — the rest bail out, keeping per-token cost O(1)
 // instead of O(transcript length).
 const TranscriptRow = memo(function TranscriptRow({
+  item,
+  animateIn = false,
+  onContentGrow,
+  onAskAnswer,
+  onAskType,
+}: {
+  item: Item;
+  /** Arrived live (not restored from history): rise into place once. */
+  animateIn?: boolean;
+  onContentGrow?: () => void;
+  onAskAnswer?: (
+    itemId: number,
+    promptId: string,
+    delta: Record<string, string | string[]>,
+  ) => void;
+  onAskType?: (itemId: number, promptId: string, questionId: string, seed?: string) => void;
+}): React.ReactElement | null {
+  const row = (
+    <TranscriptRowBody
+      item={item}
+      onContentGrow={onContentGrow}
+      onAskAnswer={onAskAnswer}
+      onAskType={onAskType}
+    />
+  );
+  if (!animateIn) return row;
+  // One wrapper per live row carries the entrance so none of the ~20 row
+  // shapes below needs to know about it. `data-kind` picks the direction:
+  // your own message rises from the composer, everything else settles in.
+  return (
+    <div className="row-enter" data-kind={item.kind}>
+      {row}
+    </div>
+  );
+});
+
+function TranscriptRowBody({
   item,
   onContentGrow,
   onAskAnswer,
@@ -3330,7 +3521,7 @@ const TranscriptRow = memo(function TranscriptRow({
             <div className="user-files-row">
               {item.files.map((p) => (
                 <span key={p} className="user-file-chip" title={p}>
-                  <AtSign size={11} style={{ color: theme.accent }} />
+                  <AtIcon size={11} style={{ color: theme.accent }} />
                   <span style={{ color: theme.code }}>{p}</span>
                 </span>
               ))}
@@ -3548,6 +3739,6 @@ const TranscriptRow = memo(function TranscriptRow({
     default:
       return null;
   }
-});
+}
 
 export default App;

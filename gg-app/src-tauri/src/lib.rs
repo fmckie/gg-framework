@@ -60,6 +60,7 @@ struct Daemon {
 #[serde(rename_all = "lowercase")]
 enum WorkspaceMode {
     Chat,
+    Motion,
     #[default]
     #[serde(other)]
     Code,
@@ -404,6 +405,9 @@ fn orphan_killset(snapshot: &[ProcInfo], self_pid: i32, ledger_pgids: &HashSet<i
 /// Pure parser for `ps -eo pid=,ppid=,pgid=,command=` output (one row per
 /// line). Column padding (multiple spaces) is collapsed by `split_whitespace`.
 /// Available on all platforms so the parsing can be unit-tested.
+/// On Windows its only caller is `#[cfg(unix)]`, so outside tests it is dead
+/// there; the allow is scoped to non-Unix so Unix builds still flag real rot.
+#[cfg_attr(not(unix), allow(dead_code))]
 fn parse_ps_output(stdout: &str) -> Vec<ProcInfo> {
     stdout
         .lines()
@@ -430,9 +434,9 @@ fn parse_ps_output(stdout: &str) -> Vec<ProcInfo> {
 /// `pid|ppid|command` (see `process_snapshot` on Windows). The command field
 /// may contain `|` and spaces — `splitn(3, '|')` captures it verbatim.
 /// Available on all platforms so the parsing can be unit-tested.
-/// `allow(dead_code)`: on Unix its only caller is `#[cfg(not(unix))]`, so the
-/// compiler flags it as dead; on Windows it IS used by `process_snapshot`.
-#[allow(dead_code)]
+/// On Unix its only caller is `#[cfg(not(unix))]`, so outside tests it is dead
+/// there; the allow is scoped to Unix so Windows builds still flag real rot.
+#[cfg_attr(unix, allow(dead_code))]
 fn parse_cim_output(stdout: &str) -> Vec<ProcInfo> {
     stdout
         .lines()
@@ -519,7 +523,7 @@ fn force_kill_pid(pid: i32) {
 /// ledgered PID doubles as "a GG process-group id", which is how the sweep
 /// recognises a crashed sidecar's children by lineage — no MCP-name whitelist.
 fn sidecar_ledger_path() -> PathBuf {
-    home_dir().join(".gg").join("gg-app-sidecars")
+    app_state_dir().join("gg-app-sidecars")
 }
 
 /// Read the ledgered sidecar PIDs (== process-group ids). Missing/garbage file
@@ -622,6 +626,9 @@ fn port_for(webview: &WebviewWindow) -> Option<u16> {
 
 /// The daemon session id for the window that issued a command, or `None` until
 /// the daemon's `POST /session` has returned for this window.
+/// kleio: a remote call made before this window's host session is up.
+const STILL_CONNECTING: &str = "Still connecting to your Mac mini — try again in a moment.";
+
 fn session_for(webview: &WebviewWindow) -> Option<String> {
     let windows: State<Windows> = webview.state();
     let map = windows.map.lock().unwrap();
@@ -740,7 +747,7 @@ fn strip_file_location_suffix(path: &str) -> &str {
         if suffix.is_empty() || !suffix.chars().all(|c| c.is_ascii_digit()) {
             break;
         }
-        let last_sep = path[..colon].rfind(|c| c == '/' || c == '\\').unwrap_or(0);
+        let last_sep = path[..colon].rfind(['/', '\\']).unwrap_or(0);
         if colon <= last_sep {
             break;
         }
@@ -1833,7 +1840,7 @@ async fn agent_remove_plugin(
 
 /// Absolute path to ~/.gg/gg-app.json.
 fn app_settings_path() -> PathBuf {
-    home_dir().join(".gg").join("gg-app.json")
+    app_state_dir().join("gg-app.json")
 }
 
 /// Default projects root: ~/gg-projects.
@@ -2012,7 +2019,7 @@ struct Workspace {
 
 /// Absolute path to ~/.gg/gg-app-workspace.json.
 fn app_workspace_path() -> PathBuf {
-    home_dir().join(".gg").join("gg-app-workspace.json")
+    app_state_dir().join("gg-app-workspace.json")
 }
 
 /// Read the workspace snapshot; missing/invalid file → an empty workspace.
@@ -2158,7 +2165,7 @@ fn window_restore_target(webview: WebviewWindow) -> Option<RestoreEntry> {
 
 /// Absolute path to ~/.gg/auth.json.
 fn auth_file_path() -> PathBuf {
-    home_dir().join(".gg").join("auth.json")
+    app_state_dir().join("auth.json")
 }
 
 /// One API-key option for a provider that splits auth across multiple
@@ -2226,7 +2233,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "anthropic",
         label: "Anthropic",
-        description: "Claude Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5",
+        description: "Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 4.5",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2238,7 +2245,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "openai",
         label: "OpenAI",
-        description: "GPT-6 Astra, GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna",
+        description: "GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2250,7 +2257,8 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "gemini",
         label: "Gemini",
-        description: "Gemini 3.7 Flash, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
+        description:
+            "Gemini 3.8 Flash, 3.5 Flash Lite, 3.7 Flash, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,
@@ -2262,7 +2270,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "xai",
         label: "xAI (Grok)",
-        description: "Grok 4.6, Grok 4.5 · OAuth or API key",
+        description: "Grok 4.7 · OAuth or API key",
         methods: &["oauth", "apikey"],
         oauth_key: Some("xai-oauth"),
         oauth_label: Some("Grok OAuth"),
@@ -2289,7 +2297,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "moonshot",
         label: "Moonshot",
-        description: "Kimi K3, K2.7 Code · OAuth or API key",
+        description: "Kimi K3, K2.8 Preview (Kimi sign-in), K2.7 Code · OAuth or API key",
         methods: &["oauth", "apikey"],
         oauth_key: Some("moonshot-oauth"),
         oauth_label: Some("Kimi OAuth"),
@@ -2341,7 +2349,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
         value: "xiaomi",
         label: "Xiaomi (MiMo)",
         description:
-            "MiMo-V2.5-Pro, MiMo-V2.5-Pro-UltraSpeed, MiMo-V2.5 · Token Plan or API Credits",
+            "MiMo-V2.6-Pro, MiMo-V2.6-Flash, MiMo-V2.6-Pro-UltraSpeed · Token Plan or API Credits",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2364,7 +2372,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "deepseek",
         label: "DeepSeek",
-        description: "DeepSeek V4 Pro, V4 Flash",
+        description: "DeepSeek V4 Pro, V4.1 Flash",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2376,7 +2384,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "sakana",
         label: "Sakana (Fugu)",
-        description: "Fugu, Fugu Ultra",
+        description: "Fugu, Fugu Max, Fugu Ultra",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2388,7 +2396,7 @@ const AUTH_PROVIDERS: &[ProviderMeta] = &[
     ProviderMeta {
         value: "openrouter",
         label: "OpenRouter",
-        description: "Qwen3.6-Plus · multi-provider gateway",
+        description: "Qwen3.8 Max · multi-provider gateway",
         methods: &["apikey"],
         oauth_key: None,
         oauth_label: None,
@@ -2436,7 +2444,20 @@ fn resolve_apikey_target(
 /// key on file as backup", and the UI needs that to explain itself and to offer
 /// a per-method disconnect.
 #[tauri::command]
-fn app_auth_status() -> serde_json::Value {
+async fn app_auth_status(webview: WebviewWindow) -> serde_json::Value {
+    // kleio: providers live on the Kleio host; Kleio keeps no local credentials.
+    // The host's sidecar only answers /auth/* for a live session, so send this
+    // window's.
+    if kleio::remote().is_some() {
+        let result = match session_for(&webview) {
+            Some(gg_sid) => kleio::host_auth("GET", "/auth/status", None, &gg_sid).await,
+            None => Err(STILL_CONNECTING.to_string()),
+        };
+        return result.unwrap_or_else(|e| {
+            log::warn!("host auth status failed: {e}");
+            serde_json::json!({ "providers": [], "error": e })
+        });
+    }
     // Parse the auth file into a JSON object; missing/invalid → empty (no creds).
     let creds = std::fs::read_to_string(auth_file_path())
         .ok()
@@ -2722,11 +2743,18 @@ fn write_auth_file(contents: &str) -> Result<(), String> {
 /// providers with multiple API-key options (currently only Xiaomi); omitted or
 /// unknown defaults to the first/primary variant. Returns `{ ok: true }`.
 #[tauri::command]
-fn app_auth_apikey(
+async fn app_auth_apikey(
+    webview: WebviewWindow,
     provider: String,
     key: String,
     variant: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // kleio: the key is stored on the Kleio host, where the engine runs.
+    if kleio::remote().is_some() {
+        let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
+        let body = serde_json::json!({ "provider": provider, "key": key, "variant": variant });
+        return kleio::host_auth("POST", "/auth/apikey", Some(body), &gg_sid).await;
+    }
     let key = key.trim();
     if key.is_empty() {
         return Err("API key is required".to_string());
@@ -2746,11 +2774,18 @@ fn app_auth_apikey(
 /// and every API-key variant (currently only Xiaomi's). Never touches the
 /// sidecar. Returns `{ ok: true }`.
 #[tauri::command]
-fn app_auth_logout(
+async fn app_auth_logout(
     app: tauri::AppHandle,
+    webview: WebviewWindow,
     provider: String,
     method: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    // kleio: disconnect on the Kleio host (its sidecar tells the windows).
+    if kleio::remote().is_some() {
+        let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
+        let body = serde_json::json!({ "provider": provider, "method": method });
+        return kleio::host_auth("POST", "/auth/logout", Some(body), &gg_sid).await;
+    }
     if let Some(m) = method.as_deref() {
         if m != "oauth" && m != "apikey" {
             return Err(format!("unknown auth method: {m}"));
@@ -3535,7 +3570,7 @@ fn build_app_window_with_visibility(
     visible: bool,
 ) -> Result<WebviewWindow, String> {
     let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title("GG Coder")
+        .title("Kleio")
         .inner_size(1024.0, 720.0)
         .min_inner_size(480.0, 360.0)
         .background_color(APP_BG)
@@ -3969,17 +4004,21 @@ fn build_tray_menu(
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        tray_id::REMOTE,
-        if status.remote_active {
-            "Remote \u{b7} Turn off"
-        } else {
-            "Remote"
-        },
-        true,
-        None::<&str>,
-    )?)?;
+    // kleio: no Telegram serving — the Kleio iPhone app is the remote. The
+    // item stays upstream's, just not offered here.
+    if !kleio::REMOTE_ONLY {
+        menu.append(&MenuItem::with_id(
+            app,
+            tray_id::REMOTE,
+            if status.remote_active {
+                "Remote \u{b7} Turn off"
+            } else {
+                "Remote"
+            },
+            true,
+            None::<&str>,
+        )?)?;
+    }
     menu.append(&MenuItem::with_id(
         app,
         tray_id::SETTINGS,
@@ -3999,7 +4038,7 @@ fn init_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     // Black-on-transparent 72x72 PNG, flagged as a template below so macOS
     // re-tints it per menu-bar appearance instead of us shipping two assets.
     #[cfg(target_os = "macos")]
-    let icon = Image::from_bytes(include_bytes!("../icons/tray-mac.png"))?;
+    let icon = Image::from_bytes(include_bytes!("../icons/kleio/tray-mac.png"))?;
     // Windows: the full-colour app tile. `CreateIcon` uses the bitmap at its
     // native size, so this is the 32x32 asset (16pt at 200% DPI) rather than the
     // 72px mac one, which the shell would have to scale down.
@@ -4011,7 +4050,7 @@ fn init_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         // Template tinting is a macOS concept; on Windows it must stay off or the
         // colour tile would be flattened.
         .icon_as_template(cfg!(target_os = "macos"))
-        .tooltip("GG Coder")
+        .tooltip("Kleio")
         .menu(&build_tray_menu(app, &TrayStatus::default())?)
         // The icon has no action other than its menu, so a click that did nothing
         // would read as broken. Right-click opens it too (tray-icon defaults
@@ -4387,6 +4426,13 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                                     if let Ok(value) =
                                         serde_json::from_str::<serde_json::Value>(payload)
                                     {
+                                        let state: State<Windows> = app.state();
+                                        let map = state.map.lock().unwrap();
+                                        if map.get(&label).and_then(|w| w.session_id.as_deref())
+                                            != Some(session_id.as_str())
+                                        {
+                                            return;
+                                        }
                                         let _ = app.emit_to(
                                             EventTarget::webview_window(label.clone()),
                                             "agent-event",
@@ -4402,6 +4448,22 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                 Err(e) => {
                     log::error!("failed to connect to event stream: {e}");
                 }
+            }
+            // Do not leave a stale working/success label while the stream is down,
+            // and never deliver an old session's disconnect to its replacement.
+            {
+                let state: State<Windows> = app.state();
+                let map = state.map.lock().unwrap();
+                if map.get(&label).and_then(|w| w.session_id.as_deref())
+                    != Some(session_id.as_str())
+                {
+                    return;
+                }
+                let _ = app.emit_to(
+                    EventTarget::webview_window(label.clone()),
+                    "agent-event",
+                    serde_json::json!({ "type": "connection_lost", "data": {} }),
+                );
             }
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }
@@ -4543,6 +4605,13 @@ fn strip_extended_prefix(path: PathBuf) -> PathBuf {
 /// POSIX-style `/c/Users/x` that no Win32 API can open) made the Rust shell
 /// look for settings, auth and projects in a directory the sidecar never
 /// wrote — the app came up logged out with an empty project picker.
+/// The desktop app's own state directory. kleio: `~/.kleio`, never `~/.gg` —
+/// that one belongs to GG Coder and the `ggcoder` CLI on the same Mac, and
+/// Kleio must never read or write it.
+fn app_state_dir() -> PathBuf {
+    kleio::state_dir(&home_dir())
+}
+
 fn home_dir() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
@@ -5072,6 +5141,12 @@ fn start_default_window_session(app: tauri::AppHandle, label: String) {
 /// restore target so the webview skips the picker. Otherwise fall back to the
 /// single default `main` window at the boot cwd (the picker then shows).
 fn restore_or_default_windows(app: &tauri::AppHandle) -> Result<(), String> {
+    // kleio: not paired → nothing to talk to. Just the window; the webview
+    // shows the connect screen and relaunches once paired.
+    if kleio::REMOTE_ONLY && kleio::remote().is_none() {
+        build_app_window(app, "main")?;
+        return Ok(());
+    }
     // kleio: snapshot cwds are paths on whichever machine ran the sessions;
     // `exists()` can only vouch for this one. Paired to a host, start from the
     // picker instead of guessing.
@@ -5236,6 +5311,8 @@ pub fn run() {
             kleio::commands::kleio_offer,
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
+            kleio::commands::kleio_api,
+            kleio::tailscale::kleio_tailscale_status,
             sidecar_port,
             dropped_path_info,
             permissions_status,
@@ -5339,7 +5416,11 @@ pub fn run() {
             // instances BEFORE spawning any new sidecars — they'd otherwise
             // accumulate forever across launches. Best-effort + logged.
             // Cross-platform: uses `ps` on Unix, PowerShell CIM on Windows.
-            sweep_orphan_sidecars();
+            // kleio: Kleio runs no local sidecars, so there are none of its own
+            // to sweep, and GG Coder's on this Mac are not ours to touch.
+            if !kleio::REMOTE_ONLY {
+                sweep_orphan_sidecars();
+            }
             // macOS menu-bar / Windows notification-area presence. Built before
             // the windows so the status item is there even if window restore is
             // slow. Non-fatal: a tray failure must never stop the app launching.
@@ -5351,9 +5432,11 @@ pub fn run() {
             // session. Window session creation (in restore/setup) awaits its
             // `GG_APP_LISTENING` port via `await_daemon_port`.
             // kleio: registration point 3/3 — remote host: nothing to spawn.
+            // Not paired (Kleio): no engine at all; the webview shows the
+            // connect-to-your-Mac-mini screen.
             if kleio::remote().is_some() {
                 *app.state::<Daemon>().port.lock().unwrap() = Some(kleio::REMOTE_PORT_SENTINEL);
-            } else {
+            } else if !kleio::REMOTE_ONLY {
                 spawn_daemon(app.handle().clone(), false);
             }
             // Restore the previous session's windows (each at its project +
@@ -5659,6 +5742,17 @@ mod tests {
             serde_json::from_str(r#"{ "windows": [{ "mode": "future", "cwd": "/p/a" }] }"#)
                 .unwrap();
         assert_eq!(invalid.windows[0].mode, WorkspaceMode::Code);
+    }
+
+    #[test]
+    fn workspace_restores_motion_mode() {
+        let motion: Workspace =
+            serde_json::from_str(r#"{ "windows": [{ "mode": "motion", "cwd": "/p/a" }] }"#)
+                .unwrap();
+        assert_eq!(motion.windows[0].mode, WorkspaceMode::Motion);
+        assert!(serde_json::to_string(&motion)
+            .unwrap()
+            .contains(r#""mode":"motion""#));
     }
 
     #[test]
@@ -6538,7 +6632,7 @@ mod tests {
         );
         let removed = map.remove("main").and_then(|w| w.session_id);
         assert_eq!(removed.as_deref(), Some("id-1"));
-        assert!(map.get("main").is_none());
+        assert!(!map.contains_key("main"));
         // Peer survives with its own session.
         assert_eq!(
             map.get("project-1").unwrap().session_id.as_deref(),

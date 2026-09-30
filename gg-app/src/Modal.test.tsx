@@ -30,6 +30,25 @@ describe("Modal", () => {
     opener.remove();
   });
 
+  // Fork fix carried across the 2026-09-24 sync: an autoFocus child takes
+  // focus while the modal commits, before any effect runs, so the opener has
+  // to be captured during render or focus is lost to <body> on close.
+  it("returns focus to the opener even when a child autofocuses", () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const { unmount } = render(
+      <Modal title="Rename" onClose={vi.fn()}>
+        <input aria-label="Name" autoFocus />
+      </Modal>,
+    );
+    expect(document.activeElement).not.toBe(opener);
+
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
+
   it("contains Tab focus and only dismisses from the backdrop itself", () => {
     const onClose = vi.fn();
     render(

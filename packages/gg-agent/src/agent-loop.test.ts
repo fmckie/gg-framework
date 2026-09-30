@@ -451,7 +451,7 @@ describe("agentLoop", () => {
 
     await collectLoop([{ role: "user", content: "test" }], {
       provider: "openai",
-      model: "gpt-5.6-luna",
+      model: "gpt-6-luna",
       transportSessionId: "transport-session",
       promptCacheKey: "shared-cache-family",
       toolChoice: "none",
@@ -1057,6 +1057,96 @@ describe("agentLoop", () => {
     expect(events.some((event) => event.type === "agent_done")).toBe(true);
   });
 
+  it.each([
+    {
+      name: "a pause inside an open tool call",
+      before: [
+        { type: "text_delta" as const, text: "Editing." },
+        { type: "toolcall_delta" as const, id: "t1", name: "edit", argsJson: '{"a":' },
+      ],
+      pauseMs: 240_000,
+    },
+    {
+      name: "silent thinking past five minutes",
+      before: [{ type: "thinking_delta" as const, text: "" }],
+      pauseMs: 400_000,
+    },
+  ])("does not abort $name", async ({ before, pauseMs }) => {
+    vi.useFakeTimers();
+    mockStream.mockImplementation((opts: StreamOptions) => {
+      return {
+        [Symbol.asyncIterator]: async function* () {
+          for (const e of before) yield e;
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, pauseMs);
+            opts.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+              },
+              { once: true },
+            );
+          });
+          yield { type: "text_delta" as const, text: "Done." };
+        },
+        response: Promise.resolve(makeResponse("Done.")),
+      } as unknown as ReturnType<typeof stream>;
+    });
+
+    const loopPromise = collectLoop(
+      [
+        { role: "system", content: "sys" },
+        { role: "user", content: "go" },
+      ],
+      { provider: "anthropic", model: "test", thinking: "high" },
+    );
+    await vi.advanceTimersByTimeAsync(pauseMs + 1_000);
+    const { events } = await loopPromise;
+    vi.useRealTimers();
+
+    expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === "retry")).toBe(false);
+    expect(events.some((event) => event.type === "agent_done")).toBe(true);
+  });
+
+  it("still retries a stall after output when no tool call is open", async () => {
+    vi.useFakeTimers();
+    let call = 0;
+    mockStream.mockImplementation((opts: StreamOptions) => {
+      call++;
+      if (call > 1) return mockOkResult("Recovered") as unknown as ReturnType<typeof stream>;
+      const abortPromise = new Promise<never>((_, reject) => {
+        opts.signal?.addEventListener(
+          "abort",
+          () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          { once: true },
+        );
+      });
+      abortPromise.catch(() => {});
+      return {
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: "text_delta" as const, text: "Partial" };
+          await abortPromise;
+        },
+        response: abortPromise,
+      } as unknown as ReturnType<typeof stream>;
+    });
+
+    const loopPromise = collectLoop([{ role: "user", content: "go" }], {
+      provider: "anthropic",
+      model: "test",
+    });
+    await vi.advanceTimersByTimeAsync(95_000);
+    const { events } = await loopPromise;
+    vi.useRealTimers();
+
+    const retry = events.find((event) => event.type === "retry");
+    expect(mockStream).toHaveBeenCalledTimes(2);
+    // The failed attempt kept the user waiting 90s, so the retry is shown.
+    expect(retry?.type === "retry" ? retry.silent : undefined).toBe(false);
+  });
+
   it("flips to non-streaming fallback after repeated stream stalls", async () => {
     vi.useFakeTimers();
 
@@ -1413,6 +1503,88 @@ describe("agentLoop", () => {
       );
     expect(assistantTexts).not.toContain(tiny);
   }, 30_000);
+
+  it("cancels identical calls in one response but permits the same call next turn", async () => {
+    const args = z.object({ path: z.string(), flags: z.object({ a: z.number(), b: z.number() }) });
+    const execute = vi.fn(async () => "ran");
+    const tool: AgentTool<typeof args> = {
+      name: "change",
+      description: "change a file",
+      parameters: args,
+      execute,
+      executionMode: "sequential",
+    };
+    const response = (
+      content: { type: "tool_call"; id: string; name: string; args: object }[],
+    ) => ({
+      [Symbol.asyncIterator]: async function* () {
+        yield* [];
+      },
+      response: Promise.resolve({
+        message: { role: "assistant" as const, content },
+        stopReason: "tool_use",
+        usage: { inputTokens: 30, outputTokens: 10 },
+      }),
+    });
+    mockStream
+      .mockReturnValueOnce(
+        response([
+          {
+            type: "tool_call",
+            id: "a",
+            name: "change",
+            args: { path: "one", flags: { a: 1, b: 2 } },
+          },
+          {
+            type: "tool_call",
+            id: "b",
+            name: "change",
+            args: { flags: { b: 2, a: 1 }, path: "one" },
+          },
+          {
+            type: "tool_call",
+            id: "c",
+            name: "change",
+            args: { path: "two", flags: { a: 1, b: 2 } },
+          },
+          {
+            type: "tool_call",
+            id: "d",
+            name: "change",
+            args: { path: "one", flags: { a: 1, b: 2 } },
+          },
+        ]) as unknown as ReturnType<typeof stream>,
+      )
+      .mockReturnValueOnce(
+        response([
+          {
+            type: "tool_call",
+            id: "e",
+            name: "change",
+            args: { path: "one", flags: { a: 1, b: 2 } },
+          },
+        ]) as unknown as ReturnType<typeof stream>,
+      )
+      .mockReturnValueOnce(mockOkResult("done") as unknown as ReturnType<typeof stream>);
+
+    const messages: Message[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "change" },
+    ];
+    const { events } = await collectLoop(messages, {
+      provider: "anthropic",
+      model: "test",
+      tools: [tool],
+    });
+
+    expect(execute).toHaveBeenCalledTimes(4);
+    const cancelled = events.find(
+      (event) => event.type === "tool_call_end" && event.toolCallId === "b",
+    );
+    expect(cancelled).toMatchObject({ isError: true });
+    expect(messages.filter((message) => message.role === "tool")).toHaveLength(2);
+    expect(JSON.stringify(messages)).toContain("this call was not executed");
+  });
 
   it("runs parallel tools concurrently by default", async () => {
     const firstStarted = deferred();

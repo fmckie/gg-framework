@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckCircle2, XCircle, Lock } from "lucide-react";
+import { CheckCircleIcon, XCircleIcon, LockIcon, XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import { Modal } from "./Modal";
+import { ModalDismissButton, useModalEmbedState } from "./modal-embed";
 import { ListSkeleton } from "./Skeleton";
+import { SettingsCard, SettingsSection } from "./settings-section";
+import { SettingsHeaderAction } from "./settings-header";
 import {
   listMcpServers,
   addMcpServer,
@@ -32,6 +35,7 @@ interface Props {
  * newly-added server needs an app restart to load (MCP connects once at startup).
  */
 export function McpModal({ onClose }: Props): React.ReactElement {
+  const embedded = useModalEmbedState() === "embed";
   const [servers, setServers] = useState<McpServerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [line, setLine] = useState("");
@@ -170,8 +174,19 @@ export function McpModal({ onClose }: Props): React.ReactElement {
   // which scope you're managing.
   const visible = servers.filter((s) => s.scope === scope);
 
-  return (
-    <Modal title="MCP servers" onClose={onClose}>
+  const addButton = (
+    <button
+      // In the Settings header it matches the nav bars' small buttons.
+      className={embedded ? "btn btn-primary btn-sm" : "modal-btn primary"}
+      disabled={!line.trim() || busy}
+      onClick={() => void add()}
+    >
+      {busy ? "Adding\u2026" : "Add"}
+    </button>
+  );
+
+  const serverList = (
+    <>
       {loading ? (
         <ListSkeleton rows={3} />
       ) : visible.length === 0 ? (
@@ -189,11 +204,11 @@ export function McpModal({ onClose }: Props): React.ReactElement {
                 }}
               >
                 {s.ok ? (
-                  <CheckCircle2 size={15} />
+                  <CheckCircleIcon size={15} />
                 ) : s.requiresAuth ? (
-                  <Lock size={14} />
+                  <LockIcon size={14} />
                 ) : (
-                  <XCircle size={15} />
+                  <XCircleIcon size={15} />
                 )}
               </span>
               <span className="mcp-name" style={{ color: theme.text }} title={s.summary}>
@@ -225,81 +240,104 @@ export function McpModal({ onClose }: Props): React.ReactElement {
                 title={`Remove "${s.name}"`}
                 onClick={() => void remove(s.name, s.scope)}
               >
-                {"\u00d7"}
+                <XIcon size={12} weight="bold" aria-hidden="true" />
               </button>
             </div>
           ))}
         </div>
       )}
+    </>
+  );
 
-      <div className="modal-label" style={{ color: theme.textMuted, marginTop: 4 }}>
-        Add an MCP
-      </div>
-      <input
-        className="modal-input"
-        style={{ color: theme.text, background: theme.inputBackground, width: "100%" }}
-        value={line}
-        placeholder="claude mcp add --transport http notion https://mcp.notion.com/mcp"
-        autoFocus
-        onChange={(e) => setLine(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void add();
-        }}
-      />
-      <div className="mcp-scope-toggle">
-        <button
-          className={`modal-btn${scope === "global" ? " primary" : ""}`}
-          onClick={() => setScope("global")}
-        >
-          Global
-        </button>
-        <button
-          className={`modal-btn${scope === "project" ? " primary" : ""}`}
-          onClick={() => setScope("project")}
-        >
-          Project
-        </button>
-      </div>
-      {scope === "project" && (
-        <>
-          <input
-            className="modal-input"
-            style={{
-              color: projectPath ? theme.text : theme.textMuted,
-              background: theme.inputBackground,
-              width: "100%",
-              marginTop: 10,
-            }}
-            value={projectPath}
-            placeholder="Type a project path or pick below…"
-            list="mcp-project-paths"
-            onChange={(e) => setProjectPath(e.target.value)}
-          />
-          <datalist id="mcp-project-paths">
-            {projects.map((p) => (
-              <option key={p.path} value={p.path}>
-                {p.name}
-              </option>
-            ))}
-          </datalist>
-        </>
-      )}
+  return (
+    <Modal title="MCP servers" onClose={onClose}>
+      {/* Columns only on the Settings screen: servers beside the add form.
+          In the dialog they are transparent (see .settings-cols in App.css). */}
+      <div className="settings-cols">
+        <div className="settings-col">
+          {embedded ? (
+            <SettingsCard title="Servers" description="Extra tools your agent can use.">
+              {serverList}
+            </SettingsCard>
+          ) : (
+            serverList
+          )}
+        </div>
+        <div className="settings-col">
+          {embedded && <SettingsHeaderAction>{addButton}</SettingsHeaderAction>}
+          <SettingsSection
+            title="Add a server"
+            dialogTitle="Add an MCP"
+            description="Paste a claude mcp add command. Loads after a restart."
+          >
+            <input
+              className="modal-input"
+              style={{ color: theme.text, background: theme.inputBackground, width: "100%" }}
+              value={line}
+              placeholder="claude mcp add --transport http notion https://mcp.notion.com/mcp"
+              // A dialog focuses its first field; a Settings page leaves focus on
+              // the tab bar so the arrow keys keep switching tabs.
+              autoFocus={!embedded}
+              onChange={(e) => setLine(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void add();
+              }}
+            />
+            <div className="mcp-scope-toggle">
+              <button
+                className={`modal-btn${scope === "global" ? " primary" : ""}`}
+                onClick={() => setScope("global")}
+              >
+                Global
+              </button>
+              <button
+                className={`modal-btn${scope === "project" ? " primary" : ""}`}
+                onClick={() => setScope("project")}
+              >
+                Project
+              </button>
+            </div>
+            {scope === "project" && (
+              <>
+                <input
+                  className="modal-input"
+                  style={{
+                    color: projectPath ? theme.text : theme.textMuted,
+                    background: theme.inputBackground,
+                    width: "100%",
+                    marginTop: 10,
+                  }}
+                  value={projectPath}
+                  placeholder="Type a project path or pick below…"
+                  list="mcp-project-paths"
+                  onChange={(e) => setProjectPath(e.target.value)}
+                />
+                <datalist id="mcp-project-paths">
+                  {projects.map((p) => (
+                    <option key={p.path} value={p.path}>
+                      {p.name}
+                    </option>
+                  ))}
+                </datalist>
+              </>
+            )}
+          </SettingsSection>
 
-      <div className="modal-hint" style={{ color: theme.textDim, marginTop: 12 }}>
-        New servers load on next app restart.
-      </div>
+          {/* On the page the section description already says this. */}
+          {!embedded && (
+            <div className="modal-hint" style={{ color: theme.textDim, marginTop: 12 }}>
+              New servers load on next app restart.
+            </div>
+          )}
 
-      <div className="modal-actions">
-        <button className="modal-btn" onClick={onClose}>
-          Close
-        </button>
-        <button
-          className="modal-btn primary"
-          disabled={!line.trim() || busy}
-          onClick={() => void add()}
-        >
-          {busy ? "Adding\u2026" : "Add"}
-        </button>
+          {/* On the page, Add sits in the screen's header bar instead. */}
+          {!embedded && (
+            <div className="modal-actions">
+              <ModalDismissButton onClick={onClose}>Close</ModalDismissButton>
+              {addButton}
+            </div>
+          )}
+        </div>
       </div>
     </Modal>
   );

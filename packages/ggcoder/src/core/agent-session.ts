@@ -20,12 +20,19 @@ import {
 } from "@kleio/ai";
 import { EventBus } from "./event-bus.js";
 import {
+  COMPLETION_REVIEW_STATE_KIND,
+  type CompletionReview,
+  type CompletionReviewRequest,
+  type CompletionReviewResponse,
+} from "./completion-review.js";
+import {
   SlashCommandRegistry,
   createBuiltinCommands,
   type SlashCommandContext,
 } from "./slash-commands.js";
 import { PROMPT_COMMANDS, getPromptCommand } from "./prompt-commands.js";
 import { loadCustomCommands } from "./custom-commands.js";
+import { expandPromptCommand } from "./prompt-command-expansion.js";
 import { SettingsManager } from "./settings-manager.js";
 import { AuthStorage } from "./auth-storage.js";
 import { dualAuthProvider } from "@kleio/core";
@@ -96,7 +103,11 @@ import { MCPClientManager, getAllMcpServers } from "./mcp/index.js";
 import type { MCPElicitHandler } from "./mcp/index.js";
 import type { MCPServerConfig } from "./mcp/types.js";
 import { clampMcpToolDescription, DeferredToolCatalog } from "./mcp/deferred-catalog.js";
-import { CONTEXT_LIMITS, resolveContextLimits, type ContextLimits } from "./context-limits.js";
+import {
+  CONTEXT_LIMITS,
+  resolveSessionContextLimits,
+  type ContextLimits,
+} from "./context-limits.js";
 import { McpCatalogCache, type CachedTool } from "./mcp/catalog-cache.js";
 import {
   describeDropped,
@@ -114,10 +125,11 @@ import { log } from "./logger.js";
 import { setEstimatorModel, calibrateEstimatorFromUsage } from "./compaction/token-estimator.js";
 import { calculateActiveContextTokens } from "./compaction/active-context.js";
 import { resolveCompactionPolicy } from "./compaction/policy.js";
+import { clampThinkingForPlanMode } from "./thinking-level.js";
 import { pruneStaleToolResults } from "./compaction/tool-result-pruner.js";
 import { discoverAgents } from "./agents.js";
 import { enhancePrompt, type EnhanceResult } from "../utils/prompt-enhancer.js";
-import { detectProjectStack } from "./language-detector.js";
+import { detectLanguages, detectProjectStack, type LanguageId } from "./language-detector.js";
 import {
   type IdealReviewDecision,
   type IdealReviewStats,
@@ -138,7 +150,7 @@ import {
   detectTextRepetition,
   type CycleDetection,
 } from "./loop-breaker.js";
-import { buildRegroundingMessage } from "./regrounding.js";
+import { buildRegroundingMessage, requestTextForRegrounding } from "./regrounding.js";
 import {
   buildSemanticLoopJudgePrompt,
   buildSemanticLoopMessage,
@@ -156,6 +168,7 @@ import {
   INDEPENDENT_REVIEW_SCORE_THRESHOLD,
   parseReviewerFindings,
   REVIEWER_TOOLS,
+  REVIEWER_TURN_TIMEOUT_MS,
   REVIEWER_WAIT_MS,
 } from "./ideal-review-subagent.js";
 import { buildEnvDeltaMessage } from "./env-delta.js";
@@ -217,6 +230,14 @@ function isTerminalSubAgentState(state: SubAgentState): boolean {
   );
 }
 
+/** Per-prompt run controls. */
+export interface PromptRunOptions {
+  /** Offer the model no tools for this prompt. */
+  disableTools?: boolean;
+  /** Hold reasoning effort at the plan-mode ceiling for this prompt. */
+  capThinking?: boolean;
+}
+
 export interface AgentSessionOptions {
   provider: Provider;
   model: string;
@@ -237,6 +258,12 @@ export interface AgentSessionOptions {
   agentPrompt?: string;
   /** Whether `agentPrompt` composition includes project instruction files. Default `"project"`. */
   agentContext?: "project" | "none";
+  /**
+   * Who `agentPrompt` speaks to. `"subagent"` (default) appends the delegated
+   * child's return contract; `"primary"` is a user-facing specialist (Motion)
+   * that keeps the Tools/Environment scaffolding but answers the user directly.
+   */
+  agentRole?: "subagent" | "primary";
   /** Synchronous volatile prompt suffix, refreshed immediately before every run. */
   getSystemPromptTail?: () => string;
   sessionId?: string;
@@ -348,6 +375,18 @@ export interface AgentSessionOptions {
   semanticLoopJudge?: (prompt: string) => Promise<string>;
   /** Load project skills/agents and create local .gg directories. Defaults to true. */
   projectCustomization?: boolean;
+  /**
+   * Use exactly this skill set instead of discovering bundled/global/project
+   * skills. A mode with a private skill bundle (Motion) passes its own list so
+   * its skills stay invisible to every other mode, and vice versa.
+   */
+  skills?: readonly Skill[];
+  /**
+   * Mode-specific defaults for prompt byte budgets. The user's `contextLimits`
+   * setting still overrides these. Motion raises its skill-catalog budget
+   * because its skill set is a fixed, bundled one (never untrusted files).
+   */
+  contextLimits?: Partial<ContextLimits>;
   /** Register global + bundled subagents without loading project customization. */
   globalSubagents?: boolean;
   /** Load GG Coder extensions. Defaults to true. */
@@ -356,6 +395,8 @@ export interface AgentSessionOptions {
   orchestrationPrompt?: boolean;
   /** Host-provided tools appended to this session only (for example, chat delegation). */
   additionalTools?: AgentTool[];
+  /** Mode-owned completion policy; absent in Coder/chat/worker sessions. */
+  completionReview?: CompletionReview;
 }
 
 // ── Tool-result policy ─────────────────────────────────────
@@ -535,6 +576,15 @@ export class AgentSession {
    *  only on a real edge. */
   private verificationArmed = false;
   private compactionOccurred = false;
+  /**
+   * Re-grounding carry-over for post-turn compaction. `resetHookState` clears
+   * `compactionOccurred` at run start — before the injection point — so a
+   * background compaction that finished after the final response parks its
+   * "re-ground next turn" signal here for pickup at the next run start.
+   */
+  private compactionArmedForNextRun = false;
+  /** In-flight post-turn (background) compaction, if any. */
+  private postTurnCompaction?: Promise<void>;
   private lastCompactionCompacted = false;
   private compactionRetryAfter = 0;
   /** A restored oversized checkpoint must be canonicalized before its first prompt is persisted. */
@@ -598,6 +648,13 @@ export class AgentSession {
   private agentPrompt?: string;
   /** Stable prompt prefix retained separately from the volatile uncached tail. */
   private baseSystemPrompt = "";
+  /**
+   * Project languages whose style packs and verify commands are in the
+   * standard prompt. Only ever grows within a session (same policy as the
+   * terminal UI): a pack disappearing mid-task would rewrite the cached prefix
+   * for no benefit.
+   */
+  private activeLanguages = new Set<LanguageId>();
   /** Shared with the tool layer so plan-mode restrictions read live state. */
   private planModeRef = { current: false };
   /** Path of the approved plan currently being implemented, or undefined. When
@@ -689,7 +746,10 @@ export class AgentSession {
     // Load settings & auth
     this.settingsManager = new SettingsManager(paths.settingsFile);
     await this.settingsManager.load();
-    this.contextLimits = resolveContextLimits(this.settingsManager.get("contextLimits"));
+    this.contextLimits = resolveSessionContextLimits(
+      this.opts.contextLimits,
+      this.settingsManager.get("contextLimits"),
+    );
 
     this.authStorage = new AuthStorage(paths.authFile);
     await this.authStorage.load();
@@ -704,7 +764,10 @@ export class AgentSession {
       await fs.mkdir(path.join(localGGDir, "skills"), { recursive: true });
       await fs.mkdir(path.join(localGGDir, "commands"), { recursive: true });
       await fs.mkdir(path.join(localGGDir, "agents"), { recursive: true });
-
+    }
+    if (this.opts.skills) {
+      this.skills = [...this.opts.skills];
+    } else if (projectCustomization) {
       this.skills = await discoverSkills({
         globalSkillsDir: paths.skillsDir,
         projectDir: this.cwd,
@@ -1247,9 +1310,7 @@ export class AgentSession {
     if (!promptText) return { kind: "command" };
     return {
       kind: "template",
-      fullPrompt: parsed.args
-        ? `${promptText}\n\n## User Instructions\n\n${parsed.args}`
-        : promptText,
+      fullPrompt: expandPromptCommand(promptText, parsed.args),
     };
   }
 
@@ -1265,6 +1326,8 @@ export class AgentSession {
 
   /**
    * Process user input. Handles slash commands or runs agent loop.
+   * `capThinking` holds reasoning effort at the plan-mode ceiling for this
+   * prompt — for turns that must answer quickly from what is already known.
    */
   async prompt(
     content: string,
@@ -1273,8 +1336,9 @@ export class AgentSession {
       kind: "prompt",
       visibility: "transcript",
     },
-    options: { disableTools?: boolean } = {},
+    options: PromptRunOptions = {},
   ): Promise<void> {
+    await this.settlePostTurnCompaction();
     await this.adoptDeferredCheckpointBeforePrompt();
     const slash = await this.resolveSlashInput(content);
     if (slash?.kind === "template") {
@@ -1312,6 +1376,7 @@ export class AgentSession {
    * attachments are always a direct conversational turn.
    */
   async promptWithAttachments(text: string, attachments: SessionAttachment[]): Promise<void> {
+    await this.settlePostTurnCompaction();
     await this.adoptDeferredCheckpointBeforePrompt();
     const parts = this.buildAttachmentParts(text, attachments);
     if (parts.length === 0) return;
@@ -1407,6 +1472,7 @@ export class AgentSession {
    * is the verbatim user ask, pinned for post-compaction re-grounding.
    */
   private resetHookState(originalRequest: string): void {
+    this.opts.completionReview?.begin(originalRequest);
     this.lspManager?.clearPendingDiagnostics();
     this.hookStats = {
       changedLines: 0,
@@ -1451,6 +1517,13 @@ export class AgentSession {
       if (!processes.has(id)) this.backgroundVerification.delete(id);
     }
     this.compactionOccurred = false;
+    // Post-turn compaction may have landed between runs — adopt its armed
+    // signal so the re-grounding hook fires for this run exactly as it would
+    // after a pre-run compaction.
+    if (this.compactionArmedForNextRun) {
+      this.compactionArmedForNextRun = false;
+      this.compactionOccurred = true;
+    }
     this.originalRequest = originalRequest;
   }
 
@@ -1460,21 +1533,33 @@ export class AgentSession {
    * ideal-review decisions match across the CLI and the app.
    */
   private async trackHookEvent(event: AgentEvent): Promise<void> {
+    if (this.opts.completionReview) {
+      await this.opts.completionReview.track(event);
+      if (event.type === "checkpoint") await this.persistCompletionReviewState();
+    }
     switch (event.type) {
       case "text_delta":
         this.hookText += event.text;
         break;
-      case "tool_call_start":
+      case "tool_call_start": {
         this.hookToolCalls.set(event.toolCallId, {
           name: event.name,
           args: event.args ?? {},
           revision: this.verificationGate.revision,
         });
+        const startClassification =
+          event.name === "bash" && typeof event.args?.command === "string"
+            ? classifyVerificationCommand(event.args.command)
+            : null;
         if (
-          event.name === "bash" &&
+          startClassification &&
           typeof event.args?.command === "string" &&
           (isVerificationCommand(event.args.command) ||
-            classifyVerificationCommand(event.args.command).accepted)
+            startClassification.accepted ||
+            // Must match the tool_call_end predicate: a snapshot-eligible
+            // command that never captured a "before" snapshot is misread at
+            // the end as an uncomparable workspace and re-arms the gate.
+            startClassification.snapshotEligible === true)
         ) {
           // A check that can rewrite files (--fix, build scripts, emitters)
           // invalidates earlier in-flight evidence AND marks the run as
@@ -1482,7 +1567,8 @@ export class AgentSession {
           // test`) rewrites nothing we can point to: bumping the revision for
           // it poisoned the gate on green output and re-armed the hook into
           // every later question turn.
-          const classification = classifyVerificationCommand(event.args.command);
+          this.verificationGate.recordVerificationAttempt();
+          const classification = startClassification;
           if (classification.snapshotEligible && event.args.persist !== true) {
             const call = this.hookToolCalls.get(event.toolCallId)!;
             call.sourceSnapshot = await captureVerificationSnapshot(this.opts.cwd, [
@@ -1499,6 +1585,7 @@ export class AgentSession {
           await this.persistVerificationState();
         }
         break;
+      }
       case "tool_call_end": {
         const call = this.hookToolCalls.get(event.toolCallId);
         const name = call?.name ?? "";
@@ -1884,6 +1971,63 @@ export class AgentSession {
     })();
   }
 
+  /** Fresh image-only critique context, using the active transport and auth routing. */
+  private async callCompletionReviewer(
+    request: CompletionReviewRequest,
+    signal: AbortSignal,
+  ): Promise<CompletionReviewResponse> {
+    const model = this.model;
+    const provider = this.provider;
+    const thinking = this.thinkingLevel;
+    const configuredBaseUrl = this.baseUrl;
+    if (getModel(model)?.supportsImages !== true)
+      throw new Error("Active model has no confirmed image support");
+    signal.throwIfAborted();
+    try {
+      const creds = await this.authStorage.resolveCredentials(provider, {
+        storageKeys: this.currentAuthStorageKeys(),
+      });
+      const baseUrl = configuredBaseUrl ?? creds.baseUrl;
+      const result = stream({
+        provider,
+        model,
+        messages: [
+          { role: "system", content: request.instruction },
+          { role: "user", content: [{ type: "text", text: request.context }, ...request.images] },
+        ],
+        maxTokens: 4000,
+        thinking,
+        apiKey: creds.accessToken,
+        accountId: creds.accountId,
+        projectId: creds.projectId,
+        baseUrl,
+        signal,
+        transportSessionId: this.sessionId || this.transportSessionId,
+        defaultHeaders:
+          provider === "moonshot" && isKimiCodingEndpoint(baseUrl)
+            ? kimiCodingHeaders()
+            : undefined,
+        userAgent: provider === "anthropic" ? await getClaudeCliUserAgent() : undefined,
+        supportsImages: true,
+      });
+      const response = await result.response;
+      const content = response.message.content;
+      const text =
+        typeof content === "string"
+          ? content
+          : content
+              .filter((part) => part.type === "text")
+              .map((part) => part.text)
+              .join("\n");
+      if (text.length > 32_768) throw new Error("Review response exceeded its limit");
+      return { text, model, provider, thinking };
+    } catch {
+      // Provider errors may contain transport details; never copy them to tools/artifacts.
+      signal.throwIfAborted();
+      throw new Error("Active model review unavailable or invalid; no verdict recorded");
+    }
+  }
+
   /** One-shot judge call on the session's ACTIVE model — deliberately not a
    *  cheaper routing: judging a model's own failure patterns with a weaker
    *  model swaps false negatives for false positives. */
@@ -1943,9 +2087,12 @@ export class AgentSession {
         triggerReasons: decision.reasons,
       });
       // Active model forced at spawn time — never routed to a fast/review model.
+      // The reviewer's own time limit ends it with a verdict on what it read;
+      // the wait below is only a backstop against a hung child.
       const snapshot = await this.subAgentManager.spawn(taskName, task, undefined, {
         model: this.model,
         tools: REVIEWER_TOOLS,
+        turnTimeoutMs: REVIEWER_TURN_TIMEOUT_MS,
       });
       agentId = snapshot.agent_id;
       const waited = await this.subAgentManager.wait([agentId], "all", REVIEWER_WAIT_MS);
@@ -1961,7 +2108,11 @@ export class AgentSession {
       }
       const findings = parseReviewerFindings(agent.output ?? "");
       if (!findings) {
-        log("WARN", "ideal", "Independent reviewer output unparseable; falling back", { agentId });
+        log("WARN", "ideal", "Independent reviewer output unparseable; falling back", {
+          agentId,
+          state: agent.state,
+          ...(agent.error ? { error: agent.error } : {}),
+        });
         return [];
       }
       if (findings.clean) {
@@ -2042,6 +2193,7 @@ export class AgentSession {
    * the flash, so this errs toward arming.
    */
   private wouldInjectIdealReview(): boolean {
+    if (this.opts.completionReview?.armed) return true;
     if (this.opts.selfCorrectionHooks === false || this.idealReviewSuppressed) return false;
     // Mid-review a stop still injects: the coverage follow-up while files are
     // unread, or its escalation once the budget is spent. Both make the model
@@ -2189,6 +2341,25 @@ export class AgentSession {
     // verification demand above instead of manufacturing a separate hook.
     if (diagnosticMessages.length > 0) return diagnosticMessages;
 
+    if (this.opts.completionReview) {
+      const followUp = await this.opts.completionReview.followUp(
+        (request, signal) => this.callCompletionReviewer(request, signal),
+        this.opts.signal,
+      );
+      await this.persistCompletionReviewState();
+      if (followUp) {
+        this.eventBus.emit("hook", { kind: "ideal" });
+        this.refreshHookArming();
+        return [
+          {
+            role: "user",
+            content: followUp,
+            provenance: { source: "runtime", kind: "notification", visibility: "hidden" },
+          },
+        ];
+      }
+      this.refreshHookArming();
+    }
     if (this.opts.selfCorrectionHooks === false || this.idealReviewSuppressed) return null;
 
     if (this.idealReviewPhase === "reviewing") {
@@ -2318,7 +2489,11 @@ export class AgentSession {
   }
 
   /** Auto-compact if needed, run agent loop with auth retry, and persist messages. */
-  private async runLoop(options: { disableTools?: boolean } = {}): Promise<void> {
+  private async runLoop(options: PromptRunOptions = {}): Promise<void> {
+    // Languages are re-detected at each task boundary so a project scaffolded
+    // during the previous turn gets its packs; the prompt is rebuilt only when
+    // the set grows, keeping the cached prefix stable otherwise.
+    if (this.refreshActiveLanguages()) await this.rebuildSystemPromptInPlace();
     this.refreshSystemPromptTail();
     // One-shot cache-key marker per session so turn_end cacheRead numbers
     // in the log can be traced back to a specific routing namespace —
@@ -2336,8 +2511,7 @@ export class AgentSession {
     // Reset self-correction hook state for this run; pin the latest user message
     // as the verbatim original request for post-compaction re-grounding.
     const lastUser = [...this.messages].reverse().find((m) => m.role === "user");
-    const originalRequest = typeof lastUser?.content === "string" ? lastUser.content : "";
-    this.resetHookState(originalRequest);
+    this.resetHookState(requestTextForRegrounding(lastUser));
 
     // Resolve OAuth credentials and run agent loop.
     // On 401, force-refresh the token and retry once — the provider may have
@@ -2358,6 +2532,10 @@ export class AgentSession {
     // of the public API model window. Failed/no-op attempts cool down across
     // prompts; provider overflow recovery still bypasses this path entirely.
     if (this.settingsManager.get("autoCompact") && Date.now() >= this.compactionRetryAfter) {
+      // A post-turn compaction may still be running in the background. Let it
+      // settle first: it usually already compacted this history, so the
+      // decision below turns into a no-op instead of duplicate work.
+      if (this.postTurnCompaction) await this.postTurnCompaction;
       const contextWindow = getContextWindow(this.model, {
         provider: this.provider,
         accountId: creds.accountId,
@@ -2390,7 +2568,15 @@ export class AgentSession {
         activeTokens: activeTokens === undefined ? "estimated" : String(activeTokens),
         triggerLimit: String(policy.targetTokens),
       });
-      if (shouldCompact(this.messages, contextWindow, policy.threshold, activeTokens)) {
+      if (
+        shouldCompact(
+          this.messages,
+          contextWindow,
+          policy.threshold,
+          activeTokens,
+          policy.targetTokens,
+        )
+      ) {
         try {
           await this.compact(creds, "automatic");
           if (this.lastCompactionCompacted) {
@@ -2430,7 +2616,15 @@ export class AgentSession {
         maxTokens: this.maxTokens,
         maxTurns: this.opts.maxTurns,
         maxTurnExtensions: this.opts.maxTurnExtensions,
-        thinking: this.thinkingLevel,
+        // Plan mode caps effort at medium (Codex `plan_mode_reasoning_effort`
+        // preset): read-only exploration doesn't need xhigh/max reasoning, and
+        // deep-reasoning models left at the ceiling burn enormous thinking
+        // budgets re-deriving context they cannot act on. A capped prompt
+        // (a sub-agent's timed answer) gets the same ceiling for the same reason.
+        thinking:
+          this.planModeRef.current || options.capThinking
+            ? clampThinkingForPlanMode(this.thinkingLevel)
+            : this.thinkingLevel,
         apiKey,
         // Per-turn credential resolution. A run can span many minutes; if any
         // process sharing auth.json refreshes this grant meanwhile, the token
@@ -2554,7 +2748,15 @@ export class AgentSession {
               activeTokens: String(activeTokens),
               triggerLimit: String(policy.targetTokens),
             });
-            if (!shouldCompact(messages, contextWindow, policy.threshold, activeTokens))
+            if (
+              !shouldCompact(
+                messages,
+                contextWindow,
+                policy.threshold,
+                activeTokens,
+                policy.targetTokens,
+              )
+            )
               return messages;
           }
 
@@ -2727,9 +2929,17 @@ export class AgentSession {
       await this.persistMessage(this.messages[i]);
     }
     this.lastPersistedIndex = this.messages.length;
+
+    // Final response is delivered — compact in the background while the user
+    // reads it, instead of charging the summarizer latency to their next
+    // prompt. Detached by design; the pre-run path above remains the backstop.
+    this.maybeCompactPostTurn(creds);
   }
 
   async switchModel(provider: string, model: string): Promise<void> {
+    // The model-switch note is appended to `this.messages`; settle any
+    // background compaction first so the note cannot be swapped out.
+    await this.settlePostTurnCompaction();
     const prevProvider = this.provider;
     const prevModel = this.model;
     // Diff gate: a "switch" to the model already in use is not state change.
@@ -2950,6 +3160,111 @@ export class AgentSession {
       originalCount: result.originalCount,
       newCount: result.newCount,
     });
+  }
+
+  /**
+   * Wait out any in-flight post-turn background compaction before a new
+   * entry point mutates `this.messages` (prompt, attachments, model switch).
+   * The background compact() snapshots and then REPLACES the array, so a
+   * message pushed while it runs would be silently dropped from the live
+   * history — the pre-run await in runLoop() sits after the push and cannot
+   * protect it.
+   */
+  private async settlePostTurnCompaction(): Promise<void> {
+    if (this.postTurnCompaction) await this.postTurnCompaction;
+  }
+
+  /**
+   * Post-turn compaction: once the final response has been delivered, compact
+   * in the background while the user reads the answer, instead of making the
+   * next prompt pay the summarizer latency up front (the pre-run path stays as
+   * the backstop, so a skipped or failed attempt costs nothing). Mirrors the
+   * Codex `model_post_turn_compact_threshold_percent` guards: skip when user
+   * input is already queued (it would race the next turn), when the run was
+   * aborted, or during the failure cooldown — and never let a compaction
+   * error surface in the completed turn.
+   */
+  private maybeCompactPostTurn(creds: {
+    accessToken: string;
+    accountId?: string;
+    projectId?: string;
+    baseUrl?: string;
+  }): void {
+    if (!this.settingsManager.get("autoCompact")) return;
+    if (this.opts.signal?.aborted) return;
+    if (this.userQueue.length > 0) return;
+    if (this.postTurnCompaction) return;
+    if (Date.now() < this.compactionRetryAfter) return;
+    // One compaction per turn boundary: a pre-run or overflow-recovery
+    // compaction already shrank this run's history — re-probing right after
+    // the final response would only re-derive that decision.
+    if (this.compactionOccurred) return;
+    const contextWindow = getContextWindow(this.model, {
+      provider: this.provider,
+      accountId: creds.accountId,
+    });
+    const policy = resolveCompactionPolicy({
+      provider: this.provider,
+      model: this.model,
+      contextWindow,
+      threshold: this.settingsManager.get("compactThreshold"),
+      accountId: creds.accountId,
+      approvedPlanPath: this.approvedPlanPath,
+    });
+    let activeTokens: number | undefined;
+    if (this.providerContext) {
+      const anchorIndex = this.messages.lastIndexOf(this.providerContext.anchor);
+      if (anchorIndex >= 0) {
+        activeTokens = calculateActiveContextTokens(this.messages, {
+          usage: this.providerContext.usage,
+          pendingMessages: this.messages.slice(anchorIndex + 1),
+        });
+      }
+    }
+    if (
+      !shouldCompact(
+        this.messages,
+        contextWindow,
+        policy.threshold,
+        activeTokens,
+        policy.targetTokens,
+      )
+    )
+      return;
+    log("INFO", "compaction", "Post-turn compaction decision — compacting in background", {
+      provider: this.provider,
+      model: this.model,
+      transport: this.provider === "openai" && creds.accountId ? "codex_oauth" : "public_api",
+      contextWindow: String(contextWindow),
+      activeTokens: activeTokens === undefined ? "estimated" : String(activeTokens),
+      triggerLimit: String(policy.targetTokens),
+    });
+    this.postTurnCompaction = (async () => {
+      try {
+        await this.compact(creds, "automatic");
+        if (this.lastCompactionCompacted) {
+          // Arm re-grounding for the next turn. resetHookState clears
+          // compactionOccurred at run start, before the injection point, so
+          // park the signal for pickup there.
+          this.compactionArmedForNextRun = true;
+          this.compactionRetryAfter = 0;
+        } else {
+          this.compactionRetryAfter = Date.now() + 30_000;
+        }
+      } catch (error) {
+        this.compactionRetryAfter = Date.now() + 30_000;
+        if (isAbortError(error) || this.opts.signal?.aborted) return;
+        log(
+          "WARN",
+          "compaction",
+          `Post-turn compaction failed; cooling down for 30s: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      } finally {
+        this.postTurnCompaction = undefined;
+      }
+    })();
   }
 
   async compact(
@@ -3504,6 +3819,7 @@ export class AgentSession {
         toolNames,
         deferredToolNames,
         context: this.opts.agentContext,
+        role: this.opts.agentRole,
         environment: this.recordRenderedEnvironment(),
         contextLimits: this.contextLimits,
       });
@@ -3514,12 +3830,38 @@ export class AgentSession {
       planMode,
       approvedPlanPath,
       toolNames,
-      undefined,
+      this.activeLanguages,
       this.provider,
       this.recordRenderedEnvironment(),
       deferredToolNames,
       this.contextLimits,
     );
+  }
+
+  /**
+   * Add newly detected project languages. Returns true when the set grew and
+   * the standard prompt therefore needs a rebuild. Custom and sub-agent
+   * prompts never render packs, so detection is skipped for them.
+   */
+  private refreshActiveLanguages(): boolean {
+    if (this.customSystemPrompt || this.agentPrompt !== undefined) return false;
+    let grew = false;
+    try {
+      for (const id of detectLanguages(this.cwd)) {
+        if (this.activeLanguages.has(id)) continue;
+        this.activeLanguages.add(id);
+        grew = true;
+      }
+    } catch (err) {
+      log("WARN", "language", `Language detection failed: ${(err as Error).message}`);
+      return false;
+    }
+    if (grew) {
+      log("INFO", "language", "Style packs active", {
+        active: [...this.activeLanguages].join(","),
+      });
+    }
+    return grew;
   }
 
   /** Rebuild messages[0] from current plan-mode + approved-plan state. */
@@ -3738,6 +4080,19 @@ export class AgentSession {
     return this.verificationGate.evidence();
   }
 
+  /** Current request activity, separate from persistent workspace verification debt. */
+  getRunVerificationActivity(): {
+    changed: boolean;
+    checked: boolean;
+    evidence: VerificationEvidence[];
+  } {
+    return {
+      changed: this.verificationGate.changedThisRun,
+      checked: this.verificationGate.checkedThisRun,
+      evidence: this.verificationGate.evidence("run"),
+    };
+  }
+
   private async finishSnapshotVerification(
     check: { command: string; revision: number; sourceSnapshot?: string | null },
     passed: boolean,
@@ -3778,7 +4133,20 @@ export class AgentSession {
     );
   }
 
+  private async persistCompletionReviewState(): Promise<void> {
+    if (!this.sessionPath || !this.opts.completionReview) return;
+    await this.sessionManager.appendEntry(this.sessionPath, {
+      type: "custom",
+      kind: COMPLETION_REVIEW_STATE_KIND,
+      id: crypto.randomUUID(),
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      data: this.opts.completionReview.snapshot(),
+    });
+  }
+
   private async persistVerificationState(): Promise<void> {
+    if (this.opts.completionReview) await this.persistCompletionReviewState();
     if (!this.sessionPath) return;
     const entry: CustomEntry = {
       type: "custom",
@@ -3995,8 +4363,8 @@ export class AgentSession {
    * Ordered auth-storage keys the current (provider, model) pair tries, first
    * match wins. Almost always just the provider id; Xiaomi models can prefer
    * one endpoint and fall back to another the user configured instead (e.g.
-   * `mimo-v2.5-pro` prefers the Token Plan, falls back to API Credits; the
-   * API-only `mimo-v2.5-pro-ultraspeed` has no fallback).
+   * `mimo-v2.6-pro` prefers the Token Plan, falls back to API Credits; the
+   * API-only `mimo-v2.6-pro-ultraspeed` has no fallback).
    */
   private currentAuthStorageKeys(): string[] {
     return getAuthStorageKeys(this.provider, this.model);
@@ -4014,6 +4382,11 @@ export class AgentSession {
   }
 
   async dispose(): Promise<void> {
+    // Quiesce any in-flight post-turn compaction BEFORE tearing down state:
+    // the background compact() snapshots and replaces `this.messages`, so
+    // letting it run past this point would checkpoint a near-empty history
+    // and leak a junk session file after teardown.
+    if (this.postTurnCompaction) await this.postTurnCompaction;
     await this.diagnosticsRecorder?.finalize();
     this.managerAbortSignal?.removeEventListener("abort", this.managerAbortHandler);
     this.processManager?.shutdownAll();
@@ -4059,6 +4432,12 @@ export class AgentSession {
     const loaded = await this.sessionManager.load(canonicalPath);
     // Use the leaf from the header to walk the correct branch
     const loadedMessages = this.sessionManager.getMessages(loaded.entries, loaded.header.leafId);
+    const savedCompletionReview = [...loaded.entries]
+      .reverse()
+      .find((entry) => entry.type === "custom" && entry.kind === COMPLETION_REVIEW_STATE_KIND);
+    this.opts.completionReview?.restore(
+      savedCompletionReview?.type === "custom" ? savedCompletionReview.data : null,
+    );
     this.backgroundVerification.clear();
     const savedVerification = [...loaded.entries]
       .reverse()
@@ -4159,7 +4538,13 @@ export class AgentSession {
     });
     const needsLoadCompaction =
       this.settingsManager.get("autoCompact") &&
-      shouldCompact(this.messages, contextWindow, loadPolicy.threshold);
+      shouldCompact(
+        this.messages,
+        contextWindow,
+        loadPolicy.threshold,
+        undefined,
+        loadPolicy.targetTokens,
+      );
     if (needsLoadCompaction && this.opts.deferLoadCompaction) {
       // Canonicalize again immediately before the first prompt is persisted:
       // another process may create the shared checkpoint after this load.

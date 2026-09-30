@@ -5,6 +5,7 @@ import type { Provider, TextContent, ImageContent, VideoContent } from "@kleio/a
 import type { ImageAttachment } from "../utils/image.js";
 import { VIDEO_MEDIA_TYPES } from "../utils/image.js";
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
+import { expandPromptCommand } from "../core/prompt-command-expansion.js";
 import type { CustomCommand } from "../core/custom-commands.js";
 
 export function routePromptCommandInput(
@@ -25,7 +26,7 @@ export function routePromptCommandInput(
     cmdName,
     cmdArgs,
     promptText,
-    fullPrompt: cmdArgs ? `${promptText}\n\n## User Instructions\n\n${cmdArgs}` : promptText,
+    fullPrompt: expandPromptCommand(promptText, cmdArgs),
   };
 }
 

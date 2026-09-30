@@ -5,7 +5,10 @@
 //   - unauthenticated: GET /kleio/health, POST /kleio/pair/redeem
 //   - device-authenticated (x-kleio-device-token): everything under the
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
-//     added; plus GET /events, which is intercepted for id/replay.
+//     added; plus GET /events, which is intercepted for id/replay, and
+//     GET /kleio/home, the pinned home thread (see home-thread.ts);
+//     POST /kleio/home/new starts a fresh one. /kleio/blobs/* and
+//     GET /kleio/models, the Blobs (see blobs.ts).
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
@@ -20,12 +23,17 @@ import {
   type ServerResponse,
 } from "node:http";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher } from "./apns.js";
+import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
+import { createConnections } from "./connections.js";
+import { createGroups, type Groups } from "./groups.js";
+import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
@@ -69,6 +77,31 @@ export interface HostOptions {
    * Unset = the route answers 404.
    */
   readonly diagnosticsDir?: string;
+  /**
+   * cwd of the home thread (`GET /kleio/home`); created if missing. The CLI
+   * passes `KLEIO_HOME_CWD`, default `~/Kleio`. Unset = the route answers 404.
+   */
+  readonly homeCwd?: string;
+  /**
+   * Model of a Blob whose `model` is null. The CLI passes
+   * `KLEIO_BLOB_DEFAULT_MODEL`; default DEFAULT_BLOB_MODEL.
+   */
+  readonly blobDefaultModel?: string;
+  /** How often the Blob scheduler looks for a due schedule (ms). 0 disables. Default 5 s. */
+  readonly blobTickMs?: number;
+  /** How long one Blob's turn in a group chat may run (default 120 s). */
+  readonly groupTurnTimeoutMs?: number;
+  /**
+   * App connections (Composio). Absent = the routes answer "not set up".
+   * `keyPath` defaults to <state dir>/composio.key; `ggHome` to ~/.gg.
+   */
+  readonly composio?: {
+    readonly apiKey?: string;
+    readonly keyPath?: string;
+    readonly baseUrl?: string;
+    readonly ggHome?: string;
+    readonly fetch?: typeof fetch;
+  };
 }
 
 export interface Host {
@@ -268,11 +301,22 @@ export function createHost(options: HostOptions): Host {
             for (const sub of s.subs) sub.write(frame.frame);
             const lf = liveFrame(raw);
             if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
+            const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
+            groups?.onFrame(sessionId, raw);
+            if (!isRunEnd(raw)) continue;
+            // The home thread's transcript path appears at its first run end
+            // and moves on compaction; re-learn it whoever is watching.
+            if (home)
+              void background(home.onRunEnd(sessionId).catch((e) => log(`[home] ${String(e)}`)));
             // A run finished and nobody was watching: one nudge per phone. The
-            // content waits in the ring for the attach that follows.
-            if (s.subs.size === 0 && options.apns?.configured && isRunEnd(raw)) {
+            // content waits in the ring for the attach that follows. A Blob's
+            // scheduled result is the point, so it is sent whoever is watching.
+            // A group member's turn is announced by the group (one push per
+            // exchange), never per session.
+            const groupTurn = groups?.owns(sessionId) ?? false;
+            if (!groupTurn && (blobNudge || s.subs.size === 0) && options.apns?.configured) {
               void options.apns
-                .notify({ sessionId }, registry.list())
+                .notify(blobNudge ?? { sessionId }, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
             }
           }
@@ -440,6 +484,152 @@ export function createHost(options: HostOptions): Host {
     }
     for (const id of tracked) void ensureUpstream(id).catch(() => {});
     if (tracked.size) log(`[sse] resubscribed ${tracked.size} tracked session(s)`);
+  }
+
+  /**
+   * A call the host makes to the sidecar on its own behalf. null = unreachable.
+   * A refused connection re-reads the endpoint file and tries once more, as
+   * proxy() does: the sidecar may have respawned on a new port. The session
+   * goes in `x-gg-session`, never `?session=`: the sidecar matches per-session
+   * routes on the raw URL, so `/state?session=…` is its 404, not its /state.
+   */
+  const sidecarCall: SidecarCall = async (method, path, opts = {}) => {
+    const data = opts.body === undefined ? undefined : Buffer.from(JSON.stringify(opts.body));
+    const once = (ep: SidecarEndpoint): Promise<SidecarReply | "refused" | null> =>
+      new Promise((resolve) => {
+        const req = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: ep.port,
+            path,
+            method,
+            headers: {
+              host: `127.0.0.1:${ep.port}`,
+              "x-gg-token": ep.token,
+              ...(opts.session ? { "x-gg-session": opts.session } : {}),
+              ...(data
+                ? { "content-type": "application/json", "content-length": data.length }
+                : {}),
+            },
+            timeout: opts.timeoutMs ?? 5_000,
+          },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on("data", (c: Buffer) => chunks.push(c));
+            res.on("end", () =>
+              resolve({
+                status: res.statusCode ?? 0,
+                body: Buffer.concat(chunks).toString("utf8"),
+              }),
+            );
+            res.on("error", () => resolve(null));
+          },
+        );
+        req.on("timeout", () => req.destroy());
+        req.on("error", (e) =>
+          resolve((e as NodeJS.ErrnoException).code === "ECONNREFUSED" ? "refused" : null),
+        );
+        req.end(data);
+      });
+    const first = await endpoint();
+    if (!first) return null;
+    const r = await once(first);
+    if (r !== "refused") return r;
+    const fresh = await endpoint(true);
+    if (!fresh || (fresh.port === first.port && fresh.token === first.token)) return null;
+    const again = await once(fresh);
+    return again === "refused" ? null : again;
+  };
+
+  const home = options.homeCwd
+    ? createHomeThreads({
+        statePath: join(dirname(options.sidecarEndpointPath), "home.json"),
+        cwd: options.homeCwd,
+        call: sidecarCall,
+        track,
+        untrack,
+        log,
+        now,
+      })
+    : null;
+
+  const blobs: Blobs | null = home
+    ? createBlobs({
+        statePath: join(dirname(options.sidecarEndpointPath), "blobs.json"),
+        cwdRoot: join(options.homeCwd!, "blobs"),
+        defaultModel: options.blobDefaultModel || DEFAULT_BLOB_MODEL,
+        call: sidecarCall,
+        track,
+        untrack,
+        homeSession: () => home.resolve(),
+        // Groups is created below; these run only on a request, after that.
+        onDeleted: (blobId): Promise<void> => groups?.onBlobDeleted(blobId) ?? Promise.resolve(),
+        onChanged: (blobId): Promise<void> => groups?.onBlobChanged(blobId) ?? Promise.resolve(),
+        log,
+        now,
+      })
+    : null;
+  let blobTicker: NodeJS.Timeout | null = null;
+
+  const groups: Groups | null = blobs
+    ? createGroups({
+        statePath: join(dirname(options.sidecarEndpointPath), "groups.json"),
+        cwdRoot: join(options.homeCwd!, "groups"),
+        call: sidecarCall,
+        track,
+        untrack,
+        findBlob: (id) => blobs.find(id),
+        modelOf: (b) => blobs.modelOf(b),
+        notify: async (n) => {
+          if (options.apns?.configured) await options.apns.notify(n, registry.list());
+        },
+        ...(options.groupTurnTimeoutMs !== undefined
+          ? { turnTimeoutMs: options.groupTurnTimeoutMs }
+          : {}),
+        log,
+        now,
+      })
+    : null;
+
+  // App connections. Created whenever the home thread exists; the routes say
+  // "not set up" until a Composio key is present.
+  const connections = home
+    ? createConnections({
+        statePath: join(dirname(options.sidecarEndpointPath), "composio.json"),
+        keyPath:
+          options.composio?.keyPath ?? join(dirname(options.sidecarEndpointPath), "composio.key"),
+        ...(options.composio?.apiKey ? { apiKey: options.composio.apiKey } : {}),
+        ...(options.composio?.baseUrl ? { baseUrl: options.composio.baseUrl } : {}),
+        ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
+        publicBaseUrl: options.publicBaseUrl,
+        ggHome: options.composio?.ggHome ?? join(homedir(), ".gg"),
+        // New tools: idle conversations are retired so their next turn loads them.
+        onToolsChanged: async () => {
+          await home.retireIdle();
+          await blobs?.retireIdle();
+          await groups?.retireIdle();
+        },
+        log,
+        now,
+      })
+    : null;
+
+  /**
+   * Tap the stored home and Blob sessions at start, so they record with no
+   * device attached; Blob schedules missed while down are skipped forward.
+   */
+  async function resumeHome(): Promise<void> {
+    const id = await home?.load();
+    if (id) await track(id);
+    for (const sid of (await blobs?.load()) ?? []) await track(sid);
+    for (const sid of (await groups?.load()) ?? []) await track(sid);
+    // After everything is tracked, so a tools change can retire idle threads.
+    if (connections) void background(connections.ensure());
+    const every = options.blobTickMs ?? 5_000;
+    if (blobs && every > 0 && !stopped) {
+      blobTicker = setInterval(() => void background(blobs.tick()), every);
+      blobTicker.unref();
+    }
   }
 
   /**
@@ -666,6 +856,23 @@ export function createHost(options: HostOptions): Host {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
 
+    // Composio's OAuth landing page: no token (a browser lands here), fixed HTML.
+    if (connections) {
+      const page = connections.callback(req.method ?? "GET", path, url.searchParams);
+      if (page) {
+        const data = Buffer.from(page.html);
+        res.writeHead(page.status, {
+          "content-type": "text/html; charset=utf-8",
+          "content-length": data.length,
+          "cache-control": "no-store",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+          "referrer-policy": "no-referrer",
+        });
+        res.end(data);
+        return;
+      }
+    }
+
     if (req.method === "GET" && path === "/kleio/health") {
       // Probe, don't trust the endpoint file: a supervisor that died leaves a
       // stale file behind, and "up" would then be a lie until the next request.
@@ -676,11 +883,15 @@ export function createHost(options: HostOptions): Host {
         sidecar: alive ? "up" : ep ? "stale" : "down",
         devices: registry.list().filter((d) => !d.revoked).length,
         offer: offers.peek().active,
-        sessions: [...live.entries()].map(([id, s]) => ({
-          id,
-          seq: s.ring.seq(),
-          subscribers: s.subs.size,
-        })),
+        // The home thread's id is not advertised on this open route; devices
+        // get it from GET /kleio/home.
+        sessions: [...live.entries()]
+          .filter(([id]) => id !== home?.sessionId())
+          .map(([id, s]) => ({
+            id,
+            seq: s.ring.seq(),
+            subscribers: s.subs.size,
+          })),
       });
     }
 
@@ -794,6 +1005,67 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, { ok: true });
     }
 
+    // The pinned home thread. Any paired device, not admin-only: it is the
+    // conversation every device opens.
+    if (req.method === "GET" && path === "/kleio/home") {
+      if (!home) return json(res, 404, { error: "not_found" });
+      const r = await background(home.resolve());
+      return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
+    // Start a fresh home conversation; every device follows on its next
+    // GET /kleio/home. Same shape as GET, created: true.
+    if (req.method === "POST" && path === "/kleio/home/new") {
+      if (!home) return json(res, 404, { error: "not_found" });
+      const r = await background(home.startNew());
+      return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
+    // Blobs and the model list. Any paired device, like the home thread.
+    if (blobs) {
+      const r = await background(
+        blobs.route(req.method ?? "GET", path, async () => {
+          const body = await readBody(req, 64 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
+    // App connections (Composio). Any paired device.
+    if (connections) {
+      const r = await background(
+        connections.route(req.method ?? "GET", path, url.searchParams, async () => {
+          const body = await readBody(req, 16 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
+    // Group chats. Any paired device, like Blobs.
+    if (groups) {
+      const r = await background(
+        groups.route(req.method ?? "GET", path, url.searchParams, async () => {
+          const body = await readBody(req, 64 * 1024);
+          try {
+            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      if (r) return json(res, r.status, r.body);
+    }
+
     if (path.startsWith("/kleio/")) {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
       if (req.method === "GET" && path === "/kleio/devices")
@@ -859,15 +1131,17 @@ export function createHost(options: HostOptions): Host {
           log(
             `[host] listening on http://${options.listenHost ?? "127.0.0.1"}:${options.listenPort}`,
           );
-          void resumeTracked().then(() => {
-            const every = options.routinePollMs ?? 30_000;
-            if (every > 0) {
-              void trackRoutineSessions().catch(() => {});
-              routinePoll = setInterval(() => void trackRoutineSessions().catch(() => {}), every);
-              routinePoll.unref();
-            }
-            resolve();
-          }, resolve);
+          void resumeTracked()
+            .then(resumeHome)
+            .then(() => {
+              const every = options.routinePollMs ?? 30_000;
+              if (every > 0) {
+                void trackRoutineSessions().catch(() => {});
+                routinePoll = setInterval(() => void trackRoutineSessions().catch(() => {}), every);
+                routinePoll.unref();
+              }
+              resolve();
+            }, resolve);
         });
       }),
     stop: () =>
@@ -878,6 +1152,8 @@ export function createHost(options: HostOptions): Host {
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);
         routineWake = null;
+        if (blobTicker) clearInterval(blobTicker);
+        blobTicker = null;
         for (const s of live.values()) {
           s.upstream?.destroy();
           for (const sub of s.subs) sub.destroy();
@@ -893,7 +1169,12 @@ export function createHost(options: HostOptions): Host {
         // lost line on Windows (reproduced: the successor's readFile never
         // returned). Let them land first, within the same 2 s stop budget.
         const flushed = Promise.allSettled(rings.loaded().map((r) => r.flush()));
-        const written = Promise.allSettled([...inflight]);
+        const written = Promise.allSettled([
+          ...inflight,
+          home?.flush(),
+          blobs?.flush(),
+          groups?.flush(),
+        ]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();
       }),

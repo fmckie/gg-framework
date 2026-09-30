@@ -33,7 +33,7 @@ export function NotesModal({ value, onChange, onClose }: Props): React.ReactElem
         value={value}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={true}
-        style={{ background: theme.surface1, color: theme.text, borderColor: theme.border }}
+        style={{ background: theme.surface1, color: theme.text }}
       />
     </Modal>
   );

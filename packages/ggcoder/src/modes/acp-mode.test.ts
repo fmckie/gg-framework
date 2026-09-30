@@ -2,15 +2,69 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { build, type Plugin } from "esbuild";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ACP_PROTOCOL_VERSION } from "./acp-mode.js";
 
-const FIXTURE = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "__fixtures__",
-  "acp-stdio-agent.mjs",
-);
+const MODES_DIR = path.dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = path.resolve(MODES_DIR, "../..");
+const FIXTURE = path.join(MODES_DIR, "__fixtures__", "acp-stdio-agent.mjs");
+
+/**
+ * Keep `import.meta.url` pointing at each ORIGINAL source file inside the
+ * bundle. Several modules locate files relative to themselves (bundled skills,
+ * LSP binaries, MCP launchers); without this they would resolve relative to the
+ * bundle's temp directory and quietly change what the fixture sees.
+ */
+const preserveModuleUrls: Plugin = {
+  name: "preserve-module-urls",
+  setup(pluginBuild) {
+    pluginBuild.onLoad({ filter: /[\\/]src[\\/].*\.(ts|mjs)$/ }, async (args) => {
+      const source = await fs.readFile(args.path, "utf8");
+      return {
+        contents: source.replaceAll(
+          "import.meta.url",
+          JSON.stringify(pathToFileURL(args.path).href),
+        ),
+        loader: args.path.endsWith(".ts") ? "ts" : "js",
+        resolveDir: path.dirname(args.path),
+      };
+    });
+  },
+};
+
+/** Directory holding the prebuilt fixture; removed after the suite. */
+let bundleDir: string;
+/** The fixture, bundled once per run. */
+let agentBundle: string;
+
+// Every test starts a fresh agent process. Loading ~150 source modules through
+// `tsx` cost ~0.8s per start locally and ~3s on Windows CI, which made this the
+// slowest file in the suite. Bundling the fixture's own sources once (third
+// party packages stay external and load from node_modules as usual) roughly
+// halves every start without changing the code under test.
+beforeAll(async () => {
+  // Inside the package's node_modules so the external imports resolve.
+  const cacheDir = path.join(PACKAGE_ROOT, "node_modules", ".cache");
+  await fs.mkdir(cacheDir, { recursive: true });
+  bundleDir = await fs.mkdtemp(path.join(cacheDir, "acp-fixture-"));
+  agentBundle = path.join(bundleDir, "acp-stdio-agent.mjs");
+  await build({
+    entryPoints: [FIXTURE],
+    outfile: agentBundle,
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    plugins: [preserveModuleUrls],
+    logLevel: "error",
+  });
+}, 60_000);
+
+afterAll(async () => {
+  if (bundleDir) await fs.rm(bundleDir, { recursive: true, force: true });
+});
 
 interface Frame {
   jsonrpc?: string;
@@ -63,22 +117,18 @@ class AcpClient {
   exit: Promise<number | null>;
 
   constructor() {
-    this.child = spawn(
-      process.execPath,
-      ["--import", "tsx", FIXTURE, tmpProject, tmpOtherProject],
-      {
-        // Run from the package root so `tsx` resolves; the project directory is
-        // passed explicitly rather than inherited from the test runner.
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          HOME: tmpHome,
-          USERPROFILE: tmpHome,
-          GG_DISABLE_TELEMETRY: "1",
-        },
-        stdio: ["pipe", "pipe", "pipe"],
+    this.child = spawn(process.execPath, [agentBundle, tmpProject, tmpOtherProject], {
+      // The project directory is passed explicitly rather than inherited from
+      // the test runner.
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        HOME: tmpHome,
+        USERPROFILE: tmpHome,
+        GG_DISABLE_TELEMETRY: "1",
       },
-    ) as ChildProcessWithoutNullStreams;
+      stdio: ["pipe", "pipe", "pipe"],
+    }) as ChildProcessWithoutNullStreams;
 
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => {
@@ -525,9 +575,9 @@ describe("ACP mode over stdio", () => {
     // anything about ggcoder.
     expect(model).toMatchObject({ category: "model", type: "select" });
     expect(thinking).toMatchObject({ category: "thought_level", type: "select" });
-    expect(model.currentValue).toBe("claude-opus-5");
+    expect(model.currentValue).toBe("claude-opus-5-5");
     expect(model.options.length).toBeGreaterThan(1);
-    expect(model.options.some((option) => option.value === "claude-opus-5")).toBe(true);
+    expect(model.options.some((option) => option.value === "claude-opus-5-5")).toBe(true);
     expect(thinking.currentValue).toBe("off");
     expect(thinking.options[0]).toMatchObject({ value: "off" });
 
@@ -919,6 +969,44 @@ describe("ACP mode over stdio", () => {
         cost: { amount: 0.25, currency: "USD" },
       },
     ]);
+  });
+
+  it("forwards tool images over stdio live and when restoring saved conversations", async () => {
+    client = new AcpClient();
+    const sessionId = await client.handshake();
+    client.send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "session/prompt",
+      params: { sessionId, prompt: [{ type: "text", text: "show tool images" }] },
+    });
+    const live = updatesOfKind(await client.until(3), "tool_call_update");
+    const data =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=";
+    const expected = ["screenshot", "generate_image", "read"].map((name) => ({
+      sessionUpdate: "tool_call_update",
+      toolCallId: `image-${name}`,
+      status: "completed",
+      content: [
+        { type: "content", content: { type: "text", text: "Picture ready" } },
+        { type: "content", content: { type: "image", mimeType: "image/png", data } },
+      ],
+    }));
+    expect(live).toEqual(expected);
+    const saved = (await client.list(90, tmpProject)).find(
+      (session) => session.title === "tool image history",
+    );
+    expect(saved).toBeDefined();
+    const beforeReplay = client.received().length;
+    client.send({
+      jsonrpc: "2.0",
+      id: 91,
+      method: "session/load",
+      params: { sessionId: saved!.sessionId, cwd: tmpProject, mcpServers: [] },
+    });
+    const replay = (await client.until(91)).slice(beforeReplay);
+    expect(updatesOfKind(replay, "tool_call_update")).toEqual(expected);
+    expect(replay.at(-1)!.id).toBe(91);
   });
 
   it("sends file edits as a real diff instead of the tool's prose", async () => {

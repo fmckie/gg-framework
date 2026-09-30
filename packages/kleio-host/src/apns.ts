@@ -60,12 +60,18 @@ export function apnsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ApnsCon
   };
 }
 
-export interface Nudge {
-  readonly sessionId: string;
+/**
+ * What a push is about: a session, a group chat (groups.ts), or both. The
+ * payload's `kleio` carries whichever is set; thread-id is the group when set.
+ */
+export type Nudge = {
   /** A short label for the lock screen, e.g. the routine's prompt. */
   readonly title?: string;
   readonly body?: string;
-}
+} & (
+  | { readonly sessionId: string; readonly groupId?: string }
+  | { readonly sessionId?: string; readonly groupId: string }
+);
 
 /** A Live Activity's own push token, registered by the phone for one session. */
 export interface LiveActivityTarget {
@@ -235,19 +241,24 @@ export function createApnsPusher(opts: {
             body: nudge.body ?? "A run finished on your host. Open to see the result.",
           },
           sound: "default",
-          "thread-id": nudge.sessionId,
+          "thread-id": nudge.groupId ?? nudge.sessionId,
           "interruption-level": "time-sensitive",
           "relevance-score": 0.8,
           "mutable-content": 1,
         },
-        kleio: { sessionId: nudge.sessionId },
+        kleio: {
+          ...(nudge.sessionId ? { sessionId: nudge.sessionId } : {}),
+          ...(nudge.groupId ? { groupId: nudge.groupId } : {}),
+        },
       };
       try {
         const results = await Promise.allSettled(
           targets.map((d) => send(config, d.push.token, payload)),
         );
         const okCount = results.filter((r) => r.status === "fulfilled" && r.value === 200).length;
-        log(`[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.sessionId}`);
+        log(
+          `[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.groupId ?? nudge.sessionId}`,
+        );
         return okCount;
       } catch (e) {
         log(`[apns] push failed: ${String(e)}`);

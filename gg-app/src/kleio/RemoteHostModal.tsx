@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Modal } from "../Modal";
+import { relTime } from "./relTime";
 import {
   explainError,
   kleio,
@@ -483,29 +484,13 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
           <div className="kleio-offer-code" role="status">
             <code>{offer.display}</code>
             <span className="modal-hint">
-              {offer.admin ? "admin · " : ""}expires {relTime(offer.expiresAt)}. Enter it on the
-              other device with this host&apos;s URL.
+              {offer.admin ? "admin · " : ""}expires{" "}
+              {relTime(new Date(offer.expiresAt).toISOString())}. Enter it on the other device with
+              this host&apos;s URL.
             </span>
           </div>
         )}
       </div>
     </>
   );
-}
-
-/** "3 min ago" / "in 4 min" — enough for last-seen and expiry. */
-export function relTime(iso: string, now: number = Date.now()): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  const s = Math.round((t - now) / 1000);
-  const abs = Math.abs(s);
-  const unit =
-    abs < 60
-      ? `${abs}s`
-      : abs < 3600
-        ? `${Math.round(abs / 60)} min`
-        : abs < 86_400
-          ? `${Math.round(abs / 3600)} h`
-          : `${Math.round(abs / 86_400)} d`;
-  return s < 0 ? `${unit} ago` : `in ${unit}`;
 }

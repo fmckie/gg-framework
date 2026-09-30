@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "GG Coder",
-  "version": "0.65.0",
-  "identifier": "com.ggcoder.app",
+  "productName": "Kleio",
+  "version": "0.73.2",
+  "identifier": "com.kleio.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [],
     "macOSPrivateApi": true,
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://logos.composio.dev; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     }
   },
   "bundle": {
@@ -35,22 +35,22 @@
       "nsis": {
         "headerImage": "../installer/out/nsis-header.bmp",
         "sidebarImage": "../installer/out/nsis-sidebar.bmp",
-        "installerIcon": "icons/icon.ico",
+        "installerIcon": "icons/kleio/icon.ico",
         "installMode": "currentUser"
       }
     },
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/kleio/32x32.png",
+      "icons/kleio/128x128.png",
+      "icons/kleio/128x128@2x.png",
+      "icons/kleio/icon.icns",
+      "icons/kleio/icon.ico"
     ]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERBMDFGMkNBNjdFNUQzMkQKUldRdDArVm55dklCMmhWUWdmVjJpNWljUE5sTjNLM0RBWitkbmFIb0hjZXZxNmROd21BUEpydFkK",
-      "endpoints": ["https://github.com/KenKaiii/gg-framework/releases/latest/download/latest.json"]
+      "endpoints": ["https://github.com/fmckie/gg-framework/releases/latest/download/latest.json"]
     }
   }
 }

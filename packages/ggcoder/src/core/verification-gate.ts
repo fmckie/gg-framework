@@ -489,6 +489,20 @@ export class VerificationGate {
    */
   private suspects = new Map<string, string>();
   private evidenceRecords = new Map<string, VerificationEvidence & { revision: number }>();
+  private runEvidenceKeys = new Set<string>();
+  private runVerificationRequested = false;
+
+  recordVerificationAttempt(): void {
+    this.runVerificationRequested = true;
+  }
+
+  get checkedThisRun(): boolean {
+    return this.runVerificationRequested || this.runEvidenceKeys.size > 0;
+  }
+
+  get changedThisRun(): boolean {
+    return this.runTouched;
+  }
 
   private rememberEvidence(
     command: string,
@@ -498,6 +512,7 @@ export class VerificationGate {
   ): void {
     const key = checkKey(command);
     if ((this.evidenceRecords.get(key)?.revision ?? -1) > revision) return;
+    this.runEvidenceKeys.add(key);
     this.evidenceRecords.delete(key);
     this.evidenceRecords.set(key, {
       command: command.slice(0, 2000),
@@ -505,21 +520,26 @@ export class VerificationGate {
       reason: reason.slice(0, 1000),
       revision,
     });
-    if (this.evidenceRecords.size > 64)
-      this.evidenceRecords.delete(this.evidenceRecords.keys().next().value!);
+    if (this.evidenceRecords.size > 64) {
+      const oldest = this.evidenceRecords.keys().next().value!;
+      this.evidenceRecords.delete(oldest);
+      this.runEvidenceKeys.delete(oldest);
+    }
   }
 
   /** The same host-observed results used by the completion gate, not a second transcript verdict. */
-  evidence(): VerificationEvidence[] {
-    return [...this.evidenceRecords.values()].map(({ revision, ...entry }) =>
-      revision === this.revision
-        ? entry
-        : {
-            ...entry,
-            status: "rejected",
-            reason: "Superseded: result belongs to an earlier source revision",
-          },
-    );
+  evidence(scope: "workspace" | "run" = "workspace"): VerificationEvidence[] {
+    return [...this.evidenceRecords.entries()]
+      .filter(([key]) => scope === "workspace" || this.runEvidenceKeys.has(key))
+      .map(([, { revision, ...entry }]) =>
+        revision === this.revision
+          ? entry
+          : {
+              ...entry,
+              status: "rejected",
+              reason: "Superseded: result belongs to an earlier source revision",
+            },
+      );
   }
 
   /**
@@ -591,6 +611,7 @@ export class VerificationGate {
   }
 
   requireFreshVerification(invalidateRevision = false, cause?: string): void {
+    this.runVerificationRequested = true;
     this.unknownVerification = true;
     if (invalidateRevision) {
       this.lastMutationSeq = ++this.seq;
@@ -664,6 +685,8 @@ export class VerificationGate {
   }
 
   beginRun(): void {
+    this.runEvidenceKeys.clear();
+    this.runVerificationRequested = false;
     this.injections = 0;
     this.recheckInjections = 0;
     this.lastDemandedMutationSeq = 0;
@@ -786,6 +809,8 @@ export class VerificationGate {
     this.failedChecks.clear();
     this.passedChecks.clear();
     this.evidenceRecords.clear();
+    this.runEvidenceKeys.clear();
+    this.runVerificationRequested = false;
     this.unknownVerification = false;
     this.runTouched = false;
     this.lastRejectedCheck = null;

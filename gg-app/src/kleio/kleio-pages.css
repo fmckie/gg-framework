@@ -1,0 +1,1415 @@
+/* ── Kleio's full-screen pages: Blobs, Groups, Apps and Connection ─────────
+   Built from Ken's Settings screen (the .picker header, .settings-scroll,
+   glass .settings-card, the capsule tab bar) and his glass materials in
+   glass.css — same rims, same spring, same type scale — so Kleio's pages sit
+   in the family instead of beside it. Loaded after App.css and glass.css. */
+
+/* ── shared ── */
+.kleio-page-intro {
+  margin: 0 0 18px;
+  max-width: 62ch;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.kleio-page-intro code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 0.07);
+}
+.kleio-error {
+  margin: 0 0 14px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 38%, transparent);
+}
+.kleio-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success) 32%, transparent);
+}
+
+/* Over a chat or code window: the same screen, floating above the workspace. */
+.kleio-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+  animation: fade-in 180ms ease-out both;
+}
+.kleio-overlay > .kleio-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* A soft crimson wash behind Kleio's pages, like the home screen's. */
+.kleio-screen {
+  position: relative;
+  isolation: isolate;
+}
+.kleio-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      60% 40% at 50% -6%,
+      color-mix(in srgb, var(--kleio-red) 26%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      40% 36% at 100% 104%,
+      color-mix(in srgb, var(--kleio-red) 18%, transparent),
+      transparent 80%
+    );
+}
+
+/* ── Blobs ── */
+.blob-face {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 38% 62% 56% 44% / 48% 42% 58% 52%;
+  line-height: 1;
+  background:
+    radial-gradient(circle at 32% 28%, rgb(255 255 255 / 0.55), transparent 42%), var(--blob-color);
+  box-shadow:
+    inset 0 -6px 12px rgb(0 0 0 / 0.18),
+    0 6px 18px color-mix(in srgb, var(--blob-color) 35%, transparent);
+}
+.blob-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+.blob-card {
+  --glass-hover-scale: 1.02;
+  --glass-press-scale: 0.985;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 176px;
+  padding: 18px 18px 16px;
+  text-align: left;
+  color: var(--text);
+  font-family: var(--sans);
+  border: 0;
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(
+      120% 70% at 0% 0%,
+      color-mix(in srgb, var(--blob-color) 14%, transparent),
+      transparent 60%
+    ),
+    var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+  cursor: pointer;
+  transition:
+    box-shadow var(--glass-motion),
+    background-color var(--glass-motion),
+    scale var(--glass-spring-open-duration) var(--glass-spring-open),
+    transform var(--glass-spring-open-duration) var(--glass-spring-open);
+}
+.blob-card:hover {
+  scale: var(--glass-hover-scale);
+  box-shadow: var(--liquid-rim);
+}
+.blob-card:active {
+  scale: var(--glass-hover-scale);
+  transform: scale(var(--glass-press-scale));
+  transition-duration: 100ms;
+}
+.blob-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.blob-card.is-running {
+  box-shadow:
+    var(--liquid-rim-soft),
+    0 0 0 1px color-mix(in srgb, var(--success) 45%, transparent),
+    0 0 26px color-mix(in srgb, var(--success) 14%, transparent);
+}
+.blob-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.blob-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.blob-card-name {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.blob-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.blob-card.is-running .blob-card-status {
+  color: var(--success);
+}
+.blob-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: blob-pulse 1.6s ease-in-out infinite;
+}
+@keyframes blob-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+.blob-card-job {
+  flex: 1 1 auto;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.blob-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-top: 11px;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.blob-card-foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.blob-last.is-error {
+  color: var(--error);
+}
+.blob-card-new {
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.12);
+  border: 0;
+}
+.blob-card-new:hover {
+  color: var(--text);
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+.blob-card-new-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: var(--liquid-rim-soft-small);
+}
+.blob-card-new-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.blob-card-skeleton {
+  cursor: default;
+  background:
+    linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.05) 40%, transparent 60%) 0 0 /
+      200% 100%,
+    var(--glass);
+  animation: blob-shimmer 1.4s linear infinite;
+}
+.blob-card-skeleton:hover {
+  scale: 1;
+}
+@keyframes blob-shimmer {
+  to {
+    background-position:
+      -200% 0,
+      0 0;
+  }
+}
+.blob-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 440px;
+  margin: 48px auto 0;
+  text-align: center;
+}
+.blob-empty h2 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 650;
+}
+.blob-empty p {
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.blob-empty-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.blob-editor {
+  max-width: 720px;
+}
+
+/* One Blob: a header card, then Chat / Schedules / Activity. */
+.blob-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.blob-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 22px 20px;
+  border-radius: var(--radius-card);
+  background:
+    radial-gradient(
+      90% 120% at 0% 0%,
+      color-mix(in srgb, var(--blob-color) 18%, transparent),
+      transparent 60%
+    ),
+    var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+}
+.blob-profile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.blob-profile-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+.blob-profile-job {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.blob-profile-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.blob-profile-head:has(.blob-pulse) .blob-profile-status {
+  color: var(--success);
+}
+/* Chat, or schedules and runs, in one glass panel under the tabs. */
+.blob-profile-panel {
+  padding: 18px;
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+}
+.blob-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+}
+.blob-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* A segmented control: Chat / Schedules / Activity, and the schedule "When". */
+.kleio-segments,
+.kleio-subtabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+}
+.kleio-segments button,
+.kleio-subtabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast);
+}
+.kleio-segments button:hover,
+.kleio-subtabs button:hover {
+  color: var(--text);
+}
+.kleio-segments button[aria-selected="true"],
+.kleio-subtabs button[aria-selected="true"],
+.kleio-subtabs button[aria-checked="true"] {
+  color: var(--text);
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: var(--liquid-rim-soft-small);
+}
+.kleio-segments button:focus-visible,
+.kleio-subtabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.kleio-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: rgb(255 255 255 / 0.1);
+}
+
+/* ── the compact chat (a Blob's thread) ── */
+.kleio-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+}
+.kleio-chat-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+.kleio-chat-who {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.kleio-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 280px;
+  max-height: min(56vh, 620px);
+  overflow-y: auto;
+  padding: 4px 2px;
+  scroll-behavior: smooth;
+}
+.kleio-chat-log:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.kleio-msg {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.kleio-msg-user {
+  align-self: flex-end;
+  white-space: pre-wrap;
+  color: #fff;
+  background: var(--kleio-crimson);
+  border-bottom-right-radius: 6px;
+}
+.kleio-msg-assistant {
+  align-self: flex-start;
+  color: var(--text);
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  border-bottom-left-radius: 6px;
+}
+.kleio-msg-assistant > :first-child {
+  margin-top: 0;
+}
+.kleio-msg-assistant > :last-child {
+  margin-bottom: 0;
+}
+.kleio-chat-note {
+  align-self: center;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.kleio-chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.kleio-chat-input textarea {
+  flex: 1 1 auto;
+  min-height: 44px;
+  max-height: 160px;
+  resize: vertical;
+  border-radius: 14px;
+}
+.kleio-inline-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+/* ── forms (new/edit Blob, schedules, groups) ── */
+.kleio-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kleio-form .modal-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.kleio-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+.kleio-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* The field's gap spaces its label; the dialog margins would misalign a row. */
+.kleio-field > .modal-label {
+  margin: 0;
+}
+/* Side-by-side inputs share one height, so their labels line up. */
+.kleio-form-row .modal-input {
+  height: 42px;
+}
+.kleio-field-grow {
+  flex: 1 1 auto;
+}
+.kleio-field-emoji {
+  flex: 0 0 84px;
+}
+.kleio-field-emoji .modal-input {
+  text-align: center;
+  font-size: 18px;
+}
+.kleio-job {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.5;
+}
+.kleio-emoji-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kleio-emoji-pick {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.05);
+  font-size: 18px;
+  cursor: pointer;
+  transition:
+    background-color var(--t-fast),
+    box-shadow var(--t-fast),
+    scale var(--glass-spring-open-duration) var(--glass-spring-open);
+}
+.kleio-emoji-pick:hover {
+  background: rgb(255 255 255 / 0.1);
+  scale: 1.08;
+}
+.kleio-emoji-pick[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: inset 0 0 0 1.5px var(--primary);
+}
+.kleio-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.kleio-swatch {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: inset 0 -4px 8px rgb(0 0 0 / 0.18);
+  transition: scale var(--glass-spring-open-duration) var(--glass-spring-open);
+}
+.kleio-swatch:hover {
+  scale: 1.1;
+}
+.kleio-swatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--bg),
+    0 0 0 4px var(--text);
+}
+.kleio-emoji-pick:focus-visible,
+.kleio-swatch:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.kleio-form .modal-actions {
+  margin-top: 4px;
+}
+
+/* ── lists (schedules, runs) ── */
+.kleio-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* A section's own buttons ("Add schedule") keep their size. */
+.kleio-section > .btn {
+  align-self: flex-start;
+}
+.kleio-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kleio-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+.kleio-list-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.kleio-list-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.kleio-list-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.kleio-clamp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kleio-tag {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: rgb(255 255 255 / 0.08);
+}
+.kleio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+/* Kleio's crimson, not the system blue. */
+.kleio-toggle input[type="checkbox"] {
+  accent-color: var(--kleio-crimson);
+}
+.kleio-outcome {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 12px;
+  background: rgb(255 255 255 / 0.06);
+}
+.kleio-outcome.ok {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+.kleio-outcome.error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+.kleio-h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.kleio-h4 {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.kleio-gtext {
+  color: inherit;
+}
+.kleio-empty {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.kleio-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kleio-chip {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  cursor: pointer;
+}
+.kleio-chip[aria-pressed="true"] {
+  color: #fff;
+  background: var(--kleio-crimson);
+  box-shadow: none;
+}
+
+/* ── Groups: rows, faces and the group chat ── */
+.kleio-row,
+.kleio-row-between {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.kleio-row-between {
+  justify-content: space-between;
+}
+.kleio-face {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  line-height: 1;
+  box-shadow: inset 0 -3px 6px rgb(0 0 0 / 0.16);
+}
+.kleio-list-button {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  color: var(--text);
+  font-family: var(--sans);
+  cursor: pointer;
+  transition:
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+.kleio-list-button:hover {
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+.kleio-list-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.kleio-group-log {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 300px;
+  max-height: min(56vh, 620px);
+  overflow-y: auto;
+  padding: 14px;
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+}
+.kleio-gmsg {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 82%;
+}
+.kleio-gmsg.mine {
+  align-self: flex-end;
+}
+.kleio-gbubble {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 13px;
+  border-radius: 16px;
+  border-bottom-left-radius: 6px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+.kleio-gmsg.mine .kleio-gbubble {
+  color: #fff;
+  background: var(--kleio-crimson);
+  box-shadow: none;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 6px;
+}
+.kleio-gname {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+.kleio-typing {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The workspace title bar's shortcut to Blobs, Groups and Apps. */
+.kleio-open {
+  color: var(--text);
+}
+
+/* ── Apps ── */
+.app-logo {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 1px rgb(0 0 0 / 0.06),
+    0 4px 14px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+}
+.app-logo img {
+  display: block;
+  object-fit: contain;
+}
+.app-logo-letter {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1f1a1b;
+}
+/* Lists of apps are grids, not bulleted lists: no list indent. */
+.app-mine,
+.app-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.app-mine {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.app-mine-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+.app-mine-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.app-mine-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.app-mine-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.app-mine-state.is-connected {
+  color: var(--success);
+}
+.app-mine-state.is-pending {
+  color: var(--warning);
+}
+.app-mine-state.is-expired,
+.app-mine-state.is-failed {
+  color: var(--error);
+}
+.app-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.app-search > svg {
+  position: absolute;
+  left: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.app-search .modal-input {
+  width: 100%;
+  height: 44px;
+  padding-left: 40px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+}
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+.app-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+  transition:
+    background-color var(--t-fast),
+    box-shadow var(--t-fast);
+}
+.app-tile:hover {
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+}
+.app-tile-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.app-tile-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.app-tile-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-tile-category {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.app-tile-desc {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.app-tile-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.app-tile-connected {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--success);
+}
+.app-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+.app-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* Small round ✕ buttons (disconnect an app, delete a schedule). */
+.app-remove,
+.kleio-icon-btn {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+.kleio-icon-btn:hover:not(:disabled),
+.app-remove:hover:not(:disabled) {
+  color: var(--text);
+}
+.app-connect {
+  gap: 6px;
+}
+.app-grid-skeleton .app-tile {
+  height: 128px;
+  background:
+    linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.05) 40%, transparent 60%) 0 0 /
+      200% 100%,
+    rgb(255 255 255 / 0.03);
+  animation: blob-shimmer 1.4s linear infinite;
+}
+
+/* ── Connection ── */
+.conn-map {
+  display: grid;
+  grid-template-columns: auto minmax(40px, 1fr) auto minmax(40px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 26px;
+  padding: 22px 26px;
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--liquid-rim-soft);
+}
+.conn-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 96px;
+  text-align: center;
+}
+.conn-node-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  color: var(--text);
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: var(--liquid-rim-soft-small);
+}
+.conn-node.is-host .conn-node-icon {
+  width: 64px;
+  height: 64px;
+  color: #fff;
+  background: var(--kleio-crimson);
+  box-shadow:
+    var(--liquid-rim-soft-small),
+    0 0 26px color-mix(in srgb, var(--kleio-crimson) 45%, transparent);
+}
+.conn-node-dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2.5px solid var(--bg);
+  background: var(--text-dim);
+}
+.conn-node.is-up .conn-node-dot {
+  background: var(--success);
+}
+.conn-node.is-down .conn-node-dot {
+  background: var(--error);
+}
+.conn-node-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.conn-node-detail {
+  max-width: 150px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conn-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 38px;
+}
+.conn-link-line {
+  position: relative;
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 0.12);
+  overflow: hidden;
+}
+.conn-link.is-up .conn-link-line {
+  background: color-mix(in srgb, var(--success) 40%, transparent);
+}
+.conn-link.is-up .conn-link-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, var(--success), transparent);
+  animation: conn-flow 2.2s ease-in-out infinite;
+}
+.conn-link.is-down .conn-link-line {
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--error) 55%, transparent) 0 6px,
+    transparent 6px 11px
+  );
+}
+@keyframes conn-flow {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+.conn-link-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.conn-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+.conn-fact {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  font-size: 13px;
+}
+.conn-fact dt {
+  color: var(--text-muted);
+}
+.conn-fact dd {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.conn-code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.conn-inline-badge {
+  margin-left: 2px;
+}
+.conn-good {
+  color: var(--success);
+}
+.conn-warn {
+  color: var(--warning);
+}
+.conn-bad {
+  margin: 0;
+  color: var(--error);
+}
+.conn-health {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--warning);
+}
+.conn-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.conn-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.conn-pair {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+.conn-qr {
+  flex: 0 0 auto;
+  width: 176px;
+  height: 176px;
+  padding: 0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.45);
+}
+.conn-pair-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.conn-pair-text > .btn {
+  align-self: flex-start;
+}
+.conn-pair-code {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text);
+}
+.conn-expiry {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.conn-pair-start {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.conn-devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.conn-device {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.04);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.07);
+}
+.conn-device.is-revoked {
+  opacity: 0.55;
+}
+.conn-device-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: rgb(255 255 255 / 0.07);
+}
+.conn-device-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.conn-device-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.conn-device-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.conn-inline-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── AI Providers: the private and cloud cards, stacked on the Settings page. */
+.login-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── AI Providers: private models first ── */
+.login-recommended {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.login-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+.login-logo-tinfoil {
+  color: #fff;
+  background: linear-gradient(145deg, #3b4252, #1d222c);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.2),
+    0 6px 16px rgb(0 0 0 / 0.4);
+}
+.login-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.settings-page .login-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+@media (max-width: 620px) {
+  .conn-map {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+  .conn-link {
+    margin: 0;
+    width: 2px;
+    height: 28px;
+  }
+  .conn-link-label {
+    display: none;
+  }
+  .conn-pair {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .blob-profile-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob-pulse,
+  .blob-card-skeleton,
+  .app-grid-skeleton .app-tile,
+  .conn-link.is-up .conn-link-line::after,
+  .kleio-overlay {
+    animation: none;
+  }
+}

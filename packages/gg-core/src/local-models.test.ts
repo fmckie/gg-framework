@@ -71,7 +71,7 @@ describe("model id round-trip", () => {
     expect(parseLocalModelId("local/ollama")).toBeUndefined();
     expect(parseLocalModelId("local/ollama/")).toBeUndefined();
     expect(parseLocalModelId("local//qwen")).toBeUndefined();
-    expect(isLocalModelId("gpt-5.6-sol")).toBe(false);
+    expect(isLocalModelId("gpt-6.1-sol")).toBe(false);
   });
 
   it("derives the auth storage key from the endpoint id", () => {
@@ -303,6 +303,42 @@ describe("probeEndpoint — generic / vLLM", () => {
       contextWindowKnown: false,
       // Servers that report nothing gate tools per-model server-side.
       supportsTools: true,
+    });
+  });
+});
+
+describe("probeEndpoint — OpenAI-compatible gateway (Tinfoil router shape)", () => {
+  it("reads context_window, tool_calling and multimodal, and drops non-chat models", async () => {
+    const endpoint = await endpointFor("custom", {
+      "/v1/models": {
+        data: [
+          {
+            id: "kimi-k3",
+            type: "chat",
+            context_window: 262144,
+            tool_calling: true,
+            multimodal: true,
+          },
+          { id: "llama3-3-70b", type: "chat", context_window: 131072, tool_calling: false },
+          { id: "whisper-large-v3-turbo", type: "audio" },
+          { id: "voxtral-tts", type: "tts" },
+        ],
+      },
+    });
+
+    const probe = await probeEndpoint(endpoint, { timeoutMs: 2000 });
+
+    expect(probe.models.map((m) => m.rawId)).toEqual(["kimi-k3", "llama3-3-70b"]);
+    expect(probe.models[0]).toMatchObject({
+      contextWindow: 262144,
+      contextWindowKnown: true,
+      supportsTools: true,
+      supportsImages: true,
+    });
+    expect(probe.models[1]).toMatchObject({
+      contextWindow: 131072,
+      supportsTools: false,
+      supportsImages: false,
     });
   });
 });

@@ -6,9 +6,15 @@
       "id": "consumer-legacy-tarball-alias",
       "path": "scripts/consumer-contract.mjs",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "literal": "@kenkaiiii/ggcoder" },
-      "expectedOccurrences": { "tracked": 2 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "@kenkaiiii/ggcoder"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "Bind the historical npm alias to the canonical local tarball; never allow a registry substitute.",
@@ -18,9 +24,16 @@
       "id": "consumer-negative-fixture-identities",
       "path": "scripts/consumer-contract.test.mjs",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "regex": "kenkaiiii|ggcoder|ggboss", "flags": "giu" },
-      "expectedOccurrences": { "tracked": 18 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "kenkaiiii|ggcoder|ggboss",
+        "flags": "giu"
+      },
+      "expectedOccurrences": {
+        "tracked": 18
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "Frozen authored tarball fixtures exercise legacy aliases, retained noncanonical runtime closure, compatibility profiles, and deliberately invalid extra identities. These are test inputs and assertions, not product branding.",
@@ -30,9 +43,16 @@
       "id": "consumer-runtime-compatibility-assertions",
       "path": "scripts/consumer-fixture/consumer.mjs",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "regex": "kenkaiiii|ggcoder|ggboss", "flags": "giu" },
-      "expectedOccurrences": { "tracked": 9 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "kenkaiiii|ggcoder|ggboss",
+        "flags": "giu"
+      },
+      "expectedOccurrences": {
+        "tracked": 9
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "Public imports, historical CLI bins, session-home identifiers, MCP identifiers, and legacy user-agent assertions explicitly retain the documented compatibility profile.",
@@ -42,9 +62,15 @@
       "id": "consumer-declaration-legacy-imports",
       "path": "scripts/consumer-fixture/consumer.ts",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "literal": "@kenkaiiii/ggcoder" },
-      "expectedOccurrences": { "tracked": 6 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "@kenkaiiii/ggcoder"
+      },
+      "expectedOccurrences": {
+        "tracked": 6
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "Compile the historical package alias at its public root, models and auth entry points from installed tarball declarations.",
@@ -54,9 +80,15 @@
       "id": "audit-negative-identity-sentinel",
       "path": "scripts/identity-audit.test.mjs",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "literal": "ggcoder" },
-      "expectedOccurrences": { "tracked": 1 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "ggcoder"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "One frozen legacy sentinel proves trusted policy, exact occurrence counts and unclassified-identity rejection in external trees.",
@@ -66,9 +98,16 @@
       "id": "ci-existing-gate-command-snapshots",
       "path": "scripts/verify-ci-candidate.test.mjs",
       "scope": "content",
-      "targets": ["tracked"],
-      "match": { "regex": "dist:ggcoder|packages/(ggcoder|gg-boss)/dist/cli\\.js", "flags": "gu" },
-      "expectedOccurrences": { "tracked": 5 },
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "dist:ggcoder|packages/(ggcoder|gg-boss)/dist/cli\\.js",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
+      },
       "bucket": "compatibility",
       "owner": "Kleio release engineering",
       "reason": "Exact source assertions preserve existing CLI and performance gate commands at their current filesystem paths across all matrix legs.",
@@ -284,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1376,
+        "tracked": 1458,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -365,7 +404,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 943,
+        "tracked": 1044,
         "packed": 0
       },
       "bucket": "provenance",
@@ -464,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 817,
+        "tracked": 1488,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -1478,26 +1517,6 @@
       "owner": "Framework CLI owner",
       "reason": "The operator guide documents the exact legacy bins and pasted MCP prefix still accepted.",
       "removeWhen": "The bins and MCP parser aliases complete their versioned deprecation windows."
-    },
-    {
-      "id": "matey-application-id",
-      "path": "Matey/**",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "com\\.kenkaiiii\\.matey",
-        "flags": "giu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2,
-        "packed": 0
-      },
-      "bucket": "compatibility",
-      "owner": "Matey application owner",
-      "reason": "Electron app IDs bind operating-system identity and existing user-data associations.",
-      "removeWhen": "A separately approved app migration copies user data and updates packaging identity atomically."
     },
     {
       "id": "prompt-bench-coder-source-path",
@@ -2552,7 +2571,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 636
+        "packed": 662
       },
       "bucket": "compatibility",
       "owner": "Manager build owner",
@@ -3368,26 +3387,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 17
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260911-658a289ea63c",
-      "path": "gg-app/src-tauri/tauri.conf.json",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:\"identifier\": \"com\\.ggcoder\\.app\",|\"productName\": \"GG Coder\",)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
+        "tracked": 15
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3406,7 +3406,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 7
+        "tracked": 4
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3425,7 +3425,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 26
+        "tracked": 24
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3444,7 +3444,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 2
+        "tracked": 1
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3521,25 +3521,6 @@
       },
       "expectedOccurrences": {
         "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260911-a33af6e65f64",
-      "path": "gg-app/src/Badge.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:ggcoder: \\{ label: \"gg-coder\", color: theme\\.primary \\}, // blue)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3748,7 +3729,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 3
+        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3767,7 +3748,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 5
+        "tracked": 4
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3851,25 +3832,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-cb85c1f97b73",
-      "path": "gg-app/src/WorkspaceHeader.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:const fallbackTitle = workspaceMode === \"chat\" \\? \"GG Chat\" : \"GG Coder\";)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-94e4a2786bd4",
       "path": "gg-app/src/agent.ts",
       "scope": "content",
@@ -3892,11 +3854,15 @@
       "id": "upstream-20260915-app-engine-notes",
       "path": "gg-app/src/changelog.ts",
       "scope": "content",
-      "targets": ["tracked"],
+      "targets": [
+        "tracked"
+      ],
       "match": {
         "literal": "I refreshed `GG Coder`'s AI and voice engines and trimmed the code it ships with. Your desktop app and command-line tools get the same updated engine, with no new workflows to learn."
       },
-      "expectedOccurrences": { "tracked": 1 },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
@@ -3906,11 +3872,15 @@
       "id": "upstream-20260915-app-foundation-notes",
       "path": "gg-app/src/changelog.ts",
       "scope": "content",
-      "targets": ["tracked"],
+      "targets": [
+        "tracked"
+      ],
       "match": {
         "literal": "A little housekeeping for your `GG Coder`. I refreshed the desktop foundations in this update, with no new buttons or workflows for you to learn."
       },
-      "expectedOccurrences": { "tracked": 1 },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
@@ -3920,11 +3890,15 @@
       "id": "upstream-20260915-app-compaction-notes",
       "path": "gg-app/src/changelog.ts",
       "scope": "content",
-      "targets": ["tracked"],
+      "targets": [
+        "tracked"
+      ],
       "match": {
         "literal": "Tell GG Coder what matters before shrinking a long conversation. I added `/compact [focus]` so you can name the decisions or topics you want the summary to prioritize, instead of leaving that choice entirely to the agent."
       },
-      "expectedOccurrences": { "tracked": 1 },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Reviewed verbatim app release note from pinned upstream fdab3f18, not an engine package identity.",
@@ -4064,25 +4038,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-ac7cca32ea85",
-      "path": "gg-app/src/theme.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:// GG Coder blue dot and the greener `info` teal — the color IS the only|// User text \\+ chip — mirrors the ggcoder TUI \\(commandColor #818cf8 on the|// signal that a reply is Ken's, not GG Coder's\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 3
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-e19b9d1a3959",
       "path": "gg-app/src/tool-format.ts",
       "scope": "content",
@@ -4132,7 +4087,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 6
+        "tracked": 5
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4558,25 +4513,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-b8b3262aaf2e",
-      "path": "packages/ggcoder/src/core/agents.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:// forward-compatible with fields a newer ggcoder understands\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Reviewed pinned upstream source-directory references, legacy CLI examples, implementation comments, attribution, and test/benchmark fixtures; not package-resolution dependencies.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-9441badc748f",
       "path": "packages/ggcoder/src/core/api-benchmark.ts",
       "scope": "content",
@@ -4892,7 +4828,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 11
+        "tracked": 10
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4911,7 +4847,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 37
+        "tracked": 33
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -5527,25 +5463,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-d37e0475e582",
-      "path": "prompt-audit.md",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:Compared GG Coder's prompt stack against the field listed in `coding-agents\\.md`\\.|hardening\\. Candidate for gg-agent/ggcoder work, sized separately\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Dated upstream evidence is retained verbatim; not a claim that this fork published or verified an upstream release.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-ci-b803fcb7f17e",
       "path": ".github/workflows/ci.yml",
       "scope": "content",
@@ -5747,7 +5664,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 67
+        "packed": 66
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6128,25 +6045,6 @@
       },
       "expectedOccurrences": {
         "packed": 4
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
-      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
-    },
-    {
-      "id": "packed-20260911-96590c0d3275",
-      "path": "packages/ggcoder/dist/core/agents.js",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "regex": "(?:// forward-compatible with fields a newer ggcoder understands\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "packed": 1
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6545,7 +6443,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 37
+        "packed": 33
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7045,6 +6943,633 @@
       "owner": "Kleio framework maintainers",
       "reason": "Exact emitted OAuth/provider metadata, persisted source/progress/transcript identifiers, and ACP protocol labels from already classified source. These values are compatibility contracts, not a package rename.",
       "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "upstream-20260924-c5e7ac50846f",
+      "path": "bench/ui-library-real-flow/REPORT.md",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\| `pnpm --filter @kenkaiiii\\/ggcoder test` \\| 266 files passed, 2 existing skipped; 3,212 tests passed, 17 existing skipped \\||\\| `pnpm build` \\| Passed in workspace dependency order, including gg-ai → gg-agent → ggcoder \\|)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-8f223f854074",
+      "path": "bench/ui-library-real-flow/compatibility.test.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const require = createRequire\\(new URL\\('\\.\\.\\/\\.\\.\\/packages\\/ggcoder\\/package\\.json', import\\.meta\\.url\\)\\);|const bundled = await build\\(\\{ entryPoints: \\['packages\\/ggcoder\\/src\\/core\\/ui-compatibility\\.ts'\\], bundle: true, write: false, format: 'esm', platform: 'node' \\}\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-54568db82c17",
+      "path": "bench/ui-library-real-flow/live-worker.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const \\{ AgentSession \\} = await import\\(new URL\\(\"\\.\\.\\/\\.\\.\\/packages\\/ggcoder\\/dist\\/core\\/agent-session\\.js\", import\\.meta\\.url\\)\\.href\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-85452f3b825e",
+      "path": "bench/ui-library-real-flow/live.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const ggcoderDist = path\\.join\\(repoRoot, \"packages\", \"ggcoder\", \"dist\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-2c22b60a6db4",
+      "path": "bench/ui-library-real-flow/sidecar.test.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const child = spawn\\(process\\.execPath, \\[resolve\\('packages\\/ggcoder\\/dist\\/app-sidecar\\.js'\\)\\], \\{)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-f4fd734276d2",
+      "path": "gg-app/src/App.css",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:shows this message went to the mentor, not GG Coder\\. The fill stays the|\\/\\* \"Sent to GG Coder\" bubble \\(from a Ken prompt-block button\\): same Ken border|mirroring the requested ggcoder treatment\\. The tick takes --on-primary, the)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-a87c307bd826",
+      "path": "gg-app/src/changelog.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"GG Coder feels alive now\\. Your messages rise into the chat, tool steps slide in as they run, popups and menus fade away instead of vanishing, and every screen change glides with a soft `crossfade`\\. Hit `Show full output` on a long code block and it grows open smoothly instead of jumping\\.\",|\"GG Coder got a serious polish pass\\. Faint grey text is crisper and easier on the eyes, menus and popups now float in smoothly, and keyboard users get a clear `focus ring` so you always know where you are\\. Got `Reduce Motion` switched on\\? I calm every animation down for you now\\.\",|\"Get the answer without digging through a checklist\\. I rewrote how `GG Coder` replies so you get a clear takeaway first, followed by a natural explanation that fits your question or coding task\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-ac7cca32ea85",
+      "path": "gg-app/src/theme.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ body text on the dark canvas\\. Distinct from the GG Coder blue dot and the)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-b8b3262aaf2e",
+      "path": "packages/ggcoder/src/core/agents.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ with fields a newer ggcoder understands\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-51c74ef84b33",
+      "path": "packages/ggcoder/src/core/ken-context.test.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const recent = digest\\.split\\(\"## Recent activity \\(GG Coder and user\\)\"\\)\\[1\\];)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260924-87267067b3a2",
+      "path": "packages/ggcoder/src/core/ken-prompt.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:`indexing just to finish a review\\. If indexing is genuinely needed, hand it to GG Coder, ` \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-24 sync (3d36e760): app labels, mentor wording, source references and the upstream benchmark report. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260924-96590c0d3275",
+      "path": "packages/ggcoder/dist/core/agents.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ with fields a newer ggcoder understands\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20260924-debc0c2efeb6",
+      "path": "packages/ggcoder/dist/core/ken-prompt.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:If indexing is genuinely needed, hand it to GG Coder, )",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20260924-0ae72e7d390a",
+      "path": "packages/gg-boss/dist/chunk-????????.js.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ with fields a newer ggcoder understands\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-09-24 sync (3d36e760): a reworded implementation comment and a new Ken prompt line, plus their source-map fragment. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "upstream-20260930-199056269310",
+      "path": "gg-app/scripts/bundle-sidecar.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:const motionBundleSource = join\\(repoRoot, \"packages\", \"ggcoder\", \"assets\", \"motion\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260930-f4fd734276d2",
+      "path": "gg-app/src/App.css",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\* A project's sources \\(gg-coder, Claude Code, Codex, Folder\\) as tinted pills)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260930-58c84fd766eb",
+      "path": "gg-app/src/SettingsModal.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:<SettingsSection title=\"Permissions\" description=\"Full Disk Access for GG Coder\\.\">)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260930-a87c307bd826",
+      "path": "gg-app/src/changelog.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"`GPT-6\\.1 Sol` now works when you sign in with your ChatGPT account\\. OpenAI only hands it out to the newest Codex apps, so I brought GG Coder right up to date\\. Your new default model is ready to roll\\.\",|\"The `Radio` is ready the moment GG Coder opens\\. I fixed a startup hiccup where it could ask for your stations before the app had fully woken up, so your music is there from the very first click\\.\",|\"GG Coder stops nagging you after simple housekeeping\\. Quick commands like `git status` could trick it into thinking your work still needed re-checking\\. I taught it the difference, so it only asks for proof when something actually changed\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260930-2767f57b6bb0",
+      "path": "packages/ggcoder/assets/motion/bin/contact-sheet.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:fail\\(\"Contact sheets need the HyperFrames bundled with GG\\. Reinstall GG Coder to restore Motion mode\\.\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260930-2767f57b6bb0",
+      "path": "packages/ggcoder/assets/motion/bin/contact-sheet.mjs",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:fail\\(\"Contact sheets need the HyperFrames bundled with GG\\. Reinstall GG Coder to restore Motion mode\\.\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "upstream-20260930-bf0e207d5869",
+      "path": "packages/ggcoder/assets/motion/bin/hyperframes.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"The HyperFrames CLI bundled with GG is missing\\. Reinstall GG Coder to restore Motion mode\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260930-bf0e207d5869",
+      "path": "packages/ggcoder/assets/motion/bin/hyperframes.mjs",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"The HyperFrames CLI bundled with GG is missing\\. Reinstall GG Coder to restore Motion mode\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "upstream-20260930-0dbf2ea38777",
+      "path": "packages/ggcoder/assets/motion/references/README.md",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:from the ggcoder package\\. It uses installed Playwright\\/Sharp and blocks network)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20260930-0dbf2ea38777",
+      "path": "packages/ggcoder/assets/motion/references/README.md",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:from the ggcoder package\\. It uses installed Playwright\\/Sharp and blocks network)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "kleio-separation-gg-app-scripts-kleio-identity-test-mjs",
+      "path": "gg-app/scripts/kleio-identity.test.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ Kleio Desktop must never collide with GG Coder on the same Mac: its own app|\\/\\/ ~\\/\\.gg \\(GG Coder's and the ggcoder CLI's state\\)\\. An upstream sync that quietly|it\\(\"is Kleio, not GG Coder\", \\(\\) => \\{|expect\\(conf\\.identifier\\)\\.not\\.toBe\\(\"com\\.ggcoder\\.app\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-kleio-kleiogate-tsx",
+      "path": "gg-app/src/kleio/KleioGate.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ from ever falling back to GG Coder's local sessions, keys or settings\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-tauri-src-kleio-mod-rs",
+      "path": "gg-app/src-tauri/src/kleio/mod.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/\\/ few local files here and never in `~\\/\\.gg`, which belongs to GG Coder and the|\\/\\/\\/ `ggcoder` CLI on the same Mac\\. Everything else lives on the Kleio host\\.|\\/\\/\\/ this Mac belong to GG Coder\\), and shows a connect screen until paired\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-tauri-src-lib-rs",
+      "path": "gg-app/src-tauri/src/lib.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/\\/ that one belongs to GG Coder and the `ggcoder` CLI on the same Mac, and|\\/\\/ to sweep, and GG Coder's on this Mac are not ours to touch\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-agent-ts",
+      "path": "gg-app/src/agent.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ kleio: Kleio Desktop's own names, so it never reads as GG Coder\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-source-style-ts",
+      "path": "gg-app/src/source-style.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:ggcoder: \\{ label: \"Kleio\", color: theme\\.primary \\}, \\/\\/ blue \\(kleio: this engine's sessions\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-kleio-kleiohome-test-tsx",
+      "path": "gg-app/src/kleio/KleioHome.test.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:expect\\(screen\\.getByText\\(\"Built on GG Coder by Ken Kai\"\\)\\)\\.toBeDefined\\(\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "removeWhen": "Only if the credit line or the separation note is removed."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-kleio-kleiohome-tsx",
+      "path": "gg-app/src/kleio/KleioHome.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:<div className=\"home-byline home-links\">Built on GG Coder by Ken Kai<\\/div>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "removeWhen": "Only if the credit line or the separation note is removed."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-kleio-kleio-theme-css",
+      "path": "gg-app/src/kleio/kleio-theme.css",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:GG Coder is a separate app and never loads this file\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "removeWhen": "Only if the credit line or the separation note is removed."
     }
   ]
 }

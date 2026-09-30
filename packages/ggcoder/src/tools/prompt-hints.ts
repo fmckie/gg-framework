@@ -11,6 +11,8 @@
  * Cross-tool preferences for those tools live in TOOL_STEERING instead.
  */
 export const TOOL_PROMPT_HINTS: Record<string, string> = {
+  ui_registry: "Inspect public Bklit/Kokonut components, shadcn source and Motion APIs.",
+  ui_adopt: "Plan/adopt Bklit/Kokonut source without overwrites or installs.",
   code_nav:
     "Language-server navigation: `definition`, `references`, `symbols` (file outline), `hover` " +
     "(type/signature). Exact and cross-file, unlike text search.",
@@ -18,8 +20,7 @@ export const TOOL_PROMPT_HINTS: Record<string, string> = {
     "Find the most relevant functions/classes/types for a query via AST chunking + BM25 " +
     "ranking. Returns whole ranked symbol chunks with `file:line → symbol` headers — far fewer " +
     "tokens than reading whole files. TS/JS, Python, Go, Rust, Java, C#.",
-  source_path:
-    "Resolve installed package/repo source via opensrc. Inspect the returned path with read/grep/find/ls before assuming a dependency API.",
+  source_path: "Resolve dependency source via opensrc; inspect it before assuming APIs.",
   web_search:
     "Search the web. Use before web_fetch to find pages; supports include/exclude_domains and a time_range recency filter.",
   web_fetch:
@@ -27,7 +28,7 @@ export const TOOL_PROMPT_HINTS: Record<string, string> = {
   task_output: "Read new output from a background process by id; wait_ms blocks until it exits.",
   task_stop: "Stop a background process by id.",
   screenshot:
-    "Capture a headless-browser PNG of a URL or dev server to visually verify rendered UI; supports waits, click/type actions and viewport size.",
+    "Verify rendered UI with browser screenshots, click/type actions and viewport controls.",
   send_message: "Queue steering into a running child agent without starting another turn.",
   followup_task: "Start another turn in an idle child agent, preserving its context.",
   wait_agent:
@@ -52,7 +53,7 @@ export const TOOL_PROMPT_HINTS: Record<string, string> = {
     "Matches become callable on your next step. Check the catalog BEFORE concluding you " +
     "lack a capability.",
   generate_image:
-    "Generate or edit images via OpenAI's GPT Image 2.5 (Flare/Sunburst). Only when the user explicitly asks — never proactively. Pass `image` to edit an existing file.",
+    "OpenAI image generation/editing: only on explicit user request, never proactively. Pass `image` to edit.",
   steroids:
     "Local corpus of real, current open-source repos. `search` (regex, NOT semantic) for how projects do X, `define` for where a symbol lives, `show` to read the file. Topic not covered = corpus gap: run `discover`, don't retry variants.",
 };
@@ -134,6 +135,8 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   "task_stop",
   "tasks",
   "tool_search",
+  "ui_registry",
+  "ui_adopt",
   "wait_agent",
   "web_fetch",
   "web_search",

@@ -32,10 +32,14 @@ import {
   CHAT_AGENT_IDS,
   chatAgentSessionsDir,
   createChatAgent,
+  createPersonaChatAgent,
   parseChatAgentId,
+  parseChatPersona,
   switchChatAgent,
   type ChatAgentId,
+  type ChatPersona,
 } from "./chat-agents/index.js";
+import { createMotionAgentSession } from "./motion-agent/motion-agent.js";
 import { buildJiwaTools, JiwaStore } from "./chat-agents/jiwa.js";
 import { buildMemoryTools, MemoryStore } from "./chat-agents/memory.js";
 import { buildKenSystemPrompt, buildKenAutopilotSystemPrompt } from "./core/ken-prompt.js";
@@ -54,7 +58,9 @@ import {
   type WorkflowCommandSpec,
 } from "./core/autopilot-gate.js";
 import { driveAutopilotCycle, frameAutopilotInjection } from "./core/autopilot-cycle.js";
+import { describeRunVerification, describeTurnVerification } from "./core/run-status.js";
 import { validateKenModelPref, effectiveKenModel, type KenModelPref } from "./core/ken-model.js";
+import { projectsWithin, resolveAppSettingsPaths } from "./core/app-settings-paths.js";
 import type { KenTurnPayload, AppMarkerPayload, RunOutcome } from "./core/session-manager.js";
 import {
   normalizeAutopilotMarkersForHistory,
@@ -142,6 +148,11 @@ import {
   registerRuntimeModels,
 } from "./core/model-registry.js";
 import { resolveStartOrFallback } from "./core/resolve-start.js";
+import {
+  CompletionTimeoutError,
+  completeOnce,
+  parseCompleteRequest,
+} from "./core/one-shot-complete.js";
 import { getGitBranch, getGitDirtyFileCount, isGitRepo } from "./utils/git.js";
 import { getGitHubOpenCounts, getGitHubRepoSlug } from "./utils/github.js";
 import { startGitHubCIPoll, type GitHubCI } from "./utils/github-ci.js";
@@ -212,6 +223,117 @@ const AUTOMATION_PROVENANCE: MessageProvenance = {
   visibility: "hidden",
 };
 
+/** How long a new session waits to discover a project's pinned local model. */
+const LOCAL_PIN_DISCOVERY_TIMEOUT_MS = 10_000;
+
+/** Reject after `ms` (the timer never outlives the race). */
+async function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** POST /session asked for a model that can't be started; the daemon answers 409. */
+class ModelUnavailableError extends Error {
+  constructor(
+    readonly modelId: string,
+    readonly reason: string,
+  ) {
+    super(`model unavailable: ${modelId}`);
+    this.name = "ModelUnavailableError";
+  }
+}
+
+/**
+ * Local models only exist once discovery has registered them, and the
+ * per-session scan runs after the model is chosen. For a project pinned to one
+ * (e.g. a Tinfoil proxy) or an explicitly requested local model, discover first
+ * — bounded, never fatal — so the pin can win.
+ */
+async function discoverLocalModelForPin(modelId: string): Promise<void> {
+  try {
+    const { models } = await withTimeout(
+      discoverLocalModels(await listAllEndpoints(), { force: false }),
+      LOCAL_PIN_DISCOVERY_TIMEOUT_MS,
+    );
+    registerRuntimeModels(models);
+  } catch (err) {
+    log("WARN", "app-sidecar", "local model discovery for a pinned project failed", {
+      model: modelId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Why local `modelId` can't be selected right now (`problem`), or no problem
+ * when it can. Also returns the fresh endpoint probe so a session can keep its
+ * cached view honest. Non-local ids have no blocker.
+ */
+async function probeLocalModelBlocker(
+  modelId: string,
+): Promise<{ problem?: string; probe?: LocalEndpointProbe }> {
+  const parsed = parseLocalModelId(modelId);
+  if (!parsed) return {};
+  const endpoints = await listAllEndpoints();
+  const endpoint = endpoints.find((e) => e.id === parsed.endpointId);
+  if (!endpoint) {
+    return { problem: `Unknown local endpoint "${parsed.endpointId}" — re-scan for local models.` };
+  }
+  const probe = await probeEndpoint(endpoint);
+  if (!probe.reachable) {
+    return {
+      problem: `${endpoint.label} isn't running at ${endpoint.baseUrl}. Start it and scan again.`,
+      probe,
+    };
+  }
+  const model = probe.models.find((m) => m.rawId === parsed.rawId);
+  if (!model) {
+    return { problem: `${endpoint.label} no longer serves "${parsed.rawId}".`, probe };
+  }
+  if (!model.supportsTools) {
+    return {
+      problem: `${parsed.rawId} has no tool calling, so it can't run the agent. Pick a tool-capable model.`,
+      probe,
+    };
+  }
+  registerRuntimeModels(probe.models.map((m) => localModelInfo(m, endpoint)));
+  return { probe };
+}
+
+/**
+ * Resolve an explicitly requested start model, failing closed: an unknown,
+ * blocked, or unauthenticated model throws ModelUnavailableError instead of
+ * falling back (possibly to a cloud provider — privacy matters here).
+ */
+async function requireStartModel(
+  auth: AuthStorage,
+  modelId: string,
+): Promise<{ provider: Provider; id: string }> {
+  if (!getModel(modelId) && parseLocalModelId(modelId)) {
+    await discoverLocalModelForPin(modelId);
+  }
+  const target = getModel(modelId);
+  if (!target) throw new ModelUnavailableError(modelId, "not registered");
+  const { problem, probe } = await probeLocalModelBlocker(target.id);
+  if (problem) throw new ModelUnavailableError(modelId, problem);
+  // A reachable local endpoint's credential carries its baseUrl into the
+  // stream call; write it now (as a scan would) so a cold daemon can use it.
+  if (probe) await syncEndpointCredentials([probe.endpoint], { auth });
+  if (!(await auth.hasProviderAuth(target.provider))) {
+    throw new ModelUnavailableError(modelId, `provider ${target.provider} is not connected`);
+  }
+  return { provider: target.provider, id: target.id };
+}
+
 const ALL_PROVIDERS: Provider[] = [
   // US
   "anthropic",
@@ -270,12 +392,14 @@ function stringArray(value: unknown): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+// An embedder (the Kleio host) may give this sidecar its own settings file and
+// projects folder, apart from the upstream app's — see core/app-settings-paths.ts.
 function appSettingsFile(): string {
-  return path.join(os.homedir(), ".gg", "gg-app.json");
+  return resolveAppSettingsPaths(process.env, os.homedir()).settingsFile;
 }
 
 function defaultProjectsRoot(): string {
-  return path.join(os.homedir(), "gg-projects");
+  return resolveAppSettingsPaths(process.env, os.homedir()).defaultProjectsRoot;
 }
 
 /** Normalize a project cwd to a stable settings key so trailing slashes /
@@ -288,6 +412,12 @@ async function loadAppSettings(): Promise<AppSettings> {
   try {
     const raw = JSON.parse(await fs.readFile(appSettingsFile(), "utf-8")) as Partial<AppSettings>;
     return {
+      // Keep every key this function doesn't validate. gg-app.json is shared:
+      // local-endpoint-store keeps custom endpoints (with their API keys) under
+      // `localEndpoints`, and saveAppSettings rewrites the whole file — so
+      // listing only known keys here erased them on every model switch, and
+      // the next local scan then deleted the endpoint's credential.
+      ...raw,
       projectsRoot:
         typeof raw.projectsRoot === "string" && raw.projectsRoot.trim()
           ? raw.projectsRoot
@@ -796,7 +926,7 @@ async function runJsonModeIfRequested(): Promise<boolean> {
   await runJsonMode({
     message: positionals[0] ?? "",
     provider: (values.provider ?? "anthropic") as Provider,
-    model: values.model ?? "claude-opus-5",
+    model: values.model ?? "claude-opus-5-5",
     cwd: process.cwd(),
     systemPrompt: values["system-prompt"],
     agentPrompt: values["agent-prompt"],
@@ -1056,9 +1186,18 @@ async function main(): Promise<void> {
   // the provider value so a malformed header can neither hammer the endpoint
   // nor suppress usage data forever.
   const usageRateLimitedUntil = new Map<SubscriptionUsageProvider, number>();
+  // Providers currently in a logged rate-limit episode (cleared on success).
+  const usageRateLimitLogged = new Set<SubscriptionUsageProvider>();
   const USAGE_RATE_LIMIT_FALLBACK_BACKOFF_MS = 30 * 60_000;
   const USAGE_RATE_LIMIT_MIN_BACKOFF_MS = 60_000;
   const USAGE_RATE_LIMIT_MAX_BACKOFF_MS = 24 * 60 * 60_000;
+
+  function clearUsageRateLimit(provider: SubscriptionUsageProvider): void {
+    usageRateLimitedUntil.delete(provider);
+    if (usageRateLimitLogged.delete(provider)) {
+      log("INFO", "app-sidecar", "subscription usage recovered", { provider });
+    }
+  }
 
   async function fetchUsageProvider(provider: SubscriptionUsageProvider): Promise<UsageResult> {
     const displayName =
@@ -1079,7 +1218,7 @@ async function main(): Promise<void> {
           ...(await fetchSubscriptionUsage(provider, credentials)),
           connected: true as const,
         };
-        usageRateLimitedUntil.delete(provider);
+        clearUsageRateLimit(provider);
         return snapshot;
       } catch (error) {
         // A provider can revoke an access token before its stored expiry. Refresh
@@ -1097,16 +1236,15 @@ async function main(): Promise<void> {
             ...(await fetchSubscriptionUsage(provider, credentials)),
             connected: true as const,
           };
-          usageRateLimitedUntil.delete(provider);
+          clearUsageRateLimit(provider);
           return snapshot;
         }
         throw error;
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      let backoffMs: number | undefined;
       if (error instanceof SubscriptionUsageError && error.status === 429) {
-        backoffMs = Math.min(
+        const backoffMs = Math.min(
           USAGE_RATE_LIMIT_MAX_BACKOFF_MS,
           Math.max(
             USAGE_RATE_LIMIT_MIN_BACKOFF_MS,
@@ -1114,12 +1252,19 @@ async function main(): Promise<void> {
           ),
         );
         usageRateLimitedUntil.set(provider, Date.now() + backoffMs);
+        // Rate limits on this auxiliary endpoint are expected (every GG process
+        // on the machine polls it) and already handled by the backoff plus the
+        // last-good replay. Log the transition, not every retry.
+        if (!usageRateLimitLogged.has(provider)) {
+          usageRateLimitLogged.add(provider);
+          log("INFO", "app-sidecar", "subscription usage rate-limited; backing off", {
+            provider,
+            backoffMs: String(backoffMs),
+          });
+        }
+      } else {
+        log("WARN", "app-sidecar", "subscription usage fetch failed", { provider, message });
       }
-      log("WARN", "app-sidecar", "subscription usage fetch failed", {
-        provider,
-        message,
-        ...(backoffMs !== undefined && { backoffMs: String(backoffMs) }),
-      });
 
       const connected = await auth.hasProviderAuth(authKey);
       // Transient failures (notably the 429s these auxiliary quota endpoints
@@ -1223,15 +1368,39 @@ async function main(): Promise<void> {
     if (method === "POST" && url === "/session") {
       void daemonReadBody(req, res).then(async (raw) => {
         if (raw === null) return;
-        let body: { mode?: unknown; chatAgent?: unknown; cwd?: unknown; sessionPath?: unknown } =
-          {};
+        let body: {
+          mode?: unknown;
+          chatAgent?: unknown;
+          cwd?: unknown;
+          sessionPath?: unknown;
+          persona?: unknown;
+          model?: unknown;
+        } = {};
         try {
           body = raw ? (JSON.parse(raw) as typeof body) : {};
         } catch {
           /* empty/invalid body → defaults below */
         }
-        const mode: WorkspaceMode = body.mode === "chat" ? "chat" : "code";
+        const mode = parseWorkspaceMode(body.mode);
         const chatAgent = parseChatAgentId(body.chatAgent);
+        let persona: ChatPersona | undefined;
+        if (body.persona !== undefined) {
+          if (mode !== "chat") {
+            daemonJson(res, 400, { error: 'persona requires mode "chat"' });
+            return;
+          }
+          const parsed = parseChatPersona(body.persona);
+          if ("error" in parsed) {
+            daemonJson(res, 400, { error: parsed.error });
+            return;
+          }
+          persona = parsed;
+        }
+        if (body.model !== undefined && (typeof body.model !== "string" || !body.model)) {
+          daemonJson(res, 400, { error: "model must be a non-empty string" });
+          return;
+        }
+        const requestedModel = body.model;
         const sessionCwd =
           typeof body.cwd === "string" && body.cwd
             ? body.cwd
@@ -1250,7 +1419,15 @@ async function main(): Promise<void> {
               broadcastAll,
               oauthInFlightProviders,
             },
-            { id, mode, chatAgent, cwd: sessionCwd, sessionPath },
+            {
+              id,
+              mode,
+              chatAgent,
+              cwd: sessionCwd,
+              sessionPath,
+              persona,
+              model: requestedModel,
+            },
           );
           sessions.set(id, ctx);
           log("INFO", "app-sidecar", "session created", {
@@ -1258,12 +1435,94 @@ async function main(): Promise<void> {
             mode,
             chatAgent,
             cwd: sessionCwd,
+            ...(persona ? { persona: persona.name } : {}),
+            ...(requestedModel ? { model: requestedModel } : {}),
           });
           daemonJson(res, 200, { sessionId: id });
         } catch (err) {
+          if (err instanceof ModelUnavailableError) {
+            log("WARN", "app-sidecar", "session create refused: model unavailable", {
+              model: err.modelId,
+              reason: err.reason,
+            });
+            daemonJson(res, 409, { error: err.message });
+            return;
+          }
           const message = err instanceof Error ? err.message : String(err);
           log("ERROR", "app-sidecar", "session create failed", { message });
           daemonJson(res, 500, { error: message });
+        }
+      });
+      return;
+    }
+
+    // One-shot completion (no tools, thinking off, not session-scoped):
+    // { model, system?, prompt, maxTokens?, timeoutMs? } → { text, model }.
+    // The model resolves exactly like POST /session's `model`, failing closed
+    // (409). Logs model and duration only — never the prompt.
+    if (method === "POST" && url === "/complete") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        let body: unknown;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          daemonJson(res, 400, { error: "invalid JSON body" });
+          return;
+        }
+        const input = parseCompleteRequest(body);
+        if ("error" in input) {
+          daemonJson(res, 400, { error: input.error });
+          return;
+        }
+        // Stop paying for tokens nobody will read once the caller hangs up.
+        const clientGone = new AbortController();
+        res.on("close", () => {
+          if (!res.writableEnded) clientGone.abort();
+        });
+        const started = Date.now();
+        let model = input.model;
+        try {
+          const target = await requireStartModel(auth, input.model);
+          model = target.id;
+          const text = await completeOnce({
+            auth,
+            provider: target.provider,
+            model: target.id,
+            system: input.system,
+            prompt: input.prompt,
+            maxTokens: input.maxTokens,
+            timeoutMs: input.timeoutMs,
+            signal: clientGone.signal,
+          });
+          log("INFO", "app-sidecar", "complete done", {
+            model,
+            ms: String(Date.now() - started),
+          });
+          daemonJson(res, 200, { text, model });
+        } catch (err) {
+          if (err instanceof ModelUnavailableError) {
+            log("WARN", "app-sidecar", "complete refused: model unavailable", {
+              model: err.modelId,
+              reason: err.reason,
+            });
+            daemonJson(res, 409, { error: err.message });
+            return;
+          }
+          const { status, statusCode } = (err ?? {}) as { status?: unknown; statusCode?: unknown };
+          const httpStatus = status ?? statusCode;
+          // Provider errors can echo request content, so log only the class.
+          log("WARN", "app-sidecar", "complete failed", {
+            model,
+            ms: String(Date.now() - started),
+            error: err instanceof Error ? err.name : "unknown",
+            ...(typeof httpStatus === "number" ? { status: String(httpStatus) } : {}),
+          });
+          const message =
+            err instanceof CompletionTimeoutError
+              ? err.message
+              : `completion failed: ${err instanceof Error ? err.message : String(err)}`;
+          daemonJson(res, 502, { error: message });
         }
       });
       return;
@@ -1627,7 +1886,12 @@ async function createProgressManager(
   return { snapshot, awardRun, dispose };
 }
 
-type WorkspaceMode = "code" | "chat";
+type WorkspaceMode = "code" | "chat" | "motion";
+
+/** Unknown or missing modes fall back to the coding agent. */
+function parseWorkspaceMode(value: unknown): WorkspaceMode {
+  return value === "chat" || value === "motion" ? value : "code";
+}
 
 interface SessionContext {
   id: string;
@@ -1676,13 +1940,21 @@ async function createSession(
     chatAgent: ChatAgentId;
     cwd: string;
     sessionPath?: string;
+    /** Chat-only helper persona; never persisted, re-sent by the host on resume. */
+    persona?: ChatPersona;
+    /** Start on this model (fail closed: throws ModelUnavailableError, never falls back). */
+    model?: string;
   },
 ): Promise<SessionContext> {
   const { auth, progress, memoryStore, jiwaStore, broadcastAll, oauthInFlightProviders } = deps;
   const paths = deps.paths;
   const mode = opts.mode;
-  let chatAgent = opts.chatAgent;
+  // Persona transcripts live under General so sessionPath resume keeps working.
+  let chatAgent: ChatAgentId = opts.persona ? "general" : opts.chatAgent;
   const cwd = opts.cwd;
+  // Motion's workspace is a dedicated folder the app names inside the projects
+  // root; create it on first use so a fresh install can start a video at once.
+  if (mode === "motion") await fs.mkdir(cwd, { recursive: true });
   // Base host for parsing request-URL query params (value is irrelevant to
   // parsing); the daemon owns the real listen host.
   const host = "127.0.0.1";
@@ -1697,8 +1969,27 @@ async function createSession(
   // window reading the same single global slot that the last writer clobbered
   // (the old bug — switching models in one window reset every other window).
   const projectPrefs = await loadProjectModelPrefs(cwd);
-  const preferred: Provider = projectPrefs?.provider ?? saved.provider ?? "anthropic";
-  const savedModel = projectPrefs?.model ?? saved.model;
+  let preferred: Provider = projectPrefs?.provider ?? saved.provider ?? "anthropic";
+  let savedModel = projectPrefs?.model ?? saved.model;
+  // Local models only exist once discovery has registered them, and the
+  // per-session scan below runs after the model is chosen. For a project pinned
+  // to one (e.g. a Tinfoil proxy), discover first — bounded, never fatal — so
+  // the pin can win instead of the session falling back to a cloud provider.
+  if (opts.model) {
+    // An explicit model fails closed: unknown/blocked → ModelUnavailableError
+    // (409), never a silent fallback to a cloud provider.
+    const target = await requireStartModel(auth, opts.model);
+    preferred = target.provider;
+    savedModel = target.id;
+  } else if (preferred === "local" && savedModel && !getModel(savedModel)) {
+    await discoverLocalModelForPin(savedModel);
+    if (!getModel(savedModel)) {
+      log("WARN", "app-sidecar", "pinned local model unavailable; using a fallback provider", {
+        model: savedModel,
+        cwd,
+      });
+    }
+  }
   // Boot-tolerant: when no provider is configured this returns a logged-out
   // fallback instead of throwing, so the sidecar still listens and the login
   // endpoints are reachable for a fresh user (throwing here used to kill the
@@ -1709,6 +2000,9 @@ async function createSession(
     preferred,
     savedModel,
   );
+  if (opts.model && (!loggedIn || model !== opts.model)) {
+    throw new ModelUnavailableError(opts.model, `resolved to ${provider}/${model} instead`);
+  }
   if (!loggedIn) {
     log("WARN", "app-sidecar", "no provider configured — booting logged-out for login", {
       fallbackProvider: provider,
@@ -1882,7 +2176,7 @@ async function createSession(
   };
   let session!: AgentSession;
   if (mode === "chat") {
-    session = createChatAgent(chatAgent, {
+    const chatOptions = {
       ...baseSessionOptions,
       sessionsDir: paths.sessionsDir,
       additionalTools: [
@@ -1892,15 +2186,29 @@ async function createSession(
       ],
       getSystemPromptTail: () =>
         `${memoryStore.renderForPrompt()}\n\n${jiwaStore.renderForPrompt()}`,
-      onAgentChange: async (nextAgent) => {
-        chatAgent = nextAgent;
-        broadcast("chat_agent_change", { chatAgent: nextAgent });
-        await session.persistAppMarker("agent_handoff", { chatAgent: nextAgent }).catch((error) => {
-          log("WARN", "app-sidecar", "agent handoff marker persist failed", {
-            message: error instanceof Error ? error.message : String(error),
-          });
+    };
+    // A persona runs on General's transcript namespace with no handoff tool.
+    session = opts.persona
+      ? createPersonaChatAgent(opts.persona, chatOptions)
+      : createChatAgent(chatAgent, {
+          ...chatOptions,
+          onAgentChange: async (nextAgent) => {
+            chatAgent = nextAgent;
+            broadcast("chat_agent_change", { chatAgent: nextAgent });
+            await session
+              .persistAppMarker("agent_handoff", { chatAgent: nextAgent })
+              .catch((error) => {
+                log("WARN", "app-sidecar", "agent handoff marker persist failed", {
+                  message: error instanceof Error ? error.message : String(error),
+                });
+              });
+          },
         });
-      },
+  } else if (mode === "motion") {
+    session = await createMotionAgentSession({
+      ...baseSessionOptions,
+      sessionsDir: paths.sessionsDir,
+      additionalTools: [askUserTool],
     });
   } else {
     session = new AgentSession({
@@ -1929,7 +2237,9 @@ async function createSession(
     });
   }
   await session.initialize();
-  if (mode === "chat") {
+  // Persona sessions never hand off, so a resumed transcript's handoff marker
+  // (from a pre-persona life) must not swap the persona's prompt out.
+  if (mode === "chat" && !opts.persona) {
     const restoredAgent = [...session.getAppMarkers()]
       .reverse()
       .find((marker) => marker.kind === "agent_handoff")?.data.chatAgent;
@@ -1937,6 +2247,21 @@ async function createSession(
       chatAgent = parseChatAgentId(restoredAgent);
       await switchChatAgent(session, chatAgent, false);
     }
+  }
+  // Pin an explicitly requested model for THIS project only (gg-app.json); never
+  // the global ~/.gg/settings.json. Saved only once the session actually exists.
+  if (opts.model) {
+    await saveProjectModelPrefs(cwd, {
+      provider,
+      model,
+      thinkingEnabled: !!session.getThinkingLevel(),
+      thinkingLevel: session.getThinkingLevel() ?? undefined,
+    }).catch((error) => {
+      log("WARN", "app-sidecar", "project model pin persist failed", {
+        model,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
   log("INFO", "app-sidecar", "session ready", { provider, model, mode, chatAgent, cwd });
 
@@ -2241,28 +2566,12 @@ async function createSession(
    * that has since been shut down.
    */
   async function localModelBlocker(modelId: string): Promise<string | undefined> {
-    const parsed = parseLocalModelId(modelId);
-    if (!parsed) return undefined;
-    const endpoints = await listAllEndpoints();
-    const endpoint = endpoints.find((e) => e.id === parsed.endpointId);
-    if (!endpoint)
-      return `Unknown local endpoint "${parsed.endpointId}" — re-scan for local models.`;
-
-    const probe = await probeEndpoint(endpoint);
+    const { problem, probe } = await probeLocalModelBlocker(modelId);
     // Keep the cached view honest: this probe is fresher than the last scan.
-    localProbes = localProbes.map((p) => (p.endpoint.id === endpoint.id ? probe : p));
-    if (!probe.reachable) {
-      return `${endpoint.label} isn't running at ${endpoint.baseUrl}. Start it and scan again.`;
+    if (probe) {
+      localProbes = localProbes.map((p) => (p.endpoint.id === probe.endpoint.id ? probe : p));
     }
-    const model = probe.models.find((m) => m.rawId === parsed.rawId);
-    if (!model) {
-      return `${endpoint.label} no longer serves "${parsed.rawId}".`;
-    }
-    if (!model.supportsTools) {
-      return `${parsed.rawId} has no tool calling, so it can't run the agent. Pick a tool-capable model.`;
-    }
-    registerRuntimeModels(probe.models.map((m) => localModelInfo(m, endpoint)));
-    return undefined;
+    return problem;
   }
 
   /**
@@ -2462,6 +2771,10 @@ async function createSession(
     recordApprovedPlanMarkers(d.text);
   });
   session.eventBus.on("thinking_delta", (d) => broadcast("thinking_delta", d));
+  session.eventBus.on("retry", (d) => {
+    if (!d.silent) broadcast("retry", { reason: d.reason, attempt: d.attempt, delayMs: d.delayMs });
+  });
+  session.eventBus.on("max_turns", (d) => broadcast("max_turns", d));
   // The agent consumed queued steering at a turn boundary. Re-broadcast as the
   // usual `queued` depth update so the webview drops the pending affordance the
   // moment the message lands in the loop, not at run_end.
@@ -2785,8 +3098,10 @@ async function createSession(
     // his own Ideal self-review adds latency and can corrupt the verdict shape.
     ken.setIdealReviewSuppressed(true);
     await ken.initialize();
-    // Deliberately no bus bridge: the review is silent. Errors surface via the
-    // runAutopilotReview try/catch as autopilot_error frames.
+    // Keep review text/tools silent; report usage only for whole-task accounting.
+    ken.eventBus.on("turn_end", (d) => {
+      broadcast("autopilot_usage", { outputTokens: d.usage.outputTokens });
+    });
     kenAutoSession = ken;
     log("INFO", "app-sidecar", "ken autopilot session ready", {
       provider: target.provider,
@@ -2835,7 +3150,11 @@ async function createSession(
 
   // Core provider-run bracket. Standalone runs own a lifecycle generation;
   // injected autopilot runs share the cycle's outer generation.
-  async function runAgent(label: string, run: () => Promise<void>): Promise<void> {
+  async function runAgent(
+    label: string,
+    run: () => Promise<void>,
+    reviewPending: () => boolean = () => false,
+  ): Promise<void> {
     const ownsGeneration = !runLifecycle.running;
     const generation = ownsGeneration
       ? runLifecycle.begin(abortOwnedWork).generation
@@ -2847,7 +3166,11 @@ async function createSession(
     const cancelGenAtStart = cancelGeneration;
     const assistantsBeforeRun = countAssistantMessages(session.getMessages());
     let runSucceeded = false;
-    broadcast("run_start", { text: label, runState: runLifecycle.state });
+    broadcast("run_start", {
+      text: label,
+      runState: runLifecycle.state,
+      continued: !ownsGeneration,
+    });
     try {
       if (!runLifecycle.isCancellationRequested(generation)) await run();
       runSucceeded = true;
@@ -2921,6 +3244,20 @@ async function createSession(
         broadcast("run_end", {
           ...(cancelled ? { cancelled: true } : {}),
           ...(verificationProblem ? { unverified: true } : {}),
+          failed: !cancelled && !runSucceeded,
+          // The cycle refuses an unresolved verification gate. Do not advertise
+          // a review handoff that will exit before emitting any review events.
+          reviewPending:
+            !cancelled &&
+            runSucceeded &&
+            !verificationProblem &&
+            (reviewPending() || !ownsGeneration),
+          ...describeRunVerification(session.getVerificationEvidence(), verificationProblem),
+          turnVerification: describeTurnVerification(
+            session.getRunVerificationActivity(),
+            verificationProblem,
+          ),
+          ...(verificationProblem ? { verificationReason: verificationProblem } : {}),
           runState: runLifecycle.state,
         });
       }
@@ -3195,13 +3532,17 @@ async function createSession(
           isWorkflowCommandText(next.text, await loadWorkflowCommandSpecs());
         const assistantsBefore = countAssistantMessages(session.getMessages());
         const messagesBefore = session.getMessages().length;
-        await runAgent(next.text, async () => {
-          if (next.attachments.length > 0) {
-            await session.promptWithAttachments(next.text, next.attachments);
-          } else {
-            await session.prompt(next.text);
-          }
-        });
+        await runAgent(
+          next.text,
+          async () => {
+            if (next.attachments.length > 0) {
+              await session.promptWithAttachments(next.text, next.attachments);
+            } else {
+              await session.prompt(next.text);
+            }
+          },
+          () => autopilot,
+        );
         const decision = shouldStartAutopilotCycle({
           enabled: autopilot,
           cancelled: autopilotCancelled,
@@ -3224,7 +3565,8 @@ async function createSession(
             kind: decision.kind,
           });
           await runAutopilotCycle(next.text);
-        } else if (autopilot) {
+        } else {
+          broadcast("autopilot_ignored", { reason: decision.reason });
           log("INFO", "app-sidecar", "autopilot skipped (queued turn)", {
             reason: decision.reason,
           });
@@ -3545,6 +3887,7 @@ async function createSession(
             mode,
             chatAgent,
             running,
+            reviewPending: autopilotActive,
             runState: runLifecycle.state,
             thinkingLevel: session.getThinkingLevel() ?? null,
             supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
@@ -3615,6 +3958,8 @@ async function createSession(
         } catch {
           configured = false;
         }
+        // A folder the embedder chose is a choice too: nothing to set up first.
+        configured ||= resolveAppSettingsPaths(process.env, os.homedir()).projectsRootFromEnv;
         // Only projectsRoot + configured flag are webview-facing; the
         // per-project model map is internal persistence, never shipped out.
         json(res, 200, { projectsRoot: s.projectsRoot, configured });
@@ -3722,14 +4067,19 @@ async function createSession(
       // Session stores (ggcoder + Claude Code + Codex) for projects with
       // history, plus a filesystem scan of the configured projects folder so
       // projects you have not opened yet are still listed.
+      // An embedder can ask for its own projects only (the Kleio host), so the
+      // list never mixes in folders other tools opened on the same machine.
       void loadAppSettings()
-        .then(({ projectsRoot, projectRoots, hiddenProjects }) =>
-          discoverProjects({
+        .then(async ({ projectsRoot, projectRoots, hiddenProjects }) => {
+          const projects = await discoverProjects({
             projectsRoot,
             extraRoots: projectRoots,
             hiddenPaths: hiddenProjects,
-          }),
-        )
+          });
+          return resolveAppSettingsPaths(process.env, os.homedir()).ownProjectsOnly
+            ? projectsWithin(projects, [projectsRoot, ...(projectRoots ?? [])])
+            : projects;
+        })
         .then((projects) => json(res, 200, { projects }))
         .catch((err) => {
           log("ERROR", "app-sidecar", "discoverProjects failed", {
@@ -3748,7 +4098,8 @@ async function createSession(
       }
       const requestedAgent = new URL(url, `http://${host}`).searchParams.get("chatAgent");
       // An omitted chatAgent means coding history; chat callers identify one
-      // agent or request the combined, recency-sorted "all" listing.
+      // agent or request the combined, recency-sorted "all" listing; the
+      // reserved value "motion" lists Motion sessions.
       void listSidecarSessions(target, requestedAgent, paths.sessionsDir)
         .then((sessions) => json(res, 200, { sessions }))
         .catch(() => json(res, 200, { sessions: [] }));
@@ -4174,7 +4525,7 @@ async function createSession(
     }
 
     if (method === "GET" && url === "/commands") {
-      if (mode === "chat") {
+      if (mode !== "code") {
         json(res, 200, { commands: [] });
         return;
       }
@@ -4340,20 +4691,24 @@ async function createSession(
           clearPendingPlan();
           const assistantsBefore = countAssistantMessages(session.getMessages());
           const messagesBefore = session.getMessages().length;
-          await runAgent(text, async () => {
-            if (attachments.length > 0) {
-              // Persist each attachment under .gg/uploads so files are inspectable
-              // by the agent's tools, then prompt with the media as native blocks.
-              const prepared = await prepareAttachments(cwd, attachments);
-              await session.promptWithAttachments(text, prepared);
-            } else {
-              // Pass the raw text straight through. AgentSession.prompt() is the
-              // single source of truth for slash-command expansion (built-in +
-              // `.gg/commands/*.md` custom), so the agent gets the right body
-              // while the webview keeps showing the short `/name`.
-              await session.prompt(text);
-            }
-          });
+          await runAgent(
+            text,
+            async () => {
+              if (attachments.length > 0) {
+                // Persist each attachment under .gg/uploads so files are inspectable
+                // by the agent's tools, then prompt with the media as native blocks.
+                const prepared = await prepareAttachments(cwd, attachments);
+                await session.promptWithAttachments(text, prepared);
+              } else {
+                // Pass the raw text straight through. AgentSession.prompt() is the
+                // single source of truth for slash-command expansion (built-in +
+                // `.gg/commands/*.md` custom), so the agent gets the right body
+                // while the webview keeps showing the short `/name`.
+                await session.prompt(text);
+              }
+            },
+            () => autopilot,
+          );
           // After the user's run settles, kick off Ken's auto-review loop — but
           // only when the turn is actually reviewable (shouldStartAutopilotCycle):
           // workflow commands (/compare, /expand, …) end with reports or
@@ -4384,7 +4739,8 @@ async function createSession(
           if (decision.start) {
             log("INFO", "app-sidecar", "autopilot cycle starting", { kind: decision.kind });
             await runAutopilotCycle(text);
-          } else if (autopilot) {
+          } else {
+            broadcast("autopilot_ignored", { reason: decision.reason });
             log("INFO", "app-sidecar", "autopilot skipped", { reason: decision.reason });
           }
           // A prompt sent while Ken was reviewing (build idle) queued but had no
@@ -4402,8 +4758,10 @@ async function createSession(
     // webview keeps the bubbles separate. The context digest is assembled fresh
     // from the BUILD session's transcript each turn (one-way mirror).
     if (method === "POST" && url === "/ken/prompt") {
-      if (mode === "chat") {
-        json(res, 404, { error: "Ken is not available in GG Chat." });
+      if (mode !== "code") {
+        json(res, 404, {
+          error: `Ken is not available in GG ${mode === "chat" ? "Chat" : "Motion"}.`,
+        });
         return;
       }
       void readBody(req, res).then(async (raw) => {
@@ -4466,8 +4824,10 @@ async function createSession(
     }
 
     if (method === "POST" && url === "/autopilot") {
-      if (mode === "chat") {
-        json(res, 404, { error: "Autopilot is not available in GG Chat." });
+      if (mode !== "code") {
+        json(res, 404, {
+          error: `Autopilot is not available in GG ${mode === "chat" ? "Chat" : "Motion"}.`,
+        });
         return;
       }
       void readBody(req, res).then(async (raw) => {
@@ -4821,10 +5181,14 @@ async function createSession(
         }
         // `false` means it already drained into the run between render and
         // click. That is a race, not an error, so report it as a normal result
-        // and let the client reconcile from the fresh list.
+        // and let the client reconcile through the ordered event stream.
         const cancelled = session.cancelQueuedMessage(id);
         const queued = session.listQueuedMessages();
-        broadcast("queued", { count: queued.length, messages: queued });
+        broadcast("queued", {
+          count: queued.length,
+          messages: queued,
+          ...(cancelled ? { cancelledId: id } : {}),
+        });
         json(res, 200, { cancelled, queued });
       });
       return;

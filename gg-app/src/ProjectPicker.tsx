@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
+import { XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import {
   waitForReady,
@@ -14,7 +15,8 @@ import {
   type DiscoveredProject,
   type RecentSession,
 } from "./agent";
-import { Badge, sourceStyle } from "./Badge";
+import { Badge } from "./Badge";
+import { sourceStyle } from "./source-style";
 import { ListSkeleton } from "./Skeleton";
 import { BackButton } from "./BackButton";
 import { WindowLayoutButton } from "./WindowLayoutButton";
@@ -331,16 +333,14 @@ export function ProjectPicker({
                       </span>
                       <Badge>{p.lastActiveDisplay}</Badge>
                     </span>
+                    {/* Where the project comes from, as tinted glass pills. */}
                     <span className="picker-sources">
-                      {p.sources.map((s, i) => {
+                      {p.sources.map((s) => {
                         const { label, color } = sourceStyle(s);
                         return (
-                          <span key={s} style={{ color }}>
-                            {i > 0 ? (
-                              <span style={{ color: theme.textDim }}>{" \u00b7 "}</span>
-                            ) : null}
+                          <Badge key={s} color={color}>
                             {label}
-                          </span>
+                          </Badge>
                         );
                       })}
                     </span>
@@ -351,7 +351,9 @@ export function ProjectPicker({
                     title="Hide from this list"
                     onClick={() => hideProject(p)}
                   >
-                    {"\u00d7"}
+                    {/* The same drawn X as the modal close buttons: a text ×
+                        sits low and off-centre in a round button. */}
+                    <XIcon size={12} weight="bold" aria-hidden="true" />
                   </button>
                 </div>
               ))}
@@ -389,7 +391,7 @@ export function ProjectPicker({
                   onClick={() => chooseSession(selected.path, s)}
                   title={
                     isForeignSession(s)
-                      ? `From ${sourceStyle(s.source ?? "").label} — opens as a GG Coder session`
+                      ? `From ${sourceStyle(s.source ?? "").label} — opens as a Kleio session`
                       : undefined
                   }
                 >
@@ -401,14 +403,14 @@ export function ProjectPicker({
                   </span>
                   <span className="picker-meta" style={{ color: theme.textMuted }}>
                     {isForeignSession(s) && (
-                      <span
+                      <Badge
                         className="picker-source-tag"
-                        style={{ color: sourceStyle(s.source ?? "").color }}
+                        color={sourceStyle(s.source ?? "").color}
                       >
                         {sourceStyle(s.source ?? "").label}
-                      </span>
+                      </Badge>
                     )}
-                    {`${s.messageCount} msgs`}
+                    <Badge>{`${s.messageCount} msgs`}</Badge>
                   </span>
                 </button>
               ))}
