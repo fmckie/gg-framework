@@ -93,7 +93,8 @@ export type ChatAgentId = "general" | "therapist" | "research";
 
 /** Product name shown when a window has no project context to title it. */
 export function workspaceProductName(mode: WorkspaceMode): string {
-  return mode === "chat" ? "GG Chat" : mode === "motion" ? "GG Motion" : "GG Coder";
+  // kleio: Kleio Desktop's own names, so it never reads as GG Coder.
+  return mode === "chat" ? "Kleio Chat" : mode === "motion" ? "Kleio Motion" : "Kleio Coder";
 }
 
 export type MemoryCategory =

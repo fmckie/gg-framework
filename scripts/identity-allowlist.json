@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1417,
+        "tracked": 1446,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3387,26 +3387,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 17
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260911-658a289ea63c",
-      "path": "gg-app/src-tauri/tauri.conf.json",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:\"identifier\": \"com\\.ggcoder\\.app\",|\"productName\": \"GG Coder\",)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
+        "tracked": 15
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3748,7 +3729,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 3
+        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3767,7 +3748,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 5
+        "tracked": 4
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7268,25 +7249,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260930-dd4000b0fb45",
-      "path": "gg-app/src/AsciiLogo.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:<div className=\"ascii-logo\" role=\"img\" aria-label=\"GG Coder\">)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260930-58c84fd766eb",
       "path": "gg-app/src/SettingsModal.tsx",
       "scope": "content",
@@ -7295,25 +7257,6 @@
       ],
       "match": {
         "regex": "(?:<SettingsSection title=\"Permissions\" description=\"Full Disk Access for GG Coder\\.\">)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260930-94e4a2786bd4",
-      "path": "gg-app/src/agent.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:return mode === \"chat\" \\? \"GG Chat\" : mode === \"motion\" \\? \"GG Motion\" : \"GG Coder\";)",
         "flags": "gu"
       },
       "expectedOccurrences": {
@@ -7337,25 +7280,6 @@
       },
       "expectedOccurrences": {
         "tracked": 3
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260930-85cb68441244",
-      "path": "gg-app/src/source-style.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:ggcoder: \\{ label: \"GG Coder\", color: theme\\.primary \\}, \\/\\/ blue)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7418,6 +7342,120 @@
       "owner": "Kleio framework maintainers",
       "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "kleio-separation-gg-app-scripts-kleio-identity-test-mjs",
+      "path": "gg-app/scripts/kleio-identity.test.mjs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ Kleio Desktop must never collide with GG Coder on the same Mac: its own app|\\/\\/ ~\\/\\.gg \\(GG Coder's and the ggcoder CLI's state\\)\\. An upstream sync that quietly|it\\(\"is Kleio, not GG Coder\", \\(\\) => \\{|expect\\(conf\\.identifier\\)\\.not\\.toBe\\(\"com\\.ggcoder\\.app\"\\);)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-kleio-kleiogate-tsx",
+      "path": "gg-app/src/kleio/KleioGate.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ from ever falling back to GG Coder's local sessions, keys or settings\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-tauri-src-kleio-mod-rs",
+      "path": "gg-app/src-tauri/src/kleio/mod.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/\\/ few local files here and never in `~\\/\\.gg`, which belongs to GG Coder and the|\\/\\/\\/ `ggcoder` CLI on the same Mac\\. Everything else lives on the Kleio host\\.|\\/\\/\\/ this Mac belong to GG Coder\\), and shows a connect screen until paired\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-tauri-src-lib-rs",
+      "path": "gg-app/src-tauri/src/lib.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/\\/ that one belongs to GG Coder and the `ggcoder` CLI on the same Mac, and|\\/\\/ to sweep, and GG Coder's on this Mac are not ours to touch\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-agent-ts",
+      "path": "gg-app/src/agent.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/ kleio: Kleio Desktop's own names, so it never reads as GG Coder\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-source-style-ts",
+      "path": "gg-app/src/source-style.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:ggcoder: \\{ label: \"Kleio\", color: theme\\.primary \\}, \\/\\/ blue \\(kleio: this engine's sessions\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
     }
   ]
 }

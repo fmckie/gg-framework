@@ -525,7 +525,7 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
     let product = matches!(
         segs.as_slice(),
-        ["kleio", "home"] | ["kleio", "home", "new"] | ["kleio", "models"]
+        ["kleio", "home"] | ["kleio", "home", "new"] | ["kleio", "models"] | ["kleio", "health"]
     ) || under(&segs, &["kleio", "blobs"])
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
@@ -594,9 +594,64 @@ pub async fn kleio_api(
     Ok(ApiResponse { status, body })
 }
 
+/// The only host routes `host_auth` may call.
+fn auth_route_allowed(method: &str, path: &str) -> bool {
+    matches!(
+        (method, path),
+        ("GET", "/auth/status") | ("POST", "/auth/apikey") | ("POST", "/auth/logout")
+    )
+}
+
+/// The provider-auth routes on the host's sidecar, for Kleio's settings screen:
+/// Kleio keeps no local credentials, so status, API keys and disconnects all go
+/// to the host. Device-authenticated like `kleio_api`; a non-2xx answer is an
+/// Err carrying the host's message.
+pub async fn host_auth(
+    method: &str,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    if !auth_route_allowed(method, path) {
+        return Err(format!("host_auth: {method} {path} not allowed"));
+    }
+    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+    let mut req = api_client(r)?.request(m, format!("{}{}", r.base, path));
+    if let Some(b) = body {
+        req = req.json(&b);
+    }
+    let res = req.send().await.map_err(|e| root_cause(&e))?;
+    let status = res.status();
+    let text = res.text().await.map_err(|e| root_cause(&e))?;
+    let value: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+    if !status.is_success() {
+        return Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("Your Mac mini answered {}", status.as_u16())));
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_auth_allows_only_the_three_auth_routes() {
+        assert!(auth_route_allowed("GET", "/auth/status"));
+        assert!(auth_route_allowed("POST", "/auth/apikey"));
+        assert!(auth_route_allowed("POST", "/auth/logout"));
+        assert!(!auth_route_allowed("POST", "/auth/status"));
+        assert!(!auth_route_allowed("POST", "/auth/oauth/start"));
+        assert!(!auth_route_allowed("GET", "/kleio/home"));
+    }
+
+    #[test]
+    fn health_is_a_product_route() {
+        assert_eq!(check_route("GET", "/kleio/health", None), Ok(false));
+    }
 
     fn payload(base: &str, cred: Option<&str>) -> PairingPayload {
         PairingPayload {
@@ -702,7 +757,7 @@ mod tests {
             "/kleio/devices",
             "/kleio/devices/d1/revoke",
             "/kleio/push",
-            "/kleio/health",
+            "/kleio/health/x",
             "/kleio/home/other",
             "/kleio/homes",
             "/kleio/blobsx",

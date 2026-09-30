@@ -35,7 +35,7 @@ describe("WorkspaceHeader", () => {
   it("renders the chevron in chat mode and toggles the navbar", () => {
     render(<ChatHeaderHarness />);
 
-    expect(screen.getByText("GG Chat")).toBeDefined();
+    expect(screen.getByText("Kleio Chat")).toBeDefined();
     expect(screen.getByRole("button", { name: "New chat" })).toBeDefined();
 
     const hideToggle = screen.getByRole("button", { name: "Hide nav buttons" });

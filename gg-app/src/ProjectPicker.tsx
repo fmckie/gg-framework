@@ -391,7 +391,7 @@ export function ProjectPicker({
                   onClick={() => chooseSession(selected.path, s)}
                   title={
                     isForeignSession(s)
-                      ? `From ${sourceStyle(s.source ?? "").label} — opens as a GG Coder session`
+                      ? `From ${sourceStyle(s.source ?? "").label} — opens as a Kleio session`
                       : undefined
                   }
                 >

@@ -2,7 +2,7 @@ import { theme } from "./theme";
 
 /** Project source → display label + accent color. One home so badges stay consistent. */
 const SOURCE_STYLES: Record<string, { label: string; color: string }> = {
-  ggcoder: { label: "GG Coder", color: theme.primary }, // blue
+  ggcoder: { label: "Kleio", color: theme.primary }, // blue (kleio: this engine's sessions)
   "claude-code": { label: "Claude Code", color: "#d97757" }, // Anthropic clay
   codex: { label: "Codex", color: "#aeb6c2" }, // neutral silver
   folder: { label: "Folder", color: theme.textDim }, // on disk, never opened
