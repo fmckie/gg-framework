@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1465,
+        "tracked": 1474,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -4976,11 +4976,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* Which store this row came from\\. Absent means `ggcoder` — a session that is|\\* empty session list, because that only read GG Coder's own directory\\. These|/\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function maxGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderDir\\(|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{|const mtime = await maxGgcoderSessionMtime\\(dir\\);|discoverGgcoderProjects\\(\\),|export type ProjectSource = \"ggcoder\" \\| \"claude-code\" \\| \"codex\" \\| \"folder\";|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
+        "regex": "(?:\\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* Which store this row came from\\. Absent means `ggcoder` — a session that is|\\* empty session list, because that only read GG Coder's own directory\\. These|/\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function readFirstFromGgcoderDir\\(|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{|discoverGgcoderProjects\\(\\),|export type ProjectSource = \"ggcoder\" \\| \"claude-code\" \\| \"codex\" \\| \"folder\";|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 24
+        "tracked": 22
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
@@ -7341,6 +7341,25 @@
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Pinned upstream text imported by the 2026-09-30 sync (3f2bb6bc): GG Coder app labels, changelog copy and Motion-mode assets. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-09e156f193f6",
+      "path": "packages/ggcoder/src/core/project-discovery.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\* Last activity in a ggcoder session store, counting only sessions that|\\* Stream one ggcoder session file, plain or archived, and return the first|async function lastUsedGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderFile\\(|const ggcoderMessageExtractor: LineExtractor = \\(line\\) => \\{|const mtime = await lastUsedGgcoderSessionMtime\\(dir\\);|const value = await readFirstFromGgcoderFile\\(file\\.path, extractor\\);|if \\(await readFirstFromGgcoderFile\\(file\\.path, ggcoderMessageExtractor\\)\\) return file\\.mtime;)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 9
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream identifiers and comments naming the persisted ggcoder session store (the same contract as upstream-20260911-09e156f193f6). Imported by the 2026-10-29 selective upstream sync (32dee6ec).",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
