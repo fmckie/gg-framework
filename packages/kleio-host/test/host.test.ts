@@ -969,6 +969,25 @@ describe("host: sidecar lifecycle", () => {
 describe("host: home thread (GET /kleio/home)", () => {
   const settle = (ms = 50): Promise<void> => new Promise((r) => setTimeout(r, ms));
   const homeJson = (): any => JSON.parse(readFileSync(join(home, "home.json"), "utf8"));
+  /** Poll for work the host does in the background (slow CI runners outlast a fixed pause). */
+  const until = async (check: () => boolean, ms = 5000): Promise<void> => {
+    const t = Date.now();
+    while (!check()) {
+      if (Date.now() - t > ms) throw new Error("timed out waiting");
+      await settle(20);
+    }
+  };
+  /** Wait until home.json records `path`; the host writes it at run end. */
+  const recorded = async (path: string): Promise<void> => {
+    await until(() => {
+      try {
+        return homeJson().sessionPath === path;
+      } catch {
+        return false;
+      }
+    });
+    expect(homeJson().sessionPath).toBe(path);
+  };
   const posts = (sc: FakeSidecar): number =>
     sc.seen.filter((s) => s.method === "POST" && s.url === "/session").length;
   const runEnd = (sid: string): void =>
@@ -1055,8 +1074,7 @@ describe("host: home thread (GET /kleio/home)", () => {
     // First message written: the path exists now; learnt with nobody attached.
     sidecar.sessions.set(sid, "/t/first.jsonl");
     runEnd(sid);
-    await settle();
-    expect(homeJson().sessionPath).toBe("/t/first.jsonl");
+    await recorded("/t/first.jsonl");
     expect((await call("GET", "/kleio/home", { headers: H })).body.sessionPath).toBe(
       "/t/first.jsonl",
     );
@@ -1067,8 +1085,7 @@ describe("host: home thread (GET /kleio/home)", () => {
     await settle();
     sidecar.sessions.set(sid, "/t/compacted.jsonl");
     runEnd(sid);
-    await settle();
-    expect(homeJson().sessionPath).toBe("/t/compacted.jsonl");
+    await recorded("/t/compacted.jsonl");
     stream.close();
 
     // An empty answer never replaces a known path.
@@ -1086,16 +1103,11 @@ describe("host: home thread (GET /kleio/home)", () => {
     await settle();
     sidecar.sessions.set(old, path);
     runEnd(old);
-    // The host records the transcript path in the background; poll for it
-    // rather than trusting one short pause (slow Windows runners miss it).
-    const t = Date.now();
-    while (homeJson().sessionPath !== path && Date.now() - t < 5000) await settle(20);
-    expect(homeJson().sessionPath).toBe(path);
+    await recorded(path);
 
     await restartSidecarAndHost();
-    await settle();
     // On start the stored id is tapped at once, with no device attached.
-    expect(sidecar.seen.some((s) => s.url === `/events?session=${old}`)).toBe(true);
+    await until(() => sidecar.seen.some((s) => s.url === `/events?session=${old}`));
 
     const r = await call("GET", "/kleio/home", { headers: H });
     expect(r.status).toBe(200);
@@ -1115,7 +1127,7 @@ describe("host: home thread (GET /kleio/home)", () => {
     await settle();
     sidecar.sessions.set(old, path);
     runEnd(old);
-    await settle();
+    await recorded(path);
 
     await restartSidecarAndHost();
     sidecar.failResume = true;
@@ -1138,7 +1150,8 @@ describe("host: home thread (GET /kleio/home)", () => {
     await settle();
     sidecar.sessions.set(old, path);
     runEnd(old);
-    await settle();
+    // Recorded first, so "not resumed" below is about /kleio/home/new.
+    await recorded(path);
 
     const fresh = await call("POST", "/kleio/home/new", { headers: P });
     expect(fresh.status).toBe(200);

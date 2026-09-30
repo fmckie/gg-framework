@@ -181,6 +181,18 @@ function call(method: string, path: string, body?: unknown, headers = H): Promis
 }
 
 const settle = (ms = 60): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/**
+ * Poll for work the host does in the background: the scheduler's tick, the run
+ * closing at run_end. Slow CI runners outlast a fixed pause. Checks that
+ * something did NOT happen keep a fixed settle().
+ */
+async function until(check: () => boolean | Promise<boolean>, ms = 5000): Promise<void> {
+  const t = Date.now();
+  while (!(await check())) {
+    if (Date.now() - t > ms) throw new Error("timed out waiting");
+    await settle(20);
+  }
+}
 const frame = (sid: string, type: string, data: unknown = {}): void =>
   sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
 const blobCreates = (): any[] => sidecar.creates.filter((c) => c.persona);
@@ -664,10 +676,15 @@ describe("blobs: conversation", () => {
     sidecar.sessions.set(sid, path);
     await settle();
     frame(sid, "run_end", { runState: "idle" });
-    await settle();
-    expect(JSON.parse(readFileSync(join(home, "blobs.json"), "utf8")).blobs[0].sessionPath).toBe(
-      path,
-    );
+    const storedPath = (): unknown => {
+      try {
+        return JSON.parse(readFileSync(join(home, "blobs.json"), "utf8")).blobs[0].sessionPath;
+      } catch {
+        return undefined;
+      }
+    };
+    await until(() => storedPath() === path);
+    expect(storedPath()).toBe(path);
 
     // Emoji alone keeps the session.
     await call("PATCH", `/kleio/blobs/${b.id}`, { emoji: "🌻" });
@@ -721,7 +738,8 @@ describe("blobs: scheduler", () => {
     const s = await schedule(b.id, { kind: "interval", everyMinutes: 15 });
     await restart();
     clock += 15 * 60_000 + 1000;
-    await settle(150);
+    await until(() => sidecar.prompts.length > 0);
+    await settle(); // ...and no second fire right behind it
     expect(sidecar.prompts).toHaveLength(1);
     const sid = sidecar.prompts[0]!.session!;
     expect(sidecar.prompts[0]!.body).toEqual({
@@ -753,6 +771,7 @@ describe("blobs: scheduler", () => {
     frame(sid, "text_delta", { text: "Three notes " });
     frame(sid, "text_delta", { text: "need watering." });
     frame(sid, "run_end", { runState: "idle", failed: false });
+    await until(async () => nudges.length > 0 && (await runs(b.id))[0]?.outcome === "ok");
     await settle();
     watch.destroy();
     [open] = await runs(b.id);
@@ -789,12 +808,17 @@ describe("blobs: scheduler", () => {
     clock = Date.parse(blobsNow[0].schedules[0].nextRunAt) + 1000;
     await settle(25);
     expect(sidecar.prompts.length).toBeLessThanOrEqual(1);
-    await settle(150);
+    await until(() => sidecar.prompts.length >= 2);
+    await settle();
     expect(sidecar.prompts).toHaveLength(2);
 
     // B's conversation is still running (no run_end yet): its next due is skipped.
     clock += 15 * 60_000;
-    await settle(200);
+    await until(
+      async () =>
+        (await runs(other.id))[0]?.outcome === "skipped" &&
+        (await runs(b.id))[0]?.outcome === "skipped",
+    );
     const bRuns = await runs(other.id);
     const aRuns = await runs(b.id);
     expect([bRuns[0].outcome, aRuns[0].outcome]).toEqual(["skipped", "skipped"]);
@@ -825,6 +849,7 @@ describe("blobs: scheduler", () => {
     await settle();
     frame(sid, "error", { message: "rate limited" });
     frame(sid, "run_end", { runState: "idle", failed: true });
+    await until(() => nudges.length > 0);
     await settle();
     // notify is off: only the ordinary nobody-attached nudge, with no Blob title.
     expect(nudges).toEqual([{ sessionId: sid, devices: ["Phone"] }]);
@@ -848,7 +873,8 @@ describe("blobs: scheduler", () => {
     });
     await restart();
     clock += 61_000;
-    await settle(150);
+    await until(() => sidecar.prompts.length > 0);
+    await settle();
     expect(sidecar.prompts).toHaveLength(1);
     await host.stop();
     clock += 10 * 60_000;
