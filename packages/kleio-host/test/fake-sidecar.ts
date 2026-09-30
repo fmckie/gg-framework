@@ -1,6 +1,6 @@
 // The fake gg-app sidecar the host tests talk to: loopback Host allowlist +
-// token like the real one, POST /session, /state, /events, /prompt, /routines,
-// DELETE /session/:id and GET /models.
+// token like the real one, POST /session, /state, /events, /prompt, /complete,
+// /routines, DELETE /session/:id and GET /models.
 
 import { createServer, type Server, type ServerResponse } from "node:http";
 
@@ -34,6 +34,11 @@ export interface FakeSidecar {
   disposed: string[];
   /** What GET /models answers. */
   models: { id: string; name?: string; provider: string; local?: boolean }[];
+  /** Bodies of every POST /complete. */
+  completions: any[];
+  /** POST /complete answers `{ text: completeText, model }` with 200, else `{ error }`. */
+  completeStatus: number;
+  completeText: string;
   close(): Promise<void>;
 }
 
@@ -134,6 +139,23 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/complete") {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        const body = raw ? JSON.parse(raw) : {};
+        api.completions.push(body);
+        res.writeHead(api.completeStatus, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify(
+            api.completeStatus === 200
+              ? { text: api.completeText, model: body.model }
+              : { error: "provider failed" },
+          ),
+        );
+      });
+      return;
+    }
     if (req.method === "DELETE" && url.pathname.startsWith("/session/")) {
       const id = decodeURIComponent(url.pathname.slice("/session/".length));
       api.disposed.push(id);
@@ -170,6 +192,9 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     prompts: [],
     disposed: [],
     models: [],
+    completions: [],
+    completeStatus: 200,
+    completeText: '{"schedules":[]}',
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();

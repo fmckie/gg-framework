@@ -142,6 +142,18 @@ Named helpers with a job, each with its own pinned conversation and schedules, s
 - A `notify` schedule sends an APNs alert titled `<emoji> <name>` **even while a device is
   attached**.
 
+**Auto-schedules:** `POST /kleio/blobs` (and a `PATCH` that changes `job`) reads timing out of
+the job with the sidecar's one-shot `POST /complete` on the Blob's model (25 s, never a cloud
+fallback) and adds up to 5 schedules with `source:"auto"`.
+
+- Body extras: `timezone` (IANA, default `Europe/London`) and `autoSchedule` (default `true`).
+- The answer gains `autoSchedules: {status: ok|none|failed, count, error?}` whenever it ran; the
+  Blob is saved either way.
+- A re-read replaces only the `auto` schedules (a failed one leaves them); `manual` ones
+  (`POST …/schedules`, and anything saved before) are never touched.
+- `POST /kleio/blobs/suggest-schedules {job, model?, timezone?}` → `{schedules}`: a preview
+  with no writes (502 `{error}` when the read fails).
+
 ### Push nudges (APNs)
 
 When a run ends on a session with **no device attached**, the host sends one alert push per

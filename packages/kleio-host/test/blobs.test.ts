@@ -305,6 +305,7 @@ describe("blobs: CRUD", () => {
       timezone: "Europe/London",
       enabled: true,
       notify: true,
+      source: "manual",
       nextRunAt: "2026-10-24T08:00:00.000Z",
     });
     expect(s.id).not.toBe("s_ignored0");
@@ -345,6 +346,248 @@ describe("blobs: CRUD", () => {
     const pinned = JSON.parse(readFileSync(join(home, "home.json"), "utf8"));
     expect(sidecar.seen.some((s) => s.url === "/models")).toBe(true);
     expect(pinned.sessionId).toMatch(/^created-/);
+  });
+});
+
+describe("blobs: auto-schedules", () => {
+  const TIMED = [
+    "Here you go:",
+    JSON.stringify({
+      schedules: [
+        {
+          label: "Outfit",
+          prompt: "Check the weather and suggest an outfit.",
+          kind: "weekly",
+          time: "07:30",
+          days: [5, 1, 2, 3, 4],
+        },
+        { label: "Evening {wrap}", prompt: "Wrap up the day.", kind: "daily", time: "18:00" },
+        { label: "Too often", prompt: "Nag.", kind: "interval", everyMinutes: 5 },
+      ],
+    }),
+    "Anything else? {not json}",
+  ].join("\n");
+
+  it("create with timing: adds auto schedules with nextRunAt and source auto", async () => {
+    sidecar.completeText = TIMED;
+    const r = await call("POST", "/kleio/blobs", {
+      name: "Stylist",
+      job: "Every weekday at 7:30 pick my outfit; wrap up each evening.",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.autoSchedules).toEqual({ status: "ok", count: 2 });
+    const [outfit, evening, ...rest] = r.body.blob.schedules;
+    expect(rest).toEqual([]);
+    expect(outfit).toEqual({
+      id: expect.stringMatching(/^s_[0-9a-f]{8}$/),
+      label: "Outfit",
+      prompt: "Check the weather and suggest an outfit.",
+      kind: "weekly",
+      time: "07:30",
+      days: [1, 2, 3, 4, 5],
+      timezone: "Europe/London",
+      enabled: true,
+      notify: true,
+      source: "auto",
+      // Saturday 24 Oct (BST) → Monday 26 Oct 07:30 GMT.
+      nextRunAt: "2026-10-26T07:30:00.000Z",
+    });
+    expect(evening).toMatchObject({
+      label: "Evening {wrap}",
+      source: "auto",
+      nextRunAt: "2026-10-24T17:00:00.000Z",
+    });
+    expect(sidecar.completions).toHaveLength(1);
+    const c = sidecar.completions[0];
+    expect(c).toMatchObject({
+      model: DEFAULT_BLOB_MODEL,
+      prompt: "Every weekday at 7:30 pick my outfit; wrap up each evening.",
+      maxTokens: 800,
+    });
+    expect(c.system).toMatch(/^You turn a helper's job description into schedules\./);
+    expect(c.system).toMatch(/Now: Saturday, 24 Oct 2026 08:00 in Europe\/London\.$/);
+    // Persisted.
+    const got = await call("GET", `/kleio/blobs/${r.body.blob.id}`);
+    expect(got.body.blob.schedules.map((s: any) => s.source)).toEqual(["auto", "auto"]);
+  });
+
+  it("the device's timezone is used for the prompt and the schedules", async () => {
+    sidecar.completeText = TIMED;
+    const r = await call("POST", "/kleio/blobs", {
+      name: "Stylist",
+      job: "Weekday outfits.",
+      timezone: "America/New_York",
+    });
+    expect(sidecar.completions[0].system).toMatch(/Now: Saturday, 24 Oct 2026 03:00 in America/);
+    expect(r.body.blob.schedules[0]).toMatchObject({
+      timezone: "America/New_York",
+      nextRunAt: "2026-10-26T11:30:00.000Z",
+    });
+    const bad = await call("POST", "/kleio/blobs", { name: "X", job: "Y", timezone: "Mars/Base" });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/timezone/);
+    const bad2 = await call("POST", "/kleio/blobs", { name: "X", job: "Y", autoSchedule: "no" });
+    expect(bad2.status).toBe(400);
+  });
+
+  it("no timing → none", async () => {
+    const r = await call("POST", "/kleio/blobs", { name: "Gardener", job: "Tend the notes." });
+    expect(r.body.autoSchedules).toEqual({ status: "none", count: 0 });
+    expect(r.body.blob.schedules).toEqual([]);
+  });
+
+  it("junk or a 502 → failed, and the Blob still exists", async () => {
+    sidecar.completeText = "I could not say.";
+    const junk = await call("POST", "/kleio/blobs", { name: "A", job: "Daily at 9." });
+    expect(junk.status).toBe(200);
+    expect(junk.body.autoSchedules).toEqual({
+      status: "failed",
+      count: 0,
+      error: expect.stringMatching(/no schedules/),
+    });
+    sidecar.completeText = '{"schedules":[{"label":"x","kind":"daily","time":"25:00"}]}';
+    const invalid = await call("POST", "/kleio/blobs", { name: "B", job: "Daily at 9." });
+    expect(invalid.body.autoSchedules).toMatchObject({ status: "failed", count: 0 });
+    sidecar.completeStatus = 502;
+    const down = await call("POST", "/kleio/blobs", { name: "C", job: "Daily at 9." });
+    expect(down.status).toBe(200);
+    expect(down.body.autoSchedules).toEqual({
+      status: "failed",
+      count: 0,
+      error: "POST /complete -> 502: provider failed",
+    });
+    const all = (await call("GET", "/kleio/blobs")).body.blobs;
+    expect(all.map((b: any) => b.name)).toEqual(["A", "B", "C"]);
+    expect(all.every((b: any) => b.schedules.length === 0)).toBe(true);
+  });
+
+  it("PATCH job replaces the auto schedules and keeps the manual ones", async () => {
+    sidecar.completeText = TIMED;
+    const b = (await call("POST", "/kleio/blobs", { name: "Stylist", job: "Outfits." })).body.blob;
+    const manual = await call("POST", `/kleio/blobs/${b.id}/schedules`, {
+      label: "Mine",
+      prompt: "Do my thing.",
+      kind: "daily",
+      time: "12:00",
+    });
+    expect(manual.body.schedule.source).toBe("manual");
+    // Editing an auto schedule keeps it auto.
+    const edited = await call("PATCH", `/kleio/blobs/${b.id}/schedules/${b.schedules[0].id}`, {
+      label: "Outfit!",
+    });
+    expect(edited.body.schedule.source).toBe("auto");
+    // No job change → no extraction.
+    const renamed = await call("PATCH", `/kleio/blobs/${b.id}`, { name: "Dresser" });
+    expect(renamed.body).not.toHaveProperty("autoSchedules");
+    expect(sidecar.completions).toHaveLength(1);
+
+    sidecar.completeText =
+      '{"schedules":[{"label":"Hourly","prompt":"Check.","kind":"interval","everyMinutes":60}]}';
+    const r = await call("PATCH", `/kleio/blobs/${b.id}`, { job: "Check hourly." });
+    expect(r.body.autoSchedules).toEqual({ status: "ok", count: 1 });
+    expect(r.body.blob.schedules.map((s: any) => [s.label, s.source])).toEqual([
+      ["Mine", "manual"],
+      ["Hourly", "auto"],
+    ]);
+    expect(r.body.blob.schedules[1].nextRunAt).toBe("2026-10-24T08:00:00.000Z");
+
+    // A failed re-read leaves the schedules alone; none removes the auto ones.
+    sidecar.completeStatus = 502;
+    const failed = await call("PATCH", `/kleio/blobs/${b.id}`, { job: "Check twice hourly." });
+    expect(failed.body.autoSchedules.status).toBe("failed");
+    expect(failed.body.blob.schedules).toHaveLength(2);
+    sidecar.completeStatus = 200;
+    sidecar.completeText = '{"schedules":[]}';
+    const none = await call("PATCH", `/kleio/blobs/${b.id}`, { job: "Whenever." });
+    expect(none.body.autoSchedules).toEqual({ status: "none", count: 0 });
+    expect(none.body.blob.schedules.map((s: any) => s.label)).toEqual(["Mine"]);
+
+    // autoSchedule:false on a job change skips the re-read.
+    const skip = await call("PATCH", `/kleio/blobs/${b.id}`, {
+      job: "Every morning.",
+      autoSchedule: false,
+    });
+    expect(skip.body).not.toHaveProperty("autoSchedules");
+    expect(sidecar.completions).toHaveLength(4);
+  });
+
+  it("autoSchedule:false skips extraction", async () => {
+    sidecar.completeText = TIMED;
+    const r = await call("POST", "/kleio/blobs", {
+      name: "Quiet",
+      job: "Every weekday at 7:30.",
+      autoSchedule: false,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).not.toHaveProperty("autoSchedules");
+    expect(r.body.blob.schedules).toEqual([]);
+    expect(sidecar.completions).toHaveLength(0);
+  });
+
+  it("suggest-schedules previews without writing anything", async () => {
+    sidecar.completeText = TIMED;
+    const r = await call("POST", "/kleio/blobs/suggest-schedules", {
+      job: "Weekday outfits.",
+      model: "anthropic/claude",
+      timezone: "Asia/Tokyo",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.schedules).toHaveLength(2);
+    expect(r.body.schedules[0]).toEqual({
+      label: "Outfit",
+      prompt: "Check the weather and suggest an outfit.",
+      kind: "weekly",
+      time: "07:30",
+      days: [1, 2, 3, 4, 5],
+      timezone: "Asia/Tokyo",
+      enabled: true,
+      notify: true,
+    });
+    expect(sidecar.completions[0].model).toBe("anthropic/claude");
+    expect((await call("GET", "/kleio/blobs")).body.blobs).toEqual([]);
+    expect(() => readFileSync(join(home, "blobs.json"), "utf8")).toThrow();
+    expect((await call("POST", "/kleio/blobs/suggest-schedules", {})).status).toBe(400);
+    sidecar.completeStatus = 502;
+    const down = await call("POST", "/kleio/blobs/suggest-schedules", { job: "Daily." });
+    expect(down.status).toBe(502);
+    expect(down.body.error).toMatch(/502/);
+  });
+
+  it("schedules saved before auto-schedules read as manual", async () => {
+    await host.stop();
+    writeFileSync(
+      join(home, "blobs.json"),
+      JSON.stringify({
+        blobs: [
+          {
+            id: "b_0000aaaa",
+            name: "Old",
+            emoji: "🫧",
+            color: "sky",
+            job: "Old job.",
+            model: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            schedules: [
+              {
+                id: "s_0000aaaa",
+                label: "Old",
+                prompt: "Go.",
+                kind: "daily",
+                time: "09:00",
+                timezone: "Europe/London",
+                enabled: true,
+                notify: true,
+                nextRunAt: "2026-10-24T08:00:00.000Z",
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    host = await startHost();
+    const b = (await call("GET", "/kleio/blobs/b_0000aaaa")).body.blob;
+    expect(b.schedules[0].source).toBe("manual");
   });
 });
 

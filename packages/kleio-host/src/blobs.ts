@@ -16,11 +16,24 @@
 // Missed occurrences are skipped, never replayed. A fire while the Blob's
 // conversation is running is logged as a skipped run. A fired run is closed on
 // the session's next run_end with the last assistant message as its summary.
+//
+// Auto-schedules: creating a Blob (or changing its job) asks the sidecar's
+// one-shot `POST /complete` to read timing out of the job (auto-schedules.ts).
+// What it finds goes through the same validator as `POST …/schedules` and is
+// added with `source: "auto"`; a re-read replaces only the auto ones. The Blob
+// is saved first, so a failed extraction never loses it.
 
 import { randomBytes } from "node:crypto";
 import { appendFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Nudge } from "./apns.js";
+import {
+  EXTRACT_MAX_TOKENS,
+  EXTRACT_TIMEOUT_MS,
+  extractionPrompt,
+  firstJsonObject,
+  MAX_AUTO_SCHEDULES,
+} from "./auto-schedules.js";
 import { nextOccurrence, validTimeZone, type ScheduleKind } from "./blob-schedule.js";
 import { atomicWrite } from "./device-registry.js";
 import {
@@ -31,7 +44,7 @@ import {
   type PinnedThread,
   type SidecarCall,
 } from "./pinned-thread.js";
-import type { Result } from "./result.js";
+import { err, ok, type Result } from "./result.js";
 
 export const BLOB_COLORS = ["sky", "mint", "peach", "lilac", "lemon", "rose"] as const;
 export type BlobColor = (typeof BLOB_COLORS)[number];
@@ -62,8 +75,20 @@ export interface Schedule {
   readonly timezone: string;
   readonly enabled: boolean;
   readonly notify: boolean;
+  /** Server-set: "auto" = read out of the job, "manual" = added by POST …/schedules. */
+  readonly source: "auto" | "manual";
   readonly nextRunAt: string | null;
   readonly lastRun?: ScheduleLastRun;
+}
+
+/** A validated schedule before the server sets id, source and timing state. */
+export type ScheduleInput = Omit<Schedule, "id" | "source" | "nextRunAt" | "lastRun">;
+
+/** What reading a job for timing did, in POST/PATCH /kleio/blobs answers. */
+export interface AutoSchedules {
+  readonly status: "ok" | "none" | "failed";
+  readonly count: number;
+  readonly error?: string;
 }
 
 export interface Blob {
@@ -112,6 +137,10 @@ export interface BlobsOptions {
   readonly untrack: (sessionId: string) => Promise<void>;
   /** The home thread, whose session answers GET /kleio/models. */
   readonly homeSession: () => Promise<Result<PinnedSession, PinnedSessionError>>;
+  /** A Blob was deleted (groups drop it). */
+  readonly onDeleted?: (blobId: string) => Promise<void>;
+  /** A Blob's name, job or model changed (groups retire their sessions with it). */
+  readonly onChanged?: (blobId: string) => Promise<void>;
   readonly log?: (msg: string) => void;
   readonly now?: () => Date;
 }
@@ -130,6 +159,10 @@ export interface Blobs {
   tick(): Promise<void>;
   /** Settles once every write started so far has landed. */
   flush(): Promise<void>;
+  /** A Blob by id, once blobs.json is loaded. */
+  find(blobId: string): Promise<Blob | undefined>;
+  /** The model a Blob's conversations use. */
+  modelOf(b: Blob): string;
 }
 
 class Invalid extends Error {}
@@ -169,6 +202,13 @@ function bool(v: unknown, name: string): boolean {
   return v;
 }
 
+function zone(v: unknown): string {
+  const timezone = v === undefined ? "Europe/London" : v;
+  if (typeof timezone !== "string" || !validTimeZone(timezone))
+    throw new Invalid("timezone must be an IANA time zone, e.g. Europe/London");
+  return timezone;
+}
+
 function object(v: unknown): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v))
     throw new Invalid("body must be a JSON object");
@@ -178,15 +218,11 @@ function object(v: unknown): Record<string, unknown> {
 const TIMING_KEYS = ["kind", "everyMinutes", "time", "days", "at", "timezone", "enabled"];
 
 /** Validate a whole schedule (input merged over the stored one); timing fields per kind only. */
-function scheduleFields(
-  o: Record<string, unknown>,
-): Omit<Schedule, "id" | "nextRunAt" | "lastRun"> {
+function scheduleFields(o: Record<string, unknown>): ScheduleInput {
   const kind = o.kind;
   if (kind !== "interval" && kind !== "daily" && kind !== "weekly" && kind !== "once")
     throw new Invalid("kind must be interval, daily, weekly or once");
-  const timezone = o.timezone === undefined ? "Europe/London" : o.timezone;
-  if (typeof timezone !== "string" || !validTimeZone(timezone))
-    throw new Invalid("timezone must be an IANA time zone, e.g. Europe/London");
+  const timezone = zone(o.timezone);
   const base = {
     label: text(o.label, "label", 60),
     prompt: text(o.prompt, "prompt", 4000),
@@ -267,7 +303,12 @@ export function createBlobs(options: BlobsOptions): Blobs {
       (raw) => {
         try {
           const parsed = JSON.parse(raw) as { blobs?: unknown };
-          if (Array.isArray(parsed.blobs)) blobs = parsed.blobs as Blob[];
+          // Schedules from before auto-schedules read as manual.
+          if (Array.isArray(parsed.blobs))
+            blobs = (parsed.blobs as Blob[]).map((b) => ({
+              ...b,
+              schedules: (b.schedules ?? []).map((s) => ({ ...s, source: s.source ?? "manual" })),
+            }));
         } catch (e) {
           log(`[blobs] ignoring unreadable ${options.statePath}: ${String(e)}`);
         }
@@ -410,7 +451,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
   // ---------------------------------------------------------------- scheduling
 
   /** Initial nextRunAt for a (re)timed schedule. */
-  function firstRun(s: Omit<Schedule, "id" | "nextRunAt" | "lastRun">, t: number): string | null {
+  function firstRun(s: ScheduleInput, t: number): string | null {
     if (!s.enabled) return null;
     const next = nextOccurrence(s, t);
     return next === null ? null : new Date(next).toISOString();
@@ -532,12 +573,117 @@ export function createBlobs(options: BlobsOptions): Blobs {
     }
   }
 
+  // ---------------------------------------------------------------- auto-schedules
+
+  /** Ask the sidecar for the timing in a job; the valid schedules found, at most 5. */
+  async function extract(
+    job: string,
+    modelId: string,
+    timezone: string,
+  ): Promise<Result<ScheduleInput[], string>> {
+    const at = now();
+    const r = await options.call("POST", "/complete", {
+      body: {
+        model: modelId,
+        system: extractionPrompt(at, timezone),
+        prompt: job,
+        maxTokens: EXTRACT_MAX_TOKENS,
+        // A second under ours, so the sidecar's own timeout answers first.
+        timeoutMs: EXTRACT_TIMEOUT_MS - 1_000,
+      },
+      timeoutMs: EXTRACT_TIMEOUT_MS,
+    });
+    if (!r) return err("sidecar unavailable");
+    if (r.status !== 200) {
+      const detail = field(r.body, "error");
+      return err(`POST /complete -> ${r.status}${detail ? `: ${detail}` : ""}`);
+    }
+    const reply = field(r.body, "text");
+    const parsed = reply === null ? null : firstJsonObject(reply);
+    const items =
+      typeof parsed === "object" && parsed !== null
+        ? (parsed as { schedules?: unknown }).schedules
+        : undefined;
+    if (!Array.isArray(items)) return err("no schedules in the model's reply");
+    const t = at.getTime();
+    const found: ScheduleInput[] = [];
+    for (const item of items) {
+      if (found.length >= MAX_AUTO_SCHEDULES) break;
+      if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+      const {
+        label,
+        prompt,
+        kind,
+        everyMinutes,
+        time,
+        days,
+        at: when,
+      } = item as Record<string, unknown>;
+      try {
+        const f = scheduleFields({
+          ...{ label, prompt, kind, everyMinutes, time, days, at: when },
+          timezone,
+          enabled: true,
+          notify: true,
+        });
+        if (f.kind !== "once" || Date.parse(f.at!) > t) found.push(f);
+      } catch (e) {
+        if (!(e instanceof Invalid)) throw e;
+      }
+    }
+    if (items.length > 0 && found.length === 0) return err("the model's schedules were not valid");
+    return ok(found);
+  }
+
+  /**
+   * Read a Blob's job for timing and add what it finds as auto schedules,
+   * replacing its earlier auto ones. A failed read leaves the schedules as
+   * they are; manual schedules are never touched.
+   */
+  async function autoSchedule(blobId: string, timezone: string): Promise<AutoSchedules> {
+    const b = find(blobId);
+    if (!b) return { status: "failed", count: 0, error: "blob deleted" };
+    const r = await extract(b.job, effectiveModel(b), timezone);
+    const cur = find(blobId);
+    if (!r.ok || !cur) {
+      const error = r.ok ? "blob deleted" : r.error;
+      log(`[blobs] ${blobId} auto-schedules failed: ${error}`);
+      return { status: "failed", count: 0, error };
+    }
+    const kept = cur.schedules.filter((s) => s.source !== "auto");
+    const t = now().getTime();
+    const added: Schedule[] = r.value
+      .slice(0, Math.max(0, MAX_SCHEDULES - kept.length))
+      .map((f) => ({ id: `s_${hex()}`, ...f, source: "auto", nextRunAt: firstRun(f, t) }));
+    replace({ ...cur, schedules: [...kept, ...added] });
+    await save();
+    log(`[blobs] ${blobId} auto-schedules: ${added.length}`);
+    if (added.length === 0 && r.value.length > 0)
+      return {
+        status: "failed",
+        count: 0,
+        error: `A blob can have at most ${MAX_SCHEDULES} schedules`,
+      };
+    return { status: added.length > 0 ? "ok" : "none", count: added.length };
+  }
+
+  async function suggestSchedules(input: unknown): Promise<Reply> {
+    const o = object(input);
+    const job = text(o.job, "job", 8000);
+    const modelId = (o.model === undefined ? null : model(o.model)) ?? options.defaultModel;
+    const r = await extract(job, modelId, zone(o.timezone));
+    if (!r.ok) return { status: 502, body: { error: r.error } };
+    return { status: 200, body: { schedules: r.value } };
+  }
+
   // ---------------------------------------------------------------- routes
 
   async function createBlob(input: unknown): Promise<Reply> {
     const o = object(input);
     if (blobs.length >= MAX_BLOBS)
       throw new Invalid(`You can have at most ${MAX_BLOBS} blobs; delete one first`);
+    const timezone = zone(o.timezone);
+    const auto = o.autoSchedule === undefined ? true : bool(o.autoSchedule, "autoSchedule");
     const at = now().toISOString();
     const blob: Blob = {
       id: `b_${hex()}`,
@@ -553,11 +699,25 @@ export function createBlobs(options: BlobsOptions): Blobs {
     blobs = [...blobs, blob];
     await save();
     log(`[blobs] created ${blob.id} "${blob.name}"`);
-    return { status: 200, body: { blob: await view(blob) } };
+    const autoSchedules = auto ? await autoSchedule(blob.id, timezone) : undefined;
+    return {
+      status: 200,
+      body: {
+        blob: await view(find(blob.id) ?? blob),
+        ...(autoSchedules ? { autoSchedules } : {}),
+      },
+    };
   }
 
   async function patchBlob(b: Blob, input: unknown): Promise<Reply> {
     const o = object(input);
+    // Re-reading the job uses the zone the device sends, else the one the
+    // auto schedules were made in.
+    const timezone =
+      o.timezone !== undefined
+        ? zone(o.timezone)
+        : (b.schedules.find((s) => s.source === "auto")?.timezone ?? "Europe/London");
+    const auto = o.autoSchedule === undefined ? true : bool(o.autoSchedule, "autoSchedule");
     const next: Blob = {
       ...b,
       ...(o.name !== undefined ? { name: text(o.name, "name", 40) } : {}),
@@ -574,8 +734,14 @@ export function createBlobs(options: BlobsOptions): Blobs {
     if (next.name !== b.name || next.job !== b.job || next.model !== b.model) {
       await thread(b.id).retire();
       closeRun(b.id, { outcome: "error", error: "blob changed during the run" });
+      await options.onChanged?.(b.id);
     }
-    return { status: 200, body: { blob: await view(find(b.id) ?? next) } };
+    const autoSchedules =
+      auto && next.job !== b.job ? await autoSchedule(b.id, timezone) : undefined;
+    return {
+      status: 200,
+      body: { blob: await view(find(b.id) ?? next), ...(autoSchedules ? { autoSchedules } : {}) },
+    };
   }
 
   async function deleteBlob(b: Blob): Promise<Reply> {
@@ -588,6 +754,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
     runCache.delete(b.id);
     runWrites.delete(b.id);
     await rm(runsPath(b.id), { force: true });
+    await options.onDeleted?.(b.id);
     log(`[blobs] deleted ${b.id} "${b.name}"`);
     return { status: 200, body: { ok: true } };
   }
@@ -605,7 +772,12 @@ export function createBlobs(options: BlobsOptions): Blobs {
     const t = now().getTime();
     if (fields.kind === "once" && Date.parse(fields.at!) <= t)
       throw new Invalid("at must be in the future");
-    const s: Schedule = { id: `s_${hex()}`, ...fields, nextRunAt: firstRun(fields, t) };
+    const s: Schedule = {
+      id: `s_${hex()}`,
+      ...fields,
+      source: "manual",
+      nextRunAt: firstRun(fields, t),
+    };
     replace({ ...b, schedules: [...b.schedules, s] });
     await save();
     return { status: 200, body: { schedule: s } };
@@ -613,7 +785,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
 
   async function patchSchedule(b: Blob, s: Schedule, input: unknown): Promise<Reply> {
     const o = object(input);
-    const { id, nextRunAt, lastRun: last, ...stored } = s;
+    const { id, source, nextRunAt, lastRun: last, ...stored } = s;
     const fields = scheduleFields({ ...stored, ...o });
     const retimed = TIMING_KEYS.some((k) => o[k] !== undefined);
     const t = now().getTime();
@@ -622,6 +794,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
     const next: Schedule = {
       id,
       ...fields,
+      source,
       nextRunAt: retimed ? firstRun(fields, t) : fields.enabled ? nextRunAt : null,
       ...(last ? { lastRun: last } : {}),
     };
@@ -669,6 +842,10 @@ export function createBlobs(options: BlobsOptions): Blobs {
       if (method === "GET")
         return { status: 200, body: { blobs: await Promise.all(blobs.map(view)) } };
       if (method === "POST") return createBlob(await body());
+      return { status: 405, body: { error: "method not allowed" } };
+    }
+    if (path === "/kleio/blobs/suggest-schedules") {
+      if (method === "POST") return suggestSchedules(await body());
       return { status: 405, body: { error: "method not allowed" } };
     }
     const m = path.match(/^\/kleio\/blobs\/(b_[0-9a-f]{8})(\/.*)?$/);
@@ -811,5 +988,10 @@ export function createBlobs(options: BlobsOptions): Blobs {
       await writes.catch(() => {});
       await Promise.allSettled(runWrites.values());
     },
+    async find(blobId) {
+      await loaded();
+      return find(blobId);
+    },
+    modelOf: effectiveModel,
   };
 }
