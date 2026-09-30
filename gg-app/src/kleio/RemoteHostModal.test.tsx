@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { RemoteHostModal, relTime } from "./RemoteHostModal";
+import { RemoteHostModal } from "./RemoteHostModal";
+import { relTime } from "./relTime";
 import { KleioBadge } from "./KleioBadge";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

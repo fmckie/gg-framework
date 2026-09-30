@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 vi.mock("./SettingsModal", () => ({ SettingsModal: () => <p>general page</p> }));
 vi.mock("./McpModal", () => ({ McpModal: () => <p>mcp page</p> }));
 vi.mock("./SteroidsModal", () => ({ SteroidsModal: () => <p>steroids page</p> }));
-vi.mock("./kleio/ConnectionPage", async () => {
+vi.mock("./kleio/LazyConnectionPage", async () => {
   const { SettingsHeaderAction, SettingsHeaderStatus } = await import("./settings-header");
   return {
     ConnectionPage: () => (

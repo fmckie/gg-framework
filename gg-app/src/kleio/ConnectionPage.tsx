@@ -26,7 +26,7 @@ import { toast } from "../toast";
 import { hostHealth, type HostHealth } from "./kleioApi";
 import { pairTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrResult } from "./qr";
-import { relTime } from "./RemoteHostModal";
+import { relTime } from "./relTime";
 import {
   explainError,
   kleio,

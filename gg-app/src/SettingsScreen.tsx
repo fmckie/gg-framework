@@ -12,7 +12,7 @@ import { SettingsModal } from "./SettingsModal";
 import { LoginScreen } from "./LoginScreen";
 import { McpModal } from "./McpModal";
 import { SteroidsModal } from "./SteroidsModal";
-import { ConnectionPage } from "./kleio/ConnectionPage";
+import { ConnectionPage } from "./kleio/LazyConnectionPage";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
