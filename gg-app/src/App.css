@@ -736,6 +736,13 @@ select {
   position: relative;
   z-index: 1;
 }
+/* An in-webview menu (the Windows/Linux window-layout fallback) is trapped in
+   its section's stacking context, so the transcript and footer painted over it
+   and took its clicks. Lift the section holding an open menu to menu level;
+   .menu-backdrop only exists while a menu is open. */
+.app > :has(.menu-backdrop) {
+  z-index: var(--z-menu);
+}
 @media (prefers-reduced-transparency: reduce) {
   .app::before {
     display: none;
