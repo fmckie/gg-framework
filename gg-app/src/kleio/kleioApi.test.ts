@@ -380,6 +380,27 @@ describe("blobFormat", () => {
     expect(describeAutoSchedules({ status: "failed", count: 0, error: "timeout" })).toMatch(
       /timeout/,
     );
-    expect(systemTimezone()).toMatch(/\//);
+    // A zone the host can schedule in: "Europe/London" here, plain "UTC" on
+    // CI machines.
+    const zone = systemTimezone();
+    expect(zone).toMatch(/^(?:UTC|[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+)$/);
+    expect(() => new Intl.DateTimeFormat("en-GB", { timeZone: zone })).not.toThrow();
   });
+
+  it.each(["Etc/Unknown", "", "Not/AZone"])(
+    "never schedules in a zone the host would refuse (%j)",
+    (reported) => {
+      const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+      const spy = vi
+        .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+        .mockImplementation(function (this: Intl.DateTimeFormat) {
+          return { ...real.call(this), timeZone: reported };
+        });
+      try {
+        expect(systemTimezone()).toBe("Europe/London");
+      } finally {
+        spy.mockRestore();
+      }
+    },
+  );
 });

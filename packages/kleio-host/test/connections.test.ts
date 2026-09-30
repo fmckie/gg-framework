@@ -225,6 +225,15 @@ function call(method: string, path: string, body?: unknown, headers = H): Promis
 }
 
 const settle = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Poll until `check` holds, for work the host starts in the background. */
+async function until(check: () => boolean, ms = 5000): Promise<void> {
+  const t = Date.now();
+  while (!check()) {
+    if (Date.now() - t > ms) throw new Error("timed out waiting");
+    await settle(20);
+  }
+}
 const withKey = (): void => writeFileSync(join(home, "composio.key"), `${KEY}\n`, { mode: 0o600 });
 const mcpFile = (): any => JSON.parse(readFileSync(join(ggHome, "mcp.json"), "utf8"));
 
@@ -260,9 +269,13 @@ describe("apps: setup", () => {
       JSON.stringify({ mcpServers: { mine: { command: "my-server" } }, extra: 1 }),
     );
     host = await startHost();
+    // Setup runs in the background at start; a slow runner can take longer
+    // than a fixed pause, so wait for the session call itself.
+    const isCreate = (s: { path: string }): boolean => s.path === "/api/v3.1/tool_router/session";
+    await until(() => composio.seen.some(isCreate));
     await settle();
 
-    const creates = composio.seen.filter((s) => s.path === "/api/v3.1/tool_router/session");
+    const creates = composio.seen.filter(isCreate);
     expect(creates).toHaveLength(1);
     expect(creates[0]!.body).toEqual({
       user_id: expect.stringMatching(/^kleio_[0-9a-f]{16}$/),

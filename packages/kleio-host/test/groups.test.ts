@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApnsPusher } from "../src/apns.js";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
@@ -176,9 +176,12 @@ function nameOf(sessionId: string): string | undefined {
   return sidecar.createdBodies.get(sessionId)?.persona?.name;
 }
 
+/** A group conversation's folder, in this platform's path form (\ on Windows). */
+const GROUPS_DIR = `${sep}groups${sep}`;
+
 /** The session ids created for group conversations. */
 const groupSessions = (): string[] =>
-  [...sidecar.createdBodies].filter(([, b]) => b.cwd?.includes("/groups/")).map(([id]) => id);
+  [...sidecar.createdBodies].filter(([, b]) => b.cwd?.includes(GROUPS_DIR)).map(([id]) => id);
 
 async function until(check: () => boolean | Promise<boolean>, ms = 3000): Promise<void> {
   const t = Date.now();
@@ -299,7 +302,7 @@ describe("groups: the conductor", () => {
       ["Coach", "Coach here."],
     ]);
     // One conversation per (group, Blob), with the group persona and cwd.
-    const creates = sidecar.creates.filter((c) => c.cwd?.includes("/groups/"));
+    const creates = sidecar.creates.filter((c) => c.cwd?.includes(GROUPS_DIR));
     expect(creates.map((c) => c.persona.name)).toEqual(["Chef", "Coach"]);
     expect(creates[0].cwd).toBe(join(home, "Kleio", "groups", g.id, a.id));
     expect(creates[0].persona.instructions).toContain('group chat "Team" with: Coach');
@@ -471,7 +474,7 @@ describe("groups: Blob changes", () => {
     const last = (await allMessages(g.id)).at(-1);
     expect(last).toMatchObject({ authorName: "Cook", text: "Cook here." });
     const resumed = sidecar.creates.filter((c) => c.persona?.name === "Cook").at(-1);
-    expect(resumed.cwd).toContain(`/groups/${g.id}/${a.id}`);
+    expect(resumed.cwd).toContain(join("groups", g.id, a.id));
     expect(resumed.persona.instructions).toContain("Coach");
   });
 });

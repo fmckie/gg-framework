@@ -16,12 +16,21 @@ export const BLOB_COLOR_HEX: Record<BlobColor, string> = {
   rose: "#f29bb4",
 };
 
-/** The desktop's IANA zone; Blobs created here schedule in it. */
+const FALLBACK_TIMEZONE = "Europe/London";
+
+/**
+ * The desktop's IANA zone; Blobs created here schedule in it. A zone the
+ * system can't name comes back as "Etc/Unknown", which the host rejects, so
+ * anything that isn't a usable zone falls back to London.
+ */
 export function systemTimezone(): string {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/London";
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!zone || zone === "Etc/Unknown") return FALLBACK_TIMEZONE;
+    new Intl.DateTimeFormat("en-GB", { timeZone: zone });
+    return zone;
   } catch {
-    return "Europe/London";
+    return FALLBACK_TIMEZONE;
   }
 }
 
