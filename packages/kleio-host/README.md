@@ -1,7 +1,9 @@
 # @kleio/host
 
-Runs the unmodified gg-app sidecar on a headless Mac and fronts it over Tailscale
-for paired devices. Private workspace package; not published.
+Runs the fork's gg-app sidecar on a headless Mac and fronts it over Tailscale
+for paired devices. Private workspace package; not published. The sidecar
+carries two engine changes Kleio relies on (persisted routines and
+`GG_APP_HEADLESS`); see the header of `src/host.ts`.
 
 ```
 laptop / phone ──HTTPS (tailscale serve :8443)──▶ kleio-host serve ──HTTP loopback──▶ app-sidecar.mjs
