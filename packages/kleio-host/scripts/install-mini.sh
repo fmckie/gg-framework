@@ -3,6 +3,7 @@
 #
 #   sh install-mini.sh            install/upgrade and start
 #   sh install-mini.sh uninstall  stop and remove the Kleio host jobs (state kept)
+#   sh install-mini.sh cli        only (re)install the `kleio-host` command; no restarts
 #
 # Layout: $HOME/kleio-host/{dist,sidecar,node_modules?}  (code, rsync'd from the laptop)
 #         $HOME/Library/Application Support/Kleio/host   (state; see src/paths.ts)
@@ -114,6 +115,31 @@ apns_env_xml() {
   done < "$secrets/apns.env"
 }
 
+# A `kleio-host` command for login and SSH shells (`kleio-host pair`, `devices`,
+# `revoke`), running the same node and cli.js as the launchd jobs. It goes in a
+# folder the user owns (no sudo), and that folder joins PATH in ~/.zprofile,
+# which zsh login shells (Terminal, `ssh mini`, `zsh -lc`) read. Both steps
+# are skipped when already done, so re-running changes nothing.
+BIN_DIR="$HOME/.local/bin"
+PATH_LINE='export PATH="$HOME/.local/bin:$PATH"  # kleio-host command'
+install_cli() {
+  mkdir -p "$BIN_DIR"
+  tmp="$BIN_DIR/.kleio-host.$$"
+  cat > "$tmp" <<SH
+#!/bin/sh
+# Written by kleio-host install-mini.sh; re-run it to update.
+KLEIO_HOST_PORT="\${KLEIO_HOST_PORT:-$PORT}" exec "$NODE" "$CODE/dist/cli.js" "\$@"
+SH
+  chmod 755 "$tmp"
+  mv -f "$tmp" "$BIN_DIR/kleio-host"
+  touch "$HOME/.zprofile"
+  if ! grep -Fq "$PATH_LINE" "$HOME/.zprofile"; then
+    printf '\n%s\n' "$PATH_LINE" >> "$HOME/.zprofile"
+    echo "added ~/.local/bin to PATH in ~/.zprofile"
+  fi
+  echo "command: $BIN_DIR/kleio-host"
+}
+
 write_plist() { # label, subcommand, extra-env-xml
   cat > "$AGENTS/$1.plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -154,6 +180,12 @@ if [ "${1:-}" = "uninstall" ]; then
 fi
 
 [ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
+
+if [ "${1:-}" = "cli" ]; then
+  install_cli
+  exit 0
+fi
+
 [ -x "$TS" ] || { echo "tailscale not found at $TS" >&2; exit 1; }
 [ -f "$CODE/dist/cli.js" ] || { echo "missing $CODE/dist/cli.js (rsync the package first)" >&2; exit 1; }
 # dist/ is ESM; without a package.json next to it Node reparses on every start.
@@ -169,6 +201,8 @@ retire_legacy
 
 # Keys, registry, first admin token (prints once; idempotent afterwards).
 KLEIO_HOST_PORT="$PORT" KLEIO_PUBLIC_URL="$PUBLIC_URL" "$NODE" "$CODE/dist/cli.js" init
+
+install_cli
 
 APNS_XML="$(apns_env_xml)" || { echo "fix $STATE/secrets/apns.env and re-run" >&2; exit 1; }
 [ -n "$APNS_XML" ] && echo "push notifications: on" || echo "push notifications: off (no secrets/apns.env)"
@@ -193,4 +227,4 @@ echo
 echo "kleio-host installed."
 echo "  public:  $PUBLIC_URL"
 echo "  status:  $(curl -s "http://127.0.0.1:$PORT/kleio/health" || echo '(not yet up)')"
-echo "  pair:    $NODE $CODE/dist/cli.js pair"
+echo "  pair:    kleio-host pair   (new shells; or $BIN_DIR/kleio-host pair)"

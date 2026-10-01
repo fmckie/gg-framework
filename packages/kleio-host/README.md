@@ -25,7 +25,12 @@ rsync -az          packages/kleio-host/scripts/install-mini.sh mini:kleio-host/
 rsync -az --delete gg-app/src-tauri/sidecar/    mini:kleio-host/sidecar/
 # mini
 sh kleio-host/install-mini.sh          # idempotent; `uninstall` to remove jobs
+sh kleio-host/install-mini.sh cli      # only the `kleio-host` command, no restarts
 ```
+
+The installer also writes a `kleio-host` command to `~/.local/bin` (no sudo) and adds
+that folder to PATH in `~/.zprofile` once, so login and SSH shells can run it. It uses
+the same node and `dist/cli.js` as the launchd jobs.
 
 The installer retires the earlier `com.kleio.*` / `com.atlas.*` / `com.hermes.*` /
 `com.noledge.*` user agents (plists moved to `LaunchAgents/retired-by-kleio-host/`),
@@ -37,10 +42,11 @@ in launchd and cannot start, so this is cleanup, not a blocker).
 ## Pair a device
 
 ```sh
-node kleio-host/dist/cli.js pair            # prints ABC-DEF, 5 min, single use
-node kleio-host/dist/cli.js pair --admin    # also grants a control macaroon
-node kleio-host/dist/cli.js devices
-node kleio-host/dist/cli.js revoke <deviceId>
+kleio-host pair            # prints ABC-DEF, 5 min, single use
+kleio-host pair --admin    # also grants a control macaroon
+kleio-host devices
+kleio-host revoke <deviceId>
+ssh mini 'zsh -lc "kleio-host devices"'   # from the laptop
 ```
 
 The device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem` and
@@ -52,7 +58,7 @@ device closes its open streams immediately.
 
 ### From gg-app (the laptop)
 
-1. On the mini: `node kleio-host/dist/cli.js pair --admin` → `ABC-DEF`.
+1. On the mini: `kleio-host pair --admin` → `ABC-DEF`.
 2. In gg-app: **⌘⇧K** → host URL (`https://mac-mini-1.<tailnet>.ts.net:8443`) + the
    code → **Pair** → **Restart now**.
 3. The title strip shows **on mac-mini-1**; sessions now run there. The picker lists
