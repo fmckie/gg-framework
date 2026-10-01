@@ -235,6 +235,10 @@ pub fn kleio_forget() -> Result<(), String> {
 }
 
 fn default_label() -> String {
+    // An iPhone app cannot run `scutil` (or any other program).
+    if cfg!(target_os = "ios") {
+        return "iPhone".to_string();
+    }
     std::process::Command::new("scutil")
         .args(["--get", "ComputerName"])
         .output()

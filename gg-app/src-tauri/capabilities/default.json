@@ -9,8 +9,6 @@
     "core:window:allow-close",
     "opener:default",
     "log:default",
-    "dialog:default",
-    "updater:default",
-    "process:default"
+    "dialog:default"
   ]
 }

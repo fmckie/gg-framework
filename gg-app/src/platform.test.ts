@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { platformClass, supportsNativeSelectPopup } from "./platform";
+import { isPhone, platformClass, supportsNativeSelectPopup } from "./platform";
 
 describe("platformClass", () => {
   it("maps macOS identifiers", () => {
@@ -15,6 +15,14 @@ describe("platformClass", () => {
     expect(platformClass("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("platform-windows");
   });
 
+  it("maps the iPhone to its own class, never the Mac's window chrome", () => {
+    const iphone =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
+    expect(platformClass(iphone)).toBe("platform-ios");
+    expect(platformClass("ios")).toBe("platform-ios");
+    expect(platformClass("iPad; CPU OS 18_0 like Mac OS X")).toBe("platform-ios");
+  });
+
   it("maps Linux identifiers", () => {
     expect(platformClass("linux")).toBe("platform-linux");
     expect(platformClass("Mozilla/5.0 (X11; Linux x86_64)")).toBe("platform-linux");
@@ -27,9 +35,12 @@ describe("platformClass", () => {
 });
 
 describe("supportsNativeSelectPopup", () => {
-  it("uses native popups only on macOS", () => {
+  it("uses native popups only on Apple's WebKit (Mac and iPhone)", () => {
     const doc = document.implementation.createHTMLDocument();
     doc.documentElement.className = "platform-macos";
+    expect(supportsNativeSelectPopup(doc)).toBe(true);
+
+    doc.documentElement.className = "platform-ios";
     expect(supportsNativeSelectPopup(doc)).toBe(true);
 
     doc.documentElement.className = "platform-windows";
@@ -37,5 +48,16 @@ describe("supportsNativeSelectPopup", () => {
 
     doc.documentElement.className = "platform-linux";
     expect(supportsNativeSelectPopup(doc)).toBe(false);
+  });
+});
+
+describe("isPhone", () => {
+  it("is true only for the iPhone build", () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.documentElement.className = "platform-ios";
+    expect(isPhone(doc)).toBe(true);
+
+    doc.documentElement.className = "platform-macos";
+    expect(isPhone(doc)).toBe(false);
   });
 });

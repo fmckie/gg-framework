@@ -1,0 +1,212 @@
+/* ── Kleio on the iPhone ──────────────────────────────────────────────────
+   The same app as the desktop, just smaller. Every rule here is scoped to
+   `html.platform-ios` (set by platform.ts before first paint), so the desktop
+   build is untouched. Loaded last (main.tsx), so it only ever overrides.
+
+   What the phone needs that a window doesn't:
+   - safe areas: the page runs edge to edge (viewport-fit=cover); the status
+     bar / Dynamic Island and the home indicator are padded around here;
+   - touch: no hover, 44px targets, no tap flash, no long-press callout on UI;
+   - the keyboard: inputs at 16px+ so iOS never zooms the page on focus;
+   - a 390px-wide screen: wide rows wrap, wide modals become sheets. */
+
+html.platform-ios {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* The page itself is the app's colour, so nothing lighter shows around it. */
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Sized to the area above the keyboard (phone-viewport.ts), so the composer
+   rides up with it and the page itself never scrolls. */
+html.platform-ios,
+html.platform-ios body,
+html.platform-ios #root {
+  height: var(--app-height, 100%);
+  overflow: hidden;
+}
+
+html.platform-ios body {
+  background: var(--bg);
+  /* The page never rubber-bands; scroll areas inside it still fling. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  /* UI chrome is not text to select or "Copy | Look Up". */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+/* Reading and writing stay selectable: messages, code, and every input. */
+html.platform-ios .transcript,
+html.platform-ios .transcript *,
+html.platform-ios input,
+html.platform-ios textarea,
+html.platform-ios [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* iOS zooms the whole page into any field under 16px when it is focused. */
+html.platform-ios input,
+html.platform-ios textarea,
+html.platform-ios select {
+  font-size: max(16px, 1em);
+}
+
+/* ── Safe areas ───────────────────────────────────────────────────────── */
+
+/* Every full screen is an `.app` (home, pickers, workspace, Kleio pages). */
+html.platform-ios .app {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  box-sizing: border-box;
+}
+
+/* A keyboard (or the bar above a hardware one) covers the home indicator,
+   so its gap goes while it is up. */
+html.platform-ios.bottom-covered .app {
+  padding-bottom: 0;
+}
+
+/* The connect screen sits outside `.app`. */
+html.platform-ios .kleio-gate {
+  padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px)
+    calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+  box-sizing: border-box;
+}
+
+/* The home screen's animated backdrop runs under the status bar and the home
+   indicator too: the home reaches back over `.app`'s safe-area padding and
+   pads its own content instead. Its corner pieces move in by the same amount. */
+html.platform-ios .app > .home {
+  margin: calc(-1 * var(--safe-top)) 0 calc(-1 * var(--safe-bottom));
+  height: calc(100% + var(--safe-top) + var(--safe-bottom));
+  padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px);
+  gap: 24px;
+}
+html.platform-ios .home > .home-settings {
+  top: calc(var(--safe-top) + 10px);
+  right: 16px;
+}
+html.platform-ios .home > .home-version-corner {
+  bottom: calc(var(--safe-bottom) + 8px);
+}
+
+/* Three 132px pills don't fit side by side in 354px: stack them into one
+   column of full-width pills — bigger targets, same order, same colours. */
+html.platform-ios .home-actions {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(100%, 320px);
+  gap: 12px;
+}
+html.platform-ios .home-action {
+  min-width: 0;
+  height: 52px;
+  justify-content: center;
+  font-size: 17px;
+}
+
+/* No window title bar to clear, so the desktop's 34–40px chrome gutters go;
+   the status bar above is already cleared by the safe area. */
+html.platform-ios .picker-head {
+  padding: 10px 16px;
+  min-height: 44px;
+}
+html.platform-ios .chat-head-strip {
+  height: 40px;
+  padding: 0 16px;
+}
+
+/* ── Touch targets ────────────────────────────────────────────────────── */
+
+html.platform-ios button,
+html.platform-ios [role="button"],
+html.platform-ios .btn {
+  min-height: 36px;
+}
+html.platform-ios .picker-item {
+  min-height: 52px;
+}
+
+/* Revealed on hover on the desktop; a phone has no hover, so always show. */
+html.platform-ios .picker-item .picker-hide {
+  opacity: 1;
+}
+
+/* Desktop-only: export lives behind hover and window layout behind a
+   mouse and several windows — neither exists on the iPhone. */
+html.platform-ios .export-chat,
+html.platform-ios .winlayout {
+  display: none;
+}
+
+/* ── Transcript ───────────────────────────────────────────────────────── */
+
+html.platform-ios .transcript {
+  /* Scroll here, not the page; keep the fling inside the transcript. */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* "Jump to latest": the round button that appears once you have scrolled
+   up while a reply is streaming. Phone-only — hidden on the desktop. */
+.jump-to-latest {
+  display: none;
+}
+html.platform-ios .jump-to-latest {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px) scale(0.92);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+html.platform-ios .jump-to-latest.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+html.platform-ios .jump-to-latest:active {
+  transform: translate(-50%, 0) scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  html.platform-ios .jump-to-latest {
+    transition: opacity 120ms linear;
+  }
+}
+
+/* ── Narrow screen ────────────────────────────────────────────────────── */
+
+/* Modals become near-full-width sheets instead of 440–460px boxes. */
+html.platform-ios .modal {
+  width: min(100vw - 24px, 560px);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+}

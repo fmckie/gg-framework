@@ -4,13 +4,16 @@
 //   paired admin→ + Devices tab: list / revoke / mint a code for another device
 // Pairing and forgetting take effect on the next launch: the host base URL and
 // auth headers are baked into the shared HTTP client at boot, the same way an
-// update is applied — so the pane offers the same Restart button.
+// update is applied — so the pane offers the same Restart button. The iPhone
+// cannot relaunch itself, so there a first pairing switches on in place and
+// the pane just closes into the app.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { DesktopIcon, DeviceMobileIcon } from "@phosphor-icons/react";
 import { Badge } from "../Badge";
 import { Modal } from "../Modal";
+import { isPhone } from "../platform";
 import { theme } from "../theme";
 import { relTime } from "./relTime";
 import {
@@ -86,7 +89,7 @@ export function RemoteHostModal({ onClose }: { onClose: () => void }): React.Rea
         ) : paired ? (
           <PairedPanel paired={paired} active={active} pending={pending} onForgot={refresh} />
         ) : (
-          <PairPanel pending={pending} onPaired={refresh} />
+          <PairPanel pending={pending} onPaired={refresh} onActive={onClose} />
         )}
       </div>
     </Modal>
@@ -98,9 +101,12 @@ export function RemoteHostModal({ onClose }: { onClose: () => void }): React.Rea
 function PairPanel({
   pending,
   onPaired,
+  onActive,
 }: {
   pending: boolean;
   onPaired: () => Promise<void>;
+  /** The pairing switched on in place (iPhone): leave the pane for the app. */
+  onActive: () => void;
 }): React.ReactElement {
   const [baseUrl, setBaseUrl] = useState("");
   const [code, setCode] = useState("");
@@ -113,13 +119,15 @@ function PairPanel({
     setError(null);
     try {
       await kleio.pair(baseUrl, code, label);
+      const activation = await kleio.activatePairing();
       await onPaired();
+      if (activation === "active") onActive();
     } catch (e) {
       setError(explainError(e));
     } finally {
       setBusy(false);
     }
-  }, [baseUrl, code, label, onPaired]);
+  }, [baseUrl, code, label, onPaired, onActive]);
 
   if (pending) return <RestartNotice what="You just forgot the host." />;
 
@@ -132,7 +140,7 @@ function PairPanel({
     >
       <p className="modal-hint">
         Run <code>kleio-host pair</code> on the host to get a 6-character code. Sessions will run
-        there instead of on this Mac.
+        there instead of on this {thisDevice()}.
       </p>
       <label className="modal-label" htmlFor="kleio-url">
         Host URL
@@ -176,7 +184,7 @@ function PairPanel({
           <input
             id="kleio-label"
             className="modal-input"
-            placeholder="Laptop"
+            placeholder={isPhone() ? "iPhone" : "Laptop"}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             maxLength={64}
@@ -255,8 +263,9 @@ function PairedPanel({
         {confirm ? (
           <>
             <span className="modal-hint kleio-inline-hint">
-              Sessions go back to running on this Mac after a restart. The host still lists this
-              device until an admin revokes it.
+              {isPhone()
+                ? "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it."
+                : "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it."}
             </span>
             <button type="button" className="btn" onClick={() => setConfirm(false)}>
               Keep
@@ -275,8 +284,21 @@ function PairedPanel({
   );
 }
 
+/** "Mac" or "iPhone" — the device Kleio is running on, for copy. */
+function thisDevice(): string {
+  return isPhone() ? "iPhone" : "Mac";
+}
+
 function RestartNotice({ what }: { what: string }): React.ReactElement {
   const [busy, setBusy] = useState(false);
+  // A phone app cannot relaunch itself; the person closes and reopens it.
+  if (isPhone()) {
+    return (
+      <div className="kleio-restart" role="status">
+        <span>{what} Close Kleio and open it again to apply.</span>
+      </div>
+    );
+  }
   return (
     <div className="kleio-restart" role="status">
       <span>{what} Restart gg-app to apply — every window comes back where it was.</span>

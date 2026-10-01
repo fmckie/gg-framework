@@ -1,8 +1,11 @@
 // Tag the document with the host OS so CSS can gate macOS-only window chrome
 // (the Overlay title bar's traffic-light insets) without leaking that padding
-// onto Windows/Linux, which keep native decorations.
+// onto Windows/Linux, which keep native decorations. kleio: the iPhone build
+// gets its own class — it has no window chrome at all, and its phone layout
+// lives in kleio/kleio-phone.css under `html.platform-ios`.
 
-export type PlatformClass = "platform-macos" | "platform-windows" | "platform-linux";
+export type PlatformClass =
+  "platform-macos" | "platform-windows" | "platform-linux" | "platform-ios";
 
 /**
  * Map an OS identifier to its document class. Accepts either a Tauri os name
@@ -12,7 +15,11 @@ export type PlatformClass = "platform-macos" | "platform-windows" | "platform-li
  */
 export function platformClass(os: string): PlatformClass {
   const s = os.toLowerCase();
-  if (s.includes("mac") || s.includes("darwin") || s.includes("iphone")) {
+  // Before the Mac check: an iPhone's user agent says "like Mac OS X".
+  if (s === "ios" || s.includes("iphone") || s.includes("ipad")) {
+    return "platform-ios";
+  }
+  if (s.includes("mac") || s.includes("darwin")) {
     return "platform-macos";
   }
   if (s.includes("win")) {
@@ -30,10 +37,17 @@ export function tagPlatform(doc: Document = document, nav: Navigator = navigator
 }
 
 /**
- * Native popup selects are reliable in WKWebView on macOS. WebView2 and
- * WebKitGTK have shipped popup regressions where the list opens but cannot be
- * selected, so Windows/Linux use the in-webview accessible menu fallback.
+ * Native popup selects are reliable in WKWebView on macOS and iOS (on the
+ * iPhone they open the system picker wheel). WebView2 and WebKitGTK have
+ * shipped popup regressions where the list opens but cannot be selected, so
+ * Windows/Linux use the in-webview accessible menu fallback.
  */
 export function supportsNativeSelectPopup(doc: Document = document): boolean {
-  return doc.documentElement.classList.contains("platform-macos");
+  const html = doc.documentElement.classList;
+  return html.contains("platform-macos") || html.contains("platform-ios");
+}
+
+/** kleio: the iPhone build — one full-screen webview, touch only, no windows. */
+export function isPhone(doc: Document = document): boolean {
+  return doc.documentElement.classList.contains("platform-ios");
 }

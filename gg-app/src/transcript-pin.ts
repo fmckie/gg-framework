@@ -65,6 +65,50 @@ export function pinAfterScroll(pinned: boolean, lastTop: number, el: ScrollGeome
 }
 
 /**
+ * iPhone: the pin after a scroll event, where only a finger (or the fling it
+ * left, `held`) can move the transcript. iOS settles a scroll container's
+ * offset in its UI process and reports it back later, so a stale offset can
+ * arrive just after the app jumped to the bottom; it reads as "scrolled up"
+ * though nobody touched the glass. Scrolls made while not held are layout or
+ * the app's own jumps, and never change who decides.
+ */
+export function pinAfterTouchScroll(
+  pinned: boolean,
+  lastTop: number,
+  el: ScrollGeometry,
+  held: boolean,
+): boolean {
+  return held ? pinAfterScroll(pinned, lastTop, el) : pinned;
+}
+
+/**
+ * Whether new output should scroll the transcript to the bottom right now.
+ *
+ * Never while a finger is on the transcript or the momentum it left is still
+ * running (iPhone; touch scrolls fire no wheel events). iOS applies a script's
+ * scroll on top of the pan, so re-pinning mid-gesture yanks the page out from
+ * under the finger and kills the fling. Once the scroll settles, the
+ * transcript catches up — if the reader is still following.
+ */
+export function followsOutput(pinned: boolean, held: boolean): boolean {
+  return pinned && !held;
+}
+
+/**
+ * Share of the visible height the reader must be from the newest line before
+ * the "jump to latest" button shows. Smaller moves still leave the end in view,
+ * so a button for them would only flicker in and out as a reply streams.
+ */
+export const JUMP_TO_LATEST_FRACTION = 0.2;
+
+/** Whether to offer the "jump to latest" button. */
+export function showJumpToLatest(pinned: boolean, el: ScrollGeometry): boolean {
+  if (pinned) return false;
+  const threshold = Math.max(REPIN_DISTANCE_PX, el.clientHeight * JUMP_TO_LATEST_FRACTION);
+  return distanceFromBottom(el) > threshold;
+}
+
+/**
  * The pin after a wheel event, which arrives BEFORE the scroll it causes.
  * Un-pinning here means no streaming commit can re-pin between the reader's
  * gesture and its scroll event and erase the move before it is measured.

@@ -29,7 +29,6 @@ fn hide_console(cmd: &mut Command) -> &mut Command {
 }
 
 use base64::Engine as _;
-use futures_util::StreamExt;
 use tauri::{
     Emitter, EventTarget, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
@@ -3608,6 +3607,7 @@ const APP_BG: tauri::window::Color = tauri::window::Color(15, 17, 21, 255);
 
 /// Per-OS window chrome decision. macOS uses the Overlay title bar (webview
 /// draws under the traffic lights); every other OS keeps native decorations.
+#[cfg(desktop)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowChrome {
     MacOverlay,
@@ -3615,6 +3615,7 @@ enum WindowChrome {
 }
 
 /// Compile-time chrome selection: Overlay only on macOS, native elsewhere.
+#[cfg(desktop)]
 fn window_chrome() -> WindowChrome {
     if cfg!(target_os = "macos") {
         WindowChrome::MacOverlay
@@ -3636,7 +3637,7 @@ fn apply_mac_overlay<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
 }
 
 /// No-op on non-macOS: native chrome is the default, nothing to apply.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(desktop, not(target_os = "macos")))]
 fn apply_mac_overlay<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
     builder: WebviewWindowBuilder<'a, R, M>,
 ) -> WebviewWindowBuilder<'a, R, M> {
@@ -3649,6 +3650,30 @@ fn apply_mac_overlay<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
 /// builder (rather than the config + a runtime patch) is the only way to hide
 /// the native title, since there's no runtime `set_hidden_title` setter.
 fn build_app_window_with_visibility(
+    app: &tauri::AppHandle,
+    label: &str,
+    visible: bool,
+) -> Result<WebviewWindow, String> {
+    // kleio: on the iPhone the window IS the screen — no title, size or chrome.
+    #[cfg(mobile)]
+    {
+        let _ = visible;
+        let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+            .background_color(APP_BG)
+            .build()
+            .map_err(|e| e.to_string())?;
+        #[cfg(target_os = "ios")]
+        kleio::phone::fill_screen(&window);
+        Ok(window)
+    }
+    #[cfg(desktop)]
+    {
+        build_desktop_window(app, label, visible)
+    }
+}
+
+#[cfg(desktop)]
+fn build_desktop_window(
     app: &tauri::AppHandle,
     label: &str,
     visible: bool,
@@ -3688,6 +3713,10 @@ fn build_app_window(app: &tauri::AppHandle, label: &str) -> Result<WebviewWindow
 /// issues" note.
 #[tauri::command]
 async fn setup_windows(app: tauri::AppHandle, count: usize) -> Result<(), String> {
+    // kleio: the iPhone has one webview; extra windows have nowhere to go.
+    if cfg!(mobile) {
+        return Ok(());
+    }
     let existing = app.webview_windows().len();
     let to_create = count.saturating_sub(existing);
     for _ in 0..to_create {
@@ -3713,6 +3742,10 @@ async fn setup_windows(app: tauri::AppHandle, count: usize) -> Result<(), String
 /// command deadlocks WebView2 on Windows.
 #[tauri::command]
 async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
+    // kleio: the iPhone has one webview; extra windows have nowhere to go.
+    if cfg!(mobile) {
+        return Ok(());
+    }
     let label = next_window_label(&app);
     let win = build_app_window(&app, &label)?;
     start_default_window_session(app.clone(), label);
@@ -3731,6 +3764,16 @@ async fn new_window(app: tauri::AppHandle) -> Result<(), String> {
 /// (`getCurrentWebviewWindow().close()`); re-invoking just refocuses an open one.
 ///
 /// `async` for the same WebView2 reason as `setup_windows`/`new_window`.
+///
+/// kleio: the iPhone has exactly one webview and no second windows, so there
+/// it is a no-op (the phone build gets its updates from Xcode, not the updater).
+#[cfg(mobile)]
+#[tauri::command]
+async fn open_whatsnew_window(_app: tauri::AppHandle) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 async fn open_whatsnew_window(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("whatsnew") {
@@ -3855,12 +3898,19 @@ async fn select_project(
             .and_then(|window| window.session_id.take())
     };
     // Dispose the old session on the daemon (best-effort, off-thread).
+    // kleio: on the iPhone a chat whose reply is still running is parked
+    // instead (kleio/parked.rs) — decided before the new session starts, so
+    // reopening that same chat finds it.
     if let Some(id) = old_id {
         if let Some(port) = port_for(&webview) {
-            let app2 = app.clone();
-            tauri::async_runtime::spawn(async move {
-                daemon_delete_session(&app2, port, &id).await;
-            });
+            if cfg!(mobile) {
+                park_or_dispose(&app, port, id).await;
+            } else {
+                let app2 = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    daemon_delete_session(&app2, port, &id).await;
+                });
+            }
         }
     }
 
@@ -3879,16 +3929,28 @@ async fn select_project(
         &cwd,
         session_path.as_deref(),
     );
-    finish_window_session(
-        app.clone(),
-        label.clone(),
-        mode,
-        chat_agent,
-        cwd,
-        session_path,
-        generation,
-    )
-    .await?;
+    // kleio (iPhone): reopening a chat whose reply kept running re-attaches to
+    // it. Only the phone parks sessions, so only the phone looks.
+    let parked = session_path
+        .as_deref()
+        .filter(|_| cfg!(mobile))
+        .and_then(|p| app.state::<kleio::parked::Parked>().adopt(p));
+    if let (Some(id), Some(path), Some(port)) =
+        (parked, session_path.as_deref(), port_for(&webview))
+    {
+        adopt_parked_session(&app, &label, generation, port, path, id)?;
+    } else {
+        finish_window_session(
+            app.clone(),
+            label.clone(),
+            mode,
+            chat_agent,
+            cwd,
+            session_path,
+            generation,
+        )
+        .await?;
+    }
 
     // Publish the target only after the daemon confirms the selection. Keeping
     // it for the window lifetime lets a reloaded webview recover in place.
@@ -4031,11 +4093,13 @@ struct TrayIntents(Mutex<HashMap<String, String>>);
 /// True for the real app windows (`main`, `project-N`) — excludes transient
 /// chrome like the borderless `whatsnew` dialog, which must never be treated as
 /// a place to route a tray action.
+#[cfg(desktop)]
 fn is_app_window(label: &str) -> bool {
     label == "main" || label.starts_with("project-")
 }
 
 /// App-window labels in reading order (left-to-right, top-to-bottom).
+#[cfg(desktop)]
 fn app_window_labels(app: &tauri::AppHandle) -> Vec<String> {
     compute_window_order(app)
         .into_iter()
@@ -4045,6 +4109,7 @@ fn app_window_labels(app: &tauri::AppHandle) -> Vec<String> {
 
 /// The window a tray action should target: the focused app window when there is
 /// one, else the first in reading order. `None` when no app window is open.
+#[cfg(desktop)]
 fn tray_target_window(app: &tauri::AppHandle) -> Option<String> {
     let labels = app_window_labels(app);
     let focused = app.state::<FocusedWindow>().0.lock().unwrap().clone();
@@ -4168,6 +4233,7 @@ fn init_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// NEW window is opened for the session instead of hijacking someone's work.
 /// `remote` / `settings` always act on the existing target window (they're
 /// app-wide, not per-session) and only open a window when none exists.
+#[cfg(desktop)]
 fn dispatch_tray_action(app: tauri::AppHandle, action: &'static str) {
     let labels = app_window_labels(&app);
     let wants_new_window = match action {
@@ -4180,6 +4246,7 @@ fn dispatch_tray_action(app: tauri::AppHandle, action: &'static str) {
             return;
         };
         if let Some(win) = app.get_webview_window(&label) {
+            #[cfg(desktop)]
             let _ = win.unminimize();
             let _ = win.show();
             let _ = win.set_focus();
@@ -4465,20 +4532,30 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
     // Reuse the app's shared HTTP client (cheap Arc clone) so the SSE connect
     // shares the connection pool with the proxy commands.
     let client = app.state::<reqwest::Client>().inner().clone();
+    // kleio: the host pings every 15 s, so silence means a dead connection;
+    // and the phone app coming back to the foreground means "reconnect now".
+    let mut resume = app.state::<kleio::Resume>().subscribe();
+    let idle = kleio::remote().map(|_| kleio::STREAM_IDLE);
+    // kleio: only the newest bridge for a window delivers (kleio::BridgeEpochs).
+    let epoch = app.state::<kleio::BridgeEpochs>().begin(&label);
     tauri::async_runtime::spawn(async move {
         let mut last_event_id: Option<u64> = None;
+        // Still this window's bridge, for this window's active session?
+        let speaks_for_window = |app: &tauri::AppHandle| -> bool {
+            let state: State<Windows> = app.state();
+            let map = state.map.lock().unwrap();
+            map.get(&label).and_then(|w| w.session_id.as_deref()) == Some(session_id.as_str())
+                && app.state::<kleio::BridgeEpochs>().is_current(&label, epoch)
+        };
         loop {
+            let mut resumed = false;
             // Stop once this window's active session has moved on (project switch
             // created a new session) or the window is gone — otherwise the old
             // bridge would reconnect to a stale session forever. Session routing
             // is by id now (the daemon port is shared across all windows).
-            {
-                let state: State<Windows> = app.state();
-                let map = state.map.lock().unwrap();
-                if map.get(&label).and_then(|w| w.session_id.clone()) != Some(session_id.clone()) {
-                    log::debug!("event bridge for {label} session {session_id} retired");
-                    return;
-                }
+            if !speaks_for_window(&app) {
+                log::debug!("event bridge for {label} session {session_id} retired");
+                return;
             }
             // The daemon adds this response to the target session's SSE clients.
             let url = format!(
@@ -4498,8 +4575,19 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                     // Raw byte buffer — decode only at frame boundaries so a
                     // codepoint split across TCP chunks is never corrupted.
                     let mut buf: Vec<u8> = Vec::new();
-                    while let Some(chunk) = stream.next().await {
-                        let Ok(bytes) = chunk else { break };
+                    loop {
+                        let bytes = match kleio::next_chunk(&mut stream, &mut resume, idle).await {
+                            kleio::Wake::Chunk(Some(Ok(bytes))) => bytes,
+                            kleio::Wake::Chunk(_) => break,
+                            kleio::Wake::Idle => {
+                                log::warn!("agent event stream silent for {idle:?}, reconnecting");
+                                break;
+                            }
+                            kleio::Wake::Resumed => {
+                                resumed = true;
+                                break;
+                            }
+                        };
                         buf.extend_from_slice(&bytes);
                         for frame in drain_sse_frames(&mut buf) {
                             if let Some(id) = kleio::sse_frame_id(&frame) {
@@ -4510,11 +4598,7 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                                     if let Ok(value) =
                                         serde_json::from_str::<serde_json::Value>(payload)
                                     {
-                                        let state: State<Windows> = app.state();
-                                        let map = state.map.lock().unwrap();
-                                        if map.get(&label).and_then(|w| w.session_id.as_deref())
-                                            != Some(session_id.as_str())
-                                        {
+                                        if !speaks_for_window(&app) {
                                             return;
                                         }
                                         let _ = app.emit_to(
@@ -4527,28 +4611,29 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                             }
                         }
                     }
-                    log::warn!("agent event stream ended, reconnecting");
+                    if !resumed {
+                        log::warn!("agent event stream ended, reconnecting");
+                    }
                 }
                 Err(e) => {
                     log::error!("failed to connect to event stream: {e}");
                 }
             }
+            // kleio: back from the background — resume from Last-Event-ID right
+            // away; the host replays what was missed, so nothing was "lost".
+            if resumed {
+                continue;
+            }
             // Do not leave a stale working/success label while the stream is down,
             // and never deliver an old session's disconnect to its replacement.
-            {
-                let state: State<Windows> = app.state();
-                let map = state.map.lock().unwrap();
-                if map.get(&label).and_then(|w| w.session_id.as_deref())
-                    != Some(session_id.as_str())
-                {
-                    return;
-                }
-                let _ = app.emit_to(
-                    EventTarget::webview_window(label.clone()),
-                    "agent-event",
-                    serde_json::json!({ "type": "connection_lost", "data": {} }),
-                );
+            if !speaks_for_window(&app) {
+                return;
             }
+            let _ = app.emit_to(
+                EventTarget::webview_window(label.clone()),
+                "agent-event",
+                serde_json::json!({ "type": "connection_lost", "data": {} }),
+            );
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
         }
     });
@@ -4998,6 +5083,104 @@ async fn daemon_create_session(
         .ok_or_else(|| "agent daemon returned no session id".to_string())
 }
 
+/// kleio: what the host says about one session (`GET /state`).
+async fn session_run(app: &tauri::AppHandle, port: u16, id: &str) -> kleio::parked::Run {
+    use kleio::parked::Run;
+    let client = app.state::<reqwest::Client>().inner().clone();
+    let sent = client
+        .get(format!("{}/state", sidecar_base(port)))
+        .header("x-gg-session", id)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await;
+    match sent {
+        Ok(res) if res.status() == reqwest::StatusCode::NOT_FOUND => Run::Gone,
+        Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
+            Ok(state) => kleio::parked::classify(&state),
+            Err(_) => Run::Unknown,
+        },
+        _ => Run::Unknown,
+    }
+}
+
+/// kleio (iPhone): a chat being switched away from — park it if its reply is
+/// still running, so the reply finishes and can be reopened live; otherwise
+/// dispose it as the desktop does.
+async fn park_or_dispose(app: &tauri::AppHandle, port: u16, id: String) {
+    match session_run(app, port, &id).await {
+        kleio::parked::Run::Running { path } => {
+            log::info!("kleio: parked running session {id} for {path}");
+            let older = app
+                .state::<kleio::parked::Parked>()
+                .park(path.clone(), id.clone());
+            if let Some(older) = older {
+                daemon_delete_session(app, port, &older).await;
+            }
+            watch_parked_session(app.clone(), port, path, id);
+        }
+        _ => daemon_delete_session(app, port, &id).await,
+    }
+}
+
+/// kleio (iPhone): dispose a parked session once its reply finishes — unless
+/// a window reopened the chat first, which makes it that window's again.
+fn watch_parked_session(app: tauri::AppHandle, port: u16, path: String, id: String) {
+    tauri::async_runtime::spawn(async move {
+        use kleio::parked::Run;
+        let started = std::time::Instant::now();
+        loop {
+            tokio::time::sleep(kleio::parked::POLL).await;
+            let parked = app.state::<kleio::parked::Parked>();
+            if !parked.holds(&path, &id) {
+                return;
+            }
+            match session_run(&app, port, &id).await {
+                Run::Running { .. } => continue,
+                Run::Unknown if started.elapsed() < kleio::parked::GIVE_UP => continue,
+                Run::Gone => {
+                    parked.release(&path, &id);
+                    return;
+                }
+                Run::Idle | Run::Unknown => {
+                    if parked.release(&path, &id) {
+                        log::info!("kleio: parked session {id} finished; disposing");
+                        daemon_delete_session(&app, port, &id).await;
+                    }
+                    return;
+                }
+            }
+        }
+    });
+}
+
+/// kleio (iPhone): point this window at a parked session whose reply is still
+/// running, instead of starting a new one from the chat's file.
+fn adopt_parked_session(
+    app: &tauri::AppHandle,
+    label: &str,
+    generation: u64,
+    port: u16,
+    path: &str,
+    id: String,
+) -> Result<(), String> {
+    let published = {
+        let windows: State<Windows> = app.state();
+        let mut map = windows.map.lock().unwrap();
+        publish_window_session(&mut map, label, generation, id.clone())
+    };
+    if !published {
+        // A newer selection won; leave this one parked to finish on its own.
+        app.state::<kleio::parked::Parked>()
+            .park(path.to_string(), id.clone());
+        watch_parked_session(app.clone(), port, path.to_string(), id);
+        return Err("session selection was superseded".to_string());
+    }
+    log::info!("kleio: re-attached label={label} to running session {id}");
+    start_event_bridge(app.clone(), label.to_string(), port, id);
+    let _ = app.emit_to(EventTarget::webview_window(label), "sidecar-ready", port);
+    Ok(())
+}
+
 /// DELETE /session/:id on the daemon (best-effort, fire-and-forget).
 async fn daemon_delete_session(app: &tauri::AppHandle, port: u16, id: &str) {
     let client = app.state::<reqwest::Client>().inner().clone();
@@ -5325,20 +5508,82 @@ fn install_rustls_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    install_rustls_provider();
+/// Self-update and relaunch exist on computers only. kleio: the iPhone build
+/// is installed from Xcode and cannot restart itself, so it has neither plugin
+/// (see capabilities/desktop.json).
+#[cfg(desktop)]
+fn with_desktop_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+}
 
-    // Per-launch daemon auth token (see `Daemon::token`). The shared reqwest
-    // client attaches it as a default header so all ~60 proxy call sites are
-    // authenticated without per-site changes.
-    let daemon_token = uuid::Uuid::new_v4().to_string();
+#[cfg(mobile)]
+fn with_desktop_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
+}
+
+/// kleio: what a just-saved pairing needs before it is in use.
+#[derive(serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum PairingActivation {
+    /// Switched on in place (iPhone, first pairing). The app can carry on.
+    Active,
+    /// Applies on the next launch (desktop relaunches; a phone already talking
+    /// to a host must be closed and reopened).
+    Restart,
+}
+
+/// kleio: switch a pairing that `kleio_pair` just saved on in place. A phone
+/// app cannot relaunch itself, so on the iPhone a first pairing does here what
+/// boot does when already paired: register the authenticated client, mark the
+/// host as the engine, and start the main window's session. Desktop keeps its
+/// "Restart Kleio" flow.
+#[tauri::command]
+async fn kleio_activate_pairing(app: tauri::AppHandle) -> Result<PairingActivation, String> {
+    if !cfg!(mobile) || kleio::remote().is_some() {
+        return Ok(PairingActivation::Restart);
+    }
+    #[cfg(mobile)]
+    {
+        if kleio::activate_paired().is_none() {
+            return Err("Paired, but the saved pairing could not be read back.".into());
+        }
+        let token = app.state::<Daemon>().token.clone();
+        app.manage(build_http_client(&token));
+        // New session first, host port second: the boot-time attempt still
+        // waiting for a host is then already superseded when the port lands,
+        // so it discards its session instead of racing this one.
+        start_default_window_session(app.clone(), "main".into());
+        *app.state::<Daemon>().port.lock().unwrap() = Some(kleio::REMOTE_PORT_SENTINEL);
+        log::info!("kleio: pairing switched on in place");
+    }
+    let _ = &app;
+    Ok(PairingActivation::Active)
+}
+
+/// Register the shared HTTP client. kleio: an unpaired iPhone registers none —
+/// the client must carry the device token, which only exists after pairing,
+/// and a phone app cannot relaunch to rebuild it; `kleio_activate_pairing`
+/// registers it then. Commands asking for it before that get a clean error.
+fn with_http_client(
+    builder: tauri::Builder<tauri::Wry>,
+    client: reqwest::Client,
+) -> tauri::Builder<tauri::Wry> {
+    if cfg!(mobile) && kleio::remote().is_none() {
+        builder
+    } else {
+        builder.manage(client)
+    }
+}
+
+/// The shared reqwest client every proxy call uses, authenticated by default
+/// headers so all ~60 call sites need no per-site changes.
+fn build_http_client(daemon_token: &str) -> reqwest::Client {
     let mut default_headers = reqwest::header::HeaderMap::new();
-    default_headers.insert(
-        "x-gg-token",
-        reqwest::header::HeaderValue::from_str(&daemon_token)
-            .expect("uuid v4 is valid header ASCII"),
-    );
+    if let Ok(v) = reqwest::header::HeaderValue::from_str(daemon_token) {
+        default_headers.insert("x-gg-token", v);
+    }
     // kleio: registration point 2/3 — the host checks a device token instead.
     if let Some(r) = kleio::remote() {
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&r.device_token) {
@@ -5350,16 +5595,24 @@ pub fn run() {
             }
         }
     }
-    let http_client = reqwest::Client::builder()
+    reqwest::Client::builder()
         .default_headers(default_headers)
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new());
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
 
-    tauri::Builder::default()
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    install_rustls_provider();
+
+    // Per-launch daemon auth token (see `Daemon::token`), sent by the shared
+    // client as a default header.
+    let daemon_token = uuid::Uuid::new_v4().to_string();
+    let http_client = build_http_client(&daemon_token);
+
+    with_http_client(with_desktop_plugins(tauri::Builder::default()), http_client)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -5384,13 +5637,18 @@ pub fn run() {
         .manage(MoveDebounce::default())
         .manage(TrayState::default())
         .manage(TrayIntents::default())
-        .manage(http_client)
         .manage(kleio::biometric::BiometricGate::default()) // kleio
         .manage(kleio::radio::LocalRadio::default()) // kleio
+        .manage(kleio::Resume::default()) // kleio
+        .manage(kleio::BridgeEpochs::default()) // kleio
+        .manage(kleio::parked::Parked::load(
+            kleio::parked::path(&home_dir()),
+        )) // kleio
         .invoke_handler(tauri::generate_handler![
             kleio::kleio_remote_status, // kleio
             kleio::commands::kleio_pair,
             kleio::commands::kleio_forget,
+            kleio_activate_pairing,
             kleio::commands::kleio_devices,
             kleio::commands::kleio_revoke,
             kleio::commands::kleio_offer,
@@ -5525,6 +5783,21 @@ pub fn run() {
             // connect-to-your-Mac-mini screen.
             if kleio::remote().is_some() {
                 *app.state::<Daemon>().port.lock().unwrap() = Some(kleio::REMOTE_PORT_SENTINEL);
+                // kleio (iPhone): replies an earlier launch left running in
+                // the background — dispose each once it finishes.
+                let parked = if cfg!(mobile) {
+                    app.state::<kleio::parked::Parked>().snapshot()
+                } else {
+                    Vec::new()
+                };
+                for (path, id) in parked {
+                    watch_parked_session(
+                        app.handle().clone(),
+                        kleio::REMOTE_PORT_SENTINEL,
+                        path,
+                        id,
+                    );
+                }
             } else if !kleio::REMOTE_ONLY {
                 spawn_daemon(app.handle().clone(), false);
             }
@@ -5587,6 +5860,14 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             tauri::WindowEvent::Resized(_) => {
                 restore_sibling_windows(window);
+            }
+            // kleio: the iPhone app is back on screen. iOS froze its sockets
+            // while it was away, so reconnect the event streams now; the host
+            // replays what was missed from each stream's Last-Event-ID.
+            #[cfg(mobile)]
+            tauri::WindowEvent::Resumed => {
+                log::info!("kleio: app resumed; reconnecting event streams");
+                window.app_handle().state::<kleio::Resume>().fire();
             }
             // Debounced: native drag fires Moved per pixel. Only the last move's
             // deferred task fires (its captured Instant still matches), so peers

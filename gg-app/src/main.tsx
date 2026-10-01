@@ -7,6 +7,8 @@ import { KleioGate } from "./kleio/KleioGate";
 import "./kleio/kleio-theme.css";
 // Kleio's own pages (Blobs, Groups, Apps, Connection), on Ken's glass system.
 import "./kleio/kleio-pages.css";
+// Last: the iPhone layout, scoped to html.platform-ios (inert on the desktop).
+import "./kleio/kleio-phone.css";
 import { ZoomController } from "./ZoomController";
 import { TooltipLayer } from "./TooltipLayer";
 import { WhatsNewModal } from "./WhatsNewModal";
@@ -14,7 +16,8 @@ import { WhatsNewModal } from "./WhatsNewModal";
 // uncommenting this import + the <GazeController /> mount below (and the
 // <GazeButton /> in App.tsx). The full implementation lives in src/gaze/.
 // import { GazeController } from "./GazeController";
-import { tagPlatform } from "./platform";
+import { isPhone, tagPlatform } from "./platform";
+import { trackVisualViewport } from "./phone-viewport";
 
 // Release history belongs to the notes window, not every workspace's startup.
 const WhatsNewWindow = lazy(() =>
@@ -30,9 +33,12 @@ window.addEventListener("unhandledrejection", (e) => {
   void logError(`unhandledrejection: ${String(e.reason)}`);
 });
 
-// Tag <html> with the host OS class (platform-macos|windows|linux) before the
-// first render so CSS can gate the macOS-only traffic-light insets.
+// Tag <html> with the host OS class (platform-macos|windows|linux|ios) before
+// the first render so CSS can gate the macOS-only traffic-light insets and the
+// iPhone layout (kleio/kleio-phone.css).
 tagPlatform();
+// iPhone: size the app to the area above the keyboard (phone-viewport.ts).
+if (isPhone()) trackVisualViewport();
 
 // React render/effect failures land in the shared log file like window errors do.
 function captureReactError(culprit: string, error: unknown, componentStack?: string): void {

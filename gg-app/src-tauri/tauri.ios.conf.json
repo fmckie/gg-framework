@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.atlas.ggcoder",
+  "version": "2.0.0",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "externalBin": [],
+    "resources": [],
+    "iOS": {
+      "developmentTeam": "35MTH2SNXQ",
+      "minimumSystemVersion": "18.0",
+      "bundleVersion": "50"
+    }
+  }
+}

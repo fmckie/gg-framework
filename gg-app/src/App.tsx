@@ -70,7 +70,16 @@ import { dropSupersededAsks, mergeAskAnswers } from "./ask-user";
 import { glowPlacement, glowStateFor, glowVars } from "./window-glow";
 import { ActivityBar } from "./ActivityBar";
 import { autosizeComposer } from "./composer-autosize";
-import { pinAfterScroll, pinAfterWheel } from "./transcript-pin";
+import {
+  followsOutput,
+  pinAfterScroll,
+  pinAfterTouchScroll,
+  pinAfterWheel,
+  showJumpToLatest,
+} from "./transcript-pin";
+import { isPhone } from "./platform";
+import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
+import { onScreenKeyboardUp } from "./phone-viewport";
 import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
 import { useKenMentor } from "./useKenMentor";
@@ -147,7 +156,14 @@ import { useAppUpdate } from "./update";
 import { recoverPromptLabel } from "./prompt-labels";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
-import { PaperclipIcon, AtIcon, ArrowUpIcon, SquareIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+  PaperclipIcon,
+  AtIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  SquareIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -182,6 +198,11 @@ const PLACEHOLDER_SHUFFLE_FRAME_MS = 24;
 // A drag that stops delivering events for this long is over: the platform
 // swallowed the terminal leave/drop (see the drag-overlay watchdog below).
 const STALE_DRAG_OVERLAY_MS = 2_500;
+// iPhone: after the finger lifts, the transcript stays held until scrolling
+// (the fling) has been quiet this long; then it catches up if still following.
+const TOUCH_SETTLE_MS = 160;
+// iPhone: a drag on the transcript this long puts the keyboard away.
+const KEYBOARD_DISMISS_DRAG_PX = 10;
 
 // Autopilot Ken's "all clear" line, rotated so the auto-review loop doesn't
 // repeat the exact same sentence every time GG Coder's work checks out.
@@ -821,6 +842,8 @@ function App(): React.ReactElement {
   // Bumped by every hydrate. Lets work that outlives a hydrate (a project
   // switch, or re-selecting a session) tell whether its result is still wanted.
   const hydrateGenerationRef = useRef(0);
+  // kleio: what decides a re-read of the transcript (phone-lifecycle.ts).
+  const rehydrateMemoryRef = useRef<RehydrateMemory>({ hydratedWhileRunning: false });
   // Mirror of `state` for use inside the memoized event handler (which doesn't
   // re-capture state). Lets turn_end pick the right context-token formula by
   // provider without re-subscribing the SSE listener on every state change.
@@ -855,10 +878,82 @@ function App(): React.ReactElement {
     lastScrollTopRef.current = el.scrollTop;
   }, []);
 
-  // Same as scrollToBottom, but a no-op while the user has scrolled up to read.
+  // iPhone: a finger on the transcript, or the fling it left behind, "holds"
+  // it — new output must not scroll the page out from under the reader. The
+  // hold ends once scrolling has been quiet for TOUCH_SETTLE_MS after the
+  // finger lifts (see transcript-pin.ts `followsOutput`).
+  const transcriptHeldRef = useRef(false);
+  const transcriptTouchingRef = useRef(false);
+  const transcriptTouchYRef = useRef(0);
+  const transcriptSettleRef = useRef<number | null>(null);
+  // iPhone: the round "jump to latest" button, shown once the reader is well
+  // away from the newest line. Mirrored in a ref so scroll events only
+  // re-render when it actually flips.
+  const [jumpToLatestShown, setJumpToLatestShown] = useState(false);
+  const jumpToLatestRef = useRef(false);
+  const syncJumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    const next = el !== null && isPhone() && showJumpToLatest(stickToBottomRef.current, el);
+    if (next === jumpToLatestRef.current) return;
+    jumpToLatestRef.current = next;
+    setJumpToLatestShown(next);
+  }, []);
+
+  // Same as scrollToBottom, but a no-op while the user has scrolled up to read
+  // (or, on the iPhone, while their finger is on the transcript).
   const maybeScrollToBottom = useCallback(() => {
-    if (stickToBottomRef.current) scrollToBottom();
-  }, [scrollToBottom]);
+    if (followsOutput(stickToBottomRef.current, transcriptHeldRef.current)) scrollToBottom();
+    syncJumpToLatest();
+  }, [scrollToBottom, syncJumpToLatest]);
+
+  const releaseTranscript = useCallback(() => {
+    transcriptSettleRef.current = null;
+    transcriptHeldRef.current = false;
+    maybeScrollToBottom();
+  }, [maybeScrollToBottom]);
+  const settleTranscript = useCallback(() => {
+    if (transcriptSettleRef.current !== null) window.clearTimeout(transcriptSettleRef.current);
+    transcriptSettleRef.current = window.setTimeout(releaseTranscript, TOUCH_SETTLE_MS);
+  }, [releaseTranscript]);
+  useEffect(
+    () => () => {
+      if (transcriptSettleRef.current !== null) window.clearTimeout(transcriptSettleRef.current);
+    },
+    [],
+  );
+  const onTranscriptTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    transcriptHeldRef.current = true;
+    transcriptTouchingRef.current = true;
+    transcriptTouchYRef.current = e.touches[0]?.clientY ?? 0;
+    if (transcriptSettleRef.current !== null) {
+      window.clearTimeout(transcriptSettleRef.current);
+      transcriptSettleRef.current = null;
+    }
+  }, []);
+  const onTranscriptTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    // Put the keyboard away the moment the transcript is dragged, the way
+    // Messages does — not on a tap, which may be a link or a copy.
+    const y = e.touches[0]?.clientY ?? transcriptTouchYRef.current;
+    if (Math.abs(y - transcriptTouchYRef.current) < KEYBOARD_DISMISS_DRAG_PX) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) {
+      active.blur();
+    }
+  }, []);
+  const onTranscriptTouchEnd = useCallback(() => {
+    transcriptTouchingRef.current = false;
+    settleTranscript();
+  }, [settleTranscript]);
+
+  // The "jump to latest" button: follow again, and glide down to the end.
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = true;
+    syncJumpToLatest();
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+  }, [syncJumpToLatest]);
 
   // Track the user's scroll intent by direction, not distance: while a reply
   // streams, every commit re-pins, so any "near the bottom" allowance snapped a
@@ -867,13 +962,21 @@ function App(): React.ReactElement {
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    stickToBottomRef.current = pinAfterScroll(
-      stickToBottomRef.current,
-      lastScrollTopRef.current,
-      el,
-    );
+    // iPhone: only a finger (or its fling) can scroll the transcript, so
+    // only a finger can stop the follow (transcript-pin.ts).
+    stickToBottomRef.current = isPhone()
+      ? pinAfterTouchScroll(
+          stickToBottomRef.current,
+          lastScrollTopRef.current,
+          el,
+          transcriptHeldRef.current,
+        )
+      : pinAfterScroll(stickToBottomRef.current, lastScrollTopRef.current, el);
     lastScrollTopRef.current = el.scrollTop;
-  }, []);
+    // A fling still running after the finger lifted keeps the hold on.
+    if (transcriptHeldRef.current && !transcriptTouchingRef.current) settleTranscript();
+    syncJumpToLatest();
+  }, [settleTranscript, syncJumpToLatest]);
   const onTranscriptWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const el = scrollRef.current;
     if (el) stickToBottomRef.current = pinAfterWheel(stickToBottomRef.current, e, el);
@@ -1404,6 +1507,8 @@ function App(): React.ReactElement {
         setRunning(st.running);
         setStatus(st.runState === "cancelling" ? "cancelling..." : "ready");
       }
+      // kleio: opened mid-reply — reload once it finishes (phone-lifecycle.ts).
+      needsRehydrate(rehydrateMemoryRef.current, { kind: "hydrated", running: !!st?.running });
       // Retries: this is the only unprompted model load, and an empty list
       // disables the picker for the whole session (see loadModelsWithRetry).
       // Deliberately NOT awaited — nothing below needs the list, and blocking on
@@ -1434,6 +1539,11 @@ function App(): React.ReactElement {
             return (parsed ? parsed.text : h.text).trim();
           })
           .filter((t, i, a) => t.length > 0 && a[i - 1] !== t);
+        // The transcript is being replaced. A reply still streaming (a chat
+        // reopened mid-reply on the iPhone) must start a fresh bubble here, not
+        // keep appending to a message that no longer exists — that silently
+        // dropped every live chunk until the reply finished.
+        endStreamingText();
         setItems(
           history.map((h): Item => {
             // Tool-produced images (screenshots, generate_image) — reconstructed
@@ -1546,12 +1656,30 @@ function App(): React.ReactElement {
       setLiveFromId(idSeq + 1);
       setHydrated(true);
     }
-  }, []);
+  }, [endStreamingText]);
 
   useEffect(() => {
     const unsub = subscribe(handleEvent);
     return () => unsub();
   }, [handleEvent]);
+
+  // kleio: re-read the transcript from the host when it could not replay
+  // everything this window missed, or when a reply that was already running
+  // when the chat opened finishes (see phone-lifecycle.ts).
+  useEffect(
+    () =>
+      subscribe((e) => {
+        if (needsRehydrate(rehydrateMemoryRef.current, { kind: "event", type: e.type })) {
+          setHydrateNonce((n) => n + 1);
+        }
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (needsRehydrate(rehydrateMemoryRef.current, { kind: "running", running })) {
+      setHydrateNonce((n) => n + 1);
+    }
+  }, [running]);
 
   // Boot-time/reload workspace recovery: Rust keeps THIS window's active target
   // for its lifetime. A restored app launch and a WebKit content-process reload
@@ -2823,6 +2951,10 @@ function App(): React.ReactElement {
           ref={attachTranscript}
           onScroll={onTranscriptScroll}
           onWheel={onTranscriptWheel}
+          onTouchStart={onTranscriptTouchStart}
+          onTouchMove={onTranscriptTouchMove}
+          onTouchEnd={onTranscriptTouchEnd}
+          onTouchCancel={onTranscriptTouchEnd}
         >
           {!hydrated && items.length === 0 ? (
             <TranscriptSkeleton />
@@ -2858,6 +2990,18 @@ function App(): React.ReactElement {
             onExport={() => void exportTranscript()}
           />
         )}
+        {/* iPhone: only ever a way back down — the top of a transcript is
+            history; the end is where the work is. */}
+        <button
+          type="button"
+          className={`jump-to-latest${jumpToLatestShown ? " visible" : ""}`}
+          aria-label="Jump to latest message"
+          aria-hidden={!jumpToLatestShown}
+          tabIndex={jumpToLatestShown ? 0 : -1}
+          onClick={jumpToLatest}
+        >
+          <ArrowDownIcon size={18} weight="bold" aria-hidden />
+        </button>
       </div>
 
       <div className="liveregion">
@@ -3049,8 +3193,10 @@ function App(): React.ReactElement {
                   if (navigateHistory(e.key === "ArrowUp" ? -1 : 1, e.currentTarget)) {
                     e.preventDefault();
                   }
-                } else if (e.key === "Enter" && !e.shiftKey) {
+                } else if (e.key === "Enter" && !e.shiftKey && !onScreenKeyboardUp()) {
                   // Enter sends; Shift+Enter inserts a newline (textarea default).
+                  // iPhone: the on-screen Return key adds a line, as in Messages;
+                  // the send button sends (a hardware keyboard's Enter still sends).
                   e.preventDefault();
                   submit();
                 } else if (e.key === "Escape") {

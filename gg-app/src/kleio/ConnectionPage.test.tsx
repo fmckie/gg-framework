@@ -112,7 +112,7 @@ describe("ConnectionPage", () => {
     expect(within(mini).queryByText("Online and ready")).toBeNull();
   });
 
-  it("draws a one-time pairing QR the iPhone app can scan", async () => {
+  it("shows a one-time pair code and the address to type into the iPhone app", async () => {
     vi.mocked(kleio.offer).mockResolvedValue({
       display: "ABC-DEF",
       expiresAt: Date.now() + 5 * 60_000,
@@ -125,6 +125,10 @@ describe("ConnectionPage", () => {
     expect(kleio.offer).toHaveBeenCalledWith(false);
     expect(qr.querySelector("path")?.getAttribute("d")).toMatch(/^M\d+ \d+h1v1h-1z/);
     expect(screen.getByText("ABC-DEF")).toBeTruthy();
+    // The iPhone app pairs by typing: it needs the host's address too.
+    const steps = screen.getByRole("list");
+    expect(within(steps).getByText("https://mac-mini-1.tail0000.ts.net:8443")).toBeTruthy();
+    expect(within(steps).getByText("Pair with your Mac mini")).toBeTruthy();
     expect(screen.getByText(/expires in [45]:\d\d/)).toBeTruthy();
   });
 

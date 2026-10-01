@@ -39,6 +39,7 @@ function routes(map: Record<string, (args?: Record<string, unknown>) => unknown>
 
 beforeEach(() => {
   invokeMock.mockReset();
+  vi.mocked(relaunch).mockClear();
 });
 afterEach(cleanup);
 
@@ -69,6 +70,8 @@ describe("RemoteHostModal — not paired", () => {
         paired = true;
         return REC;
       },
+      // A computer applies a pairing by relaunching.
+      kleio_activate_pairing: () => "restart",
     });
     render(<RemoteHostModal onClose={() => {}} />);
     await screen.findByLabelText("Host URL");
@@ -84,6 +87,29 @@ describe("RemoteHostModal — not paired", () => {
     expect(relaunch).toHaveBeenCalledOnce();
     // The pairing ticket (with token) is consumed in Rust; React only ever saw the record.
     expect(JSON.stringify(invokeMock.mock.results)).not.toMatch(/token/i);
+  });
+
+  it("on the iPhone, a pairing that switches on in place closes into the app", async () => {
+    let paired = false;
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: paired ? REC : null }),
+      kleio_pair: () => {
+        paired = true;
+        return REC;
+      },
+      kleio_activate_pairing: () => "active",
+    });
+    const onClose = vi.fn();
+    render(<RemoteHostModal onClose={onClose} />);
+    await screen.findByLabelText("Host URL");
+    fireEvent.change(screen.getByLabelText("Host URL"), {
+      target: { value: "https://mac-mini-1.example.ts.net:8443" },
+    });
+    fireEvent.change(screen.getByLabelText("Pair code"), { target: { value: "abc-def" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(relaunch).not.toHaveBeenCalled();
   });
 
   it("surfaces the host's error verbatim and stays on the form", async () => {

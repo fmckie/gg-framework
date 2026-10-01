@@ -19,6 +19,7 @@
     "bump": "node scripts/bump-version.mjs",
     "test": "vitest run",
     "smoke:packaged": "node scripts/smoke-packaged-windows.mjs",
+    "ios:sim": "bash scripts/ios-sim.sh",
     "tauri": "tauri"
   },
   "dependencies": {
