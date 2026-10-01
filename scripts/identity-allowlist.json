@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1474,
+        "tracked": 1477,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -4596,11 +4596,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\*   <runnable GG Coder prompt body, 1-3 lines>|\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
+        "regex": "(?:\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 3
+        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4748,11 +4748,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\"ALL_CLEAR, IGNORE, or HUMAN, with the payload after\\. If GG Coder ended by \" \\+|\"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|\"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|\\* Ken never appears in GG Coder's transcript; on each question we read GG|\\* The build session \\(GG Coder\\) and Ken are two separate `AgentSession` objects\\.|`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{|`## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.`,|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;)",
+        "regex": "(?:\"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|\"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|\\* Ken never appears in GG Coder's transcript; on each question we read GG|\\* The build session \\(GG Coder\\) and Ken are two separate `AgentSession` objects\\.|`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 12
+        "tracked": 9
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4805,11 +4805,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`## What GG Coder can do\\\\n\\\\n` \\+|`- Otherwise default hard to ALL_CLEAR\\. GG Coder's work is done unless something ` \\+|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`|`PROMPT\\\\n<a runnable GG Coder prompt, 1-3 lines, terminology-correct, says what ` \\+|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`When you review what GG Coder did, your first instinct is doubt: did it ` \\+|`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`file\\. When GG Coder crams everything into one monster file, stop it and tell it ` \\+|`hand indexing to GG Coder, which must ask_user before add, then search and read again\\. ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`obvious bug\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`raw code to paste\\. One step's worth of work\\. Prefer prompts that tell GG Coder ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|`to do — include a why only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`when GG Coder itself needs it to do the job\\. Except for the structured corpus limitation ` \\+|function renderGGCoderCapabilities\\(\\): string \\{|renderGGCoderCapabilities\\(\\),)",
+        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`## What GG Coder can do\\\\n\\\\n` \\+|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|function renderGGCoderCapabilities\\(\\): string \\{|renderGGCoderCapabilities\\(\\),)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 33
+        "tracked": 28
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7360,6 +7360,63 @@
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
       "reason": "Upstream identifiers and comments naming the persisted ggcoder session store (the same contract as upstream-20260911-09e156f193f6). Imported by the 2026-10-29 selective upstream sync (32dee6ec).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-99a885855efc",
+      "path": "packages/ggcoder/src/core/autopilot-verdict.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\*   <runnable GG Coder prompt body: a few lines, or a short bullet list>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-fe069dd37abb",
+      "path": "packages/ggcoder/src/core/ken-context.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.\",|\"## Your role\\\\nYou are Ken Kai in autopilot, reviewing GG Coder's just-finished turn\\. No user is in this conversation; a machine parses your reply\\. Below is the work under review\\.\",|\"ALL_CLEAR, IGNORE, or HUMAN\\), with the payload after\\. If GG Coder ended by \" \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 4
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-87267067b3a2",
+      "path": "packages/ggcoder/src/core/ken-prompt.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:`PROMPT\\\\n<a runnable GG Coder prompt: a few lines, or a short bullet list when ` \\+|`known in-scope gap\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`what to do and why, never raw code to paste\\. One coherent unit of work\\. Prefer prompts that tell GG Coder ` \\+|`when GG Coder itself needs it to do the job\\. The parser reads the FIRST line ` \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
