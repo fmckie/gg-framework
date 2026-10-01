@@ -47,8 +47,43 @@ import {
 } from "./pinned-thread.js";
 import { err, ok, type Result } from "./result.js";
 
-export const BLOB_COLORS = ["sky", "mint", "peach", "lilac", "lemon", "rose"] as const;
+export const BLOB_COLORS = [
+  "sky",
+  "mint",
+  "peach",
+  "lilac",
+  "lemon",
+  "rose",
+  "coral",
+  "amber",
+  "teal",
+  "indigo",
+  "plum",
+  "slate",
+] as const;
 export type BlobColor = (typeof BLOB_COLORS)[number];
+export const BLOB_SHAPES = [
+  "orb",
+  "mochi",
+  "drop",
+  "puff",
+  "pill",
+  "cube",
+  "ghost",
+  "star",
+] as const;
+export type BlobShape = (typeof BLOB_SHAPES)[number];
+export const BLOB_FACES = [
+  "calm",
+  "happy",
+  "curious",
+  "sleepy",
+  "wink",
+  "focused",
+  "surprised",
+  "cheeky",
+] as const;
+export type BlobFace = (typeof BLOB_FACES)[number];
 export const DEFAULT_BLOB_MODEL = "local/custom-127-0-0-1-3301/kimi-k3";
 export const MAX_BLOBS = 12;
 export const MAX_SCHEDULES = 10;
@@ -97,6 +132,8 @@ export interface Blob {
   readonly name: string;
   readonly emoji: string;
   readonly color: BlobColor;
+  readonly shape: BlobShape;
+  readonly face: BlobFace;
   readonly job: string;
   readonly model: string | null;
   readonly createdAt: string;
@@ -195,6 +232,45 @@ export function color(v: unknown): BlobColor {
   if (!BLOB_COLORS.includes(v as BlobColor))
     throw new Invalid(`color must be one of ${BLOB_COLORS.join(", ")}`);
   return v as BlobColor;
+}
+
+export function shape(v: unknown): BlobShape {
+  if (!BLOB_SHAPES.includes(v as BlobShape))
+    throw new Invalid(`shape must be one of ${BLOB_SHAPES.join(", ")}`);
+  return v as BlobShape;
+}
+
+export function face(v: unknown): BlobFace {
+  if (!BLOB_FACES.includes(v as BlobFace))
+    throw new Invalid(`face must be one of ${BLOB_FACES.join(", ")}`);
+  return v as BlobFace;
+}
+
+/**
+ * The look a Blob gets when none was chosen: FNV-1a (32-bit) over the UTF-16
+ * code units of its id; shape from the low 3 bits, face from the next 3. The
+ * desktop app computes the same for hosts that predate shape/face, so keep
+ * this exactly as it is.
+ */
+export function defaultLook(id: string): { shape: BlobShape; face: BlobFace } {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i += 1) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return {
+    shape: BLOB_SHAPES[h % 8],
+    face: BLOB_FACES[Math.floor(h / 8) % 8],
+  };
+}
+
+/** A stored record's look: a missing or unknown shape/face is its defaultLook. */
+function storedLook(b: Blob): { shape: BlobShape; face: BlobFace } {
+  const fallback = defaultLook(typeof b.id === "string" ? b.id : "");
+  return {
+    shape: BLOB_SHAPES.includes(b.shape) ? b.shape : fallback.shape,
+    face: BLOB_FACES.includes(b.face) ? b.face : fallback.face,
+  };
 }
 
 function model(v: unknown): string | null {
@@ -314,6 +390,8 @@ export function createBlobs(options: BlobsOptions): Blobs {
           if (Array.isArray(parsed.blobs))
             blobs = (parsed.blobs as Blob[]).map((b) => ({
               ...b,
+              // Records from before shape/face get their default look.
+              ...storedLook(b),
               schedules: (b.schedules ?? []).map((s) => ({ ...s, source: s.source ?? "manual" })),
             }));
         } catch (e) {
@@ -709,11 +787,15 @@ export function createBlobs(options: BlobsOptions): Blobs {
     const timezone = zone(o.timezone);
     const auto = o.autoSchedule === undefined ? true : bool(o.autoSchedule, "autoSchedule");
     const at = now().toISOString();
+    const id = `b_${hex()}`;
+    const look = defaultLook(id);
     const blob: Blob = {
-      id: `b_${hex()}`,
+      id,
       name: text(o.name, "name", 40),
       emoji: o.emoji === undefined ? "🫧" : emoji(o.emoji),
       color: o.color === undefined ? "sky" : color(o.color),
+      shape: o.shape === undefined ? look.shape : shape(o.shape),
+      face: o.face === undefined ? look.face : face(o.face),
       job: text(o.job, "job", 8000),
       model: o.model === undefined ? null : model(o.model),
       createdAt: at,
@@ -747,6 +829,8 @@ export function createBlobs(options: BlobsOptions): Blobs {
       ...(o.name !== undefined ? { name: text(o.name, "name", 40) } : {}),
       ...(o.emoji !== undefined ? { emoji: emoji(o.emoji) } : {}),
       ...(o.color !== undefined ? { color: color(o.color) } : {}),
+      ...(o.shape !== undefined ? { shape: shape(o.shape) } : {}),
+      ...(o.face !== undefined ? { face: face(o.face) } : {}),
       ...(o.job !== undefined ? { job: text(o.job, "job", 8000) } : {}),
       ...(o.model !== undefined ? { model: model(o.model) } : {}),
       updatedAt: now().toISOString(),

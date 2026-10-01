@@ -2,19 +2,9 @@
 // the iPhone app ("Every day at 08:00", "Mon, Wed, Fri at 18:30",
 // "Every 2 hours", "Once on 3 Oct at 09:00") and short relative times.
 
-import type { BlobColor, Schedule } from "./kleioApi";
+import type { Schedule } from "./kleioApi";
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-
-/** Blob palette: soft pastel card backgrounds (same names as the phone). */
-export const BLOB_COLOR_HEX: Record<BlobColor, string> = {
-  sky: "#7cc4f5",
-  mint: "#7fdcb8",
-  peach: "#f7b58a",
-  lilac: "#c3a6f2",
-  lemon: "#f2dc7a",
-  rose: "#f29bb4",
-};
 
 const FALLBACK_TIMEZONE = "Europe/London";
 
@@ -139,5 +129,30 @@ export function describeAutoSchedules(
       ? "Added 1 schedule from the job."
       : `Added ${auto.count} schedules from the job.`;
   if (auto.status === "none") return "No timing in the job, so no schedules were added.";
-  return `Couldn't read schedules from the job${auto.error ? ` (${auto.error})` : ""}. Add them below.`;
+  return `Couldn't read schedules from the job${auto.error ? ` (${auto.error})` : ""}. Add them under Schedules.`;
+}
+
+/** How the host words a schedule's prompt (kleio-host blobs.ts). */
+const SCHEDULED = /^\u23F0\uFE0F?\s*Scheduled task "([^"\n]*)":\s*([\s\S]*)$/;
+
+/** A run's summary as one plain line: Markdown marks (`**bold**`, `# `, links,
+ *  code ticks, list bullets) removed, so a clipped preview reads cleanly. */
+export function plainSummary(text: string): string {
+  return (
+    text
+      .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, "$1")
+      // Emphasis and code only at word edges, so snake_case and 2*3 survive.
+      .replace(/(^|[^\w*_`])(\*\*|__|\*|_|`)(?=\S)([^*_`\n]*?\S)\2(?![\w*_`])/g, "$1$3")
+      .replace(/^\s{0,3}(#{1,6}\s+|[-*+]\s+|>\s?|\d+\.\s+)/gm, "")
+      // A summary clipped mid-phrase can leave an unpaired ** or `.
+      .replace(/\*\*|`/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+}
+
+/** A schedule's prompt, without the host's alarm-clock prefix. */
+export function scheduledPrompt(text: string): { label: string; prompt: string } | null {
+  const m = SCHEDULED.exec(text);
+  return m ? { label: m[1] ?? "", prompt: (m[2] ?? "").trim() } : null;
 }

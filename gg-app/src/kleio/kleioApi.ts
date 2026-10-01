@@ -7,10 +7,25 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryEntry, MemorySnapshot } from "../agent";
+import type { BlobFaceKind, BlobShape } from "./blobLook";
 
 // ─── shapes ─────────────────────────────────────────────────────────────────
 
-export const BLOB_COLORS = ["sky", "mint", "peach", "lilac", "lemon", "rose"] as const;
+/** The first six are the original palette; hosts before agent looks accept only those. */
+export const BLOB_COLORS = [
+  "sky",
+  "mint",
+  "peach",
+  "lilac",
+  "lemon",
+  "rose",
+  "coral",
+  "amber",
+  "teal",
+  "indigo",
+  "plum",
+  "slate",
+] as const;
 export type BlobColor = (typeof BLOB_COLORS)[number];
 
 /** `GET /kleio/home`, `GET /kleio/blobs/:id/session` and their `…/new`. */
@@ -81,8 +96,12 @@ export interface Run {
 export interface Blob {
   id: string;
   name: string;
+  /** Kept for the iPhone app; the desktop draws `shape` + `face` instead. */
   emoji: string;
   color: BlobColor;
+  /** Absent on hosts before agent looks: use `lookOf()` (blobLook.ts). */
+  shape?: BlobShape;
+  face?: BlobFaceKind;
   job: string;
   /** null = the host's default Blob model. */
   model: string | null;
@@ -99,6 +118,8 @@ export interface BlobInput {
   job: string;
   emoji?: string;
   color?: BlobColor;
+  shape?: BlobShape;
+  face?: BlobFaceKind;
   model?: string | null;
   /** IANA zone for auto-extracted schedules. */
   timezone?: string;

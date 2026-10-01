@@ -2399,6 +2399,9 @@ select {
 }
 .dropdown-option {
   display: flex;
+  /* The menu is a flex column with a max height: without this, rows with a
+     description line shrink to min-height and overlap once the list scrolls. */
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   min-height: 34px;

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApnsPusher } from "../src/apns.js";
 import { nextOccurrence } from "../src/blob-schedule.js";
-import { DEFAULT_BLOB_MODEL } from "../src/blobs.js";
+import { DEFAULT_BLOB_MODEL, defaultLook } from "../src/blobs.js";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
@@ -57,6 +57,13 @@ describe("blob schedules: nextRunAt", () => {
     const once = { kind: "once", at: "2026-11-01T10:00:00.000Z", timezone: LONDON } as const;
     expect(iso(nextOccurrence(once, at("2026-10-01T00:00:00Z")))).toBe("2026-11-01T10:00:00.000Z");
     expect(nextOccurrence(once, at("2026-11-02T00:00:00Z"))).toBeNull();
+  });
+});
+
+describe("blobs: defaultLook", () => {
+  it("is FNV-1a over the id: pinned, because the desktop computes the same for older hosts", () => {
+    expect(defaultLook("b_0000aaaa")).toEqual({ shape: "drop", face: "focused" });
+    expect(defaultLook("b_00000000")).toEqual({ shape: "ghost", face: "happy" });
   });
 });
 
@@ -295,6 +302,90 @@ describe("blobs: CRUD", () => {
     const over = await call("POST", "/kleio/blobs", { name: "Thirteenth", job: "x" });
     expect(over.status).toBe(400);
     expect(over.body.error).toMatch(/at most 12/);
+  });
+
+  it("look: shape + face + colour are chosen, validated and saved; omitted is the id's default", async () => {
+    const b = await newBlob({ shape: "cube", face: "wink", color: "teal" });
+    expect(b).toMatchObject({ shape: "cube", face: "wink", color: "teal", emoji: "🫧" });
+    const disk = JSON.parse(readFileSync(join(home, "blobs.json"), "utf8"));
+    expect(disk.blobs[0]).toMatchObject({ shape: "cube", face: "wink", color: "teal" });
+
+    for (const body of [
+      { name: "A", job: "x", shape: "blob" },
+      { name: "A", job: "x", face: "grumpy" },
+      { name: "A", job: "x", shape: null },
+    ]) {
+      const r = await call("POST", "/kleio/blobs", body);
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatch(/^(shape|face) must be one of /);
+    }
+    const badPatch = await call("PATCH", `/kleio/blobs/${b.id}`, { face: "grumpy" });
+    expect(badPatch.status).toBe(400);
+    expect(badPatch.body.error).toMatch(/^face must be one of calm, happy, /);
+
+    const plain = await newBlob({ name: "Plain" });
+    expect({ shape: plain.shape, face: plain.face }).toEqual(defaultLook(plain.id));
+    await host.stop();
+    host = await startHost();
+    const again = (await call("GET", `/kleio/blobs/${plain.id}`)).body.blob;
+    expect({ shape: again.shape, face: again.face }).toEqual(defaultLook(plain.id));
+    expect((await call("GET", `/kleio/blobs/${b.id}`)).body.blob).toMatchObject({
+      shape: "cube",
+      face: "wink",
+      color: "teal",
+    });
+  });
+
+  it("PATCH shape/face/colour keeps the conversation", async () => {
+    const b = await newBlob();
+    const sid = (await call("GET", `/kleio/blobs/${b.id}/session`)).body.sessionId as string;
+    const p = await call("PATCH", `/kleio/blobs/${b.id}`, {
+      shape: "ghost",
+      face: "sleepy",
+      color: "plum",
+    });
+    expect(p.status).toBe(200);
+    expect(p.body.blob).toMatchObject({
+      shape: "ghost",
+      face: "sleepy",
+      color: "plum",
+      name: "Gardener",
+      sessionId: sid,
+    });
+    expect(sidecar.disposed).toEqual([]);
+    const disk = JSON.parse(readFileSync(join(home, "blobs.json"), "utf8"));
+    expect(disk.blobs[0]).toMatchObject({ shape: "ghost", face: "sleepy", color: "plum" });
+    const again = await call("GET", `/kleio/blobs/${b.id}/session`);
+    expect(again.body).toMatchObject({ sessionId: sid, created: false });
+    expect(blobCreates()).toHaveLength(1);
+  });
+
+  it("a saved Blob without a look (or with an unknown one) loads with its default look", async () => {
+    await host.stop();
+    const record = {
+      emoji: "🫧",
+      color: "sky",
+      job: "Old job.",
+      model: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      schedules: [],
+    };
+    writeFileSync(
+      join(home, "blobs.json"),
+      JSON.stringify({
+        blobs: [
+          { ...record, id: "b_0000aaaa", name: "Old" },
+          { ...record, id: "b_00000000", name: "Odd", shape: "hexagon", face: "wink" },
+        ],
+      }),
+    );
+    host = await startHost();
+    const list = (await call("GET", "/kleio/blobs")).body.blobs as Record<string, unknown>[];
+    expect(list.map((x) => [x.id, x.shape, x.face, x.emoji])).toEqual([
+      ["b_0000aaaa", "drop", "focused", "🫧"],
+      ["b_00000000", "ghost", "wink", "🫧"],
+    ]);
   });
 
   it("schedule CRUD: server-set id and nextRunAt, PATCH recomputes timing, DELETE removes", async () => {

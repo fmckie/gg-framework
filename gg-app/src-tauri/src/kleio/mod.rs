@@ -16,8 +16,10 @@
 
 pub mod biometric;
 pub mod commands;
+pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
+pub mod radio;
 pub mod store;
 pub mod tailscale;
 

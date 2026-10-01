@@ -1334,6 +1334,22 @@ async fn agent_radio_state(
 ) -> Result<serde_json::Value, String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    // kleio: remote mode plays on THIS Mac; the host only lists the stations.
+    // Local playback is reported even when the host is unreachable, so the UI
+    // still shows it playing and can stop it (`off` needs no host).
+    if kleio::remote().is_some() {
+        let stations = kleio::radio::host_radio(&client, &sidecar_base(port), &gg_sid)
+            .await
+            .ok()
+            .and_then(|host| host.get("stations").cloned())
+            .unwrap_or_else(|| serde_json::json!([]));
+        let (current, volume) = webview.state::<kleio::radio::LocalRadio>().state();
+        return Ok(serde_json::json!({
+            "stations": stations,
+            "current": current,
+            "volume": volume,
+        }));
+    }
     let res = client
         .get(format!("{}/radio", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
@@ -1355,6 +1371,18 @@ async fn agent_radio_set(
 ) -> Result<serde_json::Value, String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    // kleio: remote mode plays on THIS Mac; the host only supplies the URL.
+    if kleio::remote().is_some() {
+        let radio = webview.state::<kleio::radio::LocalRadio>();
+        if station.is_empty() || station == "off" {
+            radio.stop();
+            return Ok(serde_json::json!({ "current": null }));
+        }
+        let host = kleio::radio::host_radio(&client, &sidecar_base(port), &gg_sid).await?;
+        let url = kleio::radio::station_url(&host, &station)?;
+        radio.play(&station, &url)?;
+        return Ok(serde_json::json!({ "current": station }));
+    }
     let res = client
         .post(format!("{}/radio", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
@@ -1387,6 +1415,13 @@ async fn agent_radio_volume(
 ) -> Result<serde_json::Value, String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    // kleio: remote mode adjusts the local player (see agent_radio_set).
+    if kleio::remote().is_some() {
+        let radio = webview.state::<kleio::radio::LocalRadio>();
+        radio.set_volume(volume)?;
+        let (current, volume) = radio.state();
+        return Ok(serde_json::json!({ "current": current, "volume": volume }));
+    }
     let res = client
         .post(format!("{}/radio/volume", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
@@ -5302,6 +5337,7 @@ pub fn run() {
         .manage(TrayIntents::default())
         .manage(http_client)
         .manage(kleio::biometric::BiometricGate::default()) // kleio
+        .manage(kleio::radio::LocalRadio::default()) // kleio
         .invoke_handler(tauri::generate_handler![
             kleio::kleio_remote_status, // kleio
             kleio::commands::kleio_pair,
@@ -5312,6 +5348,9 @@ pub fn run() {
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
             kleio::commands::kleio_api,
+            kleio::files::kleio_file_fetch,
+            kleio::files::kleio_file_open,
+            kleio::files::kleio_file_save,
             kleio::tailscale::kleio_tailscale_status,
             sidecar_port,
             dropped_path_info,
@@ -5539,6 +5578,8 @@ pub fn run() {
                 if let Some(child) = child {
                     terminate_child(child);
                 }
+                // kleio: remote mode's radio plays locally — silence it.
+                app.state::<kleio::radio::LocalRadio>().stop();
             }
         });
 }

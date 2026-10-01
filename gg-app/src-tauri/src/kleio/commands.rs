@@ -246,7 +246,7 @@ fn default_label() -> String {
         .unwrap_or_else(|| "Laptop".to_string())
 }
 
-fn root_cause(e: &reqwest::Error) -> String {
+pub(super) fn root_cause(e: &reqwest::Error) -> String {
     let mut src: &dyn std::error::Error = e;
     while let Some(next) = src.source() {
         src = next;
@@ -541,7 +541,7 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
 }
 
-fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
+pub(super) fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c);
