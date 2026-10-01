@@ -1980,23 +1980,26 @@ async fn app_settings_save(
 
 /// Native: create a new project folder under the configured projects root.
 /// Returns `{ path }` on success, an error message on invalid name / conflict.
-/// Never needs the sidecar.
+/// Locally this never needs the sidecar.
 #[tauri::command]
-fn app_create_project(name: String) -> Result<serde_json::Value, String> {
-    // kleio: this creates a folder on THIS Mac; on a paired host that folder
-    // would be invisible to the sidecar. Say so rather than half-work.
-    if let Some(r) = kleio::remote() {
-        return Err(format!(
-            "Sessions run on {}. Create the project folder there (or in its projects root) and it will appear in the list.",
-            r.host
-        ));
-    }
+async fn app_create_project(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    name: String,
+) -> Result<serde_json::Value, String> {
     let name = name.trim();
     if !is_valid_project_name(name) {
         return Err(
             "Project name must be lowercase letters, digits, and dashes (e.g. my-project)."
                 .to_string(),
         );
+    }
+    // kleio: sessions run on the host, and the projects root shown is the
+    // HOST's (see app_settings_get), so the folder is made there.
+    if kleio::remote().is_some() {
+        let port = port_for(&webview).ok_or(STILL_CONNECTING)?;
+        let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
+        return kleio::host_create_project(&client, &sidecar_base(port), &gg_sid, name).await;
     }
     // Resolve the projects root the same way app_settings_get does.
     let settings = local_settings_get();

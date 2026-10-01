@@ -1258,7 +1258,8 @@ export async function openPermissionsSettings(): Promise<void> {
 /**
  * Create a new project folder (lowercase/dashes name) under the configured
  * projects root. Returns the created absolute path. Handled NATIVELY in Rust
- * (no sidecar), so it can't fail with "sidecar not ready". Throws with a
+ * (no sidecar), so it can't fail with "sidecar not ready" — except when paired
+ * with a Kleio host, where the folder is made on the host. Throws with a
  * user-facing message on invalid name / conflict.
  */
 export async function createProject(name: string): Promise<string> {

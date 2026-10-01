@@ -195,6 +195,36 @@ mod tests {
         assert_eq!(sse_frame_id("data: {}"), None);
         assert_eq!(sse_frame_id("id:7\ndata: {}"), Some(7));
     }
+
+    #[test]
+    fn a_created_project_is_the_hosts_folder() {
+        assert_eq!(
+            created_project(200, r#"{"path":"/Users/me/kleio-projects/test"}"#),
+            Ok(serde_json::json!({ "path": "/Users/me/kleio-projects/test" }))
+        );
+    }
+
+    #[test]
+    fn a_refused_project_shows_the_hosts_reason() {
+        assert_eq!(
+            created_project(
+                409,
+                r#"{"error":"A folder named \"test\" already exists."}"#
+            ),
+            Err("A folder named \"test\" already exists.".to_string())
+        );
+        assert_eq!(
+            created_project(502, "<html>bad gateway</html>"),
+            Err("Your Mac mini answered 502".to_string())
+        );
+    }
+
+    #[test]
+    fn a_created_project_needs_a_path() {
+        for body in ["{}", r#"{"path":""}"#, r#"{"path":7}"#, "not json"] {
+            assert!(created_project(200, body).is_err(), "{body}");
+        }
+    }
 }
 
 // ── Host-owned settings ─────────────────────────────────────────────────────
@@ -238,4 +268,41 @@ pub async fn host_settings_save(
         return Err(format!("host settings: HTTP {}", res.status()));
     }
     res.json().await.map_err(|e| format!("host settings: {e}"))
+}
+
+/// Make a project folder in the HOST's projects root. The sidecar's
+/// `/create-project` validates the name and refuses an existing folder, and
+/// its `/projects` scan then lists the new one. Returns `{ path }`.
+pub async fn host_create_project(
+    client: &reqwest::Client,
+    base: &str,
+    gg_sid: &str,
+    name: &str,
+) -> Result<serde_json::Value, String> {
+    let cant_reach =
+        |e: reqwest::Error| format!("Couldn't reach your Mac mini: {}", commands::root_cause(&e));
+    let res = client
+        .post(format!("{base}/create-project"))
+        .header("x-gg-session", gg_sid)
+        .json(&serde_json::json!({ "name": name }))
+        .send()
+        .await
+        .map_err(cant_reach)?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(cant_reach)?;
+    created_project(status, &text)
+}
+
+/// The sidecar's answer: `{ path }`, or its own message (bad name, folder
+/// exists), else the status, as every host call reports it.
+fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    if !(200..300).contains(&status) {
+        return Err(files::host_error(status, body));
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("path")?.as_str().map(str::to_string))
+        .filter(|p| !p.trim().is_empty())
+        .map(|path| serde_json::json!({ "path": path }))
+        .ok_or_else(|| "Your Mac mini didn't say where it made the project.".to_string())
 }

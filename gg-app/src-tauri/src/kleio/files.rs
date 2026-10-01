@@ -175,7 +175,7 @@ fn cache_root(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// The host's `{"error": "..."}` message, else the status (as `host_auth`).
-fn host_error(status: u16, body: &str) -> String {
+pub(super) fn host_error(status: u16, body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| v.get("error")?.as_str().map(str::to_string))
