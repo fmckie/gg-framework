@@ -76,13 +76,35 @@ const DETAIL_CHARS = 300;
 const SLUG = /^[a-z0-9_-]{1,64}$/;
 const CONNECTION_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const NOT_SET_UP = { status: 503, body: { error: "apps not set up" } } as const;
+/** Schemes that need the user's own developer app (client id + secret) when
+ *  Composio offers no managed one. An API key is entered while connecting. */
+const DEVELOPER_APP_SCHEMES = new Set(["OAUTH2", "OAUTH1", "OAUTH1A"]);
+/** Composio's answers to a link for an app that can't be linked as-is. */
+const NO_AUTH_ERRORS = new Set(["ToolRouterV2_ToolkitsIsNoAuth", "4326"]);
+const NEEDS_SETUP_ERRORS = new Set(["ToolRouterV2_NoManagedAuth", "4308"]);
 
 class ComposioError extends Error {
   constructor(
     readonly status: number,
     readonly detail: string,
+    /** Composio's error slug and numeric code, when it sent them. */
+    readonly reasons: readonly string[] = [],
   ) {
     super(`composio ${status}`);
+  }
+}
+
+/** Composio's `{ error: { message, slug, code } }`, when a body has that shape. */
+function composioError(text: string): { message?: string; reasons: string[] } {
+  try {
+    const e = obj(obj(JSON.parse(text)).error);
+    const reasons = [str(e.slug), typeof e.code === "number" ? String(e.code) : str(e.code)].filter(
+      (r): r is string => !!r,
+    );
+    const message = str(e.message);
+    return message ? { message, reasons } : { reasons };
+  } catch {
+    return { reasons: [] };
   }
 }
 
@@ -90,12 +112,34 @@ const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v 
 const obj = (v: unknown): Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
+/**
+ * How an app connects: "none" needs no sign-in (agents can use it already);
+ * "signin" opens a sign-in in the browser; "setup" needs the user's own
+ * developer app in Composio first (e.g. X: Composio has no managed sign-in).
+ * Anything Composio doesn't say is "signin", which is what a link attempts.
+ */
+export type ToolkitAuth = "none" | "signin" | "setup";
+
+export function toolkitAuth(o: Record<string, unknown>): ToolkitAuth {
+  const schemes = Array.isArray(o.auth_schemes)
+    ? o.auth_schemes.filter((s): s is string => typeof s === "string")
+    : [];
+  if (o.no_auth === true || (schemes.length > 0 && schemes.every((s) => s === "NO_AUTH")))
+    return "none";
+  const managed = o.composio_managed_auth_schemes;
+  if (!Array.isArray(managed) || managed.length > 0) return "signin";
+  return schemes.length > 0 && schemes.every((s) => DEVELOPER_APP_SCHEMES.has(s))
+    ? "setup"
+    : "signin";
+}
+
 function toolkitView(t: unknown): {
   slug: string;
   name: string;
   logo: string | null;
   description: string;
   categories: string[];
+  auth: ToolkitAuth;
 } | null {
   const o = obj(t);
   const slug = str(o.slug);
@@ -112,6 +156,7 @@ function toolkitView(t: unknown): {
     logo: str(meta.logo) ?? null,
     description: str(meta.description) ?? "",
     categories,
+    auth: toolkitAuth(o),
   };
 }
 
@@ -157,9 +202,13 @@ export function createConnections(options: ConnectionsOptions): Connections {
     }
     const text = await res.text().catch(() => "");
     if (!res.ok) {
+      // Redact first: nothing below may carry the key.
+      const redacted = text.split(key).join("[key]");
+      const parsed = composioError(redacted);
       throw new ComposioError(
         res.status,
-        [...text.split(key).join("[key]")].slice(0, DETAIL_CHARS).join(""),
+        [...(parsed.message ?? redacted)].slice(0, DETAIL_CHARS).join(""),
+        parsed.reasons,
       );
     }
     try {
@@ -348,17 +397,46 @@ export function createConnections(options: ConnectionsOptions): Connections {
     const toolkit = str(obj(body).toolkit)?.trim().toLowerCase();
     if (!toolkit || !SLUG.test(toolkit))
       return { status: 400, body: { error: "toolkit must be an app id, e.g. gmail" } };
-    const r = obj(
-      await api(
-        key,
-        "POST",
-        `/api/v3.1/tool_router/session/${encodeURIComponent(s.sessionId!)}/link`,
-        {
-          toolkit,
-          callback_url: callbackUrl,
-        },
-      ),
-    );
+    let r: Record<string, unknown>;
+    try {
+      r = obj(
+        await api(
+          key,
+          "POST",
+          `/api/v3.1/tool_router/session/${encodeURIComponent(s.sessionId!)}/link`,
+          {
+            toolkit,
+            callback_url: callbackUrl,
+          },
+        ),
+      );
+    } catch (e) {
+      // Two apps that can't be linked as-is: say so in words (the phone shows
+      // `error` as written), with a code the desktop can act on.
+      const reasons = e instanceof ComposioError ? e.reasons : [];
+      if (reasons.some((x) => NO_AUTH_ERRORS.has(x))) {
+        log(`[apps] connect ${toolkit}: needs no sign-in`);
+        return {
+          status: 409,
+          body: {
+            error: "This app doesn't need a sign-in. Kleio and your agents can already use it.",
+            code: "no_auth",
+          },
+        };
+      }
+      if (reasons.some((x) => NEEDS_SETUP_ERRORS.has(x))) {
+        log(`[apps] connect ${toolkit}: needs the user's own developer app`);
+        return {
+          status: 409,
+          body: {
+            error:
+              "Composio has no ready-made sign-in for this app. Add your own developer keys for it in Composio, then connect again.",
+            code: "needs_setup",
+          },
+        };
+      }
+      throw e;
+    }
     const redirectUrl = str(r.redirect_url);
     if (!redirectUrl || !/^https:\/\//i.test(redirectUrl))
       return { status: 502, body: { error: "composio", status: 502, detail: "no sign-in link" } };
@@ -419,7 +497,11 @@ export function createConnections(options: ConnectionsOptions): Connections {
         }
         return { status: 404, body: { error: "not found" } };
       } catch (e) {
-        if (e instanceof ComposioError) log(`[apps] ${method} ${path} -> composio ${e.status}`);
+        if (e instanceof ComposioError)
+          log(
+            `[apps] ${method} ${path} -> composio ${e.status}` +
+              (e.reasons.length ? ` (${e.reasons.join(", ")})` : ""),
+          );
         return composioReply(e);
       }
     },

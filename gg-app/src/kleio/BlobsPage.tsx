@@ -17,6 +17,7 @@ import { BlobForm } from "./BlobForm";
 import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
 import {
+  AppsButton,
   KleioHead,
   KleioPanel,
   KleioSplit,
@@ -47,11 +48,14 @@ type View =
 export function BlobsPage({
   onClose,
   onListChange,
+  onOpenApps,
 }: {
   /** Leave Agents (Back on the list). */
   onClose: () => void;
   /** Told whether the list is showing, so the screen can show its switcher. */
   onListChange?: (atList: boolean) => void;
+  /** Open the Apps page (a "Connect apps" button on the list). */
+  onOpenApps?: () => void;
 }): React.ReactElement {
   const [blobs, setBlobs] = useState<Blob[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -140,11 +144,12 @@ export function BlobsPage({
       onClose={onClose}
       onCreate={() => setView({ kind: "create" })}
       onOpen={(id) => setView({ kind: "detail", id })}
+      {...(onOpenApps ? { onOpenApps } : {})}
     />
   );
 }
 
-// ─── the list ─────────────────────────────────────────────────────────────
+// ─── the list ─────────────────────────────────────────────────────────────────────────
 
 function AgentList({
   blobs,
@@ -152,12 +157,14 @@ function AgentList({
   onClose,
   onCreate,
   onOpen,
+  onOpenApps,
 }: {
   blobs: Blob[] | null;
   error: string | null;
   onClose: () => void;
   onCreate: () => void;
   onOpen: (id: string) => void;
+  onOpenApps?: () => void;
 }): React.ReactElement {
   const [query, setQuery] = useState("");
   const windowFocused = useWindowFocused();
@@ -192,13 +199,16 @@ function AgentList({
           )
         }
         actions={
-          <MetalButton
-            windowFocused={windowFocused}
-            className="btn btn-primary btn-sm"
-            onClick={onCreate}
-          >
-            + New agent
-          </MetalButton>
+          <>
+            {onOpenApps && <AppsButton onClick={onOpenApps} />}
+            <MetalButton
+              windowFocused={windowFocused}
+              className="btn btn-primary btn-sm"
+              onClick={onCreate}
+            >
+              + New agent
+            </MetalButton>
+          </>
         }
       />
 

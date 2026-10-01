@@ -19,7 +19,14 @@ import { AgentRowContent, type RowState } from "./AgentRow";
 import { AgentAvatar, BlobAvatar, GroupAvatar } from "./BlobAvatar";
 import { BLOB_COLOR_LABEL, BLOB_TONES } from "./blobLook";
 import { FileCards } from "./FileCard";
-import { KleioHead, KleioPanel, KleioSplit, SideToggle, useSidebar } from "./KleioChrome";
+import {
+  AppsButton,
+  KleioHead,
+  KleioPanel,
+  KleioSplit,
+  SideToggle,
+  useSidebar,
+} from "./KleioChrome";
 import { agentFilePath, fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
 import { relTime } from "./relTime";
 import {
@@ -101,11 +108,14 @@ type View = { kind: "list" } | { kind: "chat"; id: string } | { kind: "form"; id
 export function GroupsPage({
   onClose,
   onListChange,
+  onOpenApps,
 }: {
   /** Leave Groups (Back on the list). */
   onClose: () => void;
   /** Told whether the list is showing, so the screen can show its switcher. */
   onListChange?: (atList: boolean) => void;
+  /** Open the Apps page (a "Connect apps" button on the list). */
+  onOpenApps?: () => void;
 }): React.ReactElement {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [blobs, setBlobs] = useState<Blob[]>([]);
@@ -183,11 +193,12 @@ export function GroupsPage({
       onClose={onClose}
       onCreate={() => setView({ kind: "form", id: null })}
       onOpen={(id) => setView({ kind: "chat", id })}
+      {...(onOpenApps ? { onOpenApps } : {})}
     />
   );
 }
 
-// ─── the list ─────────────────────────────────────────────────────────────
+// ─── the list ─────────────────────────────────────────────────────────────────────────
 
 function GroupList({
   groups,
@@ -196,6 +207,7 @@ function GroupList({
   onClose,
   onCreate,
   onOpen,
+  onOpenApps,
 }: {
   groups: Group[] | null;
   blobs: Blob[];
@@ -203,6 +215,7 @@ function GroupList({
   onClose: () => void;
   onCreate: () => void;
   onOpen: (id: string) => void;
+  onOpenApps?: () => void;
 }): React.ReactElement {
   const windowFocused = useWindowFocused();
   const noAgents = groups !== null && blobs.length === 0;
@@ -228,7 +241,12 @@ function GroupList({
         onBack={onClose}
         title="Groups"
         status={groups !== null && <Badge>{groups.length}</Badge>}
-        actions={create}
+        actions={
+          <>
+            {onOpenApps && <AppsButton onClick={onOpenApps} />}
+            {create}
+          </>
+        }
       />
       <div className="picker-list kleio-list-scroll">
         {loading && <ListSkeleton rows={3} />}

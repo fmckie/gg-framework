@@ -6,7 +6,7 @@
 // visits); below 900px it slides over the chat instead (see kleio-pages.css).
 
 import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
-import { NotePencilIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
+import { NotePencilIcon, PlugsIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { BackButton } from "../BackButton";
 import { RadioButton } from "../RadioButton";
 import { WindowLayoutButton } from "../WindowLayoutButton";
@@ -179,6 +179,16 @@ export function NewChatButton({
       onClick={onClick}
     >
       <NotePencilIcon size={16} weight="bold" aria-hidden="true" />
+    </button>
+  );
+}
+
+/** Header button to the Apps page (Gmail, Notion, Reddit…), from Agents and Groups. */
+export function AppsButton({ onClick }: { onClick: () => void }): React.ReactElement {
+  return (
+    <button type="button" className="btn btn-ghost btn-sm kleio-apps-btn" onClick={onClick}>
+      <PlugsIcon size={14} weight="bold" aria-hidden="true" />
+      Connect apps
     </button>
   );
 }

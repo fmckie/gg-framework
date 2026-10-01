@@ -1545,7 +1545,28 @@
 }
 .app-tile-foot {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
+}
+/* An app that needs the user's own developer keys in Composio first. */
+.app-tile-note {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+/* A connect error with a way to fix it (Open Composio) beside the words. */
+.app-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.app-error > span {
+  flex: 1 1 auto;
+}
+.app-error .btn {
+  flex: 0 0 auto;
+  gap: 6px;
 }
 .app-tile-connected {
   display: inline-flex;

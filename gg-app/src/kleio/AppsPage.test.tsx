@@ -2,16 +2,37 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import conf from "../../src-tauri/tauri.conf.json";
-import { AppsPage, LOGO_ORIGIN, categoryLabel, connectionState, logoUrl } from "./AppsPage";
-import { connectToolkit, disconnect, listConnections, listToolkits } from "./kleioApi";
+import {
+  AppsPage,
+  COMPOSIO_AUTH_CONFIGS_URL,
+  LOGO_ORIGIN,
+  appErrorText,
+  categoryLabel,
+  connectionState,
+  logoUrl,
+} from "./AppsPage";
+import {
+  KleioApiError,
+  connectToolkit,
+  disconnect,
+  listConnections,
+  listToolkits,
+} from "./kleioApi";
+import type * as KleioApi from "./kleioApi";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
-vi.mock("./kleioApi", () => ({
-  listConnections: vi.fn(),
-  listToolkits: vi.fn(),
-  connectToolkit: vi.fn(),
-  disconnect: vi.fn(),
-}));
+vi.mock("./kleioApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof KleioApi>();
+  return {
+    // The real error type and wording; only the calls to the Mac mini are fakes.
+    KleioApiError: actual.KleioApiError,
+    errorText: actual.errorText,
+    listConnections: vi.fn(),
+    listToolkits: vi.fn(),
+    connectToolkit: vi.fn(),
+    disconnect: vi.fn(),
+  };
+});
 
 const GMAIL = {
   slug: "gmail",
@@ -22,6 +43,20 @@ const GMAIL = {
 };
 const NOTION = { ...GMAIL, slug: "notion", name: "Notion", description: "Docs and wikis." };
 const SLACK = { ...GMAIL, slug: "slack", name: "Slack", description: "Team chat." };
+const HACKER_NEWS = {
+  ...GMAIL,
+  slug: "hackernews",
+  name: "Hacker News",
+  description: "Tech news.",
+  auth: "none" as const,
+};
+const X = {
+  ...GMAIL,
+  slug: "twitter",
+  name: "Twitter",
+  description: "Posts.",
+  auth: "setup" as const,
+};
 
 beforeEach(() => {
   vi.mocked(listConnections).mockResolvedValue({ configured: true, connections: [] });
@@ -122,6 +157,62 @@ describe("AppsPage", () => {
     expect(disconnect).not.toHaveBeenCalled();
     fireEvent.click(within(mine).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(disconnect).toHaveBeenCalledWith("conn-1"));
+  });
+
+  it("shows an app that needs no sign-in as ready, with nothing to connect", async () => {
+    vi.mocked(listToolkits).mockResolvedValue({ toolkits: [GMAIL, HACKER_NEWS], nextCursor: null });
+    await renderPage();
+    expect(screen.getByText("Ready · no sign-in")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect Hacker News" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Connect Gmail" })).toBeTruthy();
+  });
+
+  it("explains an app that needs your own keys, and opens Composio to add them", async () => {
+    vi.mocked(listToolkits).mockResolvedValue({ toolkits: [GMAIL, X], nextCursor: null });
+    vi.mocked(connectToolkit).mockRejectedValue(
+      new KleioApiError(
+        409,
+        "Composio has no ready-made sign-in for this app. Add your own developer keys for it in Composio, then connect again.",
+        undefined,
+        "needs_setup",
+      ),
+    );
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await renderPage();
+    expect(screen.getByText("Needs your own keys")).toBeTruthy();
+    // Still connectable: once the keys are in Composio, Connect works.
+    fireEvent.click(screen.getByRole("button", { name: "Connect Twitter" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/no ready-made sign-in for this app/);
+    expect(alert.textContent).not.toMatch(/\{/);
+    fireEvent.click(within(alert).getByRole("button", { name: "Open Composio" }));
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith(COMPOSIO_AUTH_CONFIGS_URL));
+  });
+
+  it("turns an older host's raw Composio error into words, or into a ready app", async () => {
+    vi.mocked(listToolkits).mockResolvedValue({
+      toolkits: [GMAIL, { ...HACKER_NEWS, auth: undefined }],
+      nextCursor: null,
+    });
+    vi.mocked(connectToolkit).mockRejectedValue(
+      new KleioApiError(
+        502,
+        "composio",
+        '{"error":{"message":"Toolkit hackernews does not require authentication.","code":4326,"slug":"ToolRouterV2_ToolkitsIsNoAuth","status":400}}',
+      ),
+    );
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Connect Hacker News" }));
+    await screen.findByText("Ready · no sign-in");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    expect(
+      appErrorText(new KleioApiError(502, "composio", '{"error":{"message":"Rate limited."}}')),
+    ).toBe("Composio couldn't do that: Rate limited.");
+    expect(appErrorText(new KleioApiError(502, "composio", "plain words"))).toBe(
+      "Composio couldn't do that: plain words",
+    );
+    expect(appErrorText(new KleioApiError(503, "apps not set up"))).toBe("apps not set up");
   });
 
   it("explains when the Mac mini has no Composio key", async () => {

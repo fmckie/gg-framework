@@ -210,6 +210,13 @@ export interface ConnectionList {
   connections: Connection[];
 }
 
+/**
+ * How an app connects: "none" needs no sign-in (agents can use it already);
+ * "signin" opens a sign-in in the browser; "setup" needs the user's own
+ * developer keys in Composio first. Hosts before this send nothing.
+ */
+export type ToolkitAuth = "none" | "signin" | "setup";
+
 export interface Toolkit {
   slug: string;
   name: string;
@@ -217,6 +224,7 @@ export interface Toolkit {
   logo: string | null;
   description: string;
   categories: string[];
+  auth?: ToolkitAuth;
 }
 
 export interface ToolkitPage {
@@ -250,11 +258,14 @@ interface RawResponse {
 export class KleioApiError extends Error {
   readonly status: number;
   readonly detail?: string;
-  constructor(status: number, message: string, detail?: string) {
+  /** A machine-readable reason the host sent, e.g. "needs_setup". */
+  readonly code?: string;
+  constructor(status: number, message: string, detail?: string, code?: string) {
     super(message);
     this.name = "KleioApiError";
     this.status = status;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -268,7 +279,8 @@ function errorFrom(status: number, body: unknown): KleioApiError {
   const o = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const msg = typeof o.error === "string" ? o.error : `request failed (HTTP ${status})`;
   const detail = typeof o.detail === "string" ? o.detail : undefined;
-  return new KleioApiError(status, msg, detail);
+  const code = typeof o.code === "string" ? o.code : undefined;
+  return new KleioApiError(status, msg, detail, code);
 }
 
 async function call<T>(method: Method, path: string, body?: unknown, session?: string): Promise<T> {
