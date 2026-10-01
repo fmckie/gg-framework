@@ -4532,9 +4532,10 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
     // Reuse the app's shared HTTP client (cheap Arc clone) so the SSE connect
     // shares the connection pool with the proxy commands.
     let client = app.state::<reqwest::Client>().inner().clone();
-    // kleio: the host pings every 15 s, so silence means a dead connection;
-    // and the phone app coming back to the foreground means "reconnect now".
-    let mut resume = app.state::<kleio::Resume>().subscribe();
+    // kleio: the host pings every 15 s, so silence means a dead connection.
+    // On the iPhone the stream closes while the app is in the background (so
+    // the host can notify) and reopens the moment it is back (kleio::Presence).
+    let mut presence = app.state::<kleio::Presence>().subscribe();
     let idle = kleio::remote().map(|_| kleio::STREAM_IDLE);
     // kleio: only the newest bridge for a window delivers (kleio::BridgeEpochs).
     let epoch = app.state::<kleio::BridgeEpochs>().begin(&label);
@@ -4557,6 +4558,11 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                 log::debug!("event bridge for {label} session {session_id} retired");
                 return;
             }
+            // kleio: never hold a connection open from the background.
+            kleio::until_visible(&mut presence).await;
+            if !speaks_for_window(&app) {
+                return;
+            }
             // The daemon adds this response to the target session's SSE clients.
             let url = format!(
                 "{}/events?session={}",
@@ -4576,14 +4582,15 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                     // codepoint split across TCP chunks is never corrupted.
                     let mut buf: Vec<u8> = Vec::new();
                     loop {
-                        let bytes = match kleio::next_chunk(&mut stream, &mut resume, idle).await {
+                        let bytes = match kleio::next_chunk(&mut stream, &mut presence, idle).await
+                        {
                             kleio::Wake::Chunk(Some(Ok(bytes))) => bytes,
                             kleio::Wake::Chunk(_) => break,
                             kleio::Wake::Idle => {
                                 log::warn!("agent event stream silent for {idle:?}, reconnecting");
                                 break;
                             }
-                            kleio::Wake::Resumed => {
+                            kleio::Wake::OnScreenChanged => {
                                 resumed = true;
                                 break;
                             }
@@ -4619,8 +4626,9 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
                     log::error!("failed to connect to event stream: {e}");
                 }
             }
-            // kleio: back from the background — resume from Last-Event-ID right
-            // away; the host replays what was missed, so nothing was "lost".
+            // kleio: the app left the screen or came back. Reconnect from
+            // Last-Event-ID as soon as it is on screen (the top of the loop
+            // waits); the host replays what was missed, so nothing was "lost".
             if resumed {
                 continue;
             }
@@ -5557,6 +5565,8 @@ async fn kleio_activate_pairing(app: tauri::AppHandle) -> Result<PairingActivati
         start_default_window_session(app.clone(), "main".into());
         *app.state::<Daemon>().port.lock().unwrap() = Some(kleio::REMOTE_PORT_SENTINEL);
         log::info!("kleio: pairing switched on in place");
+        #[cfg(target_os = "ios")]
+        kleio::phone::enable_notifications(&app);
     }
     let _ = &app;
     Ok(PairingActivation::Active)
@@ -5639,7 +5649,8 @@ pub fn run() {
         .manage(TrayIntents::default())
         .manage(kleio::biometric::BiometricGate::default()) // kleio
         .manage(kleio::radio::LocalRadio::default()) // kleio
-        .manage(kleio::Resume::default()) // kleio
+        .manage(kleio::Presence::default()) // kleio
+        .manage(kleio::push::PushToken::default()) // kleio
         .manage(kleio::BridgeEpochs::default()) // kleio
         .manage(kleio::parked::Parked::load(
             kleio::parked::path(&home_dir()),
@@ -5759,6 +5770,10 @@ pub fn run() {
             // window can restore its siblings (macOS does this natively).
             #[cfg(target_os = "windows")]
             app.manage(MinimizeState::default());
+            // kleio (iPhone): close the event streams whenever the app goes to
+            // the background, so the host sees nobody watching and notifies.
+            #[cfg(target_os = "ios")]
+            kleio::phone::watch_background(app.handle());
             // Sweep orphaned sidecars from previous (crashed/force-quit) app
             // instances BEFORE spawning any new sidecars — they'd otherwise
             // accumulate forever across launches. Best-effort + logged.
@@ -5798,6 +5813,9 @@ pub fn run() {
                         id,
                     );
                 }
+                // kleio (iPhone): "agent finished" notifications.
+                #[cfg(target_os = "ios")]
+                kleio::phone::enable_notifications(app.handle());
             } else if !kleio::REMOTE_ONLY {
                 spawn_daemon(app.handle().clone(), false);
             }
@@ -5867,7 +5885,12 @@ pub fn run() {
             #[cfg(mobile)]
             tauri::WindowEvent::Resumed => {
                 log::info!("kleio: app resumed; reconnecting event streams");
-                window.app_handle().state::<kleio::Resume>().fire();
+                let app = window.app_handle().clone();
+                app.state::<kleio::Presence>().foreground();
+                // A push-token registration that failed earlier gets another go.
+                tauri::async_runtime::spawn(async move {
+                    kleio::push::register_due(&app.state::<kleio::push::PushToken>()).await;
+                });
             }
             // Debounced: native drag fires Moved per pixel. Only the last move's
             // deferred task fires (its captured Instant still matches), so peers

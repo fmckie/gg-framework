@@ -58,6 +58,11 @@ targets:
         CFBundleVersion: "50"
     entitlements:
       path: gg-app_iOS/gg-app_iOS.entitlements
+      properties:
+        # "Agent finished" notifications (kleio/phone.rs). Development
+        # signing gets sandbox tokens; App Store signing switches this to
+        # production on its own.
+        aps-environment: development
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full

@@ -90,6 +90,30 @@ retire_legacy_daemons() {
   fi
 }
 
+# Push notifications (src/apns.ts) are on when the Apple key and its settings
+# sit in the host's secrets folder:
+#   $STATE/secrets/apns.p8   the .p8 key from developer.apple.com
+#   $STATE/secrets/apns.env  KLEIO_APNS_KEY_ID=, KLEIO_APNS_TEAM_ID=,
+#                            KLEIO_APNS_BUNDLE_ID=, KLEIO_APNS_ENV= (sandbox|production)
+# They go into the serve job on every install, so a reinstall never silently
+# turns notifications off again. Prints the plist XML; nothing when absent.
+apns_env_xml() {
+  secrets="$STATE/secrets"
+  [ -f "$secrets/apns.p8" ] && [ -f "$secrets/apns.env" ] || return 0
+  printf '    <key>KLEIO_APNS_KEY_PATH</key><string>%s</string>\n' "$secrets/apns.p8"
+  while IFS='=' read -r key value || [ -n "$key" ]; do
+    case "$key" in
+      '' | '#'*) continue ;;
+      KLEIO_APNS_KEY_ID | KLEIO_APNS_TEAM_ID | KLEIO_APNS_BUNDLE_ID | KLEIO_APNS_ENV) ;;
+      *) echo "apns.env: unknown setting $key" >&2; return 1 ;;
+    esac
+    case "$value" in
+      '' | *[!A-Za-z0-9._-]*) echo "apns.env: bad value for $key" >&2; return 1 ;;
+    esac
+    printf '    <key>%s</key><string>%s</string>\n' "$key" "$value"
+  done < "$secrets/apns.env"
+}
+
 write_plist() { # label, subcommand, extra-env-xml
   cat > "$AGENTS/$1.plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -146,8 +170,11 @@ retire_legacy
 # Keys, registry, first admin token (prints once; idempotent afterwards).
 KLEIO_HOST_PORT="$PORT" KLEIO_PUBLIC_URL="$PUBLIC_URL" "$NODE" "$CODE/dist/cli.js" init
 
+APNS_XML="$(apns_env_xml)" || { echo "fix $STATE/secrets/apns.env and re-run" >&2; exit 1; }
+[ -n "$APNS_XML" ] && echo "push notifications: on" || echo "push notifications: off (no secrets/apns.env)"
+
 write_plist com.kleio.host.sidecar sidecar ""
-write_plist com.kleio.host.serve serve ""
+write_plist com.kleio.host.serve serve "$APNS_XML"
 
 # Restart both. The sidecar first so the endpoint file exists before serve reads it.
 for label in com.kleio.host.sidecar com.kleio.host.serve; do

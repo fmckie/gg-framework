@@ -24,6 +24,7 @@ pub mod keychain;
 pub mod parked;
 #[cfg(target_os = "ios")]
 pub mod phone;
+pub mod push;
 pub mod radio;
 pub mod store;
 pub mod tailscale;
@@ -214,29 +215,64 @@ pub fn sse_frame_id(frame: &str) -> Option<u64> {
 /// (an iPhone that slept, a dropped Wi-Fi, a Tailscale re-route).
 pub const STREAM_IDLE: std::time::Duration = std::time::Duration::from_secs(45);
 
-/// "The app is back on screen" (iPhone: `WindowEvent::Resumed`). iOS freezes a
-/// backgrounded app's sockets, so a stream that looks open on return is usually
-/// dead. Firing this makes every event bridge drop its connection and resume at
-/// once from `Last-Event-ID` (the host replays what was missed) instead of
-/// waiting out `STREAM_IDLE`.
-pub struct Resume(tokio::sync::watch::Sender<u64>);
+/// Whether the app is on screen, plus a count of changes so a bridge can tell
+/// that something happened even if it went away and came back meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnScreen {
+    pub changes: u64,
+    pub visible: bool,
+}
 
-impl Default for Resume {
+/// The iPhone app going to the background and coming back. A desktop window
+/// never leaves the screen in this sense, so there it never changes.
+///
+/// - Background: every event bridge closes its connection and waits. The host
+///   only sends its "finished" notification when nobody is watching a chat,
+///   and a frozen app's socket would otherwise look like someone still is.
+/// - Back on screen: every bridge reconnects at once from `Last-Event-ID`; the
+///   host replays what was missed. iOS froze the sockets meanwhile, so even a
+///   stream that looks open is usually dead.
+pub struct Presence(tokio::sync::watch::Sender<OnScreen>);
+
+impl Default for Presence {
     fn default() -> Self {
-        Self(tokio::sync::watch::channel(0).0)
+        let start = OnScreen {
+            changes: 0,
+            visible: true,
+        };
+        Self(tokio::sync::watch::channel(start).0)
     }
 }
 
-impl Resume {
-    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+impl Presence {
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<OnScreen> {
         self.0.subscribe()
     }
 
-    /// Fired by the iPhone's `WindowEvent::Resumed`; desktop never suspends.
+    /// Back on screen (iPhone: `WindowEvent::Resumed`).
     #[cfg_attr(desktop, allow(dead_code))]
-    pub fn fire(&self) {
-        self.0.send_modify(|n| *n = n.wrapping_add(1));
+    pub fn foreground(&self) {
+        self.set(true);
     }
+
+    /// Gone to the background (iPhone: `UIApplicationDidEnterBackground`).
+    #[cfg_attr(desktop, allow(dead_code))]
+    pub fn background(&self) {
+        self.set(false);
+    }
+
+    fn set(&self, visible: bool) {
+        self.0.send_modify(|p| {
+            p.changes = p.changes.wrapping_add(1);
+            p.visible = visible;
+        });
+    }
+}
+
+/// Wait until the app is on screen; at once if it already is.
+pub async fn until_visible(rx: &mut tokio::sync::watch::Receiver<OnScreen>) {
+    // An error means the app is shutting down; there is nothing to wait for.
+    let _ = rx.wait_for(|p| p.visible).await;
 }
 
 /// Which event bridge currently speaks for each window. A bridge used to
@@ -270,15 +306,15 @@ pub enum Wake<T> {
     Chunk(Option<T>),
     /// Nothing at all, not even a ping, for the idle limit.
     Idle,
-    /// The app came back to the foreground (`Resume::fire`).
-    Resumed,
+    /// The app went to the background or came back (`Presence`).
+    OnScreenChanged,
 }
 
-/// Wait for the next chunk, the resume signal, or (when `idle` is set) that
-/// long without any chunk — whichever comes first.
+/// Wait for the next chunk, a change in whether the app is on screen, or
+/// (when `idle` is set) that long without any chunk — whichever comes first.
 pub async fn next_chunk<S>(
     stream: &mut S,
-    resume: &mut tokio::sync::watch::Receiver<u64>,
+    presence: &mut tokio::sync::watch::Receiver<OnScreen>,
     idle: Option<std::time::Duration>,
 ) -> Wake<S::Item>
 where
@@ -288,11 +324,11 @@ where
     use futures_util::StreamExt;
     let race = async {
         let next = stream.next();
-        let changed = resume.changed();
+        let changed = presence.changed();
         futures_util::pin_mut!(next, changed);
         match select(next, changed).await {
             Either::Left((item, _)) => Wake::Chunk(item),
-            Either::Right((Ok(()), _)) => Wake::Resumed,
+            Either::Right((Ok(()), _)) => Wake::OnScreenChanged,
             // The signal's owner is gone (app shutting down): just read on.
             Either::Right((Err(_), next)) => Wake::Chunk(next.await),
         }
@@ -336,8 +372,8 @@ mod tests {
 
     #[test]
     fn a_chunk_wakes_the_bridge() {
-        let resume = Resume::default();
-        let mut rx = resume.subscribe();
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
         let mut stream = futures_util::stream::iter([7u8]);
         let woke = block_on(next_chunk(&mut stream, &mut rx, None));
         assert_eq!(woke, Wake::Chunk(Some(7)));
@@ -346,19 +382,61 @@ mod tests {
     }
 
     #[test]
-    fn resuming_the_app_wakes_a_bridge_waiting_on_a_silent_stream() {
-        let resume = Resume::default();
-        let mut rx = resume.subscribe();
+    fn going_to_the_background_wakes_a_bridge_waiting_on_a_silent_stream() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
         let mut silent = futures_util::stream::pending::<u8>();
-        resume.fire();
+
+        presence.background();
+
         let woke = block_on(next_chunk(&mut silent, &mut rx, None));
-        assert_eq!(woke, Wake::Resumed);
+        assert_eq!(woke, Wake::OnScreenChanged);
+    }
+
+    #[test]
+    fn coming_back_on_screen_wakes_a_bridge_waiting_on_a_silent_stream() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let mut silent = futures_util::stream::pending::<u8>();
+
+        presence.foreground();
+
+        let woke = block_on(next_chunk(&mut silent, &mut rx, None));
+        assert_eq!(woke, Wake::OnScreenChanged);
+    }
+
+    #[test]
+    fn a_bridge_stays_disconnected_until_the_app_is_back_on_screen() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let short = std::time::Duration::from_millis(30);
+        presence.background();
+
+        let while_away =
+            block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+        presence.foreground();
+        let once_back =
+            block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+
+        assert!(while_away.is_err(), "waited while in the background");
+        assert!(once_back.is_ok(), "carried on once back on screen");
+    }
+
+    #[test]
+    fn a_window_on_screen_never_waits() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let short = std::time::Duration::from_millis(30);
+
+        let waited = block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+
+        assert!(waited.is_ok());
     }
 
     #[test]
     fn a_silent_stream_goes_idle() {
-        let resume = Resume::default();
-        let mut rx = resume.subscribe();
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
         let mut silent = futures_util::stream::pending::<u8>();
         let limit = std::time::Duration::from_millis(30);
         let woke = block_on(next_chunk(&mut silent, &mut rx, Some(limit)));

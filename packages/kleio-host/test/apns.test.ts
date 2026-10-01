@@ -213,6 +213,26 @@ describe("createApnsPusher", () => {
     expect(JSON.stringify(push.body)).not.toMatch(/text_delta|prompt/);
   });
 
+  it("rings a phone once, even when several of its pairings hold the same token", async () => {
+    // Re-pairing (or replacing the app) leaves older pairings from the same
+    // phone, and every one of them registered the phone's single APNs token.
+    const p = pusher();
+    const phone = "11".repeat(16);
+    const devices = [
+      device({ label: "old app", push: reg(phone) }),
+      device({ label: "verify script", push: reg(phone) }),
+      device({ label: "new app", push: reg(phone) }),
+      device({ label: "another phone", push: reg("22".repeat(16)) }),
+    ];
+
+    expect(await p.notify({ sessionId: "s" }, devices)).toBe(2);
+
+    expect(apple.pushes.map((x) => x.path).sort()).toEqual([
+      `/3/device/${phone}`,
+      `/3/device/${"22".repeat(16)}`,
+    ]);
+  });
+
   it("coalesces completions inside MIN_PUSH_INTERVAL_MS", async () => {
     const p = pusher();
     const devices = [device({ push: reg("11".repeat(16)) })];
