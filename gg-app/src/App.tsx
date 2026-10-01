@@ -65,6 +65,7 @@ import {
   type PromptSegment,
   type AskUserPrompt,
   answerAskUser,
+  selectWorkspace,
 } from "./agent";
 import { dropSupersededAsks, mergeAskAnswers } from "./ask-user";
 import { glowPlacement, glowStateFor, glowVars } from "./window-glow";
@@ -78,8 +79,10 @@ import {
   showJumpToLatest,
 } from "./transcript-pin";
 import { isPhone } from "./platform";
+import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
 import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
 import { onScreenKeyboardUp } from "./phone-viewport";
+import { useNotificationTaps, type TapDestination } from "./notification-tap";
 import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
 import { useKenMentor } from "./useKenMentor";
@@ -141,6 +144,7 @@ import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
 import { KleioScreen } from "./kleio/LazyKleioScreen";
+import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
@@ -425,6 +429,14 @@ function canHandleWindowFileDrop(): boolean {
   return !document.querySelector(".modal-backdrop");
 }
 
+/** kleio (iPhone): the agent or group a tapped notification opens. `key`
+ *  remounts the Kleio screen so each tap lands on its own item. */
+interface KleioOpen {
+  tab: KleioScreenTab;
+  id: string;
+  key: number;
+}
+
 function App(): React.ReactElement {
   const [items, setItems] = useState<Item[]>([]);
   // Ken Kai (mentor agent): own running flag, token/thinking metrics, streaming
@@ -448,6 +460,9 @@ function App(): React.ReactElement {
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
   // kleio: Agents and Groups — a screen from Home, an overlay over a workspace.
   const [showKleioOverlay, setShowKleioOverlay] = useState(false);
+  // kleio (iPhone): the agent or group a tapped notification opens there.
+  // Cleared once no Kleio screen is showing, so the next visit is a normal one.
+  const [kleioOpen, setKleioOpen] = useState<KleioOpen | null>(null);
   const kleioRemote = useKleioRemote();
   const kleioActiveRef = useRef(false);
   kleioActiveRef.current = Boolean(kleioRemote.status?.active);
@@ -1383,26 +1398,10 @@ function App(): React.ReactElement {
   // Focus the chat input whenever this window gains focus (or clicked anywhere),
   // so switching between project windows lands the cursor in the input without
   // a second click. Skips when the user is selecting text or focused elsewhere
-  // intentionally (e.g. a menu button).
+  // intentionally (e.g. a menu button), and always on iPhone (composer-refocus.ts).
   useEffect(() => {
     const focusInput = (): void => {
-      const active = document.activeElement;
-      if (active && active !== document.body && active.tagName === "BUTTON") return;
-      if (window.getSelection()?.toString()) return;
-      // A modal/overlay owns keyboard focus while open — stealing it back to the
-      // chat input means the user can't type in the modal's fields. Bail when one
-      // is present (every modal renders inside `.modal-backdrop`).
-      if (document.querySelector(".modal-backdrop")) return;
-      // Don't yank focus out of another editable field (a different input,
-      // textarea, or contenteditable) the user is intentionally typing in.
-      if (
-        active instanceof HTMLElement &&
-        active !== inputRef.current &&
-        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)
-      ) {
-        return;
-      }
-      inputRef.current?.focus();
+      if (refocusesComposer(document, inputRef.current)) inputRef.current?.focus();
     };
     window.addEventListener("focus", focusInput);
     window.addEventListener("mouseup", focusInput);
@@ -2635,6 +2634,58 @@ function App(): React.ReactElement {
     setHydrateNonce((n) => n + 1);
   }
 
+  // kleio (iPhone): a tapped notification opens what it is about, from any
+  // screen. An agent or group opens on its Kleio page; a chat or project is
+  // reopened exactly as picking it from the chat list would. The ref keeps the
+  // listener stable while it always runs this render's handlers.
+  const openTappedRef = useRef<(where: TapDestination) => void>(() => {});
+  openTappedRef.current = (where: TapDestination): void => {
+    if (where.kind === "none") return;
+    if (where.kind === "chat") {
+      const { chat } = where;
+      void selectWorkspace(chat.mode, chat.cwd, chat.sessionPath, chat.chatAgent ?? "general")
+        .then(() =>
+          withViewTransition(() => {
+            setShowKleioOverlay(false);
+            setShowPicker(false);
+            setWorkspaceMode(chat.mode);
+            resetForChosenProject();
+          }),
+        )
+        .catch((e: unknown) => toast(`Could not open that chat: ${String(e)}`, "error"));
+      return;
+    }
+    const open: KleioOpen = {
+      tab: where.kind === "agent" ? "blobs" : "groups",
+      id: where.kind === "agent" ? where.agentId : where.groupId,
+      // A fresh key remounts the Kleio screen, so a second tap opens its item.
+      key: Date.now(),
+    };
+    // In the same update that shows the screen, so it never shows without it.
+    withViewTransition(() => {
+      setKleioOpen(open);
+      setShowPicker(false);
+      if (needsProject) {
+        setEntryView("kleio");
+      } else {
+        setShowKleioOverlay(true);
+      }
+    });
+  };
+  const openTapped = useCallback((where: TapDestination) => openTappedRef.current(where), []);
+  useNotificationTaps(openTapped);
+  // Forget the tapped item once no Kleio screen shows it, however it was left
+  // (Back, a tapped chat, a menu item), so the next visit opens on the list.
+  const kleioShown = showKleioOverlay || (needsProject && entryView === "kleio");
+  useEffect(() => {
+    if (!kleioShown) setKleioOpen(null);
+  }, [kleioShown]);
+  // The Kleio screen, opened on a tapped agent or group when there is one.
+  const kleioScreenProps = (close: () => void): React.ComponentProps<typeof KleioScreen> => ({
+    ...(kleioOpen ? { initialTab: kleioOpen.tab, openId: kleioOpen.id } : {}),
+    onClose: close,
+  });
+
   // Show explicit recovery feedback while Rust resolves this window's durable
   // target. This branch used to paint only the dark background, which looked
   // indistinguishable from a dead/black webview during a slow recovery.
@@ -2677,7 +2728,10 @@ function App(): React.ReactElement {
             refreshSignal={homeRefreshSignal}
           />
         ) : entryView === "kleio" ? (
-          <KleioScreen onClose={() => withViewTransition(() => setEntryView("home"))} />
+          <KleioScreen
+            key={kleioOpen?.key}
+            {...kleioScreenProps(() => withViewTransition(() => setEntryView("home")))}
+          />
         ) : entryView === "settings" ? (
           <SettingsScreen
             initialTab={settingsTab}
@@ -2712,7 +2766,10 @@ function App(): React.ReactElement {
         {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
         {showKleioOverlay && kleioRemote.status?.active && (
           <div className="kleio-overlay">
-            <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+            <KleioScreen
+              key={kleioOpen?.key}
+              {...kleioScreenProps(() => setShowKleioOverlay(false))}
+            />
           </div>
         )}
         <Toaster />
@@ -3207,7 +3264,7 @@ function App(): React.ReactElement {
                   else if (kenRunning) void cancelKen();
                 }
               }}
-              autoFocus
+              autoFocus={focusesComposerOnOpen(document)}
             />
           </div>
           {/* Send doubles as the stop control mid-run, so the primary action
@@ -3477,7 +3534,10 @@ function App(): React.ReactElement {
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
       {showKleioOverlay && kleioRemote.status?.active && (
         <div className="kleio-overlay">
-          <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+          <KleioScreen
+            key={kleioOpen?.key}
+            {...kleioScreenProps(() => setShowKleioOverlay(false))}
+          />
         </div>
       )}
       {showScorecard && progress && (

@@ -3931,14 +3931,13 @@ async fn select_project(
     );
     // kleio (iPhone): reopening a chat whose reply kept running re-attaches to
     // it. Only the phone parks sessions, so only the phone looks.
+    let port = port_for(&webview);
     let parked = session_path
         .as_deref()
-        .filter(|_| cfg!(mobile))
+        .filter(|_| cfg!(mobile) && port.is_some())
         .and_then(|p| app.state::<kleio::parked::Parked>().adopt(p));
-    if let (Some(id), Some(path), Some(port)) =
-        (parked, session_path.as_deref(), port_for(&webview))
-    {
-        adopt_parked_session(&app, &label, generation, port, path, id)?;
+    if let (Some(id), Some(port)) = (parked, port) {
+        adopt_parked_session(&app, &label, generation, port, id)?;
     } else {
         finish_window_session(
             app.clone(),
@@ -5091,10 +5090,16 @@ async fn daemon_create_session(
         .ok_or_else(|| "agent daemon returned no session id".to_string())
 }
 
-/// kleio: what the host says about one session (`GET /state`).
-async fn session_run(app: &tauri::AppHandle, port: u16, id: &str) -> kleio::parked::Run {
-    use kleio::parked::Run;
-    let client = app.state::<reqwest::Client>().inner().clone();
+/// kleio: the host's answer to `GET /state` for one session.
+enum SessionState {
+    Found(serde_json::Value),
+    /// The host no longer has this session.
+    Gone,
+    /// The host could not be asked, or answered something unreadable.
+    Unknown,
+}
+
+async fn fetch_session_state(client: &reqwest::Client, port: u16, id: &str) -> SessionState {
     let sent = client
         .get(format!("{}/state", sidecar_base(port)))
         .header("x-gg-session", id)
@@ -5102,31 +5107,86 @@ async fn session_run(app: &tauri::AppHandle, port: u16, id: &str) -> kleio::park
         .send()
         .await;
     match sent {
-        Ok(res) if res.status() == reqwest::StatusCode::NOT_FOUND => Run::Gone,
+        Ok(res) if res.status() == reqwest::StatusCode::NOT_FOUND => SessionState::Gone,
         Ok(res) if res.status().is_success() => match res.json::<serde_json::Value>().await {
-            Ok(state) => kleio::parked::classify(&state),
-            Err(_) => Run::Unknown,
+            Ok(state) => SessionState::Found(state),
+            Err(_) => SessionState::Unknown,
         },
-        _ => Run::Unknown,
+        _ => SessionState::Unknown,
+    }
+}
+
+/// kleio: what the host says about one session (`GET /state`).
+async fn session_run(app: &tauri::AppHandle, port: u16, id: &str) -> kleio::parked::Run {
+    use kleio::parked::Run;
+    let client = app.state::<reqwest::Client>().inner().clone();
+    match fetch_session_state(&client, port, id).await {
+        SessionState::Found(state) => kleio::parked::classify(&state),
+        SessionState::Gone => Run::Gone,
+        SessionState::Unknown => Run::Unknown,
+    }
+}
+
+/// kleio (iPhone): the chat a host session belongs to, for a tapped
+/// notification. Chats the phone closed are remembered on the phone (the host
+/// forgets a disposed session); any other session is asked about on the host.
+#[tauri::command]
+async fn kleio_chat_for_session(
+    app: tauri::AppHandle,
+    session_id: String,
+) -> Result<Option<kleio::parked::ChatTarget>, String> {
+    if !kleio::commands::safe_session(&session_id) {
+        return Err("kleio_chat_for_session: bad session id".into());
+    }
+    let (chat, source) = match app.state::<kleio::parked::Parked>().chat_for(&session_id) {
+        Some(chat) => (Some(chat), "remembered"),
+        None => (host_chat_for_session(&app, &session_id).await, "host"),
+    };
+    match &chat {
+        Some(c) => log::info!(
+            "kleio: notification for session {session_id} opens {} ({source})",
+            c.session_path
+        ),
+        None => log::info!("kleio: notification for session {session_id}: no chat to open"),
+    }
+    Ok(chat)
+}
+
+/// The chat a live host session belongs to (`GET /state`). `None` when not
+/// paired yet, the host cannot be asked, or it no longer has the session.
+async fn host_chat_for_session(
+    app: &tauri::AppHandle,
+    session_id: &str,
+) -> Option<kleio::parked::ChatTarget> {
+    let client = app.try_state::<reqwest::Client>()?.inner().clone();
+    let port = (*app.state::<Daemon>().port.lock().unwrap())?;
+    match fetch_session_state(&client, port, session_id).await {
+        SessionState::Found(state) => kleio::parked::chat_target(&state),
+        SessionState::Gone | SessionState::Unknown => None,
     }
 }
 
 /// kleio (iPhone): a chat being switched away from — park it if its reply is
 /// still running, so the reply finishes and can be reopened live; otherwise
-/// dispose it as the desktop does.
+/// dispose it as the desktop does. Either way the phone remembers where the
+/// chat lives, for a notification about it.
 async fn park_or_dispose(app: &tauri::AppHandle, port: u16, id: String) {
+    use kleio::parked::{Parked, Run};
     match session_run(app, port, &id).await {
-        kleio::parked::Run::Running { path } => {
+        Run::Running(chat) => {
+            let path = chat.session_path.clone();
             log::info!("kleio: parked running session {id} for {path}");
-            let older = app
-                .state::<kleio::parked::Parked>()
-                .park(path.clone(), id.clone());
+            let older = app.state::<Parked>().park(chat, id.clone());
             if let Some(older) = older {
                 daemon_delete_session(app, port, &older).await;
             }
             watch_parked_session(app.clone(), port, path, id);
         }
-        _ => daemon_delete_session(app, port, &id).await,
+        Run::Idle(Some(chat)) => {
+            app.state::<Parked>().remember(chat, id.clone());
+            daemon_delete_session(app, port, &id).await;
+        }
+        Run::Idle(None) | Run::Gone | Run::Unknown => daemon_delete_session(app, port, &id).await,
     }
 }
 
@@ -5143,13 +5203,13 @@ fn watch_parked_session(app: tauri::AppHandle, port: u16, path: String, id: Stri
                 return;
             }
             match session_run(&app, port, &id).await {
-                Run::Running { .. } => continue,
+                Run::Running(_) => continue,
                 Run::Unknown if started.elapsed() < kleio::parked::GIVE_UP => continue,
                 Run::Gone => {
                     parked.release(&path, &id);
                     return;
                 }
-                Run::Idle | Run::Unknown => {
+                Run::Idle(_) | Run::Unknown => {
                     if parked.release(&path, &id) {
                         log::info!("kleio: parked session {id} finished; disposing");
                         daemon_delete_session(&app, port, &id).await;
@@ -5168,7 +5228,6 @@ fn adopt_parked_session(
     label: &str,
     generation: u64,
     port: u16,
-    path: &str,
     id: String,
 ) -> Result<(), String> {
     let published = {
@@ -5177,10 +5236,12 @@ fn adopt_parked_session(
         publish_window_session(&mut map, label, generation, id.clone())
     };
     if !published {
-        // A newer selection won; leave this one parked to finish on its own.
-        app.state::<kleio::parked::Parked>()
-            .park(path.to_string(), id.clone());
-        watch_parked_session(app.clone(), port, path.to_string(), id);
+        // A newer selection won: treat this chat like any other one switched
+        // away from — parked again if its reply is still running.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            park_or_dispose(&app, port, id).await;
+        });
         return Err("session selection was superseded".to_string());
     }
     log::info!("kleio: re-attached label={label} to running session {id}");
@@ -5651,6 +5712,7 @@ pub fn run() {
         .manage(kleio::radio::LocalRadio::default()) // kleio
         .manage(kleio::Presence::default()) // kleio
         .manage(kleio::push::PushToken::default()) // kleio
+        .manage(kleio::push::PendingTap::default()) // kleio
         .manage(kleio::BridgeEpochs::default()) // kleio
         .manage(kleio::parked::Parked::load(
             kleio::parked::path(&home_dir()),
@@ -5660,6 +5722,8 @@ pub fn run() {
             kleio::commands::kleio_pair,
             kleio::commands::kleio_forget,
             kleio_activate_pairing,
+            kleio_chat_for_session,
+            kleio::push::kleio_take_notification_tap,
             kleio::commands::kleio_devices,
             kleio::commands::kleio_revoke,
             kleio::commands::kleio_offer,
@@ -5774,6 +5838,10 @@ pub fn run() {
             // the background, so the host sees nobody watching and notifies.
             #[cfg(target_os = "ios")]
             kleio::phone::watch_background(app.handle());
+            // kleio (iPhone): a tapped notification opens what it is about.
+            // Must be in place before launch finishes; this is that moment.
+            #[cfg(target_os = "ios")]
+            kleio::phone::handle_notification_taps(app.handle());
             // Sweep orphaned sidecars from previous (crashed/force-quit) app
             // instances BEFORE spawning any new sidecars — they'd otherwise
             // accumulate forever across launches. Best-effort + logged.

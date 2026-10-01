@@ -3,7 +3,8 @@
 //! The host sends them (packages/kleio-host/src/apns.ts) to every paired phone
 //! that has told it where: an APNs device token, and which Apple push service
 //! the token belongs to. This module holds that token and registers it with
-//! the host. Getting the token from iOS is in `phone.rs`.
+//! the host, and reads which chat a tapped notification is about. Talking to
+//! iOS is in `phone.rs`.
 //!
 //! Only the iPhone build uses it; it is compiled everywhere so its logic is
 //! tested on the Mac.
@@ -48,6 +49,59 @@ pub fn apns_env(profile: Option<&[u8]>, simulator: bool) -> Option<ApnsEnv> {
         "production" => Some(ApnsEnv::Production),
         _ => None,
     }
+}
+
+/// What a tapped notification is about, from the `kleio` part of its payload
+/// (apns.ts `Nudge`): a chat or agent session, a group chat, or both.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationTap {
+    pub session_id: Option<String>,
+    pub group_id: Option<String>,
+}
+
+/// Read a tapped notification's payload (its `userInfo`, as JSON). Ids that
+/// could not have come from the host are dropped: they go on to the host in
+/// request headers and paths. `None` when nothing usable is left.
+pub fn tap_from_payload(payload: &serde_json::Value) -> Option<NotificationTap> {
+    let kleio = payload.get("kleio")?;
+    let id = |key: &str| {
+        kleio
+            .get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| super::commands::safe_session(s))
+            .map(str::to_string)
+    };
+    let tap = NotificationTap {
+        session_id: id("sessionId"),
+        group_id: id("groupId"),
+    };
+    (tap.session_id.is_some() || tap.group_id.is_some()).then_some(tap)
+}
+
+/// The notification the person tapped, until the app opens what it is about.
+/// iOS can report the tap before the app's screen has loaded (a tap that
+/// launched it), so it waits here and the screen takes it once.
+#[derive(Default)]
+pub struct PendingTap(Mutex<Option<NotificationTap>>);
+
+impl PendingTap {
+    pub fn set(&self, tap: NotificationTap) {
+        *self.0.lock().unwrap() = Some(tap);
+    }
+
+    pub fn take(&self) -> Option<NotificationTap> {
+        self.0.lock().unwrap().take()
+    }
+}
+
+/// The screen asks for a tapped notification: on load, and whenever iOS
+/// reports a tap (the `kleio-notification-tap` event).
+#[tauri::command]
+pub fn kleio_take_notification_tap(
+    pending: tauri::State<'_, PendingTap>,
+) -> Option<NotificationTap> {
+    pending.take()
 }
 
 /// An APNs device token as the host expects it: lowercase hex.
@@ -141,6 +195,54 @@ mod tests {
     const DEV_PROFILE: &[u8] = b"\x30\x82junk<plist><dict><key>Entitlements</key><dict>\
         <key>aps-environment</key>\n\t\t<string>development</string>\
         <key>get-task-allow</key><true/></dict></dict></plist>\x00\x01";
+
+    #[test]
+    fn a_tap_on_a_chat_notification_names_its_session() {
+        let payload = serde_json::json!({
+            "aps": { "alert": { "title": "Kleio" } },
+            "kleio": { "sessionId": "0e1d8f2e-bdaf-4377-838d-455f4ee9bb9d" }
+        });
+
+        assert_eq!(
+            tap_from_payload(&payload),
+            Some(NotificationTap {
+                session_id: Some("0e1d8f2e-bdaf-4377-838d-455f4ee9bb9d".into()),
+                group_id: None,
+            })
+        );
+    }
+
+    #[test]
+    fn a_tap_on_a_group_notification_names_its_group() {
+        let payload = serde_json::json!({ "kleio": { "groupId": "g_08c5ce14" } });
+
+        assert_eq!(
+            tap_from_payload(&payload).and_then(|t| t.group_id),
+            Some("g_08c5ce14".to_string())
+        );
+    }
+
+    #[test]
+    fn a_tap_ignores_ids_that_could_not_be_ours() {
+        let odd = serde_json::json!({ "kleio": { "sessionId": "../../x", "groupId": 7 } });
+        let none = serde_json::json!({ "aps": {} });
+
+        assert_eq!(tap_from_payload(&odd), None);
+        assert_eq!(tap_from_payload(&none), None);
+    }
+
+    #[test]
+    fn a_tap_waits_until_the_app_takes_it_once() {
+        let pending = PendingTap::default();
+        let tap = NotificationTap {
+            session_id: Some("s1".into()),
+            group_id: None,
+        };
+        pending.set(tap.clone());
+
+        assert_eq!(pending.take(), Some(tap));
+        assert_eq!(pending.take(), None);
+    }
 
     #[test]
     fn a_development_signed_build_gets_sandbox_tokens() {

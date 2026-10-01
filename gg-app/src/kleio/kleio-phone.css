@@ -77,6 +77,19 @@ html.platform-ios.bottom-covered .app {
   padding-bottom: 0;
 }
 
+/* Agents and groups over a chat float in a fixed layer outside `.app`: it
+   keeps clear of the status bar and home indicator itself, and ends above the
+   keyboard like the page does, so its message box stays in view. */
+html.platform-ios .kleio-overlay {
+  bottom: auto;
+  height: var(--app-height, 100%);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  box-sizing: border-box;
+}
+html.platform-ios.bottom-covered .kleio-overlay {
+  padding-bottom: 0;
+}
+
 /* The connect screen sits outside `.app`. */
 html.platform-ios .kleio-gate {
   padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px)

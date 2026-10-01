@@ -49,6 +49,7 @@ export function BlobsPage({
   onClose,
   onListChange,
   onOpenApps,
+  openId,
 }: {
   /** Leave Agents (Back on the list). */
   onClose: () => void;
@@ -56,10 +57,14 @@ export function BlobsPage({
   onListChange?: (atList: boolean) => void;
   /** Open the Apps page (a "Connect apps" button on the list). */
   onOpenApps?: () => void;
+  /** Open straight into this agent's chat (a tapped notification). */
+  openId?: string;
 }): React.ReactElement {
   const [blobs, setBlobs] = useState<Blob[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<View>({ kind: "list" });
+  const [view, setView] = useState<View>(
+    openId ? { kind: "detail", id: openId } : { kind: "list" },
+  );
 
   const load = useCallback(async (): Promise<void> => {
     try {

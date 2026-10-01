@@ -109,6 +109,7 @@ export function GroupsPage({
   onClose,
   onListChange,
   onOpenApps,
+  openId,
 }: {
   /** Leave Groups (Back on the list). */
   onClose: () => void;
@@ -116,10 +117,12 @@ export function GroupsPage({
   onListChange?: (atList: boolean) => void;
   /** Open the Apps page (a "Connect apps" button on the list). */
   onOpenApps?: () => void;
+  /** Open straight into this group's chat (a tapped notification). */
+  openId?: string;
 }): React.ReactElement {
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [blobs, setBlobs] = useState<Blob[]>([]);
-  const [view, setView] = useState<View>({ kind: "list" });
+  const [view, setView] = useState<View>(openId ? { kind: "chat", id: openId } : { kind: "list" });
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {

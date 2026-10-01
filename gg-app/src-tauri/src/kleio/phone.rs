@@ -1,16 +1,17 @@
 //! iPhone-only setup: the app's one web view, its trips to the background,
-//! and "agent finished" notifications.
+//! and "agent finished" notifications (getting them, and opening what a
+//! tapped one is about).
 
 use std::ffi::c_void;
 use std::sync::{Once, OnceLock};
 
-use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
+use objc2::runtime::{AnyClass, AnyObject, AnyProtocol, Bool, ClassBuilder, Imp, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSError, NSString};
 use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
-use super::push::{apns_env, hex, register_due, PushToken};
+use super::push::{apns_env, hex, register_due, tap_from_payload, PendingTap, PushToken};
 use super::Presence;
 
 /// `UIScrollViewContentInsetAdjustmentBehavior.never`.
@@ -200,6 +201,149 @@ unsafe extern "C-unwind" fn did_fail(
         }
     };
     log::warn!("kleio: iOS gave no push token: {reason}");
+}
+
+/// The action iOS reports when a notification is swiped away rather than
+/// tapped (only sent to apps that ask for it; ignored here regardless).
+const DISMISS_ACTION: &str = "com.apple.UNNotificationDismissActionIdentifier";
+
+/// Open what a tapped notification is about. iOS reports a tap only to the
+/// notification center's delegate, which has to be in place before the app
+/// finishes launching or a tap that launched the app is lost. Call from
+/// Tauri's `setup`, which runs inside `didFinishLaunching` on iOS.
+pub fn handle_notification_taps(app: &tauri::AppHandle) {
+    let _ = APP.set(app.clone());
+    let Some(class) = tap_delegate_class() else {
+        log::warn!("kleio: could not create the notification delegate; taps open the app only");
+        return;
+    };
+    // SAFETY: `setup` runs on the main thread. `new` returns an owned (+1)
+    // instance that is deliberately never released: the center holds its
+    // delegate weakly, and this one must live as long as the app.
+    unsafe {
+        let delegate: *mut AnyObject = msg_send![class, new];
+        if delegate.is_null() {
+            return;
+        }
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let _: () = msg_send![&*center, setDelegate: delegate];
+    }
+}
+
+/// An Objective-C class with the one `UNUserNotificationCenterDelegate` method
+/// Kleio needs. iOS checks for the method itself, so the protocol is added
+/// only when the runtime has it.
+fn tap_delegate_class() -> Option<&'static AnyClass> {
+    static CLASS: OnceLock<Option<&'static AnyClass>> = OnceLock::new();
+    *CLASS.get_or_init(|| {
+        type DidReceive = unsafe extern "C-unwind" fn(
+            *mut AnyObject,
+            Sel,
+            *mut AnyObject,
+            *mut AnyObject,
+            *mut block2::Block<dyn Fn()>,
+        );
+        let mut builder = ClassBuilder::new(c"KleioNotificationTapDelegate", class!(NSObject))?;
+        if let Some(protocol) = AnyProtocol::get(c"UNUserNotificationCenterDelegate") {
+            builder.add_protocol(protocol);
+        }
+        // SAFETY: `did_receive_response` takes exactly what iOS passes for
+        // userNotificationCenter:didReceiveNotificationResponse:
+        // withCompletionHandler: (self, _cmd, the center, the response, and a
+        // void-returning completion block) and returns nothing.
+        unsafe {
+            builder.add_method(
+                sel!(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:),
+                did_receive_response as DidReceive,
+            );
+        }
+        Some(builder.register())
+    })
+}
+
+/// `userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:`
+unsafe extern "C-unwind" fn did_receive_response(
+    _this: *mut AnyObject,
+    _cmd: Sel,
+    _center: *mut AnyObject,
+    response: *mut AnyObject,
+    done: *mut block2::Block<dyn Fn()>,
+) {
+    // SAFETY: `response` and `done` are what iOS passed for this call. iOS
+    // expects the completion block to be called once, when handling is done.
+    unsafe {
+        if !response.is_null() {
+            notification_tapped(response);
+        }
+        if !done.is_null() {
+            (*done).call(());
+        }
+    }
+}
+
+/// Hand the tapped notification to the screen (kleio_take_notification_tap).
+///
+/// # Safety
+/// `response` must be a live UNNotificationResponse.
+unsafe fn notification_tapped(response: *mut AnyObject) {
+    // SAFETY: each accessor returns an object owned by `response`, alive for
+    // this call; `userInfo` is the notification's payload dictionary.
+    let payload = unsafe {
+        let action: *mut NSString = msg_send![response, actionIdentifier];
+        if !action.is_null() && (*action).to_string() == DISMISS_ACTION {
+            return;
+        }
+        let notification: *mut AnyObject = msg_send![response, notification];
+        let request: *mut AnyObject = msg_send![notification, request];
+        let content: *mut AnyObject = msg_send![request, content];
+        let user_info: *mut AnyObject = msg_send![content, userInfo];
+        json_of(user_info)
+    };
+    let Some(tap) = payload.as_ref().and_then(tap_from_payload) else {
+        return;
+    };
+    let Some(app) = APP.get() else {
+        return;
+    };
+    log::info!(
+        "kleio: notification tapped session={} group={}",
+        tap.session_id.is_some(),
+        tap.group_id.is_some()
+    );
+    app.state::<PendingTap>().set(tap);
+    let _ = app.emit("kleio-notification-tap", ());
+}
+
+/// A Foundation object (here: a push payload) as JSON.
+///
+/// # Safety
+/// `object` must be null or a live Foundation object.
+unsafe fn json_of(object: *mut AnyObject) -> Option<serde_json::Value> {
+    if object.is_null() {
+        return None;
+    }
+    let json = class!(NSJSONSerialization);
+    // SAFETY: `isValidJSONObject:` is checked first, so `dataWithJSONObject:`
+    // cannot throw. The returned NSData is autoreleased and outlives this
+    // call; its bytes are copied out by `from_slice` before returning.
+    unsafe {
+        let valid: bool = msg_send![json, isValidJSONObject: object];
+        if !valid {
+            return None;
+        }
+        let no_error: *mut *mut AnyObject = std::ptr::null_mut();
+        let data: *mut AnyObject =
+            msg_send![json, dataWithJSONObject: object, options: 0usize, error: no_error];
+        if data.is_null() {
+            return None;
+        }
+        let length: usize = msg_send![data, length];
+        let bytes: *const c_void = msg_send![data, bytes];
+        if bytes.is_null() || length == 0 {
+            return None;
+        }
+        serde_json::from_slice(std::slice::from_raw_parts(bytes.cast::<u8>(), length)).ok()
+    }
 }
 
 fn token_received(token: String) {

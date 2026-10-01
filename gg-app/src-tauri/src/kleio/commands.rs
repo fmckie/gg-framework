@@ -497,7 +497,7 @@ fn safe_query(q: &str) -> bool {
 }
 
 /// Session ids are sidecar UUID-ish tokens; anything else never reaches a header.
-fn safe_session(s: &str) -> bool {
+pub(crate) fn safe_session(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
         && s.bytes()

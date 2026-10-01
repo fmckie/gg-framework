@@ -26,6 +26,9 @@ const TABS: SettingsTab<KleioScreenTab>[] = [
 
 interface Props {
   initialTab?: KleioScreenTab;
+  /** Open straight into this agent's or group's chat, on `initialTab`. The
+   *  screen remounts per tab, so switching tabs lands on the lists as usual. */
+  openId?: string;
   onClose: () => void;
 }
 
@@ -51,11 +54,19 @@ function KleioApps({ onBack }: { onBack: () => void }): React.ReactElement {
   );
 }
 
-export function KleioScreen({ initialTab = "blobs", onClose }: Props): React.ReactElement {
+export function KleioScreen({ initialTab = "blobs", openId, onClose }: Props): React.ReactElement {
   const [tab, setTab] = useState<KleioScreenTab>(initialTab);
   const [apps, setApps] = useState(false);
   // A page reports when it's on its list, the only place the switcher shows.
-  const [atList, setAtList] = useState(true);
+  const [atList, setAtList] = useState(!openId);
+  // Open straight into the item once. Pages remount per tab, so coming back
+  // to this tab later lands on its list like any other visit.
+  const [pending, setPending] = useState(openId);
+  const open = pending ? { openId: pending } : {};
+  const switchTab = (next: KleioScreenTab): void => {
+    setPending(undefined);
+    setTab(next);
+  };
   const dock = atList && !apps;
   const openApps = (): void => setApps(true);
 
@@ -70,14 +81,21 @@ export function KleioScreen({ initialTab = "blobs", onClose }: Props): React.Rea
         key={apps ? "apps" : tab}
       >
         {apps ? (
-          <KleioApps onBack={() => setApps(false)} />
+          <KleioApps
+            onBack={() => {
+              setPending(undefined);
+              setApps(false);
+            }}
+          />
         ) : tab === "blobs" ? (
-          <BlobsPage onClose={onClose} onListChange={setAtList} onOpenApps={openApps} />
+          <BlobsPage onClose={onClose} onListChange={setAtList} onOpenApps={openApps} {...open} />
         ) : (
-          <GroupsPage onClose={onClose} onListChange={setAtList} onOpenApps={openApps} />
+          <GroupsPage onClose={onClose} onListChange={setAtList} onOpenApps={openApps} {...open} />
         )}
       </div>
-      {dock && <SettingsTabBar tabs={TABS} selected={tab} onSelect={setTab} panelId={PANEL_ID} />}
+      {dock && (
+        <SettingsTabBar tabs={TABS} selected={tab} onSelect={switchTab} panelId={PANEL_ID} />
+      )}
     </div>
   );
 }
