@@ -3165,6 +3165,24 @@ select {
   font-family: var(--sans);
   font-size: 12px;
 }
+/* Open existing on a paired Mac: the Kleio host's folders, as project rows.
+   A long list scrolls inside, so the dialog never outgrows the window. The
+   list's share of the window divides out the app zoom (--zoom, ZoomController). */
+.host-folders-modal {
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+}
+.host-folders-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(calc(56vh / var(--zoom, 1)), 420px);
+  overflow-y: auto;
+}
 
 /* ── Reusable pill badge ── */
 .badge {
@@ -7861,6 +7879,12 @@ select {
 }
 .kleio-modal {
   width: min(560px, calc(100vw - 32px));
+  /* Never taller than the window: a short window scrolls the dialog rather
+     than pushing its title, tabs and close button off screen. % of the
+     full-window backdrop, not vh, which ignores the app's CSS zoom. */
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .kleio-code {
   font-family: var(--mono);
@@ -7915,37 +7939,18 @@ select {
   gap: 12px;
   margin: 4px 0 10px;
 }
-.kleio-devices {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.kleio-devices th {
-  text-align: left;
-  font-weight: 500;
-  color: var(--text-muted);
-  padding: 4px 8px 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-.kleio-devices td {
-  padding: 8px 8px 8px 0;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.kleio-devices tr.revoked td {
-  opacity: 0.5;
-}
-.kleio-devid {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 2px;
-}
-.kleio-actions {
-  text-align: right;
-  white-space: nowrap;
-}
-.kleio-actions .btn + .btn {
-  margin-left: 6px;
+/* Rows are Settings → Connection's (.conn-device). A long list scrolls here,
+   so the dialog stays small. The scrollbar sits in the dialog's side padding
+   (gutter 8px + 4px), keeping the rows on the same edges as the rest. Two
+   classes: .conn-devices (kleio-pages.css, loaded later) zeroes the box. The
+   window share divides out the app zoom (--zoom, set by ZoomController). */
+.conn-devices.kleio-device-list {
+  max-height: min(calc(48vh / var(--zoom, 1)), 400px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  margin-right: -12px;
+  padding-right: 4px;
 }
 .kleio-offer {
   margin-top: 14px;

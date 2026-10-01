@@ -1255,16 +1255,31 @@ export async function openPermissionsSettings(): Promise<void> {
   }
 }
 
+/** The project folder is already there; `message` is the reason to show. */
+export class ProjectExistsError extends Error {}
+
+/** Leads the native error for a taken name (`PROJECT_EXISTS` in lib.rs). */
+const PROJECT_EXISTS = "exists:";
+
 /**
  * Create a new project folder (lowercase/dashes name) under the configured
  * projects root. Returns the created absolute path. Handled NATIVELY in Rust
  * (no sidecar), so it can't fail with "sidecar not ready" — except when paired
- * with a Kleio host, where the folder is made on the host. Throws with a
- * user-facing message on invalid name / conflict.
+ * with a Kleio host, where the folder is made on the host. Throws
+ * `ProjectExistsError` when the folder is already there, else the user-facing
+ * message (e.g. an invalid name).
  */
 export async function createProject(name: string): Promise<string> {
-  const res = await invoke<{ path: string }>("app_create_project", { name });
-  return res.path;
+  try {
+    const res = await invoke<{ path: string }>("app_create_project", { name });
+    return res.path;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.startsWith(PROJECT_EXISTS)) {
+      throw new ProjectExistsError(message.slice(PROJECT_EXISTS.length));
+    }
+    throw e;
+  }
 }
 
 /** Discover known projects (ggcoder + Claude Code + Codex), most recent first. */
@@ -1286,6 +1301,24 @@ export async function listProjects(): Promise<DiscoveredProject[]> {
 export async function setProjectHidden(projectPath: string, hidden: boolean): Promise<void> {
   await waitForReady();
   await invoke("agent_set_project_hidden", { path: projectPath, hidden });
+}
+
+/** A folder in the Kleio host's projects folders; `hidden` = off the list. */
+export interface HostProjectFolder {
+  name: string;
+  path: string;
+  hidden: boolean;
+}
+
+/**
+ * "Open existing" while paired with a Kleio host: every folder in the host's
+ * projects folders, by name. This Mac's Finder can't see the host's disk.
+ * Throws with a user-facing message.
+ */
+export async function listHostProjectFolders(): Promise<HostProjectFolder[]> {
+  await waitForReady();
+  const res = await invoke<{ folders: HostProjectFolder[] }>("agent_project_folders");
+  return res.folders;
 }
 
 /** A project file surfaced in the chat input's `@` picker. */

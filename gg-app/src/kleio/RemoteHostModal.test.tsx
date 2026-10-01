@@ -147,9 +147,17 @@ describe("RemoteHostModal — admin", () => {
       revoked: false,
       admin: false,
     },
+    {
+      deviceId: "dev-old",
+      label: "Old laptop",
+      createdAt: "2026-09-20T10:00:00Z",
+      lastSeen: "2026-09-20T11:00:00Z",
+      revoked: true,
+      admin: false,
+    },
   ];
 
-  it("lists devices, cannot revoke itself, revokes another after confirm, mints a code", async () => {
+  it("lists live devices, cannot remove itself, removes another after confirm, mints a code", async () => {
     let devices = DEVICES;
     routes({
       kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
@@ -177,15 +185,26 @@ describe("RemoteHostModal — admin", () => {
     render(<RemoteHostModal onClose={() => {}} />);
     fireEvent.click(await screen.findByRole("tab", { name: "Devices" }));
     await screen.findByText("Phone");
-    // Self row: no revoke button, only the em-dash pointer to Forget host.
-    const selfRow = screen.getByText("Laptop").closest("tr")!;
-    expect(selfRow.querySelector("button")).toBeNull();
-    // Other row: confirm then revoke.
-    const phoneRow = screen.getByText("Phone").closest("tr")!;
-    fireEvent.click(phoneRow.querySelector("button")!); // Revoke…
+    // Removed devices and raw device ids stay out of the list.
+    expect(screen.queryByText("Old laptop")).toBeNull();
+    expect(screen.queryByText("dev-phone")).toBeNull();
+    // Plain-words activity: last seen, or when it paired if never seen.
+    expect(screen.getByText(/^Active \d/)).toBeDefined();
+    expect(screen.getByText(/^Paired \d/)).toBeDefined();
+    // This Mac can't remove itself: its row has no buttons at all.
+    const selfRow = screen.getByText("Laptop").closest("li");
+    expect(selfRow).not.toBeNull();
+    expect(selfRow?.querySelector("button")).toBeNull();
+    // Another device: confirm first, with focus on the safe choice.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Phone" }));
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_revoke", expect.anything());
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    await waitFor(() => expect(screen.getByText("Phone").closest("tr")!.className).toBe("revoked"));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await screen.findByText("Phone removed.");
+    expect(invokeMock).toHaveBeenCalledWith("kleio_revoke", { deviceId: "dev-phone" });
+    expect(screen.queryByText("Phone")).toBeNull();
+    // Its button went with the row; focus stays in the dialog.
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
     // Mint an admin code.
     fireEvent.click(screen.getByLabelText("Make the new device an admin"));
     fireEvent.click(screen.getByRole("button", { name: "New pair code" }));

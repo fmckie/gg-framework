@@ -1978,6 +1978,10 @@ async fn app_settings_save(
     Ok(serde_json::json!({ "projectsRoot": trimmed }))
 }
 
+/// Leads `app_create_project`'s error when the folder is already there, so the
+/// New project dialog can offer to open it (the rest is the message to show).
+pub(crate) const PROJECT_EXISTS: &str = "exists:";
+
 /// Native: create a new project folder under the configured projects root.
 /// Returns `{ path }` on success, an error message on invalid name / conflict.
 /// Locally this never needs the sidecar.
@@ -2010,7 +2014,9 @@ async fn app_create_project(
         .unwrap_or_else(default_projects_root);
     let dir = root.join(name);
     if dir.exists() {
-        return Err(format!("A folder named \"{name}\" already exists."));
+        return Err(format!(
+            "{PROJECT_EXISTS}A folder named \"{name}\" already exists."
+        ));
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "path": dir.to_string_lossy() }))
@@ -3423,6 +3429,46 @@ async fn agent_projects(
     res.json::<serde_json::Value>()
         .await
         .map_err(|e| e.to_string())
+}
+
+/// "Open existing" while paired with a Kleio host: the folders in the HOST's
+/// projects folders (hidden ones marked), since this Mac can't browse its disk.
+#[tauri::command]
+async fn agent_project_folders(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or(STILL_CONNECTING)?;
+    let gg_sid = session_for(&webview).ok_or(STILL_CONNECTING)?;
+    let res = client
+        .get(format!("{}/projects/folders", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .send()
+        .await
+        .map_err(|e| format!("Couldn't reach your Mac mini: {e}"))?;
+    let status = res.status().as_u16();
+    let body = res
+        .text()
+        .await
+        .map_err(|e| format!("Couldn't reach your Mac mini: {e}"))?;
+    project_folders(status, &body)
+}
+
+/// The host's `{ folders }`, or a reason to show. An older host has no such
+/// route (404), so say what it needs rather than a bare status.
+fn project_folders(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    if status == 404 {
+        return Err(
+            "Your Mac mini needs a Kleio update before it can list its folders here.".to_string(),
+        );
+    }
+    if !(200..300).contains(&status) {
+        return Err(kleio::files::host_error(status, body));
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .filter(|v| v.get("folders").is_some_and(serde_json::Value::is_array))
+        .ok_or_else(|| "Your Mac mini sent a folder list this app can't read.".to_string())
 }
 
 /// Routines (`/schedule`) are daemon-level: they outlive any window, and on a
@@ -5404,6 +5450,7 @@ pub fn run() {
             open_whatsnew_window,
             select_project,
             agent_projects,
+            agent_project_folders,
             routines_list,
             routines_add,
             routines_remove,
@@ -5658,6 +5705,32 @@ fn refresh_live_sessions(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_folders_passes_the_hosts_list_through() {
+        let body = r#"{"folders":[{"name":"test","path":"/u/kleio-projects/test","hidden":true}]}"#;
+        assert_eq!(
+            project_folders(200, body),
+            Ok(serde_json::json!({
+                "folders": [{ "name": "test", "path": "/u/kleio-projects/test", "hidden": true }]
+            }))
+        );
+    }
+
+    #[test]
+    fn project_folders_explains_an_old_host_and_other_failures() {
+        assert_eq!(
+            project_folders(404, r#"{"error":"not found"}"#),
+            Err("Your Mac mini needs a Kleio update before it can list its folders here.".into())
+        );
+        assert_eq!(
+            project_folders(500, r#"{"error":"Couldn't list the project folders."}"#),
+            Err("Couldn't list the project folders.".into())
+        );
+        for body in ["not json", "{}", r#"{"folders":7}"#] {
+            assert!(project_folders(200, body).is_err(), "{body}");
+        }
+    }
 
     /// Guards the startup crash from the reqwest 0.13 bump: the shared client is
     /// built before anything else in `run()`, and without a rustls provider that

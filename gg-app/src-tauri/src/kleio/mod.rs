@@ -206,12 +206,17 @@ mod tests {
 
     #[test]
     fn a_refused_project_shows_the_hosts_reason() {
+        // A taken name is marked, so the dialog can offer to open that folder.
         assert_eq!(
             created_project(
                 409,
                 r#"{"error":"A folder named \"test\" already exists."}"#
             ),
-            Err("A folder named \"test\" already exists.".to_string())
+            Err("exists:A folder named \"test\" already exists.".to_string())
+        );
+        assert_eq!(
+            created_project(400, r#"{"error":"Project name must be lowercase."}"#),
+            Err("Project name must be lowercase.".to_string())
         );
         assert_eq!(
             created_project(502, "<html>bad gateway</html>"),
@@ -296,6 +301,11 @@ pub async fn host_create_project(
 /// The sidecar's answer: `{ path }`, or its own message (bad name, folder
 /// exists), else the status, as every host call reports it.
 fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    // 409 is the sidecar's "that folder already exists".
+    if status == 409 {
+        let reason = files::host_error(status, body);
+        return Err(format!("{}{reason}", crate::PROJECT_EXISTS));
+    }
     if !(200..300).contains(&status) {
         return Err(files::host_error(status, body));
     }

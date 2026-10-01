@@ -8,7 +8,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { DesktopIcon, DeviceMobileIcon } from "@phosphor-icons/react";
+import { Badge } from "../Badge";
 import { Modal } from "../Modal";
+import { theme } from "../theme";
 import { relTime } from "./relTime";
 import {
   explainError,
@@ -302,11 +305,27 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<string | null>(null);
   const loaded = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+
+  // The confirm replaces the focused Remove button: focus the safe choice.
+  useEffect(() => {
+    if (confirmRevoke) keepRef.current?.focus();
+  }, [confirmRevoke]);
+
+  // Removing, confirming or locking can take away the focused button. When
+  // focus drops to the page, put it back on the dialog so it stays inside.
+  useEffect(() => {
+    if (document.activeElement !== document.body) return;
+    panelRef.current?.closest<HTMLElement>("[role='dialog']")?.focus();
+  });
 
   const run = useCallback(async (what: string, fn: () => Promise<void>) => {
     setBusy(what);
     setError(null);
+    setRemoved(null);
     try {
       await fn();
     } catch (e) {
@@ -332,10 +351,11 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
     void load();
   }, [load]);
 
-  const revoke = (id: string) =>
-    run(`revoke:${id}`, async () => {
-      setDevices(await kleio.revoke(id));
+  const revoke = (device: Device) =>
+    run(`revoke:${device.deviceId}`, async () => {
+      setDevices(await kleio.revoke(device.deviceId));
       setConfirmRevoke(null);
+      setRemoved(`${device.label} removed.`);
     });
 
   const mint = () =>
@@ -350,8 +370,12 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
       setOffer(null);
     });
 
+  // Removed devices can't connect again, so the list shows only live ones
+  // (as Settings → Connection does).
+  const live = (devices ?? []).filter((d) => !d.revoked);
+
   return (
-    <>
+    <div ref={panelRef}>
       <div className="kleio-admin-bar">
         {admin?.unlocked ? (
           <>
@@ -382,6 +406,11 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
           {error}
         </p>
       )}
+      {removed && (
+        <p className="modal-hint" role="status">
+          {removed}
+        </p>
+      )}
 
       {devices === null ? (
         <p className="modal-hint">
@@ -392,72 +421,67 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
             </button>
           )}
         </p>
+      ) : live.length === 0 ? (
+        <p className="modal-hint">No devices paired.</p>
       ) : (
-        <table className="kleio-devices">
-          <thead>
-            <tr>
-              <th>Device</th>
-              <th>Last seen</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {devices.map((d) => {
-              const isSelf = d.deviceId === selfId;
-              return (
-                <tr key={d.deviceId} className={d.revoked ? "revoked" : undefined}>
-                  <td>
-                    {d.label}
-                    {isSelf && <span className="kleio-tag">this Mac</span>}
-                    {d.admin && <span className="kleio-tag">admin</span>}
-                    {d.revoked && <span className="kleio-tag">revoked</span>}
-                    <div className="kleio-devid">
-                      <code>{d.deviceId}</code>
-                    </div>
-                  </td>
-                  <td>{d.lastSeen ? relTime(d.lastSeen) : "never"}</td>
-                  <td className="kleio-actions">
-                    {d.revoked ? null : isSelf ? (
-                      <span
-                        className="modal-hint"
-                        title="Use “Forget host” on the Host tab instead."
-                      >
-                        —
-                      </span>
-                    ) : confirmRevoke === d.deviceId ? (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() => setConfirmRevoke(null)}
-                        >
-                          Keep
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          disabled={busy !== null}
-                          onClick={() => void revoke(d.deviceId)}
-                        >
-                          {busy === `revoke:${d.deviceId}` ? "Revoking…" : "Revoke"}
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        disabled={busy !== null}
-                        onClick={() => setConfirmRevoke(d.deviceId)}
-                      >
-                        Revoke…
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <ul className="conn-devices kleio-device-list">
+          {live.map((d) => (
+            <li key={d.deviceId} className="conn-device">
+              <span className="conn-device-icon" aria-hidden="true">
+                {/iphone|ipad|phone/i.test(d.label) ? (
+                  <DeviceMobileIcon size={18} weight="duotone" />
+                ) : (
+                  <DesktopIcon size={18} weight="duotone" />
+                )}
+              </span>
+              <span className="conn-device-main">
+                <span className="conn-device-name">
+                  {d.label}
+                  {d.deviceId === selfId && <Badge className="conn-inline-badge">This Mac</Badge>}
+                  {d.admin && (
+                    <Badge color={theme.warning} className="conn-inline-badge">
+                      Admin
+                    </Badge>
+                  )}
+                </span>
+                <span className="conn-device-sub">
+                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.createdAt)}`}
+                </span>
+              </span>
+              {d.deviceId !== selfId &&
+                (confirmRevoke === d.deviceId ? (
+                  <span className="conn-inline-confirm">
+                    <button
+                      ref={keepRef}
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setConfirmRevoke(null)}
+                    >
+                      Keep
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      disabled={busy !== null}
+                      onClick={() => void revoke(d)}
+                    >
+                      {busy === `revoke:${d.deviceId}` ? "Removing…" : "Remove"}
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    aria-label={`Remove ${d.label}`}
+                    disabled={busy !== null}
+                    onClick={() => setConfirmRevoke(d.deviceId)}
+                  >
+                    Remove
+                  </button>
+                ))}
+            </li>
+          ))}
+        </ul>
       )}
 
       <div className="kleio-offer">
@@ -491,6 +515,6 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
