@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { authStatus, getLocalModels, getSettings } from "../agent";
+import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
 import { KleioHome, shortHost } from "./KleioHome";
 
@@ -28,7 +28,7 @@ vi.mock("./useKleioRemote", () => ({
 vi.mock("../agent", () => ({
   waitForReady: vi.fn(async () => undefined),
   getSettings: vi.fn(),
-  authStatus: vi.fn(),
+  authStatusWithError: vi.fn(),
   getLocalModels: vi.fn(),
 }));
 
@@ -58,7 +58,10 @@ beforeEach(() => {
     projectsRoot: "/Users/me/kleio-projects",
     configured: true,
   });
-  vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: true }] as never);
+  vi.mocked(authStatusWithError).mockResolvedValue({
+    providers: [{ provider: "openai", connected: true }],
+    error: null,
+  } as never);
   vi.mocked(getLocalModels).mockResolvedValue({ endpoints: [] });
 });
 afterEach(() => {
@@ -108,7 +111,10 @@ describe("KleioHome", () => {
   });
 
   it("counts a running private model (Tinfoil) as ready, with no provider signed in", async () => {
-    vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: false }] as never);
+    vi.mocked(authStatusWithError).mockResolvedValue({
+      providers: [{ provider: "openai", connected: false }],
+      error: null,
+    } as never);
     vi.mocked(getLocalModels).mockResolvedValue({
       endpoints: [
         {
@@ -134,7 +140,10 @@ describe("KleioHome", () => {
   });
 
   it("without any model, Kleio and Code point to AI Providers instead", async () => {
-    vi.mocked(authStatus).mockResolvedValue([{ provider: "openai", connected: false }] as never);
+    vi.mocked(authStatusWithError).mockResolvedValue({
+      providers: [{ provider: "openai", connected: false }],
+      error: null,
+    } as never);
     const p = renderHome();
     const code = screen.getByRole("button", { name: /Code/ });
     await waitFor(() => expect(code.getAttribute("aria-disabled")).toBe("true"));
@@ -144,6 +153,27 @@ describe("KleioHome", () => {
     expect(p.onChat).not.toHaveBeenCalled();
     expect(toast).toHaveBeenCalledWith("Connect an AI model first.", "warning");
     expect(p.onSettings.mock.calls).toEqual([["providers"], ["providers"]]);
+  });
+
+  // The Mac mini restarting forgets the phone's session; until it is replaced,
+  // the sign-in list can't be read. That is "unknown", not "no model": the
+  // phone must not send someone who is signed in to AI Providers.
+  it("keeps Kleio and Code open when the Mac mini can't say who is signed in", async () => {
+    vi.mocked(authStatusWithError).mockResolvedValue({
+      providers: [],
+      error: "unknown session",
+    });
+    const p = renderHome();
+    await waitFor(() => expect(authStatusWithError).toHaveBeenCalled());
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole("button", { name: /Code/ }));
+      expect(p.onCode).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
+    expect(p.onChat).toHaveBeenCalledOnce();
+    expect(toast).not.toHaveBeenCalled();
+    expect(p.onSettings).not.toHaveBeenCalled();
   });
 
   it("Code without a projects folder points to General", async () => {

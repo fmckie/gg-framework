@@ -4566,6 +4566,32 @@ fn start_event_bridge(app: tauri::AppHandle, label: String, port: u16, session_i
             if !speaks_for_window(&app) {
                 return;
             }
+            // kleio: the host's sidecar restarts (an update, a crash) and
+            // forgets every session. The host still accepts this stream and
+            // only pings it, and every request for the window fails (the home
+            // screen read that as "no model"). So ask before connecting: a
+            // forgotten session is started again from its conversation, as
+            // after a local daemon respawn. A live one notes where its
+            // conversation is now, for exactly that.
+            if kleio::remote().is_some() {
+                match fetch_session_state(&client, port, &session_id).await {
+                    SessionState::Gone => {
+                        if speaks_for_window(&app) {
+                            log::warn!(
+                                "kleio: the host forgot session {session_id} of {label}; starting it again"
+                            );
+                            recreate_window_session(&app, &label);
+                        }
+                        return;
+                    }
+                    SessionState::Found(state) => {
+                        let windows: State<Windows> = app.state();
+                        let mut map = windows.map.lock().unwrap();
+                        remember_session_path(&mut map, &label, &session_id, &state);
+                    }
+                    SessionState::Unknown => {}
+                }
+            }
             // The daemon adds this response to the target session's SSE clients.
             let url = format!(
                 "{}/events?session={}",
@@ -5428,6 +5454,60 @@ fn start_window_session(
         let _ = finish_window_session(app, label, mode, chat_agent, cwd, session_path, generation)
             .await;
     });
+}
+
+/// kleio: note where a window's live session keeps its conversation now (from
+/// the host's `GET /state`), so a forgotten session restarts from there. Only
+/// for the session the window still shows; a chat with no file yet keeps the
+/// path it had.
+fn remember_session_path(
+    map: &mut HashMap<String, WindowSession>,
+    label: &str,
+    session_id: &str,
+    state: &serde_json::Value,
+) {
+    let Some(entry) = map.get_mut(label) else {
+        return;
+    };
+    if entry.session_id.as_deref() != Some(session_id) {
+        return;
+    }
+    if let Some(path) = state
+        .get("sessionPath")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        entry.session_path = Some(path.to_string());
+    }
+}
+
+/// kleio: start one window's session again from its stored
+/// `{mode, cwd, session_path}` after the host forgot it.
+fn recreate_window_session(app: &tauri::AppHandle, label: &str) {
+    let target = {
+        let windows: State<Windows> = app.state();
+        let map = windows.map.lock().unwrap();
+        map.get(label).and_then(|window| {
+            window.cwd.clone().map(|cwd| {
+                (
+                    window.mode,
+                    window.chat_agent,
+                    cwd,
+                    window.session_path.clone(),
+                )
+            })
+        })
+    };
+    if let Some((mode, chat_agent, cwd, session_path)) = target {
+        start_window_session(
+            app.clone(),
+            label.to_string(),
+            mode,
+            chat_agent,
+            cwd,
+            session_path,
+        );
+    }
 }
 
 /// After a daemon respawn, re-create a session for every live window from its
@@ -7099,6 +7179,48 @@ mod tests {
         assert_eq!(w.mode, WorkspaceMode::Chat);
         assert_eq!(w.chat_agent, ChatAgent::Therapist);
         assert_eq!(w.cwd.as_deref(), Some(Path::new("/p/b")));
+    }
+
+    #[test]
+    fn remembers_where_the_shown_session_conversation_is_now() {
+        // kleio: a host restart forgets the session; it is started again from
+        // this path, so the path must follow the live conversation.
+        let mut map: HashMap<String, WindowSession> = HashMap::new();
+        map.insert(
+            "main".into(),
+            WindowSession {
+                session_id: Some("live".into()),
+                cwd: Some(PathBuf::from("/p/a")),
+                session_path: None,
+                ..Default::default()
+            },
+        );
+        let state = serde_json::json!({ "sessionPath": "/s/now.jsonl", "cwd": "/p/a" });
+        remember_session_path(&mut map, "main", "live", &state);
+        assert_eq!(
+            map.get("main").unwrap().session_path.as_deref(),
+            Some("/s/now.jsonl")
+        );
+
+        // An older session's answer never overwrites the window's current chat.
+        let stale = serde_json::json!({ "sessionPath": "/s/old.jsonl" });
+        remember_session_path(&mut map, "main", "previous", &stale);
+        assert_eq!(
+            map.get("main").unwrap().session_path.as_deref(),
+            Some("/s/now.jsonl")
+        );
+
+        // A brand-new chat has no file yet: keep what we had.
+        let fresh = serde_json::json!({ "sessionPath": null });
+        remember_session_path(&mut map, "main", "live", &fresh);
+        assert_eq!(
+            map.get("main").unwrap().session_path.as_deref(),
+            Some("/s/now.jsonl")
+        );
+
+        // An unknown window is ignored.
+        remember_session_path(&mut map, "gone", "live", &state);
+        assert!(!map.contains_key("gone"));
     }
 
     #[test]
