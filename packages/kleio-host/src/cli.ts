@@ -69,6 +69,24 @@ function publicBase(): string {
   return url.replace(/\/$/, "");
 }
 
+/** The static-site preview origin's port (see preview.ts). */
+function previewPort(): number {
+  const raw = process.env.KLEIO_PREVIEW_PORT ?? "8444";
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error(`KLEIO_PREVIEW_PORT must be a port number, not ${JSON.stringify(raw)}`);
+  return port;
+}
+
+/** Public base of the preview origin: KLEIO_PREVIEW_URL, else the public URL on the preview port. */
+function previewBase(port: number): string {
+  const given = process.env.KLEIO_PREVIEW_URL;
+  if (given) return given.replace(/\/$/, "");
+  const url = new URL(publicBase());
+  url.port = String(port);
+  return url.origin;
+}
+
 // ------------------------------------------------------------------ commands
 
 async function init(p: HostPaths): Promise<void> {
@@ -138,6 +156,8 @@ async function serve(p: HostPaths): Promise<void> {
     },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
+    previewPort: previewPort(),
+    previewBaseUrl: previewBase(previewPort()),
     nodeId: new URL(publicBase()).hostname,
     registry,
     offers: createPairOfferStore(),
