@@ -25,6 +25,7 @@ import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
 import { createSidecarSupervisor } from "./sidecar.js";
 import { sidecarAppEnv } from "./sidecar-env.js";
+import { readWorkspaceRoots } from "./workspace-roots.js";
 
 const log = (msg: string): void => {
   process.stdout.write(`${new Date().toISOString()} ${msg}\n`);
@@ -124,6 +125,8 @@ async function serve(p: HostPaths): Promise<void> {
     apns,
     diagnosticsDir: p.logs,
     homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
+    // The same projects folders the sidecar runs Chat and Code sessions in.
+    workspaceRoots: () => readWorkspaceRoots(process.env, homedir()),
     ...(process.env.KLEIO_BLOB_DEFAULT_MODEL
       ? { blobDefaultModel: process.env.KLEIO_BLOB_DEFAULT_MODEL }
       : {}),

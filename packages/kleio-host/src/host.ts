@@ -45,13 +45,21 @@ import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-re
 import type { ApnsPusher } from "./apns.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
-import { contentDisposition, fileContentType, resolveAgentFile, type AgentFile } from "./files.js";
+import {
+  contentDisposition,
+  fileContentType,
+  resolveAgentFile,
+  resolveWorkspaceDir,
+  type AgentFile,
+  type AgentFileError,
+} from "./files.js";
 import { createGroups, type Groups } from "./groups.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
+import { err, ok, type Result } from "./result.js";
 
 /** Frame types that change a Live Activity (see live-activity.ts). */
 const LIVE_FRAME_RE =
@@ -97,6 +105,13 @@ export interface HostOptions {
    */
   readonly homeCwd?: string;
   /**
+   * Kleio's projects folders, where Chat and Code sessions run
+   * (`GET /kleio/workspace/files/<path>?cwd=`). Called on each request so a
+   * moved folder is followed. The CLI passes readWorkspaceRoots. Unset = the
+   * route answers 404.
+   */
+  readonly workspaceRoots?: () => Promise<string[]>;
+  /**
    * Model of a Blob whose `model` is null. The CLI passes
    * `KLEIO_BLOB_DEFAULT_MODEL`; default DEFAULT_BLOB_MODEL.
    */
@@ -140,6 +155,69 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 const BLOB_FILE_RE = /^\/kleio\/blobs\/(b_[0-9a-f]{8})\/files\//;
 /** `GET /kleio/groups/:groupId/members/:blobId/files/<path>`. */
 const MEMBER_FILE_RE = /^\/kleio\/groups\/(g_[0-9a-f]{8})\/members\/(b_[0-9a-f]{8})\/files\//;
+/** `GET /kleio/workspace/files/<path>?cwd=<absolute host path>`: a Chat or Code session's files. */
+const WORKSPACE_FILE_PREFIX = "/kleio/workspace/files/";
+
+/** Whose files: a Blob, a Blob in a group, or a Chat/Code session's folder. */
+export type FileOwner =
+  | { readonly kind: "blob"; readonly blobId: string }
+  | { readonly kind: "group"; readonly groupId: string; readonly blobId: string }
+  | { readonly kind: "workspace"; readonly cwd: string };
+
+/** Where an owner's files live; `workspaceRoot` is set for a workspace owner. */
+interface OwnerRoot {
+  readonly root: string;
+  readonly workspaceRoot?: string;
+}
+
+/**
+ * The owner a file route names, and the still percent-encoded path after it;
+ * null when `path` is not a file route.
+ */
+function fileOwnerOf(
+  path: string,
+  query: URLSearchParams,
+): { readonly owner: FileOwner; readonly rest: string } | null {
+  const blobFile = BLOB_FILE_RE.exec(path);
+  if (blobFile)
+    return {
+      owner: { kind: "blob", blobId: blobFile[1] ?? "" },
+      rest: path.slice(blobFile[0].length),
+    };
+  const memberFile = MEMBER_FILE_RE.exec(path);
+  if (memberFile)
+    return {
+      owner: { kind: "group", groupId: memberFile[1] ?? "", blobId: memberFile[2] ?? "" },
+      rest: path.slice(memberFile[0].length),
+    };
+  if (path.startsWith(WORKSPACE_FILE_PREFIX))
+    return {
+      owner: { kind: "workspace", cwd: query.get("cwd") ?? "" },
+      rest: path.slice(WORKSPACE_FILE_PREFIX.length),
+    };
+  return null;
+}
+
+/** How a file request's owner appears in the log; a cwd is quoted so it stays one line. */
+function ownerLabel(owner: FileOwner): string {
+  switch (owner.kind) {
+    case "blob":
+      return owner.blobId;
+    case "group":
+      return `${owner.groupId}/${owner.blobId}`;
+    case "workspace":
+      return `workspace ${JSON.stringify(owner.cwd.slice(0, 200))}`;
+  }
+}
+
+/** The HTTP answer for a file that resolveAgentFile refused. */
+function fileErrorStatus(e: AgentFileError): [number, string] {
+  return e.kind === "bad_path"
+    ? [400, "bad path"]
+    : e.kind === "too_large"
+      ? [413, "file too large"]
+      : [404, "no such file"];
+}
 
 /**
  * Stream a resolved agent file. Opens it before any header goes out (so a
@@ -935,6 +1013,30 @@ export function createHost(options: HostOptions): Host {
     if (second === "stale") json(res, 503, { error: "sidecar unavailable" });
   }
 
+  /**
+   * Where an owner's files live, or the [status, error] to answer with: a Blob
+   * or group member that does not exist, or a cwd outside Kleio's projects
+   * folders, is a 404 like any missing file.
+   */
+  async function ownerRoot(owner: FileOwner): Promise<Result<OwnerRoot, [number, string]>> {
+    switch (owner.kind) {
+      case "blob":
+        if (!options.homeCwd || !blobs || !(await blobs.find(owner.blobId)))
+          return err([404, "no such agent"]);
+        return ok({ root: join(options.homeCwd, "blobs", owner.blobId) });
+      case "group":
+        if (!options.homeCwd || !groups || !(await groups.has(owner.groupId)))
+          return err([404, "no such group"]);
+        return ok({ root: join(options.homeCwd, "groups", owner.groupId, owner.blobId) });
+      case "workspace": {
+        if (!options.workspaceRoots) return err([404, "no such workspace"]);
+        const ws = await resolveWorkspaceDir(await options.workspaceRoots(), owner.cwd);
+        if (!ws.ok) return err([404, "no such workspace"]);
+        return ok({ root: ws.value.dir, workspaceRoot: ws.value.root });
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ routes
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1106,15 +1208,12 @@ export function createHost(options: HostOptions): Host {
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
     }
 
-    // An agent's files (the reports it writes and links in chat). Any paired
-    // device, like Blobs; GET only; files.ts decides what may be read.
-    const blobFile = BLOB_FILE_RE.exec(path);
-    const memberFile = blobFile ? null : MEMBER_FILE_RE.exec(path);
-    if ((blobFile || memberFile) && options.homeCwd && blobs && groups) {
+    // An agent's files (the reports it writes and links in chat), and a Chat or
+    // Code session's files under Kleio's projects folders. Any paired device,
+    // like Blobs; GET only; files.ts decides what may be read.
+    const owner = fileOwnerOf(path, url.searchParams);
+    if (owner && (owner.owner.kind === "workspace" || (blobs && groups))) {
       const started = Date.now();
-      const blobId = blobFile ? blobFile[1]! : memberFile![2]!;
-      const groupId = memberFile ? memberFile[1]! : null;
-      const rest = path.slice((blobFile ?? memberFile)![0].length);
       let outcome: [number, number] = [500, 0];
       try {
         outcome = await (async (): Promise<[number, number]> => {
@@ -1123,27 +1222,14 @@ export function createHost(options: HostOptions): Host {
             json(res, 405, { error: "method not allowed" });
             return [405, 0];
           }
-          if (groupId !== null) {
-            if (!(await groups.has(groupId))) {
-              json(res, 404, { error: "no such group" });
-              return [404, 0];
-            }
-          } else if (!(await blobs.find(blobId))) {
-            json(res, 404, { error: "no such agent" });
-            return [404, 0];
+          const root = await ownerRoot(owner.owner);
+          if (!root.ok) {
+            json(res, root.error[0], { error: root.error[1] });
+            return [root.error[0], 0];
           }
-          const root =
-            groupId !== null
-              ? join(options.homeCwd!, "groups", groupId, blobId)
-              : join(options.homeCwd!, "blobs", blobId);
-          const r = await resolveAgentFile(root, rest);
+          const r = await resolveAgentFile(root.value.root, owner.rest);
           if (!r.ok) {
-            const [status, error]: [number, string] =
-              r.error.kind === "bad_path"
-                ? [400, "bad path"]
-                : r.error.kind === "too_large"
-                  ? [413, "file too large"]
-                  : [404, "no such file"];
+            const [status, error] = fileErrorStatus(r.error);
             json(res, status, { error });
             return [status, 0];
           }
@@ -1151,7 +1237,7 @@ export function createHost(options: HostOptions): Host {
         })();
       } finally {
         log(
-          `[files] ${auth.device.label} ${groupId !== null ? `${groupId}/` : ""}${blobId} → ${outcome[0]} ${outcome[1]}B ${Date.now() - started}ms`,
+          `[files] ${auth.device.label} ${ownerLabel(owner.owner)} → ${outcome[0]} ${outcome[1]}B ${Date.now() - started}ms`,
         );
       }
       return;

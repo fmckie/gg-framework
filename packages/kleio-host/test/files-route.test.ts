@@ -1,11 +1,20 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
-import { createHost, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
+import { MAX_FILE_BYTES } from "../src/files.js";
+import { createHost, DEVICE_TOKEN_HEADER, type Host, type HostOptions } from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
@@ -20,8 +29,12 @@ let hostPort: number;
 let H: Record<string, string>;
 const logs: string[] = [];
 
-async function startHost(): Promise<Host> {
-  const h = createHost({
+/** Kleio's projects folders for the workspace route: the Chat root and an extra root. */
+const projectsDir = (): string => join(home, "projects");
+const extraDir = (): string => join(home, "extra-root");
+
+async function startHost(extra: Partial<HostOptions> = {}, withWorkspace = true): Promise<Host> {
+  const options: HostOptions = {
     listenPort: 0,
     publicBaseUrl: "https://mini.test:8443",
     nodeId: "mini.test",
@@ -33,8 +46,12 @@ async function startHost(): Promise<Host> {
     routinePollMs: 0,
     homeCwd: join(home, "Kleio"),
     blobTickMs: 0,
+    workspaceRoots: () => Promise.resolve([projectsDir(), extraDir()]),
     log: (m) => logs.push(m),
-  });
+    ...extra,
+  };
+  const { workspaceRoots: _unused, ...noWorkspace } = options;
+  const h = createHost(withWorkspace ? options : noWorkspace);
   await h.start();
   hostPort = (h.server.address() as { port: number }).port;
   return h;
@@ -281,5 +298,133 @@ describe("GET /kleio/groups/:id/members/:blobId/files/*", () => {
     const r = await call("POST", `/kleio/groups/${g.id}/members/${a.id}/files/r.txt`, {});
     expect(r.status).toBe(405);
     expect(r.headers.allow).toBe("GET");
+  });
+});
+
+describe("GET /kleio/workspace/files/*?cwd=", () => {
+  const ws = (cwd: string, rest: string): string =>
+    `/kleio/workspace/files/${rest}?cwd=${encodeURIComponent(cwd)}`;
+  const project = (): string => join(projectsDir(), "demo");
+
+  beforeEach(() => {
+    mkdirSync(join(project(), "out"), { recursive: true });
+    mkdirSync(extraDir(), { recursive: true });
+  });
+
+  it("serves a Code project's PDF with the Blob file headers", async () => {
+    const bytes = Buffer.from("%PDF-1.7\nhello");
+    writeFileSync(join(project(), "out", "report.pdf"), bytes);
+    const r = await call("GET", ws(project(), "out/report.pdf"));
+    expect(r.status).toBe(200);
+    expect(r.raw.equals(bytes)).toBe(true);
+    expect(r.headers["content-type"]).toBe("application/pdf");
+    expect(r.headers["content-disposition"]).toBe("attachment; filename*=UTF-8''report.pdf");
+    expect(r.headers["x-content-type-options"]).toBe("nosniff");
+    expect(await logged("[files] Phone workspace ")).toMatch(
+      new RegExp(`^\\[files\\] Phone workspace ".*demo" → 200 ${bytes.length}B \\d+ms$`),
+    );
+  });
+
+  it("serves a CSV from the Chat root and a file from an extra root", async () => {
+    writeFileSync(join(projectsDir(), "sales.csv"), "a,b\n1,2\n");
+    const r = await call("GET", ws(projectsDir(), "sales.csv"));
+    expect(r.status).toBe(200);
+    expect(r.body).toBe("a,b\n1,2\n");
+    expect(r.headers["content-type"]).toMatch(/^text\/csv/);
+    writeFileSync(join(extraDir(), "x.txt"), "extra");
+    const e = await call("GET", ws(extraDir(), "x.txt"));
+    expect(e.status).toBe(200);
+    expect(e.body).toBe("extra");
+  });
+
+  it("keeps html a download, never a page", async () => {
+    writeFileSync(join(project(), "index.html"), "<script>1</script>");
+    const r = await call("GET", ws(project(), "index.html"));
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toBe("application/octet-stream");
+    expect(r.headers["content-disposition"]).toBe("attachment; filename*=UTF-8''index.html");
+  });
+
+  it("is 401 without a device token", async () => {
+    writeFileSync(join(project(), "r.txt"), "secret");
+    const r = await call("GET", ws(project(), "r.txt"), undefined, {});
+    expect(r.status).toBe(401);
+  });
+
+  it("is 400 for hidden names and bad paths, 404 for a missing file", async () => {
+    writeFileSync(join(project(), ".env"), "TOKEN=1");
+    writeFileSync(join(projectsDir(), "secret.txt"), "OUTSIDE-PROJECT");
+    for (const p of [".env", "%2Eenv", "..%2Fsecret.txt", "a%5Cb"]) {
+      const r = await call("GET", ws(project(), p));
+      expect(r.status, p).toBe(400);
+      expect(r.body).toEqual({ error: "bad path" });
+    }
+    for (const p of ["../secret.txt", "%2e%2e/secret.txt"]) {
+      const r = await call("GET", ws(project(), p));
+      expect(r.status, p).not.toBe(200);
+      expect(r.raw.toString()).not.toContain("OUTSIDE-PROJECT");
+    }
+    const missing = await call("GET", ws(project(), "nope.pdf"));
+    expect(missing.status).toBe(404);
+    expect(missing.body).toEqual({ error: "no such file" });
+  });
+
+  it("is 404 for a cwd outside Kleio's folders, hidden, relative or missing", async () => {
+    writeFileSync(join(home, "outside.txt"), "OUTSIDE");
+    mkdirSync(join(home, "projects-evil"), { recursive: true });
+    writeFileSync(join(home, "projects-evil", "x.txt"), "EVIL");
+    mkdirSync(join(projectsDir(), ".hidden"), { recursive: true });
+    writeFileSync(join(projectsDir(), ".hidden", "x.txt"), "HIDDEN");
+    for (const [cwd, rest] of [
+      [home, "outside.txt"],
+      [join(home, "projects-evil"), "x.txt"],
+      [join(projectsDir(), ".hidden"), "x.txt"],
+      ["projects/demo", "x.txt"],
+      [join(projectsDir(), "gone"), "x.txt"],
+    ] as const) {
+      const r = await call("GET", ws(cwd, rest));
+      expect(r.status, cwd).toBe(404);
+      expect(r.body).toEqual({ error: "no such workspace" });
+    }
+    const noCwd = await call("GET", "/kleio/workspace/files/x.txt");
+    expect(noCwd.status).toBe(404);
+    expect(noCwd.body).toEqual({ error: "no such workspace" });
+  });
+
+  it.skipIf(process.platform === "win32")("is 404 for a symlink out of the project", async () => {
+    writeFileSync(join(home, "outside.txt"), "OUTSIDE");
+    symlinkSync(join(home, "outside.txt"), join(project(), "link.txt"));
+    symlinkSync(home, join(projectsDir(), "escape"));
+    const file = await call("GET", ws(project(), "link.txt"));
+    expect(file.status).toBe(404);
+    expect(file.raw.toString()).not.toContain("OUTSIDE");
+    const dir = await call("GET", ws(join(projectsDir(), "escape"), "outside.txt"));
+    expect(dir.status).toBe(404);
+    expect(dir.body).toEqual({ error: "no such workspace" });
+  });
+
+  it("is 413 for a file over the size cap", async () => {
+    const big = join(project(), "big.csv");
+    writeFileSync(big, "");
+    truncateSync(big, MAX_FILE_BYTES + 1);
+    const r = await call("GET", ws(project(), "big.csv"));
+    expect(r.status).toBe(413);
+    expect(r.body).toEqual({ error: "file too large" });
+  });
+
+  it("is 405 with allow: GET for POST", async () => {
+    writeFileSync(join(project(), "r.txt"), "keep");
+    const r = await call("POST", ws(project(), "r.txt"), {});
+    expect(r.status).toBe(405);
+    expect(r.headers.allow).toBe("GET");
+  });
+
+  it("is 404 when the host has no workspace roots", async () => {
+    await host.stop();
+    host = await startHost({}, false);
+    writeFileSync(join(project(), "r.txt"), "keep");
+    const r = await call("GET", ws(project(), "r.txt"));
+    expect(r.status).toBe(404);
+    expect(r.body).toEqual({ error: "no such workspace" });
   });
 });
