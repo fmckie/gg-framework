@@ -32,12 +32,9 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { constants as fsConstants } from "node:fs";
-import { appendFile, mkdir, open, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -59,6 +56,7 @@ import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
+import { sendFile } from "./send-file.js";
 import { err, ok, type Result } from "./result.js";
 
 /** Frame types that change a Live Activity (see live-activity.ts). */
@@ -219,70 +217,20 @@ function fileErrorStatus(e: AgentFileError): [number, string] {
       : [404, "no such file"];
 }
 
-/**
- * Stream a resolved agent file. Opens it before any header goes out (so a
- * vanished file is still a clean 404), reads at most `size` bytes, and cuts
- * the connection rather than end short if the file shrank meanwhile.
- * Returns [status, file bytes sent].
- */
-async function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
-  let fh;
-  try {
-    // O_NOFOLLOW: the last component may not have become a symlink since it
-    // was resolved; O_NONBLOCK: a FIFO swapped in can't hang the open. Both
-    // are undefined, so 0, on Windows.
-    fh = await open(
-      file.path,
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
-    );
-  } catch {
-    json(res, 404, { error: "no such file" });
-    return [404, 0];
-  }
-  // Still the regular file that was resolved, not something swapped in since.
-  const same = await fh.stat().then(
-    (st) => st.isFile() && st.size === file.size && st.mtimeMs === file.mtimeMs,
-    () => false,
-  );
-  if (!same) {
-    await fh.close();
-    json(res, 404, { error: "no such file" });
-    return [404, 0];
-  }
-  res.writeHead(200, {
-    "content-type": fileContentType(file.name),
-    "content-length": file.size,
-    "last-modified": new Date(file.mtimeMs).toUTCString(),
-    etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
-    "cache-control": "private, no-cache",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "sandbox; default-src 'none'",
-    "content-disposition": contentDisposition(file.name),
+/** Stream a resolved agent file as a download (see send-file.ts). Returns [status, bytes]. */
+function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
+  return sendFile(res, file, {
+    headers: {
+      "content-type": fileContentType(file.name),
+      "last-modified": new Date(file.mtimeMs).toUTCString(),
+      etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
+      "cache-control": "private, no-cache",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "sandbox; default-src 'none'",
+      "content-disposition": contentDisposition(file.name),
+    },
+    missing: (r) => json(r, 404, { error: "no such file" }),
   });
-  if (file.size === 0) {
-    await fh.close();
-    res.end();
-    return [200, 0];
-  }
-  let sent = 0;
-  try {
-    await pipeline(
-      fh.createReadStream({ start: 0, end: file.size - 1 }),
-      new Transform({
-        transform(chunk: Buffer, _enc, done): void {
-          sent += chunk.length;
-          done(null, chunk);
-        },
-        flush(done): void {
-          done(sent === file.size ? null : new Error("file shrank while sending"));
-        },
-      }),
-      res,
-    );
-  } catch {
-    res.destroy();
-  }
-  return [200, sent];
 }
 
 async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
