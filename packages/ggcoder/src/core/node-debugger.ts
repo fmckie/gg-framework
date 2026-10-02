@@ -117,6 +117,27 @@ function realPath(p: string): string {
   }
 }
 
+/**
+ * Every spelling Node may load `p` under. Node's module loader resolves
+ * symlinks with the JS `fs.realpathSync`, which keeps Windows 8.3 short names
+ * (`C:\Users\RUNNER~1`) that the native resolver expands — so the as-given,
+ * JS-resolved and native-resolved forms can all differ.
+ */
+function pathForms(p: string): string[] {
+  const forms = new Set([p, realPath(p)]);
+  try {
+    forms.add(fs.realpathSync(p));
+  } catch {
+    // does not exist (yet); the as-given form stands
+  }
+  return [...forms].sort();
+}
+
+/** Windows paths are case-insensitive; CDP's urlRegex takes no flags, so spell it out. */
+function caseInsensitive(pattern: string): string {
+  return pattern.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
+}
+
 function truncate(text: string, max = MAX_VALUE_CHARS): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -182,6 +203,9 @@ export class NodeDebugSession {
   private outputRead = 0;
 
   private constructor(
+    /** The cwd as the program was launched in it. */
+    private readonly launchCwd: string,
+    /** `launchCwd` fully resolved, for displaying paths relative to it. */
     private readonly cwd: string,
     private readonly child: ChildProcess,
     private readonly socket: WebSocket,
@@ -254,7 +278,7 @@ export class NodeDebugSession {
     });
 
     const socket = new WebSocket(wsUrl);
-    const session = new NodeDebugSession(realPath(options.cwd), child, socket);
+    const session = new NodeDebugSession(options.cwd, realPath(options.cwd), child, socket);
     attached.session = session;
     session.appendOutput(early);
     try {
@@ -470,9 +494,15 @@ export class NodeDebugSession {
   async setBreakpoint(file: string, line: number, condition?: string): Promise<Breakpoint> {
     // Node reports scripts by real path; a symlinked project dir (macOS /var
     // → /private/var) would otherwise never match and never bind.
-    const abs = realPath(path.resolve(this.cwd, file));
+    // Resolve against the cwd the program was launched in, not its real path,
+    // so the as-given spelling (Windows 8.3 short names) stays among the forms.
+    const forms = pathForms(path.resolve(this.launchCwd, file));
     // Scripts load as file:// URLs (ESM, modern CJS) or bare paths (older CJS).
-    const urlRegex = `^(?:${escapeRegex(pathToFileURL(abs).href)}|${escapeRegex(abs)})$`;
+    const alternatives = forms
+      .flatMap((abs) => [pathToFileURL(abs).href, abs])
+      .map((form) => escapeRegex(form));
+    const body = alternatives.join("|");
+    const urlRegex = `^(?:${process.platform === "win32" ? caseInsensitive(body) : body})$`;
     const result = (await this.send("Debugger.setBreakpointByUrl", {
       lineNumber: line - 1,
       urlRegex,
@@ -514,7 +544,9 @@ export class NodeDebugSession {
   private frameLocation(frame: CallFrame): string {
     const url = frame.url || this.scripts.get(frame.location.scriptId) || "";
     const file = urlToPath(url);
-    const shown = file ? path.relative(this.cwd, file) || file : url || "<anonymous>";
+    // Both sides through the same resolver: Node may report a script under a
+    // spelling (symlink, Windows short name) that differs from the real cwd.
+    const shown = file ? path.relative(this.cwd, realPath(file)) || file : url || "<anonymous>";
     return `${shown}:${frame.location.lineNumber + 1}:${(frame.location.columnNumber ?? 0) + 1}`;
   }
 
