@@ -7,6 +7,7 @@ import {
   type GitHubCI,
 } from "./agent";
 import { CIIndicator } from "./CIIndicator";
+import { isPhone } from "./platform";
 import { projectAccent } from "./projectAccent";
 import { formatWorkspaceTitle, pluralize } from "./workspace-title";
 
@@ -77,7 +78,8 @@ export function WorkspaceHeader({
               <button
                 type="button"
                 className="chat-head-cwd chat-head-link"
-                disabled={!cwd}
+                // On the iPhone the folder is on the Mac mini: nothing to open.
+                disabled={!cwd || isPhone()}
                 title={cwd ? `${cwd} — open folder` : undefined}
                 onClick={() => cwd && void openProjectPath(cwd)}
               >

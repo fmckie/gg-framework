@@ -30,13 +30,12 @@ import {
   threadState,
   type ThreadSession,
 } from "./kleioApi";
+import { useFollowLatest } from "./useFollowLatest";
 
 const POLL_RUNNING_MS = 1500;
 const POLL_IDLE_MS = 5000;
 /** The Code chat's assistant bullet. */
 const DOT = "\u23FA";
-/** Within this many px of the bottom counts as following the conversation. */
-const PIN_SLACK_PX = 40;
 
 function UserMessage({ text }: { text: string }): React.ReactElement {
   const scheduled = scheduledPrompt(text);
@@ -98,6 +97,7 @@ export function ThreadChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const alive = useRef(true);
   const windowFocused = useWindowFocused();
+  const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -123,8 +123,9 @@ export function ThreadChat({
   useEffect(() => {
     setSession(null);
     setHistory(null);
+    follow();
     void open(resolve);
-  }, [open, resolve]);
+  }, [open, resolve, follow]);
 
   // Poll: /state every tick; /history while a run is going and once when it ends.
   useEffect(() => {
@@ -149,17 +150,16 @@ export function ThreadChat({
     return () => window.clearInterval(id);
   }, [session, running, open, resolve]);
 
+  // Each poll replaces the history: only a reader at the newest message is
+  // carried along, never one scrolled up to read.
   useEffect(() => {
-    const el = logRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [history, running]);
+    catchUp();
+  }, [history, running, catchUp]);
 
   // Grow the composer with its text, exactly as the Code chat's does.
   useLayoutEffect(() => {
-    const log = logRef.current;
-    const pinned = log ? log.scrollHeight - log.scrollTop - log.clientHeight < PIN_SLACK_PX : true;
-    autosizeComposer(inputRef.current, log, pinned);
-  }, [draft]);
+    autosizeComposer(inputRef.current, logRef.current, following());
+  }, [draft, following]);
 
   // A click on a link to one of the agent's files opens it on this Mac.
   const handleLink = useCallback(
@@ -180,6 +180,8 @@ export function ThreadChat({
     setBusy(true);
     setError(null);
     setDraft("");
+    // Sending means following the reply, wherever the reader had scrolled.
+    follow();
     setHistory((h) => [...(h ?? []), { role: "user", text }]);
     try {
       await threadPrompt(session, text);
@@ -205,6 +207,7 @@ export function ThreadChat({
         aria-live="polite"
         aria-label={`Conversation with ${label}`}
         tabIndex={0}
+        {...followHandlers}
       >
         <LinkHandlerProvider value={owner ? handleLink : null}>
           <div className="kleio-transcript-inner">

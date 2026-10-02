@@ -38,9 +38,14 @@ export function trackVisualViewport(win: Window = window): () => void {
   if (!vv) return () => {};
   const root = win.document.documentElement;
   const apply = (): void => {
+    // The page's full height, which the keyboard does not shrink. iOS 26
+    // shrinks innerHeight along with the visible area, so measured against it
+    // the keyboard never showed: the home-indicator gap stayed above it, and
+    // Return sent instead of adding a line. The root's clientHeight holds.
+    const layout = Math.max(win.innerHeight, root.clientHeight);
     root.style.setProperty("--app-height", `${Math.round(vv.height)}px`);
-    root.classList.toggle("bottom-covered", bottomCovered(win.innerHeight, vv.height));
-    root.classList.toggle("keyboard-open", keyboardOpen(win.innerHeight, vv.height));
+    root.classList.toggle("bottom-covered", bottomCovered(layout, vv.height));
+    root.classList.toggle("keyboard-open", keyboardOpen(layout, vv.height));
     // Undo iOS scrolling the page to reveal the focused field: the app is
     // already sized so the field is above the keyboard.
     if (win.scrollY !== 0 || win.scrollX !== 0) win.scrollTo(0, 0);

@@ -346,6 +346,142 @@ unsafe fn json_of(object: *mut AnyObject) -> Option<serde_json::Value> {
     }
 }
 
+/// Show a downloaded file (a PDF report, an image, a document) full screen in
+/// iOS's own viewer, with Done and Share. The desktop hands files to their
+/// default app; on the iPhone that path went to `UIApplication.open`, which
+/// silently ignores a local file, so tapping a file did nothing.
+///
+/// Resolves once the viewer is showing. Errs when iOS cannot preview the file.
+pub async fn preview_file(
+    window: &tauri::WebviewWindow,
+    file: std::path::PathBuf,
+) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    window
+        .with_webview(move |webview| {
+            let screen = webview.view_controller().cast::<AnyObject>();
+            // SAFETY: `with_webview` runs this on the main thread, as UIKit
+            // requires; `screen` is the live web view's view controller.
+            let _ = tx.send(unsafe { present_preview(screen, &file) });
+        })
+        .map_err(|e| e.to_string())?;
+    rx.await
+        .map_err(|_| "The file viewer did not open.".to_string())?
+}
+
+/// Keys for what the preview objects keep alive: the delegate on its
+/// controller (which holds its delegate weakly), and the screen to present
+/// from on the delegate. Only their addresses matter; the different values
+/// keep the compiler from merging the two into one address.
+static PREVIEW_DELEGATE_KEY: u8 = 1;
+static PREVIEW_SCREEN_KEY: u8 = 2;
+
+/// # Safety
+/// Main thread only; `screen` must be null or a live UIViewController.
+unsafe fn present_preview(screen: *mut AnyObject, file: &std::path::Path) -> Result<(), String> {
+    let unavailable = || "The file viewer is unavailable.".to_string();
+    if screen.is_null() {
+        return Err(unavailable());
+    }
+    let Some(class) = preview_delegate_class() else {
+        return Err(unavailable());
+    };
+    let path = NSString::from_str(&file.to_string_lossy());
+    // SAFETY: main thread (caller). `fileURLWithPath:` and
+    // `interactionControllerWithURL:` return autoreleased objects; UIKit
+    // retains the controller while its viewer shows. The delegate (+1 from
+    // `new`) is attached to the controller with a retaining association and
+    // then released, so it lives exactly as long as the controller; the screen
+    // is attached to the delegate the same way.
+    unsafe {
+        let url: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*path];
+        if url.is_null() {
+            return Err("The file could not be found.".to_string());
+        }
+        let controller: *mut AnyObject = msg_send![
+            class!(UIDocumentInteractionController),
+            interactionControllerWithURL: url
+        ];
+        if controller.is_null() {
+            return Err(unavailable());
+        }
+        let delegate: *mut AnyObject = msg_send![class, new];
+        if delegate.is_null() {
+            return Err(unavailable());
+        }
+        objc2::ffi::objc_setAssociatedObject(
+            delegate,
+            std::ptr::from_ref(&PREVIEW_SCREEN_KEY).cast(),
+            screen,
+            objc2::ffi::OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+        );
+        objc2::ffi::objc_setAssociatedObject(
+            controller,
+            std::ptr::from_ref(&PREVIEW_DELEGATE_KEY).cast(),
+            delegate,
+            objc2::ffi::OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+        );
+        let _: () = msg_send![delegate, release];
+        let _: () = msg_send![controller, setDelegate: delegate];
+        let shown: Bool = msg_send![controller, presentPreviewAnimated: true];
+        if shown.as_bool() {
+            Ok(())
+        } else {
+            Err("iPhone can't preview this kind of file. Save a copy instead.".to_string())
+        }
+    }
+}
+
+/// A `UIDocumentInteractionControllerDelegate` that names the screen the
+/// viewer slides up over.
+fn preview_delegate_class() -> Option<&'static AnyClass> {
+    static CLASS: OnceLock<Option<&'static AnyClass>> = OnceLock::new();
+    *CLASS.get_or_init(|| {
+        type PresentFrom = unsafe extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut AnyObject;
+        let mut builder = ClassBuilder::new(c"KleioPreviewDelegate", class!(NSObject))?;
+        if let Some(protocol) = AnyProtocol::get(c"UIDocumentInteractionControllerDelegate") {
+            builder.add_protocol(protocol);
+        }
+        // SAFETY: `present_from` takes what iOS passes for
+        // documentInteractionControllerViewControllerForPreview: (self, _cmd,
+        // the controller) and returns a UIViewController.
+        unsafe {
+            builder.add_method(
+                sel!(documentInteractionControllerViewControllerForPreview:),
+                present_from as PresentFrom,
+            );
+        }
+        Some(builder.register())
+    })
+}
+
+/// `documentInteractionControllerViewControllerForPreview:` — the app's
+/// screen, or a sheet already up over it.
+unsafe extern "C-unwind" fn present_from(
+    this: *mut AnyObject,
+    _cmd: Sel,
+    _controller: *mut AnyObject,
+) -> *mut AnyObject {
+    // SAFETY: iOS calls this on the main thread with `this` the live delegate
+    // `present_preview` made; the screen attached to it is retained by it, and
+    // each controller returned is owned by UIKit and outlives this call.
+    unsafe {
+        let mut top = objc2::ffi::objc_getAssociatedObject(
+            this,
+            std::ptr::from_ref(&PREVIEW_SCREEN_KEY).cast(),
+        )
+        .cast_mut();
+        while !top.is_null() {
+            let next: *mut AnyObject = msg_send![top, presentedViewController];
+            if next.is_null() {
+                break;
+            }
+            top = next;
+        }
+        top
+    }
+}
+
 fn token_received(token: String) {
     let Some(app) = APP.get() else {
         return;

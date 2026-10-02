@@ -19,6 +19,12 @@
 export const REPIN_DISTANCE_PX = 48;
 
 /**
+ * iPhone: after the finger lifts, a transcript stays held until scrolling (the
+ * fling) has been quiet this long; then it catches up if still following.
+ */
+export const TOUCH_SETTLE_MS = 160;
+
+/**
  * Slack for "exactly at the bottom": scrollTop is fractional under zoom while
  * scrollHeight and clientHeight are each rounded to whole pixels, so a clamped
  * offset can read up to a pixel or so off zero.

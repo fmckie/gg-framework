@@ -3658,10 +3658,14 @@ fn build_app_window_with_visibility(
     #[cfg(mobile)]
     {
         let _ = visible;
-        let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-            .background_color(APP_BG)
-            .build()
-            .map_err(|e| e.to_string())?;
+        let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+            .background_color(APP_BG);
+        // No ∧ ∨ ✓ form bar above the keyboard: the app has one field per
+        // screen, so the bar's previous/next did nothing and it parted the
+        // message box from the keyboard by a 68pt strip, like Messages has none.
+        #[cfg(target_os = "ios")]
+        let builder = builder.with_input_accessory_view_builder(|_webview| None);
+        let window = builder.build().map_err(|e| e.to_string())?;
         #[cfg(target_os = "ios")]
         kleio::phone::fill_screen(&window);
         Ok(window)

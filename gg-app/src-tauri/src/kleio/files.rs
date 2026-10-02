@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
+#[cfg(not(target_os = "ios"))]
 use tauri_plugin_opener::OpenerExt;
 
 use super::commands::{api_client, root_cause};
@@ -422,9 +423,26 @@ pub async fn kleio_file_open(app: AppHandle, owner: FileOwner, path: String) -> 
     }
     let file = cached_or_fetch(&app, &owner, &segs).await?;
     log::info!("kleio: file open ({})", owner.kind());
+    open_downloaded(&app, file).await
+}
+
+/// Hand a downloaded file to the desktop's default app for it.
+#[cfg(not(target_os = "ios"))]
+async fn open_downloaded(app: &AppHandle, file: PathBuf) -> Result<(), String> {
     app.opener()
         .open_path(file.to_string_lossy().to_string(), None::<String>)
         .map_err(|e| e.to_string())
+}
+
+/// The iPhone has no default apps to hand a file to: show it in iOS's viewer.
+#[cfg(target_os = "ios")]
+async fn open_downloaded(app: &AppHandle, file: PathBuf) -> Result<(), String> {
+    let window = app
+        .webview_windows()
+        .into_values()
+        .next()
+        .ok_or_else(|| "The file viewer is unavailable.".to_string())?;
+    super::phone::preview_file(&window, file).await
 }
 
 /// Save a copy where the user picks. Ok(false) when the dialog is cancelled.

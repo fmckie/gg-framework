@@ -77,6 +77,7 @@ import {
   pinAfterTouchScroll,
   pinAfterWheel,
   showJumpToLatest,
+  TOUCH_SETTLE_MS,
 } from "./transcript-pin";
 import { isPhone } from "./platform";
 import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
@@ -202,9 +203,6 @@ const PLACEHOLDER_SHUFFLE_FRAME_MS = 24;
 // A drag that stops delivering events for this long is over: the platform
 // swallowed the terminal leave/drop (see the drag-overlay watchdog below).
 const STALE_DRAG_OVERLAY_MS = 2_500;
-// iPhone: after the finger lifts, the transcript stays held until scrolling
-// (the fling) has been quiet this long; then it catches up if still following.
-const TOUCH_SETTLE_MS = 160;
 // iPhone: a drag on the transcript this long puts the keyboard away.
 const KEYBOARD_DISMISS_DRAG_PX = 10;
 

@@ -44,6 +44,7 @@ import {
   type Group,
   type GroupMessage,
 } from "./kleioApi";
+import { useFollowLatest } from "./useFollowLatest";
 
 /** The host allows 1–8 agents in a group. */
 const MAX_MEMBERS = 8;
@@ -51,7 +52,6 @@ const NAME_MAX = 40;
 const MESSAGE_MAX = 4000;
 const GROUP_POLL_MS = 1500;
 const LIST_REFRESH_MS = 10_000;
-const PIN_SLACK_PX = 40;
 /** Hosts from before agent looks accept only the original six colours. */
 const ORIGINAL_COLORS: readonly BlobColor[] = BLOB_COLORS.slice(0, 6);
 
@@ -592,6 +592,7 @@ function GroupChat({
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const windowFocused = useWindowFocused();
+  const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
   const sideId = useId();
   const byId = useMemo(() => new Map(blobs.map((b) => [b.id, b])), [blobs]);
   const members = groupMembers(group, byId);
@@ -616,6 +617,7 @@ function GroupChat({
     lastSeq.current = 0;
     setMessages([]);
     setLoaded(false);
+    follow();
     const tick = async (): Promise<void> => {
       if (document.hidden) return;
       try {
@@ -638,24 +640,25 @@ function GroupChat({
       live = false;
       window.clearInterval(id);
     };
-  }, [group.id]);
+  }, [group.id, follow]);
 
+  // New messages carry along only a reader at the newest one, never one
+  // scrolled up to read.
   useEffect(() => {
-    const el = logRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, typing]);
+    catchUp();
+  }, [messages, typing, catchUp]);
 
   useLayoutEffect(() => {
-    const log = logRef.current;
-    const pinned = log ? log.scrollHeight - log.scrollTop - log.clientHeight < PIN_SLACK_PX : true;
-    autosizeComposer(inputRef.current, log, pinned);
-  }, [draft]);
+    autosizeComposer(inputRef.current, logRef.current, following());
+  }, [draft, following]);
 
   async function send(): Promise<void> {
     const text = draft.trim();
     if (!text || sending) return;
     setSending(true);
     setDraft("");
+    // Sending means following the replies, wherever the reader had scrolled.
+    follow();
     try {
       await sendGroupMessage(group.id, text);
     } catch (e) {
@@ -683,6 +686,7 @@ function GroupChat({
         aria-live="polite"
         aria-label={`${group.name} conversation`}
         tabIndex={0}
+        {...followHandlers}
       >
         <div className="kleio-transcript-inner">
           {!loaded && !error && <p className="kleio-chat-hint">Opening…</p>}
