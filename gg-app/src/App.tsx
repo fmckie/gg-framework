@@ -149,6 +149,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
+import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -3024,16 +3025,20 @@ function App(): React.ReactElement {
                   </div>
                 ))}
               <PromptSendProvider value={sendKenRecommendedPrompt}>
-                {items.map((it) => (
-                  <TranscriptRow
-                    key={it.id}
-                    item={it}
-                    animateIn={it.id >= liveFromId}
-                    onContentGrow={maybeScrollToBottom}
-                    onAskAnswer={answerAsk}
-                    onAskType={typeAskInstead}
-                  />
-                ))}
+                <WorkspaceFilesProvider
+                  cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
+                >
+                  {items.map((it) => (
+                    <TranscriptRow
+                      key={it.id}
+                      item={it}
+                      animateIn={it.id >= liveFromId}
+                      onContentGrow={maybeScrollToBottom}
+                      onAskAnswer={answerAsk}
+                      onAskType={typeAskInstead}
+                    />
+                  ))}
+                </WorkspaceFilesProvider>
               </PromptSendProvider>
             </>
           )}
@@ -3723,6 +3728,9 @@ function TranscriptRowBody({
       const segments = hasDoneMarker(item.text)
         ? segmentDoneMarkers(item.text)
         : [{ kind: "text" as const, text: item.text }];
+      // Output cards (when paired to a Mac mini) sit once under the reply's
+      // last stretch of prose, covering every link in the whole reply.
+      const cardsAt = segments.map((s) => s.kind).lastIndexOf("text");
       return (
         <>
           {segments.map((seg, i) =>
@@ -3740,6 +3748,7 @@ function TranscriptRowBody({
                 </span>
                 <div className="assistant-text">
                   <StreamingMarkdown text={seg.text} onGrow={onContentGrow} />
+                  {i === cardsAt && <WorkspaceFileCards text={item.text} />}
                 </div>
               </div>
             ),
