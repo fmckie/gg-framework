@@ -471,7 +471,7 @@ describe("apps: routes", () => {
     const hn = await call("POST", "/kleio/connections", { toolkit: "hackernews" });
     expect(hn.status).toBe(409);
     expect(hn.body).toEqual({
-      error: "This app doesn't need a sign-in. Kleio and your agents can already use it.",
+      error: "This app doesn't need a sign-in. Kleio and your specialists can already use it.",
       code: "no_auth",
     });
     const x = await call("POST", "/kleio/connections", { toolkit: "twitter" });

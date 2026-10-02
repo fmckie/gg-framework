@@ -1,4 +1,4 @@
-// Groups: a group chat with several agents at once, from the Kleio host. A
+// Groups: a group chat with several specialists at once, from the Kleio host. A
 // list laid out like Chats and Code; a group opens into its chat with a
 // sidebar of its members on the left (collapsible from the header), and
 // new/edit are full-page forms. A group's picture is its members' blobs.
@@ -63,8 +63,8 @@ function groupMembers(g: Pick<Group, "members">, byId: ReadonlyMap<string, Blob>
 /** How the host runs a group chat (see kleio-host groups.ts). */
 const HOW_IT_WORKS = [
   "Send a message and every member replies, in member order.",
-  "@mention an agent to ask just them.",
-  "Agents can @mention each other to hand over.",
+  "@mention a specialist to ask just them.",
+  "Specialists can @mention each other to hand over.",
 ];
 
 function HowItWorks(): React.ReactElement {
@@ -229,7 +229,7 @@ function GroupList({
       windowFocused={windowFocused}
       className="btn btn-primary btn-sm"
       disabled={noAgents}
-      title={noAgents ? "Create an agent first" : undefined}
+      title={noAgents ? "Create a specialist first" : undefined}
       onClick={onCreate}
     >
       + New group
@@ -264,8 +264,8 @@ function GroupList({
             <h2 className="kleio-first-title">No groups yet</h2>
             <p className="kleio-first-text" style={{ color: theme.textMuted }}>
               {noAgents
-                ? "A group chat brings several agents together. Create an agent first, then add it to a group."
-                : "A group chat brings several agents together. Everyone replies, or @mention one to ask just them."}
+                ? "A group chat brings several specialists together. Create a specialist first, then add it to a group."
+                : "A group chat brings several specialists together. Everyone replies, or @mention one to ask just them."}
             </p>
             {!noAgents && create}
           </div>
@@ -460,10 +460,10 @@ function GroupForm({
             <KleioPanel
               title="Members"
               count={members.length}
-              description={`Pick up to ${MAX_MEMBERS} agents.`}
+              description={`Pick up to ${MAX_MEMBERS} specialists.`}
             >
               {blobs.length === 0 && missing.length === 0 ? (
-                <p className="kleio-empty">No agents yet — create one first.</p>
+                <p className="kleio-empty">No specialists yet — create one first.</p>
               ) : (
                 <ul className="kleio-member-picks" id={ids.members} aria-label="Members">
                   {blobs.map((b) => {
@@ -499,7 +499,7 @@ function GroupForm({
                       >
                         <span className="kleio-member-gone" aria-hidden="true" />
                         <span className="kleio-member-text">
-                          <span className="kleio-member-name">Deleted agent</span>
+                          <span className="kleio-member-name">Deleted specialist</span>
                           <span className="kleio-member-sub">
                             Click to remove it from the group.
                           </span>
@@ -540,7 +540,7 @@ function GroupForm({
             {group && (
               <KleioPanel
                 title="Delete group"
-                description="Removes the group chat. Its agents stay."
+                description="Removes the group chat. Its specialists stay."
               >
                 <button
                   type="button"
@@ -558,7 +558,7 @@ function GroupForm({
       {group && confirmDelete && (
         <ConfirmModal
           title={`Delete ${group.name}?`}
-          message="The group chat and its messages go. Its agents stay. This can't be undone."
+          message="The group chat and its messages go. Its specialists stay. This can't be undone."
           confirmLabel="Delete"
           onConfirm={() => void remove()}
           onClose={() => setConfirmDelete(false)}
@@ -845,8 +845,8 @@ function GroupChat({
           {group.members.length > members.length && (
             <li className="kleio-member is-missing">
               <span className="kleio-member-sub">
-                {plural(group.members.length - members.length, "deleted agent")} — edit the group to
-                remove.
+                {plural(group.members.length - members.length, "deleted specialist")} — edit the
+                group to remove.
               </span>
             </li>
           )}

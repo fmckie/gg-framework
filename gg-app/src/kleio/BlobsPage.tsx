@@ -1,5 +1,5 @@
-// Agents: Kleio's helpers, each with one job. A list laid out like Chats and
-// Code; an agent opens into its chat with a sidebar of cards on the left (job,
+// Specialists (Blobs in the code): Kleio's helpers, each with one job. A list
+// laid out like Chats and Code; a specialist opens into its chat with a sidebar of cards on the left (job,
 // schedules, recent activity) that collapses from the header. New and edit are
 // full-page forms. Every change goes to the Mac mini, so the phone sees it too.
 
@@ -51,7 +51,7 @@ export function BlobsPage({
   onOpenApps,
   openId,
 }: {
-  /** Leave Agents (Back on the list). */
+  /** Leave Specialists (Back on the list). */
   onClose: () => void;
   /** Told whether the list is showing, so the screen can show its switcher. */
   onListChange?: (atList: boolean) => void;
@@ -111,15 +111,15 @@ export function BlobsPage({
     if (!blob) {
       return (
         <>
-          <KleioHead onBack={toList} title="Agents" />
+          <KleioHead onBack={toList} title="Specialists" />
           <div className="picker-empty" style={{ color: theme.textMuted }}>
             {blobs === null ? (
               "Loading…"
             ) : (
               <>
-                <span>That agent no longer exists.</span>
+                <span>That specialist no longer exists.</span>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={toList}>
-                  All agents
+                  All specialists
                 </button>
               </>
             )}
@@ -184,7 +184,7 @@ function AgentList({
     <>
       <KleioHead
         onBack={onClose}
-        title="Agents"
+        title="Specialists"
         status={
           blobs !== null && (
             <>
@@ -194,10 +194,10 @@ function AgentList({
                 <input
                   type="search"
                   className="picker-search"
-                  placeholder={"Search agents\u2026"}
+                  placeholder={"Search specialists\u2026"}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  aria-label="Search agents"
+                  aria-label="Search specialists"
                 />
               )}
             </>
@@ -211,7 +211,7 @@ function AgentList({
               className="btn btn-primary btn-sm"
               onClick={onCreate}
             >
-              + New agent
+              + New specialist
             </MetalButton>
           </>
         }
@@ -227,23 +227,23 @@ function AgentList({
         {blobs !== null && blobs.length === 0 && (
           <div className="picker-empty kleio-first">
             <BlobAvatar look={{ shape: "orb", face: "happy", color: "sky" }} size={64} animated />
-            <h2 className="kleio-first-title">No agents yet</h2>
+            <h2 className="kleio-first-title">No specialists yet</h2>
             <p className="kleio-first-text" style={{ color: theme.textMuted }}>
-              An agent does one job for you on your Mac mini — on a schedule or when you ask — and
-              shares Kleio's memory of you.
+              A specialist does one job for you on your Mac mini — on a schedule or when you ask —
+              and shares Kleio's memory of you.
             </p>
             <MetalButton
               windowFocused={windowFocused}
               className="btn btn-primary btn-sm"
               onClick={onCreate}
             >
-              + Create your first agent
+              + Create your first specialist
             </MetalButton>
           </div>
         )}
         {blobs !== null && blobs.length > 0 && shown.length === 0 && (
           <div className="picker-empty" style={{ color: theme.textMuted }}>
-            No agents match “{query.trim()}”.
+            No specialists match “{query.trim()}”.
           </div>
         )}
         {shown.length > 0 && (
@@ -344,7 +344,10 @@ function AgentDetail({
         <p className="kleio-job-text">{blob.job}</p>
       </KleioPanel>
       <Schedules blob={blob} onChanged={onChanged} />
-      <KleioPanel title="Delete agent" description="Removes it with its schedules and run history.">
+      <KleioPanel
+        title="Delete specialist"
+        description="Removes it with its schedules and run history."
+      >
         <button
           type="button"
           className="btn btn-ghost btn-sm kleio-danger-btn"

@@ -128,7 +128,7 @@ html.platform-ios .settings-page {
   padding-bottom: calc(var(--safe-bottom) + 84px);
 }
 
-/* The new and edit agent forms scroll to the bottom edge the same way, and
+/* The new and edit specialist forms scroll to the bottom edge the same way, and
    their last row still scrolls clear of the home indicator. */
 html.platform-ios .app:has(.kleio-form-page),
 html.platform-ios .kleio-overlay:has(.kleio-form-page) {

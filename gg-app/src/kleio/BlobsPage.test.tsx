@@ -85,9 +85,9 @@ afterEach(() => {
 });
 
 describe("BlobsPage", () => {
-  it("lists every agent as a row with its job and what it's doing", async () => {
+  it("lists every specialist as a row with its job and what it's doing", async () => {
     await renderPage();
-    expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Specialists" })).toBeTruthy();
     const research = screen.getByRole("button", { name: /^Research\./ });
     expect(within(research).getByText("Latest AI news every day")).toBeTruthy();
     expect(within(research).getByText(/^Next /)).toBeTruthy();
@@ -99,18 +99,18 @@ describe("BlobsPage", () => {
 
   it("filters the list by name or job", async () => {
     await renderPage();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search agents" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search specialists" }), {
       target: { value: "chef" },
     });
     expect(screen.queryByRole("button", { name: /^Research\./ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Chef\./ })).toBeTruthy();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search agents" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search specialists" }), {
       target: { value: "nothing like this" },
     });
-    expect(screen.getByText(/No agents match/)).toBeTruthy();
+    expect(screen.getByText(/No specialists match/)).toBeTruthy();
   });
 
-  it("opens an agent into its chat, with its job and schedules alongside", async () => {
+  it("opens a specialist into its chat, with its job and schedules alongside", async () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
     expect(screen.getByRole("heading", { name: "Research", level: 1 })).toBeTruthy();
@@ -158,7 +158,7 @@ describe("BlobsPage", () => {
     );
   });
 
-  it("asks before deleting an agent", async () => {
+  it("asks before deleting a specialist", async () => {
     vi.mocked(deleteBlob).mockResolvedValue(undefined);
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
@@ -169,9 +169,9 @@ describe("BlobsPage", () => {
     await waitFor(() => expect(deleteBlob).toHaveBeenCalledWith("b1"));
   });
 
-  it("opens the new-agent form from the header and returns to the list", async () => {
+  it("opens the new-specialist form from the header and returns to the list", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "+ New agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
     expect(screen.getByText("new agent form")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
@@ -187,18 +187,18 @@ describe("BlobsPage", () => {
     expect(onListChange).toHaveBeenLastCalledWith(false);
   });
 
-  it("goes back out of Agents from the list", async () => {
+  it("goes back out of Specialists from the list", async () => {
     const onClose = vi.fn();
     await renderPage(onClose);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("welcomes you with a first-agent prompt when there are none", async () => {
+  it("welcomes you with a first-specialist prompt when there are none", async () => {
     vi.mocked(listBlobs).mockResolvedValue([]);
     await renderPage();
-    expect(screen.getByRole("heading", { name: "No agents yet" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Create your first agent/ }));
+    expect(screen.getByRole("heading", { name: "No specialists yet" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Create your first specialist/ }));
     expect(screen.getByText("new agent form")).toBeTruthy();
   });
 

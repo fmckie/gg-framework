@@ -142,10 +142,11 @@ export function formatBytes(n: number): string {
 export function fileErrorText(e: unknown): string {
   const raw = errorText(e);
   if (/^no such file/i.test(raw)) return "This file isn't on your Mac mini any more.";
-  if (/^no such (agent|group)/i.test(raw)) return "That agent no longer exists.";
+  if (/^no such agent/i.test(raw)) return "That specialist no longer exists.";
+  if (/^no such group/i.test(raw)) return "That group no longer exists.";
   if (/^file too large/i.test(raw) || /larger than/i.test(raw))
     return "This file is too big to open from Kleio (over 50 MB).";
-  if (/bad path/i.test(raw)) return "Kleio only opens files from the agent's own folder.";
+  if (/bad path/i.test(raw)) return "Kleio only opens files from its own folders.";
   if (/^not found$/i.test(raw)) return "Your Mac mini needs an update to share files.";
   return raw;
 }

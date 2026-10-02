@@ -50,7 +50,7 @@ export function appErrorText(e: unknown): string {
     }
   }
   if (/does not require authentication/i.test(detail))
-    return "This app doesn't need a sign-in. Kleio and your agents can already use it.";
+    return "This app doesn't need a sign-in. Kleio and your specialists can already use it.";
   if (/does not manage auth/i.test(detail))
     return "Composio has no ready-made sign-in for this app. Add your own developer keys for it in Composio, then connect again.";
   return detail ? `Composio couldn't do that: ${detail}` : "Composio couldn't do that.";
@@ -283,7 +283,8 @@ export function AppsPage(): React.ReactElement {
       >
         <p className="kleio-page-intro">
           Put a Composio API key in the host's <code>composio.key</code> file and restart the Kleio
-          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every agent.
+          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every
+          specialist.
         </p>
       </SettingsCard>
     );
@@ -303,8 +304,8 @@ export function AppsPage(): React.ReactElement {
       </SettingsHeaderStatus>
 
       <p className="kleio-page-intro">
-        Connected apps work for Kleio and every agent — read your mail, check your calendar, update
-        Notion. You sign in once, in your browser.
+        Connected apps work for Kleio and every specialist — read your mail, check your calendar,
+        update Notion. You sign in once, in your browser.
       </p>
 
       {error && (
@@ -324,7 +325,7 @@ export function AppsPage(): React.ReactElement {
       )}
 
       {connections.length > 0 && (
-        <SettingsCard title="Your apps" description="Kleio and your agents can use these now.">
+        <SettingsCard title="Your apps" description="Kleio and your specialists can use these now.">
           <ul className="app-mine">
             {connections.map((c) => {
               const state = connectionState(c.status);
@@ -443,7 +444,7 @@ export function AppsPage(): React.ReactElement {
                       <span className="app-tile-foot">
                         <span
                           className="app-tile-connected"
-                          title="Kleio and your agents can use it without signing in."
+                          title="Kleio and your specialists can use it without signing in."
                         >
                           <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
                           Ready · no sign-in

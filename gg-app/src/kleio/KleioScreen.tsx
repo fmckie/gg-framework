@@ -1,7 +1,8 @@
-// Kleio's Agents and Groups, laid out like the Chats and Code pickers: each
-// page draws the shared picker header and a list; an agent or group opens into
-// its chat with a sidebar of cards, and new/edit are full-page forms. The
-// capsule switcher between Agents and Groups shows on the two lists only.
+// Kleio's Specialists (Blobs in the code) and Groups, laid out like the Chats
+// and Code pickers: each page draws the shared picker header and a list; a
+// specialist or group opens into its chat with a sidebar of cards, and
+// new/edit are full-page forms. The capsule switcher between Specialists and
+// Groups shows on the two lists only.
 // "Connect apps" on either list opens the Apps page here, with Back returning
 // to the list. Everything comes from the Kleio host (the Mac mini), so the
 // phone and every Mac stay in sync.
@@ -20,13 +21,13 @@ export type KleioScreenTab = "blobs" | "groups";
 const PANEL_ID = "kleio-screen-panel";
 
 const TABS: SettingsTab<KleioScreenTab>[] = [
-  { id: "blobs", label: "Agents", icon: CirclesThreeIcon },
+  { id: "blobs", label: "Specialists", icon: CirclesThreeIcon },
   { id: "groups", label: "Groups", icon: ChatsCircleIcon },
 ];
 
 interface Props {
   initialTab?: KleioScreenTab;
-  /** Open straight into this agent's or group's chat, on `initialTab`. The
+  /** Open straight into this specialist's or group's chat, on `initialTab`. The
    *  screen remounts per tab, so switching tabs lands on the lists as usual. */
   openId?: string;
   onClose: () => void;

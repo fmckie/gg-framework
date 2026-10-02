@@ -1,4 +1,4 @@
-// An agent's schedules and recent runs, as two cards in its sidebar, plus the
+// A specialist's schedules and recent runs, as two cards in its sidebar, plus the
 // dialog for adding or editing one schedule.
 
 import { useCallback, useEffect, useState } from "react";
@@ -243,7 +243,7 @@ export function Schedules({
       {deleting && (
         <ConfirmModal
           title={`Delete “${deleting.label}”?`}
-          message="The agent stops running on this schedule. You can add it again later."
+          message="The specialist stops running on this schedule. You can add it again later."
           confirmLabel="Delete"
           onConfirm={() => {
             const s = deleting;

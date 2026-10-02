@@ -32,7 +32,7 @@ interface Props {
   onChat: () => void;
   /** Coding projects on the Mac mini. */
   onCode: () => void;
-  /** Kleio's agents ("Blobs" in the code and on the host). Apps live in Settings. */
+  /** Kleio's specialists ("Blobs" in the code and on the host). Apps live in Settings. */
   onBlobs: () => void;
   onSettings: (tab?: SettingsTabId) => void;
   refreshSignal?: number;
@@ -129,7 +129,9 @@ export function KleioHome({
         </button>
       </div>
       <KleioMark />
-      <div className="home-tagline">Your private assistant, agents and coder, in one place.</div>
+      <div className="home-tagline">
+        Your private assistant, specialists and coder, in one place.
+      </div>
       <div className="home-actions">
         <button
           type="button"
@@ -151,7 +153,7 @@ export function KleioHome({
         </button>
         <button type="button" className="btn btn-ghost home-action" onClick={onBlobs}>
           <CirclesThreeIcon size={18} weight="bold" aria-hidden="true" />
-          Agents
+          Specialists
         </button>
       </div>
       <button

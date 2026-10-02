@@ -419,7 +419,8 @@ export function createConnections(options: ConnectionsOptions): Connections {
         return {
           status: 409,
           body: {
-            error: "This app doesn't need a sign-in. Kleio and your agents can already use it.",
+            error:
+              "This app doesn't need a sign-in. Kleio and your specialists can already use it.",
             code: "no_auth",
           },
         };

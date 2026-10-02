@@ -79,15 +79,16 @@ describe("KleioHome", () => {
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
-  it("Kleio opens the chat and Agents opens the agents; Apps is in Settings", async () => {
+  it("Kleio opens the chat and Specialists opens the specialists; Apps is in Settings", async () => {
     const p = renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Specialists" }));
     expect(p.onChat).toHaveBeenCalledOnce();
     expect(p.onBlobs).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: /Blobs/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Apps/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Agents/ })).toBeNull();
   });
 
   it("shows the Mac mini and opens the Connection settings", async () => {

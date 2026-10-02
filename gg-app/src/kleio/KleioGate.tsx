@@ -48,7 +48,7 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
         <h1 className="kleio-gate-title">Connect to your Mac mini</h1>
         <p className="kleio-gate-text">
           Kleio runs on your Mac mini and talks to it over Tailscale. Pair this {device} once and
-          Kleio opens straight into your conversations, agents and apps.
+          Kleio opens straight into your conversations, specialists and apps.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setPairing(true)}>
           {status.paired ? "Finish connecting" : "Pair with your Mac mini"}

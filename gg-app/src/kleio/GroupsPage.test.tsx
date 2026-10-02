@@ -148,12 +148,12 @@ describe("GroupsPage", () => {
     await waitFor(() => expect(deleteGroup).toHaveBeenCalledWith("g1"));
   });
 
-  it("points you to agents first when there are none", async () => {
+  it("points you to specialists first when there are none", async () => {
     vi.mocked(listBlobs).mockResolvedValue([]);
     vi.mocked(listGroups).mockResolvedValue([]);
     await renderPage();
     expect(screen.getByRole("heading", { name: "No groups yet" })).toBeTruthy();
-    expect(screen.getByText(/Create an agent first/)).toBeTruthy();
+    expect(screen.getByText(/Create a specialist first/)).toBeTruthy();
     expect(
       (screen.getByRole("button", { name: "+ New group" }) as HTMLButtonElement).disabled,
     ).toBe(true);

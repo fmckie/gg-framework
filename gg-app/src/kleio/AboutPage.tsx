@@ -28,7 +28,7 @@ export function AboutPage(): React.ReactElement {
   return (
     <section className="settings-card about-card" aria-label="About Kleio">
       <KleioMark small />
-      <p className="about-tagline">Your private assistant, agents and coder, in one place.</p>
+      <p className="about-tagline">Your private assistant, specialists and coder, in one place.</p>
       {version && <p className="about-version">{`Version ${version}`}</p>}
       <p className="about-credit">Built on GG Coder by Ken Kai</p>
     </section>

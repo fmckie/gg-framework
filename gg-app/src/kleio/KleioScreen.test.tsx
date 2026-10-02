@@ -23,20 +23,20 @@ afterEach(() => {
 });
 
 describe("KleioScreen", () => {
-  it("opens Apps from the Agents list, and Back returns to the list", async () => {
+  it("opens Apps from the Specialists list, and Back returns to the list", async () => {
     await act(async () => {
       render(<KleioScreen onClose={() => undefined} />);
     });
-    expect(screen.getByRole("tab", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Specialists" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Connect apps" }));
     expect(screen.getByRole("heading", { name: "Apps" })).toBeTruthy();
     expect(screen.getByText("The apps page")).toBeTruthy();
-    // The Agents/Groups switcher belongs to the lists only.
-    expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
+    // The Specialists/Groups switcher belongs to the lists only.
+    expect(screen.queryByRole("tab", { name: "Specialists" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("button", { name: "Connect apps" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agents" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Specialists" })).toBeTruthy();
   });
 });

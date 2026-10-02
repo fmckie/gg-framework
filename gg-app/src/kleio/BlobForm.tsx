@@ -1,8 +1,8 @@
-// Create / edit an agent as a full page: Identity (name and drawn look) and
-// Job cards on the left; Preview, Brain and Scheduling cards in the sidebar.
-// New agents schedule in this Mac's timezone; unless you switch it off, the
-// host reads timing out of the job ("every morning", "weekdays at 6") and the
-// result is shown after save.
+// Create / edit a specialist as a full page: Identity (name and drawn look)
+// and Job cards on the left; Preview, Brain and Scheduling cards in the
+// sidebar. New specialists schedule in this Mac's timezone; unless you
+// switch it off, the host reads timing out of the job ("every morning",
+// "weekdays at 6") and the result is shown after save.
 
 import { useEffect, useId, useState } from "react";
 import { CloudIcon, LockSimpleIcon } from "@phosphor-icons/react";
@@ -66,7 +66,7 @@ export function modelOptions(list: ModelList | null): DropdownOption[] {
     {
       value: DEFAULT,
       label: `Default${def ? ` — ${def.label}` : ""}`,
-      description: "The host's standard brain for agents",
+      description: "The host's standard brain for specialists",
     },
     ...(list?.models ?? []).map((m) => ({
       value: m.id,
@@ -157,7 +157,7 @@ export function BlobForm({
 
   const chosen = models?.models.find((m) => m.id === (model || models.defaultBlobModel));
   const canSave = !saving && Boolean(name.trim()) && Boolean(job.trim());
-  const title = blob ? `Edit ${blob.name}` : "New agent";
+  const title = blob ? `Edit ${blob.name}` : "New specialist";
 
   const main = (
     <div className="kleio-form-main">
@@ -229,7 +229,7 @@ export function BlobForm({
       <KleioPanel title="Preview">
         <div className="picker-item kleio-row kleio-preview" aria-hidden="true">
           <AgentRowContent
-            name={name.trim() || "Your agent"}
+            name={name.trim() || "Your specialist"}
             avatar={<BlobAvatar look={look} size={36} />}
             sub={job.trim() || "Its job will show here."}
             state={blob ? agentRowState(blob) : { text: "On call", tone: "plain" }}
@@ -237,7 +237,7 @@ export function BlobForm({
         </div>
       </KleioPanel>
 
-      <KleioPanel title="Brain" description="The model that does the thinking for this agent.">
+      <KleioPanel title="Brain" description="The model that does the thinking for this specialist.">
         <Dropdown
           label="Brain"
           options={modelOptions(models)}
@@ -330,7 +330,7 @@ export function BlobForm({
       >
         <div className="kleio-form-grid">
           {main}
-          <aside className="kleio-form-side" aria-label="Agent settings">
+          <aside className="kleio-form-side" aria-label="Specialist settings">
             {side}
           </aside>
         </div>

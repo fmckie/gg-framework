@@ -2840,10 +2840,10 @@ function App(): React.ReactElement {
                 type="button"
                 className="kleio-badge kleio-open"
                 onClick={() => setShowKleioOverlay(true)}
-                title="Agents and group chats · ⌘⇧L"
-                aria-label="Open agents and groups"
+                title="Specialists and group chats · ⌘⇧L"
+                aria-label="Open specialists and groups"
               >
-                Agents
+                Specialists
               </button>
             )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
