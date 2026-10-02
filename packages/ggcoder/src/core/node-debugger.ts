@@ -77,7 +77,12 @@ interface PausedState {
 
 interface Breakpoint {
   id: string;
-  cdpId: string;
+  /** The URL-pattern breakpoint first, then one per script bound by exact URL. */
+  cdpIds: string[];
+  /** The pattern the first CDP breakpoint was set with. */
+  urlRegex: string;
+  /** The target file, comparable with `samePath`. */
+  target: string;
   /** As the caller wrote it, for display. */
   file: string;
   line: number;
@@ -131,6 +136,12 @@ function pathForms(p: string): string[] {
     // does not exist (yet); the as-given form stands
   }
   return [...forms].sort();
+}
+
+/** Comparable form of a path: fully resolved, case-folded where the filesystem is. */
+function comparablePath(p: string): string {
+  const real = realPath(p);
+  return process.platform === "win32" ? real.toLowerCase() : real;
 }
 
 /** Windows paths are case-insensitive; CDP's urlRegex takes no flags, so spell it out. */
@@ -194,6 +205,8 @@ export class NodeDebugSession {
   private readonly scripts = new Map<string, string>();
   private readonly breakpoints = new Map<string, Breakpoint>();
   private readonly stopWaiters = new Set<() => void>();
+  /** In-flight exact-URL breakpoint bindings (see `bindToScript`). */
+  private readonly binding = new Set<Promise<void>>();
   private nextMessageId = 1;
   private nextBreakpoint = 1;
   private paused: PausedState | undefined;
@@ -348,9 +361,12 @@ export class NodeDebugSession {
     }
     const params = message.params ?? {};
     switch (message.method) {
-      case "Debugger.scriptParsed":
-        this.scripts.set(String(params.scriptId), String(params.url ?? ""));
+      case "Debugger.scriptParsed": {
+        const url = String(params.url ?? "");
+        this.scripts.set(String(params.scriptId), url);
+        for (const bp of this.breakpoints.values()) this.bindToScript(bp, url);
         break;
+      }
       case "Debugger.paused":
         this.paused = {
           reason: String(params.reason ?? "other"),
@@ -367,7 +383,11 @@ export class NodeDebugSession {
         const cdpId = String(params.breakpointId);
         const location = params.location as { lineNumber: number } | undefined;
         for (const bp of this.breakpoints.values()) {
-          if (bp.cdpId === cdpId && location && !bp.boundLines.includes(location.lineNumber + 1)) {
+          if (
+            bp.cdpIds.includes(cdpId) &&
+            location &&
+            !bp.boundLines.includes(location.lineNumber + 1)
+          ) {
             bp.boundLines.push(location.lineNumber + 1);
           }
         }
@@ -481,6 +501,8 @@ export class NodeDebugSession {
       step_into: "Debugger.stepInto",
       step_out: "Debugger.stepOut",
     }[how];
+    // Breakpoints being bound to just-loaded scripts must land before it runs on.
+    await Promise.all(this.binding);
     this.paused = undefined;
     await this.send(method);
     return this.waitForStop(timeoutMs, signal);
@@ -510,21 +532,68 @@ export class NodeDebugSession {
     })) as { breakpointId: string; locations: Array<{ lineNumber: number }> };
     const bp: Breakpoint = {
       id: `bp${this.nextBreakpoint++}`,
-      cdpId: result.breakpointId,
+      cdpIds: [result.breakpointId],
+      urlRegex,
+      target: comparablePath(forms[0] ?? file),
       file,
       line,
       ...(condition ? { condition } : {}),
       boundLines: [...new Set(result.locations.map((l) => l.lineNumber + 1))],
     };
     this.breakpoints.set(bp.id, bp);
+    for (const url of new Set(this.scripts.values())) this.bindToScript(bp, url);
+    await Promise.all(this.binding);
     return bp;
+  }
+
+  /**
+   * Also bind `bp` by the exact URL of a loaded script that is the target file
+   * but that the URL pattern missed — Node can name a script in a spelling no
+   * path form predicts (Windows short names, drive-letter case, URL encoding).
+   * The file itself, resolved on disk, decides whether it is the same script.
+   */
+  private bindToScript(bp: Breakpoint, url: string): void {
+    const file = urlToPath(url);
+    if (!file || new RegExp(bp.urlRegex).test(url)) return;
+    if (comparablePath(file) !== bp.target) return;
+    const task = (async () => {
+      try {
+        const result = (await this.send("Debugger.setBreakpointByUrl", {
+          lineNumber: bp.line - 1,
+          url,
+          ...(bp.condition ? { condition: bp.condition } : {}),
+        })) as { breakpointId: string; locations: Array<{ lineNumber: number }> };
+        // Removed while this was in flight: drop the binding it just made.
+        if (!this.breakpoints.has(bp.id)) {
+          await this.send("Debugger.removeBreakpoint", { breakpointId: result.breakpointId });
+          return;
+        }
+        bp.cdpIds.push(result.breakpointId);
+        for (const location of result.locations) {
+          if (!bp.boundLines.includes(location.lineNumber + 1)) {
+            bp.boundLines.push(location.lineNumber + 1);
+          }
+        }
+      } catch (error) {
+        // Already bound at that URL, or the session closed; the pattern stands.
+        log("WARN", "debug", "could not bind breakpoint to script", {
+          breakpoint: bp.id,
+          url,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+    this.binding.add(task);
+    void task.finally(() => this.binding.delete(task));
   }
 
   async removeBreakpoint(id: string): Promise<boolean> {
     const bp = this.breakpoints.get(id);
     if (!bp) return false;
-    await this.send("Debugger.removeBreakpoint", { breakpointId: bp.cdpId });
     this.breakpoints.delete(id);
+    for (const breakpointId of bp.cdpIds) {
+      await this.send("Debugger.removeBreakpoint", { breakpointId });
+    }
     return true;
   }
 
@@ -634,9 +703,15 @@ export class NodeDebugSession {
     if (!this.paused) return "";
     const top = this.paused.callFrames[0];
     const where = top ? `${top.functionName || "<anonymous>"} (${this.frameLocation(top)})` : "?";
-    const hit = this.paused.hitBreakpoints
-      .map((cdpId) => [...this.breakpoints.values()].find((bp) => bp.cdpId === cdpId)?.id)
-      .filter((id): id is string => id !== undefined);
+    const hit = [
+      ...new Set(
+        this.paused.hitBreakpoints
+          .map(
+            (cdpId) => [...this.breakpoints.values()].find((bp) => bp.cdpIds.includes(cdpId))?.id,
+          )
+          .filter((id): id is string => id !== undefined),
+      ),
+    ];
     let reason: string;
     switch (this.paused.reason) {
       case "Break on start":

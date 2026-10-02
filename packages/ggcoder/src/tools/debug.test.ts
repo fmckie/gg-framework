@@ -86,6 +86,28 @@ describe("debug tool", () => {
     expect(out).toContain("sum = 6");
   });
 
+  it(
+    "binds a breakpoint to a script Node names in a spelling the path cannot predict",
+    { timeout: 30_000 },
+    async () => {
+      // With --preserve-symlinks-main Node names the script by the link, not by
+      // cart.js, so only the on-disk identity check can bind the breakpoint.
+      await fs.symlink(path.join(dir, "cart.js"), path.join(dir, "entry.js"));
+      const out = await run({
+        action: "launch",
+        program: "entry.js",
+        node_args: ["--preserve-symlinks-main"],
+        breakpoints: [{ file: "cart.js", line: 4, condition: "item.price === 5" }],
+      });
+      expect(out).toContain("Paused at breakpoint bp1 in total (cart.js:4:17)");
+      expect(out).toContain("sum = 6");
+      expect(await run({ action: "remove_breakpoint", breakpoint_id: "bp1" })).not.toMatch(
+        /error|no breakpoint/i,
+      );
+      expect(await run({ action: "continue" })).toContain("The program exited (code 0)");
+    },
+  );
+
   it("pauses on an uncaught exception with the thrown value", { timeout: 30_000 }, async () => {
     const out = await run({ action: "launch", program: "boom.js" });
     expect(out).toContain("Paused on an exception: Error: bad config: 3 in load (boom.js:3:3)");
