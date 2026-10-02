@@ -324,9 +324,25 @@ function echoedOperands(call: ShellInvocation | undefined): string[] {
  *
  * Returns an error string telling the model to get explicit user confirmation,
  * or null when the command is not catastrophic. Pure: nothing is executed.
+ *
+ * Backslashes are read both ways: as bash escapes, and literally, as cmd.exe
+ * and PowerShell (the Windows fallbacks) read them, where `C:\Users\me` is a
+ * path rather than `C:Usersme`. Either reading hitting a protected directory
+ * blocks the command.
  */
 export function isCatastrophicCommand(command: string, cwd: string): string | null {
-  const calls = walkShell(command, cwd, (name) => INSPECTED.has(name.toLowerCase()));
+  const readings = command.includes("\\") ? [command, command.replaceAll("\\", "\\\\")] : [command];
+  for (const reading of readings) {
+    const blocked = checkCalls(
+      walkShell(reading, cwd, (name) => INSPECTED.has(name.toLowerCase())),
+      cwd,
+    );
+    if (blocked) return blocked;
+  }
+  return null;
+}
+
+function checkCalls(calls: readonly ShellInvocation[], cwd: string): string | null {
   for (const [index, call] of calls.entries()) {
     const name = call.name.toLowerCase();
     if (name === "git") {
