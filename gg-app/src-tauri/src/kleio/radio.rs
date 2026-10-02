@@ -4,7 +4,7 @@
 //! host, so the radio used to play out of the HOST's speakers. Audio belongs to
 //! the Mac the user is sitting at: in remote mode the host only supplies the
 //! station list (`GET /radio`) and this module plays the stream locally,
-//! mirroring GG Coder's player (`packages/ggcoder/src/core/radio.ts`).
+//! mirroring Kleio's sidecar player (`src/core/radio.ts` in `@kleio/coder`).
 //! Players are spawned with argument arrays only — never through a shell.
 
 use std::io::Write;

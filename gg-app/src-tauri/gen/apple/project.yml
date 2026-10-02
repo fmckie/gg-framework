@@ -47,6 +47,8 @@ targets:
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIViewControllerBasedStatusBarAppearance: false
         NSFaceIDUsageDescription: Kleio uses Face ID before admin actions on your Kleio host, like pairing a new device.
+        NSCameraUsageDescription: Kleio uses your camera locally to track which window you're looking at and focus it. Video never leaves your machine.
+        NSMicrophoneUsageDescription: Kleio allows apps you run during development to access your microphone for recording and testing.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
