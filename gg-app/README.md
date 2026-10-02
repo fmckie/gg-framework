@@ -83,6 +83,46 @@ controlled input) set `responses: { agent_state: … }` on the shot instead.
 The footer model picker is missing on purpose. On macOS it's a native `<select>` popup,
 which is an OS-level window Chromium can't capture.
 
+## Remote outputs check (manual)
+
+`scripts/e2e-remote-outputs.mjs` checks that files a Chat or Code session writes on the
+Mac mini open on a paired iPhone. It isn't part of CI, because it needs the dev server and
+a Playwright Chromium.
+
+```bash
+pnpm --filter @kleio/host build
+pnpm --filter gg-app dev                  # terminal 1
+node gg-app/scripts/e2e-remote-outputs.mjs
+```
+
+- **Real:** the `kleio-host` CLI from `packages/kleio-host/dist`. It runs `init` and
+  `serve` in a temp folder, with the API and the preview origin on free loopback ports. The
+  phone is paired through the real offer and redeem flow. The script also writes a real PDF
+  and a two-file site.
+- **Faked:** the Tauri shell. The webview runs at the iPhone layout (390×844, iPhone user
+  agent). Its file, site and API commands are bridged to real HTTP calls that carry the
+  phone's token.
+- **Checks:**
+  - The cards show the host's size and type.
+  - The opened bytes are the PDF on disk.
+  - The site's stylesheet loads through the preview origin.
+  - The site page can't read the API, has no storage or cookies, and runs on an opaque
+    origin.
+  - The host logs never contain the preview token.
+- **Output:** screenshots go to `.gg/screenshots/remote-outputs/`, which is gitignored. On
+  a failure, the script saves `failure.png` there.
+
+Quick Look and Safari can't run in this check. Headless Chromium has no PDF viewer either.
+To cover them, run this smoke test on the simulator against the real Mac mini:
+
+1. Run `pnpm ios:sim` and pair the simulator with the mini.
+2. In Chat, ask for a PDF and a small site with an `index.html` and a stylesheet.
+3. Tap **Open** on the PDF card. Quick Look should show the PDF, with Share and Save to
+   Files.
+4. Tap **Open site**. Safari should show the styled page.
+5. Capture each screen with `xcrun simctl io booted screenshot <file>.png`.
+6. On the mini, `tailscale serve status` should list both 8443 and 8444.
+
 ## Shipping
 
 Packaging (bundled per-platform Node runtime, single-file esbuild sidecar, externals,
