@@ -7,6 +7,7 @@ import {
   fileContentType,
   MAX_FILE_BYTES,
   resolveAgentFile,
+  resolveWorkspaceDir,
 } from "../src/files.js";
 
 let dir: string;
@@ -128,6 +129,79 @@ describe("resolveAgentFile", () => {
     expect(await kind("big.bin", root, 10)).toBe("too_large");
     expect(await kind("fits.bin", root, 10)).toBe("ok");
   });
+});
+
+describe("resolveWorkspaceDir", () => {
+  let projects: string;
+  let extra: string;
+  beforeEach(() => {
+    projects = join(dir, "projects");
+    extra = join(dir, "extra");
+    mkdirSync(join(projects, "app", "sub"), { recursive: true });
+    mkdirSync(join(projects, ".secret", "app"), { recursive: true });
+    mkdirSync(join(dir, "projects-evil", "app"), { recursive: true });
+    mkdirSync(join(extra, "tool"), { recursive: true });
+  });
+  const roots = (): string[] => [projects, extra, join(dir, "missing-root")];
+  const ws = async (cwd: string): Promise<string> => {
+    const r = await resolveWorkspaceDir(roots(), cwd);
+    return r.ok ? "ok" : r.error.kind;
+  };
+
+  it("accepts a root itself and a project inside one", async () => {
+    const real = realpathSync.native(projects);
+    const self = await resolveWorkspaceDir(roots(), projects);
+    expect(self.ok && self.value).toEqual({ dir: real, root: real });
+    const nested = await resolveWorkspaceDir(roots(), join(projects, "app", "sub"));
+    expect(nested.ok && nested.value).toEqual({ dir: join(real, "app", "sub"), root: real });
+    const other = await resolveWorkspaceDir(roots(), join(extra, "tool"));
+    expect(other.ok && other.value.root).toBe(realpathSync.native(extra));
+    // A trailing slash or a dot segment that stays inside is the same folder.
+    expect(await ws(`${join(projects, "app")}/`)).toBe("ok");
+  });
+
+  it("refuses folders outside the roots, including a sibling with the same prefix", async () => {
+    expect(await ws(dir)).toBe("not_found");
+    expect(await ws(join(dir, "projects-evil"))).toBe("not_found");
+    expect(await ws(join(dir, "projects-evil", "app"))).toBe("not_found");
+    expect(await ws(join(projects, ".."))).toBe("not_found");
+    expect(await ws(join(projects, "nope"))).toBe("not_found");
+    expect(await ws(tmpdir())).toBe("not_found");
+    expect((await resolveWorkspaceDir([], projects)).ok).toBe(false);
+  });
+
+  it("refuses a hidden folder between the root and the cwd", async () => {
+    expect(await ws(join(projects, ".secret"))).toBe("not_found");
+    expect(await ws(join(projects, ".secret", "app"))).toBe("not_found");
+  });
+
+  it("refuses relative, control-character, over-long cwds and files", async () => {
+    writeFileSync(join(projects, "app", "f.txt"), "x");
+    for (const cwd of [
+      "",
+      "projects/app",
+      "./app",
+      `${projects}\u0000/app`,
+      `${projects}/a\nb`,
+      `/${"a".repeat(1024)}`,
+      join(projects, "app", "f.txt"),
+    ])
+      expect(await ws(cwd), JSON.stringify(cwd)).toBe("not_found");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "follows a symlinked cwd to where it really is",
+    async () => {
+      symlinkSync(dir, join(projects, "out"));
+      symlinkSync(join(projects, ".secret", "app"), join(projects, "peek"));
+      symlinkSync(join(projects, "app"), join(extra, "alias"));
+      expect(await ws(join(projects, "out"))).toBe("not_found");
+      expect(await ws(join(projects, "out", "projects-evil"))).toBe("not_found");
+      expect(await ws(join(projects, "peek"))).toBe("not_found");
+      const alias = await resolveWorkspaceDir(roots(), join(extra, "alias"));
+      expect(alias.ok && alias.value.dir).toBe(join(realpathSync.native(projects), "app"));
+    },
+  );
 });
 
 describe("fileContentType", () => {

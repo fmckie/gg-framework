@@ -9,7 +9,7 @@
 // a regular file under the size cap.
 
 import { realpath, stat } from "node:fs/promises";
-import { extname, join, sep } from "node:path";
+import { extname, isAbsolute, join, relative, sep } from "node:path";
 import { err, ok, type Result } from "./result.js";
 
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -98,6 +98,68 @@ export async function resolveAgentFile(
   if (!st.isFile()) return err({ kind: "not_found" });
   if (st.size > maxBytes) return err({ kind: "too_large" });
   return ok({ path: target, size: st.size, mtimeMs: st.mtimeMs, name });
+}
+
+/** Longest Chat/Code cwd a device may name. */
+const MAX_CWD = 1024;
+
+export interface WorkspaceDir {
+  /** Real path of the cwd. */
+  readonly dir: string;
+  /** Real path of the workspace root it sits in (or is). */
+  readonly root: string;
+}
+
+/** The real paths of `roots` that exist, in order, without duplicates. */
+export async function realRoots(roots: readonly string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const r of roots) {
+    if (!isAbsolute(r)) continue;
+    try {
+      const real = await realpath(r);
+      if (!out.includes(real)) out.push(real);
+    } catch (e) {
+      if (!absent(e)) throw e;
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve a Chat/Code session's cwd (a host path the device sends back) to a
+ * folder Kleio's file route may read from. It must be absolute, short and
+ * free of control characters, and its real path must be one of the workspace
+ * `roots` (Kleio's projects folders) or sit strictly inside one, with no
+ * hidden folder on the way down. Anything else is not_found.
+ */
+export async function resolveWorkspaceDir(
+  roots: readonly string[],
+  cwd: string,
+): Promise<Result<WorkspaceDir, AgentFileError>> {
+  if (cwd.length === 0 || cwd.length > MAX_CWD || !isAbsolute(cwd))
+    return err({ kind: "not_found" });
+  for (let i = 0; i < cwd.length; i++) {
+    const c = cwd.charCodeAt(i);
+    if (c < 0x20 || c === 0x7f) return err({ kind: "not_found" });
+  }
+  let dir: string;
+  try {
+    dir = await realpath(cwd);
+    if (!(await stat(dir)).isDirectory()) return err({ kind: "not_found" });
+  } catch (e) {
+    if (absent(e)) return err({ kind: "not_found" });
+    throw e;
+  }
+  for (const root of await realRoots(roots)) {
+    if (dir === root) return ok({ dir, root });
+    const rel = relative(root, dir);
+    if (rel === "" || isAbsolute(rel)) continue;
+    const parts = rel.split(sep);
+    // Outside this root (".."), or under a hidden folder inside it.
+    if (parts.some((p) => p.length === 0 || p.startsWith("."))) continue;
+    return ok({ dir, root });
+  }
+  return err({ kind: "not_found" });
 }
 
 const CONTENT_TYPES = new Map<string, string>([
