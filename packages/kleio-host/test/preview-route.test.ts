@@ -268,7 +268,7 @@ describe("POST /kleio/previews", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "gives a one-page token when the site folder is a symlinked projects root",
+    "refuses a page reached through a link back up to the projects root",
     async () => {
       // A cwd that reaches the root through a link still counts as the root.
       symlinkSync(projects(), join(projects(), "demo", "loop"));
