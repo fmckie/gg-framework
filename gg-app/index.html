@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit/scale: the iPhone build draws edge to edge (safe areas are
+         padded in kleio-phone.css) and never zooms like a web page. Desktop
+         webviews ignore these. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <meta name="color-scheme" content="dark" />
     <title>gg-coder</title>
     <!-- Tauri supplies this style's nonce; trusted effect styles reuse it at runtime. -->

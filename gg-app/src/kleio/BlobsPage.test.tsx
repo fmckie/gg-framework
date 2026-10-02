@@ -1,10 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { BlobsPage, blobStatus } from "./BlobsPage";
-import { deleteBlob, listBlobs, type Blob, type Schedule } from "./kleioApi";
+import { agentRowState } from "./AgentRow";
+import { BlobsPage } from "./BlobsPage";
+import { deleteBlob, listBlobs, newBlobSession, type Blob, type Schedule } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
 
+vi.mock("../RadioButton", () => ({ RadioButton: () => <button type="button">Radio</button> }));
+vi.mock("../WindowLayoutButton", () => ({
+  WindowLayoutButton: () => <button type="button">Windows</button>,
+}));
 vi.mock("./ThreadChat", () => ({
   ThreadChat: ({ label }: { label: string }) => <p>chat with {label}</p>,
 }));
@@ -14,7 +19,7 @@ vi.mock("./BlobSchedules", () => ({
 vi.mock("./BlobForm", () => ({
   BlobForm: ({ blob, onCancel }: { blob?: Blob; onCancel: () => void }) => (
     <div>
-      <p>{blob ? `editing ${blob.name}` : "new blob form"}</p>
+      <p>{blob ? `editing ${blob.name}` : "new agent form"}</p>
       <button type="button" onClick={onCancel}>
         Cancel
       </button>
@@ -61,69 +66,140 @@ function blob(over: Partial<Blob>): Blob {
   };
 }
 
-async function renderPage(): Promise<void> {
+async function renderPage(onClose: () => void = () => undefined): Promise<void> {
   await act(async () => {
-    render(<BlobsPage />);
+    render(<BlobsPage onClose={onClose} />);
   });
 }
 
 beforeEach(() => {
   vi.mocked(listBlobs).mockResolvedValue([
     blob({}),
-    blob({ id: "b2", name: "Chef", emoji: "🍳", color: "peach", schedules: [], running: true }),
+    blob({ id: "b2", name: "Chef", color: "peach", schedules: [], running: true }),
   ]);
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe("BlobsPage", () => {
-  it("shows every Blob as a card with what it's doing", async () => {
+  it("lists every specialist as a row with its job and what it's doing", async () => {
     await renderPage();
+    expect(screen.getByRole("heading", { name: "Specialists" })).toBeTruthy();
     const research = screen.getByRole("button", { name: /^Research\./ });
     expect(within(research).getByText("Latest AI news every day")).toBeTruthy();
-    expect(within(research).getByText("1 schedule")).toBeTruthy();
+    expect(within(research).getByText(/^Next /)).toBeTruthy();
     const chef = screen.getByRole("button", { name: /^Chef\./ });
     expect(within(chef).getByText("Working now")).toBeTruthy();
     expect(chef.className).toContain("is-running");
+    expect(screen.getByText("1 working")).toBeTruthy();
   });
 
-  it("opens a Blob into its profile, with chat first and schedules a tab away", async () => {
+  it("filters the list by name or job", async () => {
+    await renderPage();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search specialists" }), {
+      target: { value: "chef" },
+    });
+    expect(screen.queryByRole("button", { name: /^Research\./ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Chef\./ })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search specialists" }), {
+      target: { value: "nothing like this" },
+    });
+    expect(screen.getByText(/No specialists match/)).toBeTruthy();
+  });
+
+  it("opens a specialist into its chat, with its job and schedules alongside", async () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
-    const head = screen.getByRole("region", { name: "Research" });
-    expect(within(head).getByRole("heading", { name: "Research" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Research", level: 1 })).toBeTruthy();
     expect(screen.getByText("chat with Research")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: /Schedules/ }));
-    expect(screen.getByText("schedules for Research")).toBeTruthy();
+    const side = screen.getByRole("complementary", { name: "Research details" });
+    expect(within(side).getByText("Latest AI news every day")).toBeTruthy();
+    expect(within(side).getByText("schedules for Research")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
   });
 
-  it("asks before deleting a Blob", async () => {
+  it("keeps the sidebar on the left, and remembers when you hide it", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    const side = screen.getByRole("complementary", { name: "Research details" });
+    const split = side.parentElement;
+    expect(split?.firstElementChild).toBe(side);
+    expect(split?.className).not.toContain("is-side-collapsed");
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+    expect(split?.className).toContain("is-side-collapsed");
+    expect(side.hasAttribute("inert")).toBe(true);
+    expect(localStorage.getItem("kleio-sidebar-hidden")).toBe("1");
+
+    // Leaving and coming back keeps it hidden.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+    expect(
+      screen.getByRole("complementary", { name: "Research details" }).parentElement?.className,
+    ).not.toContain("is-side-collapsed");
+  });
+
+  it("starts a new conversation from the pen button, after asking", async () => {
+    vi.mocked(newBlobSession).mockResolvedValue({ sessionId: "s_new" } as never);
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    expect(newBlobSession).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("dialog", { name: "Start a new conversation?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "New conversation" }));
+    await waitFor(() => expect(newBlobSession).toHaveBeenCalledWith("b1"));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Start a new conversation?" })).toBeNull(),
+    );
+  });
+
+  it("asks before deleting a specialist", async () => {
     vi.mocked(deleteBlob).mockResolvedValue(undefined);
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
     fireEvent.click(screen.getByRole("button", { name: "Delete Research" }));
     expect(deleteBlob).not.toHaveBeenCalled();
-    const confirm = screen.getByRole("group", { name: "Delete Research?" });
+    const confirm = screen.getByRole("dialog", { name: "Delete Research?" });
     fireEvent.click(within(confirm).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(deleteBlob).toHaveBeenCalledWith("b1"));
   });
 
-  it("opens the new-Blob form from the card at the end of the grid", async () => {
+  it("opens the new-specialist form from the header and returns to the list", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Make a new Blob" }));
-    expect(screen.getByText("new blob form")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
+    expect(screen.getByText("new agent form")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
   });
 
-  it("welcomes you with a first-Blob prompt when there are none", async () => {
+  it("tells the screen when it leaves the list, so the switcher hides", async () => {
+    const onListChange = vi.fn();
+    await act(async () => {
+      render(<BlobsPage onClose={() => undefined} onListChange={onListChange} />);
+    });
+    expect(onListChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    expect(onListChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("goes back out of Specialists from the list", async () => {
+    const onClose = vi.fn();
+    await renderPage(onClose);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("welcomes you with a first-specialist prompt when there are none", async () => {
     vi.mocked(listBlobs).mockResolvedValue([]);
     await renderPage();
-    expect(screen.getByRole("heading", { name: "No Blobs yet" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Make your first Blob/ }));
-    expect(screen.getByText("new blob form")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "No specialists yet" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Create your first specialist/ }));
+    expect(screen.getByText("new agent form")).toBeTruthy();
   });
 
   it("says what's wrong when the Mac mini can't list them", async () => {
@@ -133,13 +209,26 @@ describe("BlobsPage", () => {
   });
 });
 
-describe("blobStatus", () => {
-  it("reads a Blob's state in plain words", () => {
-    expect(blobStatus(blob({ running: true }))).toBe("Working now");
-    expect(blobStatus(blob({ schedules: [] }))).toBe("On call — no schedule");
-    expect(blobStatus(blob({ schedules: [{ ...DAILY, enabled: false }] }))).toBe(
-      "Schedules paused",
-    );
-    expect(blobStatus(blob({}))).toMatch(/^Next /);
+describe("agentRowState", () => {
+  it("reads an agent's state in plain words", () => {
+    expect(agentRowState(blob({ running: true }))).toEqual({ text: "Working now", tone: "live" });
+    expect(agentRowState(blob({ schedules: [] })).text).toBe("On call");
+    expect(agentRowState(blob({ schedules: [{ ...DAILY, enabled: false }] })).text).toBe("Paused");
+    expect(agentRowState(blob({})).text).toMatch(/^Next /);
+    expect(
+      agentRowState(
+        blob({
+          lastRun: {
+            id: "r1",
+            blobId: "b1",
+            scheduleId: "s1",
+            label: "Morning news",
+            startedAt: "2026-09-01T08:00:00Z",
+            endedAt: "2026-09-01T08:01:00Z",
+            outcome: "error",
+          },
+        }),
+      ),
+    ).toEqual({ text: "Last run failed", tone: "failed" });
   });
 });

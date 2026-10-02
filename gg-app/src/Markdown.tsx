@@ -28,6 +28,14 @@ function isExternalHref(href: string): boolean {
 }
 
 /**
+ * Lets a view take over link clicks before the defaults below — Kleio's agent
+ * chats open files from the agent's folder on the Mac mini. Return true when
+ * handled. Null (the default) leaves every link to the defaults.
+ */
+const LinkHandlerContext = createContext<((href: string) => boolean) | null>(null);
+export const LinkHandlerProvider = LinkHandlerContext.Provider;
+
+/**
  * Anchor that opens outside the webview. Browser links go to the OS browser;
  * file-ish links from the agent (`src/App.tsx`, `/abs/file.ts`, `file://…`) open
  * against the current project window's cwd.
@@ -39,12 +47,14 @@ function ExternalLink({
   href?: string;
   children?: React.ReactNode;
 }): React.ReactElement {
+  const handleLink = useContext(LinkHandlerContext);
   return (
     <a
       href={href}
       onClick={(e) => {
         if (!href || href.startsWith("#")) return;
         e.preventDefault();
+        if (handleLink?.(href)) return;
         if (isExternalHref(href)) {
           void openUrl(href);
         } else {

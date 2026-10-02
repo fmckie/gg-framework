@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as ConfigModule from "../config.js";
 import { encodeCwd } from "./encode-cwd.js";
-import { discoverProjects, isAbsoluteCwd, listRecentSessions } from "./project-discovery.js";
+import {
+  discoverProjects,
+  isAbsoluteCwd,
+  listProjectFolders,
+  listRecentSessions,
+} from "./project-discovery.js";
 import { SessionManager } from "./session-manager.js";
 import { archiveColdSession, archiveSessionPath } from "./session-storage.js";
 
@@ -656,5 +661,50 @@ describe.skipIf(process.platform !== "win32")("real Windows session round-trip",
     expect(projects.filter((p) => p.path === projectPath)).toHaveLength(1);
     // A prefixed path must never reach the picker.
     expect(projects.every((p) => !p.path.startsWith("\\\\?\\"))).toBe(true);
+  });
+});
+
+describe("listProjectFolders", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "gg-folders-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("lists every project folder in the roots by name, skipping build and dot folders", async () => {
+    const root = path.join(tmp, "kleio-projects");
+    for (const name of ["zeta", "Alpha", "beta", "node_modules", ".git"]) {
+      await fs.mkdir(path.join(root, name), { recursive: true });
+    }
+    await fs.writeFile(path.join(root, "notes.txt"), "not a folder");
+
+    const folders = await listProjectFolders([root]);
+
+    expect(folders).toEqual([
+      { name: "Alpha", path: path.join(root, "Alpha") },
+      { name: "beta", path: path.join(root, "beta") },
+      { name: "zeta", path: path.join(root, "zeta") },
+    ]);
+  });
+
+  it("lists each folder once when roots repeat, and skips roots that are missing", async () => {
+    const root = path.join(tmp, "projects");
+    const extra = path.join(tmp, "more");
+    await fs.mkdir(path.join(root, "one"), { recursive: true });
+    await fs.mkdir(path.join(extra, "two"), { recursive: true });
+
+    const folders = await listProjectFolders([
+      root,
+      ` ${root}${path.sep} `,
+      extra,
+      "",
+      path.join(tmp, "gone"),
+    ]);
+
+    expect(folders.map((f) => f.path)).toEqual([path.join(root, "one"), path.join(extra, "two")]);
   });
 });

@@ -53,6 +53,9 @@ export const kleio = {
   status: () => invoke<RemoteStatus>("kleio_remote_status"),
   pair: (baseUrl: string, code: string, label: string) =>
     invoke<HostRecord>("kleio_pair", { baseUrl, code, label }),
+  /** After `pair`: "active" = switched on in place (iPhone, first pairing);
+   *  "restart" = applies on the next launch. */
+  activatePairing: () => invoke<"active" | "restart">("kleio_activate_pairing"),
   forget: () => invoke<void>("kleio_forget"),
   devices: () => invoke<Device[]>("kleio_devices"),
   revoke: (deviceId: string) => invoke<Device[]>("kleio_revoke", { deviceId }),

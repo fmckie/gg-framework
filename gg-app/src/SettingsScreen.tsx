@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   GearSixIcon,
+  InfoIcon,
   KeyIcon,
   PuzzlePieceIcon,
   ShareNetworkIcon,
+  SquaresFourIcon,
   SyringeIcon,
 } from "@phosphor-icons/react";
 import { BackButton } from "./BackButton";
@@ -13,12 +15,15 @@ import { LoginScreen } from "./LoginScreen";
 import { McpModal } from "./McpModal";
 import { SteroidsModal } from "./SteroidsModal";
 import { ConnectionPage } from "./kleio/LazyConnectionPage";
+import { AppsPage } from "./kleio/LazyAppsPage";
+import { AboutPage } from "./kleio/AboutPage";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
 import { toast } from "./toast";
 
-export type SettingsTabId = "general" | "providers" | "connection" | "mcp" | "steroids";
+export type SettingsTabId =
+  "general" | "providers" | "connection" | "apps" | "mcp" | "steroids" | "about";
 
 interface Props {
   onClose: () => void;
@@ -59,6 +64,9 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
     // kleio: the Mac mini, Tailscale and the iPhone app take the place of
     // upstream's Telegram "Remote" page (the phone app is Kleio's remote).
     { id: "connection", label: "Connection", icon: ShareNetworkIcon },
+    // kleio: the apps (Gmail, Calendar, Notion…) Kleio and its agents use, via
+    // Composio on the Mac mini.
+    { id: "apps", label: "Apps", icon: SquaresFourIcon },
     { id: "mcp", label: "MCP", icon: PuzzlePieceIcon },
     {
       id: "steroids",
@@ -66,6 +74,8 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
       icon: SyringeIcon,
       alert: steroids !== null && !steroids.connected,
     },
+    // kleio: the version and credits (the home screen used to carry the credit).
+    { id: "about", label: "About", icon: InfoIcon },
   ];
 
   const current = tabs.find((t) => t.id === tab);
@@ -109,6 +119,7 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
             )}
             {tab === "providers" && <LoginScreen />}
             {tab === "connection" && <ConnectionPage />}
+            {tab === "apps" && <AppsPage />}
             {tab === "mcp" && (
               <EmbeddedModal>
                 <McpModal onClose={stay} />
@@ -119,6 +130,7 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
                 <SteroidsModal status={steroids} onStatus={setSteroids} onClose={stay} />
               </EmbeddedModal>
             )}
+            {tab === "about" && <AboutPage />}
           </div>
         </SettingsHeaderProvider>
       </div>

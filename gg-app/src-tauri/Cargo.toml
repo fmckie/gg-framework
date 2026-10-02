@@ -32,18 +32,19 @@ tauri-plugin-dialog = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# `query` became an opt-in feature in 0.13. We ask for no TLS feature of our
-# own — every request goes to the local sidecar over plain http://127.0.0.1 —
-# but tauri-plugin-updater turns on reqwest's `rustls-no-provider`, and cargo
-# unifies features across the shared 0.13 build. So OUR client is a rustls
-# client too, and building one panics unless a crypto provider is installed
-# first. See `install_rustls_provider` in lib.rs.
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream"] }
+# `query` became an opt-in feature in 0.13. kleio: every request goes to the
+# paired Kleio host over https, so we ask for `rustls-no-provider` ourselves.
+# On desktop tauri-plugin-updater already turns the same feature on (cargo
+# unifies features across the shared 0.13 build), so desktop is unchanged; the
+# iPhone build has no updater and would otherwise have no TLS at all. Building
+# a rustls client panics unless a crypto provider is installed first. See
+# `install_rustls_provider` in lib.rs.
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "stream", "rustls-no-provider"] }
 # Only to install that provider. `ring` is the same backend (and version) the
 # updater already pulls in, so this adds no crates to the build.
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = "0.3"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync"] }
 base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 
@@ -56,13 +57,20 @@ tauri-plugin-process = "2"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-# kleio (macOS only): the paired device token lives in the login Keychain and
-# admin actions sit behind a Touch ID gate. `security-framework` is already in
-# the tree via rustls-platform-verifier; `objc2-local-authentication` resolves
-# against the objc2/block2 copies Tauri already uses (no second objc2 tree).
-[target.'cfg(target_os = "macos")'.dependencies]
+# kleio (macOS + iPhone): the paired device token lives in the Keychain and
+# admin actions sit behind a Touch ID / Face ID gate. `security-framework` is
+# already in the tree via rustls-platform-verifier; `objc2-local-authentication`
+# resolves against the objc2/block2 copies Tauri already uses (no second objc2
+# tree). Both crates support iOS with the same APIs.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = "3.7"
 objc2-local-authentication = "0.3.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSError"] }
 block2 = "0.6"
+
+# kleio (iPhone): asking permission for "agent finished" notifications. The
+# crate is already in the iOS build via tao's objc2-ui-kit; this only turns on
+# the permission request (see kleio/phone.rs).
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["std", "UNUserNotificationCenter", "block2"] }

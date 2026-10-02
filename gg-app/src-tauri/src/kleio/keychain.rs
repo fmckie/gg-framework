@@ -1,8 +1,9 @@
-//! Secrets for the paired host live in the user's login Keychain (macOS only).
+//! Secrets for the paired host live in the Keychain (macOS login Keychain, or
+//! the iPhone app's own Keychain — same generic-password API on both).
 //! One generic-password item per secret, keyed by host so two hosts never
 //! collide. Nothing secret is ever written to disk (`~/.kleio`).
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 const SERVICE: &str = "com.kleio.gg-app";
 
 #[derive(Debug, Clone, Copy)]
@@ -20,7 +21,7 @@ impl Secret {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn put(host: &str, which: Secret, value: &str) -> Result<(), String> {
     security_framework::passwords::set_generic_password(
         SERVICE,
@@ -30,7 +31,7 @@ pub fn put(host: &str, which: Secret, value: &str) -> Result<(), String> {
     .map_err(|e| format!("keychain write failed: {e}"))
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn get(host: &str, which: Secret) -> Result<Option<String>, String> {
     match security_framework::passwords::get_generic_password(SERVICE, &which.account(host)) {
         Ok(bytes) => String::from_utf8(bytes)
@@ -42,7 +43,7 @@ pub fn get(host: &str, which: Secret) -> Result<Option<String>, String> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub fn delete(host: &str, which: Secret) -> Result<(), String> {
     match security_framework::passwords::delete_generic_password(SERVICE, &which.account(host)) {
         Ok(()) => Ok(()),
@@ -51,17 +52,17 @@ pub fn delete(host: &str, which: Secret) -> Result<(), String> {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn put(_host: &str, _which: Secret, _value: &str) -> Result<(), String> {
     Err("keychain unavailable on this platform".into())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn get(_host: &str, _which: Secret) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub fn delete(_host: &str, _which: Secret) -> Result<(), String> {
     Ok(())
 }

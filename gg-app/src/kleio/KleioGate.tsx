@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { isPhone } from "../platform";
 import { KleioMark } from "./KleioMark";
 import { RemoteHostModal } from "./LazyRemoteHostModal";
 import { useKleioRemote } from "./useKleioRemote";
@@ -16,6 +17,7 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
   const [reach, setReach] = useState<Reach>("checking");
   const [pairing, setPairing] = useState(false);
   const active = status?.active ?? null;
+  const device = isPhone() ? "iPhone" : "Mac";
 
   const probe = useCallback(async () => {
     setReach("checking");
@@ -45,8 +47,8 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
       <>
         <h1 className="kleio-gate-title">Connect to your Mac mini</h1>
         <p className="kleio-gate-text">
-          Kleio runs on your Mac mini and talks to it over Tailscale. Pair this Mac once and Kleio
-          opens straight into your conversations, Blobs and apps.
+          Kleio runs on your Mac mini and talks to it over Tailscale. Pair this {device} once and
+          Kleio opens straight into your conversations, specialists and apps.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setPairing(true)}>
           {status.paired ? "Finish connecting" : "Pair with your Mac mini"}
@@ -58,7 +60,8 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
       <>
         <h1 className="kleio-gate-title">Can't reach your Mac mini</h1>
         <p className="kleio-gate-text">
-          Make sure Tailscale is on, on this Mac and on the Mac mini, and that the mini is awake.
+          Make sure Tailscale is on, on this {device} and on the Mac mini, and that the mini is
+          awake.
         </p>
         <div className="kleio-gate-actions">
           <button type="button" className="btn btn-primary" onClick={() => void probe()}>

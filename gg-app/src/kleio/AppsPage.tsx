@@ -9,7 +9,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckCircleIcon, MagnifyingGlassIcon, PlugsIcon, XIcon } from "@phosphor-icons/react";
+import {
+  ArrowSquareOutIcon,
+  CheckCircleIcon,
+  MagnifyingGlassIcon,
+  PlugsIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { Badge } from "../Badge";
 import { SettingsCard } from "../settings-section";
 import { SettingsHeaderStatus } from "../settings-header";
@@ -20,12 +26,47 @@ import {
   listConnections,
   listToolkits,
   errorText,
+  KleioApiError,
   type Connection,
   type Toolkit,
 } from "./kleioApi";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
+/** Where an app's own developer keys are added (Composio's auth configs). */
+export const COMPOSIO_AUTH_CONFIGS_URL = "https://dashboard.composio.dev/~/project/auth-configs";
+
+/** What went wrong with an app, in words. Older hosts pass Composio's raw
+ *  JSON as the detail; its own message is the readable part. */
+export function appErrorText(e: unknown): string {
+  if (!(e instanceof KleioApiError) || e.message !== "composio") return errorText(e);
+  let detail = e.detail?.trim() ?? "";
+  if (detail.startsWith("{")) {
+    try {
+      const err = (JSON.parse(detail) as { error?: { message?: unknown } }).error;
+      if (typeof err?.message === "string") detail = err.message;
+    } catch {
+      // Not JSON after all: show it as it came.
+    }
+  }
+  if (/does not require authentication/i.test(detail))
+    return "This app doesn't need a sign-in. Kleio and your specialists can already use it.";
+  if (/does not manage auth/i.test(detail))
+    return "Composio has no ready-made sign-in for this app. Add your own developer keys for it in Composio, then connect again.";
+  return detail ? `Composio couldn't do that: ${detail}` : "Composio couldn't do that.";
+}
+
+/** A failed connect that only your own keys in Composio can fix. */
+function needsSetup(e: unknown): boolean {
+  if (!(e instanceof KleioApiError)) return false;
+  return e.code === "needs_setup" || /does not manage auth/i.test(e.detail ?? "");
+}
+
+/** A connect refused because the app needs no sign-in at all. */
+function needsNoSignIn(e: unknown): boolean {
+  if (!(e instanceof KleioApiError)) return false;
+  return e.code === "no_auth" || /does not require authentication/i.test(e.detail ?? "");
+}
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const SEARCH_DEBOUNCE_MS = 300;
 /** While a sign-in is open in the browser, check back this often. */
@@ -126,6 +167,10 @@ export function AppsPage(): React.ReactElement {
   const [pending, setPending] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The last connect needs the user's own keys in Composio: offer the way there. */
+  const [setupFor, setSetupFor] = useState<string | null>(null);
+  /** Apps found to need no sign-in after a connect was refused (older hosts). */
+  const [noSignIn, setNoSignIn] = useState<ReadonlySet<string>>(new Set());
   const query = useRef("");
 
   const load = useCallback(async (): Promise<void> => {
@@ -198,12 +243,19 @@ export function AppsPage(): React.ReactElement {
   async function connect(slug: string): Promise<void> {
     setPending(slug);
     setError(null);
+    setSetupFor(null);
     try {
       const r = await connectToolkit(slug);
       await openUrl(r.redirectUrl);
       await load();
     } catch (e) {
-      setError(errorText(e));
+      if (needsNoSignIn(e)) {
+        // Nothing to connect: show the app as ready instead of an error.
+        setNoSignIn((s) => new Set(s).add(slug));
+      } else {
+        setError(appErrorText(e));
+        if (needsSetup(e)) setSetupFor(slug);
+      }
     } finally {
       setPending(null);
     }
@@ -231,7 +283,8 @@ export function AppsPage(): React.ReactElement {
       >
         <p className="kleio-page-intro">
           Put a Composio API key in the host's <code>composio.key</code> file and restart the Kleio
-          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every Blob.
+          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every
+          specialist.
         </p>
       </SettingsCard>
     );
@@ -251,18 +304,28 @@ export function AppsPage(): React.ReactElement {
       </SettingsHeaderStatus>
 
       <p className="kleio-page-intro">
-        Connected apps work for Kleio and every Blob — read your mail, check your calendar, update
-        Notion. You sign in once, in your browser.
+        Connected apps work for Kleio and every specialist — read your mail, check your calendar,
+        update Notion. You sign in once, in your browser.
       </p>
 
       {error && (
-        <p className="kleio-error" role="alert">
-          {error}
-        </p>
+        <div className="kleio-error app-error" role="alert">
+          <span>{error}</span>
+          {setupFor && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => void openUrl(COMPOSIO_AUTH_CONFIGS_URL)}
+            >
+              <ArrowSquareOutIcon size={14} weight="bold" aria-hidden="true" />
+              Open Composio
+            </button>
+          )}
+        </div>
       )}
 
       {connections.length > 0 && (
-        <SettingsCard title="Your apps" description="Kleio and your Blobs can use these now.">
+        <SettingsCard title="Your apps" description="Kleio and your specialists can use these now.">
           <ul className="app-mine">
             {connections.map((c) => {
               const state = connectionState(c.status);
@@ -359,6 +422,7 @@ export function AppsPage(): React.ReactElement {
                 const existing = bySlug.get(t.slug);
                 const state = existing ? connectionState(existing.status) : null;
                 const cat = categoryLabel(t.categories);
+                const ready = t.auth === "none" || noSignIn.has(t.slug);
                 return (
                   <li key={t.slug} className="app-tile">
                     <span className="app-tile-top">
@@ -376,8 +440,21 @@ export function AppsPage(): React.ReactElement {
                           Connected
                         </span>
                       </span>
+                    ) : ready ? (
+                      <span className="app-tile-foot">
+                        <span
+                          className="app-tile-connected"
+                          title="Kleio and your specialists can use it without signing in."
+                        >
+                          <CheckCircleIcon size={14} weight="fill" aria-hidden="true" />
+                          Ready · no sign-in
+                        </span>
+                      </span>
                     ) : (
                       <span className="app-tile-foot">
+                        {t.auth === "setup" && (
+                          <span className="app-tile-note">Needs your own keys</span>
+                        )}
                         <button
                           type="button"
                           className="btn btn-sm app-connect"

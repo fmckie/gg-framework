@@ -216,9 +216,6 @@
   background: var(--success);
   box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
 }
-.kleio-home .home-byline {
-  color: var(--text-muted);
-}
 
 /* ── Connect / can't-reach screens: the same crimson wash ── */
 .kleio-gate::before {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { error as logError, info as logInfo } from "@tauri-apps/plugin-log";
+import { isPhone } from "./platform";
 
 /**
  * App self-update, driven by the Tauri updater plugin (GitHub releases of this
@@ -45,6 +46,8 @@ export function useAppUpdate(): UpdateInfo {
   const [fakeVersion, setFakeVersion] = useState<string | null>(null);
 
   const runCheck = useCallback(async (): Promise<void> => {
+    // kleio: the iPhone build has no updater; it is installed from Xcode.
+    if (isPhone()) return;
     if (devFakeEnabled) {
       setFakeVersion(FAKE_VERSION);
       setPhase((p) => (p === "installing" ? p : "available"));

@@ -104,6 +104,8 @@ export interface Groups {
   onFrame(sessionId: string, raw: string): void;
   /** True for a group member's session (the host sends no generic nudge for it). */
   owns(sessionId: string): boolean;
+  /** True when the group exists. */
+  has(groupId: string): Promise<boolean>;
   /** A Blob was deleted: drop it from every group. */
   onBlobDeleted(blobId: string): Promise<void>;
   /** A Blob's name, job or model changed: retire the conversations that describe it. */
@@ -520,7 +522,7 @@ export function createGroups(options: GroupsOptions): Groups {
   }
 
   async function validMembers(v: unknown): Promise<string[]> {
-    const bad = `members must be 1–${MAX_MEMBERS} of your Blobs`;
+    const bad = `members must be 1–${MAX_MEMBERS} of your specialists`;
     if (!Array.isArray(v) || v.length < 1 || v.length > MAX_MEMBERS) throw new Invalid(bad);
     if (new Set(v).size !== v.length) throw new Invalid("members must not repeat");
     for (const id of v)
@@ -731,6 +733,10 @@ export function createGroups(options: GroupsOptions): Groups {
     },
     onFrame,
     owns,
+    async has(groupId) {
+      await loaded();
+      return find(groupId) !== undefined;
+    },
     async onBlobDeleted(blobId) {
       await loaded();
       blobCache.delete(blobId);

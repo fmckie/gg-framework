@@ -13,6 +13,7 @@ import {
   focusWindowByOffset,
   arrangeAllWindows,
   type DiscoveredProject,
+  type HostProjectFolder,
   type RecentSession,
 } from "./agent";
 import { Badge } from "./Badge";
@@ -22,8 +23,10 @@ import { BackButton } from "./BackButton";
 import { WindowLayoutButton } from "./WindowLayoutButton";
 import { RadioButton } from "./RadioButton";
 import { NewProjectModal } from "./NewProjectModal";
+import { HostFoldersModal } from "./HostFoldersModal";
 import { MetalButton } from "./MetalButton";
 import { useWindowFocused } from "./useWindowFocused";
+import { useKleioRemote } from "./kleio/useKleioRemote";
 
 /**
  * Does this row point at another tool's transcript rather than a GG Coder
@@ -67,7 +70,11 @@ export function ProjectPicker({
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [projectsRoot, setProjectsRoot] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [showHostFolders, setShowHostFolders] = useState(false);
   const [query, setQuery] = useState("");
+  // Paired with a Kleio host: projects live on ITS disk, which this Mac's
+  // Finder can't see, so "Open existing" lists the host's folders instead.
+  const remoteHost = useKleioRemote().status?.active?.host ?? null;
 
   const q = query.trim().toLowerCase();
   const filteredProjects = q
@@ -227,6 +234,10 @@ export function ProjectPicker({
   // window's agent exactly like selecting a discovered project.
   function openExisting(): void {
     if (busy) return;
+    if (remoteHost) {
+      setShowHostFolders(true);
+      return;
+    }
     void openFolderDialog({
       directory: true,
       multiple: false,
@@ -236,6 +247,19 @@ export function ProjectPicker({
         if (typeof picked === "string") choose(picked);
       })
       .catch(() => {});
+  }
+
+  // A folder picked from the host's list. A hidden one comes back on the list
+  // first: it's in use again, and leaving it must not lose it.
+  function openHostFolder(folder: HostProjectFolder): void {
+    setShowHostFolders(false);
+    if (!folder.hidden) {
+      choose(folder.path);
+      return;
+    }
+    void setProjectHidden(folder.path, false)
+      .catch(() => {})
+      .then(() => choose(folder.path));
   }
 
   return (
@@ -427,6 +451,13 @@ export function ProjectPicker({
             setShowNew(false);
             onChosen(cwd);
           }}
+        />
+      )}
+      {showHostFolders && remoteHost && (
+        <HostFoldersModal
+          host={remoteHost}
+          onClose={() => setShowHostFolders(false)}
+          onPick={openHostFolder}
         />
       )}
     </div>

@@ -8,7 +8,6 @@ import {
   CodeIcon,
   DownloadSimpleIcon,
   GearSixIcon,
-  PuzzlePieceIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -33,10 +32,8 @@ interface Props {
   onChat: () => void;
   /** Coding projects on the Mac mini. */
   onCode: () => void;
-  /** Kleio's helpers. */
+  /** Kleio's specialists ("Blobs" in the code and on the host). Apps live in Settings. */
   onBlobs: () => void;
-  /** Apps Kleio and the Blobs can use (Composio). */
-  onApps: () => void;
   onSettings: (tab?: SettingsTabId) => void;
   refreshSignal?: number;
 }
@@ -50,7 +47,6 @@ export function KleioHome({
   onChat,
   onCode,
   onBlobs,
-  onApps,
   onSettings,
   refreshSignal = 0,
 }: Props): React.ReactElement {
@@ -133,7 +129,9 @@ export function KleioHome({
         </button>
       </div>
       <KleioMark />
-      <div className="home-tagline">Your private assistant, helpers and coder, in one place.</div>
+      <div className="home-tagline">
+        Your private assistant, specialists and coder, in one place.
+      </div>
       <div className="home-actions">
         <button
           type="button"
@@ -155,11 +153,7 @@ export function KleioHome({
         </button>
         <button type="button" className="btn btn-ghost home-action" onClick={onBlobs}>
           <CirclesThreeIcon size={18} weight="bold" aria-hidden="true" />
-          Blobs
-        </button>
-        <button type="button" className="btn btn-ghost home-action" onClick={onApps}>
-          <PuzzlePieceIcon size={18} weight="bold" aria-hidden="true" />
-          Apps
+          Specialists
         </button>
       </div>
       <button
@@ -171,7 +165,6 @@ export function KleioHome({
       >
         <GearSixIcon size={20} weight="bold" aria-hidden="true" />
       </button>
-      <div className="home-byline home-links">Built on GG Coder by Ken Kai</div>
       <div className="home-version-corner">
         {appUpdate.phase === "available" || appUpdate.phase === "installing" ? (
           <button

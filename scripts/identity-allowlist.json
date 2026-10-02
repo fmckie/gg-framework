@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1458,
+        "tracked": 1467,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1488,
+        "tracked": 1489,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -7515,8 +7515,8 @@
       "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
     },
     {
-      "id": "kleio-separation-gg-app-src-kleio-kleiohome-test-tsx",
-      "path": "gg-app/src/kleio/KleioHome.test.tsx",
+      "id": "kleio-separation-gg-app-src-kleio-aboutpage-test-tsx",
+      "path": "gg-app/src/kleio/AboutPage.test.tsx",
       "scope": "content",
       "targets": [
         "tracked"
@@ -7530,18 +7530,18 @@
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
       "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {
-      "id": "kleio-separation-gg-app-src-kleio-kleiohome-tsx",
-      "path": "gg-app/src/kleio/KleioHome.tsx",
+      "id": "kleio-separation-gg-app-src-kleio-aboutpage-tsx",
+      "path": "gg-app/src/kleio/AboutPage.tsx",
       "scope": "content",
       "targets": [
         "tracked"
       ],
       "match": {
-        "regex": "(?:<div className=\"home-byline home-links\">Built on GG Coder by Ken Kai<\\/div>)",
+        "regex": "(?:<p className=\"about-credit\">Built on GG Coder by Ken Kai<\\/p>)",
         "flags": "gu"
       },
       "expectedOccurrences": {
@@ -7549,7 +7549,7 @@
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
+      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
       "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {
@@ -7570,6 +7570,79 @@
       "owner": "Kleio framework maintainers",
       "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its home screen, or to state that the two apps stay apart.",
       "removeWhen": "Only if the credit line or the separation note is removed."
+    },
+    {
+      "id": "kleio-ios-app-id-gg-app-scripts-ios-sim-sh",
+      "path": "gg-app/scripts/ios-sim.sh",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "BUNDLE_ID=\"com.atlas.ggcoder\""
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile; renaming it is a separate task.",
+      "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
+    },
+    {
+      "id": "kleio-ios-app-id-gg-app-src-tauri-gen-apple-gg-app-xcodeproj-project-pbxproj",
+      "path": "gg-app/src-tauri/gen/apple/gg-app.xcodeproj/project.pbxproj",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "PRODUCT_BUNDLE_IDENTIFIER = com.atlas.ggcoder;"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile; renaming it is a separate task.",
+      "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
+    },
+    {
+      "id": "kleio-ios-app-id-gg-app-src-tauri-gen-apple-project-yml",
+      "path": "gg-app/src-tauri/gen/apple/project.yml",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:bundleIdPrefix: com\\.atlas\\.ggcoder|PRODUCT_BUNDLE_IDENTIFIER: com\\.atlas\\.ggcoder)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile; renaming it is a separate task.",
+      "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
+    },
+    {
+      "id": "kleio-ios-app-id-gg-app-src-tauri-tauri-ios-conf-json",
+      "path": "gg-app/src-tauri/tauri.ios.conf.json",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "\"identifier\": \"com.atlas.ggcoder\""
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile; renaming it is a separate task.",
+      "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
     }
   ]
 }

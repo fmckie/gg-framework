@@ -33,6 +33,9 @@ function loadZoom(): number {
 function applyZoom(z: number): void {
   // `zoom` isn't in the typed CSSStyleDeclaration; set it via the property.
   document.documentElement.style.setProperty("zoom", String(z));
+  // `vh` ignores this zoom (it then scales with the page), so a vh-based size
+  // that must stay a share of the window divides it back out: calc(Nvh / var(--zoom, 1)).
+  document.documentElement.style.setProperty("--zoom", String(z));
 }
 
 export function ZoomController(): React.ReactElement | null {

@@ -16,6 +16,7 @@ import { SoundButton } from "./SoundButton";
 import { HomeBackgroundButton } from "./HomeBackgroundButton";
 import { SettingsSection } from "./settings-section";
 import { SettingsHeaderAction } from "./settings-header";
+import { isPhone } from "./platform";
 
 interface Props {
   onClose: () => void;
@@ -134,9 +135,13 @@ export function SettingsModal({ onClose, onSaved }: Props): React.ReactElement {
                 placeholder="/Users/you/gg-projects"
                 onChange={(e) => setProjectsRoot(e.target.value)}
               />
-              <button className="modal-btn" onClick={() => void browse()}>
-                {"Browse\u2026"}
-              </button>
+              {/* kleio: the folder lives on the Mac mini; the iPhone's own file
+                  picker could only hand back a path on the phone. */}
+              {!isPhone() && (
+                <button className="modal-btn" onClick={() => void browse()}>
+                  {"Browse\u2026"}
+                </button>
+              )}
             </div>
           </SettingsSection>
           {/* On the page, Save sits in the screen's header bar instead. */}

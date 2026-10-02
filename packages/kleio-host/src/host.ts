@@ -32,9 +32,12 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { appendFile, mkdir, open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -42,6 +45,7 @@ import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-re
 import type { ApnsPusher } from "./apns.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
+import { contentDisposition, fileContentType, resolveAgentFile, type AgentFile } from "./files.js";
 import { createGroups, type Groups } from "./groups.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
@@ -130,6 +134,77 @@ function json(res: ServerResponse, status: number, body: unknown): void {
     "cache-control": "no-store",
   });
   res.end(data);
+}
+
+/** `GET /kleio/blobs/:blobId/files/<path>`; the remainder stays percent-encoded. */
+const BLOB_FILE_RE = /^\/kleio\/blobs\/(b_[0-9a-f]{8})\/files\//;
+/** `GET /kleio/groups/:groupId/members/:blobId/files/<path>`. */
+const MEMBER_FILE_RE = /^\/kleio\/groups\/(g_[0-9a-f]{8})\/members\/(b_[0-9a-f]{8})\/files\//;
+
+/**
+ * Stream a resolved agent file. Opens it before any header goes out (so a
+ * vanished file is still a clean 404), reads at most `size` bytes, and cuts
+ * the connection rather than end short if the file shrank meanwhile.
+ * Returns [status, file bytes sent].
+ */
+async function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
+  let fh;
+  try {
+    // O_NOFOLLOW: the last component may not have become a symlink since it
+    // was resolved; O_NONBLOCK: a FIFO swapped in can't hang the open. Both
+    // are undefined, so 0, on Windows.
+    fh = await open(
+      file.path,
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+    );
+  } catch {
+    json(res, 404, { error: "no such file" });
+    return [404, 0];
+  }
+  // Still the regular file that was resolved, not something swapped in since.
+  const same = await fh.stat().then(
+    (st) => st.isFile() && st.size === file.size && st.mtimeMs === file.mtimeMs,
+    () => false,
+  );
+  if (!same) {
+    await fh.close();
+    json(res, 404, { error: "no such file" });
+    return [404, 0];
+  }
+  res.writeHead(200, {
+    "content-type": fileContentType(file.name),
+    "content-length": file.size,
+    "last-modified": new Date(file.mtimeMs).toUTCString(),
+    etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
+    "cache-control": "private, no-cache",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "sandbox; default-src 'none'",
+    "content-disposition": contentDisposition(file.name),
+  });
+  if (file.size === 0) {
+    await fh.close();
+    res.end();
+    return [200, 0];
+  }
+  let sent = 0;
+  try {
+    await pipeline(
+      fh.createReadStream({ start: 0, end: file.size - 1 }),
+      new Transform({
+        transform(chunk: Buffer, _enc, done): void {
+          sent += chunk.length;
+          done(null, chunk);
+        },
+        flush(done): void {
+          done(sent === file.size ? null : new Error("file shrank while sending"));
+        },
+      }),
+      res,
+    );
+  } catch {
+    res.destroy();
+  }
+  return [200, sent];
 }
 
 async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
@@ -1029,6 +1104,57 @@ export function createHost(options: HostOptions): Host {
       if (!home) return json(res, 404, { error: "not_found" });
       const r = await background(home.startNew());
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
+    }
+
+    // An agent's files (the reports it writes and links in chat). Any paired
+    // device, like Blobs; GET only; files.ts decides what may be read.
+    const blobFile = BLOB_FILE_RE.exec(path);
+    const memberFile = blobFile ? null : MEMBER_FILE_RE.exec(path);
+    if ((blobFile || memberFile) && options.homeCwd && blobs && groups) {
+      const started = Date.now();
+      const blobId = blobFile ? blobFile[1]! : memberFile![2]!;
+      const groupId = memberFile ? memberFile[1]! : null;
+      const rest = path.slice((blobFile ?? memberFile)![0].length);
+      let outcome: [number, number] = [500, 0];
+      try {
+        outcome = await (async (): Promise<[number, number]> => {
+          if (req.method !== "GET") {
+            res.setHeader("allow", "GET");
+            json(res, 405, { error: "method not allowed" });
+            return [405, 0];
+          }
+          if (groupId !== null) {
+            if (!(await groups.has(groupId))) {
+              json(res, 404, { error: "no such group" });
+              return [404, 0];
+            }
+          } else if (!(await blobs.find(blobId))) {
+            json(res, 404, { error: "no such agent" });
+            return [404, 0];
+          }
+          const root =
+            groupId !== null
+              ? join(options.homeCwd!, "groups", groupId, blobId)
+              : join(options.homeCwd!, "blobs", blobId);
+          const r = await resolveAgentFile(root, rest);
+          if (!r.ok) {
+            const [status, error]: [number, string] =
+              r.error.kind === "bad_path"
+                ? [400, "bad path"]
+                : r.error.kind === "too_large"
+                  ? [413, "file too large"]
+                  : [404, "no such file"];
+            json(res, status, { error });
+            return [status, 0];
+          }
+          return sendAgentFile(res, r.value);
+        })();
+      } finally {
+        log(
+          `[files] ${auth.device.label} ${groupId !== null ? `${groupId}/` : ""}${blobId} → ${outcome[0]} ${outcome[1]}B ${Date.now() - started}ms`,
+        );
+      }
+      return;
     }
 
     // Blobs and the model list. Any paired device, like the home thread.

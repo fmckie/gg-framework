@@ -19,6 +19,12 @@
 export const REPIN_DISTANCE_PX = 48;
 
 /**
+ * iPhone: after the finger lifts, a transcript stays held until scrolling (the
+ * fling) has been quiet this long; then it catches up if still following.
+ */
+export const TOUCH_SETTLE_MS = 160;
+
+/**
  * Slack for "exactly at the bottom": scrollTop is fractional under zoom while
  * scrollHeight and clientHeight are each rounded to whole pixels, so a clamped
  * offset can read up to a pixel or so off zero.
@@ -62,6 +68,50 @@ export function pinAfterScroll(pinned: boolean, lastTop: number, el: ScrollGeome
   }
   if (el.scrollTop > lastTop && distance <= REPIN_DISTANCE_PX) return true;
   return pinned;
+}
+
+/**
+ * iPhone: the pin after a scroll event, where only a finger (or the fling it
+ * left, `held`) can move the transcript. iOS settles a scroll container's
+ * offset in its UI process and reports it back later, so a stale offset can
+ * arrive just after the app jumped to the bottom; it reads as "scrolled up"
+ * though nobody touched the glass. Scrolls made while not held are layout or
+ * the app's own jumps, and never change who decides.
+ */
+export function pinAfterTouchScroll(
+  pinned: boolean,
+  lastTop: number,
+  el: ScrollGeometry,
+  held: boolean,
+): boolean {
+  return held ? pinAfterScroll(pinned, lastTop, el) : pinned;
+}
+
+/**
+ * Whether new output should scroll the transcript to the bottom right now.
+ *
+ * Never while a finger is on the transcript or the momentum it left is still
+ * running (iPhone; touch scrolls fire no wheel events). iOS applies a script's
+ * scroll on top of the pan, so re-pinning mid-gesture yanks the page out from
+ * under the finger and kills the fling. Once the scroll settles, the
+ * transcript catches up — if the reader is still following.
+ */
+export function followsOutput(pinned: boolean, held: boolean): boolean {
+  return pinned && !held;
+}
+
+/**
+ * Share of the visible height the reader must be from the newest line before
+ * the "jump to latest" button shows. Smaller moves still leave the end in view,
+ * so a button for them would only flicker in and out as a reply streams.
+ */
+export const JUMP_TO_LATEST_FRACTION = 0.2;
+
+/** Whether to offer the "jump to latest" button. */
+export function showJumpToLatest(pinned: boolean, el: ScrollGeometry): boolean {
+  if (pinned) return false;
+  const threshold = Math.max(REPIN_DISTANCE_PX, el.clientHeight * JUMP_TO_LATEST_FRACTION);
+  return distanceFromBottom(el) > threshold;
 }
 
 /**

@@ -47,7 +47,6 @@ function renderHome() {
     onChat: vi.fn(),
     onCode: vi.fn(),
     onBlobs: vi.fn(),
-    onApps: vi.fn(),
     onSettings: vi.fn(),
   };
   render(<KleioHome {...props} />);
@@ -68,10 +67,11 @@ afterEach(() => {
 });
 
 describe("KleioHome", () => {
-  it("is Kleio's: the mark, the credit, none of Ken's links", async () => {
+  it("is Kleio's: the mark, none of Ken's links, and the credit moved to Settings", async () => {
     renderHome();
     expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
-    expect(screen.getByText("Built on GG Coder by Ken Kai")).toBeDefined();
+    // The credit lives on Settings → About now (AboutPage), not under the buttons.
+    expect(screen.queryByText(/Ken Kai/)).toBeNull();
     expect(screen.queryByText("Skool")).toBeNull();
     expect(screen.queryByText("YouTube")).toBeNull();
     expect(screen.queryByText(/piss me off/)).toBeNull();
@@ -79,15 +79,16 @@ describe("KleioHome", () => {
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
-  it("Kleio opens the chat; Blobs and Apps open their pages", async () => {
+  it("Kleio opens the chat and Specialists opens the specialists; Apps is in Settings", async () => {
     const p = renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: /Kleio/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Blobs/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Apps/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Specialists" }));
     expect(p.onChat).toHaveBeenCalledOnce();
     expect(p.onBlobs).toHaveBeenCalledOnce();
-    expect(p.onApps).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: /Blobs/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Apps/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Agents/ })).toBeNull();
   });
 
   it("shows the Mac mini and opens the Connection settings", async () => {

@@ -454,6 +454,39 @@ async function discoverFolderProjects(roots: string[]): Promise<DiscoveredProjec
   return rows.filter((r): r is DiscoveredProject => r !== null);
 }
 
+export interface ProjectFolder {
+  name: string;
+  path: string;
+}
+
+/**
+ * Every project folder directly inside `roots`, by name. Unlike
+ * `discoverProjects`, nothing is inferred or hidden: this is "Open existing"
+ * for a device that can't browse this disk (a phone or laptop paired with a
+ * Kleio host), so it lists exactly what is there and the caller marks which
+ * ones the user hid.
+ */
+export async function listProjectFolders(roots: readonly string[]): Promise<ProjectFolder[]> {
+  const unique = new Set(
+    roots
+      .map((root) => root.trim())
+      .filter(Boolean)
+      .map((root) => path.resolve(root)),
+  );
+  const byPath = new Map<string, ProjectFolder>();
+  for (const row of await discoverFolderProjects(Array.from(unique))) {
+    byPath.set(row.path, { name: row.name, path: row.path });
+  }
+  return Array.from(byPath.values()).sort(
+    (a, b) =>
+      compareText(a.name.toLowerCase(), b.name.toLowerCase()) || compareText(a.path, b.path),
+  );
+}
+
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 async function isDirectory(p: string): Promise<boolean> {
   try {
     const s = await fs.stat(p);

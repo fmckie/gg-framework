@@ -7,10 +7,25 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryEntry, MemorySnapshot } from "../agent";
+import type { BlobFaceKind, BlobShape } from "./blobLook";
 
 // ─── shapes ─────────────────────────────────────────────────────────────────
 
-export const BLOB_COLORS = ["sky", "mint", "peach", "lilac", "lemon", "rose"] as const;
+/** The first six are the original palette; hosts before agent looks accept only those. */
+export const BLOB_COLORS = [
+  "sky",
+  "mint",
+  "peach",
+  "lilac",
+  "lemon",
+  "rose",
+  "coral",
+  "amber",
+  "teal",
+  "indigo",
+  "plum",
+  "slate",
+] as const;
 export type BlobColor = (typeof BLOB_COLORS)[number];
 
 /** `GET /kleio/home`, `GET /kleio/blobs/:id/session` and their `…/new`. */
@@ -81,8 +96,12 @@ export interface Run {
 export interface Blob {
   id: string;
   name: string;
+  /** Kept for the iPhone app; the desktop draws `shape` + `face` instead. */
   emoji: string;
   color: BlobColor;
+  /** Absent on hosts before agent looks: use `lookOf()` (blobLook.ts). */
+  shape?: BlobShape;
+  face?: BlobFaceKind;
   job: string;
   /** null = the host's default Blob model. */
   model: string | null;
@@ -99,6 +118,8 @@ export interface BlobInput {
   job: string;
   emoji?: string;
   color?: BlobColor;
+  shape?: BlobShape;
+  face?: BlobFaceKind;
   model?: string | null;
   /** IANA zone for auto-extracted schedules. */
   timezone?: string;
@@ -189,6 +210,13 @@ export interface ConnectionList {
   connections: Connection[];
 }
 
+/**
+ * How an app connects: "none" needs no sign-in (agents can use it already);
+ * "signin" opens a sign-in in the browser; "setup" needs the user's own
+ * developer keys in Composio first. Hosts before this send nothing.
+ */
+export type ToolkitAuth = "none" | "signin" | "setup";
+
 export interface Toolkit {
   slug: string;
   name: string;
@@ -196,6 +224,7 @@ export interface Toolkit {
   logo: string | null;
   description: string;
   categories: string[];
+  auth?: ToolkitAuth;
 }
 
 export interface ToolkitPage {
@@ -229,11 +258,14 @@ interface RawResponse {
 export class KleioApiError extends Error {
   readonly status: number;
   readonly detail?: string;
-  constructor(status: number, message: string, detail?: string) {
+  /** A machine-readable reason the host sent, e.g. "needs_setup". */
+  readonly code?: string;
+  constructor(status: number, message: string, detail?: string, code?: string) {
     super(message);
     this.name = "KleioApiError";
     this.status = status;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -247,7 +279,8 @@ function errorFrom(status: number, body: unknown): KleioApiError {
   const o = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   const msg = typeof o.error === "string" ? o.error : `request failed (HTTP ${status})`;
   const detail = typeof o.detail === "string" ? o.detail : undefined;
-  return new KleioApiError(status, msg, detail);
+  const code = typeof o.code === "string" ? o.code : undefined;
+  return new KleioApiError(status, msg, detail, code);
 }
 
 async function call<T>(method: Method, path: string, body?: unknown, session?: string): Promise<T> {

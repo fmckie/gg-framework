@@ -235,6 +235,10 @@ pub fn kleio_forget() -> Result<(), String> {
 }
 
 fn default_label() -> String {
+    // An iPhone app cannot run `scutil` (or any other program).
+    if cfg!(target_os = "ios") {
+        return "iPhone".to_string();
+    }
     std::process::Command::new("scutil")
         .args(["--get", "ComputerName"])
         .output()
@@ -246,7 +250,7 @@ fn default_label() -> String {
         .unwrap_or_else(|| "Laptop".to_string())
 }
 
-fn root_cause(e: &reqwest::Error) -> String {
+pub(super) fn root_cause(e: &reqwest::Error) -> String {
     let mut src: &dyn std::error::Error = e;
     while let Some(next) = src.source() {
         src = next;
@@ -493,7 +497,7 @@ fn safe_query(q: &str) -> bool {
 }
 
 /// Session ids are sidecar UUID-ish tokens; anything else never reaches a header.
-fn safe_session(s: &str) -> bool {
+pub(crate) fn safe_session(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
         && s.bytes()
@@ -541,7 +545,7 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
 }
 
-fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
+pub(super) fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     if let Some(c) = CLIENT.get() {
         return Ok(c);

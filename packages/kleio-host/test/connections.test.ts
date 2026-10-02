@@ -66,6 +66,28 @@ async function fakeComposio(): Promise<FakeComposio> {
         });
       }
       const link = url.pathname.match(/^\/api\/v3\.1\/tool_router\/session\/([^/]+)\/link$/);
+      // Composio's real answers for an app that needs no sign-in, and for one
+      // with no managed sign-in and no auth config of the user's own.
+      if (req.method === "POST" && link && body.toolkit === "hackernews")
+        return send(400, {
+          error: {
+            message: "Toolkit hackernews does not require authentication.",
+            code: 4326,
+            slug: "ToolRouterV2_ToolkitsIsNoAuth",
+            status: 400,
+          },
+        });
+      if (req.method === "POST" && link && body.toolkit === "twitter")
+        return send(400, {
+          error: {
+            message: `Composio does not manage auth for toolkit twitter (key ${KEY}).`,
+            code: 4308,
+            slug: "ToolRouterV2_NoManagedAuth",
+            status: 400,
+          },
+        });
+      if (req.method === "POST" && link && body.toolkit === "broken")
+        return send(500, { error: { message: "Something broke upstream.", code: 1, slug: "X" } });
       if (req.method === "POST" && link)
         return send(201, {
           link_token: "lt_1",
@@ -88,6 +110,9 @@ async function fakeComposio(): Promise<FakeComposio> {
             {
               slug: "gmail",
               name: "Gmail",
+              no_auth: false,
+              auth_schemes: ["OAUTH2"],
+              composio_managed_auth_schemes: ["OAUTH2"],
               meta: {
                 logo: "https://logos.test/gmail.png",
                 description: "Email",
@@ -95,6 +120,30 @@ async function fakeComposio(): Promise<FakeComposio> {
               },
             },
             { slug: "notion", name: "Notion", meta: { description: "Notes", categories: [] } },
+            {
+              slug: "hackernews",
+              name: "Hacker News",
+              no_auth: true,
+              auth_schemes: ["NO_AUTH"],
+              composio_managed_auth_schemes: [],
+              meta: { description: "News", categories: [] },
+            },
+            {
+              slug: "twitter",
+              name: "Twitter",
+              no_auth: false,
+              auth_schemes: ["OAUTH2"],
+              composio_managed_auth_schemes: [],
+              meta: { description: "Posts", categories: [] },
+            },
+            {
+              slug: "supadata",
+              name: "Supadata",
+              no_auth: false,
+              auth_schemes: ["API_KEY"],
+              composio_managed_auth_schemes: [],
+              meta: { description: "Transcripts", categories: [] },
+            },
           ].filter(
             (t) =>
               !url.searchParams.get("search") || t.slug.includes(url.searchParams.get("search")!),
@@ -385,16 +434,60 @@ describe("apps: routes", () => {
 
   it("searches the catalogue", async () => {
     const all = await call("GET", "/kleio/connections/toolkits");
-    expect(all.body.toolkits.map((t: any) => t.slug)).toEqual(["gmail", "notion"]);
+    expect(all.body.toolkits.map((t: any) => t.slug)).toEqual([
+      "gmail",
+      "notion",
+      "hackernews",
+      "twitter",
+      "supadata",
+    ]);
     expect(all.body.toolkits[0]).toEqual({
       slug: "gmail",
       name: "Gmail",
       logo: "https://logos.test/gmail.png",
       description: "Email",
       categories: ["Communication"],
+      auth: "signin",
     });
     const some = await call("GET", "/kleio/connections/toolkits?search=not");
     expect(some.body).toMatchObject({ toolkits: [{ slug: "notion" }], nextCursor: null });
+  });
+
+  it("says how each app connects: no sign-in, a sign-in, or the user's own keys first", async () => {
+    const all = await call("GET", "/kleio/connections/toolkits");
+    const auth = Object.fromEntries(all.body.toolkits.map((t: any) => [t.slug, t.auth]));
+    expect(auth).toEqual({
+      gmail: "signin",
+      // Composio said nothing about it: try the sign-in, as before.
+      notion: "signin",
+      hackernews: "none",
+      twitter: "setup",
+      // An API key is typed in while connecting; no developer app needed.
+      supadata: "signin",
+    });
+  });
+
+  it("explains an app that needs no sign-in, or the user's own keys, instead of Composio's JSON", async () => {
+    const hn = await call("POST", "/kleio/connections", { toolkit: "hackernews" });
+    expect(hn.status).toBe(409);
+    expect(hn.body).toEqual({
+      error: "This app doesn't need a sign-in. Kleio and your specialists can already use it.",
+      code: "no_auth",
+    });
+    const x = await call("POST", "/kleio/connections", { toolkit: "twitter" });
+    expect(x.status).toBe(409);
+    expect(x.body.code).toBe("needs_setup");
+    expect(x.body.error).toMatch(/own developer keys/);
+    expect(x.raw).not.toContain(KEY);
+    expect(
+      logs.some((l) => l.includes("connect twitter: needs the user's own developer app")),
+    ).toBe(true);
+  });
+
+  it("passes on Composio's message, not its raw JSON, for any other failure", async () => {
+    const r = await call("POST", "/kleio/connections", { toolkit: "broken" });
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ error: "composio", status: 500, detail: "Something broke upstream." });
   });
 
   it("starts a connection with the callback, and disconnects", async () => {

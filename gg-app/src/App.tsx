@@ -65,12 +65,25 @@ import {
   type PromptSegment,
   type AskUserPrompt,
   answerAskUser,
+  selectWorkspace,
 } from "./agent";
 import { dropSupersededAsks, mergeAskAnswers } from "./ask-user";
 import { glowPlacement, glowStateFor, glowVars } from "./window-glow";
 import { ActivityBar } from "./ActivityBar";
 import { autosizeComposer } from "./composer-autosize";
-import { pinAfterScroll, pinAfterWheel } from "./transcript-pin";
+import {
+  followsOutput,
+  pinAfterScroll,
+  pinAfterTouchScroll,
+  pinAfterWheel,
+  showJumpToLatest,
+  TOUCH_SETTLE_MS,
+} from "./transcript-pin";
+import { isPhone } from "./platform";
+import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
+import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
+import { onScreenKeyboardUp } from "./phone-viewport";
+import { useNotificationTaps, type TapDestination } from "./notification-tap";
 import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
 import { useKenMentor } from "./useKenMentor";
@@ -132,8 +145,8 @@ import { RankBadge } from "./RankBadge";
 import { ScorecardModal } from "./ScorecardModal";
 import { RemoteHostModal } from "./kleio/LazyRemoteHostModal"; // kleio: registration 1/3
 import { KleioScreen } from "./kleio/LazyKleioScreen";
-import { KleioHome } from "./kleio/KleioHome";
 import type { KleioScreenTab } from "./kleio/KleioScreen";
+import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { TitleUsageMeter } from "./TitleUsageMeter";
@@ -148,7 +161,14 @@ import { useAppUpdate } from "./update";
 import { recoverPromptLabel } from "./prompt-labels";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
-import { PaperclipIcon, AtIcon, ArrowUpIcon, SquareIcon, PlusIcon } from "@phosphor-icons/react";
+import {
+  PaperclipIcon,
+  AtIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  SquareIcon,
+  PlusIcon,
+} from "@phosphor-icons/react";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -183,6 +203,8 @@ const PLACEHOLDER_SHUFFLE_FRAME_MS = 24;
 // A drag that stops delivering events for this long is over: the platform
 // swallowed the terminal leave/drop (see the drag-overlay watchdog below).
 const STALE_DRAG_OVERLAY_MS = 2_500;
+// iPhone: a drag on the transcript this long puts the keyboard away.
+const KEYBOARD_DISMISS_DRAG_PX = 10;
 
 // Autopilot Ken's "all clear" line, rotated so the auto-review loop doesn't
 // repeat the exact same sentence every time GG Coder's work checks out.
@@ -405,6 +427,14 @@ function canHandleWindowFileDrop(): boolean {
   return !document.querySelector(".modal-backdrop");
 }
 
+/** kleio (iPhone): the agent or group a tapped notification opens. `key`
+ *  remounts the Kleio screen so each tap lands on its own item. */
+interface KleioOpen {
+  tab: KleioScreenTab;
+  id: string;
+  key: number;
+}
+
 function App(): React.ReactElement {
   const [items, setItems] = useState<Item[]>([]);
   // Ken Kai (mentor agent): own running flag, token/thinking metrics, streaming
@@ -426,9 +456,11 @@ function App(): React.ReactElement {
   const { snapshot: progress, levelUp, levelUpNonce, levelUpOrigin } = useProgress();
   const [showScorecard, setShowScorecard] = useState(false);
   const [showKleioRemote, setShowKleioRemote] = useState(false); // kleio: registration 2/3
-  // kleio: Blobs, Groups and Apps — a screen from Home, an overlay over a workspace.
-  const [kleioTab, setKleioTab] = useState<KleioScreenTab>("blobs");
+  // kleio: Agents and Groups — a screen from Home, an overlay over a workspace.
   const [showKleioOverlay, setShowKleioOverlay] = useState(false);
+  // kleio (iPhone): the agent or group a tapped notification opens there.
+  // Cleared once no Kleio screen is showing, so the next visit is a normal one.
+  const [kleioOpen, setKleioOpen] = useState<KleioOpen | null>(null);
   const kleioRemote = useKleioRemote();
   const kleioActiveRef = useRef(false);
   kleioActiveRef.current = Boolean(kleioRemote.status?.active);
@@ -823,6 +855,8 @@ function App(): React.ReactElement {
   // Bumped by every hydrate. Lets work that outlives a hydrate (a project
   // switch, or re-selecting a session) tell whether its result is still wanted.
   const hydrateGenerationRef = useRef(0);
+  // kleio: what decides a re-read of the transcript (phone-lifecycle.ts).
+  const rehydrateMemoryRef = useRef<RehydrateMemory>({ hydratedWhileRunning: false });
   // Mirror of `state` for use inside the memoized event handler (which doesn't
   // re-capture state). Lets turn_end pick the right context-token formula by
   // provider without re-subscribing the SSE listener on every state change.
@@ -857,10 +891,82 @@ function App(): React.ReactElement {
     lastScrollTopRef.current = el.scrollTop;
   }, []);
 
-  // Same as scrollToBottom, but a no-op while the user has scrolled up to read.
+  // iPhone: a finger on the transcript, or the fling it left behind, "holds"
+  // it — new output must not scroll the page out from under the reader. The
+  // hold ends once scrolling has been quiet for TOUCH_SETTLE_MS after the
+  // finger lifts (see transcript-pin.ts `followsOutput`).
+  const transcriptHeldRef = useRef(false);
+  const transcriptTouchingRef = useRef(false);
+  const transcriptTouchYRef = useRef(0);
+  const transcriptSettleRef = useRef<number | null>(null);
+  // iPhone: the round "jump to latest" button, shown once the reader is well
+  // away from the newest line. Mirrored in a ref so scroll events only
+  // re-render when it actually flips.
+  const [jumpToLatestShown, setJumpToLatestShown] = useState(false);
+  const jumpToLatestRef = useRef(false);
+  const syncJumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    const next = el !== null && isPhone() && showJumpToLatest(stickToBottomRef.current, el);
+    if (next === jumpToLatestRef.current) return;
+    jumpToLatestRef.current = next;
+    setJumpToLatestShown(next);
+  }, []);
+
+  // Same as scrollToBottom, but a no-op while the user has scrolled up to read
+  // (or, on the iPhone, while their finger is on the transcript).
   const maybeScrollToBottom = useCallback(() => {
-    if (stickToBottomRef.current) scrollToBottom();
-  }, [scrollToBottom]);
+    if (followsOutput(stickToBottomRef.current, transcriptHeldRef.current)) scrollToBottom();
+    syncJumpToLatest();
+  }, [scrollToBottom, syncJumpToLatest]);
+
+  const releaseTranscript = useCallback(() => {
+    transcriptSettleRef.current = null;
+    transcriptHeldRef.current = false;
+    maybeScrollToBottom();
+  }, [maybeScrollToBottom]);
+  const settleTranscript = useCallback(() => {
+    if (transcriptSettleRef.current !== null) window.clearTimeout(transcriptSettleRef.current);
+    transcriptSettleRef.current = window.setTimeout(releaseTranscript, TOUCH_SETTLE_MS);
+  }, [releaseTranscript]);
+  useEffect(
+    () => () => {
+      if (transcriptSettleRef.current !== null) window.clearTimeout(transcriptSettleRef.current);
+    },
+    [],
+  );
+  const onTranscriptTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    transcriptHeldRef.current = true;
+    transcriptTouchingRef.current = true;
+    transcriptTouchYRef.current = e.touches[0]?.clientY ?? 0;
+    if (transcriptSettleRef.current !== null) {
+      window.clearTimeout(transcriptSettleRef.current);
+      transcriptSettleRef.current = null;
+    }
+  }, []);
+  const onTranscriptTouchMove = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    // Put the keyboard away the moment the transcript is dragged, the way
+    // Messages does — not on a tap, which may be a link or a copy.
+    const y = e.touches[0]?.clientY ?? transcriptTouchYRef.current;
+    if (Math.abs(y - transcriptTouchYRef.current) < KEYBOARD_DISMISS_DRAG_PX) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) {
+      active.blur();
+    }
+  }, []);
+  const onTranscriptTouchEnd = useCallback(() => {
+    transcriptTouchingRef.current = false;
+    settleTranscript();
+  }, [settleTranscript]);
+
+  // The "jump to latest" button: follow again, and glide down to the end.
+  const jumpToLatest = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = true;
+    syncJumpToLatest();
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+  }, [syncJumpToLatest]);
 
   // Track the user's scroll intent by direction, not distance: while a reply
   // streams, every commit re-pins, so any "near the bottom" allowance snapped a
@@ -869,13 +975,21 @@ function App(): React.ReactElement {
   const onTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    stickToBottomRef.current = pinAfterScroll(
-      stickToBottomRef.current,
-      lastScrollTopRef.current,
-      el,
-    );
+    // iPhone: only a finger (or its fling) can scroll the transcript, so
+    // only a finger can stop the follow (transcript-pin.ts).
+    stickToBottomRef.current = isPhone()
+      ? pinAfterTouchScroll(
+          stickToBottomRef.current,
+          lastScrollTopRef.current,
+          el,
+          transcriptHeldRef.current,
+        )
+      : pinAfterScroll(stickToBottomRef.current, lastScrollTopRef.current, el);
     lastScrollTopRef.current = el.scrollTop;
-  }, []);
+    // A fling still running after the finger lifted keeps the hold on.
+    if (transcriptHeldRef.current && !transcriptTouchingRef.current) settleTranscript();
+    syncJumpToLatest();
+  }, [settleTranscript, syncJumpToLatest]);
   const onTranscriptWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const el = scrollRef.current;
     if (el) stickToBottomRef.current = pinAfterWheel(stickToBottomRef.current, e, el);
@@ -1256,7 +1370,7 @@ function App(): React.ReactElement {
         setShowKleioRemote(true);
         return;
       }
-      // kleio: Cmd/Ctrl + Shift + L opens Blobs, Groups and Apps (remote mode only).
+      // kleio: Cmd/Ctrl + Shift + L opens Agents and Groups (remote mode only).
       if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
         setShowKleioOverlay(true);
@@ -1282,26 +1396,10 @@ function App(): React.ReactElement {
   // Focus the chat input whenever this window gains focus (or clicked anywhere),
   // so switching between project windows lands the cursor in the input without
   // a second click. Skips when the user is selecting text or focused elsewhere
-  // intentionally (e.g. a menu button).
+  // intentionally (e.g. a menu button), and always on iPhone (composer-refocus.ts).
   useEffect(() => {
     const focusInput = (): void => {
-      const active = document.activeElement;
-      if (active && active !== document.body && active.tagName === "BUTTON") return;
-      if (window.getSelection()?.toString()) return;
-      // A modal/overlay owns keyboard focus while open — stealing it back to the
-      // chat input means the user can't type in the modal's fields. Bail when one
-      // is present (every modal renders inside `.modal-backdrop`).
-      if (document.querySelector(".modal-backdrop")) return;
-      // Don't yank focus out of another editable field (a different input,
-      // textarea, or contenteditable) the user is intentionally typing in.
-      if (
-        active instanceof HTMLElement &&
-        active !== inputRef.current &&
-        (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)
-      ) {
-        return;
-      }
-      inputRef.current?.focus();
+      if (refocusesComposer(document, inputRef.current)) inputRef.current?.focus();
     };
     window.addEventListener("focus", focusInput);
     window.addEventListener("mouseup", focusInput);
@@ -1406,6 +1504,8 @@ function App(): React.ReactElement {
         setRunning(st.running);
         setStatus(st.runState === "cancelling" ? "cancelling..." : "ready");
       }
+      // kleio: opened mid-reply — reload once it finishes (phone-lifecycle.ts).
+      needsRehydrate(rehydrateMemoryRef.current, { kind: "hydrated", running: !!st?.running });
       // Retries: this is the only unprompted model load, and an empty list
       // disables the picker for the whole session (see loadModelsWithRetry).
       // Deliberately NOT awaited — nothing below needs the list, and blocking on
@@ -1436,6 +1536,11 @@ function App(): React.ReactElement {
             return (parsed ? parsed.text : h.text).trim();
           })
           .filter((t, i, a) => t.length > 0 && a[i - 1] !== t);
+        // The transcript is being replaced. A reply still streaming (a chat
+        // reopened mid-reply on the iPhone) must start a fresh bubble here, not
+        // keep appending to a message that no longer exists — that silently
+        // dropped every live chunk until the reply finished.
+        endStreamingText();
         setItems(
           history.map((h): Item => {
             // Tool-produced images (screenshots, generate_image) — reconstructed
@@ -1548,12 +1653,30 @@ function App(): React.ReactElement {
       setLiveFromId(idSeq + 1);
       setHydrated(true);
     }
-  }, []);
+  }, [endStreamingText]);
 
   useEffect(() => {
     const unsub = subscribe(handleEvent);
     return () => unsub();
   }, [handleEvent]);
+
+  // kleio: re-read the transcript from the host when it could not replay
+  // everything this window missed, or when a reply that was already running
+  // when the chat opened finishes (see phone-lifecycle.ts).
+  useEffect(
+    () =>
+      subscribe((e) => {
+        if (needsRehydrate(rehydrateMemoryRef.current, { kind: "event", type: e.type })) {
+          setHydrateNonce((n) => n + 1);
+        }
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (needsRehydrate(rehydrateMemoryRef.current, { kind: "running", running })) {
+      setHydrateNonce((n) => n + 1);
+    }
+  }, [running]);
 
   // Boot-time/reload workspace recovery: Rust keeps THIS window's active target
   // for its lifetime. A restored app launch and a WebKit content-process reload
@@ -2509,6 +2632,58 @@ function App(): React.ReactElement {
     setHydrateNonce((n) => n + 1);
   }
 
+  // kleio (iPhone): a tapped notification opens what it is about, from any
+  // screen. An agent or group opens on its Kleio page; a chat or project is
+  // reopened exactly as picking it from the chat list would. The ref keeps the
+  // listener stable while it always runs this render's handlers.
+  const openTappedRef = useRef<(where: TapDestination) => void>(() => {});
+  openTappedRef.current = (where: TapDestination): void => {
+    if (where.kind === "none") return;
+    if (where.kind === "chat") {
+      const { chat } = where;
+      void selectWorkspace(chat.mode, chat.cwd, chat.sessionPath, chat.chatAgent ?? "general")
+        .then(() =>
+          withViewTransition(() => {
+            setShowKleioOverlay(false);
+            setShowPicker(false);
+            setWorkspaceMode(chat.mode);
+            resetForChosenProject();
+          }),
+        )
+        .catch((e: unknown) => toast(`Could not open that chat: ${String(e)}`, "error"));
+      return;
+    }
+    const open: KleioOpen = {
+      tab: where.kind === "agent" ? "blobs" : "groups",
+      id: where.kind === "agent" ? where.agentId : where.groupId,
+      // A fresh key remounts the Kleio screen, so a second tap opens its item.
+      key: Date.now(),
+    };
+    // In the same update that shows the screen, so it never shows without it.
+    withViewTransition(() => {
+      setKleioOpen(open);
+      setShowPicker(false);
+      if (needsProject) {
+        setEntryView("kleio");
+      } else {
+        setShowKleioOverlay(true);
+      }
+    });
+  };
+  const openTapped = useCallback((where: TapDestination) => openTappedRef.current(where), []);
+  useNotificationTaps(openTapped);
+  // Forget the tapped item once no Kleio screen shows it, however it was left
+  // (Back, a tapped chat, a menu item), so the next visit opens on the list.
+  const kleioShown = showKleioOverlay || (needsProject && entryView === "kleio");
+  useEffect(() => {
+    if (!kleioShown) setKleioOpen(null);
+  }, [kleioShown]);
+  // The Kleio screen, opened on a tapped agent or group when there is one.
+  const kleioScreenProps = (close: () => void): React.ComponentProps<typeof KleioScreen> => ({
+    ...(kleioOpen ? { initialTab: kleioOpen.tab, openId: kleioOpen.id } : {}),
+    onClose: close,
+  });
+
   // Show explicit recovery feedback while Rust resolves this window's durable
   // target. This branch used to paint only the dark background, which looked
   // indistinguishable from a dead/black webview during a slow recovery.
@@ -2541,18 +2716,7 @@ function App(): React.ReactElement {
                 setEntryView("projects");
               })
             }
-            onBlobs={() =>
-              withViewTransition(() => {
-                setKleioTab("blobs");
-                setEntryView("kleio");
-              })
-            }
-            onApps={() =>
-              withViewTransition(() => {
-                setKleioTab("apps");
-                setEntryView("kleio");
-              })
-            }
+            onBlobs={() => withViewTransition(() => setEntryView("kleio"))}
             onSettings={(tab) =>
               withViewTransition(() => {
                 setSettingsTab(tab ?? "general");
@@ -2563,8 +2727,8 @@ function App(): React.ReactElement {
           />
         ) : entryView === "kleio" ? (
           <KleioScreen
-            initialTab={kleioTab}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
+            key={kleioOpen?.key}
+            {...kleioScreenProps(() => withViewTransition(() => setEntryView("home")))}
           />
         ) : entryView === "settings" ? (
           <SettingsScreen
@@ -2600,7 +2764,10 @@ function App(): React.ReactElement {
         {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
         {showKleioOverlay && kleioRemote.status?.active && (
           <div className="kleio-overlay">
-            <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+            <KleioScreen
+              key={kleioOpen?.key}
+              {...kleioScreenProps(() => setShowKleioOverlay(false))}
+            />
           </div>
         )}
         <Toaster />
@@ -2673,10 +2840,10 @@ function App(): React.ReactElement {
                 type="button"
                 className="kleio-badge kleio-open"
                 onClick={() => setShowKleioOverlay(true)}
-                title="Blobs, group chats and apps · ⌘⇧L"
-                aria-label="Open Blobs, groups and apps"
+                title="Specialists and group chats · ⌘⇧L"
+                aria-label="Open specialists and groups"
               >
-                Blobs
+                Specialists
               </button>
             )}
             <TitleUsageMeter currentProvider={state?.provider ?? ""} />
@@ -2839,6 +3006,10 @@ function App(): React.ReactElement {
           ref={attachTranscript}
           onScroll={onTranscriptScroll}
           onWheel={onTranscriptWheel}
+          onTouchStart={onTranscriptTouchStart}
+          onTouchMove={onTranscriptTouchMove}
+          onTouchEnd={onTranscriptTouchEnd}
+          onTouchCancel={onTranscriptTouchEnd}
         >
           {!hydrated && items.length === 0 ? (
             <TranscriptSkeleton />
@@ -2874,6 +3045,18 @@ function App(): React.ReactElement {
             onExport={() => void exportTranscript()}
           />
         )}
+        {/* iPhone: only ever a way back down — the top of a transcript is
+            history; the end is where the work is. */}
+        <button
+          type="button"
+          className={`jump-to-latest${jumpToLatestShown ? " visible" : ""}`}
+          aria-label="Jump to latest message"
+          aria-hidden={!jumpToLatestShown}
+          tabIndex={jumpToLatestShown ? 0 : -1}
+          onClick={jumpToLatest}
+        >
+          <ArrowDownIcon size={18} weight="bold" aria-hidden />
+        </button>
       </div>
 
       <div className="liveregion">
@@ -3065,8 +3248,10 @@ function App(): React.ReactElement {
                   if (navigateHistory(e.key === "ArrowUp" ? -1 : 1, e.currentTarget)) {
                     e.preventDefault();
                   }
-                } else if (e.key === "Enter" && !e.shiftKey) {
+                } else if (e.key === "Enter" && !e.shiftKey && !onScreenKeyboardUp()) {
                   // Enter sends; Shift+Enter inserts a newline (textarea default).
+                  // iPhone: the on-screen Return key adds a line, as in Messages;
+                  // the send button sends (a hardware keyboard's Enter still sends).
                   e.preventDefault();
                   submit();
                 } else if (e.key === "Escape") {
@@ -3077,7 +3262,7 @@ function App(): React.ReactElement {
                   else if (kenRunning) void cancelKen();
                 }
               }}
-              autoFocus
+              autoFocus={focusesComposerOnOpen(document)}
             />
           </div>
           {/* Send doubles as the stop control mid-run, so the primary action
@@ -3347,7 +3532,10 @@ function App(): React.ReactElement {
       {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
       {showKleioOverlay && kleioRemote.status?.active && (
         <div className="kleio-overlay">
-          <KleioScreen onClose={() => setShowKleioOverlay(false)} />
+          <KleioScreen
+            key={kleioOpen?.key}
+            {...kleioScreenProps(() => setShowKleioOverlay(false))}
+          />
         </div>
       )}
       {showScorecard && progress && (

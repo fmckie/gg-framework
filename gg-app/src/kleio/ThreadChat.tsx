@@ -1,15 +1,26 @@
-// Compact chat onto a host-pinned conversation (the Kleio home thread, or a
-// Blob's chat). Deliberately NOT a GG Chat window: a window owns its sidecar
-// session and disposes it on close/switch, which would kill the pinned thread
-// every paired device shares. So this view only reads and prompts it — history
-// from `/history`, liveness from `/state` (polled; fast while a run is going,
-// so replies started from the phone or a schedule show up too), sends via
-// `/prompt` — all through the allow-listed, session-scoped `kleio_api` routes.
+// Chat onto a host-pinned conversation (an agent's chat). Deliberately NOT a
+// GG Chat window: a window owns its sidecar session and disposes it on
+// close/switch, which would kill the pinned thread every paired device shares.
+// So this view only reads and prompts it — history from `/history`, liveness
+// from `/state` (polled; fast while a run is going, so replies started from the
+// phone or a schedule show up too), sends via `/prompt` — all through the
+// allow-listed, session-scoped `kleio_api` routes. It wears the Code chat's
+// own message and composer styles so the two chats look the same. Files the
+// agent links to show as cards under its message; a fresh conversation is
+// started from the page header (the page remounts this view).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AlarmIcon, ArrowUpIcon, SquareIcon } from "@phosphor-icons/react";
 import type { HistoryEntry } from "../agent";
-import { Markdown } from "../Markdown";
+import { ActionMetal } from "../ActionMetal";
+import { autosizeComposer } from "../composer-autosize";
+import { LinkHandlerProvider, Markdown } from "../Markdown";
 import { theme } from "../theme";
+import { useWindowFocused } from "../useWindowFocused";
+import { WorkingBeam } from "../WorkingBeam";
+import { scheduledPrompt } from "./blobFormat";
+import { FileCards } from "./FileCard";
+import { agentFilePath, fileErrorText, fileLinks, openFile, type FileOwner } from "./kleioFiles";
 import {
   KleioApiError,
   errorText,
@@ -19,21 +30,62 @@ import {
   threadState,
   type ThreadSession,
 } from "./kleioApi";
+import { useFollowLatest } from "./useFollowLatest";
 
 const POLL_RUNNING_MS = 1500;
 const POLL_IDLE_MS = 5000;
+/** The Code chat's assistant bullet. */
+const DOT = "\u23FA";
+
+function UserMessage({ text }: { text: string }): React.ReactElement {
+  const scheduled = scheduledPrompt(text);
+  if (!scheduled) return <div className="user-msg">{text}</div>;
+  return (
+    <div className="user-msg kleio-scheduled">
+      <span className="kleio-scheduled-tag">
+        <AlarmIcon size={12} weight="bold" aria-hidden="true" />
+        Scheduled{scheduled.label ? ` · ${scheduled.label}` : ""}
+      </span>
+      {scheduled.prompt}
+    </div>
+  );
+}
+
+function AssistantMessage({
+  text,
+  owner,
+}: {
+  text: string;
+  owner: FileOwner | undefined;
+}): React.ReactElement {
+  const links = useMemo(() => (owner ? fileLinks(text) : []), [text, owner]);
+  return (
+    <div className="assistant-msg">
+      <span className="assistant-dot" style={{ color: theme.primary }} aria-hidden="true">
+        {DOT}
+      </span>
+      <div className="assistant-text">
+        <Markdown>{text}</Markdown>
+        {owner && <FileCards owner={owner} links={links} />}
+      </div>
+    </div>
+  );
+}
 
 export function ThreadChat({
   label,
   resolve,
-  startNew,
+  owner,
+  intro,
 }: {
-  /** Who you're talking to, e.g. "Kleio" or a Blob's name. */
+  /** Who you're talking to, e.g. an agent's name. */
   label: string;
   /** GET the pinned session (idempotent on the host). */
   resolve: () => Promise<ThreadSession>;
-  /** POST …/new: a fresh pinned conversation. */
-  startNew: () => Promise<ThreadSession>;
+  /** Whose folder the agent's file links point into. */
+  owner?: FileOwner;
+  /** Shown while the conversation is empty. */
+  intro?: React.ReactNode;
 }): React.ReactElement {
   const [session, setSession] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
@@ -41,9 +93,11 @@ export function ThreadChat({
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [confirmNew, setConfirmNew] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const alive = useRef(true);
+  const windowFocused = useWindowFocused();
+  const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -69,8 +123,9 @@ export function ThreadChat({
   useEffect(() => {
     setSession(null);
     setHistory(null);
+    follow();
     void open(resolve);
-  }, [open, resolve]);
+  }, [open, resolve, follow]);
 
   // Poll: /state every tick; /history while a run is going and once when it ends.
   useEffect(() => {
@@ -95,10 +150,29 @@ export function ThreadChat({
     return () => window.clearInterval(id);
   }, [session, running, open, resolve]);
 
+  // Each poll replaces the history: only a reader at the newest message is
+  // carried along, never one scrolled up to read.
   useEffect(() => {
-    const el = logRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [history, running]);
+    catchUp();
+  }, [history, running, catchUp]);
+
+  // Grow the composer with its text, exactly as the Code chat's does.
+  useLayoutEffect(() => {
+    autosizeComposer(inputRef.current, logRef.current, following());
+  }, [draft, following]);
+
+  // A click on a link to one of the agent's files opens it on this Mac.
+  const handleLink = useCallback(
+    (href: string): boolean => {
+      const path = owner ? agentFilePath(href) : null;
+      if (!owner || !path) return false;
+      openFile(owner, path).catch((e: unknown) => {
+        if (alive.current) setError(fileErrorText(e));
+      });
+      return true;
+    },
+    [owner],
+  );
 
   async function send(): Promise<void> {
     const text = draft.trim();
@@ -106,6 +180,8 @@ export function ThreadChat({
     setBusy(true);
     setError(null);
     setDraft("");
+    // Sending means following the reply, wherever the reader had scrolled.
+    follow();
     setHistory((h) => [...(h ?? []), { role: "user", text }]);
     try {
       await threadPrompt(session, text);
@@ -119,129 +195,117 @@ export function ThreadChat({
     }
   }
 
-  async function fresh(): Promise<void> {
-    setConfirmNew(false);
-    setHistory(null);
-    setRunning(false);
-    await open(startNew);
-  }
-
   const visible = (history ?? []).filter((m) => m.text.trim() || m.compacted);
+  const sendDisabled = !session || busy || !draft.trim();
 
   return (
     <div className="kleio-chat">
-      <div className="kleio-chat-bar">
-        <span className="kleio-chat-who" style={{ color: theme.textMuted }}>
-          {running ? `${label} is replying…` : label}
-        </span>
-        {confirmNew ? (
-          <span
-            className="kleio-inline-confirm"
-            role="group"
-            aria-label="Start a new conversation?"
-          >
-            <span style={{ color: theme.textSecondary }}>Start a new conversation?</span>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => setConfirmNew(false)}
-            >
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => void fresh()}>
-              New conversation
-            </button>
-          </span>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={!session}
-            onClick={() => setConfirmNew(true)}
-            title="Pins a fresh conversation on every device. The old one stays on the host."
-          >
-            New conversation
-          </button>
-        )}
-      </div>
       <div
         ref={logRef}
-        className="kleio-chat-log"
+        className="kleio-transcript"
         role="log"
         aria-live="polite"
         aria-label={`Conversation with ${label}`}
         tabIndex={0}
+        {...followHandlers}
       >
-        {history === null && !error && <p className="modal-hint">Opening…</p>}
-        {history !== null && visible.length === 0 && (
-          <p className="modal-hint">Say hello — this conversation is shared with your phone.</p>
-        )}
-        {visible.map((m, i) =>
-          m.compacted ? (
-            <p key={i} className="kleio-chat-note">
-              Earlier messages were summarised.
-            </p>
-          ) : m.role === "user" ? (
-            <div key={i} className="kleio-msg kleio-msg-user">
-              {m.text}
-            </div>
-          ) : (
-            <div key={i} className="kleio-msg kleio-msg-assistant">
-              <Markdown>{m.text}</Markdown>
-            </div>
-          ),
-        )}
-        {running && (
-          <p className="kleio-chat-note" aria-label={`${label} is replying`}>
-            …
-          </p>
-        )}
+        <LinkHandlerProvider value={owner ? handleLink : null}>
+          <div className="kleio-transcript-inner">
+            {history === null && !error && <p className="kleio-chat-hint">Opening…</p>}
+            {history !== null &&
+              visible.length === 0 &&
+              (intro ?? (
+                <p className="kleio-chat-hint">
+                  Say hello — this conversation is shared with your phone.
+                </p>
+              ))}
+            {visible.map((m, i) =>
+              m.compacted ? (
+                <p key={i} className="kleio-chat-note">
+                  Earlier messages were summarised.
+                </p>
+              ) : m.role === "user" ? (
+                <UserMessage key={i} text={m.text} />
+              ) : (
+                <AssistantMessage key={i} text={m.text} owner={owner} />
+              ),
+            )}
+            {running && (
+              <div className="assistant-msg kleio-typing" role="status">
+                <span className="assistant-dot" style={{ color: theme.primary }} aria-hidden="true">
+                  {DOT}
+                </span>
+                <span className="kleio-typing-dots" aria-label={`${label} is replying`}>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+            )}
+          </div>
+        </LinkHandlerProvider>
       </div>
-      {error && (
-        <p className="kleio-error" role="alert">
-          {error}
-        </p>
-      )}
+
       <form
-        className="kleio-chat-input"
+        className="kleio-composer"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
-        <textarea
-          className="modal-input"
-          style={{ color: theme.text, background: theme.inputBackground }}
-          rows={2}
-          value={draft}
-          placeholder={`Message ${label}`}
-          aria-label={`Message ${label}`}
-          disabled={!session}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        {running ? (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void threadCancel(session ?? "").catch(() => undefined)}
-          >
-            Stop
-          </button>
-        ) : (
-          <button
-            type="submit"
-            className="btn btn-primary btn-sm"
-            disabled={!session || busy || !draft.trim()}
-          >
-            Send
-          </button>
+        {error && (
+          <p className="kleio-error" role="alert">
+            {error}
+          </p>
         )}
+        <div className="inputwrap">
+          <WorkingBeam active={running} />
+          <div className="inputrow">
+            <div className="input-stack">
+              <textarea
+                ref={inputRef}
+                className="input"
+                rows={1}
+                value={draft}
+                placeholder={`Message ${label}`}
+                aria-label={`Message ${label}`}
+                disabled={!session}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+              />
+            </div>
+            <div className="inputactions-trailing">
+              <WorkingBeam active={running} size="sm" />
+              <ActionMetal active={!running && !sendDisabled} windowFocused={windowFocused} />
+              {running ? (
+                <button
+                  type="button"
+                  className="icon-circle icon-circle-primary"
+                  title="Stop"
+                  aria-label="Stop"
+                  onClick={() => void threadCancel(session ?? "").catch(() => undefined)}
+                >
+                  <SquareIcon size={12} weight="fill" aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="icon-circle icon-circle-primary"
+                  title="Send"
+                  aria-label="Send"
+                  disabled={sendDisabled}
+                >
+                  <ArrowUpIcon size={16} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       </form>
     </div>
   );

@@ -8,7 +8,9 @@
 //!   1. Environment (dev override): KLEIO_HOST_URL + KLEIO_DEVICE_TOKEN.
 //!   2. A paired host: `~/.kleio/remote.json` (`store.rs`) plus the device
 //!      token from the login Keychain (`keychain.rs`). Pairing happens in the
-//!      app (`commands.rs`) and takes effect on the next launch.
+//!      app (`commands.rs`) and takes effect on the next launch — except on
+//!      the iPhone, which cannot relaunch itself: there a first pairing
+//!      switches on in place (`activate_paired`), once, never host-to-host.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
 //! When remote, no local sidecar is spawned; every sidecar call goes to the
 //! host, authenticated with `x-kleio-device-token` (and `x-kleio-control` for
@@ -16,12 +18,18 @@
 
 pub mod biometric;
 pub mod commands;
+pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
+pub mod parked;
+#[cfg(target_os = "ios")]
+pub mod phone;
+pub mod push;
+pub mod radio;
 pub mod store;
 pub mod tailscale;
 
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 
 pub struct Remote {
     /// Base URL without trailing slash, e.g. `https://host:8443`.
@@ -36,13 +44,31 @@ pub struct Remote {
     pub admin: bool,
 }
 
-static REMOTE: OnceLock<Option<Remote>> = OnceLock::new();
+static REMOTE: OnceLock<Remote> = OnceLock::new();
+static BOOT: Once = Once::new();
 
-/// Decided once per process. `None` = normal local sidecar.
+/// Decided once per process at boot. `None` = not paired (Kleio shows its
+/// connect screen). Once `Some`, it never changes for the life of the process.
 pub fn remote() -> Option<&'static Remote> {
-    REMOTE
-        .get_or_init(|| from_env().or_else(from_store))
-        .as_ref()
+    BOOT.call_once(|| {
+        if let Some(r) = from_env().or_else(from_store) {
+            let _ = REMOTE.set(r);
+        }
+    });
+    REMOTE.get()
+}
+
+/// iPhone only: a phone app cannot relaunch to pick up a fresh pairing, so the
+/// pairing just saved by `kleio_pair` switches on in place. Only ever goes
+/// from "not paired" to "paired"; an already-active host is returned as is.
+#[cfg(mobile)]
+pub fn activate_paired() -> Option<&'static Remote> {
+    if let Some(r) = remote() {
+        return Some(r);
+    }
+    let r = from_store()?;
+    let _ = REMOTE.set(r);
+    REMOTE.get()
 }
 
 fn from_env() -> Option<Remote> {
@@ -159,8 +185,16 @@ pub const REMOTE_PORT_SENTINEL: u16 = 1;
 /// Kleio's own local state directory (`~/.kleio`). The desktop app keeps its
 /// few local files here and never in `~/.gg`, which belongs to GG Coder and the
 /// `ggcoder` CLI on the same Mac. Everything else lives on the Kleio host.
+///
+/// On the iPhone `home` is the app's sandbox container, whose root is not
+/// writable; `Library/Application Support` is the private, backed-up place for
+/// app files there.
 pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
-    home.join(".kleio")
+    if cfg!(target_os = "ios") {
+        home.join("Library/Application Support/kleio")
+    } else {
+        home.join(".kleio")
+    }
 }
 
 /// Kleio Desktop is a client of the Kleio host and nothing else: it never
@@ -176,9 +210,238 @@ pub fn sse_frame_id(frame: &str) -> Option<u64> {
         .and_then(|v| v.trim().parse().ok())
 }
 
+/// The host writes `: ping` on every event stream each 15 s, so this long with
+/// no byte at all means the connection is dead even if the socket looks open
+/// (an iPhone that slept, a dropped Wi-Fi, a Tailscale re-route).
+pub const STREAM_IDLE: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Whether the app is on screen, plus a count of changes so a bridge can tell
+/// that something happened even if it went away and came back meanwhile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnScreen {
+    pub changes: u64,
+    pub visible: bool,
+}
+
+/// The iPhone app going to the background and coming back. A desktop window
+/// never leaves the screen in this sense, so there it never changes.
+///
+/// - Background: every event bridge closes its connection and waits. The host
+///   only sends its "finished" notification when nobody is watching a chat,
+///   and a frozen app's socket would otherwise look like someone still is.
+/// - Back on screen: every bridge reconnects at once from `Last-Event-ID`; the
+///   host replays what was missed. iOS froze the sockets meanwhile, so even a
+///   stream that looks open is usually dead.
+pub struct Presence(tokio::sync::watch::Sender<OnScreen>);
+
+impl Default for Presence {
+    fn default() -> Self {
+        let start = OnScreen {
+            changes: 0,
+            visible: true,
+        };
+        Self(tokio::sync::watch::channel(start).0)
+    }
+}
+
+impl Presence {
+    pub fn subscribe(&self) -> tokio::sync::watch::Receiver<OnScreen> {
+        self.0.subscribe()
+    }
+
+    /// Back on screen (iPhone: `WindowEvent::Resumed`).
+    #[cfg_attr(desktop, allow(dead_code))]
+    pub fn foreground(&self) {
+        self.set(true);
+    }
+
+    /// Gone to the background (iPhone: `UIApplicationDidEnterBackground`).
+    #[cfg_attr(desktop, allow(dead_code))]
+    pub fn background(&self) {
+        self.set(false);
+    }
+
+    fn set(&self, visible: bool) {
+        self.0.send_modify(|p| {
+            p.changes = p.changes.wrapping_add(1);
+            p.visible = visible;
+        });
+    }
+}
+
+/// Wait until the app is on screen; at once if it already is.
+pub async fn until_visible(rx: &mut tokio::sync::watch::Receiver<OnScreen>) {
+    // An error means the app is shutting down; there is nothing to wait for.
+    let _ = rx.wait_for(|p| p.visible).await;
+}
+
+/// Which event bridge currently speaks for each window. A bridge used to
+/// retire once its window moved to another session, but on the iPhone a
+/// window can come BACK to a session it had (reopening a parked chat): an old
+/// bridge that was idle through the switch would then pass that check again
+/// and deliver every event twice. Each new bridge takes the next number for
+/// its window, and only the newest one delivers.
+#[derive(Default)]
+pub struct BridgeEpochs(std::sync::Mutex<std::collections::HashMap<String, u64>>);
+
+impl BridgeEpochs {
+    /// A new bridge takes over `label`; any older one retires at its next check.
+    pub fn begin(&self, label: &str) -> u64 {
+        let mut map = self.0.lock().unwrap();
+        let next = map.get(label).copied().unwrap_or(0).wrapping_add(1);
+        map.insert(label.to_string(), next);
+        next
+    }
+
+    /// Whether the bridge that took `epoch` still speaks for `label`.
+    pub fn is_current(&self, label: &str, epoch: u64) -> bool {
+        self.0.lock().unwrap().get(label) == Some(&epoch)
+    }
+}
+
+/// What woke an event bridge that was waiting for its next network chunk.
+#[derive(Debug, PartialEq)]
+pub enum Wake<T> {
+    /// The stream produced an item, or ended (`None`).
+    Chunk(Option<T>),
+    /// Nothing at all, not even a ping, for the idle limit.
+    Idle,
+    /// The app went to the background or came back (`Presence`).
+    OnScreenChanged,
+}
+
+/// Wait for the next chunk, a change in whether the app is on screen, or
+/// (when `idle` is set) that long without any chunk — whichever comes first.
+pub async fn next_chunk<S>(
+    stream: &mut S,
+    presence: &mut tokio::sync::watch::Receiver<OnScreen>,
+    idle: Option<std::time::Duration>,
+) -> Wake<S::Item>
+where
+    S: futures_util::Stream + Unpin,
+{
+    use futures_util::future::{select, Either};
+    use futures_util::StreamExt;
+    let race = async {
+        let next = stream.next();
+        let changed = presence.changed();
+        futures_util::pin_mut!(next, changed);
+        match select(next, changed).await {
+            Either::Left((item, _)) => Wake::Chunk(item),
+            Either::Right((Ok(()), _)) => Wake::OnScreenChanged,
+            // The signal's owner is gone (app shutting down): just read on.
+            Either::Right((Err(_), next)) => Wake::Chunk(next.await),
+        }
+    };
+    match idle {
+        None => race.await,
+        Some(limit) => tokio::time::timeout(limit, race)
+            .await
+            .unwrap_or(Wake::Idle),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn block_on<F: std::future::Future>(f: F) -> F::Output {
+        tauri::async_runtime::block_on(f)
+    }
+
+    #[test]
+    fn only_the_newest_bridge_for_a_window_delivers() {
+        let epochs = BridgeEpochs::default();
+        let first = epochs.begin("main");
+
+        let second = epochs.begin("main");
+
+        assert!(!epochs.is_current("main", first));
+        assert!(epochs.is_current("main", second));
+    }
+
+    #[test]
+    fn windows_take_over_their_bridges_independently() {
+        let epochs = BridgeEpochs::default();
+        let main = epochs.begin("main");
+
+        epochs.begin("project-2");
+
+        assert!(epochs.is_current("main", main));
+    }
+
+    #[test]
+    fn a_chunk_wakes_the_bridge() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let mut stream = futures_util::stream::iter([7u8]);
+        let woke = block_on(next_chunk(&mut stream, &mut rx, None));
+        assert_eq!(woke, Wake::Chunk(Some(7)));
+        let woke = block_on(next_chunk(&mut stream, &mut rx, None));
+        assert_eq!(woke, Wake::Chunk(None));
+    }
+
+    #[test]
+    fn going_to_the_background_wakes_a_bridge_waiting_on_a_silent_stream() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let mut silent = futures_util::stream::pending::<u8>();
+
+        presence.background();
+
+        let woke = block_on(next_chunk(&mut silent, &mut rx, None));
+        assert_eq!(woke, Wake::OnScreenChanged);
+    }
+
+    #[test]
+    fn coming_back_on_screen_wakes_a_bridge_waiting_on_a_silent_stream() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let mut silent = futures_util::stream::pending::<u8>();
+
+        presence.foreground();
+
+        let woke = block_on(next_chunk(&mut silent, &mut rx, None));
+        assert_eq!(woke, Wake::OnScreenChanged);
+    }
+
+    #[test]
+    fn a_bridge_stays_disconnected_until_the_app_is_back_on_screen() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let short = std::time::Duration::from_millis(30);
+        presence.background();
+
+        let while_away =
+            block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+        presence.foreground();
+        let once_back =
+            block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+
+        assert!(while_away.is_err(), "waited while in the background");
+        assert!(once_back.is_ok(), "carried on once back on screen");
+    }
+
+    #[test]
+    fn a_window_on_screen_never_waits() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let short = std::time::Duration::from_millis(30);
+
+        let waited = block_on(async { tokio::time::timeout(short, until_visible(&mut rx)).await });
+
+        assert!(waited.is_ok());
+    }
+
+    #[test]
+    fn a_silent_stream_goes_idle() {
+        let presence = Presence::default();
+        let mut rx = presence.subscribe();
+        let mut silent = futures_util::stream::pending::<u8>();
+        let limit = std::time::Duration::from_millis(30);
+        let woke = block_on(next_chunk(&mut silent, &mut rx, Some(limit)));
+        assert_eq!(woke, Wake::Idle);
+    }
 
     #[test]
     fn kleio_state_is_never_gg_coders() {
@@ -192,6 +455,41 @@ mod tests {
         assert_eq!(sse_frame_id("id: 42\ndata: {}"), Some(42));
         assert_eq!(sse_frame_id("data: {}"), None);
         assert_eq!(sse_frame_id("id:7\ndata: {}"), Some(7));
+    }
+
+    #[test]
+    fn a_created_project_is_the_hosts_folder() {
+        assert_eq!(
+            created_project(200, r#"{"path":"/Users/me/kleio-projects/test"}"#),
+            Ok(serde_json::json!({ "path": "/Users/me/kleio-projects/test" }))
+        );
+    }
+
+    #[test]
+    fn a_refused_project_shows_the_hosts_reason() {
+        // A taken name is marked, so the dialog can offer to open that folder.
+        assert_eq!(
+            created_project(
+                409,
+                r#"{"error":"A folder named \"test\" already exists."}"#
+            ),
+            Err("exists:A folder named \"test\" already exists.".to_string())
+        );
+        assert_eq!(
+            created_project(400, r#"{"error":"Project name must be lowercase."}"#),
+            Err("Project name must be lowercase.".to_string())
+        );
+        assert_eq!(
+            created_project(502, "<html>bad gateway</html>"),
+            Err("Your Mac mini answered 502".to_string())
+        );
+    }
+
+    #[test]
+    fn a_created_project_needs_a_path() {
+        for body in ["{}", r#"{"path":""}"#, r#"{"path":7}"#, "not json"] {
+            assert!(created_project(200, body).is_err(), "{body}");
+        }
     }
 }
 
@@ -236,4 +534,46 @@ pub async fn host_settings_save(
         return Err(format!("host settings: HTTP {}", res.status()));
     }
     res.json().await.map_err(|e| format!("host settings: {e}"))
+}
+
+/// Make a project folder in the HOST's projects root. The sidecar's
+/// `/create-project` validates the name and refuses an existing folder, and
+/// its `/projects` scan then lists the new one. Returns `{ path }`.
+pub async fn host_create_project(
+    client: &reqwest::Client,
+    base: &str,
+    gg_sid: &str,
+    name: &str,
+) -> Result<serde_json::Value, String> {
+    let cant_reach =
+        |e: reqwest::Error| format!("Couldn't reach your Mac mini: {}", commands::root_cause(&e));
+    let res = client
+        .post(format!("{base}/create-project"))
+        .header("x-gg-session", gg_sid)
+        .json(&serde_json::json!({ "name": name }))
+        .send()
+        .await
+        .map_err(cant_reach)?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(cant_reach)?;
+    created_project(status, &text)
+}
+
+/// The sidecar's answer: `{ path }`, or its own message (bad name, folder
+/// exists), else the status, as every host call reports it.
+fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    // 409 is the sidecar's "that folder already exists".
+    if status == 409 {
+        let reason = files::host_error(status, body);
+        return Err(format!("{}{reason}", crate::PROJECT_EXISTS));
+    }
+    if !(200..300).contains(&status) {
+        return Err(files::host_error(status, body));
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("path")?.as_str().map(str::to_string))
+        .filter(|p| !p.trim().is_empty())
+        .map(|path| serde_json::json!({ "path": path }))
+        .ok_or_else(|| "Your Mac mini didn't say where it made the project.".to_string())
 }

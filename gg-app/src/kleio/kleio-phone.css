@@ -1,0 +1,368 @@
+/* ── Kleio on the iPhone ──────────────────────────────────────────────────
+   The same app as the desktop, just smaller. Every rule here is scoped to
+   `html.platform-ios` (set by platform.ts before first paint), so the desktop
+   build is untouched. Loaded last (main.tsx), so it only ever overrides.
+
+   What the phone needs that a window doesn't:
+   - safe areas: the page runs edge to edge (viewport-fit=cover); the status
+     bar / Dynamic Island and the home indicator are padded around here;
+   - touch: no hover, 44px targets, no tap flash, no long-press callout on UI;
+   - the keyboard: inputs at 16px+ so iOS never zooms the page on focus;
+   - a 390px-wide screen: wide rows wrap, wide modals become sheets. */
+
+html.platform-ios {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  /* The page itself is the app's colour, so nothing lighter shows around it. */
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Sized to the area above the keyboard (phone-viewport.ts), so the composer
+   rides up with it and the page itself never scrolls. */
+html.platform-ios,
+html.platform-ios body,
+html.platform-ios #root {
+  height: var(--app-height, 100%);
+  overflow: hidden;
+}
+
+html.platform-ios body {
+  background: var(--bg);
+  /* The page never rubber-bands; scroll areas inside it still fling. */
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  /* UI chrome is not text to select or "Copy | Look Up". */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+/* Reading and writing stay selectable: messages, code, and every input. */
+html.platform-ios .transcript,
+html.platform-ios .transcript *,
+html.platform-ios input,
+html.platform-ios textarea,
+html.platform-ios [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* iOS zooms the whole page into any field under 16px when it is focused. */
+html.platform-ios input,
+html.platform-ios textarea,
+html.platform-ios select {
+  font-size: max(16px, 1em);
+}
+
+/* ── Safe areas ───────────────────────────────────────────────────────── */
+
+/* Every full screen is an `.app` (home, pickers, workspace, Kleio pages). */
+html.platform-ios .app {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  box-sizing: border-box;
+}
+
+/* A keyboard (or the bar above a hardware one) covers the home indicator,
+   so its gap goes while it is up. */
+html.platform-ios.bottom-covered .app {
+  padding-bottom: 0;
+}
+
+/* Agents and groups over a chat float in a fixed layer outside `.app`: it
+   keeps clear of the status bar and home indicator itself, and ends above the
+   keyboard like the page does, so its message box stays in view. */
+html.platform-ios .kleio-overlay {
+  bottom: auto;
+  height: var(--app-height, 100%);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  box-sizing: border-box;
+}
+html.platform-ios.bottom-covered .kleio-overlay {
+  padding-bottom: 0;
+}
+
+/* The connect screen sits outside `.app`. */
+html.platform-ios .kleio-gate {
+  padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px)
+    calc(var(--safe-bottom) + 24px) calc(var(--safe-left) + 24px);
+  box-sizing: border-box;
+}
+
+/* The home screen's animated backdrop runs under the status bar and the home
+   indicator too: the home reaches back over `.app`'s safe-area padding and
+   pads its own content instead. Its corner pieces move in by the same amount. */
+html.platform-ios .app > .home {
+  margin: calc(-1 * var(--safe-top)) 0 calc(-1 * var(--safe-bottom));
+  height: calc(100% + var(--safe-top) + var(--safe-bottom));
+  padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px);
+  gap: 24px;
+}
+html.platform-ios .home > .home-settings {
+  top: calc(var(--safe-top) + 10px);
+  right: 16px;
+}
+html.platform-ios .home > .home-version-corner {
+  bottom: calc(var(--safe-bottom) + 8px);
+}
+
+/* Settings scrolls under its floating tab bar like an iOS tab bar: the list
+   runs to the bottom edge of the screen instead of stopping at the home
+   indicator, where it was cut off in mid-air below the bar. The bar sits just
+   above the home indicator, and the last row still scrolls clear of it. */
+html.platform-ios .app:has(> .settings-screen) {
+  padding-bottom: 0;
+}
+html.platform-ios .settings-tab-dock {
+  bottom: calc(var(--safe-bottom) + 4px);
+}
+html.platform-ios .settings-page {
+  padding-bottom: calc(var(--safe-bottom) + 84px);
+}
+
+/* The new and edit specialist forms scroll to the bottom edge the same way, and
+   their last row still scrolls clear of the home indicator. */
+html.platform-ios .app:has(.kleio-form-page),
+html.platform-ios .kleio-overlay:has(.kleio-form-page) {
+  padding-bottom: 0;
+}
+html.platform-ios .kleio-form-scroll {
+  padding-bottom: calc(var(--safe-bottom) + 32px);
+}
+
+/* Three 132px pills don't fit side by side in 354px: stack them into one
+   column of full-width pills — bigger targets, same order, same colours. */
+html.platform-ios .home-actions {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(100%, 320px);
+  gap: 12px;
+}
+html.platform-ios .home-action {
+  min-width: 0;
+  height: 52px;
+  justify-content: center;
+  font-size: 17px;
+}
+
+/* No window title bar to clear, so the desktop's 34–40px chrome gutters go;
+   the status bar above is already cleared by the safe area. */
+html.platform-ios .picker-head {
+  padding: 10px 16px;
+  min-height: 44px;
+}
+html.platform-ios .chat-head-strip {
+  height: 44px;
+  gap: 10px;
+  padding: 0 16px;
+}
+/* The project's name gets the room the hidden Agents pill leaves (below):
+   the narrow-window rule dropped it, leaving a lone colour dot. On the phone
+   it is a name, not a link (WorkspaceHeader), so it keeps its line height. */
+html.platform-ios .chat-head-title > .chat-head-cwd {
+  display: block;
+  min-height: 0;
+  white-space: nowrap;
+}
+/* Agents: the home screen's Agents button. Rank: the scorecard is a desktop
+   extra. Both only cost the phone's header room. */
+html.platform-ios .kleio-open,
+html.platform-ios .rank-badge-wrap {
+  display: none;
+}
+/* The back button and the actions share rows: a project's actions (Autopilot
+   to Initialize Git) are wider than the phone, and as one block they wrapped
+   under the back button, which kept a row to itself: three rows of header.
+   Back stays left and the actions right, as on the desktop. */
+html.platform-ios .chat-head-nav {
+  gap: 8px 6px;
+  justify-content: flex-end;
+  padding: 2px 16px 10px;
+}
+html.platform-ios .chat-head-nav .picker-head-actions {
+  display: contents;
+}
+html.platform-ios .chat-head-nav .picker-head-actions > :first-child {
+  margin-left: auto;
+}
+
+/* ── Touch targets ────────────────────────────────────────────────────── */
+
+html.platform-ios button,
+html.platform-ios [role="button"],
+html.platform-ios .btn {
+  min-height: 36px;
+}
+/* The footer's thinking and model controls are inline text: stretched to 36px
+   they grew the bar under the message box by 16px of empty band. The bar's own
+   48px is the target. */
+html.platform-ios .footer button {
+  min-height: 0;
+}
+/* The desktop's circles (back, the agent page's icon buttons) stay circles at
+   a size a thumb can hit; a 36px minimum alone stretched them into ovals. */
+html.platform-ios .btn-icon:not(.home-settings),
+html.platform-ios .kleio-icon-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: 50%;
+}
+/* The composer's paperclip and send: 36px circles (a 30px width under the
+   36px minimum made them ovals). */
+html.platform-ios .icon-circle {
+  width: 36px;
+  height: 36px;
+}
+/* "Enhance?" keeps the desktop's compact pill, which a 36px minimum turned
+   into a slab hanging over the first line of the draft. 25px clears the 24px
+   minimum target size. On one line it straddles the box's top border as on
+   the desktop; once the draft wraps, the text fills the box's top, so the
+   pill moves down into the empty row between the paperclip and send. */
+html.platform-ios .enhance-pill {
+  min-height: 0;
+  height: 25px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+html.platform-ios .enhance-pill-host {
+  top: -13px;
+}
+html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .enhance-pill-host {
+  top: auto;
+  /* Level with the 36px circles: the box's 9px padding, plus half of 36 - 25. */
+  bottom: 14.5px;
+}
+/* The radio and window pills: the same 36px, with the desktop's proportions. */
+html.platform-ios .btn-nav-icon:not(.btn-icon, .kleio-icon-btn) {
+  height: 36px;
+  padding: 0 14px;
+}
+html.platform-ios .picker-item {
+  min-height: 52px;
+}
+
+/* Revealed on hover on the desktop; a phone has no hover, so always show. */
+html.platform-ios .picker-item .picker-hide {
+  opacity: 1;
+}
+
+/* Desktop-only: export lives behind hover and window layout behind a
+   mouse and several windows — neither exists on the iPhone. */
+html.platform-ios .export-chat,
+html.platform-ios .winlayout {
+  display: none;
+}
+
+/* ── Transcript ───────────────────────────────────────────────────────── */
+
+html.platform-ios .transcript {
+  /* Scroll here, not the page; keep the fling inside the transcript. */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* The reply dot is ⏺, and iOS draws that character from its colour emoji
+   font: a blue square. Draw the desktop's dot instead, a plain circle in the
+   colour the reply sets on it (Kleio's red, or Ken's colour). */
+html.platform-ios .assistant-dot {
+  position: relative;
+  font-size: 0;
+}
+html.platform-ios .assistant-dot::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  /* Centred on the reply's first line: 15px text at line-height 1.55 is a
+     23.25px line, so its middle is 11.6px down; less half the dot. */
+  top: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* "Jump to latest": the round button that appears once you have scrolled
+   up while a reply is streaming. Phone-only — hidden on the desktop. */
+.jump-to-latest {
+  display: none;
+}
+html.platform-ios .jump-to-latest {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 8px) scale(0.92);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+html.platform-ios .jump-to-latest.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+html.platform-ios .jump-to-latest:active {
+  transform: translate(-50%, 0) scale(0.94);
+}
+@media (prefers-reduced-motion: reduce) {
+  html.platform-ios .jump-to-latest {
+    transition: opacity 120ms linear;
+  }
+}
+
+/* ── Narrow screen ────────────────────────────────────────────────────── */
+
+/* Connection: the three devices stay in one row joined by their lines, as on
+   the desktop. The narrow-window rule stacked them into a column whose links
+   shrank to dots. Sized so the row fits 353px of card. */
+html.platform-ios .conn-map {
+  grid-template-columns: auto minmax(16px, 1fr) auto minmax(16px, 1fr) auto;
+  justify-items: stretch;
+  gap: 4px;
+  padding: 20px 12px;
+}
+html.platform-ios .conn-node {
+  min-width: 0;
+  width: 84px;
+}
+html.platform-ios .conn-node-detail {
+  max-width: 100%;
+}
+html.platform-ios .conn-link {
+  width: auto;
+  height: auto;
+  /* Level with the icons' middles, not the names under them. */
+  margin: 0 0 38px;
+}
+
+/* Modals become near-full-width sheets instead of 440–460px boxes. */
+html.platform-ios .modal {
+  width: min(100vw - 24px, 560px);
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+}

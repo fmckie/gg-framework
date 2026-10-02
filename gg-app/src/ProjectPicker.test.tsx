@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   getSettings,
   importTranscript,
+  listHostProjectFolders,
   listProjects,
   listSessions,
   selectProject,
@@ -12,6 +14,7 @@ import {
   type DiscoveredProject,
   type RecentSession,
 } from "./agent";
+import { useKleioRemote } from "./kleio/useKleioRemote";
 import { ProjectPicker } from "./ProjectPicker";
 
 vi.mock("./agent", () => ({
@@ -19,18 +22,37 @@ vi.mock("./agent", () => ({
   focusWindowByOffset: vi.fn(),
   getSettings: vi.fn(),
   importTranscript: vi.fn(),
+  listHostProjectFolders: vi.fn(),
   listProjects: vi.fn(),
   listSessions: vi.fn(),
   selectProject: vi.fn(),
   setProjectHidden: vi.fn(),
   waitForReady: vi.fn(),
 }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("./kleio/useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
 vi.mock("./RadioButton", () => ({ RadioButton: () => <button>Radio</button> }));
 vi.mock("./WindowLayoutButton", () => ({ WindowLayoutButton: () => <button>Windows</button> }));
 vi.mock("./NewProjectModal", () => ({ NewProjectModal: () => null }));
 
 const getSettingsMock = vi.mocked(getSettings);
 const importTranscriptMock = vi.mocked(importTranscript);
+const listHostProjectFoldersMock = vi.mocked(listHostProjectFolders);
+const openFolderDialogMock = vi.mocked(openFolderDialog);
+const useKleioRemoteMock = vi.mocked(useKleioRemote);
+
+/** Not paired, unless a test says otherwise. */
+function setPaired(host: string | null): void {
+  useKleioRemoteMock.mockReturnValue({
+    status: {
+      active: host
+        ? { base: `https://${host}:8443`, host, deviceId: "d1", label: "Laptop", admin: false }
+        : null,
+      paired: null,
+    },
+    refresh: vi.fn(),
+  });
+}
 const listProjectsMock = vi.mocked(listProjects);
 const listSessionsMock = vi.mocked(listSessions);
 const selectProjectMock = vi.mocked(selectProject);
@@ -72,6 +94,8 @@ async function renderSessionList(sessions: RecentSession[]): Promise<void> {
   render(<ProjectPicker onChosen={vi.fn()} initialProjectPath={PROJECT.path} />);
   await screen.findByText(sessions[0]!.preview);
 }
+
+beforeEach(() => setPaired(null));
 
 afterEach(() => {
   cleanup();
@@ -193,5 +217,90 @@ describe("ProjectPicker session list", () => {
     // `busy` must be released, or every later click is silently ignored.
     const row = screen.getByText(FOREIGN_SESSION.preview).closest("button");
     expect(row?.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("ProjectPicker open existing", () => {
+  it("uses this Mac's folder picker when not paired", async () => {
+    openFolderDialogMock.mockResolvedValue("/Users/dev/picked");
+    selectProjectMock.mockResolvedValue();
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+
+    await waitFor(() =>
+      expect(selectProjectMock).toHaveBeenCalledWith("/Users/dev/picked", undefined),
+    );
+    expect(listHostProjectFoldersMock).not.toHaveBeenCalled();
+  });
+
+  it("lists the Mac mini's folders when paired, and opens a hidden one after un-hiding it", async () => {
+    setPaired("mac-mini-1.taila6c237.ts.net");
+    listHostProjectFoldersMock.mockResolvedValue([
+      { name: "test", path: "/Users/willmckie/kleio-projects/test", hidden: true },
+      { name: "site", path: "/Users/willmckie/kleio-projects/site", hidden: false },
+    ]);
+    setProjectHiddenMock.mockResolvedValue();
+    selectProjectMock.mockResolvedValue();
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+
+    expect(await screen.findByText("Open a project on mac-mini-1.taila6c237.ts.net")).toBeDefined();
+    expect(openFolderDialogMock).not.toHaveBeenCalled();
+    const testRow = (await screen.findByText("test")).closest("button");
+    expect(testRow?.textContent).toContain("Hidden");
+    expect(screen.getByText("site").closest("button")?.textContent).not.toContain("Hidden");
+
+    fireEvent.click(testRow!);
+
+    await waitFor(() =>
+      expect(selectProjectMock).toHaveBeenCalledWith(
+        "/Users/willmckie/kleio-projects/test",
+        undefined,
+      ),
+    );
+    expect(setProjectHiddenMock).toHaveBeenCalledWith(
+      "/Users/willmckie/kleio-projects/test",
+      false,
+    );
+    expect(setProjectHiddenMock.mock.invocationCallOrder[0]).toBeLessThan(
+      selectProjectMock.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("opens a visible host folder straight away", async () => {
+    setPaired("mac-mini-1.taila6c237.ts.net");
+    listHostProjectFoldersMock.mockResolvedValue([
+      { name: "site", path: "/Users/willmckie/kleio-projects/site", hidden: false },
+    ]);
+    selectProjectMock.mockResolvedValue();
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+    fireEvent.click(await screen.findByText("site"));
+
+    await waitFor(() =>
+      expect(selectProjectMock).toHaveBeenCalledWith(
+        "/Users/willmckie/kleio-projects/site",
+        undefined,
+      ),
+    );
+    expect(setProjectHiddenMock).not.toHaveBeenCalled();
+  });
+
+  it("shows why the Mac mini's folders couldn't be listed", async () => {
+    setPaired("mac-mini-1.taila6c237.ts.net");
+    listHostProjectFoldersMock.mockRejectedValue(
+      "Your Mac mini needs a Kleio update before it can list its folders here.",
+    );
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Your Mac mini needs a Kleio update before it can list its folders here.",
+    );
+    expect(selectProjectMock).not.toHaveBeenCalled();
   });
 });

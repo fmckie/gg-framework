@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Self-update and relaunch exist on computers only; the iPhone build has neither plugin.",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main", "project-*", "whatsnew"],
+  "permissions": ["updater:default", "process:default"]
+}

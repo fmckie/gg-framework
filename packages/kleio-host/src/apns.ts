@@ -229,10 +229,14 @@ export function createApnsPusher(opts: {
       if (t - lastPushAt < MIN_PUSH_INTERVAL_MS) return 0;
       // Stamp first so a near-simultaneous second completion coalesces.
       lastPushAt = t;
-      const targets = devices.filter(
+      const registered = devices.filter(
         (d): d is PairedDevice & { push: PushRegistration } =>
           !d.revoked && d.push !== null && d.push.env === config.env,
       );
+      // One alert per phone. Re-pairing a phone (or replacing its app) leaves
+      // older pairings that registered the same APNs token, and each would
+      // otherwise ring it again.
+      const targets = [...new Map(registered.map((d) => [d.push.token, d])).values()];
       if (targets.length === 0) return 0;
       const payload = {
         aps: {

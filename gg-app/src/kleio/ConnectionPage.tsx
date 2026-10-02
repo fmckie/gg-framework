@@ -135,7 +135,7 @@ export function ConnectionPage(): React.ReactElement {
         <div className="settings-col">
           <SettingsCard
             title="Mac mini"
-            description="Kleio's brain lives here. Chats, Blobs and code all run on it, so they keep going when this Mac sleeps."
+            description="Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this Mac sleeps."
           >
             <dl className="conn-facts">
               <Fact label="Address">
@@ -444,18 +444,20 @@ function PhoneCard({
             <path d={qrSvgPath(ticket.value, QR_QUIET_ZONE)} fill="#000" />
           </svg>
           <div className="conn-pair-text">
+            {/* The iPhone app is the desktop app on a phone: it pairs by typing
+                the host's address and this code (it has no QR scanner). */}
             <ol className="conn-steps">
               <li>
-                Open Kleio on your iPhone and tap <strong>Pair a host</strong>.
+                Open Kleio on your iPhone and tap <strong>Pair with your Mac mini</strong>.
               </li>
               <li>
-                Tap <strong>Scan QR code</strong>, then <strong>Scan with camera</strong>.
+                Host URL: <code className="conn-pair-code">{baseUrl}</code>
               </li>
-              <li>Point it at this code.</li>
+              <li>
+                Pair code: <code className="conn-pair-code">{offer.display}</code>, then tap{" "}
+                <strong>Pair</strong>.
+              </li>
             </ol>
-            <p className="settings-desc">
-              Or type <code className="conn-pair-code">{offer.display}</code>
-            </p>
             <p className="conn-expiry">
               Works once · expires in {Math.floor(secondsLeft / 60)}:
               {String(secondsLeft % 60).padStart(2, "0")}

@@ -1,5 +1,5 @@
-// Same shape as LazyRemoteHostModal: Kleio's Blobs, Groups and Apps screen
-// stays out of the initial chunk until it's opened.
+// Same shape as LazyRemoteHostModal: Kleio's Agents and Groups screen stays
+// out of the initial chunk until it's opened.
 import { lazy, Suspense, type ComponentProps } from "react";
 
 const Content = lazy(() => import("./KleioScreen").then((m) => ({ default: m.KleioScreen })));

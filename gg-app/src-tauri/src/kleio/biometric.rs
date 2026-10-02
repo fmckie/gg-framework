@@ -8,8 +8,9 @@
 //! rather than silently granted. The host itself only ever verifies bearers;
 //! the prompt fires here and only here.
 //!
-//! Non-macOS builds keep the type so `lib.rs` compiles unchanged; every call
-//! reports `Unavailable`.
+//! On the iPhone the same LocalAuthentication call prompts for Face ID (the
+//! app's Info.plist carries NSFaceIDUsageDescription). Other builds keep the
+//! type so `lib.rs` compiles unchanged; every call reports `Unavailable`.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -87,7 +88,7 @@ impl BiometricGate {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn can_prompt() -> bool {
     use objc2_local_authentication::{LAContext, LAPolicy};
     // SAFETY: LAContext::new has no preconditions; canEvaluatePolicy_error is a
@@ -99,7 +100,7 @@ fn can_prompt() -> bool {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn prompt(reason: &str) -> Result<(), Denied> {
     use block2::RcBlock;
     use objc2::runtime::Bool;
@@ -146,12 +147,12 @@ fn prompt(reason: &str) -> Result<(), Denied> {
     // ctx dropped here, after the reply.
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 fn can_prompt() -> bool {
     false
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 fn prompt(_reason: &str) -> Result<(), Denied> {
     Err(Denied::Unavailable)
 }
