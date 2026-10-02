@@ -24,9 +24,9 @@ import {
   fileErrorText,
   fileExtension,
   fileKind,
-  fileOwner,
   formatBytes,
   openFile,
+  ownerKey,
   saveFile,
   type FileInfo,
   type FileOwner,
@@ -82,6 +82,17 @@ function KindIcon({ name, size }: { name: string; size: number }): React.ReactEl
   }
 }
 
+/** The owner, kept by value (`ownerKey`): a parent's fresh but equal owner
+ *  object returns the same one, so it doesn't refetch the file. */
+function useStableOwner(owner: FileOwner): FileOwner {
+  const [held, setHeld] = useState(owner);
+  if (ownerKey(held) !== ownerKey(owner)) {
+    setHeld(owner);
+    return owner;
+  }
+  return held;
+}
+
 type Load =
   { state: "loading" } | { state: "ready"; info: FileInfo } | { state: "error"; text: string };
 
@@ -101,21 +112,19 @@ export function FileCard({
   const [note, setNote] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const seen = useSeen(cardRef);
-  // By value, so a parent's fresh owner object doesn't refetch the file.
-  const { blobId } = owner;
-  const groupId = owner.kind === "group" ? owner.groupId : undefined;
+  const stableOwner = useStableOwner(owner);
 
   useEffect(() => {
     if (!seen) return;
     let live = true;
     setLoad({ state: "loading" });
-    fetchFile(fileOwner(blobId, groupId), path)
+    fetchFile(stableOwner, path)
       .then((info) => live && setLoad({ state: "ready", info }))
       .catch((e: unknown) => live && setLoad({ state: "error", text: fileErrorText(e) }));
     return () => {
       live = false;
     };
-  }, [seen, blobId, groupId, path]);
+  }, [seen, stableOwner, path]);
 
   async function act(kind: "open" | "save"): Promise<void> {
     if (busy) return;

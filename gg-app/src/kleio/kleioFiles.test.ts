@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { defaultLook, lookOf } from "./blobLook";
-import { agentFilePath, fileErrorText, fileKind, fileLinks, formatBytes } from "./kleioFiles";
+import {
+  agentFilePath,
+  fileErrorText,
+  fileKind,
+  fileLinks,
+  formatBytes,
+  isOutputPath,
+  isSitePath,
+  ownerKey,
+  siteErrorText,
+  workspaceFileLinks,
+  workspaceFilePath,
+} from "./kleioFiles";
 import { plainSummary, scheduledPrompt } from "./blobFormat";
 
 describe("agentFilePath", () => {
@@ -58,6 +70,82 @@ describe("fileLinks", () => {
   });
 });
 
+describe("workspaceFilePath", () => {
+  const cwd = "/Users/me/kleio-projects/app";
+
+  it.each([
+    ["out/report.pdf", "out/report.pdf"],
+    ["./site/index.html", "site/index.html"],
+    ["/Users/me/kleio-projects/app/out/report.pdf", "out/report.pdf"],
+    ["/Users/me/kleio-projects/app/out/week%2040.pdf", "out/week 40.pdf"],
+    ["file:///Users/me/kleio-projects/app/data.csv", "data.csv"],
+    ["file://localhost/Users/me/kleio-projects/app/data.csv?x=1", "data.csv"],
+  ])("accepts %s", (href, path) => {
+    expect(workspaceFilePath(href, cwd)).toBe(path);
+  });
+
+  it("accepts a cwd with a trailing slash", () => {
+    expect(workspaceFilePath(`${cwd}/r.pdf`, `${cwd}/`)).toBe("r.pdf");
+  });
+
+  it.each([
+    "/Users/me/kleio-projects/other/report.pdf",
+    "/Users/me/kleio-projects/app-evil/report.pdf",
+    "/Users/me/kleio-projects/app",
+    "/Users/me/kleio-projects/app/../other/report.pdf",
+    "/Users/me/kleio-projects/app/.secret/report.pdf",
+    "/Users/me/kleio-projects/app//report.pdf",
+    "/tmp/report.pdf",
+    "file://server/Users/me/kleio-projects/app/report.pdf",
+    "../report.pdf",
+    "https://example.com/report.pdf",
+  ])("rejects %s", (href) => {
+    expect(workspaceFilePath(href, cwd)).toBeNull();
+  });
+
+  it("takes no absolute links when the cwd is not absolute", () => {
+    expect(workspaceFilePath("/a/b.pdf", "a")).toBeNull();
+    expect(workspaceFilePath("b.pdf", "a")).toBe("b.pdf");
+  });
+});
+
+describe("workspaceFileLinks", () => {
+  it("keeps outputs and leaves source files as plain links", () => {
+    const cwd = "/Users/me/kleio-projects/app";
+    const md = [
+      "Changed [App.tsx](src/App.tsx) and [notes](README.md).",
+      `Report: [Quarterly report](${cwd}/out/report.pdf), [Demo site](site/index.html).`,
+      "Again [the report](out/report.pdf). ![chart](chart.png)",
+    ].join("\n");
+    expect(workspaceFileLinks(md, cwd)).toEqual([
+      { path: "out/report.pdf", label: "Quarterly report" },
+      { path: "site/index.html", label: "Demo site" },
+    ]);
+  });
+
+  it("sorts outputs from sites", () => {
+    expect(isOutputPath("a/Data.XLSX")).toBe(true);
+    expect(isOutputPath("src/App.tsx")).toBe(false);
+    expect(isOutputPath("notes.md")).toBe(false);
+    expect(isSitePath("site/index.HTML")).toBe(true);
+    expect(isSitePath("page.htm")).toBe(true);
+    expect(isSitePath("report.pdf")).toBe(false);
+    expect(fileKind("index.html")).toBe("Website");
+  });
+});
+
+describe("ownerKey", () => {
+  it("is distinct per owner", () => {
+    const keys = [
+      ownerKey({ kind: "blob", blobId: "b_1" }),
+      ownerKey({ kind: "group", groupId: "g_1", blobId: "b_1" }),
+      ownerKey({ kind: "workspace", cwd: "/a/b" }),
+      ownerKey({ kind: "workspace", cwd: "/a/c" }),
+    ];
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
 describe("file words", () => {
   it("names kinds and sizes plainly", () => {
     expect(fileKind("Report.PDF")).toBe("PDF document");
@@ -71,6 +159,20 @@ describe("file words", () => {
     expect(fileErrorText(new Error("no such file"))).toMatch(/isn't on your Mac mini/);
     expect(fileErrorText(new Error("file too large"))).toMatch(/too big/);
     expect(fileErrorText(new Error("not found"))).toMatch(/needs an update/);
+    expect(fileErrorText(new Error("no such workspace"))).toMatch(/project folders/);
+    expect(fileErrorText(new Error("kleio_file: bad folder"))).toMatch(/project folders/);
+  });
+
+  it("explains the host's site errors", () => {
+    expect(siteErrorText(new Error("not_found"))).toMatch(/needs an update to open sites/);
+    expect(siteErrorText(new Error("not found"))).toMatch(/needs an update to open sites/);
+    expect(siteErrorText(new Error("not_a_site"))).toBe("Only web pages open as a site.");
+    expect(siteErrorText(new Error("bad_request"))).toMatch(/didn't understand/);
+    expect(siteErrorText(new Error("no such file"))).toMatch(/isn't on your Mac mini/);
+    expect(siteErrorText(new Error("no such workspace"))).toMatch(/project folders/);
+    expect(siteErrorText(new Error("Your Mac mini answered 401"))).toBe(
+      "Your Mac mini answered 401",
+    );
   });
 });
 
