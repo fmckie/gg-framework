@@ -81,6 +81,23 @@ async function waitForProcessGone(pid: number, timeoutMs = 10_000): Promise<bool
   return false;
 }
 
+/** PID the fixture reports once it is really running (not just its shell). */
+async function waitForWorkerPid(
+  bg: ProcessManager,
+  id: string,
+  timeoutMs = 20_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs;
+  let seen = "";
+  while (Date.now() < deadline) {
+    seen += (await bg.readOutput(id)).output;
+    const match = /WORKER_READY (\d+)/.exec(seen);
+    if (match?.[1]) return Number(match[1]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Background fixture never reported ready. Saw:\n${seen}`);
+}
+
 it("stops background commands before awaiting a slow teardown step", async () => {
   // Arrange: a live session with a long-running background command and a
   // post-turn compaction that does not settle until the test releases it.
@@ -95,12 +112,21 @@ it("stops background commands before awaiting a slow teardown step", async () =>
   await session.initialize();
   const internal = session as unknown as DisposeInternals;
   manager = internal.processManager;
-  expect(manager).toBeDefined();
-  const started = await manager?.start(
-    `${JSON.stringify(process.execPath)} -e "${keepAliveWhileOwnerLives()}"`,
+  if (!manager) throw new Error("session has no process manager");
+  const fixture = path.join(tmpProject, "worker.cjs");
+  await fs.writeFile(
+    fixture,
+    `console.log('WORKER_READY ' + process.pid);\n${keepAliveWhileOwnerLives()}\n`,
+  );
+  const started = await manager.start(
+    `${JSON.stringify(process.execPath)} ${JSON.stringify(fixture)}`,
     tmpProject,
   );
-  expect(started).toBeDefined();
+  // On Windows the PID above is the shell; the program it launches is a
+  // separate process. Wait until that program is running, otherwise teardown
+  // can kill the shell before it has launched anything, and the program
+  // starts afterwards with nothing left to stop it.
+  const workerPid = await waitForWorkerPid(manager, started.id);
   internal.postTurnCompaction = new Promise<void>((resolve) => {
     releaseCompaction = resolve;
   });
@@ -108,6 +134,8 @@ it("stops background commands before awaiting a slow teardown step", async () =>
   // Act: dispose without awaiting — it is wedged on the compaction.
   pendingDispose = session.dispose();
 
-  // Assert: the background command dies while dispose() is still wedged.
-  expect(await waitForProcessGone(started?.pid ?? -1)).toBe(true);
-});
+  // Assert: the program itself (not just its shell) dies while dispose() is
+  // still wedged.
+  expect(await waitForProcessGone(workerPid)).toBe(true);
+  expect(await waitForProcessGone(started.pid)).toBe(true);
+}, 40_000);
