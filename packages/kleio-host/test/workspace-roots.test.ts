@@ -55,6 +55,19 @@ describe("readWorkspaceRoots", () => {
     expect(await readWorkspaceRoots({}, home)).toEqual([join(home, "kleio-projects")]);
   });
 
+  it("trims roots and drops ones that are empty or relative once trimmed", async () => {
+    writeSettings({
+      projectsRoot: "   ",
+      projectRoots: ["  /data/padded  ", "\t\n", "  rel/inside  ", " /data/padded"],
+    });
+    expect(await readWorkspaceRoots({}, home)).toEqual([
+      join(home, "kleio-projects"),
+      "/data/padded",
+    ]);
+    writeSettings({ projectsRoot: "  /data/root  " });
+    expect(await readWorkspaceRoots({}, home)).toEqual(["/data/root"]);
+  });
+
   it("falls back to the default for malformed JSON or a non-object", async () => {
     writeSettings("{ not json");
     expect(await readWorkspaceRoots({}, home)).toEqual([join(home, "kleio-projects")]);
