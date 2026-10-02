@@ -10,7 +10,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { useFakeHome } from "../test-support/fake-home.js";
-import type { AgentSession } from "./agent-session.js";
+import { keepAliveWhileOwnerLives } from "../test-support/keep-alive.js";
 import type { ProcessManager } from "./process-manager.js";
 
 interface DisposeInternals {
@@ -21,8 +21,10 @@ interface DisposeInternals {
 let restoreHome: (() => void) | undefined;
 let tmpHome: string;
 let tmpProject: string;
-let session: AgentSession | undefined;
 let manager: ProcessManager | undefined;
+/** Settles the wedged compaction so the pending dispose() can finish. */
+let releaseCompaction: (() => void) | undefined;
+let pendingDispose: Promise<void> | undefined;
 
 beforeEach(async () => {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), "gg-dispose-home-"));
@@ -43,29 +45,47 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Let the wedged dispose() run to completion so the session releases every
+  // handle it holds in the project dir; otherwise Windows fails the rm (EBUSY).
+  releaseCompaction?.();
+  await pendingDispose;
+  releaseCompaction = undefined;
+  pendingDispose = undefined;
   manager?.shutdownAll();
   manager = undefined;
-  session = undefined;
   restoreHome?.();
   await fs.rm(tmpHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   await fs.rm(tmpProject, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
-async function waitForExit(id: string, timeoutMs = 10_000): Promise<number | null> {
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait for the OS to actually reap `pid`. The manager marks a process exited the
+ * moment it signals it, but on Windows the dying tree still holds handles in its
+ * cwd for a while — so the real process table is the only honest signal.
+ */
+async function waitForProcessGone(pid: number, timeoutMs = 10_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const proc = manager?.list().find((entry) => entry.id === id);
-    if (proc?.exitCode !== null && proc?.exitCode !== undefined) return proc.exitCode;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    if (!isProcessAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  return null;
+  return false;
 }
 
 it("stops background commands before awaiting a slow teardown step", async () => {
   // Arrange: a live session with a long-running background command and a
-  // post-turn compaction that never settles.
+  // post-turn compaction that does not settle until the test releases it.
   const { AgentSession: Session } = await import("./agent-session.js");
-  session = new Session({
+  const session = new Session({
     provider: "anthropic",
     model: "claude-test",
     cwd: tmpProject,
@@ -77,14 +97,17 @@ it("stops background commands before awaiting a slow teardown step", async () =>
   manager = internal.processManager;
   expect(manager).toBeDefined();
   const started = await manager?.start(
-    `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 60000)"`,
+    `${JSON.stringify(process.execPath)} -e "${keepAliveWhileOwnerLives()}"`,
     tmpProject,
   );
-  internal.postTurnCompaction = new Promise<void>(() => {});
+  expect(started).toBeDefined();
+  internal.postTurnCompaction = new Promise<void>((resolve) => {
+    releaseCompaction = resolve;
+  });
 
   // Act: dispose without awaiting — it is wedged on the compaction.
-  void session.dispose();
+  pendingDispose = session.dispose();
 
-  // Assert: the background command is already being stopped.
-  expect(await waitForExit(started?.id ?? "")).not.toBeNull();
+  // Assert: the background command dies while dispose() is still wedged.
+  expect(await waitForProcessGone(started?.pid ?? -1)).toBe(true);
 });
