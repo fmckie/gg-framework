@@ -82,7 +82,9 @@ afterEach(async () => {
 
 describe("step-boundary persistence", () => {
   it("credits a full-file cat from the finished step as a read", async () => {
-    await fs.writeFile(path.join(tmpProject, "a.js"), "one\ntwo\n");
+    // A .txt file starts no language server, so nothing keeps a handle open in
+    // the project folder after dispose (Windows would refuse to delete it).
+    await fs.writeFile(path.join(tmpProject, "a.txt"), "one\ntwo\n");
     const { AgentSession } = await import("./agent-session.js");
     const session = new AgentSession({
       provider: "anthropic",
@@ -99,7 +101,7 @@ describe("step-boundary persistence", () => {
     ) {
       messages.push({
         role: "assistant",
-        content: [{ type: "tool_call", id: "b1", name: "bash", args: { command: "cat a.js" } }],
+        content: [{ type: "tool_call", id: "b1", name: "bash", args: { command: "cat a.txt" } }],
       });
       yield { type: "turn_end", turn: 1, stopReason: "tool_use", usage, timing };
       messages.push({
@@ -111,7 +113,7 @@ describe("step-boundary persistence", () => {
       const write = opts.tools.find((t) => t.name === "write");
       try {
         await write?.execute(
-          { file_path: "a.js", content: "replaced\n" },
+          { file_path: "a.txt", content: "replaced\n" },
           { signal: new AbortController().signal, toolCallId: "w1" },
         );
         writeError = null;
@@ -123,9 +125,9 @@ describe("step-boundary persistence", () => {
       yield { type: "agent_done", totalTurns: 2, totalUsage: usage };
     });
 
-    await session.prompt("rewrite a.js");
+    await session.prompt("rewrite a.txt");
     expect(writeError).toBeNull();
-    expect(await fs.readFile(path.join(tmpProject, "a.js"), "utf-8")).toBe("replaced\n");
+    expect(await fs.readFile(path.join(tmpProject, "a.txt"), "utf-8")).toBe("replaced\n");
     await session.dispose();
   }, 15_000);
 
