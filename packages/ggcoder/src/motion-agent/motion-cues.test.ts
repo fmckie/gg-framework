@@ -24,7 +24,11 @@ type CuesModule = Readonly<{
 let bin = "";
 let cues: CuesModule;
 let tmp = "";
-/** HyperFrames' Chrome, when this machine has it (CI runners do not). */
+/**
+ * HyperFrames' downloaded chrome-headless-shell, when this machine has it. Without
+ * it `hf browser path` falls back to a system Chrome (GitHub's macOS runners ship
+ * one), whose `--dump-dom` can hang until the timeout, so that does not count.
+ */
 let chrome = "";
 beforeAll(async () => {
   const bundle = await findMotionBundle();
@@ -34,7 +38,12 @@ beforeAll(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), "gg-motion-cues-test-"));
   chrome = await cues
     .chromePath()
-    .then(async (found) => ((await fs.stat(found).catch(() => null))?.isFile() ? found : ""))
+    .then(async (found) =>
+      /chrome-headless-shell/i.test(path.basename(found)) &&
+      (await fs.stat(found).catch(() => null))?.isFile()
+        ? found
+        : "",
+    )
     .catch(() => "");
 }, 90_000);
 afterAll(async () => {
