@@ -8,13 +8,17 @@
 // Default out: <project>/cues.json. Prints a one-line JSON summary.
 //
 // The page is served read-only from 127.0.0.1 to HyperFrames' own Chrome
-// (`hf browser path`), which runs the script and returns the finished DOM.
-import { execFile, spawn } from "node:child_process";
+// (`hf browser path`), driven over DevTools by HyperFrames' own puppeteer-core,
+// which runs the script and returns the finished DOM. (Chrome's one-shot
+// `--dump-dom` hangs in a full Chrome build on macOS, the fallback when the
+// managed headless shell is missing.)
+import { execFile } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -190,46 +194,59 @@ export async function chromePath() {
   throw new Error("Chrome for HyperFrames is missing; run `hf browser ensure` first");
 }
 
+/** The puppeteer-core HyperFrames itself drives Chrome with. */
+async function loadPuppeteer() {
+  const fromHere = createRequire(import.meta.url);
+  const fromHyperframes = createRequire(fromHere.resolve("hyperframes/package.json"));
+  const mod = await import(pathToFileURL(fromHyperframes.resolve("puppeteer-core")).href);
+  return mod.default ?? mod;
+}
+
 /** Load the page in headless Chrome and return its DOM after the script ran. */
 async function dumpDom(chrome, url, signal) {
+  const puppeteer = await loadPuppeteer();
   const profile = await mkdtemp(join(tmpdir(), "gg-motion-cues-"));
+  let browser;
   try {
-    const args = [
-      "--headless",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--mute-audio",
-      `--user-data-dir=${profile}`,
-      "--virtual-time-budget=8000",
-      "--dump-dom",
-      url,
-    ];
-    // Linux CI containers often lack the user namespaces Chrome's sandbox needs.
-    if (process.platform === "linux") args.unshift("--no-sandbox");
-    const child = spawn(chrome, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
+    browser = await puppeteer.launch({
+      executablePath: chrome,
+      headless: /chrome-headless-shell/i.test(basename(chrome)) ? "shell" : true,
+      userDataDir: profile,
+      // Linux CI containers often lack the user namespaces Chrome's sandbox needs.
+      args: [
+        "--disable-gpu",
+        "--mute-audio",
+        ...(process.platform === "linux" ? ["--no-sandbox"] : []),
+      ],
+      handleSIGINT: false,
+      handleSIGTERM: false,
+      handleSIGHUP: false,
+      timeout: 60_000,
       signal,
-      timeout: 90_000,
     });
-    let out = "";
-    let errors = "";
-    child.stdout.on("data", (chunk) => {
-      if (out.length < MAX_DOM_BYTES) out += chunk;
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60_000);
+    await page.goto(url, { waitUntil: "load" });
+    // Timelines may be built after fonts load (the documented async setup) and
+    // are registered last; the kit writes its cues in a microtask after that.
+    await page.evaluate(async () => {
+      await document.fonts.ready;
     });
-    child.stderr.on("data", (chunk) => {
-      errors = (errors + chunk).slice(-2000);
-    });
-    const code = await new Promise((resolveExit, reject) => {
-      child.once("error", reject);
-      child.once("close", resolveExit);
-    });
-    if (code !== 0 || !out)
-      throw new Error(`Chrome could not load the page: ${errors.trim() || `exit ${code}`}`);
-    return out;
+    await page
+      .waitForFunction(() => Object.keys(window.__timelines ?? {}).length > 0, { timeout: 8000 })
+      .catch(() => undefined);
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 0)));
+    const dom = await page.content();
+    if (!dom) throw new Error("empty page");
+    return dom.slice(0, MAX_DOM_BYTES);
+  } catch (error) {
+    if (signal?.aborted) throw new Error("cancelled");
+    throw new Error(
+      `Chrome could not load the page: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
-    await rm(profile, { recursive: true, force: true });
+    await browser?.close().catch(() => undefined);
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
