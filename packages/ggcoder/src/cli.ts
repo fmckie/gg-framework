@@ -128,18 +128,10 @@ import { resolveCoderTelegramEnvironment } from "./cli/environment.js";
 import { checkAndAutoUpdate } from "./core/auto-update.js";
 
 import { routeCliCommandInput, type CliSubcommandName } from "./cli/command-routing.js";
+import { parseThinkingLevel } from "./cli/thinking-arg.js";
 
 const CODER_DISPLAY_NAME = KLEIO_PRODUCT_PROFILE.coder.displayName;
 const CODER_COMMAND = KLEIO_PRODUCT_PROFILE.coder.preferredCommand;
-const THINKING_LEVELS = new Set<ThinkingLevel>(["low", "medium", "high", "xhigh", "max", "ultra"]);
-
-export function parseThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
-  if (value === undefined) return undefined;
-  if (THINKING_LEVELS.has(value as ThinkingLevel)) return value as ThinkingLevel;
-  throw new Error(
-    `Invalid --thinking value "${value}". Expected low, medium, high, xhigh, max, or ultra.`,
-  );
-}
 
 function printHelp(): void {
   // Clear the visible viewport for a clean look without erasing scrollback.
