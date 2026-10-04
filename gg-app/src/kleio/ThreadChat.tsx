@@ -14,8 +14,12 @@ import { AlarmIcon, ArrowUpIcon, SquareIcon } from "@phosphor-icons/react";
 import type { HistoryEntry } from "../agent";
 import { ActionMetal } from "../ActionMetal";
 import { autosizeComposer } from "../composer-autosize";
+import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
+import { isPhone } from "../platform";
 import { theme } from "../theme";
+import { toast } from "../toast";
+import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { scheduledPrompt } from "./blobFormat";
@@ -98,6 +102,12 @@ export function ThreadChat({
   const alive = useRef(true);
   const windowFocused = useWindowFocused();
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
+  // iPhone dictation: the transcript joins the draft for review before sending.
+  const phoneComposer = isPhone();
+  const dictation = useDictation({
+    onText: (text) => setDraft((prev) => appendDictation(prev, text)),
+    onError: (message) => toast(message, "error"),
+  });
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -280,6 +290,7 @@ export function ThreadChat({
               />
             </div>
             <div className="inputactions-trailing">
+              {phoneComposer && <DictateButton dictation={dictation} disabled={!session} />}
               <WorkingBeam active={running} size="sm" />
               <ActionMetal active={!running && !sendDisabled} windowFocused={windowFocused} />
               {running ? (
@@ -305,6 +316,7 @@ export function ThreadChat({
               )}
             </div>
           </div>
+          {phoneComposer && <DictationStatus dictation={dictation} />}
         </div>
       </form>
     </div>

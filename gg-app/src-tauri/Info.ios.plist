@@ -11,6 +11,6 @@
     <key>NSCameraUsageDescription</key>
     <string>Kleio uses your camera locally to track which window you're looking at and focus it. Video never leaves your machine.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Kleio allows apps you run during development to access your microphone for recording and testing.</string>
+    <string>Kleio uses your microphone when you tap the mic to dictate a message. Your paired Mac turns the recording into text.</string>
 </dict>
 </plist>

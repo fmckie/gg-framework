@@ -105,6 +105,12 @@ import {
   formatLocalModelId,
   parseLocalModelId,
   probeEndpoint,
+  createDictation,
+  decodePcm16,
+  trimToSpeech,
+  DICTATION_MAX_SECONDS,
+  DICTATION_SAMPLE_RATE,
+  type Dictation,
   toModelInfo as localModelInfo,
   type LocalEndpoint,
   type LocalEndpointProbe,
@@ -1074,6 +1080,10 @@ async function main(): Promise<void> {
   // cannot race two browser flows for the same provider into one auth file.
   const oauthInFlightProviders = new Set<string>();
 
+  // iPhone dictation (`POST /transcribe`): one Whisper for the daemon, loaded
+  // on the first clip, so windows share the model instead of each loading it.
+  const dictation = createDictation({ cacheDir: path.join(paths.agentDir, "models") });
+
   // Routines (`/schedule`): daemon-owned so they fire with no window open.
   // Each runs in its own session, created on first fire through the same
   // `createSession` a window uses, and prompted over loopback `POST /prompt`
@@ -1092,7 +1102,16 @@ async function main(): Promise<void> {
     createTarget: async (routine): Promise<RoutineTarget> => {
       const id = randomUUID();
       const ctx = await createSession(
-        { auth, paths, progress, memoryStore, jiwaStore, broadcastAll, oauthInFlightProviders },
+        {
+          auth,
+          paths,
+          progress,
+          memoryStore,
+          jiwaStore,
+          broadcastAll,
+          oauthInFlightProviders,
+          dictation,
+        },
         {
           id,
           mode: routine.mode,
@@ -1418,6 +1437,7 @@ async function main(): Promise<void> {
               jiwaStore,
               broadcastAll,
               oauthInFlightProviders,
+              dictation,
             },
             {
               id,
@@ -1933,6 +1953,8 @@ async function createSession(
      * because a login writes the shared auth file — see `/auth/oauth/start`.
      */
     oauthInFlightProviders: Set<string>;
+    /** Daemon-wide Whisper for `/transcribe`. */
+    dictation: Dictation;
   },
   opts: {
     id: string;
@@ -1946,7 +1968,15 @@ async function createSession(
     model?: string;
   },
 ): Promise<SessionContext> {
-  const { auth, progress, memoryStore, jiwaStore, broadcastAll, oauthInFlightProviders } = deps;
+  const {
+    auth,
+    progress,
+    memoryStore,
+    jiwaStore,
+    broadcastAll,
+    oauthInFlightProviders,
+    dictation,
+  } = deps;
   const paths = deps.paths;
   const mode = opts.mode;
   // Persona transcripts live under General so sessionPath resume keeps working.
@@ -4894,6 +4924,65 @@ async function createSession(
           const message = err instanceof Error ? err.message : String(err);
           log("ERROR", "app-sidecar", "enhance failed", { message });
           json(res, 500, { error: message });
+        }
+      });
+      return;
+    }
+
+    // iPhone dictation: `{ audio }` is base64 16 kHz mono 16-bit PCM, answered
+    // with `{ text }` ("" when nothing was said). Like /enhance it touches no
+    // session state, so it is allowed mid-run. The text is never logged.
+    if (method === "POST" && url === "/transcribe") {
+      void readBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        let audio: unknown;
+        try {
+          audio = (JSON.parse(raw) as { audio?: unknown }).audio;
+        } catch {
+          json(res, 400, { error: "invalid JSON body" });
+          return;
+        }
+        if (typeof audio !== "string") {
+          json(res, 400, { error: "missing audio" });
+          return;
+        }
+        const decoded = decodePcm16(audio);
+        if (!decoded.ok) {
+          if (decoded.error === "too_long") {
+            json(res, 413, {
+              error: `Recordings can be up to ${DICTATION_MAX_SECONDS / 60} minutes long.`,
+            });
+          } else {
+            json(res, 400, { error: "The recording could not be read." });
+          }
+          return;
+        }
+        const speech = trimToSpeech(decoded.value);
+        if (!speech) {
+          json(res, 200, { text: "" });
+          return;
+        }
+        // The phone gave up (timeout, app closed): skip a queued clip.
+        const gone = new AbortController();
+        res.on("close", () => {
+          if (!res.writableEnded) gone.abort();
+        });
+        const started = Date.now();
+        try {
+          const text = await dictation.transcribe(speech, gone.signal);
+          log("INFO", "app-sidecar", "dictation transcribed", {
+            audioSeconds: (speech.length / DICTATION_SAMPLE_RATE).toFixed(1),
+            elapsedMs: String(Date.now() - started),
+            chars: String(text.length),
+          });
+          json(res, 200, { text });
+        } catch (err) {
+          if (gone.signal.aborted) return;
+          log("ERROR", "app-sidecar", "dictation failed", {
+            message: err instanceof Error ? err.message : String(err),
+            elapsedMs: String(Date.now() - started),
+          });
+          json(res, 500, { error: "Couldn't transcribe that recording. Try again." });
         }
       });
       return;

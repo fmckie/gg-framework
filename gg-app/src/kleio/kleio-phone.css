@@ -242,6 +242,67 @@ html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .enhance-pill-host 
   /* Level with the 36px circles: the box's 9px padding, plus half of 36 - 25. */
   bottom: 14.5px;
 }
+/* Dictation (useDictation.ts). While recording, the mic fills like send, so
+   it is plain that the phone is listening. */
+html.platform-ios .dictate-btn.is-recording,
+html.platform-ios .dictate-btn.is-recording:hover:not(:disabled) {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+/* Its status (timer, then "Transcribing") sits where "Enhance?" does, which
+   hides while dictating, and follows it to the bottom row once text wraps. */
+html.platform-ios .dictation-status {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 25px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transform: translate(-50%, -4px);
+  pointer-events: none;
+  transition:
+    opacity var(--t-fast),
+    transform var(--t-fast);
+}
+html.platform-ios .dictation-status.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .dictation-status {
+  top: auto;
+  bottom: 14.5px;
+}
+html.platform-ios .dictation-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: dictation-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dictation-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.platform-ios .dictation-dot {
+    animation: none;
+  }
+  html.platform-ios .dictation-status {
+    transition: none;
+  }
+}
 /* The radio and window pills: the same 36px, with the desktop's proportions. */
 html.platform-ios .btn-nav-icon:not(.btn-icon, .kleio-icon-btn) {
   height: 36px;

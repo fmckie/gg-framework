@@ -18,4 +18,5 @@ export * from "./oauth/kimi.js";
 export * from "./oauth/xai.js";
 export * from "./telegram.js";
 export * from "./voice-transcriber.js";
+export * from "./dictation.js";
 export * from "./auto-update.js";

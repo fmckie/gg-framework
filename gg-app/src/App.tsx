@@ -170,6 +170,8 @@ import {
   SquareIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
+import { useDictation } from "./useDictation";
+import { appendDictation, DictateButton, DictationStatus } from "./DictateButton";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -2309,6 +2311,19 @@ function App(): React.ReactElement {
     });
   }
 
+  // iPhone dictation (useDictation.ts): Whisper on the paired Mac turns the clip
+  // into text, which joins the end of the draft for the user to review and send.
+  const phoneComposer = isPhone();
+  const dictation = useDictation({
+    onText: (text) => {
+      setInput((prev) => appendDictation(prev, text));
+      setEnhancement(null);
+      setHistoryIndex(null);
+    },
+    onError: (message) => toast(message, "error"),
+  });
+  const dictating = dictation.phase !== "idle";
+
   // Show the corner "Enhance" pill whenever the input holds text — it stays put
   // (no debounce) and only hides when the box is empty. Shows even while the agent
   // is running, so a queued follow-up draft can be enhanced too: enhancePrompt is
@@ -3274,6 +3289,10 @@ function App(): React.ReactElement {
               never moves. It stays on the text's line while the draft fits one
               line, and drops below with the field once the text wraps. */}
           <div className="inputactions-trailing">
+            {phoneComposer && (
+              // The enhance animation locks the draft, so no dictating into it.
+              <DictateButton dictation={dictation} disabled={enhanceAnim !== null} />
+            )}
             <WorkingBeam active={running} size="sm" />
             <ActionMetal
               active={!running && !cancelling && !sendDisabled}
@@ -3299,23 +3318,25 @@ function App(): React.ReactElement {
           // stay clear of the status row's "esc to cancel". Always mounted (so it
           // can transition both ways); the `visible` class fades/slides it in
           // when there's text and out when there isn't.
-          <div className={`enhance-pill-host${enhanceHintVisible ? " visible" : ""}`}>
+          // Dictation's status pill takes this spot while it is busy.
+          <div className={`enhance-pill-host${enhanceHintVisible && !dictating ? " visible" : ""}`}>
             <ActionMetal
-              active={enhanceHintVisible && !enhancing}
+              active={enhanceHintVisible && !dictating && !enhancing}
               windowFocused={windowFocused}
               variant="button"
             />
             <button
               className={`enhance-pill${enhancing ? " enhancing" : ""}`}
               title="Enhance prompt — clearer wording + correct terms"
-              disabled={enhancing || !enhanceHintVisible}
-              aria-hidden={!enhanceHintVisible}
+              disabled={enhancing || dictating || !enhanceHintVisible}
+              aria-hidden={!enhanceHintVisible || dictating}
               onClick={() => void runEnhance()}
             >
               {enhancing ? "Enhancing…" : "Enhance?"}
             </button>
           </div>
         )}
+        {phoneComposer && <DictationStatus dictation={dictation} />}
       </div>
 
       <div

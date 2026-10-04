@@ -1735,6 +1735,46 @@ async fn agent_enhance_prompt(
     Ok(body)
 }
 
+/// Proxy: transcribe a dictated clip (base64 16 kHz mono 16-bit PCM) with the
+/// sidecar's local Whisper. Returns `{ text }`, empty when nothing was said.
+#[tauri::command]
+async fn agent_transcribe(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    audio: String,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let res = client
+        .post(format!("{}/transcribe", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .json(&serde_json::json!({ "audio": audio }))
+        // The first clip also downloads the speech model (~140 MB) on the Mac.
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                "Transcribing took too long. Try again.".to_owned()
+            } else {
+                "Couldn't reach your Mac to transcribe.".to_owned()
+            }
+        })?;
+    let status = res.status();
+    let body = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(body
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Couldn't transcribe that recording. Try again.")
+            .to_owned());
+    }
+    Ok(body)
+}
+
 /// Proxy: cycle the reasoning/thinking level to the next supported value.
 /// Returns the new `{ thinkingLevel, supportedThinkingLevels }`.
 #[tauri::command]
@@ -5862,6 +5902,7 @@ pub fn run() {
             agent_switch_model,
             agent_switch_ken_model,
             agent_enhance_prompt,
+            agent_transcribe,
             agent_commands,
             setup_windows,
             new_window,
