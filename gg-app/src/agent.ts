@@ -454,6 +454,20 @@ export async function enhancePrompt(text: string): Promise<EnhanceResult> {
   return { enhanced: result.enhanced, segments: result.segments };
 }
 
+/**
+ * Transcribe a dictated clip (base64 16 kHz mono 16-bit PCM) with Whisper on
+ * the Mac. Resolves "" when nothing was said; throws with a user-facing
+ * message on failure.
+ */
+export async function transcribeDictation(audio: string): Promise<string> {
+  await waitForReady();
+  const result = await invoke<unknown>("agent_transcribe", { audio });
+  if (!result || typeof result !== "object" || !("text" in result)) {
+    throw new Error("Couldn't transcribe that recording. Try again.");
+  }
+  return typeof result.text === "string" ? result.text : "";
+}
+
 function isPromptSegment(value: unknown): value is PromptSegment {
   return (
     value !== null &&

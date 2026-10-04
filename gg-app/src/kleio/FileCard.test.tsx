@@ -63,4 +63,61 @@ describe("FileCard", () => {
       (screen.getByRole("button", { name: `Open ${PATH}` }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
+
+  it("fetches a Chat/Code file by its workspace owner", async () => {
+    const owner = { kind: "workspace", cwd: "/Users/k/kleio-projects/demo" } as const;
+    vi.mocked(invoke).mockResolvedValue({
+      name: "report.pdf",
+      size: 2048,
+      mime: "application/pdf",
+      thumbnail: null,
+    });
+    await act(async () => {
+      render(<FileCard owner={owner} path="out/report.pdf" label="Quarterly report" />);
+    });
+    await waitFor(() => expect(screen.getByText("PDF document · 2 KB")).toBeTruthy());
+    expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", { owner, path: "out/report.pdf" });
+  });
+});
+
+describe("FileCard for a website", () => {
+  const SITE_OWNER = { kind: "workspace", cwd: "/Users/k/kleio-projects/demo" } as const;
+  const SITE = "site/index.html";
+
+  async function renderSite(): Promise<void> {
+    await act(async () => {
+      render(<FileCard owner={SITE_OWNER} path={SITE} label="Demo site" />);
+    });
+  }
+
+  it("offers Open site only, opens it through the Mac mini, and never downloads it", async () => {
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    await renderSite();
+    expect(screen.getByText("Demo site")).toBeTruthy();
+    expect(screen.getByText("Website · opens in your browser")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Save a copy/ })).toBeNull();
+    expect(document.querySelector("img")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open site" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_site_open", { owner: SITE_OWNER, path: SITE }),
+    );
+    expect(vi.mocked(invoke).mock.calls.map(([cmd]) => cmd)).toEqual(["kleio_site_open"]);
+  });
+
+  it.each([
+    ["not_a_site", "Only web pages open as a site."],
+    ["not_found", "Your Mac mini needs an update to open sites."],
+    ["no such file", "isn't on your Mac mini any more"],
+    ["no such workspace", "Kleio only opens files from its project folders."],
+    ["bad_request", "Update Kleio on both devices."],
+  ])("explains a %s error", async (raw, shown) => {
+    vi.mocked(invoke).mockRejectedValue(new Error(raw));
+    await renderSite();
+    fireEvent.click(screen.getByRole("button", { name: `Open site index.html` }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain(shown));
+    expect((screen.getByRole("button", { name: "Open site" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
 });

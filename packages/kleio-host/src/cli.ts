@@ -25,6 +25,7 @@ import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
 import { createSidecarSupervisor } from "./sidecar.js";
 import { sidecarAppEnv } from "./sidecar-env.js";
+import { readWorkspaceRoots } from "./workspace-roots.js";
 
 const log = (msg: string): void => {
   process.stdout.write(`${new Date().toISOString()} ${msg}\n`);
@@ -66,6 +67,24 @@ function publicBase(): string {
   const url = process.env.KLEIO_PUBLIC_URL;
   if (!url) throw new Error("KLEIO_PUBLIC_URL must be set (e.g. https://mini.tailnet.ts.net:8443)");
   return url.replace(/\/$/, "");
+}
+
+/** The static-site preview origin's port (see preview.ts). */
+function previewPort(): number {
+  const raw = process.env.KLEIO_PREVIEW_PORT ?? "8444";
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error(`KLEIO_PREVIEW_PORT must be a port number, not ${JSON.stringify(raw)}`);
+  return port;
+}
+
+/** Public base of the preview origin: KLEIO_PREVIEW_URL, else the public URL on the preview port. */
+function previewBase(port: number): string {
+  const given = process.env.KLEIO_PREVIEW_URL;
+  if (given) return given.replace(/\/$/, "");
+  const url = new URL(publicBase());
+  url.port = String(port);
+  return url.origin;
 }
 
 // ------------------------------------------------------------------ commands
@@ -124,6 +143,8 @@ async function serve(p: HostPaths): Promise<void> {
     apns,
     diagnosticsDir: p.logs,
     homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
+    // The same projects folders the sidecar runs Chat and Code sessions in.
+    workspaceRoots: () => readWorkspaceRoots(process.env, homedir()),
     ...(process.env.KLEIO_BLOB_DEFAULT_MODEL
       ? { blobDefaultModel: process.env.KLEIO_BLOB_DEFAULT_MODEL }
       : {}),
@@ -135,6 +156,8 @@ async function serve(p: HostPaths): Promise<void> {
     },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
+    previewPort: previewPort(),
+    previewBaseUrl: previewBase(previewPort()),
     nodeId: new URL(publicBase()).hostname,
     registry,
     offers: createPairOfferStore(),

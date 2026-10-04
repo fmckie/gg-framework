@@ -10,14 +10,17 @@
 #
 # Two launchd jobs, so the proxy can be redeployed without killing runs:
 #   com.kleio.host.sidecar  — kleio-host sidecar  (supervises app-sidecar.mjs)
-#   com.kleio.host.serve    — kleio-host serve    (HTTP host on 127.0.0.1:8443)
-# Tailscale Serve fronts :8443 with TLS + tailnet ACL.
+#   com.kleio.host.serve    — kleio-host serve    (HTTP host on 127.0.0.1:8443,
+#                                                  site previews on 127.0.0.1:8444)
+# Tailscale Serve fronts both ports with TLS + tailnet ACL. The preview port is a
+# separate browser origin so agent-written pages can never reach the API.
 set -eu
 
 CODE="$HOME/kleio-host"
 NODE="${KLEIO_NODE_BIN:-/opt/homebrew/bin/node}"
 TS="${TAILSCALE_BIN:-/usr/local/bin/tailscale}"
 PORT="${KLEIO_HOST_PORT:-8443}"
+PREVIEW_PORT="${KLEIO_PREVIEW_PORT:-8444}"
 AGENTS="$HOME/Library/LaunchAgents"
 UID_="$(id -u)"
 
@@ -156,6 +159,8 @@ write_plist() { # label, subcommand, extra-env-xml
     <key>HOME</key><string>$HOME</string>
     <key>KLEIO_HOST_PORT</key><string>$PORT</string>
     <key>KLEIO_PUBLIC_URL</key><string>$PUBLIC_URL</string>
+    <key>KLEIO_PREVIEW_PORT</key><string>$PREVIEW_PORT</string>
+    <key>KLEIO_PREVIEW_URL</key><string>$PREVIEW_URL</string>
     <key>KLEIO_SIDECAR_PATH</key><string>$CODE/sidecar/app-sidecar.mjs</string>
     <key>KLEIO_NODE_BIN</key><string>$NODE</string>
 $3
@@ -175,6 +180,7 @@ if [ "${1:-}" = "uninstall" ]; then
   bootout com.kleio.host.sidecar
   rm -f "$AGENTS/com.kleio.host.serve.plist" "$AGENTS/com.kleio.host.sidecar.plist"
   "$TS" serve --https="$PORT" off 2>/dev/null || true
+  "$TS" serve --https="$PREVIEW_PORT" off 2>/dev/null || true
   echo "kleio-host jobs removed; state kept under Application Support/Kleio/host"
   exit 0
 fi
@@ -194,6 +200,7 @@ fi
 
 DNS_NAME="$("$TS" status --json | "$NODE" -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"")')"
 PUBLIC_URL="https://$DNS_NAME:$PORT"
+PREVIEW_URL="https://$DNS_NAME:$PREVIEW_PORT"
 STATE="$HOME/Library/Application Support/Kleio/host"
 mkdir -p "$STATE/logs"
 
@@ -218,13 +225,17 @@ for label in com.kleio.host.sidecar com.kleio.host.serve; do
   launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || { echo "failed to start $label" >&2; exit 1; }
 done
 
-# Tailscale Serve: clear whatever was on this port, then front the host.
-"$TS" serve --https="$PORT" off 2>/dev/null || true
-"$TS" serve --bg --https="$PORT" "http://127.0.0.1:$PORT" >/dev/null
+# Tailscale Serve: clear whatever was on each port, then front the host's API
+# and its site-preview origin. Serve only (tailnet), never Funnel.
+for p in "$PORT" "$PREVIEW_PORT"; do
+  "$TS" serve --https="$p" off 2>/dev/null || true
+  "$TS" serve --bg --https="$p" "http://127.0.0.1:$p" >/dev/null
+done
 
 sleep 3
 echo
 echo "kleio-host installed."
 echo "  public:  $PUBLIC_URL"
+echo "  preview: $PREVIEW_URL"
 echo "  status:  $(curl -s "http://127.0.0.1:$PORT/kleio/health" || echo '(not yet up)')"
 echo "  pair:    kleio-host pair   (new shells; or $BIN_DIR/kleio-host pair)"

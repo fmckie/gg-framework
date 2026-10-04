@@ -1,4 +1,14 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  memo,
+  lazy,
+  Suspense,
+} from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { theme } from "./theme";
@@ -149,6 +159,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
+import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -169,6 +180,7 @@ import {
   SquareIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
+import type { UseDictation } from "./useDictation";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -178,6 +190,18 @@ import { basename } from "./tool-format";
 import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
 import "./glass.css";
+
+// iPhone dictation in the Chat and Code composer: the recorder, the mic button
+// and the status pill load on the phone only (see DictationSession.tsx).
+const DictationSession = lazy(() =>
+  import("./DictationSession").then((m) => ({ default: m.DictationSession })),
+);
+const DictateButton = lazy(() =>
+  import("./DictateButton").then((m) => ({ default: m.DictateButton })),
+);
+const DictationStatus = lazy(() =>
+  import("./DictateButton").then((m) => ({ default: m.DictationStatus })),
+);
 
 const DEFAULT_INPUT_PLACEHOLDER = "Type a message, / commands, @ files, @Ken for help";
 const INPUT_PLACEHOLDERS = [
@@ -2308,6 +2332,16 @@ function App(): React.ReactElement {
     });
   }
 
+  // iPhone dictation (useDictation.ts): Whisper on the paired Mac turns the clip
+  // into text, which joins the end of the draft for the user to review and send.
+  const phoneComposer = isPhone();
+  const [dictation, setDictation] = useState<UseDictation | null>(null);
+  const onDictated = useCallback(() => {
+    setEnhancement(null);
+    setHistoryIndex(null);
+  }, []);
+  const dictating = dictation !== null && dictation.phase !== "idle";
+
   // Show the corner "Enhance" pill whenever the input holds text — it stays put
   // (no debounce) and only hides when the box is empty. Shows even while the agent
   // is running, so a queued follow-up draft can be enhanced too: enhancePrompt is
@@ -3024,16 +3058,20 @@ function App(): React.ReactElement {
                   </div>
                 ))}
               <PromptSendProvider value={sendKenRecommendedPrompt}>
-                {items.map((it) => (
-                  <TranscriptRow
-                    key={it.id}
-                    item={it}
-                    animateIn={it.id >= liveFromId}
-                    onContentGrow={maybeScrollToBottom}
-                    onAskAnswer={answerAsk}
-                    onAskType={typeAskInstead}
-                  />
-                ))}
+                <WorkspaceFilesProvider
+                  cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
+                >
+                  {items.map((it) => (
+                    <TranscriptRow
+                      key={it.id}
+                      item={it}
+                      animateIn={it.id >= liveFromId}
+                      onContentGrow={maybeScrollToBottom}
+                      onAskAnswer={answerAsk}
+                      onAskType={typeAskInstead}
+                    />
+                  ))}
+                </WorkspaceFilesProvider>
               </PromptSendProvider>
             </>
           )}
@@ -3269,6 +3307,12 @@ function App(): React.ReactElement {
               never moves. It stays on the text's line while the draft fits one
               line, and drops below with the field once the text wraps. */}
           <div className="inputactions-trailing">
+            {phoneComposer && dictation && (
+              // The enhance animation locks the draft, so no dictating into it.
+              <Suspense fallback={null}>
+                <DictateButton dictation={dictation} disabled={enhanceAnim !== null} />
+              </Suspense>
+            )}
             <WorkingBeam active={running} size="sm" />
             <ActionMetal
               active={!running && !cancelling && !sendDisabled}
@@ -3294,22 +3338,29 @@ function App(): React.ReactElement {
           // stay clear of the status row's "esc to cancel". Always mounted (so it
           // can transition both ways); the `visible` class fades/slides it in
           // when there's text and out when there isn't.
-          <div className={`enhance-pill-host${enhanceHintVisible ? " visible" : ""}`}>
+          // Dictation's status pill takes this spot while it is busy.
+          <div className={`enhance-pill-host${enhanceHintVisible && !dictating ? " visible" : ""}`}>
             <ActionMetal
-              active={enhanceHintVisible && !enhancing}
+              active={enhanceHintVisible && !dictating && !enhancing}
               windowFocused={windowFocused}
               variant="button"
             />
             <button
               className={`enhance-pill${enhancing ? " enhancing" : ""}`}
               title="Enhance prompt — clearer wording + correct terms"
-              disabled={enhancing || !enhanceHintVisible}
-              aria-hidden={!enhanceHintVisible}
+              disabled={enhancing || dictating || !enhanceHintVisible}
+              aria-hidden={!enhanceHintVisible || dictating}
               onClick={() => void runEnhance()}
             >
               {enhancing ? "Enhancing…" : "Enhance?"}
             </button>
           </div>
+        )}
+        {phoneComposer && (
+          <Suspense fallback={null}>
+            <DictationSession setDraft={setInput} onDictated={onDictated} onChange={setDictation} />
+            {dictation && <DictationStatus dictation={dictation} />}
+          </Suspense>
         )}
       </div>
 
@@ -3723,6 +3774,9 @@ function TranscriptRowBody({
       const segments = hasDoneMarker(item.text)
         ? segmentDoneMarkers(item.text)
         : [{ kind: "text" as const, text: item.text }];
+      // Output cards (when paired to a Mac mini) sit once under the reply's
+      // last stretch of prose, covering every link in the whole reply.
+      const cardsAt = segments.map((s) => s.kind).lastIndexOf("text");
       return (
         <>
           {segments.map((seg, i) =>
@@ -3740,6 +3794,7 @@ function TranscriptRowBody({
                 </span>
                 <div className="assistant-text">
                   <StreamingMarkdown text={seg.text} onGrow={onContentGrow} />
+                  {i === cardsAt && <WorkspaceFileCards text={item.text} />}
                 </div>
               </div>
             ),

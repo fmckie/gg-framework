@@ -9,10 +9,14 @@ import { ActionMetal } from "../ActionMetal";
 import { Badge } from "../Badge";
 import { autosizeComposer } from "../composer-autosize";
 import { ConfirmModal } from "../ConfirmModal";
+import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
 import { MetalButton } from "../MetalButton";
+import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
+import { toast } from "../toast";
+import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { AgentRowContent, type RowState } from "./AgentRow";
@@ -27,7 +31,8 @@ import {
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
-import { agentFilePath, fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
+import { agentFilePath } from "./filePaths";
+import { fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
 import { relTime } from "./relTime";
 import {
   BLOB_COLORS,
@@ -593,6 +598,12 @@ function GroupChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const windowFocused = useWindowFocused();
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
+  // iPhone dictation: the transcript joins the draft for review before sending.
+  const phoneComposer = isPhone();
+  const dictation = useDictation({
+    onText: (text) => setDraft((prev) => appendDictation(prev, text, MESSAGE_MAX)),
+    onError: (message) => toast(message, "error"),
+  });
   const sideId = useId();
   const byId = useMemo(() => new Map(blobs.map((b) => [b.id, b])), [blobs]);
   const members = groupMembers(group, byId);
@@ -785,6 +796,7 @@ function GroupChat({
               />
             </div>
             <div className="inputactions-trailing">
+              {phoneComposer && <DictateButton dictation={dictation} />}
               <WorkingBeam active={busy} size="sm" />
               <ActionMetal
                 active={!sending && Boolean(draft.trim())}
@@ -801,6 +813,7 @@ function GroupChat({
               </button>
             </div>
           </div>
+          {phoneComposer && <DictationStatus dictation={dictation} />}
         </div>
       </form>
     </div>

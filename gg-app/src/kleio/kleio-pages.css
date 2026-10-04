@@ -683,6 +683,11 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+/* A web page has no first page to show: a small globe tile instead. */
+.kleio-file.is-site .kleio-file-peek {
+  width: 72px;
+  height: 72px;
+}
 
 /* A group message: the member's face and name, then their reply. */
 .kleio-gmsg {
@@ -1379,6 +1384,13 @@
   .kleio-file-peek {
     width: 100%;
     height: 140px;
+  }
+  .kleio-file.is-site {
+    flex-direction: row;
+  }
+  .kleio-file.is-site .kleio-file-peek {
+    width: 72px;
+    height: 72px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

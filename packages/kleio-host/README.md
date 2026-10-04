@@ -10,7 +10,17 @@ laptop / phone ──HTTPS (tailscale serve :8443)──▶ kleio-host serve ─
                                                    │ device tokens, pairing,            ▲
                                                    │ SSE id + replay ring               │ supervised by
                                                    └──────────── sidecar.json ◀──── kleio-host sidecar
+browser on the device ──HTTPS (tailscale serve :8444)──▶ kleio-host serve, preview origin only
 ```
+
+Two ports, both Tailscale Serve (tailnet only, never Funnel):
+
+| Port   | Env                                       | Serves                                                                                 |
+| ------ | ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| `8443` | `KLEIO_HOST_PORT`, `KLEIO_PUBLIC_URL`     | The API. A paired device's token on all but health, pairing and the Composio callback. |
+| `8444` | `KLEIO_PREVIEW_PORT`, `KLEIO_PREVIEW_URL` | Agent-written web pages, by short-lived link only. No API routes.                      |
+
+`KLEIO_PREVIEW_URL` defaults to `KLEIO_PUBLIC_URL` with the preview port.
 
 Two launchd jobs (`com.kleio.host.sidecar`, `com.kleio.host.serve`) so the proxy can
 be redeployed without killing a run. State lives under
@@ -36,8 +46,9 @@ the same node and `dist/cli.js` as the launchd jobs.
 
 The installer retires the earlier `com.kleio.*` / `com.atlas.*` / `com.hermes.*` /
 `com.noledge.*` user agents (plists moved to `LaunchAgents/retired-by-kleio-host/`),
-creates keys and the first admin device, and points `tailscale serve --https=8443` at
-the host. Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
+creates keys and the first admin device, and points `tailscale serve --https=8443` and
+`--https=8444` at the host (`uninstall` turns both off; `tailscale serve status` shows
+them). Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
 allows it; otherwise they are listed with the one `sudo mv` to run (they are disabled
 in launchd and cannot start, so this is cleanup, not a blocker).
 
@@ -224,6 +235,41 @@ key never appears in a response or log.
 
 **Privacy:** Composio sees tool arguments and results and stores the app logins. It is less
 private than Tinfoil.
+
+### Files and site previews
+
+Paired devices open what agents write on the mini: PDFs, spreadsheets, images, reports and
+small web sites. Any paired device may call these; they are not admin-only.
+
+| Route                                                  | Files under                                                                    |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| `GET /kleio/blobs/:id/files/<path>`                    | `<KLEIO_HOME_CWD>/blobs/<id>`                                                  |
+| `GET /kleio/groups/:gid/members/:bid/files/<path>`     | `<KLEIO_HOME_CWD>/groups/<gid>/<bid>`                                          |
+| `GET /kleio/workspace/files/<path>?cwd=<absolute dir>` | A Chat or Code session's folder, which must be in Kleio's projects folders (†) |
+
+† The projects folder plus any extra project folders in the app settings, re-read on every
+request. Any other `cwd` is a 404 `no such workspace`.
+
+- **Paths:** relative, with no `.`/`..`, hidden names or links out of the folder. Max 50 MB.
+- **Responses:** always a download (`content-disposition: attachment`, `nosniff`). HTML, SVG
+  and scripts come back as `application/octet-stream`, so nothing an agent writes runs on the
+  API origin.
+
+**Site previews.** `POST /kleio/previews {owner, path}` returns `{url, expiresAt}`, a link on
+the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, blobId}` or
+`{kind:"workspace", cwd}`, and `path` must end in `.html` or `.htm`.
+
+- **Scope:** the link serves the page's folder (so `style.css` and `data.json` next to it load).
+  A page sitting directly in a projects folder gets a link to that one file only.
+- **Lifetime:** 1 hour, at most 50 live links per device, gone on host restart or when the
+  device is revoked.
+- **Isolation:** every preview response is sandboxed (`Content-Security-Policy: sandbox …`, so
+  the page has no cookies, storage or same-origin access), `no-referrer` and `no-store`. The
+  API sends no CORS headers, so a preview page can't call it.
+- **Links in pages:** use relative paths (`style.css`, not `/style.css`).
+- **Errors:** 400 `not_a_site` (not HTML), 400 `bad_request`, plus the file errors above; 404
+  when the host runs without a preview port.
+- **Logs:** never include the link's token.
 
 ### Push nudges (APNs)
 

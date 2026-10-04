@@ -1,16 +1,21 @@
 //! Files an agent on the Kleio host wrote and linked in chat by relative name.
 //!
-//! The webview names such a file by its owner (a Blob, or a Blob inside a
-//! Group) plus the relative path — never by a local path. Rust validates both,
-//! downloads the bytes over the device-authenticated client into the app cache
-//! and previews (Quick Look thumbnail), opens (default app) or saves (native
-//! dialog) the cached copy.
+//! The webview names such a file by its owner (a Blob, a Blob inside a Group,
+//! or a Chat/Code session's folder on the host) plus the relative path — never
+//! by a local path. Rust validates both, downloads the bytes over the
+//! device-authenticated client into the app cache and previews (Quick Look
+//! thumbnail), opens (default app) or saves (native dialog) the cached copy.
 //!
 //!   GET {base}/kleio/blobs/{blobId}/files/{path}
 //!   GET {base}/kleio/groups/{groupId}/members/{blobId}/files/{path}
+//!   GET {base}/kleio/workspace/files/{path}?cwd={absolute host folder}
 //!
 //! 200 = raw bytes; errors are JSON `{"error": "..."}` (400 bad path, 404 no
-//! such agent/group/file, 413 over the host's 50 MiB cap).
+//! such agent/group/workspace/file, 413 over the host's 50 MiB cap).
+//!
+//! Web pages are never downloaded or opened here: `kleio_site_open` asks the
+//! host for a short-lived link on its separate, sandboxed preview origin
+//! (`POST {base}/kleio/previews`) and hands that to the browser.
 
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
@@ -20,7 +25,6 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
-#[cfg(not(target_os = "ios"))]
 use tauri_plugin_opener::OpenerExt;
 
 use super::commands::{api_client, root_cause};
@@ -29,22 +33,38 @@ use super::commands::{api_client, root_cause};
 const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_SEGMENTS: usize = 16;
 const MAX_PATH_BYTES: usize = 1024;
+/// A workspace cwd is an absolute host path; the host caps it at 1024 too.
+const MAX_CWD_BYTES: usize = 1024;
+const MAX_CWD_SEGMENTS: usize = 64;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 /// Cached files live at `<app_cache_dir>/kleio-files/<owner key>/<segments…>`.
 const CACHE_DIR: &str = "kleio-files";
 
-/// Whose workspace a file lives in, exactly as the webview sends it:
-/// `{ "kind": "blob", "blobId": "b_1234abcd" }` or
-/// `{ "kind": "group", "groupId": "g_1234abcd", "blobId": "b_1234abcd" }`.
-#[derive(Deserialize, Debug, PartialEq, Eq)]
+/// Whose workspace a file lives in, exactly as the webview sends it (and as
+/// the host's preview route takes it):
+/// `{ "kind": "blob", "blobId": "b_1234abcd" }`,
+/// `{ "kind": "group", "groupId": "g_1234abcd", "blobId": "b_1234abcd" }` or
+/// `{ "kind": "workspace", "cwd": "/Users/me/kleio-projects/app" }`.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(
     tag = "kind",
     rename_all = "lowercase",
     rename_all_fields = "camelCase"
 )]
 pub enum FileOwner {
-    Blob { blob_id: String },
-    Group { group_id: String, blob_id: String },
+    Blob {
+        blob_id: String,
+    },
+    Group {
+        group_id: String,
+        blob_id: String,
+    },
+    /// A Chat or Code session, keyed by its cwd on the host (session ids do
+    /// not survive a restart; the folder does). The host only serves it when
+    /// the folder is inside Kleio's projects folders.
+    Workspace {
+        cwd: String,
+    },
 }
 
 #[derive(Serialize, Debug)]
@@ -66,12 +86,28 @@ fn valid_id(id: &str, prefix: &str) -> bool {
     })
 }
 
+/// The cwd's segments when it is an absolute POSIX path (the host is a Mac)
+/// made only of plain names: no empty, `.`, `..` or hidden segments, no control
+/// characters or backslashes. None otherwise.
+fn cwd_segments(cwd: &str) -> Option<Vec<&str>> {
+    if cwd.len() > MAX_CWD_BYTES {
+        return None;
+    }
+    let segs: Vec<&str> = cwd.strip_prefix('/')?.split('/').collect();
+    (segs.len() <= MAX_CWD_SEGMENTS && segs.iter().all(|s| plain_segment(s))).then_some(segs)
+}
+
 impl FileOwner {
     fn validate(&self) -> Result<(), String> {
         let ok = match self {
             FileOwner::Blob { blob_id } => valid_id(blob_id, "b_"),
             FileOwner::Group { group_id, blob_id } => {
                 valid_id(group_id, "g_") && valid_id(blob_id, "b_")
+            }
+            FileOwner::Workspace { cwd } => {
+                return cwd_segments(cwd)
+                    .map(|_| ())
+                    .ok_or_else(|| "kleio_file: bad folder".to_string());
             }
         };
         if ok {
@@ -85,6 +121,7 @@ impl FileOwner {
         match self {
             FileOwner::Blob { .. } => "blob",
             FileOwner::Group { .. } => "group",
+            FileOwner::Workspace { .. } => "workspace",
         }
     }
 
@@ -95,14 +132,28 @@ impl FileOwner {
             FileOwner::Group { group_id, blob_id } => {
                 format!("/kleio/groups/{group_id}/members/{blob_id}/files")
             }
+            FileOwner::Workspace { .. } => "/kleio/workspace/files".to_string(),
         }
     }
 
-    /// One cache sub-directory per owner.
-    fn cache_key(&self) -> String {
+    /// The query string after the file path (with its `?`), or "".
+    fn query(&self) -> String {
         match self {
-            FileOwner::Blob { blob_id } => format!("blob-{blob_id}"),
-            FileOwner::Group { group_id, blob_id } => format!("group-{group_id}-{blob_id}"),
+            FileOwner::Workspace { cwd } => format!("?cwd={}", encode_segment(cwd)),
+            _ => String::new(),
+        }
+    }
+
+    /// Push this owner's cache sub-directory onto `p`: one per Blob or member,
+    /// and `ws/<cwd segments…>` per session folder (segments already plain).
+    fn push_cache_dir(&self, p: &mut PathBuf) {
+        match self {
+            FileOwner::Blob { blob_id } => p.push(format!("blob-{blob_id}")),
+            FileOwner::Group { group_id, blob_id } => p.push(format!("group-{group_id}-{blob_id}")),
+            FileOwner::Workspace { cwd } => {
+                p.push("ws");
+                p.extend(cwd_segments(cwd).unwrap_or_default());
+            }
         }
     }
 }
@@ -124,21 +175,23 @@ fn path_segments(path: &str) -> Result<Vec<&str>, String> {
     if segs.len() > MAX_SEGMENTS {
         return Err(bad_path("too deep"));
     }
-    for s in &segs {
-        // A leading '.' also rules out "." and ".." (and dotfiles).
-        let plain = !s.is_empty()
-            && !s.starts_with('.')
-            && !s.chars().any(|c| c == '\\' || c.is_control())
-            // Exactly one normal component on this OS as well (no `C:` drive
-            // prefix on Windows), so pushing it can never leave the cache dir.
-            && Path::new(s)
-                .components()
-                .eq([Component::Normal(OsStr::new(s))]);
-        if !plain {
-            return Err(bad_path("segment"));
-        }
+    if !segs.iter().all(|s| plain_segment(s)) {
+        return Err(bad_path("segment"));
     }
     Ok(segs)
+}
+
+/// One plain file or folder name. A leading '.' also rules out "." and ".."
+/// (and dotfiles).
+fn plain_segment(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with('.')
+        && !s.chars().any(|c| c == '\\' || c.is_control())
+        // Exactly one normal component on this OS as well (no `C:` drive
+        // prefix on Windows), so pushing it can never leave the cache dir.
+        && Path::new(s)
+            .components()
+            .eq([Component::Normal(OsStr::new(s))])
 }
 
 /// Percent-encode one path segment: RFC 3986 unreserved bytes stay, every
@@ -160,11 +213,17 @@ fn encode_segment(seg: &str) -> String {
 
 fn file_url(base: &str, owner: &FileOwner, segs: &[&str]) -> String {
     let encoded: Vec<String> = segs.iter().map(|s| encode_segment(s)).collect();
-    format!("{base}{}/{}", owner.route(), encoded.join("/"))
+    format!(
+        "{base}{}/{}{}",
+        owner.route(),
+        encoded.join("/"),
+        owner.query()
+    )
 }
 
 fn cache_file(cache_root: &Path, owner: &FileOwner, segs: &[&str]) -> PathBuf {
-    let mut p = cache_root.join(CACHE_DIR).join(owner.cache_key());
+    let mut p = cache_root.join(CACHE_DIR);
+    owner.push_cache_dir(&mut p);
     p.extend(segs);
     p
 }
@@ -484,6 +543,85 @@ pub async fn kleio_file_save(
     Ok(true)
 }
 
+/// An agent-written web page (`.html`/`.htm`).
+fn is_site(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "html" | "htm"))
+}
+
+/// The host's answer to `POST /kleio/previews` (it also sends `expiresAt`).
+#[derive(Deserialize)]
+struct MintedPreview {
+    url: String,
+}
+
+/// The preview link, only if it points back at the paired host: https (or
+/// loopback http in a debug build, for local hosts), no credentials, and the
+/// same host name as `base`. Anything else is refused rather than opened.
+fn checked_preview_url(url: &str, base: &str) -> Result<String, String> {
+    let refused = || "Your Mac mini sent a site link Kleio won't open.".to_string();
+    let u = reqwest::Url::parse(url).map_err(|_| refused())?;
+    let paired = reqwest::Url::parse(base).map_err(|_| refused())?;
+    let scheme_ok = u.scheme() == "https"
+        || (cfg!(debug_assertions) && u.scheme() == "http" && u.host_str() == Some("127.0.0.1"));
+    let same_host = u.host_str().is_some() && u.host_str() == paired.host_str();
+    if scheme_ok && same_host && u.username().is_empty() && u.password().is_none() {
+        Ok(u.to_string())
+    } else {
+        Err(refused())
+    }
+}
+
+/// Open an agent-written web page in the browser (Safari on the iPhone).
+/// The page is never downloaded or rendered in Kleio: the host mints a
+/// short-lived link on its sandboxed preview origin and the browser loads it.
+/// The link carries a capability token, so it is never logged.
+#[tauri::command]
+pub async fn kleio_site_open(app: AppHandle, owner: FileOwner, path: String) -> Result<(), String> {
+    owner.validate()?;
+    let segs = path_segments(&path)?;
+    if !segs.last().is_some_and(|name| is_site(name)) {
+        return Err("Only web pages open as a site.".to_string());
+    }
+    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let kind = owner.kind();
+    let started = Instant::now();
+    let fail = |status: Option<u16>, e: String| {
+        let status = status.map_or_else(|| "no answer".to_string(), |s| s.to_string());
+        let ms = started.elapsed().as_millis();
+        log::warn!("kleio: site open ({kind}) failed ({status}) after {ms} ms: {e}");
+        e
+    };
+    let res = match api_client(r)?
+        .post(format!("{}/kleio/previews", r.base))
+        .json(&serde_json::json!({ "owner": owner, "path": path }))
+        .send()
+        .await
+    {
+        Ok(res) => res,
+        Err(e) => return Err(fail(None, root_cause(&e))),
+    };
+    let status = res.status().as_u16();
+    if !res.status().is_success() {
+        let text = res.text().await.unwrap_or_default();
+        return Err(fail(Some(status), host_error(status, &text)));
+    }
+    let minted: MintedPreview = res
+        .json()
+        .await
+        .map_err(|e| fail(Some(status), root_cause(&e)))?;
+    let url = checked_preview_url(&minted.url, &r.base).map_err(|e| fail(Some(status), e))?;
+    log::info!(
+        "kleio: site open ({kind}) → {status} in {} ms",
+        started.elapsed().as_millis()
+    );
+    app.opener()
+        .open_url(url, None::<String>)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,6 +670,155 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<FileOwner>(bad).is_err(), "{bad}");
         }
+    }
+
+    fn workspace(cwd: &str) -> FileOwner {
+        FileOwner::Workspace { cwd: cwd.into() }
+    }
+
+    #[test]
+    fn workspace_owner_round_trips_the_webview_and_host_shape() {
+        let o: FileOwner = serde_json::from_str(
+            r#"{ "kind": "workspace", "cwd": "/Users/me/kleio-projects/app" }"#,
+        )
+        .unwrap();
+        assert_eq!(o, workspace("/Users/me/kleio-projects/app"));
+        // The preview route takes the owner in the same shape.
+        assert_eq!(
+            serde_json::to_value(&o).unwrap(),
+            serde_json::json!({ "kind": "workspace", "cwd": "/Users/me/kleio-projects/app" })
+        );
+        assert_eq!(
+            serde_json::to_value(group()).unwrap(),
+            serde_json::json!({ "kind": "group", "groupId": "g_00ff00ff", "blobId": "b_1234abcd" })
+        );
+        for bad in [
+            r#"{ "kind": "workspace" }"#,
+            r#"{ "kind": "workspace", "cwd": 7 }"#,
+            r#"{ "kind": "Workspace", "cwd": "/a" }"#,
+        ] {
+            assert!(serde_json::from_str::<FileOwner>(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn workspace_cwd_validation_table() {
+        let deep_ok = format!("/{}", vec!["a"; 64].join("/"));
+        let too_deep = format!("/{}", vec!["a"; 65].join("/"));
+        let long_ok = format!("/{}", "a".repeat(1023));
+        let too_long = format!("/{}", "a".repeat(1024));
+        let cases: &[(&str, bool)] = &[
+            ("/Users/me/kleio-projects", true),
+            ("/Users/me/kleio-projects/My App — v2", true),
+            ("/Users/me/projects/a..b", true),
+            (&deep_ok, true),
+            (&long_ok, true),
+            ("", false),
+            ("/", false),
+            ("Users/me/app", false),
+            ("relative", false),
+            ("/Users/me/app/", false),
+            ("/Users//me", false),
+            ("/Users/me/../other", false),
+            ("/Users/me/./app", false),
+            ("/Users/me/.secret/app", false),
+            ("/Users/me/app\u{0}x", false),
+            ("/Users/me/app\nx", false),
+            ("/Users/me\\app", false),
+            ("C:\\Users\\me", false),
+            (&too_deep, false),
+            (&too_long, false),
+        ];
+        for (cwd, ok) in cases {
+            assert_eq!(workspace(cwd).validate().is_ok(), *ok, "{cwd:?}");
+        }
+        assert_eq!(
+            workspace("/a/../b").validate().unwrap_err(),
+            "kleio_file: bad folder"
+        );
+    }
+
+    #[test]
+    fn workspace_url_carries_the_cwd_as_an_encoded_query() {
+        let segs = path_segments("out/Q3 report.pdf").unwrap();
+        let owner = workspace("/Users/me/kleio-projects/My App+1");
+        assert_eq!(
+            file_url("https://host:8443", &owner, &segs),
+            "https://host:8443/kleio/workspace/files/out/Q3%20report.pdf\
+             ?cwd=%2FUsers%2Fme%2Fkleio-projects%2FMy%20App%2B1"
+        );
+        // What the host's URLSearchParams reads back.
+        let url = reqwest::Url::parse(&file_url("https://host:8443", &owner, &segs)).unwrap();
+        let cwd: Vec<_> = url.query_pairs().collect();
+        assert_eq!(cwd.len(), 1);
+        assert_eq!(cwd[0].0, "cwd");
+        assert_eq!(cwd[0].1, "/Users/me/kleio-projects/My App+1");
+        assert_eq!(url.path(), "/kleio/workspace/files/out/Q3%20report.pdf");
+        // Blob and group routes carry no query.
+        assert!(!file_url("https://host:8443", &blob(), &segs).contains('?'));
+    }
+
+    #[test]
+    fn workspace_cache_path_stays_inside_the_cache_dir() {
+        let segs = path_segments("site/index.md").unwrap();
+        let root = Path::new("cache");
+        let p = cache_file(root, &workspace("/Users/me/kleio-projects/app"), &segs);
+        assert_eq!(
+            p,
+            root.join("kleio-files")
+                .join("ws")
+                .join("Users")
+                .join("me")
+                .join("kleio-projects")
+                .join("app")
+                .join("site")
+                .join("index.md")
+        );
+        assert!(p.starts_with(root.join(CACHE_DIR).join("ws")));
+        assert!(p.components().all(|c| matches!(c, Component::Normal(_))));
+    }
+
+    #[test]
+    fn only_web_pages_open_as_sites() {
+        for ok in ["index.html", "Report.HTM", "a.b.html"] {
+            assert!(is_site(ok), "{ok}");
+        }
+        for no in [
+            "index.html.pdf",
+            "page.xhtml",
+            "html",
+            "notes.md",
+            "art.svg",
+        ] {
+            assert!(!is_site(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn preview_links_must_point_back_at_the_paired_host() {
+        let base = "https://mini.tail1234.ts.net:8443";
+        assert_eq!(
+            checked_preview_url("https://mini.tail1234.ts.net:8444/p/tok/index.html", base)
+                .unwrap(),
+            "https://mini.tail1234.ts.net:8444/p/tok/index.html"
+        );
+        assert!(checked_preview_url("https://MINI.tail1234.ts.net:8444/p/t/i.html", base).is_ok());
+        for bad in [
+            "https://evil.example:8444/p/tok/index.html",
+            "https://mini.tail1234.ts.net.evil.example/p/t/i.html",
+            "http://mini.tail1234.ts.net:8444/p/tok/index.html",
+            "https://user:pw@mini.tail1234.ts.net:8444/p/t/i.html",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "/p/tok/index.html",
+            "",
+        ] {
+            assert!(checked_preview_url(bad, base).is_err(), "{bad}");
+        }
+        // A local (loopback) host only works in debug builds.
+        let local =
+            checked_preview_url("http://127.0.0.1:8444/p/t/i.html", "http://127.0.0.1:8443");
+        assert_eq!(local.is_ok(), cfg!(debug_assertions));
     }
 
     #[test]

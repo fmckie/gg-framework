@@ -14,7 +14,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
-import { authStatus, getLocalModels, getSettings, waitForReady } from "../agent";
+import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
 import { useAppUpdate } from "../update";
 import { KleioMark } from "./KleioMark";
@@ -68,16 +68,18 @@ export function KleioHome({
   // explains.
   async function refresh(): Promise<void> {
     await waitForReady().catch(() => {});
-    const [settings, providers, local] = await Promise.all([
+    const [settings, auth, local] = await Promise.all([
       getSettings().catch(() => null),
-      authStatus().catch(() => null),
+      authStatusWithError().catch(() => null),
       getLocalModels().catch(() => null),
     ]);
-    const signedIn = providers ? providers.some((p) => p.connected) : null;
+    // A list that couldn't be read (e.g. the Mac mini restarted and is still
+    // replacing this phone's session) is unknown, not "nobody signed in".
+    const signedIn = auth && !auth.error ? auth.providers.some((p) => p.connected) : null;
     const localReady = local ? hasUsableLocalModel(local) : null;
     setReady({
       folder: settings ? (settings.configured ?? Boolean(settings.projectsRoot)) : true,
-      model: signedIn === true || localReady === true || (signedIn === null && localReady === null),
+      model: signedIn !== false || localReady === true,
     });
   }
 

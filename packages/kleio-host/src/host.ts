@@ -8,7 +8,15 @@
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
 //     POST /kleio/home/new starts a fresh one. /kleio/blobs/* and
-//     GET /kleio/models, the Blobs (see blobs.ts).
+//     GET /kleio/models, the Blobs (see blobs.ts). An agent's files:
+//     GET /kleio/blobs/:id/files/*, /kleio/groups/:gid/members/:bid/files/*
+//     and /kleio/workspace/files/*?cwd= (Chat/Code, see files.ts), always as
+//     downloads; POST /kleio/previews mints a link to an agent-written web
+//     page on the preview origin.
+//
+// The preview origin (preview.ts) is a second loopback listener on its own
+// port, so its own browser origin. It serves only GET /p/<token>/<path>,
+// sandboxed, and never reads a device token or reaches this API.
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
 //
@@ -32,12 +40,9 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { constants as fsConstants } from "node:fs";
-import { appendFile, mkdir, open, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { basename, dirname, extname, join, sep } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -45,13 +50,24 @@ import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-re
 import type { ApnsPusher } from "./apns.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
-import { contentDisposition, fileContentType, resolveAgentFile, type AgentFile } from "./files.js";
+import {
+  contentDisposition,
+  fileContentType,
+  realRoots,
+  resolveAgentFile,
+  resolveWorkspaceDir,
+  type AgentFile,
+  type AgentFileError,
+} from "./files.js";
 import { createGroups, type Groups } from "./groups.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
+import { sendFile } from "./send-file.js";
+import { createPreviewServer, createPreviewStore, type PreviewStore } from "./preview.js";
+import { err, ok, type Result } from "./result.js";
 
 /** Frame types that change a Live Activity (see live-activity.ts). */
 const LIVE_FRAME_RE =
@@ -97,6 +113,25 @@ export interface HostOptions {
    */
   readonly homeCwd?: string;
   /**
+   * Kleio's projects folders, where Chat and Code sessions run
+   * (`GET /kleio/workspace/files/<path>?cwd=`). Called on each request so a
+   * moved folder is followed. The CLI passes readWorkspaceRoots. Unset = the
+   * route answers 404.
+   */
+  readonly workspaceRoots?: () => Promise<string[]>;
+  /**
+   * Port of the static-site preview origin (see preview.ts), on `listenHost`.
+   * Its own port, so its own browser origin; Tailscale Serve fronts it like
+   * the API. The CLI passes `KLEIO_PREVIEW_PORT`, default 8444. Unset = no
+   * preview server, and `POST /kleio/previews` answers 404.
+   */
+  readonly previewPort?: number;
+  /**
+   * Public base of the preview origin, e.g. https://mini.tailnet.ts.net:8444.
+   * Default: http://<listenHost>:<bound preview port>, for tests and local use.
+   */
+  readonly previewBaseUrl?: string;
+  /**
    * Model of a Blob whose `model` is null. The CLI passes
    * `KLEIO_BLOB_DEFAULT_MODEL`; default DEFAULT_BLOB_MODEL.
    */
@@ -122,6 +157,8 @@ export interface Host {
   start(): Promise<void>;
   stop(): Promise<void>;
   readonly server: Server;
+  /** The preview origin's server; null when `previewPort` is unset. */
+  readonly previewServer: Server | null;
 }
 
 type Auth = { readonly device: PairedDevice; readonly admin: boolean };
@@ -140,71 +177,109 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 const BLOB_FILE_RE = /^\/kleio\/blobs\/(b_[0-9a-f]{8})\/files\//;
 /** `GET /kleio/groups/:groupId/members/:blobId/files/<path>`. */
 const MEMBER_FILE_RE = /^\/kleio\/groups\/(g_[0-9a-f]{8})\/members\/(b_[0-9a-f]{8})\/files\//;
+/** `GET /kleio/workspace/files/<path>?cwd=<absolute host path>`: a Chat or Code session's files. */
+const WORKSPACE_FILE_PREFIX = "/kleio/workspace/files/";
+const BLOB_ID_RE = /^b_[0-9a-f]{8}$/;
+const GROUP_ID_RE = /^g_[0-9a-f]{8}$/;
+
+/** The owner in a `POST /kleio/previews` body, or null when it is malformed. */
+function parseFileOwner(v: unknown): FileOwner | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (o.kind === "blob" && typeof o.blobId === "string" && BLOB_ID_RE.test(o.blobId))
+    return { kind: "blob", blobId: o.blobId };
+  if (
+    o.kind === "group" &&
+    typeof o.groupId === "string" &&
+    GROUP_ID_RE.test(o.groupId) &&
+    typeof o.blobId === "string" &&
+    BLOB_ID_RE.test(o.blobId)
+  )
+    return { kind: "group", groupId: o.groupId, blobId: o.blobId };
+  if (o.kind === "workspace" && typeof o.cwd === "string") return { kind: "workspace", cwd: o.cwd };
+  return null;
+}
+
+/** Whether `dir` is `root` or holds it: a preview of `dir` would expose all of `root`. */
+function holds(dir: string, root: string): boolean {
+  return root === dir || root.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
+
+/** Whose files: a Blob, a Blob in a group, or a Chat/Code session's folder. */
+export type FileOwner =
+  | { readonly kind: "blob"; readonly blobId: string }
+  | { readonly kind: "group"; readonly groupId: string; readonly blobId: string }
+  | { readonly kind: "workspace"; readonly cwd: string };
+
+/** Where an owner's files live; `workspaceRoot` is set for a workspace owner. */
+interface OwnerRoot {
+  readonly root: string;
+  readonly workspaceRoot?: string;
+}
 
 /**
- * Stream a resolved agent file. Opens it before any header goes out (so a
- * vanished file is still a clean 404), reads at most `size` bytes, and cuts
- * the connection rather than end short if the file shrank meanwhile.
- * Returns [status, file bytes sent].
+ * The owner a file route names, and the still percent-encoded path after it;
+ * null when `path` is not a file route.
  */
-async function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
-  let fh;
-  try {
-    // O_NOFOLLOW: the last component may not have become a symlink since it
-    // was resolved; O_NONBLOCK: a FIFO swapped in can't hang the open. Both
-    // are undefined, so 0, on Windows.
-    fh = await open(
-      file.path,
-      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
-    );
-  } catch {
-    json(res, 404, { error: "no such file" });
-    return [404, 0];
+function fileOwnerOf(
+  path: string,
+  query: URLSearchParams,
+): { readonly owner: FileOwner; readonly rest: string } | null {
+  const blobFile = BLOB_FILE_RE.exec(path);
+  if (blobFile)
+    return {
+      owner: { kind: "blob", blobId: blobFile[1] ?? "" },
+      rest: path.slice(blobFile[0].length),
+    };
+  const memberFile = MEMBER_FILE_RE.exec(path);
+  if (memberFile)
+    return {
+      owner: { kind: "group", groupId: memberFile[1] ?? "", blobId: memberFile[2] ?? "" },
+      rest: path.slice(memberFile[0].length),
+    };
+  if (path.startsWith(WORKSPACE_FILE_PREFIX))
+    return {
+      owner: { kind: "workspace", cwd: query.get("cwd") ?? "" },
+      rest: path.slice(WORKSPACE_FILE_PREFIX.length),
+    };
+  return null;
+}
+
+/** How a file request's owner appears in the log; a cwd is quoted so it stays one line. */
+function ownerLabel(owner: FileOwner): string {
+  switch (owner.kind) {
+    case "blob":
+      return owner.blobId;
+    case "group":
+      return `${owner.groupId}/${owner.blobId}`;
+    case "workspace":
+      return `workspace ${JSON.stringify(owner.cwd.slice(0, 200))}`;
   }
-  // Still the regular file that was resolved, not something swapped in since.
-  const same = await fh.stat().then(
-    (st) => st.isFile() && st.size === file.size && st.mtimeMs === file.mtimeMs,
-    () => false,
-  );
-  if (!same) {
-    await fh.close();
-    json(res, 404, { error: "no such file" });
-    return [404, 0];
-  }
-  res.writeHead(200, {
-    "content-type": fileContentType(file.name),
-    "content-length": file.size,
-    "last-modified": new Date(file.mtimeMs).toUTCString(),
-    etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
-    "cache-control": "private, no-cache",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "sandbox; default-src 'none'",
-    "content-disposition": contentDisposition(file.name),
+}
+
+/** The HTTP answer for a file that resolveAgentFile refused. */
+function fileErrorStatus(e: AgentFileError): [number, string] {
+  return e.kind === "bad_path"
+    ? [400, "bad path"]
+    : e.kind === "too_large"
+      ? [413, "file too large"]
+      : [404, "no such file"];
+}
+
+/** Stream a resolved agent file as a download (see send-file.ts). Returns [status, bytes]. */
+function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
+  return sendFile(res, file, {
+    headers: {
+      "content-type": fileContentType(file.name),
+      "last-modified": new Date(file.mtimeMs).toUTCString(),
+      etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
+      "cache-control": "private, no-cache",
+      "x-content-type-options": "nosniff",
+      "content-security-policy": "sandbox; default-src 'none'",
+      "content-disposition": contentDisposition(file.name),
+    },
+    missing: (r) => json(r, 404, { error: "no such file" }),
   });
-  if (file.size === 0) {
-    await fh.close();
-    res.end();
-    return [200, 0];
-  }
-  let sent = 0;
-  try {
-    await pipeline(
-      fh.createReadStream({ start: 0, end: file.size - 1 }),
-      new Transform({
-        transform(chunk: Buffer, _enc, done): void {
-          sent += chunk.length;
-          done(null, chunk);
-        },
-        flush(done): void {
-          done(sent === file.size ? null : new Error("file shrank while sending"));
-        },
-      }),
-      res,
-    );
-  } catch {
-    res.destroy();
-  }
-  return [200, sent];
 }
 
 async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
@@ -234,6 +309,16 @@ export function createHost(options: HostOptions): Host {
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());
   const { registry, offers, rings } = options;
+  // The static-site preview origin (preview.ts): tokens minted here, served there.
+  const previews: PreviewStore | null =
+    options.previewPort === undefined
+      ? null
+      : createPreviewStore({
+          deviceActive: (id) => registry.get(id)?.revoked === false,
+          now,
+        });
+  const previewServer = previews ? createPreviewServer({ store: previews, log }) : null;
+  let previewBase = options.previewBaseUrl?.replace(/\/$/, "") ?? null;
   let sidecar: SidecarEndpoint | null = null;
   const touched = new Map<string, number>();
 
@@ -935,6 +1020,30 @@ export function createHost(options: HostOptions): Host {
     if (second === "stale") json(res, 503, { error: "sidecar unavailable" });
   }
 
+  /**
+   * Where an owner's files live, or the [status, error] to answer with: a Blob
+   * or group member that does not exist, or a cwd outside Kleio's projects
+   * folders, is a 404 like any missing file.
+   */
+  async function ownerRoot(owner: FileOwner): Promise<Result<OwnerRoot, [number, string]>> {
+    switch (owner.kind) {
+      case "blob":
+        if (!options.homeCwd || !blobs || !(await blobs.find(owner.blobId)))
+          return err([404, "no such agent"]);
+        return ok({ root: join(options.homeCwd, "blobs", owner.blobId) });
+      case "group":
+        if (!options.homeCwd || !groups || !(await groups.has(owner.groupId)))
+          return err([404, "no such group"]);
+        return ok({ root: join(options.homeCwd, "groups", owner.groupId, owner.blobId) });
+      case "workspace": {
+        if (!options.workspaceRoots) return err([404, "no such workspace"]);
+        const ws = await resolveWorkspaceDir(await options.workspaceRoots(), owner.cwd);
+        if (!ws.ok) return err([404, "no such workspace"]);
+        return ok({ root: ws.value.dir, workspaceRoot: ws.value.root });
+      }
+    }
+  }
+
   // ------------------------------------------------------------------ routes
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1106,15 +1215,60 @@ export function createHost(options: HostOptions): Host {
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
     }
 
-    // An agent's files (the reports it writes and links in chat). Any paired
-    // device, like Blobs; GET only; files.ts decides what may be read.
-    const blobFile = BLOB_FILE_RE.exec(path);
-    const memberFile = blobFile ? null : MEMBER_FILE_RE.exec(path);
-    if ((blobFile || memberFile) && options.homeCwd && blobs && groups) {
+    // Mint a link that opens an agent-written web page on the preview origin
+    // (preview.ts). Any paired device that may read the page's files. The
+    // token covers the page's folder, or only the page itself when that folder
+    // is (or holds) one of Kleio's projects folders, so a Chat report never
+    // exposes every project beside it.
+    if (path === "/kleio/previews") {
+      if (!previews || !previewBase) return json(res, 404, { error: "not_found" });
+      if (req.method !== "POST") {
+        res.setHeader("allow", "POST");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const body = await readBody(req, 16 * 1024);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let parsed: { owner?: unknown; path?: unknown };
+      try {
+        parsed = JSON.parse(body.toString("utf8")) as typeof parsed;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const owner = parseFileOwner(parsed?.owner);
+      if (!owner || typeof parsed.path !== "string")
+        return json(res, 400, { error: "bad_request" });
+      const root = await ownerRoot(owner);
+      if (!root.ok) return json(res, root.error[0], { error: root.error[1] });
+      const r = await resolveAgentFile(root.value.root, parsed.path);
+      if (!r.ok) {
+        const [status, error] = fileErrorStatus(r.error);
+        return json(res, status, { error });
+      }
+      const ext = extname(r.value.name).toLowerCase();
+      if (ext !== ".html" && ext !== ".htm") return json(res, 400, { error: "not_a_site" });
+      const siteRoot = dirname(r.value.path);
+      const roots = options.workspaceRoots ? await realRoots(await options.workspaceRoots()) : [];
+      const single = roots.some((ws) => holds(siteRoot, ws));
+      const minted = previews.mint({
+        deviceId: auth.device.deviceId,
+        siteRoot,
+        ...(single ? { onlyFile: r.value.path } : {}),
+      });
+      log(
+        `[preview] ${auth.device.label} ${ownerLabel(owner)} ${single ? "page" : "site"} ${JSON.stringify(r.value.name.slice(0, 200))}`,
+      );
+      return json(res, 200, {
+        url: `${previewBase}/p/${minted.token}/${encodeURIComponent(basename(r.value.path))}`,
+        expiresAt: minted.expiresAt.toISOString(),
+      });
+    }
+
+    // An agent's files (the reports it writes and links in chat), and a Chat or
+    // Code session's files under Kleio's projects folders. Any paired device,
+    // like Blobs; GET only; files.ts decides what may be read.
+    const owner = fileOwnerOf(path, url.searchParams);
+    if (owner && (owner.owner.kind === "workspace" || (blobs && groups))) {
       const started = Date.now();
-      const blobId = blobFile ? blobFile[1]! : memberFile![2]!;
-      const groupId = memberFile ? memberFile[1]! : null;
-      const rest = path.slice((blobFile ?? memberFile)![0].length);
       let outcome: [number, number] = [500, 0];
       try {
         outcome = await (async (): Promise<[number, number]> => {
@@ -1123,27 +1277,14 @@ export function createHost(options: HostOptions): Host {
             json(res, 405, { error: "method not allowed" });
             return [405, 0];
           }
-          if (groupId !== null) {
-            if (!(await groups.has(groupId))) {
-              json(res, 404, { error: "no such group" });
-              return [404, 0];
-            }
-          } else if (!(await blobs.find(blobId))) {
-            json(res, 404, { error: "no such agent" });
-            return [404, 0];
+          const root = await ownerRoot(owner.owner);
+          if (!root.ok) {
+            json(res, root.error[0], { error: root.error[1] });
+            return [root.error[0], 0];
           }
-          const root =
-            groupId !== null
-              ? join(options.homeCwd!, "groups", groupId, blobId)
-              : join(options.homeCwd!, "blobs", blobId);
-          const r = await resolveAgentFile(root, rest);
+          const r = await resolveAgentFile(root.value.root, owner.rest);
           if (!r.ok) {
-            const [status, error]: [number, string] =
-              r.error.kind === "bad_path"
-                ? [400, "bad path"]
-                : r.error.kind === "too_large"
-                  ? [413, "file too large"]
-                  : [404, "no such file"];
+            const [status, error] = fileErrorStatus(r.error);
             json(res, status, { error });
             return [status, 0];
           }
@@ -1151,7 +1292,7 @@ export function createHost(options: HostOptions): Host {
         })();
       } finally {
         log(
-          `[files] ${auth.device.label} ${groupId !== null ? `${groupId}/` : ""}${blobId} → ${outcome[0]} ${outcome[1]}B ${Date.now() - started}ms`,
+          `[files] ${auth.device.label} ${ownerLabel(owner.owner)} → ${outcome[0]} ${outcome[1]}B ${Date.now() - started}ms`,
         );
       }
       return;
@@ -1257,13 +1398,38 @@ export function createHost(options: HostOptions): Host {
   });
   server.keepAliveTimeout = 65_000;
 
+  /** Listen on the preview port, if there is one; sets previewBase when it was not given. */
+  function startPreview(): Promise<void> {
+    const ps = previewServer;
+    if (!ps) return Promise.resolve();
+    const host = options.listenHost ?? "127.0.0.1";
+    return new Promise((resolve, reject) => {
+      ps.once("error", reject);
+      ps.listen(options.previewPort, host, () => {
+        ps.off("error", reject);
+        const address = ps.address();
+        const port = typeof address === "object" && address ? address.port : options.previewPort;
+        previewBase ??= `http://${host}:${port}`;
+        log(`[preview] listening on http://${host}:${port}`);
+        resolve();
+      });
+    });
+  }
+
   return {
     server,
-    start: () =>
-      new Promise((resolve, reject) => {
-        server.once("error", reject);
+    previewServer,
+    start: async () => {
+      await startPreview();
+      await new Promise<void>((resolve, reject) => {
+        const failed = (e: Error): void => {
+          // No API, no point serving previews: free the port for the next try.
+          previewServer?.close();
+          reject(e);
+        };
+        server.once("error", failed);
         server.listen(options.listenPort, options.listenHost ?? "127.0.0.1", () => {
-          server.off("error", reject);
+          server.off("error", failed);
           log(
             `[host] listening on http://${options.listenHost ?? "127.0.0.1"}:${options.listenPort}`,
           );
@@ -1279,7 +1445,8 @@ export function createHost(options: HostOptions): Host {
               resolve();
             }, resolve);
         });
-      }),
+      });
+    },
     stop: () =>
       new Promise((resolve) => {
         stopped = true;
@@ -1297,8 +1464,14 @@ export function createHost(options: HostOptions): Host {
         // close() alone waits for idle keep-alive sockets to time out (65 s here,
         // and slow to notice on Windows). Drop them: a stopping host has nothing
         // more to say, and clients reconnect with Last-Event-ID anyway.
-        const closed = new Promise<void>((r) => server.close(() => r()));
-        server.closeAllConnections();
+        const closed = Promise.all(
+          [server, previewServer].map((s) => {
+            if (!s?.listening) return;
+            const done = new Promise<void>((r) => s.close(() => r()));
+            s.closeAllConnections();
+            return done;
+          }),
+        );
         // Ring appends are queued, not awaited, on the hot path. A host that
         // resolves stop() with writes still in flight hands its successor a
         // file another handle is mid-append on — fine on POSIX, a stall or a
