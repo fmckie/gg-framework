@@ -151,11 +151,20 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
         if (sid && reply !== null) {
           const say = (type: string, data: unknown = {}): void =>
             api.emit(sid, `data: ${JSON.stringify({ type, data })}`);
-          setTimeout(() => {
+          // Reply once the host is listening on this session's events (up to
+          // 2 s): frames sent to no listener are lost, and a slow CI runner
+          // can open the stream after a 5 ms reply.
+          const started = Date.now();
+          const replyWhenListened = (): void => {
+            if (!streams.get(sid)?.size && Date.now() - started < 2000) {
+              setTimeout(replyWhenListened, 5);
+              return;
+            }
             say("run_start");
             if (reply) say("text_delta", { text: reply });
             say("run_end", {});
-          }, 5);
+          };
+          setTimeout(replyWhenListened, 5);
         }
       });
       return;
