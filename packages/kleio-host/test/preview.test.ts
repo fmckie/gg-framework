@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPreviewServer,
   createPreviewStore,
@@ -244,10 +244,17 @@ describe("preview server", () => {
 
   it("never logs a token", async () => {
     const { token } = store.mint({ deviceId: "d1", siteRoot: site() });
-    await get(`/p/${token}/index.html`);
-    await get(`/p/${token}`);
-    await get(`/p/${token}/missing.css`);
-    await new Promise((r) => setTimeout(r, 20));
+    // A request is logged after its response finishes, so the client can see
+    // the response first. Wait for each line before the next request: a fast
+    // 404 must not race ahead of the file's line.
+    const loggedAfter = async (path: string): Promise<void> => {
+      const before = logs.length;
+      await get(path);
+      await vi.waitFor(() => expect(logs.length).toBe(before + 1));
+    };
+    await loggedAfter(`/p/${token}/index.html`);
+    await loggedAfter(`/p/${token}`);
+    await loggedAfter(`/p/${token}/missing.css`);
     expect(logs.length).toBe(3);
     expect(logs[0]).toMatch(/^\[preview\] GET \/p\/…\/index\.html → 200 \d+B \d+ms$/);
     for (const line of logs) expect(line).not.toContain(token);
