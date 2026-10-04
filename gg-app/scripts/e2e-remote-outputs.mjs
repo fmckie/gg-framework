@@ -276,7 +276,7 @@ function responsesFor({ api, projects, demo, phone }) {
     agent_commands: { commands: [] },
     agent_tasks: { tasks: [] },
     agent_projects: {
-      projects: [{ name: "demo", path: demo, lastActiveDisplay: "now", sources: ["gg-coder"] }],
+      projects: [{ name: "demo", path: demo, lastActiveDisplay: "now", sources: ["folder"] }],
     },
     agent_sessions: { sessions: [] },
   };
