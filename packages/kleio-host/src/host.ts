@@ -138,7 +138,7 @@ export interface HostOptions {
   readonly blobDefaultModel?: string;
   /** How often the Blob scheduler looks for a due schedule (ms). 0 disables. Default 5 s. */
   readonly blobTickMs?: number;
-  /** How long one Blob's turn in a group chat may run (default 120 s). */
+  /** How long one Blob's turn in a group chat may run (default 10 minutes). */
   readonly groupTurnTimeoutMs?: number;
   /**
    * App connections (Composio). Absent = the routes answer "not set up".
