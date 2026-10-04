@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   cleanTranscript,
+  correctVocabulary,
+  createDictation,
   decodePcm16,
   DICTATION_MAX_SECONDS,
   DICTATION_SAMPLE_RATE,
+  DICTATION_VOCABULARY,
+  type DictationModel,
   trimToSpeech,
 } from "./dictation.js";
 
@@ -107,5 +111,154 @@ describe("cleanTranscript", () => {
     ["Is it done? Erm, check.", "Is it done? Check."],
   ])("%j becomes %j", (raw, expected) => {
     expect(cleanTranscript(raw)).toBe(expected);
+  });
+});
+
+describe("DICTATION_VOCABULARY", () => {
+  it("is the 30 terms the benchmark used, in order", () => {
+    expect(DICTATION_VOCABULARY).toHaveLength(30);
+    expect(DICTATION_VOCABULARY.slice(0, 3)).toEqual(["pnpm", "TypeScript", "Tauri"]);
+    expect(DICTATION_VOCABULARY.at(-1)).toBe("Homebrew");
+  });
+});
+
+describe("correctVocabulary", () => {
+  // Each fix the benchmark's glossary pass made on the 13 real recordings.
+  it.each([
+    ["Run, Pnpm, Check and fix it.", "Run, pnpm, Check and fix it."],
+    ["proxies the route over the tail scale.", "proxies the route over the Tailscale."],
+    ["switch from anthropic Claude to open AI and", "switch from Anthropic Claude to OpenAI and"],
+    ["Ask Kimi on the moonshot to review it.", "Ask Kimi on the Moonshot to review it."],
+    ["Run PNPM check.", "Run pnpm check."],
+    ["through Huggingface Transformers in Node.", "through Hugging Face Transformers in Node."],
+  ])("%j becomes %j", (text, expected) => {
+    expect(correctVocabulary(text)).toBe(expected);
+  });
+
+  it("keeps a sentence-opening capital", () => {
+    expect(correctVocabulary("PNPM check first.")).toBe("Pnpm check first.");
+  });
+
+  it("never folds a leading article into a term", () => {
+    expect(correctVocabulary("the tin foil set up")).toBe("the Tinfoil set up");
+  });
+
+  it("leaves terms that are already spelled right alone", () => {
+    const text = "Upgrade Vite, then run Vitest in GitHub Actions on the Mac mini.";
+    expect(correctVocabulary(text)).toBe(text);
+  });
+
+  // Words one letter away from a term (code/Xcode, reach/React, clause/Claude,
+  // "open a"/OpenAI) and possessives must not turn into project names.
+  it.each([
+    "Fix the code and open a pull request.",
+    "We need to reach the clause in the code.",
+    "Open a file in the editor and write some code.",
+    "Anthropic's model handles the long context.",
+    "Commit and push.",
+    "Rebase the batch branch onto main.",
+  ])("adds no project names to %j", (text) => {
+    expect(correctVocabulary(text)).toBe(text);
+  });
+});
+
+/** A stand-in Whisper: one id per word, ids 1-3 special, prefix echoed back. */
+function fakeWhisper(answer: string, options: { echoPrefix?: boolean } = {}) {
+  const ids = new Map<string, number>();
+  const words: string[] = [];
+  const encode = (text: string): number[] =>
+    text
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((word) => {
+        const known = ids.get(word);
+        if (known !== undefined) return known;
+        words.push(word);
+        ids.set(word, 99 + words.length);
+        return 99 + words.length;
+      });
+  const prefixes: number[][] = [];
+  const transcribeLong = vi.fn(async () => answer);
+  const model: DictationModel = {
+    previousTextId: 1,
+    startIds: [2, 3],
+    encode,
+    async generate(_samples, prefix) {
+      prefixes.push([...prefix]);
+      return [...(options.echoPrefix === false ? [] : prefix), ...encode(answer)];
+    },
+    decode: (tokens) =>
+      tokens
+        .filter((id) => id >= 100)
+        .map((id) => words[id - 100] ?? "")
+        .join(" "),
+    transcribeLong,
+  };
+  return { model, prefixes, transcribeLong };
+}
+
+const seconds = (s: number): Float32Array =>
+  new Float32Array(Math.round(s * DICTATION_SAMPLE_RATE));
+
+describe("createDictation", () => {
+  it("prompts Whisper with the vocabulary and never returns the prompt", async () => {
+    const fake = fakeWhisper("Run the tests.");
+    const dictation = createDictation({ cacheDir: "/unused", loadModel: async () => fake.model });
+
+    const text = await dictation.transcribe(seconds(3));
+
+    expect(text).toBe("Run the tests.");
+    const prefix = fake.prefixes[0] ?? [];
+    expect(prefix[0]).toBe(1);
+    expect(prefix.slice(-2)).toEqual([2, 3]);
+    expect(prefix.length).toBeGreaterThan(3 + DICTATION_VOCABULARY.length);
+    for (const term of DICTATION_VOCABULARY) expect(text).not.toContain(term);
+  });
+
+  it("keeps every word when Whisper returns only the new tokens", async () => {
+    const fake = fakeWhisper("Run the tests.", { echoPrefix: false });
+    const dictation = createDictation({ cacheDir: "/unused", loadModel: async () => fake.model });
+    expect(await dictation.transcribe(seconds(3))).toBe("Run the tests.");
+  });
+
+  it.each([
+    [1.49, false],
+    [1.5, true],
+  ])("with %f s of speech, prompts: %s", async (length, prompted) => {
+    const fake = fakeWhisper("Commit and push.");
+    const dictation = createDictation({ cacheDir: "/unused", loadModel: async () => fake.model });
+
+    expect(await dictation.transcribe(seconds(length))).toBe("Commit and push.");
+    expect(fake.prefixes[0]?.length === 2).toBe(!prompted);
+  });
+
+  it("transcribes speech over 30 s in chunks, without the prompt", async () => {
+    const fake = fakeWhisper("A long note about the tail scale setup.");
+    const dictation = createDictation({ cacheDir: "/unused", loadModel: async () => fake.model });
+
+    const text = await dictation.transcribe(seconds(31));
+
+    expect(fake.transcribeLong).toHaveBeenCalledOnce();
+    expect(fake.prefixes).toEqual([]);
+    expect(text).toBe("A long note about the Tailscale setup.");
+  });
+
+  it("cleans the transcript, then fixes project names", async () => {
+    const fake = fakeWhisper("Um, restart it over tail scale.");
+    const dictation = createDictation({ cacheDir: "/unused", loadModel: async () => fake.model });
+    expect(await dictation.transcribe(seconds(3))).toBe("Restart it over Tailscale.");
+  });
+
+  it("tries loading again after a failed load", async () => {
+    const fake = fakeWhisper("Hello.");
+    const loadModel = vi
+      .fn<() => Promise<DictationModel>>()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue(fake.model);
+    const dictation = createDictation({ cacheDir: "/unused", loadModel });
+
+    await expect(dictation.transcribe(seconds(3))).rejects.toThrow("offline");
+    expect(await dictation.transcribe(seconds(3))).toBe("Hello.");
+    expect(loadModel).toHaveBeenCalledTimes(2);
   });
 });
