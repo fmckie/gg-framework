@@ -16,24 +16,61 @@ function decode(base64: string): number[] {
   return out;
 }
 
+/** One second of a sine at `hz`, amplitude 0.5, sampled at `rate`. */
+function tone(hz: number, rate: number): Float32Array {
+  return Float32Array.from(
+    { length: rate },
+    (_, i) => 0.5 * Math.sin((2 * Math.PI * hz * i) / rate),
+  );
+}
+
+/** RMS of the middle of a clip (the edges carry the filter's start-up). */
+function middleRms(samples: Float32Array): number {
+  const middle = samples.subarray(
+    Math.floor(samples.length / 4),
+    Math.floor((samples.length * 3) / 4),
+  );
+  let sum = 0;
+  for (const v of middle) sum += v * v;
+  return Math.sqrt(sum / middle.length);
+}
+
+const SINE_RMS = 0.5 / Math.SQRT2;
+
 describe("resampleTo16k", () => {
   it("returns 16 kHz input unchanged", () => {
     const input = new Float32Array([0.1, 0.2]);
     expect(resampleTo16k(input, DICTATION_SAMPLE_RATE)).toBe(input);
   });
 
-  it("downsamples 48 kHz to a third of the samples", () => {
-    const input = new Float32Array(Array.from({ length: 9 }, (_, i) => i / 10));
-    const out = resampleTo16k(input, 48_000);
-    expect(out).toHaveLength(3);
-    expect(out[1]).toBeCloseTo(0.3, 5);
+  it.each([48_000, 44_100])("keeps the clip's length from %i Hz", (rate) => {
+    expect(resampleTo16k(tone(440, rate), rate)).toHaveLength(DICTATION_SAMPLE_RATE);
   });
 
-  it("interpolates between samples for a non-integer ratio", () => {
-    const out = resampleTo16k(new Float32Array([0, 1, 0, 1]), 24_000);
-    expect(out).toHaveLength(2);
-    // Sample 1 falls halfway between input 1 (1) and input 2 (0).
-    expect(out[1]).toBeCloseTo(0.5, 5);
+  // Sound above 8 kHz cannot exist at 16 kHz. Without a low-pass filter it
+  // folds back as a false lower tone (10 kHz at 48 kHz becomes 6 kHz), which
+  // garbles s, t, sh and other consonants Whisper needs.
+  it.each([
+    [48_000, 10_000],
+    [48_000, 14_000],
+    [44_100, 10_000],
+    [44_100, 12_000],
+  ])("removes a %i Hz mic's %i Hz content instead of folding it back", (rate, hz) => {
+    const out = resampleTo16k(tone(hz, rate), rate);
+    // At least 40 dB down: under 1% of the original level.
+    expect(middleRms(out)).toBeLessThan(SINE_RMS / 100);
+  });
+
+  it.each([
+    [48_000, 300],
+    [48_000, 3_000],
+    [48_000, 6_000],
+    [44_100, 1_000],
+    [44_100, 6_000],
+  ])("keeps a %i Hz mic's %i Hz speech band at full level", (rate, hz) => {
+    const out = resampleTo16k(tone(hz, rate), rate);
+    expect(middleRms(out)).toBeGreaterThan(SINE_RMS * 0.9);
+    expect(middleRms(out)).toBeLessThan(SINE_RMS * 1.1);
   });
 });
 

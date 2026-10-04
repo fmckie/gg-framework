@@ -16,17 +16,63 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** Linear-interpolation resample from the microphone's rate to 16 kHz. */
+/** Fractional input positions are rounded to 1/256 of a sample. */
+const RESAMPLE_PHASES = 256;
+
+/**
+ * Resample from the microphone's rate to 16 kHz through a low-pass filter.
+ *
+ * Sound above 8 kHz cannot exist at 16 kHz; picking samples without filtering
+ * folds it back as false lower sound (10 kHz at 48 kHz becomes 6 kHz), which
+ * smears the s, t, f and sh sounds Whisper relies on. Each output sample is a
+ * Blackman-windowed sinc over the input: flat to about 6.4 kHz, at least
+ * 70 dB down from 8 kHz.
+ */
 export function resampleTo16k(input: Float32Array, fromRate: number): Float32Array {
   if (fromRate === DICTATION_SAMPLE_RATE || input.length === 0) return input;
-  const ratio = fromRate / DICTATION_SAMPLE_RATE;
-  const out = new Float32Array(Math.floor(input.length / ratio));
+  const nyquist = Math.min(fromRate, DICTATION_SAMPLE_RATE) / 2;
+  const cutoff = (0.9 * nyquist) / fromRate; // cycles per input sample
+  const transition = (0.2 * nyquist) / fromRate;
+  // Blackman: transition width is about 5.5 / taps.
+  const half = Math.ceil(5.5 / transition / 2);
+  const taps = 2 * half + 1;
+
+  // One kernel per fractional offset, each scaled to unity gain.
+  const kernels: Float32Array[] = [];
+  for (let p = 0; p < RESAMPLE_PHASES; p++) {
+    const frac = p / RESAMPLE_PHASES;
+    const k = new Float32Array(taps);
+    let sum = 0;
+    for (let j = 0; j < taps; j++) {
+      const t = j - half - frac;
+      const x = t / (half + 1);
+      const window = 0.42 + 0.5 * Math.cos(Math.PI * x) + 0.08 * Math.cos(2 * Math.PI * x);
+      const arg = 2 * cutoff * t;
+      const sinc = arg === 0 ? 1 : Math.sin(Math.PI * arg) / (Math.PI * arg);
+      k[j] = sinc * window;
+      sum += k[j] ?? 0;
+    }
+    for (let j = 0; j < taps; j++) k[j] = (k[j] ?? 0) / sum;
+    kernels.push(k);
+  }
+
+  const out = new Float32Array(Math.floor((input.length * DICTATION_SAMPLE_RATE) / fromRate));
   for (let i = 0; i < out.length; i++) {
-    const pos = i * ratio;
-    const left = Math.floor(pos);
-    const a = input[left] ?? 0;
-    const b = input[left + 1] ?? a;
-    out[i] = a + (b - a) * (pos - left);
+    const pos = (i * fromRate) / DICTATION_SAMPLE_RATE;
+    let base = Math.floor(pos);
+    let phase = Math.round((pos - base) * RESAMPLE_PHASES);
+    if (phase === RESAMPLE_PHASES) {
+      base += 1;
+      phase = 0;
+    }
+    const k = kernels[phase] ?? kernels[0];
+    if (!k) break;
+    const start = base - half;
+    let acc = 0;
+    for (let j = Math.max(0, -start); j < taps && start + j < input.length; j++) {
+      acc += (input[start + j] ?? 0) * (k[j] ?? 0);
+    }
+    out[i] = acc;
   }
   return out;
 }
