@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { defaultLook, lookOf } from "./blobLook";
+import { agentFilePath, isOutputPath, isSitePath, workspaceFilePath } from "./filePaths";
 import {
-  agentFilePath,
   fileErrorText,
   fileKind,
   fileLinks,
   formatBytes,
-  isOutputPath,
-  isSitePath,
   ownerKey,
   siteErrorText,
   workspaceFileLinks,
-  workspaceFilePath,
 } from "./kleioFiles";
 import { plainSummary, scheduledPrompt } from "./blobFormat";
 

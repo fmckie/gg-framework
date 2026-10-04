@@ -1,4 +1,14 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  memo,
+  lazy,
+  Suspense,
+} from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { theme } from "./theme";
@@ -170,8 +180,7 @@ import {
   SquareIcon,
   PlusIcon,
 } from "@phosphor-icons/react";
-import { useDictation } from "./useDictation";
-import { appendDictation, DictateButton, DictationStatus } from "./DictateButton";
+import type { UseDictation } from "./useDictation";
 import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
@@ -181,6 +190,18 @@ import { basename } from "./tool-format";
 import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
 import "./glass.css";
+
+// iPhone dictation in the Chat and Code composer: the recorder, the mic button
+// and the status pill load on the phone only (see DictationSession.tsx).
+const DictationSession = lazy(() =>
+  import("./DictationSession").then((m) => ({ default: m.DictationSession })),
+);
+const DictateButton = lazy(() =>
+  import("./DictateButton").then((m) => ({ default: m.DictateButton })),
+);
+const DictationStatus = lazy(() =>
+  import("./DictateButton").then((m) => ({ default: m.DictationStatus })),
+);
 
 const DEFAULT_INPUT_PLACEHOLDER = "Type a message, / commands, @ files, @Ken for help";
 const INPUT_PLACEHOLDERS = [
@@ -2314,15 +2335,12 @@ function App(): React.ReactElement {
   // iPhone dictation (useDictation.ts): Whisper on the paired Mac turns the clip
   // into text, which joins the end of the draft for the user to review and send.
   const phoneComposer = isPhone();
-  const dictation = useDictation({
-    onText: (text) => {
-      setInput((prev) => appendDictation(prev, text));
-      setEnhancement(null);
-      setHistoryIndex(null);
-    },
-    onError: (message) => toast(message, "error"),
-  });
-  const dictating = dictation.phase !== "idle";
+  const [dictation, setDictation] = useState<UseDictation | null>(null);
+  const onDictated = useCallback(() => {
+    setEnhancement(null);
+    setHistoryIndex(null);
+  }, []);
+  const dictating = dictation !== null && dictation.phase !== "idle";
 
   // Show the corner "Enhance" pill whenever the input holds text — it stays put
   // (no debounce) and only hides when the box is empty. Shows even while the agent
@@ -3289,9 +3307,11 @@ function App(): React.ReactElement {
               never moves. It stays on the text's line while the draft fits one
               line, and drops below with the field once the text wraps. */}
           <div className="inputactions-trailing">
-            {phoneComposer && (
+            {phoneComposer && dictation && (
               // The enhance animation locks the draft, so no dictating into it.
-              <DictateButton dictation={dictation} disabled={enhanceAnim !== null} />
+              <Suspense fallback={null}>
+                <DictateButton dictation={dictation} disabled={enhanceAnim !== null} />
+              </Suspense>
             )}
             <WorkingBeam active={running} size="sm" />
             <ActionMetal
@@ -3336,7 +3356,12 @@ function App(): React.ReactElement {
             </button>
           </div>
         )}
-        {phoneComposer && <DictationStatus dictation={dictation} />}
+        {phoneComposer && (
+          <Suspense fallback={null}>
+            <DictationSession setDraft={setInput} onDictated={onDictated} onChange={setDictation} />
+            {dictation && <DictationStatus dictation={dictation} />}
+          </Suspense>
+        )}
       </div>
 
       <div

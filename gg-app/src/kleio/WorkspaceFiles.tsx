@@ -5,24 +5,32 @@
 // Specialist's, and clicking such a link opens it from the mini instead of
 // looking for the path on this device. Source files a Code agent mentions
 // (`src/App.tsx`) stay plain links.
+//
+// Only the path rules load with the app: whether a click is an output is
+// decided synchronously. The cards and the file actions load on first use.
 
-import { createContext, useCallback, useContext, useMemo } from "react";
+import { createContext, lazy, Suspense, useCallback, useContext, useMemo } from "react";
 import { LinkHandlerProvider } from "../Markdown";
 import { toast } from "../toast";
-import { FileCards } from "./FileCard";
-import {
-  fileErrorText,
-  isOutputPath,
-  isSitePath,
-  openFile,
-  openSite,
-  siteErrorText,
-  workspaceFileLinks,
-  workspaceFilePath,
-  type FileOwner,
-} from "./kleioFiles";
+import { isOutputPath, isSitePath, workspaceFilePath } from "./filePaths";
+import type { FileOwner } from "./kleioFiles";
 
 type WorkspaceOwner = Extract<FileOwner, { kind: "workspace" }>;
+
+const OutputCards = lazy(() =>
+  import("./WorkspaceOutputCards").then((m) => ({ default: m.WorkspaceOutputCards })),
+);
+
+/** Opens a linked output from the host, or says why it didn't open. */
+async function openOutput(owner: WorkspaceOwner, path: string): Promise<void> {
+  const { fileErrorText, openFile, openSite, siteErrorText } = await import("./kleioFiles");
+  const site = isSitePath(path);
+  try {
+    await (site ? openSite(owner, path) : openFile(owner, path));
+  } catch (e) {
+    toast(site ? siteErrorText(e) : fileErrorText(e), "error");
+  }
+}
 
 /** The session folder's owner, or null when outputs aren't served remotely. */
 const WorkspaceFilesContext = createContext<WorkspaceOwner | null>(null);
@@ -49,10 +57,7 @@ export function WorkspaceFilesProvider({
       if (!owner) return false;
       const path = workspaceFilePath(href, owner.cwd);
       if (!path || !isOutputPath(path)) return false;
-      const site = isSitePath(path);
-      (site ? openSite(owner, path) : openFile(owner, path)).catch((e: unknown) => {
-        toast(site ? siteErrorText(e) : fileErrorText(e), "error");
-      });
+      void openOutput(owner, path);
       return true;
     },
     [owner],
@@ -70,7 +75,10 @@ export function WorkspaceFilesProvider({
  *  once with its link instead of flickering in word by word. */
 export function WorkspaceFileCards({ text }: { text: string }): React.ReactElement | null {
   const owner = useContext(WorkspaceFilesContext);
-  const links = useMemo(() => (owner ? workspaceFileLinks(text, owner.cwd) : []), [owner, text]);
-  if (!owner || links.length === 0) return null;
-  return <FileCards owner={owner} links={links} />;
+  if (!owner) return null;
+  return (
+    <Suspense fallback={null}>
+      <OutputCards owner={owner} text={text} />
+    </Suspense>
+  );
 }

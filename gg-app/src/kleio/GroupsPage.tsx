@@ -31,7 +31,8 @@ import {
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
-import { agentFilePath, fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
+import { agentFilePath } from "./filePaths";
+import { fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
 import { relTime } from "./relTime";
 import {
   BLOB_COLORS,

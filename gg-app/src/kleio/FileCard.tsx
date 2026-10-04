@@ -25,13 +25,12 @@ import {
   GlobeIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { fileExtension, isSitePath } from "./filePaths";
 import {
   fetchFile,
   fileErrorText,
-  fileExtension,
   fileKind,
   formatBytes,
-  isSitePath,
   openFile,
   openSite,
   ownerKey,

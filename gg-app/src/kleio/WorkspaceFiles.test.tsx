@@ -46,7 +46,8 @@ describe("Chat/Code outputs when paired to a Mac mini", () => {
       thumbnail: null,
     });
     await renderReply(CWD);
-    expect(screen.getByRole("button", { name: "Open report.pdf" })).toBeTruthy();
+    // The cards load on first use (WorkspaceOutputCards), so wait for them.
+    expect(await screen.findByRole("button", { name: "Open report.pdf" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open site index.html" })).toBeTruthy();
     expect(document.querySelectorAll(".kleio-file")).toHaveLength(2);
     await waitFor(() =>

@@ -24,7 +24,8 @@ import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { scheduledPrompt } from "./blobFormat";
 import { FileCards } from "./FileCard";
-import { agentFilePath, fileErrorText, fileLinks, openFile, type FileOwner } from "./kleioFiles";
+import { agentFilePath } from "./filePaths";
+import { fileErrorText, fileLinks, openFile, type FileOwner } from "./kleioFiles";
 import {
   KleioApiError,
   errorText,
