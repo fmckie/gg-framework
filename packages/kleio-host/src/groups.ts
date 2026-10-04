@@ -84,7 +84,7 @@ export interface GroupsOptions {
   readonly modelOf: (b: Blob) => string;
   /** Sends a push (the host wires APNs here). */
   readonly notify?: (n: Nudge) => Promise<void>;
-  /** How long one Blob's turn may run. Default 120 s. */
+  /** How long one Blob's turn may run. Default 10 minutes. */
   readonly turnTimeoutMs?: number;
   readonly log?: (msg: string) => void;
   readonly now?: () => Date;
@@ -128,6 +128,13 @@ const PROMPT_CHARS = 6000;
 const NOTIFY_BODY_CHARS = 180;
 /** No push while a device polled the group this recently (it's on screen). */
 const WATCHING_MS = 20_000;
+/**
+ * How long one member's turn may run. Members with tools make several model
+ * calls in a row: at 2 minutes, 30 of the 39 timeouts on the Mac mini
+ * (1-3 Oct 2026) stopped a member still mid-task. The cost: a stuck member
+ * holds the group up to this long.
+ */
+const TURN_TIMEOUT_MS = 10 * 60_000;
 const INSTRUCTIONS_MAX = 8000;
 
 interface Active {
@@ -193,7 +200,7 @@ const isPass = (s: string): boolean => /^pass[.!]?$/i.test(s.trim());
 export function createGroups(options: GroupsOptions): Groups {
   const log = options.log ?? ((msg: string) => console.error(msg));
   const now = options.now ?? (() => new Date());
-  const turnTimeoutMs = options.turnTimeoutMs ?? 120_000;
+  const turnTimeoutMs = options.turnTimeoutMs ?? TURN_TIMEOUT_MS;
   const dir = dirname(options.statePath);
   const logPath = (gid: string): string => join(dir, `group-${gid}.jsonl`);
 
