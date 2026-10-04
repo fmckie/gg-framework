@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readWorkspaceRoots } from "../src/workspace-roots.js";
 
@@ -17,6 +17,10 @@ afterEach(() => rmSync(home, { recursive: true, force: true }));
 const writeSettings = (value: unknown): void =>
   writeFileSync(settings, typeof value === "string" ? value : JSON.stringify(value));
 
+// Roots are normalized for the platform (Windows turns "/" into "\"), so each
+// test uses real absolute paths under the temp home, built with node:path.
+const under = (...parts: string[]): string => join(home, ...parts);
+
 describe("readWorkspaceRoots", () => {
   it("is the default projects folder when there is no settings file", async () => {
     expect(await readWorkspaceRoots({}, home)).toEqual([join(home, "kleio-projects")]);
@@ -24,48 +28,60 @@ describe("readWorkspaceRoots", () => {
 
   it("follows KLEIO_PROJECTS_DIR and KLEIO_SETTINGS_FILE", async () => {
     const custom = join(home, "custom.json");
-    writeFileSync(custom, JSON.stringify({ projectRoots: ["/srv/extra"] }));
+    writeFileSync(custom, JSON.stringify({ projectRoots: [under("srv", "extra")] }));
     expect(
       await readWorkspaceRoots(
-        { KLEIO_PROJECTS_DIR: "/srv/kleio", KLEIO_SETTINGS_FILE: custom },
+        { KLEIO_PROJECTS_DIR: under("srv", "kleio"), KLEIO_SETTINGS_FILE: custom },
         home,
       ),
-    ).toEqual(["/srv/kleio", "/srv/extra"]);
+    ).toEqual([under("srv", "kleio"), under("srv", "extra")]);
   });
 
   it("uses the settings' projectsRoot and adds projectRoots", async () => {
-    writeSettings({ projectsRoot: "/data/projects/", projectRoots: ["/data/more", "/data/other"] });
+    // A trailing separator is kept.
+    const projects = under("data", "projects") + sep;
+    writeSettings({
+      projectsRoot: projects,
+      projectRoots: [under("data", "more"), under("data", "other")],
+    });
     expect(await readWorkspaceRoots({}, home)).toEqual([
-      "/data/projects/",
-      "/data/more",
-      "/data/other",
+      projects,
+      under("data", "more"),
+      under("data", "other"),
     ]);
   });
 
   it("drops relative, empty, non-string and duplicate entries", async () => {
     writeSettings({
       projectsRoot: "relative/projects",
-      projectRoots: ["", "  ", 7, null, { p: "/x" }, "rel", "/data/more", "/data/more"],
+      projectRoots: [
+        "",
+        "  ",
+        7,
+        null,
+        { p: "/x" },
+        "rel",
+        under("data", "more"),
+        under("data", "more"),
+      ],
     });
     expect(await readWorkspaceRoots({}, home)).toEqual([
       join(home, "kleio-projects"),
-      "/data/more",
+      under("data", "more"),
     ]);
     writeSettings({ projectsRoot: 42, projectRoots: "/not/an/array" });
     expect(await readWorkspaceRoots({}, home)).toEqual([join(home, "kleio-projects")]);
   });
 
   it("trims roots and drops ones that are empty or relative once trimmed", async () => {
+    const padded = under("data", "padded");
     writeSettings({
       projectsRoot: "   ",
-      projectRoots: ["  /data/padded  ", "\t\n", "  rel/inside  ", " /data/padded"],
+      projectRoots: [`  ${padded}  `, "\t\n", "  rel/inside  ", ` ${padded}`],
     });
-    expect(await readWorkspaceRoots({}, home)).toEqual([
-      join(home, "kleio-projects"),
-      "/data/padded",
-    ]);
-    writeSettings({ projectsRoot: "  /data/root  " });
-    expect(await readWorkspaceRoots({}, home)).toEqual(["/data/root"]);
+    expect(await readWorkspaceRoots({}, home)).toEqual([join(home, "kleio-projects"), padded]);
+    writeSettings({ projectsRoot: `  ${under("data", "root")}  ` });
+    expect(await readWorkspaceRoots({}, home)).toEqual([under("data", "root")]);
   });
 
   it("falls back to the default for malformed JSON or a non-object", async () => {
