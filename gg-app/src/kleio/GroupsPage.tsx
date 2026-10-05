@@ -4,7 +4,13 @@
 // new/edit are full-page forms. A group's picture is its members' blobs.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpIcon, CheckIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+  ArrowUpIcon,
+  CaretRightIcon,
+  CheckIcon,
+  PencilSimpleIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import { ActionMetal } from "../ActionMetal";
 import { Badge } from "../Badge";
 import { autosizeComposer } from "../composer-autosize";
@@ -15,7 +21,10 @@ import { MetalButton } from "../MetalButton";
 import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
+import { formatDuration } from "../SubAgentFeed";
 import { toast } from "../toast";
+import { buildSummaryLineParts } from "../tool-format";
+import { ToolRow, type ToolRowState } from "../ToolRow";
 import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
@@ -47,7 +56,10 @@ import {
   type Blob,
   type BlobColor,
   type Group,
+  type GroupActivityEntry,
   type GroupMessage,
+  type GroupTurnOutcome,
+  type GroupTurnOutcomeKind,
 } from "./kleioApi";
 import { useFollowLatest } from "./useFollowLatest";
 
@@ -109,6 +121,126 @@ function groupRowSub(g: Group): string {
 }
 
 type View = { kind: "list" } | { kind: "chat"; id: string } | { kind: "form"; id: string | null };
+
+const OUTCOME_LABEL: Record<GroupTurnOutcomeKind, string> = {
+  replied: "Replied",
+  passed: "Passed",
+  timed_out: "Stopped",
+  failed: "Failed",
+  unavailable: "Couldn't start",
+  budget_exhausted: "Not reached",
+};
+
+/** The colour an outcome shows in: a stop is an error, a skipped turn a warning. */
+function outcomeTone(kind: GroupTurnOutcomeKind): "" | " is-error" | " is-warning" {
+  if (kind === "timed_out" || kind === "failed" || kind === "unavailable") return " is-error";
+  return kind === "budget_exhausted" ? " is-warning" : "";
+}
+
+/** A call's time so far, or in all once it ended (host clock both ends). */
+function callMs(e: GroupActivityEntry, nowMs: number): number {
+  const start = Date.parse(e.startedAt);
+  const end = e.endedAt ? Date.parse(e.endedAt) : nowMs;
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
+}
+
+/**
+ * A member's tool calls for its current or last turn, oldest first, and how
+ * that turn ended — a disclosure under its row in the Members panel.
+ */
+function MemberActivity({
+  name,
+  entries,
+  outcome,
+  replying,
+  nowMs,
+  open,
+  onToggle,
+}: {
+  name: string;
+  entries: readonly GroupActivityEntry[];
+  outcome: GroupTurnOutcome | null;
+  replying: boolean;
+  /** When the host was last polled: how long running calls have taken so far. */
+  nowMs: number;
+  open: boolean;
+  onToggle: () => void;
+}): React.ReactElement | null {
+  const bodyId = useId();
+  if (!replying && entries.length === 0 && !outcome) return null;
+  // A newer host may send a kind this build doesn't know.
+  const label = outcome ? (OUTCOME_LABEL[outcome.kind] ?? "Ended") : null;
+  const tone = outcome ? outcomeTone(outcome.kind) : "";
+  const meta = [
+    entries.length ? plural(entries.length, "tool call") : null,
+    replying ? "live" : label,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="kleio-activity">
+      <button
+        type="button"
+        className="kleio-activity-toggle"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        // Starts with the visible text; says whose it is and its state.
+        aria-label={`Activity of ${name}${meta ? `, ${meta}` : ""}`}
+        onClick={onToggle}
+      >
+        <CaretRightIcon
+          className="kleio-activity-caret"
+          size={10}
+          weight="bold"
+          aria-hidden="true"
+        />
+        Activity
+        {meta && (
+          <span className={`kleio-activity-meta${replying ? " is-live" : tone}`}>{meta}</span>
+        )}
+      </button>
+      <div id={bodyId} className="kleio-activity-body" hidden={!open}>
+        {entries.length > 0 ? (
+          <ol className="kleio-activity-list" aria-label={`${name}'s tool calls, oldest first`}>
+            {entries.map((e) => {
+              const state: ToolRowState =
+                e.status === "running" ? "running" : e.status === "failed" ? "failed" : "done";
+              const took = formatDuration(callMs(e, nowMs));
+              return (
+                <ToolRow
+                  key={e.id}
+                  as="li"
+                  state={state}
+                  title={e.summary || undefined}
+                  parts={buildSummaryLineParts(e.name, e.summary, state !== "running")}
+                >
+                  <span
+                    className={`kleio-activity-time${
+                      state === "failed" ? " is-error" : state === "running" ? " is-live" : ""
+                    }`}
+                  >
+                    {state === "failed"
+                      ? `failed · ${took}`
+                      : state === "running"
+                        ? `live · ${took}`
+                        : took}
+                  </span>
+                </ToolRow>
+              );
+            })}
+          </ol>
+        ) : (
+          replying && <p className="kleio-activity-note">No tool calls yet.</p>
+        )}
+        {outcome && label && (
+          <p className={`kleio-activity-note${tone}`}>
+            {outcome.reason ? `${label}: ${outcome.reason}` : label}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function GroupsPage({
   onClose,
@@ -589,6 +721,12 @@ function GroupChat({
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [typing, setTyping] = useState<string[]>([]);
+  const [activity, setActivity] = useState<Record<string, GroupActivityEntry[]>>({});
+  const [outcomes, setOutcomes] = useState<Record<string, GroupTurnOutcome>>({});
+  const [polledAt, setPolledAt] = useState(0);
+  /** Members whose activity is expanded. */
+  const [openActivity, setOpenActivity] = useState<ReadonlySet<string>>(() => new Set());
+  const wasTyping = useRef<readonly string[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -627,6 +765,10 @@ function GroupChat({
     let live = true;
     lastSeq.current = 0;
     setMessages([]);
+    setActivity({});
+    setOutcomes({});
+    setOpenActivity(new Set());
+    wasTyping.current = [];
     setLoaded(false);
     follow();
     const tick = async (): Promise<void> => {
@@ -639,6 +781,10 @@ function GroupChat({
           setMessages((cur) => [...cur, ...page.messages]);
         }
         setTyping(page.typing);
+        // Older hosts send neither.
+        setActivity(page.activity ?? {});
+        setOutcomes(page.outcomes ?? {});
+        setPolledAt(Date.now());
         setLoaded(true);
         setError(null);
       } catch (e) {
@@ -658,6 +804,22 @@ function GroupChat({
   useEffect(() => {
     catchUp();
   }, [messages, typing, catchUp]);
+
+  // A member that starts replying opens its activity; it stays open after, to
+  // show how the turn ended, until the user closes it.
+  useEffect(() => {
+    const started = typing.filter((id) => !wasTyping.current.includes(id));
+    wasTyping.current = typing;
+    if (started.length) setOpenActivity((cur) => new Set([...cur, ...started]));
+  }, [typing]);
+
+  const toggleActivity = useCallback((id: string) => {
+    setOpenActivity((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
 
   useLayoutEffect(() => {
     autosizeComposer(inputRef.current, logRef.current, following());
@@ -835,23 +997,34 @@ function GroupChat({
           {members.map((m) => {
             const replying = typing.includes(m.id);
             return (
-              <li key={m.id} className="kleio-member">
-                <AgentAvatar agent={m} size={30} live={replying} />
-                <span className="kleio-member-text">
-                  <span className="kleio-member-name">{m.name}</span>
-                  <span className={`kleio-member-sub${replying ? " is-live" : ""}`}>
-                    {replying ? "Replying…" : m.job}
+              <li key={m.id} className="kleio-member-item">
+                <div className="kleio-member">
+                  <AgentAvatar agent={m} size={30} live={replying} />
+                  <span className="kleio-member-text">
+                    <span className="kleio-member-name">{m.name}</span>
+                    <span className={`kleio-member-sub${replying ? " is-live" : ""}`}>
+                      {replying ? "Replying…" : m.job}
+                    </span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  className="kleio-text-btn"
-                  aria-label={`Mention ${m.name}`}
-                  title={`Mention ${m.name}`}
-                  onClick={() => mention(m.name)}
-                >
-                  @
-                </button>
+                  <button
+                    type="button"
+                    className="kleio-text-btn"
+                    aria-label={`Mention ${m.name}`}
+                    title={`Mention ${m.name}`}
+                    onClick={() => mention(m.name)}
+                  >
+                    @
+                  </button>
+                </div>
+                <MemberActivity
+                  name={m.name}
+                  entries={activity[m.id] ?? []}
+                  outcome={outcomes[m.id] ?? null}
+                  replying={replying}
+                  nowMs={polledAt}
+                  open={openActivity.has(m.id)}
+                  onToggle={() => toggleActivity(m.id)}
+                />
               </li>
             );
           })}

@@ -84,7 +84,7 @@ export interface GroupsOptions {
   readonly modelOf: (b: Blob) => string;
   /** Sends a push (the host wires APNs here). */
   readonly notify?: (n: Nudge) => Promise<void>;
-  /** How long one Blob's turn may run. Default 120 s. */
+  /** How long one Blob's turn may run. Default 30 minutes. */
   readonly turnTimeoutMs?: number;
   readonly log?: (msg: string) => void;
   readonly now?: () => Date;
@@ -121,7 +121,25 @@ export interface Groups {
 
 const MAX_GROUPS = 20;
 const MAX_MEMBERS = 8;
-const MAX_TURNS = 6;
+/**
+ * Member turns per user message: the runaway guard for members @mentioning
+ * each other in a loop. Room for a 4-member handoff pipeline to go round
+ * five times; at 6, the Mac mini's "Job" group (5 Oct 2026) stopped with a
+ * member it had asked for still waiting.
+ */
+const MAX_TURNS = 20;
+/**
+ * How long one member's turn may run. Members with tools make many model calls
+ * in a row (at 2 minutes, 30 of the 39 timeouts on the Mac mini, 1-3 Oct 2026,
+ * stopped a member mid-task). The cost: a stuck member holds the group up to
+ * this long. Nothing below it ends a run sooner: the sidecar accepts /prompt at
+ * once, and the agent loop's own limits are per model request.
+ */
+const TURN_TIMEOUT_MS = 30 * 60_000;
+/** Tool calls kept per member turn for the sidebar; older ones roll off. */
+const MAX_ACTIVITY = 30;
+const SUMMARY_CHARS = 120;
+const REASON_CHARS = 120;
 const KEEP_MESSAGES = 500;
 const PROMPT_MESSAGES = 30;
 const PROMPT_CHARS = 6000;
@@ -130,10 +148,50 @@ const NOTIFY_BODY_CHARS = 180;
 const WATCHING_MS = 20_000;
 const INSTRUCTIONS_MAX = 8000;
 
+/**
+ * One tool call of a member's current or last turn, for the sidebar. Holds a
+ * one-line summary of the args only: never the tool's output or full args.
+ */
+export interface ActivityEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly summary: string;
+  status: "running" | "done" | "failed";
+  readonly startedAt: string;
+  endedAt?: string;
+}
+
+/** How a member's last turn ended, or that the reply budget ran out first. */
+export type TurnOutcomeKind =
+  "replied" | "passed" | "timed_out" | "failed" | "unavailable" | "budget_exhausted";
+
+export interface TurnOutcome {
+  readonly kind: TurnOutcomeKind;
+  /** Short and human: "took over 2 min". Empty for a reply. */
+  readonly reason: string;
+}
+
+/** In memory only, per (group, member): reset when its next turn starts. */
+interface MemberActivity {
+  entries: ActivityEntry[];
+  outcome: TurnOutcome | null;
+}
+
 interface Active {
+  /** The text since the last turn or tool boundary. */
   text: string;
+  /**
+   * The last text that finished a turn ("end_turn") and wasn't a PASS. A
+   * completion hook (post-edit diagnostics, say) can start one more turn after
+   * the answer, which the member may close with PASS: the answer still stands.
+   */
+  answer: string;
   stale: boolean;
   failed: boolean;
+  cancelled: boolean;
+  /** The run's error frame, as a short reason. */
+  error: string | null;
+  readonly activity: MemberActivity;
   readonly finish: () => void;
 }
 
@@ -190,10 +248,52 @@ export function promptFor(unseen: readonly GroupMessage[]): string {
 
 const isPass = (s: string): boolean => /^pass[.!]?$/i.test(s.trim());
 
+const oneLine = (s: string, n: number): string => clip(s.replace(/\s+/g, " ").trim(), n);
+
+const durationText = (ms: number): string =>
+  ms < 1000
+    ? `${ms} ms`
+    : ms < 60_000
+      ? `${Math.round(ms / 1000)} s`
+      : `${Math.round(ms / 60_000)} min`;
+
+/**
+ * Arg keys that say what a tool call is doing, most telling first. Anything
+ * else (file contents, message bodies) is never summarised.
+ */
+const SUMMARY_KEYS = [
+  "command",
+  "file_path",
+  "query",
+  "pattern",
+  "url",
+  "urls",
+  "path",
+  "symbol",
+  "skill",
+  "task",
+  "title",
+  "name",
+  "action",
+] as const;
+
+/** A tool call's args as one clipped line: the command, path, query… or "". */
+export function toolSummary(args: unknown): string {
+  if (typeof args !== "object" || args === null) return "";
+  const o = args as Record<string, unknown>;
+  for (const k of SUMMARY_KEYS) {
+    const v = o[k];
+    const s =
+      typeof v === "string" ? v : Array.isArray(v) ? v.find((x) => typeof x === "string") : null;
+    if (typeof s === "string" && s.trim()) return oneLine(s, SUMMARY_CHARS);
+  }
+  return "";
+}
+
 export function createGroups(options: GroupsOptions): Groups {
   const log = options.log ?? ((msg: string) => console.error(msg));
   const now = options.now ?? (() => new Date());
-  const turnTimeoutMs = options.turnTimeoutMs ?? 120_000;
+  const turnTimeoutMs = options.turnTimeoutMs ?? TURN_TIMEOUT_MS;
   const dir = dirname(options.statePath);
   const logPath = (gid: string): string => join(dir, `group-${gid}.jsonl`);
 
@@ -205,6 +305,8 @@ export function createGroups(options: GroupsOptions): Groups {
   const conductors = new Map<string, Conductor>();
   const lastPoll = new Map<string, number>();
   const actives = new Map<string, Active>();
+  /** key(group, blob) → its tool calls and last outcome, for the sidebar. */
+  const activity = new Map<string, MemberActivity>();
   /** Blob data for sessionFields(), which must answer synchronously. */
   const blobCache = new Map<string, Blob>();
 
@@ -401,6 +503,76 @@ export function createGroups(options: GroupsOptions): Groups {
     return out;
   }
 
+  // ---------------------------------------------------------------- activity
+
+  function memberActivity(gid: string, bid: string): MemberActivity {
+    const k = key(gid, bid);
+    let m = activity.get(k);
+    if (!m) {
+      m = { entries: [], outcome: null };
+      activity.set(k, m);
+    }
+    return m;
+  }
+
+  const outcomeOf = (kind: TurnOutcomeKind, reason: string): TurnOutcome => ({
+    kind,
+    reason: oneLine(reason, REASON_CHARS),
+  });
+
+  /** Record an outcome outside a turn, if the Blob is still a member. */
+  function setOutcome(gid: string, bid: string, kind: TurnOutcomeKind, reason: string): void {
+    if (!find(gid)?.members.includes(bid)) return;
+    memberActivity(gid, bid).outcome = outcomeOf(kind, reason);
+  }
+
+  /** Drop a group's activity, or one member's. */
+  function forgetActivity(gid: string, bid?: string): void {
+    for (const k of [...activity.keys()])
+      if (bid ? k === key(gid, bid) : k.startsWith(`${gid}/`)) activity.delete(k);
+  }
+
+  function toolStarted(m: MemberActivity, d: Record<string, unknown>): void {
+    const id = d.toolCallId;
+    const name = d.name;
+    if (typeof id !== "string" || !id || id.length > 128) return;
+    if (typeof name !== "string" || !name) return;
+    if (m.entries.some((e) => e.id === id)) return;
+    m.entries.push({
+      id,
+      name: clip(name, 64),
+      summary: toolSummary(d.args),
+      status: "running",
+      startedAt: now().toISOString(),
+    });
+    if (m.entries.length > MAX_ACTIVITY) m.entries.splice(0, m.entries.length - MAX_ACTIVITY);
+  }
+
+  function toolEnded(m: MemberActivity, d: Record<string, unknown>): void {
+    const e = m.entries.find((x) => x.id === d.toolCallId);
+    if (!e || e.status !== "running") return;
+    e.status = d.isError === true ? "failed" : "done";
+    e.endedAt = now().toISOString();
+  }
+
+  /** The members' activity and outcomes, as GET .../messages reports them. */
+  function activityOf(g: Group): {
+    activity: Record<string, ActivityEntry[]>;
+    outcomes: Record<string, TurnOutcome>;
+  } {
+    const out = {
+      activity: {} as Record<string, ActivityEntry[]>,
+      outcomes: {} as Record<string, TurnOutcome>,
+    };
+    for (const bid of g.members) {
+      const m = activity.get(key(g.id, bid));
+      if (!m) continue;
+      out.activity[bid] = m.entries.map((e) => ({ ...e }));
+      if (m.outcome) out.outcomes[bid] = m.outcome;
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- conductor
 
   function conductor(gid: string): Conductor {
@@ -429,7 +601,20 @@ export function createGroups(options: GroupsOptions): Groups {
         await turn(gid, bid);
       } catch (e) {
         log(`[groups] ${gid} turn of ${bid} failed: ${String(e)}`);
+        setOutcome(gid, bid, "failed", "the host hit an error (see its log)");
       }
+    }
+    // Only the budget ends the loop with members still waiting.
+    if (c.queue.length) {
+      const names = c.queue.map((id) => blobCache.get(id)?.name ?? id);
+      log(`[groups] ${gid}: all ${MAX_TURNS} turns used; not reached: ${names.join(", ")}`);
+      for (const id of c.queue)
+        setOutcome(
+          gid,
+          id,
+          "budget_exhausted",
+          `the group used all ${MAX_TURNS} turns for this message`,
+        );
     }
     c.queue = [];
     const last = c.lastReply;
@@ -459,12 +644,20 @@ export function createGroups(options: GroupsOptions): Groups {
 
     const c = conductor(gid);
     c.typing = bid;
+    // A new turn: the sidebar shows only this turn's tool calls, then how it ended.
+    const mine = memberActivity(gid, bid);
+    mine.entries = [];
+    mine.outcome = null;
+    const end = (kind: TurnOutcomeKind, reason: string): void => {
+      mine.outcome = outcomeOf(kind, reason);
+    };
     let sessionId: string | null = null;
     let timer: NodeJS.Timeout | undefined;
     try {
       const session = await thread(gid, bid).resolve();
       if (!session.ok) {
         log(`[groups] ${gid}: ${self.name} unavailable: ${session.error.error}`);
+        end("unavailable", session.error.error);
         return;
       }
       const sid = session.value.sessionId;
@@ -473,7 +666,16 @@ export function createGroups(options: GroupsOptions): Groups {
       void save();
 
       const ended = new Promise<"done" | "timeout">((resolve) => {
-        actives.set(sid, { text: "", stale: false, failed: false, finish: () => resolve("done") });
+        actives.set(sid, {
+          text: "",
+          answer: "",
+          stale: false,
+          failed: false,
+          cancelled: false,
+          error: null,
+          activity: mine,
+          finish: () => resolve("done"),
+        });
         timer = setTimeout(() => resolve("timeout"), turnTimeoutMs);
       });
       const r = await options.call("POST", "/prompt", {
@@ -483,16 +685,32 @@ export function createGroups(options: GroupsOptions): Groups {
       });
       if (!r || r.status < 200 || r.status >= 300) {
         log(`[groups] ${gid}: prompting ${self.name} -> ${r ? r.status : "unreachable"}`);
+        end(
+          "unavailable",
+          r ? `the agent didn't take the message (HTTP ${r.status})` : "couldn't reach the agent",
+        );
         return;
       }
       if ((await ended) === "timeout") {
         log(`[groups] ${gid}: ${self.name} took too long`);
+        end("timed_out", `took over ${durationText(turnTimeoutMs)}`);
         void options.call("POST", "/cancel", { session: sid }).catch(() => null);
         return;
       }
       const a = actives.get(sid);
-      const reply = a?.text.trim() ?? "";
-      if (!a || a.failed || !reply || isPass(reply)) return;
+      if (!a || a.failed) {
+        const why = a?.cancelled ? "the run was cancelled" : (a?.error ?? "the run failed");
+        log(`[groups] ${gid}: ${self.name}'s run failed: ${why}`);
+        end("failed", why);
+        return;
+      }
+      const last = a.text.trim();
+      const reply = last && !isPass(last) ? last : a.answer;
+      if (!reply) {
+        log(`[groups] ${gid}: ${self.name} ${last ? "passed" : "sent an empty reply"}`);
+        end("passed", last ? "had nothing to add" : "sent an empty reply");
+        return;
+      }
       const msg = await append(gid, {
         author: bid,
         authorName: self.name,
@@ -502,11 +720,19 @@ export function createGroups(options: GroupsOptions): Groups {
       setSession(gid, bid, { seenSeq: msg.seq });
       void save();
       c.lastReply = msg;
+      end("replied", "");
       for (const id of mentioned(reply, all))
         if (id !== bid && !c.queue.includes(id)) c.queue.push(id);
     } finally {
       clearTimeout(timer);
       if (sessionId) actives.delete(sessionId);
+      // Nothing reports on a call still open once its turn is over.
+      const at = now().toISOString();
+      for (const e of mine.entries)
+        if (e.status === "running") {
+          e.status = "failed";
+          e.endedAt = at;
+        }
       if (c.typing === bid) c.typing = null;
     }
   }
@@ -595,6 +821,7 @@ export function createGroups(options: GroupsOptions): Groups {
             messages: page,
             typing: typing ? [typing] : [],
             lastSeq: page.length ? page[page.length - 1]!.seq : (list[list.length - 1]?.seq ?? 0),
+            ...activityOf(g),
           },
         };
       }
@@ -636,7 +863,11 @@ export function createGroups(options: GroupsOptions): Groups {
       // so each resumes its transcript with the new description next turn.
       if (rosterChanged) for (const id of g.members) await retire(g.id, id);
       const sessions = { ...find(g.id)!.sessions };
-      for (const id of g.members) if (!next.members.includes(id)) delete sessions[id];
+      for (const id of g.members)
+        if (!next.members.includes(id)) {
+          delete sessions[id];
+          forgetActivity(g.id, id);
+        }
       replace({ ...next, sessions });
       await save();
       return { status: 200, body: { group: await view(find(g.id)!) } };
@@ -646,6 +877,7 @@ export function createGroups(options: GroupsOptions): Groups {
       for (const id of g.members) await retire(g.id, id);
       groups = groups.filter((x) => x.id !== g.id);
       conductors.delete(g.id);
+      forgetActivity(g.id);
       logs.delete(g.id);
       lastPoll.delete(g.id);
       await save();
@@ -679,7 +911,16 @@ export function createGroups(options: GroupsOptions): Groups {
       case "run_start":
         if (a) {
           a.text = "";
+          a.answer = "";
           a.stale = false;
+        }
+        return;
+      case "turn_end":
+        if (a) {
+          a.stale = true;
+          // Text before a tool call ("tool_use") is narration, not an answer.
+          const said = a.text.trim();
+          if (d.stopReason === "end_turn" && said && !isPass(said)) a.answer = said;
         }
         return;
       case "text_delta":
@@ -698,17 +939,31 @@ export function createGroups(options: GroupsOptions): Groups {
                 .onRunEnd(sessionId)
                 .catch((e) => log(`[groups] ${g.id}/${bid} path: ${String(e)}`));
         if (a) {
-          a.failed = d.failed === true || d.cancelled === true;
+          a.cancelled = d.cancelled === true;
+          a.failed = d.failed === true || a.cancelled;
           a.finish();
         }
         return;
-      default:
-        if (
-          a &&
-          typeof f.type === "string" &&
-          (f.type === "turn_end" || f.type.startsWith("tool_"))
-        )
+      case "tool_call_start":
+        if (a) {
           a.stale = true;
+          toolStarted(a.activity, d);
+        }
+        return;
+      case "tool_call_end":
+        if (a) {
+          a.stale = true;
+          toolEnded(a.activity, d);
+        }
+        return;
+      case "error":
+        if (a) {
+          const why = [d.headline, d.message].filter((s) => typeof s === "string" && s.trim());
+          if (why.length) a.error = why.join(": ");
+        }
+        return;
+      default:
+        if (a && typeof f.type === "string" && f.type.startsWith("tool_")) a.stale = true;
     }
   }
 
@@ -745,6 +1000,7 @@ export function createGroups(options: GroupsOptions): Groups {
         const cur = find(g.id)!;
         const sessions = { ...cur.sessions };
         delete sessions[blobId];
+        forgetActivity(g.id, blobId);
         replace({
           ...cur,
           members: cur.members.filter((id) => id !== blobId),

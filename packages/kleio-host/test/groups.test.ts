@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ApnsPusher } from "../src/apns.js";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
-import { groupInstructions, mentioned, promptFor, type GroupMessage } from "../src/groups.js";
+import {
+  groupInstructions,
+  mentioned,
+  promptFor,
+  toolSummary,
+  type GroupMessage,
+} from "../src/groups.js";
 import { createHost, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
@@ -41,9 +47,12 @@ const fakeApns: ApnsPusher = {
 };
 
 let turnTimeoutMs = 2_000;
+/** The host's log lines. */
+const logs: string[] = [];
 async function startHost(tickMs = 0): Promise<Host> {
   const h = createHost({
     apns: fakeApns,
+    log: (msg) => logs.push(msg),
     listenPort: 0,
     publicBaseUrl: "https://mini.test:8443",
     nodeId: "mini.test",
@@ -72,6 +81,7 @@ function publish(sc: FakeSidecar): void {
 
 beforeEach(async () => {
   nudges.length = 0;
+  logs.length = 0;
   turnTimeoutMs = 2_000;
   clock = Date.parse("2026-10-24T07:00:00Z");
   home = mkdtempSync(join(tmpdir(), "kleio-groups-"));
@@ -194,6 +204,13 @@ async function until(check: () => boolean | Promise<boolean>, ms = 3000): Promis
 async function allMessages(gid: string): Promise<any[]> {
   return (await call("GET", `/kleio/groups/${gid}/messages?after=0`)).body.messages;
 }
+
+/** The whole GET .../messages body: messages, typing, activity, outcomes. */
+async function page(gid: string): Promise<any> {
+  return (await call("GET", `/kleio/groups/${gid}/messages?after=0`)).body;
+}
+
+const iso = (ms: number): string => new Date(ms).toISOString();
 
 /** Wait until the group's queue has drained (no typing for a moment). */
 async function quiet(gid: string): Promise<void> {
@@ -343,16 +360,22 @@ describe("groups: the conductor", () => {
     expect((await allMessages(g.id)).map((m) => m.authorName)).toEqual(["You", "Chef", "Coach"]);
   });
 
-  it("stops after 6 Blob turns per user message", async () => {
+  it("stops after 20 Blob turns per user message", async () => {
     const a = await newBlob("Chef");
     const b = await newBlob("Coach");
     const g = await newGroup([a.id, b.id]);
     sidecar.autoReply = (sid) => (nameOf(sid) === "Chef" ? "@Coach over to you" : "@Chef back");
 
     await call("POST", `/kleio/groups/${g.id}/messages`, { text: "@Chef go" });
-    await until(async () => (await allMessages(g.id)).length === 7);
+    await until(async () => (await allMessages(g.id)).length === 21);
     await quiet(g.id);
-    expect(await allMessages(g.id)).toHaveLength(7); // you + 6 turns
+    expect(await allMessages(g.id)).toHaveLength(21); // you + 20 turns
+    // Coach's last reply asked Chef again, after the budget was spent.
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: { kind: "budget_exhausted", reason: "the group used all 20 turns for this message" },
+      [b.id]: { kind: "replied", reason: "" },
+    });
+    expect(logs).toContain(`[groups] ${g.id}: all 20 turns used; not reached: Chef`);
   });
 
   it("PASS and empty replies post nothing; typing shows while a turn runs", async () => {
@@ -375,6 +398,12 @@ describe("groups: the conductor", () => {
     frame(coachSid, "run_end");
     await quiet(g.id);
     expect((await allMessages(g.id)).map((m) => m.author)).toEqual(["you"]);
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: { kind: "passed", reason: "had nothing to add" },
+      [b.id]: { kind: "passed", reason: "sent an empty reply" },
+    });
+    expect(logs).toContain(`[groups] ${g.id}: Chef passed`);
+    expect(logs).toContain(`[groups] ${g.id}: Coach sent an empty reply`);
   });
 
   it("a turn that never ends times out and the queue moves on", async () => {
@@ -389,6 +418,12 @@ describe("groups: the conductor", () => {
     await call("POST", `/kleio/groups/${g.id}/messages`, { text: "hi" });
     await until(async () => (await allMessages(g.id)).length === 2);
     expect((await allMessages(g.id)).map((m) => m.authorName)).toEqual(["You", "Coach"]);
+    await quiet(g.id);
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: { kind: "timed_out", reason: "took over 150 ms" },
+      [b.id]: { kind: "replied", reason: "" },
+    });
+    expect(logs).toContain(`[groups] ${g.id}: Chef took too long`);
   });
 
   it("after= pages the log", async () => {
@@ -406,6 +441,197 @@ describe("groups: the conductor", () => {
     expect(page.body.lastSeq).toBe(4);
     const empty = await call("GET", `/kleio/groups/${g.id}/messages?after=6`);
     expect(empty.body).toMatchObject({ messages: [], lastSeq: 6 });
+  });
+});
+
+describe("groups: member activity and outcomes", () => {
+  it("summarises tool args as one clipped line, from known keys only", () => {
+    expect(toolSummary({ command: "ls  -la\n  src", timeout: 5 })).toBe("ls -la src");
+    expect(toolSummary({ pattern: "TODO", path: "src" })).toBe("TODO");
+    expect(toolSummary({ urls: [1, "https://a.test"] })).toBe("https://a.test");
+    expect(toolSummary({ content: "a file body", text: "a message" })).toBe("");
+    expect(toolSummary(null)).toBe("");
+    const long = toolSummary({ command: "x".repeat(500) });
+    expect([...long]).toHaveLength(120);
+    expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("tool calls show while a turn runs, end done or failed, and never carry output", async () => {
+    const a = await newBlob("Chef");
+    const g = await newGroup([a.id]);
+    sidecar.autoReply = null;
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "check the logs" });
+    await until(() => sidecar.prompts.length === 1);
+    const sid = sidecar.prompts[0]!.session!;
+    frame(sid, "run_start");
+    frame(sid, "tool_call_start", {
+      toolCallId: "t1",
+      name: "bash",
+      args: { command: `grep -r ${"x".repeat(300)} .`, timeout: 9 },
+    });
+    frame(sid, "tool_call_start", {
+      toolCallId: "t2",
+      name: "write",
+      args: { file_path: "/tmp/notes.md", content: "SECRET-ARG" },
+    });
+    await until(async () => (await page(g.id)).activity?.[a.id]?.length === 2);
+    let p = await page(g.id);
+    expect(p.typing).toEqual([a.id]);
+    expect(p.outcomes).toEqual({});
+    const [bash, write] = p.activity[a.id];
+    expect(bash).toEqual({
+      id: "t1",
+      name: "bash",
+      summary: expect.stringMatching(/^grep -r x+…$/),
+      status: "running",
+      startedAt: iso(clock),
+    });
+    expect([...bash.summary]).toHaveLength(120);
+    expect(write).toMatchObject({ id: "t2", summary: "/tmp/notes.md", status: "running" });
+
+    const started = clock;
+    clock += 1500;
+    frame(sid, "tool_call_end", {
+      toolCallId: "t1",
+      result: "SECRET-OUTPUT",
+      isError: false,
+      durationMs: 1500,
+    });
+    frame(sid, "tool_call_end", {
+      toolCallId: "t2",
+      result: "EACCES SECRET-OUTPUT",
+      isError: true,
+      durationMs: 3,
+    });
+    await until(async () =>
+      (await page(g.id)).activity[a.id].every((e: any) => e.status !== "running"),
+    );
+    p = await page(g.id);
+    expect(p.activity[a.id].map((e: any) => [e.status, e.startedAt, e.endedAt])).toEqual([
+      ["done", iso(started), iso(clock)],
+      ["failed", iso(started), iso(clock)],
+    ]);
+    expect(JSON.stringify(p)).not.toContain("SECRET");
+
+    frame(sid, "text_delta", { text: "Logs are clean." });
+    frame(sid, "run_end");
+    await quiet(g.id);
+    p = await page(g.id);
+    expect(p.outcomes).toEqual({ [a.id]: { kind: "replied", reason: "" } });
+    expect(p.activity[a.id]).toHaveLength(2); // kept until the next turn
+    expect(JSON.stringify(p.activity)).not.toContain("Logs are clean");
+  });
+
+  it("a member's next turn starts a fresh list; a turn keeps its last 30 calls", async () => {
+    const a = await newBlob("Chef");
+    const g = await newGroup([a.id]);
+    sidecar.autoReply = null;
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "one" });
+    await until(() => sidecar.prompts.length === 1);
+    const sid = sidecar.prompts[0]!.session!;
+    frame(sid, "run_start");
+    for (let i = 1; i <= 35; i++)
+      frame(sid, "tool_call_start", { toolCallId: `t${i}`, name: "read", args: { path: `f${i}` } });
+    await until(async () => (await page(g.id)).activity?.[a.id]?.at(-1)?.id === "t35");
+    const ids = (await page(g.id)).activity[a.id].map((e: any) => e.id);
+    expect(ids).toHaveLength(30);
+    expect(ids[0]).toBe("t6");
+    frame(sid, "text_delta", { text: "Read them." });
+    frame(sid, "run_end");
+    await quiet(g.id);
+
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "two" });
+    await until(() => sidecar.prompts.length === 2);
+    const p = await page(g.id);
+    expect(p.typing).toEqual([a.id]);
+    expect(p.activity).toEqual({ [a.id]: [] });
+    expect(p.outcomes).toEqual({});
+    frame(sid, "run_start");
+    frame(sid, "run_end");
+    await quiet(g.id);
+  });
+
+  it("a failed run records why, and closes its open calls as failed", async () => {
+    const a = await newBlob("Chef");
+    const g = await newGroup([a.id]);
+    sidecar.autoReply = null;
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "go" });
+    await until(() => sidecar.prompts.length === 1);
+    const sid = sidecar.prompts[0]!.session!;
+    frame(sid, "run_start");
+    frame(sid, "tool_call_start", {
+      toolCallId: "t1",
+      name: "web_fetch",
+      args: { url: "https://example.test" },
+    });
+    frame(sid, "error", { headline: "Rate limited", message: "Try again in 30s", guidance: "" });
+    frame(sid, "run_end", { failed: true });
+    await quiet(g.id);
+    const p = await page(g.id);
+    expect(p.outcomes).toEqual({
+      [a.id]: { kind: "failed", reason: "Rate limited: Try again in 30s" },
+    });
+    expect(p.activity[a.id].map((e: any) => [e.summary, e.status])).toEqual([
+      ["https://example.test", "failed"],
+    ]);
+    expect(logs).toContain(`[groups] ${g.id}: Chef's run failed: Rate limited: Try again in 30s`);
+    expect((await allMessages(g.id)).map((m) => m.author)).toEqual(["you"]);
+  });
+
+  it("a hook's follow-up PASS keeps the answer before it; narration is never an answer", async () => {
+    const a = await newBlob("Chef");
+    const g = await newGroup([a.id]);
+    sidecar.autoReply = null;
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "plan dinner" });
+    await until(() => sidecar.prompts.length === 1);
+    const sid = sidecar.prompts[0]!.session!;
+    // As on the Mac mini: an answer, then the completion hook's hidden
+    // diagnostics nudge, which the member closes with PASS.
+    frame(sid, "run_start");
+    frame(sid, "text_delta", { text: "Checking the pantry." });
+    frame(sid, "turn_end", { stopReason: "tool_use" });
+    frame(sid, "tool_call_start", { toolCallId: "t1", name: "edit", args: { path: "menu.py" } });
+    frame(sid, "tool_call_end", { toolCallId: "t1", isError: false });
+    frame(sid, "text_delta", { text: "Lentil curry tonight; " });
+    frame(sid, "text_delta", { text: "the menu is in menu.py." });
+    frame(sid, "turn_end", { stopReason: "end_turn" });
+    frame(sid, "diagnostics", { text: "Post-edit diagnostics: menu.py: not verified." });
+    frame(sid, "text_delta", { text: "PASS" });
+    frame(sid, "turn_end", { stopReason: "end_turn" });
+    frame(sid, "run_end", { failed: false });
+    await quiet(g.id);
+    expect((await allMessages(g.id)).map((m) => m.text)).toEqual([
+      "plan dinner",
+      "Lentil curry tonight; the menu is in menu.py.",
+    ]);
+    expect((await page(g.id)).outcomes).toEqual({ [a.id]: { kind: "replied", reason: "" } });
+
+    // Text before a tool call, then PASS: a pass, not a reply.
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "and dessert?" });
+    await until(() => sidecar.prompts.length === 2);
+    frame(sid, "run_start");
+    frame(sid, "text_delta", { text: "Let me look." });
+    frame(sid, "turn_end", { stopReason: "tool_use" });
+    frame(sid, "tool_call_start", { toolCallId: "t2", name: "read", args: { path: "menu.py" } });
+    frame(sid, "tool_call_end", { toolCallId: "t2", isError: false });
+    frame(sid, "text_delta", { text: "PASS" });
+    frame(sid, "turn_end", { stopReason: "end_turn" });
+    frame(sid, "run_end", { failed: false });
+    await quiet(g.id);
+    expect((await allMessages(g.id)).map((m) => m.author)).toEqual(["you", a.id, "you"]);
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: { kind: "passed", reason: "had nothing to add" },
+    });
+  });
+
+  it("a member whose conversation can't open is recorded as unavailable", async () => {
+    const a = await newBlob("Chef");
+    const g = await newGroup([a.id]);
+    sidecar.failCreate = true;
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "hi" });
+    await until(async () => (await page(g.id)).outcomes?.[a.id] !== undefined);
+    expect((await page(g.id)).outcomes[a.id]).toMatchObject({ kind: "unavailable" });
+    expect(logs.some((l) => l.startsWith(`[groups] ${g.id}: Chef unavailable:`))).toBe(true);
   });
 });
 

@@ -255,9 +255,40 @@ describe("kleioApi routes", () => {
       expectCall: { method: "GET", path: "/kleio/groups/g_00000001/messages?after=12&limit=50" },
     },
     {
+      // An older host: no activity or outcomes at all.
       name: "listGroupMessages (first page)",
       run: () => api.listGroupMessages("g_00000001"),
       body: { messages: [], typing: [], lastSeq: 0 },
+      expectCall: { method: "GET", path: "/kleio/groups/g_00000001/messages" },
+    },
+    {
+      name: "listGroupMessages (member activity and outcomes)",
+      run: () => api.listGroupMessages("g_00000001"),
+      body: {
+        messages: [],
+        typing: ["b_0000000a"],
+        lastSeq: 3,
+        activity: {
+          b_0000000a: [
+            {
+              id: "t1",
+              name: "bash",
+              summary: "pnpm test",
+              status: "failed",
+              startedAt: "2026-10-05T09:00:00.000Z",
+              endedAt: "2026-10-05T09:00:04.000Z",
+            },
+            {
+              id: "t2",
+              name: "read",
+              summary: "src/App.tsx",
+              status: "running",
+              startedAt: "2026-10-05T09:00:05.000Z",
+            },
+          ],
+        },
+        outcomes: { b_0000000b: { kind: "timed_out", reason: "took over 2 min" } },
+      } satisfies api.GroupMessagesPage,
       expectCall: { method: "GET", path: "/kleio/groups/g_00000001/messages" },
     },
     {

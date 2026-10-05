@@ -188,11 +188,46 @@ export interface GroupInput {
 
 export type GroupPatch = Partial<GroupInput>;
 
+/** One tool call of a member's current or last turn: a summary, never its output. */
+export interface GroupActivityEntry {
+  /** The tool call id. */
+  id: string;
+  name: string;
+  /** One clipped line from the args: a command, path, query… or "". */
+  summary: string;
+  status: "running" | "done" | "failed";
+  startedAt: string;
+  endedAt?: string;
+}
+
+export type GroupTurnOutcomeKind =
+  | "replied"
+  | "passed"
+  | "timed_out"
+  | "failed"
+  | "unavailable"
+  /** The group spent its turns for the message before this member's came. */
+  | "budget_exhausted";
+
+/** How a member's last turn ended; cleared while its next turn runs. */
+export interface GroupTurnOutcome {
+  kind: GroupTurnOutcomeKind;
+  /** Short and human ("took over 2 min"); "" for a reply. */
+  reason: string;
+}
+
 export interface GroupMessagesPage {
   /** Oldest first. */
   messages: GroupMessage[];
   typing: string[];
   lastSeq: number;
+  /**
+   * Blob id → the tool calls of its current or last turn, oldest first. Held in
+   * the host's memory only; absent from older hosts.
+   */
+  activity?: Record<string, GroupActivityEntry[]>;
+  /** Blob id → how its last turn ended. Absent from older hosts. */
+  outcomes?: Record<string, GroupTurnOutcome>;
 }
 
 export interface Connection {

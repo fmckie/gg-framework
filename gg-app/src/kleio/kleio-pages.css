@@ -925,6 +925,95 @@
   padding-left: 38px;
 }
 
+/* A member's tool calls and last outcome, under its row (avatar 30 + gap 10). */
+.kleio-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 0 6px 40px;
+}
+.kleio-activity-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast);
+}
+.kleio-activity-toggle:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: var(--text);
+}
+.kleio-activity-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.kleio-activity-caret {
+  flex: 0 0 auto;
+  transition: transform var(--t-fast);
+}
+.kleio-activity-toggle[aria-expanded="true"] .kleio-activity-caret {
+  transform: rotate(90deg);
+}
+.kleio-activity-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kleio-activity-body:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.kleio-activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.kleio-activity-time {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.kleio-activity-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.kleio-activity-meta.is-live,
+.kleio-activity-time.is-live {
+  color: var(--success);
+}
+.kleio-activity-meta.is-error,
+.kleio-activity-time.is-error,
+.kleio-activity-note.is-error {
+  color: var(--error);
+}
+.kleio-activity-meta.is-warning,
+.kleio-activity-note.is-warning {
+  color: var(--warning);
+}
+
 .kleio-howto {
   gap: 8px;
   padding-left: 16px;

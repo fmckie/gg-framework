@@ -99,6 +99,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("GroupsPage", () => {
@@ -116,6 +117,73 @@ describe("GroupsPage", () => {
     const side = screen.getByRole("complementary", { name: "Morning Desk details" });
     expect(within(side).getByText("Agent 1")).toBeTruthy();
     expect(within(side).getByText("Agent 2")).toBeTruthy();
+  });
+
+  it("shows each member's tool calls and how its last turn ended, outside the transcript", async () => {
+    // A member replying turns on the composer's beam, which reads matchMedia.
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const now = Date.now();
+    const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: ["b1"],
+      lastSeq: 0,
+      activity: {
+        b1: [
+          {
+            id: "t1",
+            name: "bash",
+            summary: "pnpm test",
+            status: "failed",
+            startedAt: at(9000),
+            endedAt: at(6000),
+          },
+          { id: "t2", name: "read", summary: "notes.md", status: "running", startedAt: at(4000) },
+        ],
+      },
+      outcomes: { b2: { kind: "timed_out", reason: "took over 2 min" } },
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+
+    // The member replying opens on its own; the newest call is last and live.
+    const live = await within(side).findByRole("button", { name: /^Activity of Agent 1/ });
+    await waitFor(() => expect(live.getAttribute("aria-expanded")).toBe("true"));
+    const calls = within(side).getByRole("list", { name: "Agent 1's tool calls, oldest first" });
+    const rows = within(calls).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "⏺Ran pnpm testfailed · 3s",
+      "⏺Reading notes.md…live · 4s",
+    ]);
+
+    // Another member's stop stays folded until asked for; its toggle says why.
+    const stopped = within(side).getByRole("button", { name: /^Activity of Agent 2/ });
+    expect(stopped.getAttribute("aria-expanded")).toBe("false");
+    expect(stopped.textContent).toContain("Stopped");
+    const body = document.getElementById(stopped.getAttribute("aria-controls") ?? "");
+    expect(body?.hidden).toBe(true);
+    fireEvent.click(stopped);
+    expect(stopped.getAttribute("aria-expanded")).toBe("true");
+    expect(body?.hidden).toBe(false);
+    expect(within(side).getByText("Stopped: took over 2 min")).toBeTruthy();
+
+    // The transcript stays clean.
+    const log = screen.getByRole("log", { name: "Morning Desk conversation" });
+    expect(log.textContent).not.toMatch(/Stopped|pnpm test/);
+  });
+
+  it("shows no activity for an older host that doesn't report it", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+    await waitFor(() => expect(within(side).getByText("Agent 1")).toBeTruthy());
+    expect(within(side).queryByRole("button", { name: /^Activity of/ })).toBeNull();
   });
 
   it("builds a new group from ticked agents, up to eight", async () => {
