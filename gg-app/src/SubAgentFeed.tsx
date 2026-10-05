@@ -114,7 +114,7 @@ export function SubAgentFeed({ agents, aborted = false }: Props): React.ReactEle
             <div className="subagent" key={agent.toolCallId}>
               <div className="subagent-row">
                 <span
-                  className={`subagent-icon${isRunning ? " blink" : ""}`}
+                  className={`subagent-icon${icon === DOT ? " is-dot" : ""}${isRunning ? " blink" : ""}`}
                   style={{ color: iconColor }}
                 >
                   {icon}

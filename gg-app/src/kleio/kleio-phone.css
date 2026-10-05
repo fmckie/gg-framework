@@ -59,6 +59,13 @@ html.platform-ios textarea,
 html.platform-ios select {
   font-size: max(16px, 1em);
 }
+/* The @muse highlight is a copy of the draft drawn under the textarea, whose
+   own text goes clear, so it takes the textarea's 16px too. At the desktop's
+   15px it wrapped on different words from the textarea, and the caret, which
+   the textarea draws, sat a line below the text you could see. */
+html.platform-ios .ken-input-highlight {
+  font-size: max(16px, 1em);
+}
 
 /* ── Safe areas ───────────────────────────────────────────────────────── */
 
@@ -223,6 +230,34 @@ html.platform-ios .icon-circle {
   width: 36px;
   height: 36px;
 }
+/* @muse beside the paperclip: one tap addresses the draft to the helper, with
+   no trip to the symbols keyboard for the @. The paperclip's glass circle,
+   stretched to a pill around the trigger in Ken's colour, which a tap's
+   sticky hover must not turn white. */
+html.platform-ios .icon-circle.helper-chip,
+html.platform-ios .icon-circle.helper-chip:hover:not(:disabled) {
+  width: auto;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  color: var(--ken);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+/* With the chip beside the paperclip the rotating hints outgrow the field.
+   Keep them to one line: iOS counts a wrapped hint in the field's
+   scrollHeight, so the empty composer took a second row for nothing typed. */
+html.platform-ios .input::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* On one line the field takes only what the circles and the chip leave. Sized
+   by its own default width (a textarea's 20 columns) it no longer fits beside
+   the chip, and send wrapped onto a second row before a word was typed. */
+html.platform-ios .inputrow:not(.is-multiline) .input-stack {
+  flex-basis: 0;
+}
 /* "Enhance?" keeps the desktop's compact pill, which a 36px minimum turned
    into a slab hanging over the first line of the draft. 25px clears the 24px
    minimum target size. On one line it straddles the box's top border as on
@@ -330,26 +365,70 @@ html.platform-ios .transcript {
   /* Scroll here, not the page; keep the fling inside the transcript. */
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  /* Rows wrap to the phone's width (sub-agent rows below), so the thread never
+     pans sideways under a finger that drifts. */
+  overflow-x: hidden;
 }
 
-/* The reply dot is ⏺, and iOS draws that character from its colour emoji
+/* The status dots are ⏺, and iOS draws that character from its colour emoji
    font: a blue square. Draw the desktop's dot instead, a plain circle in the
-   colour the reply sets on it (Kleio's red, or Ken's colour). */
-html.platform-ios .assistant-dot {
+   colour each row sets on it: replies and compaction notices (Kleio's red,
+   Ken's colour), tool calls (running, done, failed) and the sub-agent feed.
+   The hidden glyph keeps its line box, so the circle centres on that line. */
+html.platform-ios .assistant-dot,
+html.platform-ios .tool-dot,
+html.platform-ios .subagent-icon.is-dot {
   position: relative;
-  font-size: 0;
+  visibility: hidden;
 }
-html.platform-ios .assistant-dot::before {
+html.platform-ios .assistant-dot::before,
+html.platform-ios .tool-dot::before,
+html.platform-ios .subagent-icon.is-dot::before {
   content: "";
+  visibility: visible;
   position: absolute;
   left: 1px;
-  /* Centred on the reply's first line: 15px text at line-height 1.55 is a
-     23.25px line, so its middle is 11.6px down; less half the dot. */
-  top: 7px;
+  top: calc(50% - 4.5px);
   width: 9px;
   height: 9px;
   border-radius: 50%;
   background: currentColor;
+}
+/* A reply's dot centres on the reply's first line rather than its own: 15px
+   text at line-height 1.55 is a 23.25px line, so its middle is 11.6px down;
+   less half the dot. */
+html.platform-ios .assistant-dot::before {
+  top: 7px;
+}
+/* Tool and sub-agent rows take the reply dot's 16px gutter, so their text
+   starts where a reply's does, whatever the glyph's own width. */
+html.platform-ios .tool-dot,
+html.platform-ios .subagent-icon {
+  flex: 0 0 16px;
+}
+/* A sub-agent row (name, token counts, summary) is wider than a phone. It
+   wraps instead of pushing the transcript sideways; the padding and the
+   icon's negative margin hang the wrapped lines under the name. */
+html.platform-ios .subagent-row {
+  flex-wrap: wrap;
+  row-gap: 0;
+  padding-left: 22px;
+}
+html.platform-ios .subagent-icon {
+  margin-left: -22px;
+}
+html.platform-ios .subagent-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+html.platform-ios .subagent-tokens {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A running agent's tool feed lines up under its name (gutter plus gap). */
+html.platform-ios .subagent-feed {
+  padding-left: 22px;
 }
 
 /* "Jump to latest": the round button that appears once you have scrolled

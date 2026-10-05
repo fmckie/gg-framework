@@ -149,6 +149,14 @@ import {
   submitDisposition,
   withoutSupersedingMessage,
 } from "./submit-disposition";
+import {
+  addressesHelper,
+  composerButtonAction,
+  HELPER_MENTION,
+  helperQuestion,
+  helperTokenParts,
+  withHelperMention,
+} from "./helper-mention";
 import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
@@ -203,15 +211,15 @@ const DictationStatus = lazy(() =>
   import("./DictateButton").then((m) => ({ default: m.DictationStatus })),
 );
 
-const DEFAULT_INPUT_PLACEHOLDER = "Type a message, / commands, @ files, @Ken for help";
+const DEFAULT_INPUT_PLACEHOLDER = `Type a message, / commands, @ files, ${HELPER_MENTION} for help`;
 const INPUT_PLACEHOLDERS = [
   DEFAULT_INPUT_PLACEHOLDER,
-  "Need a second opinion? Ask @Ken",
-  "Stuck on what to do next? Ask @Ken",
+  `Need a second opinion? Ask ${HELPER_MENTION}`,
+  `Stuck on what to do next? Ask ${HELPER_MENTION}`,
   DEFAULT_INPUT_PLACEHOLDER,
-  "Want a second set of eyes? Ask @Ken",
-  "Unsure how to proceed? Ask @Ken",
-  "Need a quick review? Ask @Ken",
+  `Want a second set of eyes? Ask ${HELPER_MENTION}`,
+  `Unsure how to proceed? Ask ${HELPER_MENTION}`,
+  `Need a quick review? Ask ${HELPER_MENTION}`,
 ] as const;
 const RUNNING_INPUT_PLACEHOLDERS = [
   "Agent is working. Add a follow-up if you want",
@@ -1865,22 +1873,22 @@ function App(): React.ReactElement {
   // Clamp so a shrinking match list never points past the end.
   const clampedSlashIndex = slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
 
-  // `@Ken` is the mentor-agent address, not a file mention. When the input leads
-  // with it (case-insensitive, word-boundary so `@kennedy.ts` still picks files),
-  // Ken is "active": the file picker is suppressed and the input is tinted in
-  // Ken's color with a shimmering marker, so it's obvious the message goes to Ken.
-  const kenActive = workspaceMode === "code" && /^@ken\b/i.test(input.trimStart());
-  // Split the input for the `@Ken` highlight overlay: any leading whitespace,
-  // the literal `@Ken` token (preserving the user's casing), then the rest. Only
-  // the token shimmers; lead+rest render in the normal input color.
-  const kenInputParts = (() => {
-    const m = /^(\s*)(@ken)/i.exec(input);
-    if (!m) return null;
-    return { lead: m[1], token: m[2], rest: input.slice(m[1].length + m[2].length) };
-  })();
+  // The helper trigger (`@muse`, or the old `@ken`) addresses the mentor agent,
+  // not a file. When the input leads with it (case-insensitive, word-boundary so
+  // `@museum.ts` still picks files), the file picker is suppressed and the token
+  // shimmers in Ken's color, so it's obvious where the message goes.
+  const kenActive = workspaceMode === "code" && addressesHelper(input);
+  // Split the input for the highlight overlay: any leading whitespace, the token
+  // (preserving the user's casing), then the rest. Only the token shimmers;
+  // lead+rest render in the normal input color.
+  const kenInputParts = helperTokenParts(input);
+  // The question a helper-addressed draft asks (null for a draft to the coder).
+  // submit() routes on it, and mid-run it keeps the round button on Send.
+  const helperAsk = workspaceMode === "code" ? helperQuestion(input) : null;
+  const composerAction = composerButtonAction(running, helperAsk);
   // `@`-mention picker: open whenever a mention token is active and the search
   // returned at least one file. Clamp the highlighted row to the result count.
-  // Never open while `@Ken` is active — that token addresses Ken, not a file.
+  // Never open while the helper token leads the draft: it addresses Ken, not a file.
   const mentionOpen = mention !== null && fileMatches.length > 0 && !kenActive;
   const clampedFileIndex = fileMatches.length > 0 ? fileIndex % fileMatches.length : 0;
   // Footer background-tasks indicator only shows while something is actually
@@ -1996,8 +2004,9 @@ function App(): React.ReactElement {
     setMention(detectMention(text, caret));
   }
 
-  // Debounced file search whenever the active mention query changes. Skipped when
-  // `@Ken` is active so typing `@ken` never spawns a file lookup or picker.
+  // Debounced file search whenever the active mention query changes. Skipped
+  // while the helper token leads the draft, so typing `@muse` never spawns a
+  // file lookup or picker.
   useEffect(() => {
     if (mention === null || kenActive) {
       setFileMatches([]);
@@ -2036,6 +2045,22 @@ function App(): React.ReactElement {
       el?.focus();
       el?.setSelectionRange(head.length, head.length);
     });
+  }
+
+  // iPhone chip: address the draft to the helper, sparing the trip to the
+  // symbols keyboard for `@`. Focus inside the tap itself, because iOS only
+  // raises the keyboard for a focus the person caused.
+  function addressHelper(): void {
+    const el = inputRef.current;
+    const next = withHelperMention(input);
+    setInput(next);
+    setCaret(next.length);
+    setMention(null);
+    el?.focus();
+    // A changed draft gets its caret at the end when React writes the value;
+    // only an unchanged one needs moving. (Deferring this to a frame later
+    // moved the caret back behind a keystroke typed in between.)
+    if (next === input) el?.setSelectionRange(next.length, next.length);
   }
 
   // Drop a referenced-file chip.
@@ -2415,13 +2440,12 @@ function App(): React.ReactElement {
       return;
     }
 
-    // `@Ken <prompt>` (case-insensitive, optional colon) routes to Ken Kai, the
+    // `@muse <question>` (or the old `@ken`; any case, optional colon) goes to Ken Kai, the
     // read-only mentor agent — NOT GG Coder. Ken runs concurrently with any
-    // build run; his reply streams into a magenta bubble via ken_* events.
-    const kenMatch = workspaceMode === "code" ? /^@ken\b:?\s*/i.exec(trimmed) : null;
-    if (kenMatch) {
-      const question = trimmed.slice(kenMatch[0].length).trim();
-      if (!question) return;
+    // build run; his reply streams into his own bubble via ken_* events. Enter
+    // and the round button both land here.
+    if (helperAsk !== null) {
+      if (!helperAsk) return;
       recordHistory(trimmed);
       stickToBottomRef.current = true;
       pushItem({ kind: "user", id: nextId(), text: trimmed, ken: true });
@@ -2430,7 +2454,7 @@ function App(): React.ReactElement {
       setMention(null);
       setMentionedPaths([]);
       setEnhancement(null);
-      void sendKenPrompt(question);
+      void sendKenPrompt(helperAsk);
       return;
     }
 
@@ -3184,6 +3208,17 @@ function App(): React.ReactElement {
           >
             <PaperclipIcon size={15} />
           </button>
+          {phoneComposer && workspaceMode === "code" && (
+            <button
+              type="button"
+              className="icon-circle helper-chip"
+              // Keep the keyboard up: without this the tap blurs the draft first.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={addressHelper}
+            >
+              {HELPER_MENTION}
+            </button>
+          )}
           <div className="input-stack">
             {enhanceAnim && (
               <EnhanceDissolve
@@ -3192,11 +3227,12 @@ function App(): React.ReactElement {
                 onDone={onEnhanceAnimDone}
               />
             )}
-            {/* `@Ken` active: a textarea can't color just one token, so we mirror
-                the input in an aligned overlay where the leading `@Ken` shimmers
-                in Ken's color. The textarea text below is made transparent (caret
-                stays visible) so only this styled copy shows. Metrics match
-                `.input` 1:1 so wrapping/caret line up. */}
+            {/* Helper token active: a textarea can't color just one token, so we
+                mirror the input in an aligned overlay where the leading `@muse`
+                (or `@ken`) shimmers in Ken's color. The textarea text below is
+                made transparent (caret stays visible) so only this styled copy
+                shows. Metrics match `.input` 1:1 so wrapping/caret line up (the
+                iPhone's 16px included, see kleio-phone.css). */}
             {kenActive && kenInputParts && (
               <div className="ken-input-highlight" aria-hidden="true">
                 {kenInputParts.lead}
@@ -3304,8 +3340,11 @@ function App(): React.ReactElement {
             />
           </div>
           {/* Send doubles as the stop control mid-run, so the primary action
-              never moves. It stays on the text's line while the draft fits one
-              line, and drops below with the field once the text wraps. */}
+              never moves. Mid-run it stays Send for a question to the helper,
+              which runs alongside the build (on the iPhone, where Return adds a
+              line, that is the only way to send one). It stays on the text's
+              line while the draft fits one line, and drops below with the field
+              once the text wraps. */}
           <div className="inputactions-trailing">
             {phoneComposer && dictation && (
               // The enhance animation locks the draft, so no dictating into it.
@@ -3320,14 +3359,20 @@ function App(): React.ReactElement {
             />
             <button
               className="icon-circle icon-circle-primary"
-              title={running ? "Stop the run" : "Send"}
-              disabled={cancelling || (!running && sendDisabled)}
+              title={composerAction === "stop" ? "Stop the run" : "Send"}
+              disabled={
+                composerAction === "stop" ? cancelling : !running && (cancelling || sendDisabled)
+              }
               onClick={() => {
-                if (running) requestCancel();
+                if (composerAction === "stop") requestCancel();
                 else submit();
               }}
             >
-              {running ? <SquareIcon size={12} weight="fill" /> : <ArrowUpIcon size={16} />}
+              {composerAction === "stop" ? (
+                <SquareIcon size={12} weight="fill" />
+              ) : (
+                <ArrowUpIcon size={16} />
+              )}
             </button>
           </div>
         </div>
