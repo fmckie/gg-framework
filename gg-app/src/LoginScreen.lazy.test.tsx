@@ -37,6 +37,10 @@ it("loads local-model and download forms only after selection, without scanning 
   hub.focus();
   fireEvent.click(hub);
   await screen.findByRole("combobox", { name: "Search Hugging Face models" });
+  // The dialog attaches its Escape listener in an effect that runs after the
+  // field appears. Wait for the form's status read (same effect pass), as the
+  // Ollama form waits for its scan, or Escape can land before the listener.
+  await waitFor(() => expect(native.hfPullStatus).toHaveBeenCalledTimes(1));
   expect(native.hfPull).not.toHaveBeenCalled();
   fireEvent.keyDown(document, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
