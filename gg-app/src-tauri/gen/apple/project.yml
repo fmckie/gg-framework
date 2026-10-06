@@ -30,8 +30,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Shared
       - path: Assets.xcassets
+      # The Rust library built here is linked (dependencies below), never
+      # copied into the app as a resource.
       - path: Externals
+        excludes:
+          - "**/*.a"
       - path: gg-app_iOS
       - path: assets
         buildPhase: resources
@@ -58,6 +63,14 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 2.0.0
         CFBundleVersion: "50"
+        # The lock screen and Dynamic Island view of what an agent is doing
+        # (KleioWidgets); the host starts and updates it by push.
+        NSSupportsLiveActivities: true
+        # kleio://open?session=…|group=… — a tapped Live Activity opens its
+        # conversation (src/kleio/live.rs).
+        CFBundleURLTypes:
+          - CFBundleURLName: kleio
+            CFBundleURLSchemes: [kleio]
     entitlements:
       path: gg-app_iOS/gg-app_iOS.entitlements
       properties:
@@ -78,8 +91,13 @@ targets:
         LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
+        # Sources/gg-app/KleioLiveActivities.swift, called from Rust; and
+        # the Rust function Swift calls (a Live Activity button's answer).
+        SWIFT_VERSION: "5.0"
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/gg-app/kleio-bridge.h
       groups: [app]
     dependencies:
+      - target: KleioWidgets
       - framework: libapp.a
         embed: false
       - sdk: CoreGraphics.framework
@@ -96,3 +114,33 @@ targets:
         outputFiles:
           - $(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a
           - $(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a
+  # The Live Activity (lock screen + Dynamic Island). Not "_iOS" in its name:
+  # the Tauri CLI patches the target whose name contains that.
+  KleioWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: KleioWidgets
+      - path: Shared
+    info:
+      path: KleioWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Kleio
+        # Must match the app's.
+        CFBundleShortVersionString: 2.0.0
+        CFBundleVersion: "50"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_NAME: KleioWidgets
+        PRODUCT_BUNDLE_IDENTIFIER: com.atlas.ggcoder.widgets
+        DEVELOPMENT_TEAM: 35MTH2SNXQ
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: true
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: ActivityKit.framework

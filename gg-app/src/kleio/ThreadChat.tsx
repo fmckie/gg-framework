@@ -27,6 +27,7 @@ import { scheduledPrompt } from "./blobFormat";
 import { ChatAsk, typedAnswer } from "./ChatAsk";
 import { FileCards } from "./FileCard";
 import { fileErrorText, fileLinks, openFile, ownerFilePath, type FileOwner } from "./kleioFiles";
+import { startLiveActivity } from "./liveActivity";
 import {
   KleioApiError,
   errorText,
@@ -242,6 +243,7 @@ export function ThreadChat({
     try {
       await threadPrompt(session, text);
       setRunning(true);
+      void startLiveActivity("specialist", label, { sessionId: session });
     } catch (e) {
       setError(errorText(e));
       setDraft(text);

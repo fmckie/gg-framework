@@ -46,6 +46,7 @@ import {
   useSidebar,
 } from "./KleioChrome";
 import { fileErrorText, fileLinks, fileOwner, openFile, ownerFilePath } from "./kleioFiles";
+import { startLiveActivity } from "./liveActivity";
 import { relTime } from "./relTime";
 import {
   answerGroupAsk,
@@ -996,6 +997,7 @@ function GroupChat({
     follow();
     try {
       await sendGroupMessage(group.id, text);
+      void startLiveActivity("group", group.name, { groupId: group.id });
     } catch (e) {
       setError(errorText(e));
       setDraft(text);

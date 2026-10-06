@@ -13,6 +13,7 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   threadCancel: vi.fn(),
   threadAnswerAsk: vi.fn(),
 }));
+vi.mock("./liveActivity", () => ({ startLiveActivity: vi.fn(async () => {}) }));
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("../useDictation", () => ({

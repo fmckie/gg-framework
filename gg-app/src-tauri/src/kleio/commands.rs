@@ -555,6 +555,23 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
 }
 
+/// A one-off client for a Live Activity answer: short timeout (iOS gives a
+/// button's intent little time), the device token from `r`.
+#[cfg(target_os = "ios")]
+pub(super) fn answer_client(r: &super::Remote) -> Result<reqwest::Client, String> {
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(
+        DEVICE_TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_str(&r.device_token)
+            .map_err(|_| "device token is not header-safe".to_string())?,
+    );
+    reqwest::Client::builder()
+        .default_headers(h)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 pub(super) fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     if let Some(c) = CLIENT.get() {
@@ -740,6 +757,9 @@ mod tests {
                 "GET",
                 "/kleio/groups/g1/messages?before=2026-09-30T10%3A00%3A00Z&limit=50",
             ),
+            // A new conversation; answering a member's question.
+            ("POST", "/kleio/groups/g_0bc1704f/new"),
+            ("POST", "/kleio/groups/g_0bc1704f/ask/ask-12"),
             ("GET", "/kleio/connections"),
             ("GET", "/kleio/connections/toolkits"),
             ("POST", "/kleio/connections/gmail/connect"),
