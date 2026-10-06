@@ -3,101 +3,192 @@ import type { ApnsPusher, LiveActivityPush, LiveActivityTarget } from "../src/ap
 import {
   createLiveActivityTracker,
   reduceFrame,
-  type LiveContentState,
+  type LiveState,
   type SidecarFrame,
+  type StartToken,
 } from "../src/live-activity.js";
+import { clipText, stepText } from "../src/live-text.js";
 
 const T0 = 1_790_000_000_000; // ms
+const S0 = T0 / 1000;
 
-function run(frames: SidecarFrame[], at = T0): (ReturnType<typeof reduceFrame> | null)[] {
-  let s: LiveContentState | undefined;
+function run(frames: SidecarFrame[], at = T0): ReturnType<typeof reduceFrame>[] {
+  let s: LiveState | undefined;
   return frames.map((f, i) => {
     const r = reduceFrame(s, f, at + i * 1_000);
-    if (r) s = r.event === "end" ? undefined : r.state;
+    if (r) s = r.kind === "end" ? undefined : r.state;
     return r;
   });
 }
 
-describe("reduceFrame", () => {
-  it("walks a normal run the way the phone labels it", () => {
-    const out = run([
-      { type: "run_start", data: { text: "go" } },
-      { type: "tool_call_start", data: { toolCallId: "c1", name: "bash" } },
-      { type: "tool_call_end", data: { toolCallId: "c1", isError: false } },
-      { type: "turn_end", data: { turn: 1, usage: { inputTokens: 100, outputTokens: 20 } } },
-      { type: "tool_call_start", data: { toolCallId: "c2", name: "read" } },
-      { type: "tool_call_end", data: { toolCallId: "c2", isError: true } },
-      { type: "turn_end", data: { turn: 2, usage: { inputTokens: 50, outputTokens: 5 } } },
-      {
-        type: "agent_done",
-        data: { totalTurns: 2, totalUsage: { inputTokens: 150, outputTokens: 25 } },
-      },
-    ]);
-    const steps = out.map((r) => r && `${r.event}:${r.state.step}:${r.state.statusText}`);
-    expect(steps).toEqual([
-      "update:Starting:Working…",
-      "update:Tool:Running bash",
-      "update:Thinking:Thinking…",
-      "update:Step 1:Thinking…",
-      "update:Tool:Running read",
-      "update:Tool failed:Tool read failed",
-      "update:Step 2:Thinking…",
-      "end:Done:Done",
-    ]);
-    const end = out.at(-1)!.state;
-    expect(end).toMatchObject({ done: true, isWorking: false, turn: 2, totalTokens: 175 });
-    expect(end.toolName).toBeNull();
-    // Tokens accumulate across turns before the final total.
-    expect(out[6]!.state.totalTokens).toBe(175);
-    // The clock runs from run_start.
-    expect(out[3]!.state.elapsedSeconds).toBe(3);
-    expect(end.startedAt).toBe(Math.floor(T0 / 1000));
+describe("stepText", () => {
+  it("names the kind of work in plain words, with a short file name at most", () => {
+    expect(stepText("bash", { command: "rm -rf /" })).toBe("Running a command");
+    expect(stepText("read", { path: "/a/b/host.ts" })).toBe("Reading host.ts");
+    expect(stepText("read", { path: "C:\\x\\notes.md" })).toBe("Reading notes.md");
+    expect(stepText("read", { path: `/a/${"x".repeat(29)}` })).toBe("Reading a file");
+    expect(stepText("write", {})).toBe("Writing a file");
+    expect(stepText("edit", { file_path: "src/a.ts" })).toBe("Editing a.ts");
+    for (const n of ["ls", "grep", "find"]) expect(stepText(n, {})).toBe("Searching files");
+    expect(stepText("web_fetch", { url: "https://x" })).toBe("Reading a web page");
+    expect(stepText("web_search", {})).toBe("Searching the web");
+    expect(stepText("subagent", {})).toBe("Handing off a task");
+    expect(stepText("mcp__thing", {})).toBe("Working");
   });
 
-  it("ends a cancelled run as Stopped, an error as Error, a short run_end as Done", () => {
+  it("clips by code points with an ellipsis", () => {
+    expect(clipText("😀".repeat(70), 60)).toBe(`${"😀".repeat(59)}…`);
+    expect(clipText("short", 60)).toBe("short");
+  });
+});
+
+describe("reduceFrame", () => {
+  it("walks a run: thinking, steps, done only when the run ends", () => {
+    const out = run([
+      { type: "run_start", data: { text: "go" } },
+      { type: "tool_call_start", data: { name: "bash" } },
+      { type: "tool_call_end", data: {} },
+      { type: "turn_end", data: {} },
+      // The agent's loop is done, but the run goes on (checks, a review).
+      { type: "agent_done", data: {} },
+      { type: "tool_call_start", data: { name: "read", args: { path: "src/a.ts" } } },
+      { type: "run_end", data: { failed: false } },
+    ]);
+    expect(out.map((r) => r && `${r.kind}:${r.state.phase}:${r.state.line}`)).toEqual([
+      "phase:working:Thinking…",
+      "routine:working:Running a command",
+      "routine:working:Thinking…",
+      null,
+      null,
+      "routine:working:Reading a.ts",
+      "end:done:Done",
+    ]);
+    expect(out[6]!.state).toMatchObject({ startedAt: S0, endedAt: S0 + 6 });
+  });
+
+  it("asks for help with the first question, then goes back to work", () => {
+    const out = run([
+      { type: "run_start" },
+      {
+        type: "ask_user",
+        data: { id: "q", questions: [{ question: "Which one?" }, { question: "And?" }] },
+      },
+      { type: "ask_user_done", data: { id: "q" } },
+      { type: "ask_user_done", data: { id: "q" } },
+    ]);
+    expect(out[1]).toEqual({
+      kind: "phase",
+      state: {
+        phase: "needsYou",
+        line: "Needs your help",
+        detail: "Which one? (+1 more)",
+        startedAt: S0,
+      },
+    });
+    expect(out[2]).toMatchObject({
+      kind: "phase",
+      state: { phase: "working", line: "Back to work" },
+    });
+    expect(out[3]).toBeNull(); // not waiting any more
+    const long = reduceFrame(
+      undefined,
+      { type: "ask_user", data: { questions: [{ question: "q".repeat(300) }] } },
+      T0,
+    );
+    expect([...(long?.state.detail ?? "")].length).toBe(140);
+  });
+
+  it("stays on 'Needs your help' while it waits: the question's own tool call doesn't move it", () => {
+    // As on the Mac mini (5 Oct): the ask_user frame, then the tool call that
+    // carries it. The activity flipped to "Working" 0.8 s after asking.
+    const out = run([
+      { type: "run_start" },
+      { type: "ask_user", data: { id: "ask-1", questions: [{ id: "f", question: "Which?" }] } },
+      { type: "tool_call_start", data: { name: "ask_user", args: {} } },
+      { type: "tool_call_start", data: { name: "bash", args: {} } },
+      { type: "ask_user_done", data: { id: "ask-1" } },
+      { type: "tool_call_end", data: {} },
+      { type: "tool_call_start", data: { name: "write", args: { path: "a.txt" } } },
+    ]);
+    expect(out.map((r) => r && r.state.line)).toEqual([
+      "Thinking…",
+      "Needs your help",
+      null,
+      null,
+      "Back to work",
+      "Thinking…", // the ask_user call ends once answered: thinking again
+      "Writing a.txt",
+    ]);
+  });
+
+  it("a web search the model runs shows as a step", () => {
+    const out = run([
+      { type: "run_start" },
+      { type: "server_tool_call", data: { id: "srv1", name: "web_search", input: { query: "x" } } },
+    ]);
+    expect(out[1]).toMatchObject({ state: { line: "Searching the web" } });
+  });
+
+  it("a question with a few options carries them, and the one the agent recommends", () => {
+    const ask = (questions: unknown[]): ReturnType<typeof reduceFrame> =>
+      reduceFrame(undefined, { type: "ask_user", data: { id: "ask-2", questions } }, T0);
+    expect(
+      ask([
+        {
+          id: "f",
+          question: "Which file?",
+          kind: "choice",
+          options: [{ label: "alpha.txt" }, { label: "beta.txt", recommended: true }],
+        },
+      ])?.state,
+    ).toMatchObject({ askId: "ask-2", options: ["alpha.txt", "beta.txt"], recommended: 1 });
+    // Yes/no needs no options listed.
+    expect(ask([{ id: "c", question: "Go?", kind: "confirm" }])?.state.options).toEqual([
+      "Yes",
+      "No",
+    ]);
+    // Free text, several picks, too many options or several questions: answer in the app.
+    const inApp = [
+      [{ id: "t", question: "Why?", kind: "text" }],
+      [{ id: "m", question: "Which?", kind: "multi", options: [{ label: "a" }] }],
+      [
+        {
+          id: "f",
+          question: "Pick",
+          kind: "choice",
+          options: [1, 2, 3, 4, 5].map((n) => ({ label: `o${n}` })),
+        },
+      ],
+      [
+        { id: "a", question: "One?", kind: "confirm" },
+        { id: "b", question: "Two?", kind: "confirm" },
+      ],
+    ];
+    for (const qs of inApp) expect(ask(qs)?.state.options).toBeUndefined();
+  });
+
+  it("ends a cancelled run as stopped, a failed one as failed, a bare run_end as done", () => {
     expect(
       run([{ type: "run_start" }, { type: "run_end", data: { cancelled: true } }])[1],
     ).toMatchObject({
-      event: "end",
-      state: { step: "Stopped", done: true },
+      kind: "end",
+      state: { phase: "stopped", line: "Stopped" },
     });
-    expect(
-      run([{ type: "run_start" }, { type: "error", data: { message: "x" } }])[1],
-    ).toMatchObject({
-      event: "end",
-      state: { step: "Error", statusText: "Run failed" },
+    // An error alone doesn't end it: the run can recover; run_end says how it ended.
+    const failed = run([
+      { type: "run_start" },
+      { type: "error", data: { message: "x" } },
+      { type: "run_end", data: { failed: true } },
+    ]);
+    expect(failed[1]).toBeNull();
+    expect(failed[2]).toMatchObject({
+      kind: "end",
+      state: { phase: "failed", line: "Something went wrong" },
     });
-    expect(
-      run([{ type: "run_start" }, { type: "run_end", data: { runState: "idle" } }])[1],
-    ).toMatchObject({
-      event: "end",
-      state: { step: "Done" },
+    expect(run([{ type: "run_start" }, { type: "run_end", data: {} }])[1]).toMatchObject({
+      kind: "end",
+      state: { phase: "done" },
     });
-  });
-
-  it("ignores everything after the end, and frames that do not change the lock screen", () => {
-    const done = reduceFrame(undefined, { type: "agent_done" }, T0)!.state;
-    expect(reduceFrame(done, { type: "run_end", data: { runState: "idle" } }, T0)).toBeNull();
-    expect(reduceFrame(done, { type: "tool_call_start", data: { name: "bash" } }, T0)).toBeNull();
-    expect(reduceFrame(undefined, { type: "text_delta", data: { text: "hi" } }, T0)).toBeNull();
-    // …but a new run starts clean.
-    expect(reduceFrame(done, { type: "run_start" }, T0)!.state.done).toBe(false);
-  });
-
-  it("picks up mid-run when the registration lands after run_start", () => {
-    const r = reduceFrame(undefined, { type: "tool_call_start", data: { name: "edit" } }, T0);
-    expect(r).toMatchObject({ event: "update", state: { statusText: "Running edit", turn: 1 } });
-  });
-
-  it("does not trust frame fields: long names are cut, junk numbers ignored", () => {
-    const r = reduceFrame(
-      undefined,
-      { type: "tool_call_start", data: { name: "x".repeat(500) } },
-      T0,
-    )!;
-    expect(r.state.toolName!.length).toBe(80);
-    const t = reduceFrame(undefined, { type: "turn_end", data: { turn: "7", usage: "lots" } }, T0)!;
-    expect(t.state).toMatchObject({ turn: 1, totalTokens: 0 });
   });
 });
 
@@ -105,8 +196,10 @@ describe("createLiveActivityTracker", () => {
   let clock: number;
   let sent: { target: LiveActivityTarget; push: LiveActivityPush }[];
   let answer: "ok" | "gone" | "failed";
+  let starts: StartToken[];
   const apns: ApnsPusher = {
     configured: true,
+    env: "sandbox",
     notify: async () => 0,
     liveActivity: async (target, push) => {
       sent.push({ target, push });
@@ -119,106 +212,157 @@ describe("createLiveActivityTracker", () => {
     deviceId: "phone",
     registeredAt: "t",
   };
-  const flush = () => new Promise((r) => setImmediate(r));
+  const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     clock = T0;
     sent = [];
     answer = "ok";
+    starts = [];
   });
   afterEach(() => vi.useRealTimers());
 
-  function tracker() {
-    return createLiveActivityTracker({ apns, now: () => clock, minIntervalMs: 2_000 });
+  function tracker(): ReturnType<typeof createLiveActivityTracker> {
+    return createLiveActivityTracker({ apns, now: () => clock, startTokens: () => starts });
   }
+  const lines = (): string[] =>
+    sent.map((s) => `${s.push.event}:${String(s.push.contentState.line)}:${s.push.priority}`);
 
-  it("pushes only while nobody is attached, and only for a registered session", async () => {
+  it("the lock screen's buttons: a one-off key per question, used once, only for that question", async () => {
     const t = tracker();
-    t.onFrame("s1", { type: "run_start" }, false);
+    t.register("s:s1", reg);
+    t.onFrame("s1", { type: "run_start" });
+    t.onFrame("s1", {
+      type: "ask_user",
+      data: {
+        id: "ask-1",
+        questions: [
+          {
+            id: "f",
+            question: "Which file?",
+            kind: "choice",
+            options: [{ label: "alpha.txt" }, { label: "beta", value: "beta.txt" }],
+          },
+        ],
+      },
+    });
     await flush();
-    expect(sent).toHaveLength(0); // not registered yet
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "tool_call_start", data: { name: "bash" } }, true);
-    await flush();
-    expect(sent).toHaveLength(0); // the open app draws it itself
-    t.onFrame("s1", { type: "tool_call_end", data: {} }, false);
-    await flush();
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.push).toMatchObject({ event: "update", priority: 5 });
-    expect(sent[0]!.push.contentState).toMatchObject({ statusText: "Thinking…" });
-    expect(sent[0]!.target.token).toBe(reg.token);
+    const state = sent.at(-1)!.push.contentState;
+    expect(state).toMatchObject({
+      phase: "needsYou",
+      askId: "ask-1",
+      options: ["alpha.txt", "beta"],
+    });
+    const key = String(state.askKey);
+    expect(key).toMatch(/^[0-9a-f]{32}$/);
+
+    // A wrong key, another question, a choice out of range: nothing.
+    expect(t.claimAnswer("s:s1", "ask-1", "0".repeat(32), 1)).toBeNull();
+    expect(t.claimAnswer("s:s1", "ask-9", key, 1)).toBeNull();
+    expect(t.claimAnswer("s:s2", "ask-1", key, 1)).toBeNull();
+    expect(t.claimAnswer("s:s1", "ask-1", key, 2)).toBeNull();
+    // The right one answers with the option's value, once.
+    expect(t.claimAnswer("s:s1", "ask-1", key, 1)).toEqual({ questionId: "f", value: "beta.txt" });
+    expect(t.claimAnswer("s:s1", "ask-1", key, 1)).toBeNull();
   });
 
-  it("paces progress: a burst becomes one push now and one trailing push with the latest state", async () => {
+  it("a token reported twice registers once", async () => {
     const t = tracker();
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "run_start" }, false);
-    for (const name of ["a", "b", "c"])
-      t.onFrame("s1", { type: "tool_call_start", data: { name } }, false);
+    t.onFrame("s1", { type: "run_start" });
+    t.register("s:s1", reg);
+    t.register("s:s1", { ...reg, registeredAt: "later" });
     await flush();
-    expect(sent.map((s) => s.push.contentState.statusText)).toEqual(["Working…"]);
-    clock += 2_000;
-    vi.advanceTimersByTime(2_000);
-    await flush();
-    expect(sent.map((s) => s.push.contentState.statusText)).toEqual(["Working…", "Running c"]);
-    vi.advanceTimersByTime(10_000);
-    await flush();
-    expect(sent).toHaveLength(2);
+    expect(lines()).toEqual(["update:Thinking…:10"]);
   });
 
-  it("sends the end at once, cancels a pending trailing update, and forgets the spent token", async () => {
+  it("pushes only to a registered target, and catches a late registration up at once", async () => {
     const t = tracker();
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "run_start" }, false);
-    t.onFrame("s1", { type: "tool_call_start", data: { name: "bash" } }, false); // pending
-    t.onFrame("s1", { type: "agent_done", data: { totalTurns: 1 } }, false);
+    t.onFrame("s1", { type: "run_start" });
+    await flush();
+    expect(sent).toHaveLength(0);
+    t.register("s:s1", reg);
+    await flush();
+    expect(lines()).toEqual(["update:Thinking…:10"]);
+    expect(sent[0]!.target).toEqual({ token: reg.token, env: "sandbox" });
+    expect(sent[0]!.push.contentState).toEqual({
+      phase: "working",
+      line: "Thinking…",
+      startedAt: S0,
+    });
+    expect(sent[0]!.push.staleDate).toBe(S0 + 1800);
+  });
+
+  it("paces routine steps to one per 5 s, latest wins; phase changes go at once at priority 10", async () => {
+    const t = tracker();
+    t.register("s:s1", reg);
+    t.onFrame("s1", { type: "run_start" });
+    for (const name of ["bash", "read", "web_search"])
+      t.onFrame("s1", { type: "tool_call_start", data: { name } });
+    await flush();
+    expect(lines()).toEqual(["update:Thinking…:10"]);
+    clock += 5_000;
+    vi.advanceTimersByTime(5_000);
+    await flush();
+    expect(lines()).toEqual(["update:Thinking…:10", "update:Searching the web:5"]);
+    t.onFrame("s1", { type: "ask_user", data: { questions: [{ question: "Q?" }] } });
+    await flush();
+    expect(sent.at(-1)!.push).toMatchObject({
+      priority: 10,
+      contentState: { phase: "needsYou", detail: "Q?" },
+    });
+    expect(sent.at(-1)!.push.alert).toBeUndefined();
+    t.onFrame("s1", { type: "ask_user_done", data: {} });
+    await flush();
+    expect(lines().at(-1)).toBe("update:Back to work:10");
+  });
+
+  it("ends at once with dismissal dates, cancels a pending trailing update, forgets the token", async () => {
+    const t = tracker();
+    t.register("s:s1", reg);
+    t.onFrame("s1", { type: "run_start" });
+    t.onFrame("s1", { type: "tool_call_start", data: { name: "bash" } }); // pending
+    t.onFrame("s1", { type: "run_end", data: {} });
     await flush();
     await flush();
     expect(sent.map((s) => s.push.event)).toEqual(["update", "end"]);
     const end = sent[1]!.push;
-    expect(end.priority).toBe(10);
-    expect(end.dismissalDate).toBe(Math.floor(clock / 1000) + 8);
-    expect(end.contentState).toMatchObject({ done: true, step: "Done" });
+    expect(end).toMatchObject({ priority: 10, dismissalDate: S0 + 1800 });
+    expect(end.contentState).toEqual({ phase: "done", line: "Done", startedAt: S0, endedAt: S0 });
+    expect(end.staleDate).toBeUndefined();
     vi.advanceTimersByTime(10_000);
     await flush();
-    expect(sent).toHaveLength(2); // the trailing update never fires after the end
-    expect(t.registration("s1")).toBeUndefined();
-  });
+    expect(sent).toHaveLength(2);
+    expect(t.registration("s:s1")).toBeUndefined();
+    expect(t.state("s:s1")).toBeUndefined();
 
-  it("forgets the token when an attached app ended the activity itself", () => {
-    const t = tracker();
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "run_start" }, true);
-    t.onFrame("s1", { type: "agent_done" }, true);
-    expect(sent).toHaveLength(0);
-    expect(t.registration("s1")).toBeUndefined();
+    t.register("s:s2", reg);
+    t.onFrame("s2", { type: "run_start" });
+    t.onFrame("s2", { type: "run_end", data: { cancelled: true } });
+    await t.flush();
+    expect(sent.at(-1)!.push).toMatchObject({ event: "end", dismissalDate: S0 + 600 });
   });
 
   it("drops a registration Apple calls gone (410)", async () => {
     const t = tracker();
-    t.register("s1", reg);
+    t.register("s:s1", reg);
     answer = "gone";
-    t.onFrame("s1", { type: "run_start" }, false);
-    await flush();
-    expect(t.registration("s1")).toBeUndefined();
+    t.onFrame("s1", { type: "run_start" });
+    await t.flush();
+    expect(t.registration("s:s1")).toBeUndefined();
   });
 
-  it("only the registering device may unregister; a revoked device loses its sessions", () => {
+  it("only the registering device may unregister; a revoked device loses its targets", () => {
     const t = tracker();
-    t.register("s1", reg);
-    t.register("s2", { ...reg, deviceId: "other" });
-    expect(t.unregister("s1", "other")).toBe(false);
-    expect(t.registration("s1")).toBeDefined();
+    t.register("s:s1", reg);
+    t.register("g:g_00000000", { ...reg, deviceId: "other" });
+    expect(t.unregister("s:s1", "other")).toBe(false);
     t.dropDevice("phone");
-    expect(t.registration("s1")).toBeUndefined();
-    expect(t.registration("s2")).toBeDefined();
+    expect(t.registration("s:s1")).toBeUndefined();
+    expect(t.registration("g:g_00000000")).toBeDefined();
   });
 
   it("never lets an update land after the end: pushes to one activity go out one at a time", async () => {
-    // Seen on the mini: a trailing update was in flight when agent_done
-    // arrived; the end went out alongside it and Apple finished the end first,
-    // so the lock screen could have flicked back to "Thinking…" after "Done".
     const calls: { event: string; release: () => void }[] = [];
     const slow: ApnsPusher = {
       configured: true,
@@ -226,12 +370,12 @@ describe("createLiveActivityTracker", () => {
       liveActivity: (_t, push) =>
         new Promise((resolve) => calls.push({ event: push.event, release: () => resolve("ok") })),
     };
-    const t = createLiveActivityTracker({ apns: slow, now: () => clock, minIntervalMs: 2_000 });
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "run_start" }, false); // update goes out, still in flight
-    t.onFrame("s1", { type: "agent_done" }, false);
+    const t = createLiveActivityTracker({ apns: slow, now: () => clock });
+    t.register("s:s1", reg);
+    t.onFrame("s1", { type: "run_start" });
+    t.onFrame("s1", { type: "run_end", data: {} });
     await flush();
-    expect(calls.map((c) => c.event)).toEqual(["update"]); // the end waits its turn
+    expect(calls.map((c) => c.event)).toEqual(["update"]);
     calls[0]!.release();
     await flush();
     await flush();
@@ -239,10 +383,70 @@ describe("createLiveActivityTracker", () => {
     calls[1]!.release();
   });
 
-  it("does nothing when APNs is not configured", () => {
-    const t = createLiveActivityTracker({ apns: { ...apns, configured: false }, now: () => clock });
-    t.register("s1", reg);
-    t.onFrame("s1", { type: "run_start" }, false);
+  it("alert: through the registration first (current state + alert, priority 10)", async () => {
+    const t = tracker();
+    t.onFrame("s1", { type: "run_start" });
+    t.onFrame("s1", { type: "ask_user", data: { questions: [{ question: "Q?" }] } });
+    t.register("s:s1", reg);
+    await t.flush();
+    sent = [];
+    const ok = await t.alert("s:s1", { title: "Needs your help", body: "Q?" }, () => null);
+    expect(ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.push).toMatchObject({
+      event: "update",
+      priority: 10,
+      alert: { title: "Needs your help", body: "Q?", sound: "default" },
+      contentState: { phase: "needsYou" },
+    });
+  });
+
+  it("alert: else push-to-start, one per token, only the host's env; false with no token", async () => {
+    const t = tracker();
+    const describe = (): { kind: "chat"; title: string; sessionId: string } => ({
+      kind: "chat",
+      title: "Chat",
+      sessionId: "s1",
+    });
+    expect(await t.alert("s:s1", { title: "Needs your help", body: "Q?" }, describe)).toBe(false);
     expect(sent).toHaveLength(0);
+    starts = [
+      { token: "cd".repeat(32), env: "sandbox", deviceId: "a" },
+      { token: "cd".repeat(32), env: "sandbox", deviceId: "b" },
+      { token: "ef".repeat(32), env: "production", deviceId: "c" },
+    ];
+    expect(await t.alert("s:s1", { title: "Needs your help", body: "Q?" }, describe)).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.target.token).toBe("cd".repeat(32));
+    expect(sent[0]!.push).toEqual({
+      event: "start",
+      attributesType: "KleioActivityAttributes",
+      attributes: { kind: "chat", title: "Chat", sessionId: "s1" },
+      contentState: { phase: "needsYou", line: "Needs your help", detail: "Q?", startedAt: S0 },
+      alert: { title: "Needs your help", body: "Q?", sound: "default" },
+      staleDate: S0 + 1800,
+      priority: 10,
+    });
+    answer = "failed";
+    expect(await t.alert("s:s1", { title: "x", body: "y" }, describe)).toBe(false);
+  });
+
+  it("set: group words, a fresh timer, and an end only when something was showing", async () => {
+    const t = tracker();
+    expect(await t.set("g:g_1", { phase: "done", line: "Done" })).toBe(false);
+    expect(t.state("g:g_1")).toBeUndefined();
+    t.register("g:g_1", reg);
+    await t.set("g:g_1", { phase: "working", line: "Starting…" }, { fresh: true });
+    clock += 3_000;
+    await t.set("g:g_1", { phase: "working", line: "Ada is on it" });
+    await t.flush();
+    expect(t.state("g:g_1")).toMatchObject({ line: "Ada is on it", startedAt: S0 });
+    await t.set("g:g_1", { phase: "stopped", line: "Paused after 35 turns" });
+    await t.flush();
+    expect(sent.at(-1)!.push).toMatchObject({
+      event: "end",
+      dismissalDate: S0 + 3 + 600,
+      contentState: { phase: "stopped", endedAt: S0 + 3 },
+    });
   });
 });

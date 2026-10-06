@@ -28,6 +28,8 @@ export interface PairedDevice {
   readonly admin: boolean;
   /** APNs push registration, if the device (an iPhone) has one. */
   readonly push: PushRegistration | null;
+  /** Live Activity push-to-start token (ActivityKit), if the iPhone sent one. */
+  readonly liveStart: PushRegistration | null;
 }
 
 export interface PushRegistration {
@@ -49,6 +51,8 @@ interface DeviceRecord {
   readonly admin?: boolean;
   /** Absent for laptops and older records. Stored in the encrypted file. */
   push?: PushRegistration | null;
+  /** Live Activity push-to-start token. Absent in older records. */
+  liveStart?: PushRegistration | null;
 }
 
 interface StoreDocument {
@@ -83,6 +87,11 @@ export interface DeviceRegistry {
   setPush(
     deviceId: string,
     push: PushRegistration | null,
+  ): Promise<Result<PairedDevice, RegistryError>>;
+  /** Set (or clear with null) a device's Live Activity push-to-start token. */
+  setLiveStart(
+    deviceId: string,
+    liveStart: PushRegistration | null,
   ): Promise<Result<PairedDevice, RegistryError>>;
   /**
    * Resolve a presented bearer to its device, or null. Constant-time over every
@@ -124,6 +133,7 @@ function toPaired(record: DeviceRecord): PairedDevice {
     revoked: record.revoked,
     admin: record.admin === true,
     push: record.push ?? null,
+    liveStart: record.liveStart ?? null,
   };
 }
 
@@ -270,11 +280,15 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     const record = records.find((r) => r.deviceId === deviceId);
     if (!record) return err({ kind: "not_found", message: `no device with id ${deviceId}` });
     const was = record.revoked;
+    const wasLiveStart = record.liveStart;
     record.revoked = true;
+    // A revoked phone can no longer have activities started on it.
+    record.liveStart = null;
     try {
       await persistStore();
     } catch (e) {
       record.revoked = was;
+      record.liveStart = wasLiveStart;
       return err({ kind: "io", message: messageOf(e) });
     }
     return ok(list());
@@ -291,6 +305,24 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     try {
       await persistStore();
     } catch (e) {
+      return err({ kind: "io", message: messageOf(e) });
+    }
+    return ok(toPaired(record));
+  }
+
+  async function setLiveStart(
+    deviceId: string,
+    liveStart: PushRegistration | null,
+  ): Promise<Result<PairedDevice, RegistryError>> {
+    const record = records.find((r) => r.deviceId === deviceId);
+    if (!record || record.revoked)
+      return err({ kind: "not_found", message: `no live device ${deviceId}` });
+    const was = record.liveStart;
+    record.liveStart = liveStart;
+    try {
+      await persistStore();
+    } catch (e) {
+      record.liveStart = was;
       return err({ kind: "io", message: messageOf(e) });
     }
     return ok(toPaired(record));
@@ -322,7 +354,7 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     return match ? toPaired(match) : null;
   }
 
-  return { init, list, setPush, get, mint, revoke, touch, authenticate };
+  return { init, list, setPush, setLiveStart, get, mint, revoke, touch, authenticate };
 }
 
 function messageOf(e: unknown): string {

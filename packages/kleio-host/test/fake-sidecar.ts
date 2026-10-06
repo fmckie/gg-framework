@@ -44,6 +44,8 @@ export interface FakeSidecar {
   models: { id: string; name?: string; provider: string; local?: boolean }[];
   /** Bodies of every POST /complete. */
   completions: any[];
+  /** Every POST /ask/<id>: the question it answers, its x-gg-session and body. */
+  asks: { id: string; session: string | undefined; body: any }[];
   /** POST /complete answers `{ text: completeText, model }` with 200, else `{ error }`. */
   completeStatus: number;
   completeText: string;
@@ -169,6 +171,20 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "POST" && /^\/ask\/ask-\d+$/.test(url.pathname)) {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        api.asks.push({
+          id: url.pathname.slice("/ask/".length),
+          session: req.headers["x-gg-session"] as string | undefined,
+          body: raw ? JSON.parse(raw) : {},
+        });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/complete") {
       let raw = "";
       req.on("data", (c) => (raw += c));
@@ -225,6 +241,7 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     disposed: [],
     models: [],
     completions: [],
+    asks: [],
     completeStatus: 200,
     completeText: '{"schedules":[]}',
     close: () =>

@@ -75,9 +75,16 @@ import {
   type PromptSegment,
   type AskUserPrompt,
   answerAskUser,
+  notifyAskUser,
   selectWorkspace,
 } from "./agent";
-import { dropSupersededAsks, mergeAskAnswers } from "./ask-user";
+import {
+  appendPendingAsks,
+  askNotificationText,
+  dropSupersededAsks,
+  isAskUserPrompt,
+  mergeAskAnswers,
+} from "./ask-user";
 import { glowPlacement, glowStateFor, glowVars } from "./window-glow";
 import { ActivityBar } from "./ActivityBar";
 import { autosizeComposer } from "./composer-autosize";
@@ -1678,6 +1685,14 @@ function App(): React.ReactElement {
           }),
         );
       }
+      // Questions still parked on the user (e.g. a chat opened from an
+      // ask_user push) re-show their band below the restored transcript.
+      if (st?.pendingAsks?.length) {
+        const pending = st.pendingAsks;
+        setItems((prev) =>
+          appendPendingAsks(prev, pending, (prompt) => ({ kind: "ask", id: nextId(), prompt })),
+        );
+      }
     } catch (err) {
       setStatus(`agent failed to start: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -1692,6 +1707,20 @@ function App(): React.ReactElement {
     const unsub = subscribe(handleEvent);
     return () => unsub();
   }, [handleEvent]);
+
+  // Desktop: a question arriving while this window is in the background gets a
+  // native notification (clicking it brings the app forward). The iPhone is
+  // told by the host's push instead.
+  useEffect(
+    () =>
+      subscribe((e) => {
+        if (e.type !== "ask_user" || isPhone() || document.hasFocus()) return;
+        if (!isAskUserPrompt(e.data)) return;
+        const { title, body } = askNotificationText(e.data);
+        void notifyAskUser(title, body).catch(() => {});
+      }),
+    [],
+  );
 
   // kleio: re-read the transcript from the host when it could not replay
   // everything this window missed, or when a reply that was already running

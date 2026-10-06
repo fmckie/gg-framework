@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1467,
+        "tracked": 1470,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -7608,6 +7608,24 @@
       "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
     },
     {
+      "id": "kleio-ios-widgets-id-gg-app-src-tauri-gen-apple-gg-app-xcodeproj-project-pbxproj",
+      "path": "gg-app/src-tauri/gen/apple/gg-app.xcodeproj/project.pbxproj",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "literal": "PRODUCT_BUNDLE_IDENTIFIER = com.atlas.ggcoder.widgets;"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio for iPhone's Live Activity widget extension: Apple requires an extension's bundle ID to start with its app's, com.atlas.ggcoder (the iOS App ID tied to the provisioning profile).",
+      "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
+    },
+    {
       "id": "kleio-ios-app-id-gg-app-src-tauri-gen-apple-project-yml",
       "path": "gg-app/src-tauri/gen/apple/project.yml",
       "scope": "content",
@@ -7619,11 +7637,11 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 2
+        "tracked": 3
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
-      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile; renaming it is a separate task.",
+      "reason": "Kleio for iPhone's bundle ID com.atlas.ggcoder is the iOS App ID registered with Apple and tied to its provisioning profile, and its Live Activity widget extension's ID (com.atlas.ggcoder.widgets) must start with it; renaming them is a separate task.",
       "removeWhen": "When Kleio for iPhone moves to a Kleio bundle ID with its own App ID and provisioning profile."
     },
     {

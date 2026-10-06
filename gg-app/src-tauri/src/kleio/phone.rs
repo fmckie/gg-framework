@@ -482,14 +482,20 @@ unsafe extern "C-unwind" fn present_from(
     }
 }
 
+/// Which push service this build's tokens belong to (notifications and Live
+/// Activities alike); `None` when it is not signed for pushes.
+pub fn build_env() -> Option<super::push::ApnsEnv> {
+    let profile = std::env::current_exe()
+        .ok()
+        .and_then(|exe| std::fs::read(exe.with_file_name("embedded.mobileprovision")).ok());
+    apns_env(profile.as_deref(), cfg!(target_abi = "sim"))
+}
+
 fn token_received(token: String) {
     let Some(app) = APP.get() else {
         return;
     };
-    let profile = std::env::current_exe()
-        .ok()
-        .and_then(|exe| std::fs::read(exe.with_file_name("embedded.mobileprovision")).ok());
-    let Some(env) = apns_env(profile.as_deref(), cfg!(target_abi = "sim")) else {
+    let Some(env) = build_env() else {
         log::warn!("kleio: this build is not signed for push notifications");
         return;
     };

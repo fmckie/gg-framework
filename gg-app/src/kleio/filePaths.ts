@@ -30,6 +30,40 @@ export function agentFilePath(href: string): string | null {
   return segments ? relativeFile(segments) : null;
 }
 
+/** Whose folder a specialist's link points into: a Specialist's own
+ *  (`…/Kleio/blobs/<blobId>/`) or a group member's (`…/Kleio/groups/<groupId>/<blobId>/`). */
+export interface SpecialistFolder {
+  readonly blobId: string;
+  readonly groupId?: string;
+}
+
+/**
+ * The path inside a specialist's folder that its link points at, or null.
+ * Takes relative links like `agentFilePath`, and also absolute paths on the
+ * Mac mini whose folder part ends in this specialist's own
+ * `/Kleio/blobs/<blobId>/` or `/Kleio/groups/<groupId>/<blobId>/` (the app
+ * doesn't know the mini's home folder), cut down to the part below it. A path
+ * into any other folder is refused.
+ */
+export function specialistFilePath(href: string, folder: SpecialistFolder): string | null {
+  const h = href.trim();
+  if (!h.startsWith("/")) return agentFilePath(h);
+  if (!folder.blobId || folder.groupId === "") return null;
+  const parts = decodedSegments(h.replace(/[?#].*$/, ""));
+  if (!parts) return null;
+  const tail = folder.groupId
+    ? ["Kleio", "groups", folder.groupId, folder.blobId]
+    : ["Kleio", "blobs", folder.blobId];
+  // parts[0] is "" (leading slash); the home folder sits between it and the tail.
+  for (let i = parts.length - tail.length - 1; i >= 1; i--) {
+    if (tail.every((s, j) => parts[i + j] === s)) {
+      if (parts.slice(1, i).some((s) => !s || s === "." || s === "..")) return null;
+      return relativeFile(parts.slice(i + tail.length));
+    }
+  }
+  return null;
+}
+
 /** The `/`-separated parts of a link, each percent-decoded; null when one
  *  does not decode. */
 function decodedSegments(h: string): string[] | null {

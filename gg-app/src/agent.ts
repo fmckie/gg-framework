@@ -153,6 +153,8 @@ export interface AgentState {
   chatAgent?: ChatAgentId;
   running: boolean;
   runState?: "idle" | "running" | "cancelling";
+  /** `ask_user` questions still awaiting an answer (validated on use). */
+  pendingAsks?: unknown[];
   /** Current reasoning level, or null when thinking is off. May be absent on
    * frames from older sidecars / partial model_change spreads. */
   thinkingLevel?: string | null;
@@ -928,6 +930,11 @@ export async function mcpElicit(
 
 export type { AskOption, AskQuestion, AskUserPrompt } from "./ask-user";
 export { isAskUserPrompt } from "./ask-user";
+
+/** Desktop: post a native "the agent has a question" notification (macOS). */
+export async function notifyAskUser(title: string, body: string): Promise<void> {
+  await invoke("desktop_notify_ask", { title, body });
+}
 
 /**
  * Answer (or dismiss) an `ask_user` question band. `answers` maps question id

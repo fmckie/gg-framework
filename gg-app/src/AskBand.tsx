@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "./Badge";
 import { theme } from "./theme";
-import type { AskOption, AskQuestion, AskUserPrompt } from "./ask-user";
+import { allowsText, type AskOption, type AskQuestion, type AskUserPrompt } from "./ask-user";
 
 /**
  * The in-thread question band (design-lab: ask-band-resolved.html).
@@ -39,13 +39,6 @@ const Check = (): React.ReactElement => (
 );
 
 const valueOf = (option: AskOption): string => option.value ?? option.label;
-
-/**
- * Free text is offered everywhere except when the model opts out. There is no
- * button for it: a `text` question hands straight over to the composer, and on
- * any other question typing a character does the same.
- */
-const allowsText = (q: AskQuestion): boolean => q.kind === "text" || q.allowOther !== false;
 
 type Answers = Record<string, string | string[]>;
 

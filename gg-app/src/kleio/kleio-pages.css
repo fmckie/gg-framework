@@ -92,14 +92,23 @@
   display: flex;
   flex-direction: column;
 }
-/* Room under the lists for the Agents/Groups switcher. */
-.kleio-screen.has-dock .kleio-list-scroll {
-  padding-bottom: 96px;
+/* Room under the lists for the Agents/Groups switcher: a spacer, not padding.
+   WebKit (the iPhone and Mac app) leaves a flex column's bottom padding out
+   of what it can scroll, so with padding the rows shrank to fit instead and
+   the list couldn't scroll at all. */
+.kleio-screen.has-dock .kleio-list-scroll::after {
+  content: "";
+  flex: 0 0 96px;
 }
 .kleio-list-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+/* Rows keep their height and the list scrolls; they never squash to fit. */
+.kleio-list-scroll > *,
+.kleio-list-scroll > .picker-reveal > * {
+  flex-shrink: 0;
 }
 .kleio-head {
   gap: 12px;
@@ -696,6 +705,33 @@
   gap: 10px;
   padding: 6px 0;
 }
+
+/* A question an agent is waiting on you to answer: the app's question band
+   (.ask-band), with who's asking above it in a group. A typed answer goes in
+   the message box, as in Chat and Code. */
+.kleio-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0;
+}
+.kleio-ask .ask-band {
+  margin: 0;
+}
+.kleio-ask-who {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.kleio-ask-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.kleio-ask .kleio-error {
+  margin: 0;
+}
 .kleio-gmsg > .blob-av,
 .kleio-gmsg > .kleio-member-gone {
   margin-top: 1px;
@@ -923,6 +959,161 @@
 }
 .kleio-member.is-missing {
   padding-left: 38px;
+}
+
+/* A member's tool calls and last outcome, under its row (avatar 30 + gap 10). */
+.kleio-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 0 6px 40px;
+}
+.kleio-activity-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color var(--t-fast),
+    color var(--t-fast);
+}
+.kleio-activity-toggle:hover {
+  background: rgb(255 255 255 / 0.08);
+  color: var(--text);
+}
+.kleio-activity-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.kleio-activity-caret {
+  flex: 0 0 auto;
+  transition: transform var(--t-fast);
+}
+.kleio-activity-toggle[aria-expanded="true"] .kleio-activity-caret {
+  transform: rotate(90deg);
+}
+.kleio-activity-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kleio-activity-body:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.kleio-activity-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.kleio-activity-time {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.kleio-activity-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.kleio-activity-meta.is-live,
+.kleio-activity-time.is-live {
+  color: var(--success);
+}
+.kleio-activity-meta.is-error,
+.kleio-activity-time.is-error,
+.kleio-activity-note.is-error {
+  color: var(--error);
+}
+.kleio-activity-meta.is-warning,
+.kleio-activity-note.is-warning {
+  color: var(--warning);
+}
+
+/* Assets: the files a conversation's specialists linked, newest first. */
+.kleio-assets {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kleio-asset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: calc(100% + 16px);
+  min-width: 0;
+  min-height: 44px;
+  margin: 0 -8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t-fast);
+}
+.kleio-asset:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.06);
+}
+.kleio-asset:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.kleio-asset:disabled {
+  cursor: progress;
+}
+.kleio-asset-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+.kleio-asset-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.kleio-asset-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kleio-asset-meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kleio-howto {

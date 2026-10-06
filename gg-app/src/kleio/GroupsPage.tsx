@@ -4,8 +4,16 @@
 // new/edit are full-page forms. A group's picture is its members' blobs.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpIcon, CheckIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import {
+  ArrowUpIcon,
+  CaretRightIcon,
+  CheckIcon,
+  PencilSimpleIcon,
+  SquareIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import { ActionMetal } from "../ActionMetal";
+import { isAskUserPrompt, type AskAnswers, type AskUserPrompt } from "../ask-user";
 import { Badge } from "../Badge";
 import { autosizeComposer } from "../composer-autosize";
 import { ConfirmModal } from "../ConfirmModal";
@@ -15,39 +23,51 @@ import { MetalButton } from "../MetalButton";
 import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
+import { formatDuration } from "../SubAgentFeed";
 import { toast } from "../toast";
+import { buildSummaryLineParts } from "../tool-format";
+import { ToolRow, type ToolRowState } from "../ToolRow";
 import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { AgentRowContent, type RowState } from "./AgentRow";
 import { AgentAvatar, BlobAvatar, GroupAvatar } from "./BlobAvatar";
 import { BLOB_COLOR_LABEL, BLOB_TONES } from "./blobLook";
+import { ChatAsk, typedAnswer } from "./ChatAsk";
 import { FileCards } from "./FileCard";
+import { AssetsPanel, collectAssets } from "./AssetsPanel";
 import {
   AppsButton,
   KleioHead,
   KleioPanel,
   KleioSplit,
+  NewChatButton,
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
-import { agentFilePath } from "./filePaths";
-import { fileErrorText, fileLinks, fileOwner, openFile } from "./kleioFiles";
+import { fileErrorText, fileLinks, fileOwner, openFile, ownerFilePath } from "./kleioFiles";
+import { startLiveActivity } from "./liveActivity";
 import { relTime } from "./relTime";
 import {
+  answerGroupAsk,
   BLOB_COLORS,
   createGroup,
   deleteGroup,
   listBlobs,
   listGroupMessages,
   listGroups,
+  newGroupSession,
   sendGroupMessage,
+  stopGroup,
   updateGroup,
   errorText,
   type Blob,
   type BlobColor,
   type Group,
+  type GroupActivityEntry,
   type GroupMessage,
+  type GroupTurnOutcome,
+  type GroupTurnOutcomeKind,
 } from "./kleioApi";
 import { useFollowLatest } from "./useFollowLatest";
 
@@ -67,9 +87,10 @@ function groupMembers(g: Pick<Group, "members">, byId: ReadonlyMap<string, Blob>
 
 /** How the host runs a group chat (see kleio-host groups.ts). */
 const HOW_IT_WORKS = [
-  "Send a message and every member replies, in member order.",
-  "@mention a specialist to ask just them.",
+  "Send a message and the specialist best placed for it starts; others join in as needed.",
+  "@mention specialists to choose who replies, in the order you mention them.",
   "Specialists can @mention each other to hand over.",
+  "The pen button starts a new conversation; the old one stays on your Mac mini.",
 ];
 
 function HowItWorks(): React.ReactElement {
@@ -109,6 +130,204 @@ function groupRowSub(g: Group): string {
 }
 
 type View = { kind: "list" } | { kind: "chat"; id: string } | { kind: "form"; id: string | null };
+
+const OUTCOME_LABEL: Record<GroupTurnOutcomeKind, string> = {
+  replied: "Replied",
+  passed: "Passed",
+  timed_out: "Stopped",
+  failed: "Failed",
+  unavailable: "Couldn't start",
+  budget_exhausted: "Not reached",
+};
+
+/** The colour an outcome shows in: a stop is an error, a skipped turn a warning. */
+function outcomeTone(kind: GroupTurnOutcomeKind): "" | " is-error" | " is-warning" {
+  if (kind === "timed_out" || kind === "failed" || kind === "unavailable") return " is-error";
+  return kind === "budget_exhausted" ? " is-warning" : "";
+}
+
+/** A call's time so far, or in all once it ended (host clock both ends). */
+function callMs(e: GroupActivityEntry, nowMs: number): number {
+  const start = Date.parse(e.startedAt);
+  const end = e.endedAt ? Date.parse(e.endedAt) : nowMs;
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
+}
+
+const STEP_FILE_CHARS = 28;
+
+/** A tool call in plain words, for the phone: "Reading notes.md", "Running a command". */
+export function stepText(e: Pick<GroupActivityEntry, "name" | "summary">): string {
+  const last = e.summary.trim().split(/[\\/]/).filter(Boolean).pop() ?? "";
+  const file = [...last].length > STEP_FILE_CHARS ? "" : last;
+  switch (e.name) {
+    case "bash":
+      return "Running a command";
+    case "read":
+      return file ? `Reading ${file}` : "Reading a file";
+    case "write":
+      return file ? `Writing ${file}` : "Writing a file";
+    case "edit":
+      return file ? `Editing ${file}` : "Editing a file";
+    case "ls":
+    case "grep":
+    case "find":
+      return "Searching files";
+    case "web_fetch":
+      return "Reading a web page";
+    case "web_search":
+      return "Searching the web";
+    case "subagent":
+      return "Handing off a task";
+    default:
+      return buildSummaryLineParts(e.name, "", false)[0]?.text ?? "Working";
+  }
+}
+
+/**
+ * A member's state in one line, for the phone: what it's doing right now and
+ * for how long, or why its last turn didn't reply; null when there's nothing
+ * to say (its job shows instead).
+ */
+export function memberLine(
+  entries: readonly GroupActivityEntry[],
+  outcome: GroupTurnOutcome | null,
+  replying: boolean,
+  nowMs: number,
+): { text: string; tone: "" | " is-live" | " is-error" | " is-warning" } | null {
+  if (replying) {
+    const step = [...entries].reverse().find((e) => e.status === "running");
+    return {
+      text: step ? `${stepText(step)} · ${formatDuration(callMs(step, nowMs))}` : "Thinking…",
+      tone: " is-live",
+    };
+  }
+  if (!outcome || outcome.kind === "replied" || outcome.kind === "passed") return null;
+  const label = OUTCOME_LABEL[outcome.kind] ?? "Ended";
+  return {
+    text:
+      outcome.reason && outcome.kind !== "budget_exhausted" ? `${label}: ${outcome.reason}` : label,
+    tone: outcomeTone(outcome.kind),
+  };
+}
+
+const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((id, i) => id === b[i]);
+
+/** The questions the host reports, keeping only well-formed ones. */
+export function validAsks(raw: Record<string, unknown> | undefined): Record<string, AskUserPrompt> {
+  const out: Record<string, AskUserPrompt> = {};
+  for (const [bid, p] of Object.entries(raw ?? {})) if (isAskUserPrompt(p)) out[bid] = p;
+  return out;
+}
+
+/** `next`, but the same object when nothing changed (a band keeps what you picked). */
+function sameAsks(
+  cur: Record<string, AskUserPrompt>,
+  next: Record<string, AskUserPrompt>,
+): Record<string, AskUserPrompt> {
+  const keys = Object.keys(next);
+  const same =
+    keys.length === Object.keys(cur).length && keys.every((k) => cur[k]?.id === next[k]?.id);
+  return same ? cur : next;
+}
+
+/**
+ * A member's tool calls for its current or last turn, oldest first, and how
+ * that turn ended — a disclosure under its row in the Members panel.
+ */
+function MemberActivity({
+  name,
+  entries,
+  outcome,
+  replying,
+  nowMs,
+  open,
+  onToggle,
+}: {
+  name: string;
+  entries: readonly GroupActivityEntry[];
+  outcome: GroupTurnOutcome | null;
+  replying: boolean;
+  /** When the host was last polled: how long running calls have taken so far. */
+  nowMs: number;
+  open: boolean;
+  onToggle: () => void;
+}): React.ReactElement | null {
+  const bodyId = useId();
+  if (!replying && entries.length === 0 && !outcome) return null;
+  // A newer host may send a kind this build doesn't know.
+  const label = outcome ? (OUTCOME_LABEL[outcome.kind] ?? "Ended") : null;
+  const tone = outcome ? outcomeTone(outcome.kind) : "";
+  const meta = [
+    entries.length ? plural(entries.length, "tool call") : null,
+    replying ? "live" : label,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="kleio-activity">
+      <button
+        type="button"
+        className="kleio-activity-toggle"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        // Starts with the visible text; says whose it is and its state.
+        aria-label={`Activity of ${name}${meta ? `, ${meta}` : ""}`}
+        onClick={onToggle}
+      >
+        <CaretRightIcon
+          className="kleio-activity-caret"
+          size={10}
+          weight="bold"
+          aria-hidden="true"
+        />
+        Activity
+        {meta && (
+          <span className={`kleio-activity-meta${replying ? " is-live" : tone}`}>{meta}</span>
+        )}
+      </button>
+      <div id={bodyId} className="kleio-activity-body" hidden={!open}>
+        {entries.length > 0 ? (
+          <ol className="kleio-activity-list" aria-label={`${name}'s tool calls, oldest first`}>
+            {entries.map((e) => {
+              const state: ToolRowState =
+                e.status === "running" ? "running" : e.status === "failed" ? "failed" : "done";
+              const took = formatDuration(callMs(e, nowMs));
+              return (
+                <ToolRow
+                  key={e.id}
+                  as="li"
+                  state={state}
+                  title={e.summary || undefined}
+                  parts={buildSummaryLineParts(e.name, e.summary, state !== "running")}
+                >
+                  <span
+                    className={`kleio-activity-time${
+                      state === "failed" ? " is-error" : state === "running" ? " is-live" : ""
+                    }`}
+                  >
+                    {state === "failed"
+                      ? `failed · ${took}`
+                      : state === "running"
+                        ? `live · ${took}`
+                        : took}
+                  </span>
+                </ToolRow>
+              );
+            })}
+          </ol>
+        ) : (
+          replying && <p className="kleio-activity-note">No tool calls yet.</p>
+        )}
+        {outcome && label && (
+          <p className={`kleio-activity-note${tone}`}>
+            {outcome.reason ? `${label}: ${outcome.reason}` : label}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export function GroupsPage({
   onClose,
@@ -589,17 +808,32 @@ function GroupChat({
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [typing, setTyping] = useState<string[]>([]);
+  const [activity, setActivity] = useState<Record<string, GroupActivityEntry[]>>({});
+  const [outcomes, setOutcomes] = useState<Record<string, GroupTurnOutcome>>({});
+  /** Members' questions waiting on you, by member id. */
+  const [asks, setAsks] = useState<Record<string, AskUserPrompt>>({});
+  const [polledAt, setPolledAt] = useState(0);
+  /** Members whose activity is expanded. */
+  const [openActivity, setOpenActivity] = useState<ReadonlySet<string>>(() => new Set());
+  const wasTyping = useRef<readonly string[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
+  const [starting, setStarting] = useState(false);
   const sidebar = useSidebar();
   const lastSeq = useRef(0);
+  /** Messages up to this seq belong to a conversation a new session cleared. */
+  const clearedThrough = useRef(0);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const windowFocused = useWindowFocused();
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
   // iPhone dictation: the transcript joins the draft for review before sending.
   const phoneComposer = isPhone();
+  // The phone shows each member's state in one line, not its tool calls.
+  const phone = phoneComposer;
   const dictation = useDictation({
     onText: (text) => setDraft((prev) => appendDictation(prev, text, MESSAGE_MAX)),
     onError: (message) => toast(message, "error"),
@@ -613,11 +847,10 @@ function GroupChat({
   const linkHandler = useCallback(
     (authorId: string) =>
       (href: string): boolean => {
-        const path = agentFilePath(href);
+        const owner = fileOwner(authorId, group.id);
+        const path = ownerFilePath(href, owner);
         if (!path) return false;
-        openFile(fileOwner(authorId, group.id), path).catch((e: unknown) =>
-          setError(fileErrorText(e)),
-        );
+        openFile(owner, path).catch((e: unknown) => setError(fileErrorText(e)));
         return true;
       },
     [group.id],
@@ -626,7 +859,13 @@ function GroupChat({
   useEffect(() => {
     let live = true;
     lastSeq.current = 0;
+    clearedThrough.current = 0;
     setMessages([]);
+    setActivity({});
+    setOutcomes({});
+    setAsks({});
+    setOpenActivity(new Set());
+    wasTyping.current = [];
     setLoaded(false);
     follow();
     const tick = async (): Promise<void> => {
@@ -634,11 +873,22 @@ function GroupChat({
       try {
         const page = await listGroupMessages(group.id, { after: lastSeq.current, limit: 200 });
         if (!live) return;
-        if (page.messages.length) {
-          lastSeq.current = page.lastSeq;
-          setMessages((cur) => [...cur, ...page.messages]);
+        // A new session (from any device) clears what came before it.
+        const cleared = Math.max(clearedThrough.current, page.clearedThrough ?? 0);
+        const fresh = page.messages.filter((m) => m.seq > cleared);
+        if (page.messages.length) lastSeq.current = page.lastSeq;
+        if (fresh.length || cleared > clearedThrough.current) {
+          clearedThrough.current = cleared;
+          setMessages((cur) => [...cur.filter((m) => m.seq > cleared), ...fresh]);
         }
-        setTyping(page.typing);
+        // The same list keeps the same array: an idle poll changes nothing.
+        setTyping((cur) => (sameIds(cur, page.typing) ? cur : page.typing));
+        // Older hosts send neither.
+        setActivity(page.activity ?? {});
+        setOutcomes(page.outcomes ?? {});
+        // Same questions: keep the objects, so a band keeps what you picked.
+        setAsks((cur) => sameAsks(cur, validAsks(page.asks)));
+        setPolledAt(Date.now());
         setLoaded(true);
         setError(null);
       } catch (e) {
@@ -654,10 +904,68 @@ function GroupChat({
   }, [group.id, follow]);
 
   // New messages carry along only a reader at the newest one, never one
-  // scrolled up to read.
+  // scrolled up to read. Only real changes: a catch-up on every poll lands
+  // on a scroll the reader has just begun and snaps it back down.
   useEffect(() => {
     catchUp();
-  }, [messages, typing, catchUp]);
+  }, [messages, typing, asks, catchUp]);
+
+  // Every file the members linked, newest first, for the Assets panel.
+  const assets = useMemo(
+    () =>
+      collectAssets(
+        messages,
+        (m) => (m.author === "you" ? null : fileOwner(m.author, group.id)),
+        (m) => m.authorName,
+      ),
+    [messages, group.id],
+  );
+
+  async function answerAsk(bid: string, prompt: AskUserPrompt, answers: AskAnswers): Promise<void> {
+    await answerGroupAsk(group.id, prompt.id, "answer", answers);
+    setAsks((cur) => {
+      if (cur[bid]?.id !== prompt.id) return cur;
+      const { [bid]: _answered, ...rest } = cur;
+      return rest;
+    });
+  }
+
+  async function startFresh(): Promise<void> {
+    setStarting(true);
+    setError(null);
+    try {
+      const g = await newGroupSession(group.id);
+      clearedThrough.current = Math.max(clearedThrough.current, g.clearedThrough ?? 0);
+      setMessages([]);
+      setTyping([]);
+      setActivity({});
+      setOutcomes({});
+      setAsks({});
+      setOpenActivity(new Set());
+      follow();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setStarting(false);
+      setConfirmNew(false);
+    }
+  }
+
+  // A member that starts replying opens its activity; it stays open after, to
+  // show how the turn ended, until the user closes it.
+  useEffect(() => {
+    const started = typing.filter((id) => !wasTyping.current.includes(id));
+    wasTyping.current = typing;
+    if (started.length) setOpenActivity((cur) => new Set([...cur, ...started]));
+  }, [typing]);
+
+  const toggleActivity = useCallback((id: string) => {
+    setOpenActivity((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
 
   useLayoutEffect(() => {
     autosizeComposer(inputRef.current, logRef.current, following());
@@ -666,17 +974,48 @@ function GroupChat({
   async function send(): Promise<void> {
     const text = draft.trim();
     if (!text || sending) return;
+    // A member's question is waiting: what's typed answers it (its turn is
+    // blocked on it), rather than going in as a new message.
+    const waiting = Object.entries(asks)[0];
+    const typed = waiting ? typedAnswer(waiting[1], text) : null;
+    if (waiting && typed) {
+      setSending(true);
+      setDraft("");
+      try {
+        await answerAsk(waiting[0], waiting[1], typed);
+      } catch (e) {
+        setError(errorText(e));
+        setDraft(text);
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     setSending(true);
     setDraft("");
     // Sending means following the replies, wherever the reader had scrolled.
     follow();
     try {
       await sendGroupMessage(group.id, text);
+      void startLiveActivity("group", group.name, { groupId: group.id });
     } catch (e) {
       setError(errorText(e));
       setDraft(text);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function stop(): Promise<void> {
+    if (stopping) return;
+    setStopping(true);
+    setError(null);
+    try {
+      await stopGroup(group.id);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setStopping(false);
     }
   }
 
@@ -705,7 +1044,7 @@ function GroupChat({
             <div className="kleio-chat-intro">
               <GroupAvatar members={members} color={group.color} size={80} />
               <p className="kleio-chat-hint">
-                Say hello. Everyone replies, or @mention one of them to ask just them.
+                Say hello. The best-placed specialist starts, or @mention who you want, in order.
               </p>
             </div>
           )}
@@ -731,13 +1070,25 @@ function GroupChat({
                     <LinkHandlerProvider value={linkHandler(m.author)}>
                       <Markdown>{m.text}</Markdown>
                     </LinkHandlerProvider>
-                    <FileCards owner={owner} links={fileLinks(m.text)} />
+                    <FileCards owner={owner} links={fileLinks(m.text, owner)} />
                   </div>
                 </div>
               </div>
             );
           })}
-          {typingNames.length > 0 && (
+          {Object.entries(asks).map(([bid, prompt]) => (
+            <ChatAsk
+              key={prompt.id}
+              prompt={prompt}
+              who={byId.get(bid)?.name ?? "A specialist"}
+              onSend={(answers) => answerAsk(bid, prompt, answers)}
+              onTypeInstead={(seed) => {
+                if (seed) setDraft((d) => d + seed);
+                inputRef.current?.focus();
+              }}
+            />
+          ))}
+          {typingNames.length > 0 && Object.keys(asks).length === 0 && (
             <div className="kleio-gmsg kleio-typing" role="status">
               <span className="kleio-typing-dots" aria-hidden="true">
                 <i />
@@ -745,7 +1096,12 @@ function GroupChat({
                 <i />
               </span>
               <span className="kleio-typing-names">
-                {typingNames.join(", ")} {typingNames.length === 1 ? "is" : "are"} replying…
+                {phone && typing.length === 1 && typing[0]
+                  ? `${typingNames[0]}: ${
+                      memberLine(activity[typing[0]] ?? [], null, true, polledAt)?.text ??
+                      "replying…"
+                    }`
+                  : `${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} replying…`}
               </span>
             </div>
           )}
@@ -802,15 +1158,28 @@ function GroupChat({
                 active={!sending && Boolean(draft.trim())}
                 windowFocused={windowFocused}
               />
-              <button
-                type="submit"
-                className="icon-circle icon-circle-primary"
-                title="Send"
-                aria-label="Send"
-                disabled={sending || !draft.trim()}
-              >
-                <ArrowUpIcon size={16} aria-hidden="true" />
-              </button>
+              {busy || sending ? (
+                <button
+                  type="button"
+                  className="icon-circle icon-circle-primary"
+                  title="Stop"
+                  aria-label="Stop"
+                  disabled={stopping}
+                  onClick={() => void stop()}
+                >
+                  <SquareIcon size={12} weight="fill" aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="icon-circle icon-circle-primary"
+                  title="Send"
+                  aria-label="Send"
+                  disabled={!draft.trim()}
+                >
+                  <ArrowUpIcon size={16} aria-hidden="true" />
+                </button>
+              )}
             </div>
           </div>
           {phoneComposer && <DictationStatus dictation={dictation} />}
@@ -834,24 +1203,42 @@ function GroupChat({
         <ul className="kleio-members">
           {members.map((m) => {
             const replying = typing.includes(m.id);
+            const line = phone
+              ? memberLine(activity[m.id] ?? [], outcomes[m.id] ?? null, replying, polledAt)
+              : replying
+                ? { text: "Replying…", tone: " is-live" as const }
+                : null;
             return (
-              <li key={m.id} className="kleio-member">
-                <AgentAvatar agent={m} size={30} live={replying} />
-                <span className="kleio-member-text">
-                  <span className="kleio-member-name">{m.name}</span>
-                  <span className={`kleio-member-sub${replying ? " is-live" : ""}`}>
-                    {replying ? "Replying…" : m.job}
+              <li key={m.id} className="kleio-member-item">
+                <div className="kleio-member">
+                  <AgentAvatar agent={m} size={30} live={replying} />
+                  <span className="kleio-member-text">
+                    <span className="kleio-member-name">{m.name}</span>
+                    <span className={`kleio-member-sub${line?.tone ?? ""}`}>
+                      {line?.text ?? m.job}
+                    </span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  className="kleio-text-btn"
-                  aria-label={`Mention ${m.name}`}
-                  title={`Mention ${m.name}`}
-                  onClick={() => mention(m.name)}
-                >
-                  @
-                </button>
+                  <button
+                    type="button"
+                    className="kleio-text-btn"
+                    aria-label={`Mention ${m.name}`}
+                    title={`Mention ${m.name}`}
+                    onClick={() => mention(m.name)}
+                  >
+                    @
+                  </button>
+                </div>
+                {!phone && (
+                  <MemberActivity
+                    name={m.name}
+                    entries={activity[m.id] ?? []}
+                    outcome={outcomes[m.id] ?? null}
+                    replying={replying}
+                    nowMs={polledAt}
+                    open={openActivity.has(m.id)}
+                    onToggle={() => toggleActivity(m.id)}
+                  />
+                )}
               </li>
             );
           })}
@@ -865,6 +1252,7 @@ function GroupChat({
           )}
         </ul>
       </KleioPanel>
+      <AssetsPanel assets={assets} onError={setError} />
       <KleioPanel title="How it works">
         <HowItWorks />
       </KleioPanel>
@@ -875,7 +1263,12 @@ function GroupChat({
     <>
       <KleioHead
         onBack={onBack}
-        tools={<SideToggle sidebar={sidebar} controls={sideId} />}
+        tools={
+          <>
+            <SideToggle sidebar={sidebar} controls={sideId} />
+            <NewChatButton onClick={() => setConfirmNew(true)} disabled={starting} />
+          </>
+        }
         leading={<GroupAvatar members={members} color={group.color} size={30} />}
         title={group.name}
         status={
@@ -899,6 +1292,16 @@ function GroupChat({
         sideLabel={`${group.name} details`}
         sidebar={sidebar}
       />
+      {confirmNew && (
+        <ConfirmModal
+          title="Start a new conversation?"
+          message={`Every device switches to a fresh conversation with ${group.name}, and any reply in progress stops. The old one stays on your Mac mini.`}
+          confirmLabel="New conversation"
+          busy={starting}
+          onConfirm={() => void startFresh()}
+          onClose={() => setConfirmNew(false)}
+        />
+      )}
     </>
   );
 }

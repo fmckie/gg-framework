@@ -68,6 +68,11 @@ export type Nudge = {
   /** A short label for the lock screen, e.g. the routine's prompt. */
   readonly title?: string;
   readonly body?: string;
+  /**
+   * An `ask_user` question awaiting the user (ask-push.ts). Never throttled
+   * and never stamps the throttle: a turn is blocked on it.
+   */
+  readonly ask?: boolean;
 } & (
   | { readonly sessionId: string; readonly groupId?: string }
   | { readonly sessionId?: string; readonly groupId: string }
@@ -80,13 +85,32 @@ export interface LiveActivityTarget {
   readonly env: "sandbox" | "production";
 }
 
+/** A Live Activity alert: lights the screen and expands the Dynamic Island. */
+export interface LiveActivityAlert {
+  readonly title: string;
+  readonly body: string;
+  readonly sound?: "default";
+}
+
 export interface LiveActivityPush {
-  readonly event: "update" | "end";
-  /** Must decode as the app's `AgentActivityAttributes.ContentState`. */
+  /**
+   * `start` is push-to-start (sent to a device's push-to-start token, needs
+   * `attributesType`, `attributes` and an `alert`); `update`/`end` go to the
+   * activity's own update token.
+   */
+  readonly event: "start" | "update" | "end";
+  /** Must decode as the app's `KleioActivityAttributes.ContentState`. */
   readonly contentState: Record<string, unknown>;
+  /** `start` only: the Swift attributes type name, e.g. "KleioActivityAttributes". */
+  readonly attributesType?: string;
+  /** `start` only: the activity's static attributes. */
+  readonly attributes?: Record<string, unknown>;
+  readonly alert?: LiveActivityAlert;
+  /** Unix seconds; when iOS should show the activity as out of date. */
+  readonly staleDate?: number;
   /** Unix seconds; `end` only. When the lock screen should drop the activity. */
   readonly dismissalDate?: number;
-  /** 10 = deliver now (end); 5 = may be batched by iOS (progress). */
+  /** 10 = deliver now (phase changes, alerts); 5 = may be batched by iOS (progress). */
   readonly priority: 5 | 10;
 }
 
@@ -95,13 +119,15 @@ export type LiveActivityResult = "ok" | "gone" | "failed";
 
 export interface ApnsPusher {
   readonly configured: boolean;
+  /** The APNs environment pushes go to, when configured. */
+  readonly env?: "sandbox" | "production";
   /**
    * One best-effort alert to every registered device for this env. Returns the
    * number of devices that accepted. Coalesced within MIN_PUSH_INTERVAL_MS.
    */
   notify(nudge: Nudge, devices: readonly PairedDevice[]): Promise<number>;
   /**
-   * Update or end one Live Activity on the lock screen. Separate from
+   * Start (push-to-start), update or end one Live Activity on the lock screen. Separate from
    * `notify`: different token (the activity's), topic
    * (`<bundle>.push-type.liveactivity`) and push type (`liveactivity`).
    */
@@ -223,12 +249,15 @@ export function createApnsPusher(opts: {
 
   return {
     configured: config !== null,
+    ...(config ? { env: config.env } : {}),
     async notify(nudge, devices) {
       if (!config) return 0;
-      const t = now();
-      if (t - lastPushAt < MIN_PUSH_INTERVAL_MS) return 0;
-      // Stamp first so a near-simultaneous second completion coalesces.
-      lastPushAt = t;
+      if (!nudge.ask) {
+        const t = now();
+        if (t - lastPushAt < MIN_PUSH_INTERVAL_MS) return 0;
+        // Stamp first so a near-simultaneous second completion coalesces.
+        lastPushAt = t;
+      }
       const registered = devices.filter(
         (d): d is PairedDevice & { push: PushRegistration } =>
           !d.revoked && d.push !== null && d.push.env === config.env,
@@ -253,6 +282,7 @@ export function createApnsPusher(opts: {
         kleio: {
           ...(nudge.sessionId ? { sessionId: nudge.sessionId } : {}),
           ...(nudge.groupId ? { groupId: nudge.groupId } : {}),
+          ...(nudge.ask ? { ask: true } : {}),
         },
       };
       try {
@@ -275,7 +305,11 @@ export function createApnsPusher(opts: {
         aps: {
           timestamp: Math.floor(now() / 1000),
           event: push.event,
+          ...(push.attributesType !== undefined ? { "attributes-type": push.attributesType } : {}),
+          ...(push.attributes !== undefined ? { attributes: push.attributes } : {}),
           "content-state": push.contentState,
+          ...(push.alert !== undefined ? { alert: push.alert } : {}),
+          ...(push.staleDate !== undefined ? { "stale-date": push.staleDate } : {}),
           ...(push.dismissalDate !== undefined ? { "dismissal-date": push.dismissalDate } : {}),
         },
       };

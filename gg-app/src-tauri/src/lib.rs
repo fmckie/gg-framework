@@ -1027,6 +1027,25 @@ async fn agent_prompt(
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    // kleio (iPhone): show what the agent is doing on the lock screen.
+    if kleio::remote().is_some() {
+        let (chat, cwd) = {
+            let windows: State<Windows> = webview.state();
+            let map = windows.map.lock().unwrap();
+            let w = map.get(webview.label());
+            (
+                w.is_some_and(|w| w.mode == WorkspaceMode::Chat),
+                w.and_then(|w| w.cwd.as_ref().map(|c| c.to_string_lossy().into_owned())),
+            )
+        };
+        let title = kleio::live::prompt_title(chat, cwd.as_deref(), &text);
+        kleio::live::start(
+            if chat { "chat" } else { "code" },
+            &title,
+            Some(&gg_sid),
+            None,
+        );
+    }
     Ok(())
 }
 
@@ -4098,6 +4117,7 @@ fn gaze_focus(
 // (`set_update_available` / `set_remote_active`).
 
 /// Kleio remote-host support (all platforms). See `kleio/mod.rs`.
+mod ask_notify;
 mod kleio;
 
 /// Tray menu item ids. Kept as one list so the builder and the click handler
@@ -5695,7 +5715,7 @@ fn restore_or_default_windows(app: &tauri::AppHandle) -> Result<(), String> {
 /// The updater installs `ring` lazily, but only when it first checks for an
 /// update — far too late for the client built below. `ring` here matches what
 /// it would install, so whichever runs first the process agrees with itself.
-fn install_rustls_provider() {
+pub(crate) fn install_rustls_provider() {
     // Fails only if a provider is already installed, which is the outcome we
     // want anyway — so the result is deliberately ignored.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -5837,6 +5857,7 @@ pub fn run() {
         .manage(kleio::Presence::default()) // kleio
         .manage(kleio::push::PushToken::default()) // kleio
         .manage(kleio::push::PendingTap::default()) // kleio
+        .manage(kleio::live::LiveTokens::default()) // kleio
         .manage(kleio::BridgeEpochs::default()) // kleio
         .manage(kleio::parked::Parked::load(
             kleio::parked::path(&home_dir()),
@@ -5848,6 +5869,7 @@ pub fn run() {
             kleio_activate_pairing,
             kleio_chat_for_session,
             kleio::push::kleio_take_notification_tap,
+            kleio::live::kleio_live_start,
             kleio::commands::kleio_devices,
             kleio::commands::kleio_revoke,
             kleio::commands::kleio_offer,
@@ -5887,6 +5909,7 @@ pub fn run() {
             agent_auth_oauth_code,
             agent_mcp_elicit,
             agent_ask_user,
+            ask_notify::desktop_notify_ask,
             agent_auth_logout,
             agent_kill_task,
             agent_import_transcript,
@@ -5968,6 +5991,10 @@ pub fn run() {
             // Must be in place before launch finishes; this is that moment.
             #[cfg(target_os = "ios")]
             kleio::phone::handle_notification_taps(app.handle());
+            // kleio (iPhone): Live Activities. Collect the push tokens iOS
+            // issues for them, so the host can keep them current.
+            #[cfg(target_os = "ios")]
+            kleio::live::begin(app.handle());
             // Sweep orphaned sidecars from previous (crashed/force-quit) app
             // instances BEFORE spawning any new sidecars — they'd otherwise
             // accumulate forever across launches. Best-effort + logged.
@@ -6084,6 +6111,8 @@ pub fn run() {
                 // A push-token registration that failed earlier gets another go.
                 tauri::async_runtime::spawn(async move {
                     kleio::push::register_due(&app.state::<kleio::push::PushToken>()).await;
+                    #[cfg(target_os = "ios")]
+                    kleio::live::register_due(&app.state::<kleio::live::LiveTokens>()).await;
                 });
             }
             // Debounced: native drag fires Moved per pixel. Only the last move's
@@ -6113,6 +6142,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
+            // kleio (iPhone): a tapped Live Activity opens its conversation.
+            #[cfg(target_os = "ios")]
+            if let RunEvent::Opened { urls } = &event {
+                for url in urls {
+                    kleio::live::open_url(app, url.as_str());
+                }
+            }
             if let RunEvent::ExitRequested { .. } = event {
                 // Mark the quit BEFORE windows start tearing down, so the
                 // Destroyed handlers preserve the snapshot, then write the final

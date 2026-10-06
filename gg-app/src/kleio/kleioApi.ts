@@ -7,6 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { HistoryEntry, MemorySnapshot } from "../agent";
+import type { AskAnswers } from "../ask-user";
 import type { BlobFaceKind, BlobShape } from "./blobLook";
 
 // ─── shapes ─────────────────────────────────────────────────────────────────
@@ -177,6 +178,8 @@ export interface Group {
   /** Blob ids whose turn is running. */
   typing: string[];
   lastMessage?: GroupMessage;
+  /** The last seq of the conversation a new session cleared (absent: never). */
+  clearedThrough?: number;
 }
 
 export interface GroupInput {
@@ -188,11 +191,53 @@ export interface GroupInput {
 
 export type GroupPatch = Partial<GroupInput>;
 
+/** One tool call of a member's current or last turn: a summary, never its output. */
+export interface GroupActivityEntry {
+  /** The tool call id. */
+  id: string;
+  name: string;
+  /** One clipped line from the args: a command, path, query… or "". */
+  summary: string;
+  status: "running" | "done" | "failed";
+  startedAt: string;
+  endedAt?: string;
+}
+
+export type GroupTurnOutcomeKind =
+  | "replied"
+  | "passed"
+  | "timed_out"
+  | "failed"
+  | "unavailable"
+  /** The group spent its turns for the message before this member's came. */
+  | "budget_exhausted";
+
+/** How a member's last turn ended; cleared while its next turn runs. */
+export interface GroupTurnOutcome {
+  kind: GroupTurnOutcomeKind;
+  /** Short and human ("took over 2 min"); "" for a reply. */
+  reason: string;
+}
+
 export interface GroupMessagesPage {
   /** Oldest first. */
   messages: GroupMessage[];
   typing: string[];
   lastSeq: number;
+  /**
+   * Blob id → the tool calls of its current or last turn, oldest first. Held in
+   * the host's memory only; absent from older hosts.
+   */
+  activity?: Record<string, GroupActivityEntry[]>;
+  /** Blob id → how its last turn ended. Absent from older hosts. */
+  outcomes?: Record<string, GroupTurnOutcome>;
+  /**
+   * A new session cleared messages up to this seq: a device showing older
+   * ones drops them. Absent until the group's first new session.
+   */
+  clearedThrough?: number;
+  /** Blob id → the question it's waiting on you to answer. Absent from older hosts. */
+  asks?: Record<string, unknown>;
 }
 
 export interface Connection {
@@ -243,6 +288,8 @@ export interface ThreadState {
   runState?: "idle" | "running" | "cancelling";
   model?: string;
   provider?: string;
+  /** Questions the agent is waiting on you to answer (`ask_user`), oldest first. */
+  pendingAsks?: unknown[];
 }
 
 // ─── transport ──────────────────────────────────────────────────────────────
@@ -317,6 +364,11 @@ function query(params: Record<string, string | number | undefined>): string {
 
 const blobPath = (id: string): string => `/kleio/blobs/${enc(id)}`;
 const groupPath = (id: string): string => `/kleio/groups/${enc(id)}`;
+
+/** Stops every reply in progress in a group and clears its queue. */
+export const stopGroup = async (id: string): Promise<void> => {
+  await call("POST", `${groupPath(id)}/stop`);
+};
 
 // ─── host health ────────────────────────────────────────────────────────────
 
@@ -427,6 +479,14 @@ export const listGroupMessages = (
 export const sendGroupMessage = async (id: string, text: string): Promise<GroupMessage> =>
   (await call<{ message: GroupMessage }>("POST", `${groupPath(id)}/messages`, { text })).message;
 
+/**
+ * Starts the group's conversation over: the Mac mini stops any reply in
+ * progress, sets the messages aside (kept on disk), and every member starts a
+ * fresh conversation.
+ */
+export const newGroupSession = async (id: string): Promise<Group> =>
+  (await call<{ group: Group }>("POST", `${groupPath(id)}/new`)).group;
+
 // ─── app connections ────────────────────────────────────────────────────────
 
 export const listConnections = (): Promise<ConnectionList> => call("GET", "/kleio/connections");
@@ -458,6 +518,29 @@ export const threadPrompt = async (session: string, text: string): Promise<void>
 
 export const threadCancel = async (session: string): Promise<void> => {
   await call("POST", "/cancel", {}, session);
+};
+
+/** Answer (or dismiss) a question the agent is waiting on. */
+export const threadAnswerAsk = async (
+  session: string,
+  askId: string,
+  action: "answer" | "cancel",
+  answers?: AskAnswers,
+): Promise<void> => {
+  await call("POST", `/ask/${enc(askId)}`, { action, ...(answers ? { answers } : {}) }, session);
+};
+
+/** Answer (or dismiss) a group member's question; its turn is waiting on it. */
+export const answerGroupAsk = async (
+  id: string,
+  askId: string,
+  action: "answer" | "cancel",
+  answers?: AskAnswers,
+): Promise<void> => {
+  await call("POST", `${groupPath(id)}/ask/${enc(askId)}`, {
+    action,
+    ...(answers ? { answers } : {}),
+  });
 };
 
 export const threadMemories = (session: string): Promise<MemorySnapshot> =>

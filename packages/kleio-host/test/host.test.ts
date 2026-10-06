@@ -41,7 +41,16 @@ function publishEndpoint(sc: FakeSidecar): void {
 
 /** Records nudges instead of calling Apple. */
 const nudges: { sessionId: string; devices: string[] }[] = [];
-const livePushes: { token: string; event: string; statusText: unknown; priority: number }[] = [];
+const livePushes: {
+  token: string;
+  event: string;
+  line: unknown;
+  priority: number;
+  alert?: unknown;
+  attributes?: unknown;
+  /** What the phone gets, e.g. a question's one-off key. */
+  state: Record<string, unknown>;
+}[] = [];
 const fakeApns: ApnsPusher = {
   configured: true,
   async notify(nudge, devices) {
@@ -53,8 +62,11 @@ const fakeApns: ApnsPusher = {
     livePushes.push({
       token: target.token,
       event: push.event,
-      statusText: push.contentState.statusText,
+      line: push.contentState.line,
       priority: push.priority,
+      ...(push.alert ? { alert: push.alert } : {}),
+      ...(push.attributes ? { attributes: push.attributes } : {}),
+      state: { ...push.contentState },
     });
     return "ok";
   },
@@ -803,41 +815,29 @@ describe("host: APNs nudge", () => {
   });
 });
 
-describe("host: Live Activity updates while the phone is locked", () => {
-  it("a device registers its activity token per session; bad input is refused; unauthenticated never", async () => {
+describe("host: Live Activity", () => {
+  const tick = (ms = 60): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  it("a device registers its activity token per session or group; bad input is refused; unauthenticated never", async () => {
     const phone = await registry.mint("Phone");
     if (!phone.ok) throw new Error("mint");
     const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
     const ok = { sessionId: "sess-1", token: "EF".repeat(32), env: "sandbox" };
-    expect((await call("POST", "/kleio/live-activity", { body: ok })).status).toBe(401);
-    expect(
-      (
-        await call("POST", "/kleio/live-activity", {
-          headers: P,
-          body: { ...ok, sessionId: "solver:1" },
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      (
-        await call("POST", "/kleio/live-activity", {
-          headers: P,
-          body: { ...ok, token: "not-hex" },
-        })
-      ).status,
-    ).toBe(400);
-    expect((await call("POST", "/kleio/live-activity", { headers: P, body: ok })).status).toBe(200);
-    expect(
-      (
-        await call("POST", "/kleio/live-activity", {
-          headers: P,
-          body: { sessionId: "sess-1", token: null },
-        })
-      ).status,
-    ).toBe(200);
+    const post = async (body: unknown, headers: Record<string, string> = P): Promise<number> =>
+      (await call("POST", "/kleio/live-activity", { headers, body })).status;
+    expect(await post(ok, {})).toBe(401);
+    expect(await post({ ...ok, sessionId: "solver:1" })).toBe(400);
+    expect(await post({ ...ok, token: "not-hex" })).toBe(400);
+    expect(await post({ token: ok.token })).toBe(400); // no target
+    expect(await post({ ...ok, groupId: "g_0123abcd" })).toBe(400); // both
+    expect(await post({ groupId: "g_XYZ", token: ok.token })).toBe(400);
+    expect(await post(ok)).toBe(200);
+    expect(await post({ groupId: "g_0123abcd", token: ok.token, env: "sandbox" })).toBe(200);
+    expect(await post({ sessionId: "sess-1", token: null })).toBe(200);
+    expect(await post({ groupId: "g_0123abcd", token: null })).toBe(200);
   });
 
-  it("with nobody attached, a run's steps become paced activity updates and one immediate end", async () => {
+  it("a session's run drives the activity: catch-up on register, paced steps, an immediate end", async () => {
     const admin = await pairAdmin();
     const phone = await registry.mint("Phone");
     if (!phone.ok) throw new Error("mint");
@@ -845,57 +845,172 @@ describe("host: Live Activity updates while the phone is locked", () => {
     const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
     const created = await call("POST", "/session", { headers: A, body: { mode: "code" } });
     const sid = created.body.sessionId as string;
-    await new Promise((r) => setTimeout(r, 50)); // host's upstream tap is open
-    const token = "ef".repeat(32);
-    expect(
-      (
-        await call("POST", "/kleio/live-activity", {
-          headers: P,
-          body: { sessionId: sid, token, env: "sandbox" },
-        })
-      ).status,
-    ).toBe(200);
-
-    const emit = (type: string, data: Record<string, unknown> = {}) =>
+    await tick(50);
+    const emit = (type: string, data: Record<string, unknown> = {}): void =>
       sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
     emit("run_start", { text: "go" });
-    emit("text_delta", { text: "streaming…" }); // never touches the lock screen
-    emit("tool_call_start", { toolCallId: "c1", name: "bash" });
-    emit("tool_call_end", { toolCallId: "c1", isError: false });
-    emit("agent_done", { totalTurns: 1 });
-    await new Promise((r) => setTimeout(r, 100));
-
-    // First progress push goes out at once; the burst behind it is folded into
-    // the end, which is never held back.
-    expect(livePushes.map((p) => `${p.event}:${p.statusText}:${p.priority}`)).toEqual([
-      "update:Working…:5",
+    await tick();
+    expect(livePushes).toHaveLength(0); // nothing registered yet
+    const token = "ef".repeat(32);
+    await call("POST", "/kleio/live-activity", {
+      headers: P,
+      body: { sessionId: sid, token, env: "sandbox" },
+    });
+    await tick(20);
+    expect(livePushes.map((p) => `${p.event}:${String(p.line)}:${p.priority}`)).toEqual([
+      "update:Thinking…:10",
+    ]);
+    // An attached app changes nothing: the host is the single source of truth.
+    const stream = sse(`/events?session=${sid}`, A, () => false);
+    await tick(50);
+    emit("text_delta", { text: "streaming…" });
+    emit("tool_call_start", { toolCallId: "c1", name: "bash" }); // inside the 5 s window
+    emit("ask_user", { id: "q1", questions: [{ question: "Ship it?" }] });
+    emit("ask_user_done", { id: "q1" });
+    emit("agent_done", { totalTurns: 1 }); // the run goes on: not the end
+    emit("run_end", { failed: false });
+    await tick(100);
+    stream.close();
+    expect(livePushes.map((p) => `${p.event}:${String(p.line)}:${p.priority}`)).toEqual([
+      "update:Thinking…:10",
+      "update:Needs your help:10",
+      "update:Back to work:10",
       "end:Done:10",
     ]);
     expect(livePushes.every((p) => p.token === token)).toBe(true);
-
-    // The token is spent: the next run sends nothing until the phone registers again.
+    // The token is spent.
     emit("run_start");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(livePushes).toHaveLength(2);
+    await tick(50);
+    expect(livePushes).toHaveLength(4);
   });
 
-  it("sends nothing while a device is attached (the open app draws the activity itself)", async () => {
+  it("a lock-screen button answers the question with the key it was given, once", async () => {
     const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
     const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
     const created = await call("POST", "/session", { headers: A, body: { mode: "code" } });
     const sid = created.body.sessionId as string;
-    await new Promise((r) => setTimeout(r, 50));
+    await tick(50);
     await call("POST", "/kleio/live-activity", {
-      headers: A,
-      body: { sessionId: sid, token: "ef".repeat(32) },
+      headers: P,
+      body: { sessionId: sid, token: "cd".repeat(32), env: "sandbox" },
     });
-    const stream = sse(`/events?session=${sid}`, A, () => false);
-    await new Promise((r) => setTimeout(r, 50));
-    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_start", data: {} })}`);
-    sidecar.emit(sid, `data: ${JSON.stringify({ type: "agent_done", data: {} })}`);
-    await new Promise((r) => setTimeout(r, 100));
+    const emit = (type: string, data: Record<string, unknown> = {}): void =>
+      sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
+    emit("run_start");
+    emit("ask_user", {
+      id: "ask-3",
+      questions: [
+        { id: "f", question: "Which?", kind: "choice", options: [{ label: "a" }, { label: "b" }] },
+      ],
+    });
+    await tick(50);
+    const asked = livePushes.find((p) => p.state.phase === "needsYou");
+    const key = String(asked?.state.askKey);
+    expect(asked?.state.options).toEqual(["a", "b"]);
+
+    const answer = (body: Record<string, unknown>, headers = P): Promise<{ status: number }> =>
+      call("POST", "/kleio/live-activity/answer", { headers, body });
+    const right = { sessionId: sid, askId: "ask-3", key, choice: 1 };
+    expect((await answer(right, {})).status).toBe(401);
+    expect((await answer({ ...right, key: "0".repeat(32) })).status).toBe(409);
+    expect((await answer({ ...right, key: "not-hex" })).status).toBe(400);
+    expect(sidecar.asks).toHaveLength(0);
+    expect((await answer(right)).status).toBe(200);
+    expect(sidecar.asks).toEqual([
+      { id: "ask-3", session: sid, body: { action: "answer", answers: { f: "b" } } },
+    ]);
+    // The key is spent.
+    expect((await answer(right)).status).toBe(409);
+    expect(sidecar.asks).toHaveLength(1);
+  });
+
+  it("persists a device's push-to-start token; revoking the device drops it", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    const id = phone.value.device.deviceId;
+    const post = async (body: unknown, headers: Record<string, string> = P): Promise<number> =>
+      (await call("POST", "/kleio/live-activity/start-token", { headers, body })).status;
+    expect(await post({ token: "ab".repeat(32) }, {})).toBe(401);
+    expect(await post({ token: "zz" })).toBe(400);
+    expect(await post({ token: "AB".repeat(32), env: "production" })).toBe(200);
+    expect(registry.get(id)?.liveStart).toMatchObject({
+      token: "ab".repeat(32),
+      env: "production",
+    });
+    expect(await post({ token: null })).toBe(200);
+    expect(registry.get(id)?.liveStart).toBeNull();
+    expect(await post({ token: "ab".repeat(32), env: "sandbox" })).toBe(200);
+    const rev = await call("POST", `/kleio/devices/${id}/revoke`, {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+    });
+    expect(rev.status).toBe(200);
+    expect(registry.get(id)?.liveStart).toBeNull();
+  });
+
+  it("an ask with no activity and no start token falls back to the plain notification", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    await call("POST", "/kleio/push", {
+      headers: P,
+      body: { token: "ab".repeat(16), env: "sandbox" },
+    });
+    const created = await call("POST", "/session", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+      body: { mode: "code" },
+    });
+    const sid = created.body.sessionId as string;
+    await tick(50);
+    sidecar.emit(
+      sid,
+      `data: ${JSON.stringify({ type: "ask_user", data: { id: "q1", questions: [{ question: "Ship it?" }] } })}`,
+    );
+    await tick(80);
     expect(livePushes).toHaveLength(0);
-    stream.close();
+    expect(nudges).toEqual([{ sessionId: sid, devices: ["Phone"] }]);
+  });
+
+  it("an ask uses the live alert (push-to-start) when it can, and then sends no plain notification", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    await call("POST", "/kleio/push", {
+      headers: P,
+      body: { token: "ab".repeat(16), env: "sandbox" },
+    });
+    await call("POST", "/kleio/live-activity/start-token", {
+      headers: P,
+      body: { token: "cd".repeat(32), env: "sandbox" },
+    });
+    const created = await call("POST", "/session", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+      body: { mode: "code", cwd: "/Users/x/projects/my-app" },
+    });
+    const sid = created.body.sessionId as string;
+    await tick(50);
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_start", data: {} })}`);
+    sidecar.emit(
+      sid,
+      `data: ${JSON.stringify({ type: "ask_user", data: { id: "q1", questions: [{ question: "Ship it?" }] } })}`,
+    );
+    await tick(80);
+    expect(nudges).toHaveLength(0);
+    expect(livePushes).toHaveLength(1);
+    expect(livePushes[0]).toMatchObject({
+      token: "cd".repeat(32),
+      event: "start",
+      line: "Needs your help",
+      priority: 10,
+      alert: { title: "Needs your help", body: "Ship it?", sound: "default" },
+      attributes: { kind: "code", title: "my-app", sessionId: sid },
+    });
   });
 });
 

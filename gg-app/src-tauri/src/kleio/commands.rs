@@ -504,6 +504,12 @@ pub(crate) fn safe_session(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
+/// An `ask_user` id as the sidecar mints them: `ask-` + 1..=9 digits.
+fn safe_ask_id(id: &str) -> bool {
+    id.strip_prefix("ask-")
+        .is_some_and(|n| (1..=9).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// `true` when `segs` (the path split on `/`) is `root` itself or below it.
 fn under(segs: &[&str], root: &[&str]) -> bool {
     segs.len() >= root.len() && segs[..root.len()] == *root
@@ -534,7 +540,11 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
             && !under(&segs, &["kleio", "connections", "callback"]));
-    let scoped = under(&segs, &["memories"]) || SESSION_ROUTES.contains(&p);
+    // Answering an `ask_user` band: POST /ask/ask-<n>, nothing else under /ask.
+    let ask = method == "POST"
+        && q.is_none()
+        && matches!(segs.as_slice(), ["ask", id] if safe_ask_id(id));
+    let scoped = under(&segs, &["memories"]) || SESSION_ROUTES.contains(&p) || ask;
     match (product, scoped, session) {
         (true, _, None) => Ok(false),
         (true, _, Some(_)) => Err("kleio_api: product routes take no session".into()),
@@ -543,6 +553,23 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
         (false, true, None) => Err(format!("kleio_api: {p} needs a session")),
         _ => reject(),
     }
+}
+
+/// A one-off client for a Live Activity answer: short timeout (iOS gives a
+/// button's intent little time), the device token from `r`.
+#[cfg(target_os = "ios")]
+pub(super) fn answer_client(r: &super::Remote) -> Result<reqwest::Client, String> {
+    let mut h = reqwest::header::HeaderMap::new();
+    h.insert(
+        DEVICE_TOKEN_HEADER,
+        reqwest::header::HeaderValue::from_str(&r.device_token)
+            .map_err(|_| "device token is not header-safe".to_string())?,
+    );
+    reqwest::Client::builder()
+        .default_headers(h)
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 pub(super) fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, String> {
@@ -730,6 +757,9 @@ mod tests {
                 "GET",
                 "/kleio/groups/g1/messages?before=2026-09-30T10%3A00%3A00Z&limit=50",
             ),
+            // A new conversation; answering a member's question.
+            ("POST", "/kleio/groups/g_0bc1704f/new"),
+            ("POST", "/kleio/groups/g_0bc1704f/ask/ask-12"),
             ("GET", "/kleio/connections"),
             ("GET", "/kleio/connections/toolkits"),
             ("POST", "/kleio/connections/gmail/connect"),
@@ -755,6 +785,28 @@ mod tests {
         assert!(check_route("GET", "/state", Some("x\r\ny: z")).is_err());
         assert!(check_route("GET", "/state", Some(&"a".repeat(129))).is_err());
         assert!(check_route("GET", "/kleio/home", Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_allows_answering_an_ask() {
+        assert_eq!(check_route("POST", "/ask/ask-1", Some("sess-1")), Ok(true));
+        assert_eq!(check_route("POST", "/ask/ask-123456789", Some("sess-1")), Ok(true));
+        assert!(check_route("POST", "/ask/ask-1", None).is_err(), "needs a session");
+        for (m, p) in [
+            ("GET", "/ask/ask-1"),
+            ("DELETE", "/ask/ask-1"),
+            ("POST", "/ask"),
+            ("POST", "/ask/"),
+            ("POST", "/ask/ask-"),
+            ("POST", "/ask/ask-1234567890"),
+            ("POST", "/ask/ask-1a"),
+            ("POST", "/ask/elicit-1"),
+            ("POST", "/ask/ask-1/x"),
+            ("POST", "/ask/ask-1?x=1"),
+            ("POST", "/ask/.."),
+        ] {
+            assert!(check_route(m, p, Some("sess-1")).is_err(), "{m} {p}");
+        }
     }
 
     #[test]

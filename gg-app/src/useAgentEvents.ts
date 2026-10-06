@@ -13,7 +13,7 @@ import {
   type QueuedMessage,
   type SlashCommand,
 } from "./agent";
-import { isAskUserPrompt } from "./ask-user";
+import { appendPendingAsks, closeSettledAsk, isAskUserPrompt } from "./ask-user";
 import { formatTokenCount } from "./ActivityBar";
 import { type LiveToolEntry, LIVE_TOOL_PANEL_ROWS } from "./LiveToolPanel";
 import { type SubAgentLine } from "./SubAgentFeed";
@@ -989,7 +989,22 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // answers back (or the run ends and `run_end` closes the band). A
           // malformed frame is dropped rather than rendered as an empty band
           // the user could never answer.
-          if (isAskUserPrompt(d)) pushItem({ kind: "ask", id: nextId(), prompt: d });
+          // Deduped by prompt id: a resumed stream can replay a frame the
+          // hydrate already restored from `/state`.
+          if (isAskUserPrompt(d)) {
+            const prompt = d;
+            setItems((prev) =>
+              appendPendingAsks(prev, [prompt], (p) => ({ kind: "ask", id: nextId(), prompt: p })),
+            );
+          }
+          break;
+        case "ask_user_done":
+          // Settled anywhere (another device answered, timeout, cancel): the
+          // band's buttons can no longer reach anyone.
+          if (typeof d.id === "string") {
+            const askId = d.id;
+            setItems((prev) => closeSettledAsk(prev, askId));
+          }
           break;
         case "plan_progress": {
           // The sidecar reads the live approved-plan file, so this snapshot

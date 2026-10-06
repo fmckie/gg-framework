@@ -2180,6 +2180,9 @@ async function createSession(
   const asks = createAskUserBridge({
     broadcast: (prompt) => broadcast("ask_user", prompt),
     onTimeout: (prompt) => log("WARN", "app-sidecar", "ask_user timed out", { id: prompt.id }),
+    // Every settle path (answer, cancel, timeout, cancelAll) tells every
+    // client, so a band answered on one device closes on the others.
+    onSettle: (id) => broadcast("ask_user_done", { id }),
   });
   const askUserTool = createAskUserTool(asks.park);
 
@@ -3837,6 +3840,9 @@ async function createSession(
         supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
         supportsVideo: getModel(st.model)?.supportsVideo ?? false,
         autopilot,
+        // Questions still parked on the user, so a client that attaches late
+        // (a phone opening a push) can re-show the band.
+        pendingAsks: asks.pending(),
         ...kenStatePayload(),
         ...footerExtras(),
       });

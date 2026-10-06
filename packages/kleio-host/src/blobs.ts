@@ -206,6 +206,8 @@ export interface Blobs {
   find(blobId: string): Promise<Blob | undefined>;
   /** The model a Blob's conversations use. */
   modelOf(b: Blob): string;
+  /** The Blob whose conversation this session is (after load), if any. */
+  bySession(sessionId: string): Blob | undefined;
 }
 
 // Validators shared with groups.ts. An Invalid is a 400 with its message.
@@ -1110,5 +1112,6 @@ export function createBlobs(options: BlobsOptions): Blobs {
       return find(blobId);
     },
     modelOf: effectiveModel,
+    bySession: (sessionId) => blobs.find((b) => b.sessionId === sessionId),
   };
 }

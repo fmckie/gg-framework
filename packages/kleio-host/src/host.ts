@@ -59,9 +59,17 @@ import {
   type AgentFile,
   type AgentFileError,
 } from "./files.js";
-import { createGroups, type Groups } from "./groups.js";
+import { jevRouter } from "./group-router.js";
+import { createGroups, type GroupRouter, type Groups } from "./groups.js";
+import { createJev, readKeyFile } from "./jev.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
-import { createLiveActivityTracker, type SidecarFrame } from "./live-activity.js";
+import { createAskNotifier } from "./ask-push.js";
+import {
+  createLiveActivityTracker,
+  type LiveAttributes,
+  type SidecarFrame,
+} from "./live-activity.js";
+import { clipText, TITLE_MAX } from "./live-text.js";
 import type { RingStore, SessionRing } from "./sse-ring.js";
 import { readSidecarEndpoint, type SidecarEndpoint } from "./sidecar.js";
 import * as macaroon from "./macaroon.js";
@@ -71,7 +79,7 @@ import { err, ok, type Result } from "./result.js";
 
 /** Frame types that change a Live Activity (see live-activity.ts). */
 const LIVE_FRAME_RE =
-  /"type":"(run_start|tool_call_start|tool_call_end|turn_end|agent_done|error|run_end)"/;
+  /"type":"(run_start|tool_call_start|tool_call_end|ask_user|ask_user_done|run_end)"/;
 
 export const DEVICE_TOKEN_HEADER = "x-kleio-device-token";
 export const CONTROL_HEADER = "x-kleio-control";
@@ -138,7 +146,7 @@ export interface HostOptions {
   readonly blobDefaultModel?: string;
   /** How often the Blob scheduler looks for a due schedule (ms). 0 disables. Default 5 s. */
   readonly blobTickMs?: number;
-  /** How long one Blob's turn in a group chat may run (default 10 minutes). */
+  /** How long one Blob's turn in a group chat may run (default 30 minutes). */
   readonly groupTurnTimeoutMs?: number;
   /**
    * App connections (Composio). Absent = the routes answer "not set up".
@@ -151,6 +159,19 @@ export interface HostOptions {
     readonly ggHome?: string;
     readonly fetch?: typeof fetch;
   };
+  /**
+   * Jev (Typesafe), the group chats' router and job-complete checker. Without
+   * a key, groups route by relevance. `keyPath` defaults to
+   * <state dir>/typesafe.key.
+   */
+  readonly jev?: {
+    readonly apiKey?: string;
+    readonly keyPath?: string;
+    readonly baseUrl?: string;
+    readonly fetch?: typeof fetch;
+  };
+  /** Test seam: replaces the Jev router. */
+  readonly groupRouter?: GroupRouter;
 }
 
 export interface Host {
@@ -470,9 +491,11 @@ export function createHost(options: HostOptions): Host {
             const frame = s.ring.push(raw);
             for (const sub of s.subs) sub.write(frame.frame);
             const lf = liveFrame(raw);
-            if (lf) liveActivities.onFrame(sessionId, lf, s.subs.size > 0);
+            // A group member's work shows on its group's activity instead.
+            if (lf && !(groups?.owns(sessionId) ?? false)) liveActivities.onFrame(sessionId, lf);
             const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
             groups?.onFrame(sessionId, raw);
+            askNotifier.onFrame(sessionId, raw, !(groups?.owns(sessionId) ?? false));
             if (!isRunEnd(raw)) continue;
             // The home thread's transcript path appears at its first run end
             // and moves on compaction; re-learn it whoever is watching.
@@ -597,10 +620,54 @@ export function createHost(options: HostOptions): Host {
   // must not track sessions or open upstreams into a dead server.
   let stopped = false;
   // Lock-screen Live Activities, updated from here while the phone is locked.
+  // The iPhone Live Activity per session / group (live-activity.ts).
   const liveActivities = createLiveActivityTracker({
     apns: options.apns,
+    startTokens: () =>
+      registry
+        .list()
+        .flatMap((d) =>
+          !d.revoked && d.liveStart ? [{ ...d.liveStart, deviceId: d.deviceId }] : [],
+        ),
     log,
     now: () => (options.now?.() ?? new Date()).getTime(),
+  });
+  // What POST /session asked for, so push-to-start can name the activity.
+  // In memory only: after a restart an unknown session reads as a "Chat".
+  const sessionKinds = new Map<string, { mode: "chat" | "code"; cwd: string }>();
+  /** Static attributes for a session's activity. Names only, never secrets. */
+  function describeSession(sessionId: string): LiveAttributes {
+    const blob = blobs?.bySession(sessionId);
+    const base = (kind: LiveAttributes["kind"], title: string): LiveAttributes => ({
+      kind,
+      title: clipText(title, TITLE_MAX) || "Kleio",
+      sessionId,
+    });
+    if (blob) return base("specialist", blob.name);
+    if (home?.sessionId() === sessionId) return base("chat", "Kleio");
+    const k = sessionKinds.get(sessionId);
+    if (k?.mode === "code") return base("code", basename(k.cwd) || "Code");
+    return base("chat", "Chat");
+  }
+  // `ask_user` questions pushed to the phone (ask-push.ts): through the Live
+  // Activity when one is (or can be started) on the phone, else a plain alert.
+  const askNotifier = createAskNotifier({
+    attached: (sessionId) => (live.get(sessionId)?.subs.size ?? 0) > 0,
+    push: (nudge) => {
+      if (!options.apns?.configured) return;
+      const apns = options.apns;
+      const sid = nudge.sessionId;
+      void (async () => {
+        const viaLive = sid
+          ? await liveActivities.alert(
+              `s:${sid}`,
+              { title: "Needs your help", body: nudge.title ?? "Kleio has a question" },
+              () => describeSession(sid),
+            )
+          : false;
+        if (!viaLive) await apns.notify(nudge, registry.list());
+      })().catch((e) => log(`[apns] ${String(e)}`));
+    },
   });
 
   // Disk writes this host started and nobody awaits on the request path.
@@ -753,6 +820,27 @@ export function createHost(options: HostOptions): Host {
         notify: async (n) => {
           if (options.apns?.configured) await options.apns.notify(n, registry.list());
         },
+        onLive: (groupId, title, state, alert, fresh) =>
+          liveActivities.set(`g:${groupId}`, state, {
+            fresh: fresh === true,
+            ...(alert ? { alert: { title: "Needs your help", body: state.detail ?? title } } : {}),
+            describe: () => ({ kind: "group", title: clipText(title, TITLE_MAX), groupId }),
+          }),
+        router:
+          options.groupRouter ??
+          jevRouter(
+            createJev({
+              apiKey: async () =>
+                options.jev?.apiKey?.trim() ||
+                (await readKeyFile(
+                  options.jev?.keyPath ??
+                    join(dirname(options.sidecarEndpointPath), "typesafe.key"),
+                )),
+              ...(options.jev?.baseUrl ? { baseUrl: options.jev.baseUrl } : {}),
+              ...(options.jev?.fetch ? { fetch: options.jev.fetch } : {}),
+            }),
+            log,
+          ),
         ...(options.groupTurnTimeoutMs !== undefined
           ? { turnTimeoutMs: options.groupTurnTimeoutMs }
           : {}),
@@ -912,6 +1000,19 @@ export function createHost(options: HostOptions): Host {
    * up front so a retry can resend it; the sidecar API is JSON, bounded here at
    * 8 MiB to stay well above any real prompt/attachment while still bounded.
    */
+  /** Note a new session's mode and cwd from its POST /session request. */
+  function rememberKind(sessionId: string, raw: Buffer): void {
+    try {
+      const o = JSON.parse(raw.toString("utf8")) as { mode?: unknown; cwd?: unknown };
+      sessionKinds.set(sessionId, {
+        mode: o.mode === "chat" || o.mode === "motion" ? "chat" : "code",
+        cwd: typeof o.cwd === "string" ? o.cwd : "",
+      });
+    } catch {
+      /* not ours to validate */
+    }
+  }
+
   async function proxy(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const body =
       req.method === "GET" || req.method === "HEAD"
@@ -933,6 +1034,7 @@ export function createHost(options: HostOptions): Host {
     headers["x-gg-token"] = "";
     headers["content-length"] = String(body.length);
 
+    const reqBody = body;
     const attemptOnce = (ep: SidecarEndpoint): Promise<"ok" | "stale" | "failed"> =>
       new Promise((resolve) => {
         const up = httpRequest(
@@ -963,7 +1065,10 @@ export function createHost(options: HostOptions): Host {
                   // Answer only once the session is on disk: a client that has
                   // the id must be able to rely on a host restart still
                   // recording it.
-                  if (typeof id === "string") await track(id);
+                  if (typeof id === "string") {
+                    rememberKind(id, reqBody);
+                    await track(id);
+                  }
                   delete out["content-length"];
                   res.writeHead(200, { ...out, "content-length": Buffer.byteLength(body) });
                   res.end(body);
@@ -1111,32 +1216,124 @@ export function createHost(options: HostOptions): Host {
     // A device registers (or clears) ITS OWN APNs token. Not an admin route:
     // a phone must be able to do this for itself; it can never touch another
     // device's record.
-    // A phone registers (or clears) the push token of ITS OWN Live Activity for
-    // one session, so the host can keep the lock screen current while the
-    // phone is locked. Not persisted (see live-activity.ts).
+    // A phone registers (or clears) the update token of ITS OWN Live Activity
+    // for one session or group chat; the host then keeps it current (and
+    // pushes the current state at once, so it catches up). Not persisted.
     if (req.method === "POST" && path === "/kleio/live-activity") {
       const body = await readBody(req, 1024);
       if (body === null) return json(res, 413, { error: "bad_request" });
-      let parsed: { sessionId?: unknown; token?: unknown; env?: unknown } = {};
+      let parsed: { sessionId?: unknown; groupId?: unknown; token?: unknown; env?: unknown } = {};
       try {
         parsed = JSON.parse(body.toString("utf8")) as typeof parsed;
       } catch {
         return json(res, 400, { error: "bad_request" });
       }
-      const sessionId = typeof parsed.sessionId === "string" ? parsed.sessionId : "";
-      if (!/^[A-Za-z0-9_-]{1,80}$/.test(sessionId)) return json(res, 400, { error: "bad_session" });
+      const sessionId = typeof parsed.sessionId === "string" ? parsed.sessionId : null;
+      const groupId = typeof parsed.groupId === "string" ? parsed.groupId : null;
+      if ((sessionId === null) === (groupId === null))
+        return json(res, 400, { error: "bad_target" });
+      if (sessionId !== null && !/^[A-Za-z0-9_-]{1,80}$/.test(sessionId))
+        return json(res, 400, { error: "bad_session" });
+      if (groupId !== null && !/^g_[0-9a-f]{8}$/.test(groupId))
+        return json(res, 400, { error: "bad_group" });
+      const target = sessionId !== null ? `s:${sessionId}` : `g:${groupId ?? ""}`;
       if (parsed.token === null) {
-        liveActivities.unregister(sessionId, auth.device.deviceId);
+        liveActivities.unregister(target, auth.device.deviceId);
         return json(res, 200, { ok: true });
       }
       const token = typeof parsed.token === "string" ? parsed.token.trim().toLowerCase() : "";
       if (!/^[0-9a-f]{32,400}$/.test(token)) return json(res, 400, { error: "bad_token" });
-      liveActivities.register(sessionId, {
+      liveActivities.register(target, {
         token,
         env: parsed.env === "production" ? "production" : "sandbox",
         deviceId: auth.device.deviceId,
         registeredAt: (options.now?.() ?? new Date()).toISOString(),
       });
+      log(`[live] ${auth.device.label} registered a Live Activity for ${target}`);
+      return json(res, 200, { ok: true });
+    }
+
+    // A button on the lock screen answered the question its Live Activity
+    // shows. The one-off key it carries proves the tap came from that very
+    // activity (Apple delivered it to the phone, nobody else has it).
+    if (req.method === "POST" && path === "/kleio/live-activity/answer") {
+      const body = await readBody(req, 2048);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let p: {
+        sessionId?: unknown;
+        groupId?: unknown;
+        askId?: unknown;
+        key?: unknown;
+        choice?: unknown;
+      } = {};
+      try {
+        p = JSON.parse(body.toString("utf8")) as typeof p;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const sid =
+        typeof p.sessionId === "string" && /^[A-Za-z0-9_-]{1,80}$/.test(p.sessionId)
+          ? p.sessionId
+          : null;
+      const gid =
+        typeof p.groupId === "string" && /^g_[0-9a-f]{8}$/.test(p.groupId) ? p.groupId : null;
+      const askId = typeof p.askId === "string" && /^ask-\d{1,9}$/.test(p.askId) ? p.askId : null;
+      const key = typeof p.key === "string" && /^[0-9a-f]{32}$/.test(p.key) ? p.key : null;
+      const choice = typeof p.choice === "number" ? p.choice : NaN;
+      if (!askId || !key || (sid ? gid : !gid)) return json(res, 400, { error: "bad_request" });
+      const target = gid ? `g:${gid}` : `s:${sid}`;
+      const answer = liveActivities.claimAnswer(target, askId, key, choice);
+      if (!answer) return json(res, 409, { error: "That question is no longer waiting." });
+      const answers = { [answer.questionId]: answer.value };
+      const r = gid
+        ? await groups?.route(
+            "POST",
+            `/kleio/groups/${gid}/ask/${askId}`,
+            new URLSearchParams(),
+            async () => ({ action: "answer", answers }),
+          )
+        : await sidecarCall("POST", `/ask/${askId}`, {
+            session: sid ?? "",
+            body: { action: "answer", answers },
+            timeoutMs: 15_000,
+          });
+      const status = r?.status ?? 502;
+      const delivered = status >= 200 && status < 300;
+      log(
+        `[live] ${auth.device.label} answered ${askId} on ${target} from the lock screen → ${status}`,
+      );
+      return delivered
+        ? json(res, 200, { ok: true })
+        : json(res, status, { error: "Your answer didn't reach the agent." });
+    }
+
+    // A phone sets (or clears) ITS OWN Live Activity push-to-start token, so
+    // the host can start an activity on it (persisted in the device registry).
+    if (req.method === "POST" && path === "/kleio/live-activity/start-token") {
+      const body = await readBody(req, 1024);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let parsed: { token?: unknown; env?: unknown } = {};
+      try {
+        parsed = JSON.parse(body.toString("utf8")) as typeof parsed;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      let reg: PushRegistration | null = null;
+      if (parsed.token !== null) {
+        const token = typeof parsed.token === "string" ? parsed.token.trim().toLowerCase() : "";
+        if (!/^[0-9a-f]{32,400}$/.test(token)) return json(res, 400, { error: "bad_token" });
+        reg = {
+          token,
+          env: parsed.env === "production" ? "production" : "sandbox",
+          registeredAt: (options.now?.() ?? new Date()).toISOString(),
+        };
+      }
+      const r = await registry.setLiveStart(auth.device.deviceId, reg);
+      if (!r.ok)
+        return json(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.kind });
+      log(
+        `[live] ${auth.device.label} ${reg ? `registered (${reg.env})` : "cleared"} its Live Activity start token`,
+      );
       return json(res, 200, { ok: true });
     }
 
@@ -1451,6 +1648,7 @@ export function createHost(options: HostOptions): Host {
       new Promise((resolve) => {
         stopped = true;
         liveActivities.stop();
+        askNotifier.stop();
         if (routinePoll) clearInterval(routinePoll);
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);

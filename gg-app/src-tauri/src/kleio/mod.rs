@@ -21,6 +21,7 @@ pub mod commands;
 pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
+pub mod live;
 pub mod parked;
 #[cfg(target_os = "ios")]
 pub mod phone;
@@ -101,6 +102,14 @@ fn from_env() -> Option<Remote> {
         control_credential: std::env::var("KLEIO_CONTROL_CREDENTIAL").ok(),
         admin: false,
     })
+}
+
+/// The pairing, read now: for work that may run before (or without) the
+/// boot-time read succeeding, e.g. a Live Activity button pressed in a launch
+/// that began while the phone was locked.
+#[cfg(target_os = "ios")]
+pub fn remote_now() -> Option<Remote> {
+    from_env().or_else(from_store)
 }
 
 fn from_store() -> Option<Remote> {

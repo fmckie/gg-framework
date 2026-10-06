@@ -256,3 +256,29 @@ describe("ask_user", () => {
     await expect(result).resolves.toContain("The failing upload test");
   });
 });
+
+describe("ask_user bridge settle tracking", () => {
+  it("lists pending prompts and reports every settle path", async () => {
+    const broadcast = vi.fn<(prompt: AskUserPrompt) => void>();
+    const onSettle = vi.fn<(id: string) => void>();
+    const bridge = createAskUserBridge({ broadcast, onSettle, timeoutMs: 60_000 });
+    const q = { questions: [{ id: "a", question: "A?", kind: "confirm" as const }] };
+    const first = bridge.park(q);
+    const second = bridge.park(q);
+    expect(bridge.pending().map((p) => p.id)).toEqual(["ask-1", "ask-2"]);
+    expect(bridge.pending()[0]?.questions[0]?.question).toBe("A?");
+
+    bridge.settle("ask-1", { action: "answer", answers: { a: "yes" } });
+    await first;
+    expect(onSettle).toHaveBeenCalledWith("ask-1");
+    expect(bridge.pending().map((p) => p.id)).toEqual(["ask-2"]);
+
+    bridge.cancelAll();
+    await second;
+    expect(onSettle).toHaveBeenCalledWith("ask-2");
+    expect(bridge.pending()).toEqual([]);
+    // A settle on an unknown id is not reported again.
+    expect(bridge.settle("ask-1", { action: "cancel" })).toBe(false);
+    expect(onSettle).toHaveBeenCalledTimes(2);
+  });
+});

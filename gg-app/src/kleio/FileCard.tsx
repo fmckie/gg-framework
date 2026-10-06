@@ -58,7 +58,7 @@ function useSeen(ref: React.RefObject<HTMLElement | null>): boolean {
   return seen;
 }
 
-function KindIcon({ name, size }: { name: string; size: number }): React.ReactElement {
+export function KindIcon({ name, size }: { name: string; size: number }): React.ReactElement {
   const props = { size, weight: "duotone" as const, "aria-hidden": true };
   switch (fileExtension(name)) {
     case "pdf":

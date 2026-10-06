@@ -1,15 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { GroupsPage } from "./GroupsPage";
+import type * as Platform from "../platform";
+import { isPhone } from "../platform";
+import { GroupsPage, memberLine, stepText } from "./GroupsPage";
 import {
   createGroup,
   deleteGroup,
   listBlobs,
   listGroupMessages,
   listGroups,
+  newGroupSession,
+  answerGroupAsk,
   type Blob,
   type Group,
+  stopGroup,
 } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
 
@@ -17,6 +22,10 @@ import type * as KleioApi from "./kleioApi";
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("../RadioButton", () => ({ RadioButton: () => <button type="button">Radio</button> }));
+vi.mock("../platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof Platform>()),
+  isPhone: vi.fn(() => false),
+}));
 vi.mock("../WindowLayoutButton", () => ({
   WindowLayoutButton: () => <button type="button">Windows</button>,
 }));
@@ -28,9 +37,12 @@ vi.mock("./kleioApi", async (importOriginal) => {
     listGroups: vi.fn(),
     listGroupMessages: vi.fn(),
     sendGroupMessage: vi.fn(),
+    stopGroup: vi.fn(),
     createGroup: vi.fn(),
     updateGroup: vi.fn(),
     deleteGroup: vi.fn(),
+    newGroupSession: vi.fn(),
+    answerGroupAsk: vi.fn(),
   };
 });
 
@@ -99,7 +111,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
+  vi.mocked(isPhone).mockReturnValue(false);
 });
+
+/** The composer's beam reads matchMedia once a member is replying. */
+function stubMatchMedia(): void {
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    matches: false,
+    media,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+}
 
 describe("GroupsPage", () => {
   it("lists each group with its latest message", async () => {
@@ -116,6 +140,68 @@ describe("GroupsPage", () => {
     const side = screen.getByRole("complementary", { name: "Morning Desk details" });
     expect(within(side).getByText("Agent 1")).toBeTruthy();
     expect(within(side).getByText("Agent 2")).toBeTruthy();
+  });
+
+  it("shows each member's tool calls and how its last turn ended, outside the transcript", async () => {
+    // A member replying turns on the composer's beam, which reads matchMedia.
+    stubMatchMedia();
+    const now = Date.now();
+    const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: ["b1"],
+      lastSeq: 0,
+      activity: {
+        b1: [
+          {
+            id: "t1",
+            name: "bash",
+            summary: "pnpm test",
+            status: "failed",
+            startedAt: at(9000),
+            endedAt: at(6000),
+          },
+          { id: "t2", name: "read", summary: "notes.md", status: "running", startedAt: at(4000) },
+        ],
+      },
+      outcomes: { b2: { kind: "timed_out", reason: "took over 2 min" } },
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+
+    // The member replying opens on its own; the newest call is last and live.
+    const live = await within(side).findByRole("button", { name: /^Activity of Agent 1/ });
+    await waitFor(() => expect(live.getAttribute("aria-expanded")).toBe("true"));
+    const calls = within(side).getByRole("list", { name: "Agent 1's tool calls, oldest first" });
+    const rows = within(calls).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "⏺Ran pnpm testfailed · 3s",
+      "⏺Reading notes.md…live · 4s",
+    ]);
+
+    // Another member's stop stays folded until asked for; its toggle says why.
+    const stopped = within(side).getByRole("button", { name: /^Activity of Agent 2/ });
+    expect(stopped.getAttribute("aria-expanded")).toBe("false");
+    expect(stopped.textContent).toContain("Stopped");
+    const body = document.getElementById(stopped.getAttribute("aria-controls") ?? "");
+    expect(body?.hidden).toBe(true);
+    fireEvent.click(stopped);
+    expect(stopped.getAttribute("aria-expanded")).toBe("true");
+    expect(body?.hidden).toBe(false);
+    expect(within(side).getByText("Stopped: took over 2 min")).toBeTruthy();
+
+    // The transcript stays clean.
+    const log = screen.getByRole("log", { name: "Morning Desk conversation" });
+    expect(log.textContent).not.toMatch(/Stopped|pnpm test/);
+  });
+
+  it("shows no activity for an older host that doesn't report it", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+    await waitFor(() => expect(within(side).getByText("Agent 1")).toBeTruthy());
+    expect(within(side).queryByRole("button", { name: /^Activity of/ })).toBeNull();
   });
 
   it("builds a new group from ticked agents, up to eight", async () => {
@@ -148,6 +234,224 @@ describe("GroupsPage", () => {
     await waitFor(() => expect(deleteGroup).toHaveBeenCalledWith("g1"));
   });
 
+  it("starts a new conversation from the pen button, after asking, and clears the old one", async () => {
+    vi.mocked(newGroupSession).mockResolvedValue({ ...DESK, clearedThrough: 1 });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
+    await waitFor(() => expect(within(log).getByText("€40M")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    expect(newGroupSession).not.toHaveBeenCalled();
+    const confirm = screen.getByRole("dialog", { name: "Start a new conversation?" });
+    // A later poll still returns the old message: it stays cleared.
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: [],
+      lastSeq: 1,
+      clearedThrough: 1,
+    });
+    fireEvent.click(within(confirm).getByRole("button", { name: "New conversation" }));
+    await waitFor(() => expect(newGroupSession).toHaveBeenCalledWith("g1"));
+    await waitFor(() => expect(within(log).queryByText("€40M")).toBeNull());
+    expect(screen.queryByRole("dialog", { name: "Start a new conversation?" })).toBeNull();
+  });
+
+  it("shows a member's question with its buttons, says who asks, and sends your pick", async () => {
+    stubMatchMedia();
+    vi.mocked(answerGroupAsk).mockResolvedValue(undefined);
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: ["b2"],
+      lastSeq: 0,
+      asks: {
+        b2: {
+          id: "ask-7",
+          questions: [
+            {
+              id: "q1",
+              question: "Which market?",
+              kind: "choice",
+              options: [{ label: "Lagos" }, { label: "Nairobi" }],
+            },
+          ],
+        },
+      },
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
+    await within(log).findByText("Which market?");
+    expect(within(log).getByText("Agent 2 asks")).toBeTruthy();
+    // While it waits on you, the question replaces "is replying".
+    expect(within(log).queryByText(/is replying/)).toBeNull();
+
+    fireEvent.click(within(log).getByRole("button", { name: /Nairobi/ }));
+    await waitFor(() =>
+      expect(answerGroupAsk).toHaveBeenCalledWith("g1", "ask-7", "answer", { q1: "Nairobi" }),
+    );
+  });
+
+  it("drops messages another device's new session cleared", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
+    await waitFor(() => expect(within(log).getByText("€40M")).toBeTruthy());
+
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [
+        {
+          seq: 2,
+          id: "m2",
+          author: "you",
+          authorName: "You",
+          emoji: "🙂",
+          text: "Fresh start",
+          at: "",
+        },
+      ],
+      typing: [],
+      lastSeq: 2,
+      clearedThrough: 1,
+    });
+    await waitFor(() => expect(within(log).getByText("Fresh start")).toBeTruthy(), {
+      timeout: 3000,
+    });
+    expect(within(log).queryByText("€40M")).toBeNull();
+  });
+
+  it("shows an empty Assets panel before anything is shared", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+    expect(within(side).getByRole("heading", { name: "Assets" })).toBeTruthy();
+    expect(within(side).getByText("Files your specialists share will appear here.")).toBeTruthy();
+  });
+
+  it("stops the group from the composer while a member is replying", async () => {
+    stubMatchMedia();
+    vi.mocked(stopGroup).mockResolvedValue(undefined);
+    vi.mocked(listGroupMessages).mockResolvedValue({ messages: [], typing: ["b1"], lastSeq: 0 });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(stop);
+    });
+    expect(stopGroup).toHaveBeenCalledWith("g1");
+  });
+
+  it("shows Send, not Stop, when nobody is replying", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    await screen.findByRole("button", { name: "Send" });
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  });
+
+  it("lists the files members shared under Assets, newest first, one row per file", async () => {
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [
+        {
+          seq: 1,
+          id: "m1",
+          author: "b1",
+          authorName: "Agent 1",
+          emoji: "🫧",
+          text: "Draft: [the report](outputs/report.pdf)",
+          at: "",
+        },
+        {
+          seq: 2,
+          id: "m2",
+          author: "b2",
+          authorName: "Agent 2",
+          emoji: "🫧",
+          text: "Numbers in [sales](outputs/sales.csv); see also [the report](outputs/report.pdf).",
+          at: "",
+        },
+        {
+          seq: 3,
+          id: "m3",
+          author: "you",
+          authorName: "You",
+          emoji: "🙂",
+          text: "Mine: [notes](outputs/notes.md)",
+          at: "",
+        },
+        {
+          seq: 4,
+          id: "m4",
+          author: "b1",
+          authorName: "Agent 1",
+          emoji: "🫧",
+          text: "I've created [festivals.md](/Users/w/Kleio/groups/g1/b1/festivals.md), not [theirs](/Users/w/Kleio/groups/g1/b2/a.md) or [this](/etc/passwd.txt).",
+          at: "",
+        },
+      ],
+      typing: [],
+      lastSeq: 4,
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+    const list = await within(side).findByRole("list", {
+      name: "Files shared in this conversation, newest first",
+    });
+    // Agent 2's report is a different file from Agent 1's (each has a folder).
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual([
+      "Open festivals.md, shared by Agent 1",
+      "Open sales, shared by Agent 2",
+      "Open the report, shared by Agent 2",
+      "Open the report, shared by Agent 1",
+    ]);
+  });
+
+  it("iPhone: each member's state in one line, with no tool-call lists", async () => {
+    vi.mocked(isPhone).mockReturnValue(true);
+    stubMatchMedia();
+    const now = Date.now();
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: ["b1"],
+      lastSeq: 0,
+      activity: {
+        b1: [
+          {
+            id: "t1",
+            name: "bash",
+            summary: "pnpm test",
+            status: "done",
+            startedAt: new Date(now - 9000).toISOString(),
+            endedAt: new Date(now - 6000).toISOString(),
+          },
+          {
+            id: "t2",
+            name: "read",
+            summary: "docs/notes.md",
+            status: "running",
+            startedAt: new Date(now - 4000).toISOString(),
+          },
+        ],
+      },
+      outcomes: { b2: { kind: "timed_out", reason: "took over 30 min" } },
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
+    await waitFor(() => expect(within(side).getByText(/^Reading notes\.md · \d+s$/)).toBeTruthy());
+    expect(within(side).getByText("Stopped: took over 30 min")).toBeTruthy();
+    expect(within(side).queryByRole("button", { name: /^Activity of/ })).toBeNull();
+    const log = screen.getByRole("log", { name: "Morning Desk conversation" });
+    expect(within(log).getByRole("status").textContent).toMatch(
+      /^Agent 1: Reading notes\.md · \d+s$/,
+    );
+  });
+
   it("points you to specialists first when there are none", async () => {
     vi.mocked(listBlobs).mockResolvedValue([]);
     vi.mocked(listGroups).mockResolvedValue([]);
@@ -157,5 +461,28 @@ describe("GroupsPage", () => {
     expect(
       (screen.getByRole("button", { name: "+ New group" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe("the phone's one-line member state", () => {
+  const call = (name: string, summary: string) => ({ name, summary });
+
+  it.each([
+    [call("bash", "pnpm --filter @kleio/coder test"), "Running a command"],
+    [call("read", "packages/coder/src/app-sidecar.ts"), "Reading app-sidecar.ts"],
+    [call("edit", "src/a/very-long-file-name-that-would-not-fit.tsx"), "Editing a file"],
+    [call("grep", "useFollowLatest"), "Searching files"],
+    [call("web_fetch", "https://example.com"), "Reading a web page"],
+  ])("%o reads as %s", (entry, text) => {
+    expect(stepText(entry)).toBe(text);
+  });
+
+  it("says nothing for a member that replied or passed, and why one stopped", () => {
+    expect(memberLine([], { kind: "replied", reason: "" }, false, 0)).toBeNull();
+    expect(memberLine([], { kind: "passed", reason: "had nothing to add" }, false, 0)).toBeNull();
+    expect(memberLine([], null, true, 0)).toEqual({ text: "Thinking…", tone: " is-live" });
+    expect(
+      memberLine([], { kind: "budget_exhausted", reason: "the group used all 35 turns" }, false, 0),
+    ).toEqual({ text: "Not reached", tone: " is-warning" });
   });
 });

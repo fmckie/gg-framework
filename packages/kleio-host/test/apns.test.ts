@@ -152,6 +152,53 @@ describe("liveActivity", () => {
     expect(push.body).toMatchObject({ aps: { event: "end", "dismissal-date": 123 } });
   });
 
+  it("push-to-start carries the attributes type, attributes, alert and stale date", async () => {
+    const p = pusher();
+    await p.liveActivity(
+      { token: "cd".repeat(32), env: "sandbox" },
+      {
+        event: "start",
+        attributesType: "KleioActivityAttributes",
+        attributes: { kind: "chat", title: "Kleio", sessionId: "s1" },
+        contentState: { phase: "needsYou", line: "Needs your help", startedAt: 1 },
+        alert: { title: "Needs your help", body: "Ship it?", sound: "default" },
+        staleDate: 999,
+        priority: 10,
+      },
+    );
+    const push = apple.pushes[0]!;
+    expect(push.headers["apns-priority"]).toBe("10");
+    expect(push.headers["apns-topic"]).toBe("com.kleio.app.push-type.liveactivity");
+    expect(push.body).toEqual({
+      aps: {
+        timestamp: Math.floor(clock / 1000),
+        event: "start",
+        "attributes-type": "KleioActivityAttributes",
+        attributes: { kind: "chat", title: "Kleio", sessionId: "s1" },
+        "content-state": { phase: "needsYou", line: "Needs your help", startedAt: 1 },
+        alert: { title: "Needs your help", body: "Ship it?", sound: "default" },
+        "stale-date": 999,
+      },
+    });
+  });
+
+  it("an update may carry an alert and a stale date", async () => {
+    const p = pusher();
+    await p.liveActivity(
+      { token: "cd".repeat(32), env: "sandbox" },
+      {
+        event: "update",
+        contentState: { phase: "working" },
+        alert: { title: "t", body: "b", sound: "default" },
+        staleDate: 5,
+        priority: 10,
+      },
+    );
+    expect(apple.pushes[0]!.body).toMatchObject({
+      aps: { alert: { title: "t", body: "b", sound: "default" }, "stale-date": 5 },
+    });
+  });
+
   it("reports gone on 410, and sends nothing for the wrong env or when unconfigured", async () => {
     const p = pusher();
     expect(
@@ -244,6 +291,21 @@ describe("createApnsPusher", () => {
     expect(
       apple.pushes.map((x) => (x.body as { kleio: { sessionId: string } }).kleio.sessionId),
     ).toEqual(["a", "c"]);
+  });
+
+  it("never throttles an ask push, and an ask push does not stamp the throttle", async () => {
+    const p = pusher();
+    const devices = [device({ push: reg("11".repeat(16)) })];
+    expect(await p.notify({ sessionId: "a" }, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "a", title: "Q?", body: "x · y", ask: true }, devices)).toBe(
+      1,
+    );
+    clock += MIN_PUSH_INTERVAL_MS;
+    expect(await p.notify({ sessionId: "b" }, devices)).toBe(1);
+    expect(apple.pushes[1]?.body).toMatchObject({
+      aps: { alert: { title: "Q?", body: "x · y" } },
+      kleio: { sessionId: "a", ask: true },
+    });
   });
 
   it("counts only accepted pushes and never throws on a rejection", async () => {
