@@ -28,6 +28,7 @@ import { ChatAsk, typedAnswer } from "./ChatAsk";
 import { FileCards } from "./FileCard";
 import { fileErrorText, fileLinks, openFile, ownerFilePath, type FileOwner } from "./kleioFiles";
 import { startLiveActivity } from "./liveActivity";
+import { LiveToolFeed } from "./LiveToolFeed";
 import {
   KleioApiError,
   errorText,
@@ -37,6 +38,7 @@ import {
   threadPrompt,
   threadState,
   type ThreadSession,
+  type ToolActivityEntry,
 } from "./kleioApi";
 import { useFollowLatest } from "./useFollowLatest";
 
@@ -91,6 +93,7 @@ export function ThreadChat({
   owner,
   intro,
   onHistory,
+  activity,
 }: {
   /** Who you're talking to, e.g. an agent's name. */
   label: string;
@@ -102,10 +105,20 @@ export function ThreadChat({
   intro?: React.ReactNode;
   /** Told each time the conversation changes (e.g. to list the files it links). */
   onHistory?: (history: readonly HistoryEntry[]) => void;
+  /**
+   * The tool calls of the run in progress, polled while it runs and shown above
+   * the composer as the Code and Chat windows show theirs.
+   */
+  activity?: () => Promise<ToolActivityEntry[]>;
 }): React.ReactElement {
   const [session, setSession] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [running, setRunning] = useState(false);
+  /** The run's tool calls so far, and when they were polled (their clock). */
+  const [tools, setTools] = useState<{ entries: ToolActivityEntry[]; at: number }>({
+    entries: [],
+    at: 0,
+  });
   /** The question the agent is waiting on you to answer, if any. */
   const [ask, setAsk] = useState<AskUserPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +192,30 @@ export function ThreadChat({
     const id = window.setInterval(() => void tick(), running ? POLL_RUNNING_MS : POLL_IDLE_MS);
     return () => window.clearInterval(id);
   }, [session, running, open, resolve]);
+
+  // While a run is going, its tool calls; they clear when it ends. An older
+  // host without the route just shows none.
+  useEffect(() => {
+    if (!running || !activity) {
+      setTools((cur) => (cur.entries.length ? { entries: [], at: 0 } : cur));
+      return;
+    }
+    let live = true;
+    const poll = async (): Promise<void> => {
+      try {
+        const entries = await activity();
+        if (live) setTools({ entries, at: Date.now() });
+      } catch {
+        /* keep the last rows; the next poll retries */
+      }
+    };
+    void poll();
+    const id = window.setInterval(() => void poll(), POLL_RUNNING_MS);
+    return () => {
+      live = false;
+      window.clearInterval(id);
+    };
+  }, [running, activity]);
 
   // Each poll replaces the history: only a reader at the newest message is
   // carried along, never one scrolled up to read.
@@ -326,6 +363,13 @@ export function ThreadChat({
           <p className="kleio-error" role="alert">
             {error}
           </p>
+        )}
+        {running && (
+          <LiveToolFeed
+            label={`What ${label} is doing`}
+            calls={[{ entries: tools.entries }]}
+            nowMs={tools.at}
+          />
         )}
         <div className="inputwrap">
           <WorkingBeam active={running} />

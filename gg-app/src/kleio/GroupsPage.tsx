@@ -23,10 +23,7 @@ import { MetalButton } from "../MetalButton";
 import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
-import { formatDuration } from "../SubAgentFeed";
 import { toast } from "../toast";
-import { buildSummaryLineParts } from "../tool-format";
-import { ToolRow, type ToolRowState } from "../ToolRow";
 import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
@@ -47,6 +44,7 @@ import {
 } from "./KleioChrome";
 import { fileErrorText, fileLinks, fileOwner, openFile, ownerFilePath } from "./kleioFiles";
 import { startLiveActivity } from "./liveActivity";
+import { LiveToolFeed, ToolCallRow } from "./LiveToolFeed";
 import { relTime } from "./relTime";
 import {
   answerGroupAsk,
@@ -64,7 +62,7 @@ import {
   type Blob,
   type BlobColor,
   type Group,
-  type GroupActivityEntry,
+  type ToolActivityEntry,
   type GroupMessage,
   type GroupTurnOutcome,
   type GroupTurnOutcomeKind,
@@ -146,70 +144,6 @@ function outcomeTone(kind: GroupTurnOutcomeKind): "" | " is-error" | " is-warnin
   return kind === "budget_exhausted" ? " is-warning" : "";
 }
 
-/** A call's time so far, or in all once it ended (host clock both ends). */
-function callMs(e: GroupActivityEntry, nowMs: number): number {
-  const start = Date.parse(e.startedAt);
-  const end = e.endedAt ? Date.parse(e.endedAt) : nowMs;
-  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0;
-}
-
-const STEP_FILE_CHARS = 28;
-
-/** A tool call in plain words, for the phone: "Reading notes.md", "Running a command". */
-export function stepText(e: Pick<GroupActivityEntry, "name" | "summary">): string {
-  const last = e.summary.trim().split(/[\\/]/).filter(Boolean).pop() ?? "";
-  const file = [...last].length > STEP_FILE_CHARS ? "" : last;
-  switch (e.name) {
-    case "bash":
-      return "Running a command";
-    case "read":
-      return file ? `Reading ${file}` : "Reading a file";
-    case "write":
-      return file ? `Writing ${file}` : "Writing a file";
-    case "edit":
-      return file ? `Editing ${file}` : "Editing a file";
-    case "ls":
-    case "grep":
-    case "find":
-      return "Searching files";
-    case "web_fetch":
-      return "Reading a web page";
-    case "web_search":
-      return "Searching the web";
-    case "subagent":
-      return "Handing off a task";
-    default:
-      return buildSummaryLineParts(e.name, "", false)[0]?.text ?? "Working";
-  }
-}
-
-/**
- * A member's state in one line, for the phone: what it's doing right now and
- * for how long, or why its last turn didn't reply; null when there's nothing
- * to say (its job shows instead).
- */
-export function memberLine(
-  entries: readonly GroupActivityEntry[],
-  outcome: GroupTurnOutcome | null,
-  replying: boolean,
-  nowMs: number,
-): { text: string; tone: "" | " is-live" | " is-error" | " is-warning" } | null {
-  if (replying) {
-    const step = [...entries].reverse().find((e) => e.status === "running");
-    return {
-      text: step ? `${stepText(step)} · ${formatDuration(callMs(step, nowMs))}` : "Thinking…",
-      tone: " is-live",
-    };
-  }
-  if (!outcome || outcome.kind === "replied" || outcome.kind === "passed") return null;
-  const label = OUTCOME_LABEL[outcome.kind] ?? "Ended";
-  return {
-    text:
-      outcome.reason && outcome.kind !== "budget_exhausted" ? `${label}: ${outcome.reason}` : label,
-    tone: outcomeTone(outcome.kind),
-  };
-}
-
 const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((id, i) => id === b[i]);
 
@@ -245,7 +179,7 @@ function MemberActivity({
   onToggle,
 }: {
   name: string;
-  entries: readonly GroupActivityEntry[];
+  entries: readonly ToolActivityEntry[];
   outcome: GroupTurnOutcome | null;
   replying: boolean;
   /** When the host was last polled: how long running calls have taken so far. */
@@ -289,32 +223,9 @@ function MemberActivity({
       <div id={bodyId} className="kleio-activity-body" hidden={!open}>
         {entries.length > 0 ? (
           <ol className="kleio-activity-list" aria-label={`${name}'s tool calls, oldest first`}>
-            {entries.map((e) => {
-              const state: ToolRowState =
-                e.status === "running" ? "running" : e.status === "failed" ? "failed" : "done";
-              const took = formatDuration(callMs(e, nowMs));
-              return (
-                <ToolRow
-                  key={e.id}
-                  as="li"
-                  state={state}
-                  title={e.summary || undefined}
-                  parts={buildSummaryLineParts(e.name, e.summary, state !== "running")}
-                >
-                  <span
-                    className={`kleio-activity-time${
-                      state === "failed" ? " is-error" : state === "running" ? " is-live" : ""
-                    }`}
-                  >
-                    {state === "failed"
-                      ? `failed · ${took}`
-                      : state === "running"
-                        ? `live · ${took}`
-                        : took}
-                  </span>
-                </ToolRow>
-              );
-            })}
+            {entries.map((e) => (
+              <ToolCallRow key={e.id} as="li" entry={e} nowMs={nowMs} />
+            ))}
           </ol>
         ) : (
           replying && <p className="kleio-activity-note">No tool calls yet.</p>
@@ -808,7 +719,7 @@ function GroupChat({
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [typing, setTyping] = useState<string[]>([]);
-  const [activity, setActivity] = useState<Record<string, GroupActivityEntry[]>>({});
+  const [activity, setActivity] = useState<Record<string, ToolActivityEntry[]>>({});
   const [outcomes, setOutcomes] = useState<Record<string, GroupTurnOutcome>>({});
   /** Members' questions waiting on you, by member id. */
   const [asks, setAsks] = useState<Record<string, AskUserPrompt>>({});
@@ -832,8 +743,6 @@ function GroupChat({
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
   // iPhone dictation: the transcript joins the draft for review before sending.
   const phoneComposer = isPhone();
-  // The phone shows each member's state in one line, not its tool calls.
-  const phone = phoneComposer;
   const dictation = useDictation({
     onText: (text) => setDraft((prev) => appendDictation(prev, text, MESSAGE_MAX)),
     onError: (message) => toast(message, "error"),
@@ -1096,12 +1005,7 @@ function GroupChat({
                 <i />
               </span>
               <span className="kleio-typing-names">
-                {phone && typing.length === 1 && typing[0]
-                  ? `${typingNames[0]}: ${
-                      memberLine(activity[typing[0]] ?? [], null, true, polledAt)?.text ??
-                      "replying…"
-                    }`
-                  : `${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} replying…`}
+                {`${typingNames.join(", ")} ${typingNames.length === 1 ? "is" : "are"} replying…`}
               </span>
             </div>
           )}
@@ -1116,6 +1020,17 @@ function GroupChat({
         }}
       >
         <ErrorLine error={error} />
+        {/* What the replying members are doing right now, as in a Code chat. */}
+        <LiveToolFeed
+          label="What the members are doing"
+          nowMs={polledAt}
+          calls={members
+            .filter((m) => typing.includes(m.id))
+            .map((m) => ({
+              who: typing.length > 1 ? m.name : undefined,
+              entries: activity[m.id] ?? [],
+            }))}
+        />
         {members.length > 1 && (
           <div className="kleio-mentions" role="group" aria-label="Mention a member">
             {members.map((m) => (
@@ -1203,11 +1118,7 @@ function GroupChat({
         <ul className="kleio-members">
           {members.map((m) => {
             const replying = typing.includes(m.id);
-            const line = phone
-              ? memberLine(activity[m.id] ?? [], outcomes[m.id] ?? null, replying, polledAt)
-              : replying
-                ? { text: "Replying…", tone: " is-live" as const }
-                : null;
+            const line = replying ? { text: "Replying…", tone: " is-live" as const } : null;
             return (
               <li key={m.id} className="kleio-member-item">
                 <div className="kleio-member">
@@ -1228,17 +1139,15 @@ function GroupChat({
                     @
                   </button>
                 </div>
-                {!phone && (
-                  <MemberActivity
-                    name={m.name}
-                    entries={activity[m.id] ?? []}
-                    outcome={outcomes[m.id] ?? null}
-                    replying={replying}
-                    nowMs={polledAt}
-                    open={openActivity.has(m.id)}
-                    onToggle={() => toggleActivity(m.id)}
-                  />
-                )}
+                <MemberActivity
+                  name={m.name}
+                  entries={activity[m.id] ?? []}
+                  outcome={outcomes[m.id] ?? null}
+                  replying={replying}
+                  nowMs={polledAt}
+                  open={openActivity.has(m.id)}
+                  onToggle={() => toggleActivity(m.id)}
+                />
               </li>
             );
           })}

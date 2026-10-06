@@ -4,9 +4,17 @@ import { theme } from "./theme";
 import { getRadioState, setRadio, setRadioVolume, type RadioStation } from "./agent";
 import { Modal } from "./Modal";
 import { Dropdown } from "./Dropdown";
+import { isPhone } from "./platform";
 
-/** Titlebar control and modal player for the app-wide internet radio. */
-export function RadioButton(): React.ReactElement {
+/**
+ * Titlebar control and modal player for the app-wide internet radio. None on
+ * the iPhone: the radio plays on the Mac, and the button crowded its header.
+ */
+export function RadioButton(): React.ReactElement | null {
+  return isPhone() ? null : <RadioControl />;
+}
+
+function RadioControl(): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stations, setStations] = useState<RadioStation[]>([]);

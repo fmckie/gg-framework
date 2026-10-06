@@ -338,7 +338,7 @@ html.platform-ios .dictation-dot {
     transition: none;
   }
 }
-/* The radio and window pills: the same 36px, with the desktop's proportions. */
+/* Header pill buttons: the same 36px, with the desktop's proportions. */
 html.platform-ios .btn-nav-icon:not(.btn-icon, .kleio-icon-btn) {
   height: 36px;
   padding: 0 14px;

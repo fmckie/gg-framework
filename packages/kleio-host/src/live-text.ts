@@ -5,7 +5,7 @@
  * Never the tool's output or full args: a step names the kind of work and, at
  * most, a short file name.
  */
-import { toolSummary } from "./groups.js";
+import { toolSummary } from "./tool-activity.js";
 
 export type LivePhase = "working" | "needsYou" | "done" | "failed" | "stopped";
 

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type * as Platform from "../platform";
 import { isPhone } from "../platform";
-import { GroupsPage, memberLine, stepText } from "./GroupsPage";
+import { GroupsPage } from "./GroupsPage";
 import {
   createGroup,
   deleteGroup,
@@ -194,6 +194,37 @@ describe("GroupsPage", () => {
     // The transcript stays clean.
     const log = screen.getByRole("log", { name: "Morning Desk conversation" });
     expect(log.textContent).not.toMatch(/Stopped|pnpm test/);
+
+    // The replying member's calls also show live above the composer.
+    const feed = screen.getByRole("list", { name: "What the members are doing" });
+    expect(
+      within(feed)
+        .getAllByRole("listitem")
+        .map((r) => r.textContent),
+    ).toEqual(["⏺Ran pnpm testfailed · 3s", "⏺Reading notes.md…live · 4s"]);
+  });
+
+  it("names each member in the live feed when several reply at once, newest last", async () => {
+    stubMatchMedia();
+    const now = Date.now();
+    const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: ["b1", "b2"],
+      lastSeq: 0,
+      activity: {
+        b1: [{ id: "t1", name: "grep", summary: "TODO", status: "running", startedAt: at(2000) }],
+        b2: [{ id: "t1", name: "bash", summary: "ls", status: "running", startedAt: at(5000) }],
+      },
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    const feed = await screen.findByRole("list", { name: "What the members are doing" });
+    const rows = within(feed).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^⏺Running ls…Agent 2live · \d+s$/),
+      expect.stringMatching(/^⏺Searching TODO…Agent 1live · \d+s$/),
+    ]);
   });
 
   it("shows no activity for an older host that doesn't report it", async () => {
@@ -411,7 +442,7 @@ describe("GroupsPage", () => {
     ]);
   });
 
-  it("iPhone: each member's state in one line, with no tool-call lists", async () => {
+  it("iPhone: the same verbose tool calls as the Mac, live and per member", async () => {
     vi.mocked(isPhone).mockReturnValue(true);
     stubMatchMedia();
     const now = Date.now();
@@ -442,14 +473,20 @@ describe("GroupsPage", () => {
     });
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
-    const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
-    await waitFor(() => expect(within(side).getByText(/^Reading notes\.md · \d+s$/)).toBeTruthy());
+    const feed = await screen.findByRole("list", { name: "What the members are doing" });
+    expect(
+      within(feed)
+        .getAllByRole("listitem")
+        .map((r) => r.textContent),
+    ).toEqual(["⏺Ran pnpm test3s", "⏺Reading docs/notes.md…live · 4s"]);
+    const side = screen.getByRole("complementary", { name: "Morning Desk details" });
+    const live = within(side).getByRole("button", { name: /^Activity of Agent 1/ });
+    await waitFor(() => expect(live.getAttribute("aria-expanded")).toBe("true"));
+    expect(
+      within(side).getByRole("list", { name: "Agent 1's tool calls, oldest first" }),
+    ).toBeTruthy();
+    fireEvent.click(within(side).getByRole("button", { name: /^Activity of Agent 2/ }));
     expect(within(side).getByText("Stopped: took over 30 min")).toBeTruthy();
-    expect(within(side).queryByRole("button", { name: /^Activity of/ })).toBeNull();
-    const log = screen.getByRole("log", { name: "Morning Desk conversation" });
-    expect(within(log).getByRole("status").textContent).toMatch(
-      /^Agent 1: Reading notes\.md · \d+s$/,
-    );
   });
 
   it("points you to specialists first when there are none", async () => {
@@ -461,28 +498,5 @@ describe("GroupsPage", () => {
     expect(
       (screen.getByRole("button", { name: "+ New group" }) as HTMLButtonElement).disabled,
     ).toBe(true);
-  });
-});
-
-describe("the phone's one-line member state", () => {
-  const call = (name: string, summary: string) => ({ name, summary });
-
-  it.each([
-    [call("bash", "pnpm --filter @kleio/coder test"), "Running a command"],
-    [call("read", "packages/coder/src/app-sidecar.ts"), "Reading app-sidecar.ts"],
-    [call("edit", "src/a/very-long-file-name-that-would-not-fit.tsx"), "Editing a file"],
-    [call("grep", "useFollowLatest"), "Searching files"],
-    [call("web_fetch", "https://example.com"), "Reading a web page"],
-  ])("%o reads as %s", (entry, text) => {
-    expect(stepText(entry)).toBe(text);
-  });
-
-  it("says nothing for a member that replied or passed, and why one stopped", () => {
-    expect(memberLine([], { kind: "replied", reason: "" }, false, 0)).toBeNull();
-    expect(memberLine([], { kind: "passed", reason: "had nothing to add" }, false, 0)).toBeNull();
-    expect(memberLine([], null, true, 0)).toEqual({ text: "Thinking…", tone: " is-live" });
-    expect(
-      memberLine([], { kind: "budget_exhausted", reason: "the group used all 35 turns" }, false, 0),
-    ).toEqual({ text: "Not reached", tone: " is-warning" });
   });
 });

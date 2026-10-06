@@ -803,6 +803,37 @@ describe("blobs: conversation", () => {
     expect(sidecar.disposed).toContain(fresh.body.sessionId);
     expect(readFileSync(path, "utf8")).toBe("{}\n");
   });
+
+  it("reports the running run's tool calls for the chat, and none between runs", async () => {
+    const b = await newBlob();
+    const sid = (await call("GET", `/kleio/blobs/${b.id}/session`)).body.sessionId as string;
+    await settle();
+    const calls = async (): Promise<any[]> =>
+      (await call("GET", `/kleio/blobs/${b.id}/activity`)).body.activity;
+
+    frame(sid, "run_start", { text: "x" });
+    frame(sid, "tool_call_start", {
+      toolCallId: "t1",
+      name: "bash",
+      args: { command: "pnpm  test\n  --run" },
+    });
+    frame(sid, "tool_call_end", { toolCallId: "t1", isError: true });
+    frame(sid, "server_tool_call", { id: "s1", name: "web_search", input: { query: "rain" } });
+    frame(sid, "tool_call_start", { toolCallId: "t2", name: "read", args: { file_path: "a.md" } });
+    await until(async () => (await calls()).length === 3);
+    expect((await calls()).map((e) => [e.name, e.summary, e.status])).toEqual([
+      ["bash", "pnpm test --run", "failed"],
+      ["web_search", "rain", "done"],
+      ["read", "a.md", "running"],
+    ]);
+
+    frame(sid, "run_end", { runState: "idle" });
+    await until(async () => (await calls()).length === 0);
+    // The next run starts clean, not with the last one's calls.
+    frame(sid, "run_start", { text: "y" });
+    await settle();
+    expect(await calls()).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------- scheduler

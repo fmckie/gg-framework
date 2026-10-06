@@ -7,7 +7,6 @@ import { KleioHome, shortHost } from "./KleioHome";
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "0.73.2") }));
 vi.mock("../HomeDither", () => ({ HomeDither: () => null }));
-vi.mock("../update", () => ({ useAppUpdate: () => ({ phase: "idle" }) }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
 vi.mock("./assets/kleio-mark.png", () => ({ default: "kleio-mark.png" }));
 vi.mock("./useKleioRemote", () => ({

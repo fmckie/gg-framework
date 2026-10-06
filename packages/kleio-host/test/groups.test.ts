@@ -19,7 +19,6 @@ import {
   groupInstructions,
   mentioned,
   promptFor,
-  toolSummary,
   type GroupMessage,
   type GroupRouter,
   type RouteRequest,
@@ -27,6 +26,7 @@ import {
 import { createHost, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
+import { toolSummary } from "../src/tool-activity.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
 // ---------------------------------------------------------------- host fixture

@@ -31,6 +31,7 @@ import { fileOwner } from "./kleioFiles";
 import {
   deleteBlob,
   errorText,
+  getBlobActivity,
   getBlobSession,
   listBlobs,
   newBlobSession,
@@ -303,6 +304,7 @@ function AgentDetail({
   const [error, setError] = useState<string | null>(null);
   const sideId = useId();
   const resolve = useCallback(() => getBlobSession(blob.id), [blob.id]);
+  const activity = useCallback(() => getBlobActivity(blob.id), [blob.id]);
   const owner = useMemo(() => fileOwner(blob.id), [blob.id]);
   const state = agentRowState(blob);
   // The files this specialist linked in the conversation, newest first.
@@ -412,6 +414,7 @@ function AgentDetail({
             resolve={resolve}
             owner={owner}
             onHistory={onHistory}
+            activity={activity}
             intro={
               <div className="kleio-chat-intro">
                 <AgentAvatar agent={blob} size={72} animated />

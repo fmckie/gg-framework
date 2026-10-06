@@ -33,6 +33,7 @@ import {
 } from "./blobs.js";
 import { atomicWrite } from "./device-registry.js";
 import { stepText, type GroupLive } from "./live-text.js";
+import { type ActivityEntry, serverToolCalled, toolEnded, toolStarted } from "./tool-activity.js";
 import {
   createPinnedThread,
   sessionIdle,
@@ -200,9 +201,6 @@ const NUDGE =
  * once, and the agent loop's own limits are per model request.
  */
 const TURN_TIMEOUT_MS = 30 * 60_000;
-/** Tool calls kept per member turn for the sidebar; older ones roll off. */
-const MAX_ACTIVITY = 30;
-const SUMMARY_CHARS = 120;
 const REASON_CHARS = 120;
 const KEEP_MESSAGES = 500;
 const PROMPT_MESSAGES = 30;
@@ -211,19 +209,6 @@ const NOTIFY_BODY_CHARS = 180;
 /** No push while a device polled the group this recently (it's on screen). */
 const WATCHING_MS = 20_000;
 const INSTRUCTIONS_MAX = 8000;
-
-/**
- * One tool call of a member's current or last turn, for the sidebar. Holds a
- * one-line summary of the args only: never the tool's output or full args.
- */
-export interface ActivityEntry {
-  readonly id: string;
-  readonly name: string;
-  readonly summary: string;
-  status: "running" | "done" | "failed";
-  readonly startedAt: string;
-  endedAt?: string;
-}
 
 /** How a member's last turn ended, or that the reply budget ran out first. */
 export type TurnOutcomeKind =
@@ -429,39 +414,6 @@ const durationText = (ms: number): string =>
     : ms < 60_000
       ? `${Math.round(ms / 1000)} s`
       : `${Math.round(ms / 60_000)} min`;
-
-/**
- * Arg keys that say what a tool call is doing, most telling first. Anything
- * else (file contents, message bodies) is never summarised.
- */
-const SUMMARY_KEYS = [
-  "command",
-  "file_path",
-  "query",
-  "pattern",
-  "url",
-  "urls",
-  "path",
-  "symbol",
-  "skill",
-  "task",
-  "title",
-  "name",
-  "action",
-] as const;
-
-/** A tool call's args as one clipped line: the command, path, query… or "". */
-export function toolSummary(args: unknown): string {
-  if (typeof args !== "object" || args === null) return "";
-  const o = args as Record<string, unknown>;
-  for (const k of SUMMARY_KEYS) {
-    const v = o[k];
-    const s =
-      typeof v === "string" ? v : Array.isArray(v) ? v.find((x) => typeof x === "string") : null;
-    if (typeof s === "string" && s.trim()) return oneLine(s, SUMMARY_CHARS);
-  }
-  return "";
-}
 
 export function createGroups(options: GroupsOptions): Groups {
   const log = options.log ?? ((msg: string) => console.error(msg));
@@ -705,47 +657,6 @@ export function createGroups(options: GroupsOptions): Groups {
   function forgetActivity(gid: string, bid?: string): void {
     for (const k of [...activity.keys()])
       if (bid ? k === key(gid, bid) : k.startsWith(`${gid}/`)) activity.delete(k);
-  }
-
-  function toolStarted(m: MemberActivity, d: Record<string, unknown>): void {
-    const id = d.toolCallId;
-    const name = d.name;
-    if (typeof id !== "string" || !id || id.length > 128) return;
-    if (typeof name !== "string" || !name) return;
-    if (m.entries.some((e) => e.id === id)) return;
-    m.entries.push({
-      id,
-      name: clip(name, 64),
-      summary: toolSummary(d.args),
-      status: "running",
-      startedAt: now().toISOString(),
-    });
-    if (m.entries.length > MAX_ACTIVITY) m.entries.splice(0, m.entries.length - MAX_ACTIVITY);
-  }
-
-  function serverToolCalled(m: MemberActivity, d: Record<string, unknown>): void {
-    const id = d.id;
-    const name = d.name;
-    if (typeof id !== "string" || !id || id.length > 128) return;
-    if (typeof name !== "string" || !name) return;
-    if (m.entries.some((e) => e.id === id)) return;
-    const at = now().toISOString();
-    m.entries.push({
-      id,
-      name: clip(name, 64),
-      summary: toolSummary(d.input),
-      status: "done",
-      startedAt: at,
-      endedAt: at,
-    });
-    if (m.entries.length > MAX_ACTIVITY) m.entries.splice(0, m.entries.length - MAX_ACTIVITY);
-  }
-
-  function toolEnded(m: MemberActivity, d: Record<string, unknown>): void {
-    const e = m.entries.find((x) => x.id === d.toolCallId);
-    if (!e || e.status !== "running") return;
-    e.status = d.isError === true ? "failed" : "done";
-    e.endedAt = now().toISOString();
   }
 
   /** The members' activity and outcomes, as GET .../messages reports them. */
@@ -1456,7 +1367,7 @@ export function createGroups(options: GroupsOptions): Groups {
       case "tool_call_start":
         if (a) {
           a.stale = true;
-          toolStarted(a.activity, d);
+          toolStarted(a.activity.entries, d, now().toISOString());
           if (typeof d.name === "string" && d.name && d.name !== "ask_user" && !a.ask)
             void live(a.gid, { phase: "working", line: `${a.name} · ${stepText(d.name, d.args)}` });
         }
@@ -1466,7 +1377,7 @@ export function createGroups(options: GroupsOptions): Groups {
         // and finishes inside the model call, so it shows as done at once.
         if (a) {
           a.stale = true;
-          serverToolCalled(a.activity, d);
+          serverToolCalled(a.activity.entries, d, now().toISOString());
           if (typeof d.name === "string" && d.name)
             void live(a.gid, {
               phase: "working",
@@ -1477,7 +1388,7 @@ export function createGroups(options: GroupsOptions): Groups {
       case "tool_call_end":
         if (a) {
           a.stale = true;
-          toolEnded(a.activity, d);
+          toolEnded(a.activity.entries, d, now().toISOString());
         }
         return;
       case "error":

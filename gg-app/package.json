@@ -1,7 +1,7 @@
 {
   "name": "gg-app",
   "private": true,
-  "version": "0.73.2",
+  "version": "2.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,6 +17,7 @@
     "prebundle": "pnpm stage:node && pnpm bundle:sidecar",
     "installer:art": "node installer/build-art.mjs",
     "bump": "node scripts/bump-version.mjs",
+    "publish:update": "node scripts/publish-update.mjs",
     "test": "vitest run",
     "smoke:packaged": "node scripts/smoke-packaged-windows.mjs",
     "ios:sim": "bash scripts/ios-sim.sh",

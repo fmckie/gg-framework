@@ -101,3 +101,64 @@ describe("a specialist's question in its chat", () => {
     expect(within(log).getByRole("button", { name: /Veg/ })).toBeTruthy();
   });
 });
+
+describe("a specialist's tool calls in its chat", () => {
+  it("shows the run's calls live above the composer, as a Code chat does", async () => {
+    vi.mocked(threadHistory).mockResolvedValue([{ role: "user", text: "Check the tests" }]);
+    vi.mocked(threadState).mockResolvedValue({ running: true });
+    const now = Date.now();
+    const activity = vi.fn(async () => [
+      {
+        id: "t1",
+        name: "bash",
+        summary: "pnpm test",
+        status: "done" as const,
+        startedAt: new Date(now - 9000).toISOString(),
+        endedAt: new Date(now - 7000).toISOString(),
+      },
+      {
+        id: "t2",
+        name: "read",
+        summary: "notes.md",
+        status: "running" as const,
+        startedAt: new Date(now - 3000).toISOString(),
+      },
+    ]);
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    render(
+      <ThreadChat
+        label="Chef"
+        resolve={async () => ({ sessionId: "s1", sessionPath: null, created: false })}
+        activity={activity}
+      />,
+    );
+
+    const feed = await screen.findByRole("list", { name: "What Chef is doing" });
+    expect(
+      within(feed)
+        .getAllByRole("listitem")
+        .map((r) => r.textContent),
+    ).toEqual(["⏺Ran pnpm test2s", expect.stringMatching(/^⏺Reading notes\.md…live · \d+s$/)]);
+  });
+
+  it("shows no calls between runs", async () => {
+    vi.mocked(threadHistory).mockResolvedValue([]);
+    vi.mocked(threadState).mockResolvedValue({ running: false });
+    const activity = vi.fn(async () => []);
+    render(
+      <ThreadChat
+        label="Chef"
+        resolve={async () => ({ sessionId: "s1", sessionPath: null, created: false })}
+        activity={activity}
+      />,
+    );
+    await screen.findByRole("log", { name: "Conversation with Chef" });
+    expect(screen.queryByRole("list", { name: "What Chef is doing" })).toBeNull();
+    expect(activity).not.toHaveBeenCalled();
+  });
+});
