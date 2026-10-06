@@ -1,8 +1,5 @@
-import { theme } from "./theme";
-import { buildToolLineParts, toneColor } from "./tool-format";
-
-// BLACK_CIRCLE — ⏺, matching the TUI status figure.
-const DOT = "\u23FA";
+import { buildToolLineParts } from "./tool-format";
+import { ToolRow } from "./ToolRow";
 
 /** Max rows shown at once — older entries roll off the top (mirrors TUI). */
 export const LIVE_TOOL_PANEL_ROWS = 3;
@@ -43,26 +40,12 @@ export function LiveToolPanel({ entries }: Props): React.ReactElement | null {
           result: entry.result,
           details: entry.details,
         });
-        const dotColor = done ? (entry.isError ? theme.error : theme.success) : theme.primary;
         return (
-          <div className="tool-row" key={entry.toolCallId}>
-            <span className={`tool-dot${done ? "" : " blink"}`} style={{ color: dotColor }}>
-              {DOT}
-            </span>
-            <span className="tool-line">
-              {parts.map((p, i) => (
-                <span
-                  key={i}
-                  style={{
-                    color: p.dim ? theme.textDim : p.tone ? toneColor(p.tone) : theme.text,
-                    fontWeight: p.bold ? 600 : 400,
-                  }}
-                >
-                  {p.text}
-                </span>
-              ))}
-            </span>
-          </div>
+          <ToolRow
+            key={entry.toolCallId}
+            parts={parts}
+            state={done ? (entry.isError ? "failed" : "done") : "running"}
+          />
         );
       })}
     </div>

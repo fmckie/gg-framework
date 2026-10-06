@@ -25,6 +25,8 @@ import {
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
+import type { HistoryEntry } from "../agent";
+import { AssetsPanel, collectAssets, type Asset } from "./AssetsPanel";
 import { fileOwner } from "./kleioFiles";
 import {
   deleteBlob,
@@ -303,6 +305,19 @@ function AgentDetail({
   const resolve = useCallback(() => getBlobSession(blob.id), [blob.id]);
   const owner = useMemo(() => fileOwner(blob.id), [blob.id]);
   const state = agentRowState(blob);
+  // The files this specialist linked in the conversation, newest first.
+  const [assets, setAssets] = useState<readonly Asset[]>([]);
+  const onHistory = useCallback(
+    (history: readonly HistoryEntry[]) =>
+      setAssets(
+        collectAssets(
+          history,
+          (m) => (m.role === "assistant" ? owner : null),
+          () => blob.name,
+        ),
+      ),
+    [owner, blob.name],
+  );
 
   async function remove(): Promise<void> {
     setDeleting(true);
@@ -321,6 +336,7 @@ function AgentDetail({
     setError(null);
     try {
       await newBlobSession(blob.id);
+      setAssets([]);
       setChatKey((k) => k + 1);
     } catch (e) {
       setError(errorText(e));
@@ -343,6 +359,7 @@ function AgentDetail({
       >
         <p className="kleio-job-text">{blob.job}</p>
       </KleioPanel>
+      <AssetsPanel assets={assets} onError={setError} />
       <Schedules blob={blob} onChanged={onChanged} />
       <KleioPanel
         title="Delete specialist"
@@ -394,6 +411,7 @@ function AgentDetail({
             label={blob.name}
             resolve={resolve}
             owner={owner}
+            onHistory={onHistory}
             intro={
               <div className="kleio-chat-intro">
                 <AgentAvatar agent={blob} size={72} animated />

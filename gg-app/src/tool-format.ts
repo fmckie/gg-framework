@@ -201,6 +201,24 @@ function inlineSummary(name: string, result: string, details: unknown): string {
   }
 }
 
+/**
+ * A tool line from the tool's name and a one-line summary of its args, for a
+ * call known only by that summary (a group member's turn, as the host reports it).
+ */
+export function buildSummaryLineParts(
+  name: string,
+  summary: string,
+  done: boolean,
+): ToolLinePart[] {
+  const verbs = VERBS[name] ?? humanizeName(name);
+  const parts: ToolLinePart[] = [
+    { text: done ? verbs.done : verbs.running, bold: true, tone: getToolTone(name) },
+  ];
+  if (summary) parts.push({ text: ` ${summary}` });
+  if (!done) parts.push({ text: "\u2026" });
+  return parts;
+}
+
 export function buildToolLineParts(
   name: string,
   args: Record<string, unknown>,

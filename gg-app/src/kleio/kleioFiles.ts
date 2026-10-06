@@ -8,7 +8,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { errorText } from "./kleioApi";
-import { agentFilePath, fileExtension, isOutputPath, workspaceFilePath } from "./filePaths";
+import {
+  agentFilePath,
+  fileExtension,
+  isOutputPath,
+  specialistFilePath,
+  workspaceFilePath,
+} from "./filePaths";
 
 /** A Specialist, a member of a group, or a Chat/Code session's folder on the
  *  host (keyed by its cwd, which survives restarts; session ids do not). */
@@ -65,9 +71,24 @@ export interface FileLink {
 }
 
 /** The agent-folder files a message links to, in order, each once. Images
- *  (`![…](…)`) are left to the message itself. */
-export function fileLinks(markdown: string): FileLink[] {
-  return linksBy(markdown, agentFilePath);
+ *  (`![…](…)`) are left to the message itself. With the message's `owner`
+ *  (a Specialist or group member), absolute links into that owner's own
+ *  folder count too (see `specialistFilePath`). */
+export function fileLinks(markdown: string, owner?: FileOwner): FileLink[] {
+  return linksBy(markdown, (href) => ownerFilePath(href, owner));
+}
+
+/** The path inside `owner`'s folder a link points at, or null. */
+export function ownerFilePath(href: string, owner?: FileOwner): string | null {
+  if (!owner) return agentFilePath(href);
+  switch (owner.kind) {
+    case "blob":
+      return specialistFilePath(href, { blobId: owner.blobId });
+    case "group":
+      return specialistFilePath(href, { blobId: owner.blobId, groupId: owner.groupId });
+    case "workspace":
+      return workspaceFilePath(href, owner.cwd);
+  }
 }
 
 /** The outputs (see `isOutputPath`) a Chat/Code reply links to inside its

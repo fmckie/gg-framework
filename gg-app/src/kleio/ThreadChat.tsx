@@ -13,6 +13,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AlarmIcon, ArrowUpIcon, SquareIcon } from "@phosphor-icons/react";
 import type { HistoryEntry } from "../agent";
 import { ActionMetal } from "../ActionMetal";
+import { isAskUserPrompt, type AskAnswers, type AskUserPrompt } from "../ask-user";
 import { autosizeComposer } from "../composer-autosize";
 import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
@@ -23,12 +24,13 @@ import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { scheduledPrompt } from "./blobFormat";
+import { ChatAsk, typedAnswer } from "./ChatAsk";
 import { FileCards } from "./FileCard";
-import { agentFilePath } from "./filePaths";
-import { fileErrorText, fileLinks, openFile, type FileOwner } from "./kleioFiles";
+import { fileErrorText, fileLinks, openFile, ownerFilePath, type FileOwner } from "./kleioFiles";
 import {
   KleioApiError,
   errorText,
+  threadAnswerAsk,
   threadCancel,
   threadHistory,
   threadPrompt,
@@ -39,6 +41,11 @@ import { useFollowLatest } from "./useFollowLatest";
 
 const POLL_RUNNING_MS = 1500;
 const POLL_IDLE_MS = 5000;
+
+/** The first question the agent is waiting on, from `/state`'s `pendingAsks`. */
+function firstAsk(pending: readonly unknown[] | undefined): AskUserPrompt | null {
+  return pending?.find(isAskUserPrompt) ?? null;
+}
 /** The Code chat's assistant bullet. */
 const DOT = "\u23FA";
 
@@ -63,7 +70,7 @@ function AssistantMessage({
   text: string;
   owner: FileOwner | undefined;
 }): React.ReactElement {
-  const links = useMemo(() => (owner ? fileLinks(text) : []), [text, owner]);
+  const links = useMemo(() => (owner ? fileLinks(text, owner) : []), [text, owner]);
   return (
     <div className="assistant-msg">
       <span className="assistant-dot" style={{ color: theme.primary }} aria-hidden="true">
@@ -82,6 +89,7 @@ export function ThreadChat({
   resolve,
   owner,
   intro,
+  onHistory,
 }: {
   /** Who you're talking to, e.g. an agent's name. */
   label: string;
@@ -91,10 +99,14 @@ export function ThreadChat({
   owner?: FileOwner;
   /** Shown while the conversation is empty. */
   intro?: React.ReactNode;
+  /** Told each time the conversation changes (e.g. to list the files it links). */
+  onHistory?: (history: readonly HistoryEntry[]) => void;
 }): React.ReactElement {
   const [session, setSession] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [running, setRunning] = useState(false);
+  /** The question the agent is waiting on you to answer, if any. */
+  const [ask, setAsk] = useState<AskUserPrompt | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -126,6 +138,7 @@ export function ThreadChat({
       if (!alive.current) return;
       setHistory(h);
       setRunning(Boolean(st.running));
+      setAsk(firstAsk(st.pendingAsks));
     } catch (e) {
       if (alive.current) setError(errorText(e));
     }
@@ -151,7 +164,12 @@ export function ThreadChat({
           if (alive.current) setHistory(h);
         }
         wasRunning = now;
-        if (alive.current) setRunning(now);
+        if (alive.current) {
+          setRunning(now);
+          // Same question: keep the object, so its band keeps what you picked.
+          const next = firstAsk(st.pendingAsks);
+          setAsk((cur) => (cur?.id === next?.id ? cur : next));
+        }
       } catch (e) {
         // The host restarted or retired the session: re-resolve the pin.
         if (e instanceof KleioApiError && e.status === 404) void open(resolve);
@@ -165,7 +183,17 @@ export function ThreadChat({
   // carried along, never one scrolled up to read.
   useEffect(() => {
     catchUp();
-  }, [history, running, catchUp]);
+  }, [history, running, ask, catchUp]);
+
+  useEffect(() => {
+    if (history) onHistory?.(history);
+  }, [history, onHistory]);
+
+  async function answerAsk(prompt: AskUserPrompt, answers: AskAnswers): Promise<void> {
+    if (!session) return;
+    await threadAnswerAsk(session, prompt.id, "answer", answers);
+    setAsk((cur) => (cur?.id === prompt.id ? null : cur));
+  }
 
   // Grow the composer with its text, exactly as the Code chat's does.
   useLayoutEffect(() => {
@@ -175,7 +203,7 @@ export function ThreadChat({
   // A click on a link to one of the agent's files opens it on this Mac.
   const handleLink = useCallback(
     (href: string): boolean => {
-      const path = owner ? agentFilePath(href) : null;
+      const path = owner ? ownerFilePath(href, owner) : null;
       if (!owner || !path) return false;
       openFile(owner, path).catch((e: unknown) => {
         if (alive.current) setError(fileErrorText(e));
@@ -188,6 +216,23 @@ export function ThreadChat({
   async function send(): Promise<void> {
     const text = draft.trim();
     if (!text || !session || busy) return;
+    // A question is waiting: what's typed answers it (the agent's turn is
+    // blocked on it), rather than going in as a new message.
+    const typed = ask ? typedAnswer(ask, text) : null;
+    if (ask && typed) {
+      setBusy(true);
+      setError(null);
+      setDraft("");
+      try {
+        await answerAsk(ask, typed);
+      } catch (e) {
+        setError(errorText(e));
+        setDraft(text);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     setBusy(true);
     setError(null);
     setDraft("");
@@ -241,7 +286,18 @@ export function ThreadChat({
                 <AssistantMessage key={i} text={m.text} owner={owner} />
               ),
             )}
-            {running && (
+            {ask && (
+              <ChatAsk
+                key={ask.id}
+                prompt={ask}
+                onSend={(answers) => answerAsk(ask, answers)}
+                onTypeInstead={(seed) => {
+                  if (seed) setDraft((d) => d + seed);
+                  inputRef.current?.focus();
+                }}
+              />
+            )}
+            {running && !ask && (
               <div className="assistant-msg kleio-typing" role="status">
                 <span className="assistant-dot" style={{ color: theme.primary }} aria-hidden="true">
                   {DOT}

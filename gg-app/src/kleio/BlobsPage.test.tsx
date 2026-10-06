@@ -5,14 +5,28 @@ import { agentRowState } from "./AgentRow";
 import { BlobsPage } from "./BlobsPage";
 import { deleteBlob, listBlobs, newBlobSession, type Blob, type Schedule } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
+import type { HistoryEntry } from "../agent";
 
 vi.mock("../RadioButton", () => ({ RadioButton: () => <button type="button">Radio</button> }));
 vi.mock("../WindowLayoutButton", () => ({
   WindowLayoutButton: () => <button type="button">Windows</button>,
 }));
-vi.mock("./ThreadChat", () => ({
-  ThreadChat: ({ label }: { label: string }) => <p>chat with {label}</p>,
-}));
+const chatHistory = vi.hoisted(() => ({ entries: [] as HistoryEntry[] }));
+vi.mock("./ThreadChat", async () => {
+  const { useEffect } = await import("react");
+  return {
+    ThreadChat: ({
+      label,
+      onHistory,
+    }: {
+      label: string;
+      onHistory?: (h: readonly HistoryEntry[]) => void;
+    }) => {
+      useEffect(() => onHistory?.(chatHistory.entries), [onHistory]);
+      return <p>chat with {label}</p>;
+    },
+  };
+});
 vi.mock("./BlobSchedules", () => ({
   Schedules: ({ blob }: { blob: Blob }) => <p>schedules for {blob.name}</p>,
 }));
@@ -82,6 +96,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   localStorage.clear();
+  chatHistory.entries = [];
 });
 
 describe("BlobsPage", () => {
@@ -120,6 +135,33 @@ describe("BlobsPage", () => {
     expect(within(side).getByText("schedules for Research")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
+  });
+
+  it("shows an empty Assets panel until the specialist shares a file", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    const side = screen.getByRole("complementary", { name: "Research details" });
+    expect(within(side).getByText("Files your specialists share will appear here.")).toBeTruthy();
+  });
+
+  it("lists files the specialist linked by absolute path in its own folder", async () => {
+    chatHistory.entries = [
+      {
+        role: "assistant",
+        text: "[Plan](/Users/w/Kleio/blobs/b1/plan.pdf), [other](/Users/w/Kleio/blobs/b2/x.pdf), [etc](/etc/passwd.txt), [group](/Users/w/Kleio/groups/g1/b1/y.md)",
+      },
+    ];
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+    const side = screen.getByRole("complementary", { name: "Research details" });
+    const list = await within(side).findByRole("list", {
+      name: "Files shared in this conversation, newest first",
+    });
+    expect(
+      within(list)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual(["Open Plan, shared by Research"]);
   });
 
   it("keeps the sidebar on the left, and remembers when you hide it", async () => {

@@ -46,7 +46,10 @@ export function useFollowLatest(logRef: React.RefObject<HTMLElement | null>): Fo
 
   const jump = useCallback(() => {
     const el = logRef.current;
-    if (!el) return;
+    // Already at the newest: write nothing. A write here lands on top of a
+    // scroll that has begun but not yet reported itself (macOS scrolls off the
+    // main thread), snapping the reader back down.
+    if (!el || el.scrollHeight - el.clientHeight - el.scrollTop < 1) return;
     el.scrollTop = el.scrollHeight;
     lastTopRef.current = el.scrollTop;
   }, [logRef]);

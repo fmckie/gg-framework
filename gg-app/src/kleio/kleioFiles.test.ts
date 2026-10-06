@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { defaultLook, lookOf } from "./blobLook";
-import { agentFilePath, isOutputPath, isSitePath, workspaceFilePath } from "./filePaths";
+import {
+  agentFilePath,
+  isOutputPath,
+  isSitePath,
+  specialistFilePath,
+  workspaceFilePath,
+} from "./filePaths";
 import {
   fileErrorText,
   fileKind,
@@ -64,6 +70,51 @@ describe("fileLinks", () => {
       },
       { path: "data/raw table.csv", label: "the data" },
     ]);
+  });
+});
+
+describe("specialist file links", () => {
+  const member = { blobId: "b_2d3c73f2", groupId: "g_c6b8e35f" };
+  const group = "/Users/mini/Kleio/groups/g_c6b8e35f";
+
+  it("accepts relative links and absolute paths in the author's own group folder", () => {
+    expect(specialistFilePath("festivals.md", member)).toBe("festivals.md");
+    expect(specialistFilePath(`${group}/b_2d3c73f2/festivals.md`, member)).toBe("festivals.md");
+    expect(specialistFilePath(`${group}/b_2d3c73f2/out/My%20plan.pdf`, member)).toBe(
+      "out/My plan.pdf",
+    );
+  });
+
+  it("accepts absolute paths in a single specialist's own folder", () => {
+    const own = { blobId: "b1" };
+    expect(specialistFilePath("/Users/x/Kleio/blobs/b1/report.pdf", own)).toBe("report.pdf");
+    expect(specialistFilePath("/Users/x/Kleio/blobs/b2/report.pdf", own)).toBeNull();
+    expect(specialistFilePath("/Users/x/Kleio/groups/g1/b1/report.pdf", own)).toBeNull();
+  });
+
+  it("rejects paths outside the author's folder", () => {
+    for (const href of [
+      "/etc/passwd.txt",
+      `${group}/b_other/a.md`,
+      "/Users/x/Kleio/groups/g_other/b_2d3c73f2/a.md",
+      "/Users/x/Kleio/blobs/b_2d3c73f2/a.md",
+      `${group}/b_2d3c73f2/../b_other/a.md`,
+      `${group}/b_2d3c73f2/.secret.md`,
+      `${group}/b_2d3c73f2/folder`,
+      `${group}/b_2d3c73f2/`,
+      "/Users/../Kleio/groups/g_c6b8e35f/b_2d3c73f2/a.md",
+    ]) {
+      expect(specialistFilePath(href, member), href).toBeNull();
+    }
+  });
+
+  it("turns an author's absolute links into file cards, labels kept", () => {
+    const md = `I've created [festivals.md](${group}/b_2d3c73f2/festivals.md) and [x](/etc/passwd.txt)`;
+    expect(fileLinks(md, { kind: "group", ...member })).toEqual([
+      { path: "festivals.md", label: "festivals.md" },
+    ]);
+    expect(fileLinks(md, { kind: "group", groupId: "g_c6b8e35f", blobId: "b_other" })).toEqual([]);
+    expect(fileLinks(md)).toEqual([]);
   });
 });
 

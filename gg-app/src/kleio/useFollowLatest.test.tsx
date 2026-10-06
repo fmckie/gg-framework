@@ -12,8 +12,8 @@ vi.mock("../platform", () => ({ isPhone: vi.fn(() => false) }));
  * A message list without layout (jsdom has none): the offset clamps to
  * `scrollHeight - clientHeight`, as a browser's does.
  */
-function messageList(content = 2000, viewport = 400): HTMLDivElement {
-  const el = document.createElement("div");
+function messageList(content = 2000, viewport = 400): HTMLDivElement & { writes: number } {
+  const el = Object.assign(document.createElement("div"), { writes: 0 });
   let top = 0;
   let height = content;
   const max = (): number => Math.max(0, height - viewport);
@@ -22,14 +22,17 @@ function messageList(content = 2000, viewport = 400): HTMLDivElement {
     scrollHeight: { get: () => height, set: (h: number) => (height = h) },
     scrollTop: {
       get: () => top,
-      set: (t: number) => (top = Math.min(Math.max(t, 0), max())),
+      set: (t: number) => {
+        el.writes += 1;
+        top = Math.min(Math.max(t, 0), max());
+      },
     },
   });
   return el;
 }
 
 function setup(content?: number): {
-  el: HTMLDivElement;
+  el: HTMLDivElement & { writes: number };
   hook: { current: ReturnType<typeof useFollowLatest> };
   /** The reader drags the list to `top`. */
   scrollTo: (top: number) => void;
@@ -91,6 +94,20 @@ describe("useFollowLatest", () => {
     act(() => hook.current.catchUp());
 
     expect(el.scrollTop).toBe(1900);
+  });
+
+  it("leaves the list alone when it's already at the newest message", () => {
+    const { el, hook } = setup();
+    act(() => hook.current.catchUp());
+    // A Mac trackpad scroll has begun but not yet reported itself: a write of
+    // the same offset would land on top of it and snap the reader back.
+    el.writes = 0;
+
+    act(() => hook.current.catchUp());
+    act(() => hook.current.catchUp());
+
+    expect(el.writes).toBe(0);
+    expect(el.scrollTop).toBe(1600);
   });
 
   it("follows again after sending, wherever the reader had scrolled", () => {
