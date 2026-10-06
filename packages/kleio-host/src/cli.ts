@@ -154,6 +154,10 @@ async function serve(p: HostPaths): Promise<void> {
         ? { baseUrl: process.env.KLEIO_COMPOSIO_BASE_URL }
         : {}),
     },
+    jev: {
+      ...(process.env.TYPESAFE_API_KEY ? { apiKey: process.env.TYPESAFE_API_KEY } : {}),
+      ...(process.env.TYPESAFE_BASE_URL ? { baseUrl: process.env.TYPESAFE_BASE_URL } : {}),
+    },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     previewPort: previewPort(),
