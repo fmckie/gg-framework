@@ -30,6 +30,18 @@ describe("ActivityBar plan progress", () => {
   });
 });
 
+describe("ActivityBar trailing control", () => {
+  it("leads the right-hand cluster, before Stop", () => {
+    const { container } = render(
+      <ActivityBar {...baseProps} trailing={<button>5h usage</button>} />,
+    );
+
+    const right = container.querySelector(".statusrow-right");
+    expect(right?.firstElementChild?.textContent).toBe("5h usage");
+    expect(right?.lastElementChild?.getAttribute("aria-label")).toBe("Cancel agent run");
+  });
+});
+
 describe("ActivityBar orb", () => {
   it("keeps the listening orb during reasoning and disappears when idle", () => {
     const { container, rerender } = render(<ActivityBar {...baseProps} isThinking />);

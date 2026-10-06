@@ -1180,7 +1180,7 @@ function GroupChat({
         }
         leading={<GroupAvatar members={members} color={group.color} size={30} />}
         title={group.name}
-        status={
+        subtitle={
           busy ? (
             <Badge className="kleio-state is-live">Replying…</Badge>
           ) : (

@@ -392,7 +392,7 @@ function AgentDetail({
         }
         leading={<AgentAvatar agent={blob} size={28} live={blob.running} />}
         title={blob.name}
-        status={<Badge className={`kleio-state is-${state.tone}`}>{state.text}</Badge>}
+        subtitle={<Badge className={`kleio-state is-${state.tone}`}>{state.text}</Badge>}
         actions={
           <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
             <PencilSimpleIcon size={14} weight="bold" aria-hidden="true" />

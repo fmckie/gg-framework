@@ -24,6 +24,8 @@ interface Props {
   /** Completed thinking time (ms) from earlier spans in this run. */
   thinkingAccumMs: number;
   onCancel: () => void;
+  /** Leads the right-hand cluster (the iPhone's usage meter). */
+  trailing?: React.ReactNode;
 }
 
 /**
@@ -40,6 +42,7 @@ export function KenActivityBar({
   thinkingStartTs,
   thinkingAccumMs,
   onCancel,
+  trailing,
 }: Props): React.ReactElement {
   const orbTintId = useId();
   // `now` is bumped every 250ms; the elapsed + thinking timers are derived from
@@ -116,6 +119,7 @@ export function KenActivityBar({
         </span>
       </span>
       <span className="statusrow-right">
+        {trailing}
         <button className="cancel" style={{ color: theme.error }} onClick={onCancel}>
           esc to cancel
         </button>

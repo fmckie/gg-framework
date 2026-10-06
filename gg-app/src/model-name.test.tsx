@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { modelDisplayName } from "./model-name";
+import { compactModelName, modelDisplayName } from "./model-name";
 import { ModelSelect } from "./ModelSelect";
 import type { ModelOption } from "./agent";
 
@@ -35,7 +35,37 @@ describe("modelDisplayName (footer label)", () => {
   });
 });
 
+describe("compactModelName (iPhone footer)", () => {
+  it.each([
+    ["Claude Opus 4.5", "Opus 4.5"],
+    ["Claude Sonnet 4.6", "Sonnet 4.6"],
+    ["claude-opus-4-5", "opus-4-5"],
+    ["Claude 3.5 Sonnet", "Claude 3.5 Sonnet"],
+    ["Gemini 3 Pro", "Gemini 3 Pro"],
+    ["GPT-5 Codex", "GPT-5 Codex"],
+    ["Claude", "Claude"],
+  ])("shortens %j to %j", (name, short) => {
+    expect(compactModelName(name)).toBe(short);
+  });
+});
+
 describe("ModelSelect (native dropdown)", () => {
+  it("shows the short name on a compact control and full names in the menu", () => {
+    render(
+      <ModelSelect
+        models={[{ id: "claude-opus-4-5", name: "Claude Opus 4.5", provider: "anthropic" }]}
+        currentModel="claude-opus-4-5"
+        onSelect={() => {}}
+        title="Switch model"
+        compact
+      />,
+    );
+
+    const select = screen.getByLabelText("Switch model") as HTMLSelectElement;
+    expect(select.previousElementSibling?.textContent).toBe("Opus 4.5");
+    expect(screen.getByRole("option", { name: "Claude Opus 4.5" })).toBeDefined();
+  });
+
   it("renders friendly names, not raw wire ids", () => {
     render(
       <ModelSelect

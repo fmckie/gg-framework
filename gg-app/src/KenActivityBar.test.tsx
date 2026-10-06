@@ -14,6 +14,16 @@ const baseProps = {
 };
 
 describe("KenActivityBar", () => {
+  it("puts a trailing control before esc to cancel", () => {
+    const { container } = render(
+      <KenActivityBar {...baseProps} trailing={<button>5h usage</button>} />,
+    );
+
+    const right = container.querySelector(".statusrow-right");
+    expect(right?.firstElementChild?.textContent).toBe("5h usage");
+    expect(right?.lastElementChild?.textContent).toBe("esc to cancel");
+  });
+
   it("uses the listening orb and shimmer with Ken's existing color", () => {
     const { container } = render(<KenActivityBar {...baseProps} />);
     const orb = container.querySelector("canvas");

@@ -166,18 +166,131 @@ html.platform-ios .picker-head {
   padding: 10px 16px;
   min-height: 44px;
 }
+/* The chat screen's header is two rows (WorkspaceHeader). The first: back,
+   the project's name over a line of status, New, and the hide toggle. */
 html.platform-ios .chat-head-strip {
-  height: 44px;
+  height: auto;
+  min-height: 56px;
   gap: 10px;
-  padding: 0 16px;
+  padding: 6px 16px 4px;
 }
-/* The project's name gets the room the hidden Agents pill leaves (below):
-   the narrow-window rule dropped it, leaving a lone colour dot. On the phone
-   it is a name, not a link (WorkspaceHeader), so it keeps its line height. */
-html.platform-ios .chat-head-title > .chat-head-cwd {
-  display: block;
-  min-height: 0;
+html.platform-ios .chat-head-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+html.platform-ios .chat-head-name {
+  margin: 0;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--text);
+}
+/* The status line: which Mac runs the session, then the GitHub counts or CI.
+   Plain text that can still be tapped, on 24px targets. */
+html.platform-ios .chat-head-sub {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+html.platform-ios .chat-head-sub button {
+  min-height: 24px;
+}
+html.platform-ios .chat-head-sub .kleio-badge,
+html.platform-ios .chat-head-sub .chat-head-github {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+/* Short of room, the Mac's name gives way first ("on mac-mi…"): the counts
+   stay whole, as the desktop strip truncates the folder before them. */
+html.platform-ios .chat-head-sub .kleio-badge {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 24px;
+}
+html.platform-ios .chat-head-sub .kleio-badge-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+html.platform-ios .chat-head-sub .chat-head-sep {
+  margin: 0 6px;
+}
+/* CI outranks the issue and PR counts, as in a narrow desktop window: the
+   line has room for one of them beside the Mac's name. */
+html.platform-ios .chat-head-sub:has(> .chat-head-ci) > .chat-head-github,
+html.platform-ios .chat-head-sub:has(> .chat-head-ci) > .chat-head-sep:has(+ .chat-head-github) {
+  display: none;
+}
+/* A separator never leads the line. Without the Mac's name (no host while
+   reconnecting) the first count, or CI, opens it. */
+html.platform-ios .chat-head-sub > .chat-head-sep:first-child,
+html.platform-ios .chat-head-sub > .chat-head-ci:first-child > .chat-head-sep,
+html.platform-ios
+  .chat-head-sub:has(> .chat-head-sep:first-child)
+  > .chat-head-ci
+  > .chat-head-sep {
+  display: none;
+}
+/* A specialist's or a group's chat: one row. Back, the sidebar and
+   new-conversation buttons, the avatar, the name over the chat's state
+   (KleioHead), then Edit. */
+html.platform-ios .kleio-head:has(> .kleio-head-titles) {
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+html.platform-ios .kleio-head:has(> .kleio-head-titles) > .picker-head-actions {
+  flex: none;
+}
+html.platform-ios .kleio-head-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+html.platform-ios .kleio-head-titles > .picker-title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 22px;
+}
+html.platform-ios .kleio-head-sub {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* The state reads as a line of text, as under a project's name; live and
+   failed keep their colours. */
+html.platform-ios .kleio-head-sub .badge {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+html.platform-ios .kleio-head-sub .badge:not(.is-live, .is-failed) {
+  color: var(--text-muted);
 }
 /* Agents: the home screen's Agents button. Rank: the scorecard is a desktop
    extra. Both only cost the phone's header room. */
@@ -185,10 +298,7 @@ html.platform-ios .kleio-open,
 html.platform-ios .rank-badge-wrap {
   display: none;
 }
-/* The back button and the actions share rows: a project's actions (Autopilot
-   to Initialize Git) are wider than the phone, and as one block they wrapped
-   under the back button, which kept a row to itself: three rows of header.
-   Back stays left and the actions right, as on the desktop. */
+/* The second row: Autopilot on the left, the session's tools on the right. */
 html.platform-ios .chat-head-nav {
   gap: 8px 6px;
   justify-content: flex-end;
@@ -197,8 +307,8 @@ html.platform-ios .chat-head-nav {
 html.platform-ios .chat-head-nav .picker-head-actions {
   display: contents;
 }
-html.platform-ios .chat-head-nav .picker-head-actions > :first-child {
-  margin-left: auto;
+html.platform-ios .chat-head-nav .autopilot-toggle {
+  margin-right: auto;
 }
 
 /* ── Touch targets ────────────────────────────────────────────────────── */
@@ -213,6 +323,35 @@ html.platform-ios .btn {
    48px is the target. */
 html.platform-ios .footer button {
   min-height: 0;
+}
+/* With short model names (ModelSelect's compact), context, thinking and both
+   models fit one line under the message box; the desktop's 16px gaps wrapped
+   Ken's model onto a second. */
+html.platform-ios .footer-right {
+  gap: 10px;
+}
+/* The subscription usage bar (a Claude or ChatGPT plan) sits at the right end
+   of the activity row (App.tsx): the footer's controls fill their line. The
+   window and its bar fit beside a long status and Stop; the reset time does
+   not, so it stays in the meter's spoken label. */
+html.platform-ios .statusrow-right .title-usage-reset {
+  display: none;
+}
+/* A tap target as tall as the phone's other buttons that doesn't grow the
+   row: its padding reaches into the row's own. Slimmer than the desktop's, so
+   a status like "Running a command…" keeps its room beside Stop. */
+html.platform-ios .statusrow-right .title-usage-meter {
+  min-height: 0;
+  padding: 10px 0;
+  margin-block: -10px;
+}
+html.platform-ios .statusrow-right .title-usage-track {
+  width: 44px;
+}
+/* A tap leaves iOS's hover behind: no box around the bar afterwards. */
+html.platform-ios .statusrow-right .title-usage-meter:hover {
+  border-color: transparent;
+  background: transparent;
 }
 /* The desktop's circles (back, the agent page's icon buttons) stay circles at
    a size a thumb can hit; a 36px minimum alone stretched them into ovals. */

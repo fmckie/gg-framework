@@ -142,6 +142,17 @@ describe("GroupsPage", () => {
     expect(within(side).getByText("Agent 2")).toBeTruthy();
   });
 
+  it("on the iPhone, puts the group's member count under its name", async () => {
+    vi.mocked(isPhone).mockReturnValue(true);
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+
+    const heading = await screen.findByRole("heading", { name: "Morning Desk", level: 1 });
+    const titles = heading.parentElement as HTMLElement;
+    expect(titles.className).toBe("kleio-head-titles");
+    expect(within(titles).getByText("2 members")).toBeTruthy();
+  });
+
   it("shows each member's tool calls and how its last turn ended, outside the transcript", async () => {
     // A member replying turns on the composer's beam, which reads matchMedia.
     stubMatchMedia();
