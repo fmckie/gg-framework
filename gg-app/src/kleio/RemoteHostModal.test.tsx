@@ -229,8 +229,12 @@ describe("RemoteHostModal — admin", () => {
     await screen.findByText("Phone removed.");
     expect(invokeMock).toHaveBeenCalledWith("kleio_revoke", { deviceId: "dev-phone" });
     expect(screen.queryByText("Phone")).toBeNull();
-    // Its button went with the row; focus stays in the dialog.
-    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+    // Its button went with the row; focus comes back to the dialog. The modal
+    // restores it in an effect, which a busy CI machine can run a beat after
+    // the message shows, so wait for it rather than assume it already ran.
+    await waitFor(() =>
+      expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true),
+    );
     // Mint an admin code.
     fireEvent.click(screen.getByLabelText("Make the new device an admin"));
     fireEvent.click(screen.getByRole("button", { name: "New pair code" }));
