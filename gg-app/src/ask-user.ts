@@ -62,6 +62,65 @@ export function dropSupersededAsks<T extends { kind: string; sent?: boolean; can
   return items.filter((it) => !(it.kind === "ask" && it.sent !== true && it.cancelled !== true));
 }
 
+/**
+ * Notification text for a question: title = the first question (+N more),
+ * body = its options joined with " · " (Yes · No for a bare confirm). Mirrors
+ * the host's push (packages/kleio-host/src/ask-push.ts).
+ */
+export function askNotificationText(prompt: AskUserPrompt): { title: string; body: string } {
+  const [first] = prompt.questions;
+  const more = prompt.questions.length > 1 ? ` (+${prompt.questions.length - 1} more)` : "";
+  const labels =
+    first?.options?.map((o) => o.label).filter((l) => l.trim() !== "") ??
+    (first?.kind === "confirm" ? ["Yes", "No"] : []);
+  return {
+    title: `${first?.question ?? "Kleio has a question"}${more}`,
+    body: labels.length ? labels.join(" · ") : "Click to answer.",
+  };
+}
+
+type AskItem = { kind: string; prompt?: unknown; sent?: boolean; cancelled?: boolean };
+
+const askIdOf = (it: AskItem): string | null =>
+  it.kind === "ask" && isAskUserPrompt(it.prompt) ? it.prompt.id : null;
+
+/**
+ * Add a band for each question still parked on the user (`/state`'s
+ * `pendingAsks`, or a live/replayed `ask_user` frame) that the transcript does
+ * not already show. A session opened late — from a push — re-shows the band.
+ */
+export function appendPendingAsks<T extends AskItem>(
+  items: readonly T[],
+  pending: readonly unknown[] | undefined,
+  makeItem: (prompt: AskUserPrompt) => T,
+): T[] {
+  const shown = new Set(items.map(askIdOf).filter((id): id is string => id !== null));
+  const fresh = (pending ?? []).filter(
+    (p): p is AskUserPrompt => isAskUserPrompt(p) && !shown.has(p.id),
+  );
+  return fresh.length ? [...items, ...fresh.map(makeItem)] : [...items];
+}
+
+/**
+ * Close the open band for a question the sidecar settled (`ask_user_done`):
+ * answered on another device, dismissed, or timed out. A band this window
+ * already sent stays as history.
+ */
+export function closeSettledAsk<T extends AskItem>(items: readonly T[], id: string): T[] {
+  return items.map((it) =>
+    askIdOf(it) === id && it.sent !== true && it.cancelled !== true
+      ? { ...it, cancelled: true }
+      : it,
+  );
+}
+
+/**
+ * Free text is offered everywhere except when the model opts out. There is no
+ * button for it: a `text` question hands straight over to the composer, and on
+ * any other question typing a character does the same.
+ */
+export const allowsText = (q: AskQuestion): boolean => q.kind === "text" || q.allowOther !== false;
+
 export function isAskUserPrompt(data: unknown): data is AskUserPrompt {
   if (typeof data !== "object" || data === null) return false;
   const { id, questions } = data as { id?: unknown; questions?: unknown };

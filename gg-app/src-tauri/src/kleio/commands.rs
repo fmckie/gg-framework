@@ -504,6 +504,12 @@ pub(crate) fn safe_session(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
 }
 
+/// An `ask_user` id as the sidecar mints them: `ask-` + 1..=9 digits.
+fn safe_ask_id(id: &str) -> bool {
+    id.strip_prefix("ask-")
+        .is_some_and(|n| (1..=9).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// `true` when `segs` (the path split on `/`) is `root` itself or below it.
 fn under(segs: &[&str], root: &[&str]) -> bool {
     segs.len() >= root.len() && segs[..root.len()] == *root
@@ -534,7 +540,11 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
             && !under(&segs, &["kleio", "connections", "callback"]));
-    let scoped = under(&segs, &["memories"]) || SESSION_ROUTES.contains(&p);
+    // Answering an `ask_user` band: POST /ask/ask-<n>, nothing else under /ask.
+    let ask = method == "POST"
+        && q.is_none()
+        && matches!(segs.as_slice(), ["ask", id] if safe_ask_id(id));
+    let scoped = under(&segs, &["memories"]) || SESSION_ROUTES.contains(&p) || ask;
     match (product, scoped, session) {
         (true, _, None) => Ok(false),
         (true, _, Some(_)) => Err("kleio_api: product routes take no session".into()),
@@ -755,6 +765,28 @@ mod tests {
         assert!(check_route("GET", "/state", Some("x\r\ny: z")).is_err());
         assert!(check_route("GET", "/state", Some(&"a".repeat(129))).is_err());
         assert!(check_route("GET", "/kleio/home", Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_allows_answering_an_ask() {
+        assert_eq!(check_route("POST", "/ask/ask-1", Some("sess-1")), Ok(true));
+        assert_eq!(check_route("POST", "/ask/ask-123456789", Some("sess-1")), Ok(true));
+        assert!(check_route("POST", "/ask/ask-1", None).is_err(), "needs a session");
+        for (m, p) in [
+            ("GET", "/ask/ask-1"),
+            ("DELETE", "/ask/ask-1"),
+            ("POST", "/ask"),
+            ("POST", "/ask/"),
+            ("POST", "/ask/ask-"),
+            ("POST", "/ask/ask-1234567890"),
+            ("POST", "/ask/ask-1a"),
+            ("POST", "/ask/elicit-1"),
+            ("POST", "/ask/ask-1/x"),
+            ("POST", "/ask/ask-1?x=1"),
+            ("POST", "/ask/.."),
+        ] {
+            assert!(check_route(m, p, Some("sess-1")).is_err(), "{m} {p}");
+        }
     }
 
     #[test]

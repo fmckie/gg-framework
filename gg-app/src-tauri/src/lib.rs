@@ -4098,6 +4098,7 @@ fn gaze_focus(
 // (`set_update_available` / `set_remote_active`).
 
 /// Kleio remote-host support (all platforms). See `kleio/mod.rs`.
+mod ask_notify;
 mod kleio;
 
 /// Tray menu item ids. Kept as one list so the builder and the click handler
@@ -5887,6 +5888,7 @@ pub fn run() {
             agent_auth_oauth_code,
             agent_mcp_elicit,
             agent_ask_user,
+            ask_notify::desktop_notify_ask,
             agent_auth_logout,
             agent_kill_task,
             agent_import_transcript,
