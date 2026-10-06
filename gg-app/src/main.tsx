@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { error as logError, attachConsole } from "@tauri-apps/plugin-log";
 import App from "./App";
 import { BriefPanel } from "./kleio/BriefPanel";
+import { TalkPanel } from "./kleio/TalkPanel";
 import { KleioGate } from "./kleio/KleioGate";
 // After App (App.css, glass.css): Kleio's crimson and white override Ken's tokens.
 import "./kleio/kleio-theme.css";
@@ -74,8 +75,9 @@ if (new URLSearchParams(window.location.search).get("whatsnew") === "1") {
     <>
       <KleioGate>
         <App />
-        {/* "Brief me": over any screen, only once connected to the Mac mini. */}
+        {/* "Brief me" / "Talk to Kleio": over any screen, once connected to the Mac mini. */}
         <BriefPanel />
+        <TalkPanel />
       </KleioGate>
       <ZoomController />
       <TooltipLayer />

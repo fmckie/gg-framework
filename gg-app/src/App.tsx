@@ -173,7 +173,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
-import { briefMe } from "./kleio/BriefPanel";
+import { talkToKleio } from "./kleio/TalkPanel";
 import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
@@ -808,9 +808,9 @@ function App(): React.ReactElement {
         case "update":
           void appUpdate.install();
           break;
-        // Read aloud over whatever this window shows.
+        // Talk to Kleio (or hear the briefing) over whatever this window shows.
         case "brief":
-          void briefMe();
+          void talkToKleio();
           break;
         // Route to the session picker for the requested mode. On Home that's the
         // entry view; over an open workspace it's the picker overlay, which keeps
@@ -1421,10 +1421,11 @@ function App(): React.ReactElement {
         setShowKleioOverlay(true);
         return;
       }
-      // kleio: Cmd/Ctrl + Shift + B reads the briefing aloud (remote mode only).
+      // kleio: Cmd/Ctrl + Shift + B talks to Kleio, or reads the briefing
+      // aloud before her voice is set up (remote mode only).
       if (e.shiftKey && (e.key === "b" || e.key === "B") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
-        void briefMe();
+        void talkToKleio();
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.

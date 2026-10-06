@@ -427,6 +427,42 @@ export const newHome = (): Promise<ThreadSession> => call("POST", "/kleio/home/n
 export const getBrief = (all = false): Promise<Brief> =>
   call("POST", "/kleio/brief", all ? { all: true } : {});
 
+// ─── Kleio's voice (OpenAI Realtime, kleio-host voice.ts) ─────────────────────────────────
+
+export interface VoiceStatus {
+  /** An OpenAI key is saved on the Mac mini: conversations can start. */
+  ready: boolean;
+  voice: string;
+  model: string;
+  voices: string[];
+}
+
+export const getVoiceStatus = (): Promise<VoiceStatus> => call("GET", "/kleio/voice");
+/** Checks the key with OpenAI, then saves it on the Mac mini (admin devices only). */
+export const setVoiceKey = (key: string): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/key", { key });
+export const removeVoiceKey = (): Promise<VoiceStatus> => call("DELETE", "/kleio/voice/key");
+export const setVoiceName = (voice: string): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/settings", { voice });
+
+/**
+ * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.
+ * `mic`: near (a phone or headset) or far (a laptop or desk microphone).
+ */
+export async function startVoiceCall(offerSdp: string, mic: "near" | "far"): Promise<string> {
+  let res: RawResponse;
+  try {
+    res = await invoke<RawResponse>("kleio_voice_call", { sdp: offerSdp, mic });
+  } catch (e) {
+    throw new KleioApiError(0, e instanceof Error ? e.message : String(e));
+  }
+  if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, res.body);
+  if (typeof res.body !== "string" || !res.body.startsWith("v=")) {
+    throw new KleioApiError(res.status, "bad_answer");
+  }
+  return res.body;
+}
+
 // ─── Blobs ──────────────────────────────────────────────────────────────────
 
 export const listBlobs = async (): Promise<Blob[]> =>

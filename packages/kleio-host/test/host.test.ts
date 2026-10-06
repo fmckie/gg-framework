@@ -1057,6 +1057,132 @@ describe("host: Brief me (POST /kleio/brief)", () => {
   });
 });
 
+describe("host: Talk to Kleio (/kleio/voice)", () => {
+  const KEY = "sk-test-voice-key";
+  const OFFER = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n";
+  const ANSWER = "v=0\r\no=openai 3 4 IN IP4 10.0.0.1\r\n";
+
+  /** The host again, talking to a fake OpenAI instead of the real one. */
+  async function hostWithFakeOpenAI(): Promise<{ sessions: unknown[] }> {
+    const sessions: unknown[] = [];
+    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/realtime/calls")) {
+        sessions.push(JSON.parse(String((init?.body as FormData).get("session"))));
+        return new Response(ANSWER, { status: 201 });
+      }
+      return new Response("{}", { status: 200 }); // the key check
+    }) as typeof fetch;
+    await host.stop();
+    host = await startHost({
+      create: (o) => createHost({ ...o, voice: { fetch: fakeFetch } }),
+    });
+    return { sessions };
+  }
+
+  /** A raw SDP body (call() sends JSON). */
+  function postSdp(path: string, sdp: string, headers: Record<string, string>): Promise<Res> {
+    return new Promise((resolve, reject) => {
+      const data = Buffer.from(sdp);
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: hostPort,
+          method: "POST",
+          path,
+          headers: { "content-type": "application/sdp", "content-length": data.length, ...headers },
+        },
+        (res) => {
+          let s = "";
+          res.setEncoding("utf8");
+          res.on("data", (c) => (s += c));
+          res.on("end", () => {
+            let body: unknown = s;
+            try {
+              body = JSON.parse(s);
+            } catch {}
+            resolve({ status: res.statusCode ?? 0, body, headers: res.headers });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.write(data);
+      req.end();
+    });
+  }
+
+  it("only an admin sets the key; any paired device then talks; the key never leaves", async () => {
+    const { sessions } = await hostWithFakeOpenAI();
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+
+    expect((await call("GET", "/kleio/voice")).status).toBe(401);
+    expect((await call("GET", "/kleio/voice", { headers: P })).body).toMatchObject({
+      ready: false,
+      voice: "marin",
+    });
+    expect((await postSdp("/kleio/voice/call", OFFER, P)).body).toEqual({ error: "no_key" });
+
+    const denied = await call("POST", "/kleio/voice/key", { headers: P, body: { key: KEY } });
+    expect(denied.status).toBe(403);
+    const saved = await call("POST", "/kleio/voice/key", { headers: A, body: { key: KEY } });
+    expect(saved.status).toBe(200);
+    expect(saved.body.ready).toBe(true);
+    expect(JSON.stringify(saved.body)).not.toContain(KEY);
+
+    const voiced = await call("POST", "/kleio/voice/settings", {
+      headers: A,
+      body: { voice: "cedar" },
+    });
+    expect(voiced.body.voice).toBe("cedar");
+    expect(
+      (await call("POST", "/kleio/voice/settings", { headers: A, body: { voice: "nope" } })).status,
+    ).toBe(400);
+
+    expect((await postSdp("/kleio/voice/call", "not sdp", P)).status).toBe(400);
+    const answered = await postSdp("/kleio/voice/call", OFFER, P);
+    expect(answered.status).toBe(201);
+    expect(answered.headers["content-type"]).toBe("application/sdp");
+    expect(answered.body).toBe(ANSWER);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      audio: { input: { noise_reduction: { type: "near_field" } }, output: { voice: "cedar" } },
+      instructions: expect.stringContaining("All quiet."),
+    });
+    // A laptop says so: OpenAI filters a far-off microphone's noise.
+    expect((await postSdp("/kleio/voice/call?mic=far", OFFER, P)).status).toBe(201);
+    expect(sessions[1]).toMatchObject({
+      audio: { input: { noise_reduction: { type: "far_field" } } },
+    });
+  });
+
+  it("her opening summary doesn't use up the user's next briefing", async () => {
+    await hostWithFakeOpenAI();
+    const admin = await pairAdmin();
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    await call("POST", "/kleio/voice/key", { headers: A, body: { key: KEY } });
+    const created = await call("POST", "/session", {
+      headers: A,
+      body: { mode: "code", cwd: "/Users/me/projects/api" },
+    });
+    const sid = created.body.sessionId as string;
+    await new Promise((r) => setTimeout(r, 50));
+    const emit = (type: string, data: Record<string, unknown> = {}): void =>
+      sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
+    emit("run_start", { text: "go" });
+    emit("error", { message: "x", headline: "Claude usage limit reached." });
+    emit("run_end", { failed: true });
+    await new Promise((r) => setTimeout(r, 60));
+
+    expect((await postSdp("/kleio/voice/call", OFFER, A)).status).toBe(201);
+    const b = await call("POST", "/kleio/brief", { headers: A, body: {} });
+    expect(b.body.spoken).toContain("Code in api failed.");
+  });
+});
+
 describe("host: device diagnostics", () => {
   it("appends a device's crash report as one stamped line; rejects non-objects and oversize", async () => {
     const phone = await registry.mint("Phone");

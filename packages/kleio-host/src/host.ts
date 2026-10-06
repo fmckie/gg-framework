@@ -64,7 +64,16 @@ import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
-import { createBriefing } from "./brief.js";
+import { createBriefing, type BriefJob } from "./brief.js";
+import {
+  createVoice,
+  isMicKind,
+  isVoiceName,
+  SDP_MAX,
+  voiceErrorDetail,
+  voiceErrorStatus,
+  voiceInstructions,
+} from "./voice.js";
 import {
   createLiveActivityTracker,
   type LiveAttributes,
@@ -158,6 +167,18 @@ export interface HostOptions {
     readonly keyPath?: string;
     readonly baseUrl?: string;
     readonly ggHome?: string;
+    readonly fetch?: typeof fetch;
+  };
+  /**
+   * Kleio's conversational voice (OpenAI Realtime, voice.ts). The key is set
+   * from an admin device's Settings; `keyPath` defaults to
+   * <state dir>/openai.key.
+   */
+  readonly voice?: {
+    readonly apiKey?: string;
+    readonly keyPath?: string;
+    readonly model?: string;
+    readonly baseUrl?: string;
     readonly fetch?: typeof fetch;
   };
   /**
@@ -627,6 +648,16 @@ export function createHost(options: HostOptions): Host {
     now: () => (options.now?.() ?? new Date()).getTime(),
     log,
   });
+  // Kleio's conversational voice (voice.ts): the OpenAI key stays here.
+  const voice = createVoice({
+    keyPath: options.voice?.keyPath ?? join(dirname(options.sidecarEndpointPath), "openai.key"),
+    settingsPath: join(dirname(options.sidecarEndpointPath), "voice.json"),
+    ...(options.voice?.apiKey ? { apiKey: options.voice.apiKey } : {}),
+    ...(options.voice?.model ? { model: options.voice.model } : {}),
+    ...(options.voice?.baseUrl ? { baseUrl: options.voice.baseUrl } : {}),
+    ...(options.voice?.fetch ? { fetch: options.voice.fetch } : {}),
+    log,
+  });
   // Group names as the groups last said them, for the briefing.
   const groupTitles = new Map<string, string>();
   // Lock-screen Live Activities, updated from here while the phone is locked.
@@ -659,6 +690,12 @@ export function createHost(options: HostOptions): Host {
     const k = sessionKinds.get(sessionId);
     if (k?.mode === "code") return base("code", basename(k.cwd) || "Code");
     return base("chat", "Chat");
+  }
+  /** Every job showing now, named for the briefing. */
+  function currentJobs(): BriefJob[] {
+    return liveActivities
+      .snapshot()
+      .map(({ target, state }) => ({ target, ...describeJob(target), state }));
   }
   /** A Live Activity target's kind and name, for the briefing. */
   function describeJob(target: string): { kind: LiveAttributes["kind"]; title: string } {
@@ -1435,14 +1472,80 @@ export function createHost(options: HostOptions): Host {
         }
       }
       const all = typeof p === "object" && p !== null && p.all === true;
-      const current = liveActivities
-        .snapshot()
-        .map(({ target, state }) => ({ target, ...describeJob(target), state }));
-      const b = briefing.brief(current, { all });
+      const b = briefing.brief(currentJobs(), { all });
       log(
         `[brief] ${auth.device.label}${all ? " (all)" : ""}: ${b.items.length} item(s) in ${Date.now() - started} ms`,
       );
       return json(res, 200, b);
+    }
+
+    // Kleio's conversational voice (voice.ts). Talking: any paired device.
+    // The OpenAI key and the voice: an admin device's Settings.
+    if (path === "/kleio/voice" && req.method === "GET") {
+      return json(res, 200, await voice.status());
+    }
+    if (path === "/kleio/voice/call" && req.method === "POST") {
+      const body = await readBody(req, SDP_MAX);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      const sdp = body.toString("utf8");
+      if (!sdp.startsWith("v=")) return json(res, 400, { error: "bad_request" });
+      // What's new, without marking it heard: she still tells them about it.
+      const now = new Date(options.now?.() ?? new Date());
+      const instructions = voiceInstructions({
+        now,
+        brief: briefing.brief(currentJobs(), { peek: true }).spoken,
+      });
+      // The device says which microphone it has (a phone: near; a laptop: far).
+      const mic = url.searchParams.get("mic");
+      const r = await voice.createCall(sdp, instructions, isMicKind(mic) ? mic : "near");
+      if (!r.ok) {
+        log(`[voice] ${auth.device.label}: call failed (${r.error.kind})`);
+        return json(res, voiceErrorStatus(r.error), {
+          error: r.error.kind,
+          ...voiceErrorDetail(r.error),
+        });
+      }
+      log(`[voice] ${auth.device.label}: call started`);
+      res.writeHead(201, { "content-type": "application/sdp", "cache-control": "no-store" });
+      res.end(r.value.sdp);
+      return;
+    }
+    if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const body = await readBody(req, 2 * 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let p: Record<string, unknown> = {};
+      if (body.length) {
+        try {
+          const parsed: unknown = JSON.parse(body.toString("utf8"));
+          if (typeof parsed === "object" && parsed !== null) p = parsed as Record<string, unknown>;
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+      }
+      if (path === "/kleio/voice/key" && req.method === "POST") {
+        if (typeof p.key !== "string") return json(res, 400, { error: "bad_request" });
+        const r = await voice.setKey(p.key);
+        if (!r.ok) {
+          return json(res, voiceErrorStatus(r.error), {
+            error: r.error.kind,
+            ...voiceErrorDetail(r.error),
+          });
+        }
+        log(`[voice] ${auth.device.label} saved the OpenAI key`);
+        return json(res, 200, await voice.status());
+      }
+      if (path === "/kleio/voice/key" && req.method === "DELETE") {
+        await voice.removeKey();
+        log(`[voice] ${auth.device.label} removed the OpenAI key`);
+        return json(res, 200, await voice.status());
+      }
+      if (path === "/kleio/voice/settings" && req.method === "POST") {
+        if (!isVoiceName(p.voice)) return json(res, 400, { error: "bad_request" });
+        await voice.setVoice(p.voice);
+        return json(res, 200, await voice.status());
+      }
+      return json(res, 405, { error: "method_not_allowed" });
     }
 
     // The pinned home thread. Any paired device, not admin-only: it is the

@@ -298,9 +298,13 @@ export interface Briefing {
   forget(sessionId: string): void;
   /**
    * Compose a briefing from what is happening now and mark it heard, for
-   * every device. `all`: the last day's endings, heard or not.
+   * every device. `all`: the last day's endings, heard or not. `peek`: what
+   * is new, without marking it heard (the voice's opening context).
    */
-  brief(current: readonly BriefJob[], opts?: { readonly all?: boolean }): Brief;
+  brief(
+    current: readonly BriefJob[],
+    opts?: { readonly all?: boolean; readonly peek?: boolean },
+  ): Brief;
   /** Settles once every write so far has landed. */
   flush(): Promise<void>;
 }
@@ -453,7 +457,7 @@ export function createBriefing(opts: {
       const repeat = !o.all && heard !== null && at - heard.at < REPEAT_SECONDS;
       const since = o.all || heard === null ? at - WINDOW_SECONDS : repeat ? heard.since : heard.at;
       const { spoken, items } = composeBrief({ current, outcomes, since, now: at });
-      if (!o.all && !repeat) {
+      if (!o.all && !o.peek && !repeat) {
         heard = { at, since };
         save();
       }

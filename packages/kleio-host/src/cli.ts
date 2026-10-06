@@ -158,6 +158,11 @@ async function serve(p: HostPaths): Promise<void> {
       ...(process.env.TYPESAFE_API_KEY ? { apiKey: process.env.TYPESAFE_API_KEY } : {}),
       ...(process.env.TYPESAFE_BASE_URL ? { baseUrl: process.env.TYPESAFE_BASE_URL } : {}),
     },
+    // Kleio's conversational voice: the key is normally set from Settings.
+    voice: {
+      ...(process.env.KLEIO_OPENAI_API_KEY ? { apiKey: process.env.KLEIO_OPENAI_API_KEY } : {}),
+      ...(process.env.KLEIO_VOICE_MODEL ? { model: process.env.KLEIO_VOICE_MODEL } : {}),
+    },
     listenPort: listenPort(),
     publicBaseUrl: publicBase(),
     previewPort: previewPort(),

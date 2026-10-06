@@ -367,3 +367,37 @@
     animation: none;
   }
 }
+
+/* ── "Talk to Kleio" (TalkPanel.tsx): the briefing panel, with captions ──
+   Kleio's words in the main text colour; yours quieter and set in, so the
+   conversation reads at a glance. The orb glows softly while she listens. */
+.talk-panel {
+  max-height: min(70vh, 600px);
+}
+.talk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 48px;
+  overflow-y: auto;
+}
+.talk-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.talk-line.is-you {
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-secondary);
+}
+.brief-orb.is-listening {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--kleio-crimson) 18%, transparent);
+  transition: box-shadow var(--t-fast);
+}
+.brief-action.is-hangup {
+  color: var(--error);
+}
+.settings-desc.is-error {
+  color: var(--error);
+}

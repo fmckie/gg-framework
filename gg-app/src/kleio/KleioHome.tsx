@@ -16,7 +16,7 @@ import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
 import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
-import { briefMe } from "./BriefPanel";
+import { refreshVoiceReady, talkToKleio, useVoiceReady } from "./TalkPanel";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
@@ -54,12 +54,19 @@ export function KleioHome({
   const [ready, setReady] = useState<{ folder: boolean; model: boolean } | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const backgroundOn = useHomeBackgroundEnabled();
+  // Her natural voice is set up on the Mac mini: "Talk to Kleio", else "Brief me".
+  const voiceReady = useVoiceReady();
+  const connected = Boolean(status?.active);
 
   useEffect(() => {
     void getVersion()
       .then(setVersion)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (connected) void refreshVoiceReady();
+  }, [connected, refreshSignal]);
 
   // Chat and Code need a model on the Mac mini: a signed-in provider, or a
   // private one (Tinfoil, Ollama) that is running. Code also needs a projects
@@ -160,11 +167,15 @@ export function KleioHome({
       <button
         type="button"
         className="home-brief"
-        title="Hear what needs you, what finished and what's still working (⌘⇧B)"
-        onClick={() => void briefMe()}
+        title={
+          voiceReady
+            ? "Talk to Kleio: ask what's happening, or plan something out (⌘⇧B)"
+            : "Hear what needs you, what finished and what's still working (⌘⇧B)"
+        }
+        onClick={() => void talkToKleio()}
       >
         <WaveformIcon size={16} weight="bold" aria-hidden="true" />
-        Brief me
+        {voiceReady ? "Talk to Kleio" : "Brief me"}
       </button>
       <button
         type="button"

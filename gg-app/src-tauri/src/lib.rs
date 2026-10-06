@@ -4221,7 +4221,7 @@ fn build_tray_menu(
     menu.append(&MenuItem::with_id(
         app,
         tray_id::BRIEF,
-        "Brief me",
+        "Talk to Kleio",
         true,
         None::<&str>,
     )?)?;
@@ -5886,6 +5886,7 @@ pub fn run() {
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
             kleio::commands::kleio_api,
+            kleio::commands::kleio_voice_call,
             kleio::files::kleio_file_fetch,
             kleio::files::kleio_file_open,
             kleio::files::kleio_file_save,
