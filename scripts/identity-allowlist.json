@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1470,
+        "tracked": 1469,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3421,11 +3421,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:// Click handler for the \"Send to GG Coder\" button on Ken's recommended prompts\\.|// Ken \"Send to GG Coder\" prompts: restore the shimmer label, not the|// Pin Ken to a model \\(or null → clear the pin, follow GG Coder\\)\\. The|// Pushes a shimmering \"Sent to GG Coder\" user bubble \\(the full prompt body went|// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// Thinking-tier color, mirroring the ggcoder TUI footer's getThinkingColor:|// True when this bubble came from clicking a \"Send to GG Coder\" button on|// `phase` selects the message: he prompted GG Coder \\(with the `body` he sent\\),|// fences into a \"Send to GG Coder\" button\\.|// full prompt body\\. The full body still went to GG Coder\\.|// in Ken's color so the transcript shows it went to the mentor, not GG Coder\\.|// of the full prompt body that was actually sent to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the|// read-only mentor agent — NOT GG Coder\\. Ken runs concurrently with any|// repeat the exact same sentence every time GG Coder's work checks out\\.|// streamed from the ken_\\* SSE events\\. Never mistaken for GG Coder\\.|// text\\), which is the ONLY differentiator from a normal GG Coder reply\\.|// to GG Coder, but the transcript shows the short Ken-colored label, like a|// ── Plan review actions \\(mirror the ggcoder CLI plan overlay\\) ──|: \"Ken follows GG Coder's model — click to pin one\"|: \"Sending GG Coder back in for another pass\\.\",|\\? `Sending GG Coder back in:\\\\n\\\\n\\$\\{item\\.body\\.trim\\(\\)\\}`|Sent to GG Coder|const fallbackTitle = workspaceMode === \"chat\" \\? \"GG Chat\" : \"GG Coder\";|title=\\{workspaceMode === \"chat\" \\? \"Switch GG's model\" : \"Switch GG Coder's model\"\\}|\\{\"Ken just updated GG Coder!\"\\})",
+        "regex": "(?:// Click handler for the \"Send to GG Coder\" button on Ken's recommended prompts\\.|// Ken \"Send to GG Coder\" prompts: restore the shimmer label, not the|// Pin Ken to a model \\(or null → clear the pin, follow GG Coder\\)\\. The|// Pushes a shimmering \"Sent to GG Coder\" user bubble \\(the full prompt body went|// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// Thinking-tier color, mirroring the ggcoder TUI footer's getThinkingColor:|// True when this bubble came from clicking a \"Send to GG Coder\" button on|// `phase` selects the message: he prompted GG Coder \\(with the `body` he sent\\),|// fences into a \"Send to GG Coder\" button\\.|// full prompt body\\. The full body still went to GG Coder\\.|// in Ken's color so the transcript shows it went to the mentor, not GG Coder\\.|// of the full prompt body that was actually sent to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the|// read-only mentor agent — NOT GG Coder\\. Ken runs concurrently with any|// repeat the exact same sentence every time GG Coder's work checks out\\.|// streamed from the ken_\\* SSE events\\. Never mistaken for GG Coder\\.|// text\\), which is the ONLY differentiator from a normal GG Coder reply\\.|// to GG Coder, but the transcript shows the short Ken-colored label, like a|// ── Plan review actions \\(mirror the ggcoder CLI plan overlay\\) ──|: \"Ken follows GG Coder's model — click to pin one\"|: \"Sending GG Coder back in for another pass\\.\",|\\? `Sending GG Coder back in:\\\\n\\\\n\\$\\{item\\.body\\.trim\\(\\)\\}`|Sent to GG Coder|const fallbackTitle = workspaceMode === \"chat\" \\? \"GG Chat\" : \"GG Coder\";|title=\\{workspaceMode === \"chat\" \\? \"Switch GG's model\" : \"Switch GG Coder's model\"\\})",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 24
+        "tracked": 23
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",

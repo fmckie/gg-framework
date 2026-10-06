@@ -3,7 +3,7 @@ import type { UpdateInfo } from "./update";
 
 /**
  * The full-width row at the bottom of the window while an update waits, as in
- * Ken's GG Coder: clicking it downloads and installs the update, then restarts
+ * the upstream app: clicking it downloads and installs the update, then restarts
  * the app. Meanwhile the row is the download's progress bar. App.tsx shows it
  * under the home screen, Kleio's pages and the chats alike.
  */

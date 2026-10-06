@@ -95,7 +95,7 @@ if (!identity) {
   if (!identity) fail("no Developer ID Application signing identity in the keychain");
 }
 
-// The sidecar the app ships: ggcoder and what it builds on, bundled with the
+// The sidecar the app ships: @kleio/coder and what it builds on, bundled with the
 // Node runtime, smoke-tested, then signed so the app's signature holds.
 run("pnpm", ["--filter", "@kleio/coder...", "build"], { cwd: repoRoot });
 run("pnpm", ["stage:node"], { cwd: appRoot });

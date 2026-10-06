@@ -50,8 +50,8 @@ export function WhatsNewModal(): null {
           const { CHANGELOG } = await import("./changelog");
           if (cancelled) return;
           // kleio: only notes written for this very version. Kleio's versions
-          // have none in Ken's GG Coder history, so a Kleio update never opens
-          // his release notes.
+          // have none in the upstream changelog, so a Kleio update never opens
+          // the upstream app's release notes.
           notes = CHANGELOG.some((entry) => entry.version === version);
         }
         // Persist before opening so a re-check never re-opens it.
