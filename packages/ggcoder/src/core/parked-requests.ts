@@ -23,6 +23,8 @@ export interface ParkedRequests<Req, Res> {
   cancelAll: (result?: Res) => void;
   /** How many requests are currently awaiting the user. */
   readonly pendingCount: number;
+  /** Snapshot of the requests still awaiting the user, oldest first. */
+  pending: () => Array<Req & { id: string }>;
 }
 
 export interface ParkedRequestsOptions<Req, Res> {
@@ -36,6 +38,8 @@ export interface ParkedRequestsOptions<Req, Res> {
   timeoutMs: number;
   /** Called when a request auto-cancels on timeout, for logging. */
   onTimeout?: (prompt: Req & { id: string }) => void;
+  /** Called once a request leaves the registry (answered, cancelled, timed out). */
+  onSettle?: (id: string) => void;
 }
 
 export function createParkedRequests<Req extends object, Res>(
@@ -43,7 +47,11 @@ export function createParkedRequests<Req extends object, Res>(
 ): ParkedRequests<Req, Res> {
   const pending = new Map<
     string,
-    { resolve: (result: Res) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      prompt: Req & { id: string };
+      resolve: (result: Res) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
   >();
   let seq = 0;
 
@@ -53,6 +61,7 @@ export function createParkedRequests<Req extends object, Res>(
     pending.delete(id);
     clearTimeout(entry.timer);
     entry.resolve(result);
+    opts.onSettle?.(id);
     return true;
   };
 
@@ -65,7 +74,7 @@ export function createParkedRequests<Req extends object, Res>(
           settle(prompt.id, opts.cancelValue());
         }, opts.timeoutMs);
         timer.unref?.();
-        pending.set(prompt.id, { resolve, timer });
+        pending.set(prompt.id, { prompt, resolve, timer });
         opts.broadcast(prompt);
       }),
     settle,
@@ -75,5 +84,6 @@ export function createParkedRequests<Req extends object, Res>(
     get pendingCount() {
       return pending.size;
     },
+    pending: () => [...pending.values()].map((entry) => entry.prompt),
   };
 }

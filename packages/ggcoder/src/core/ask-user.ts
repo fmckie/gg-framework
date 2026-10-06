@@ -54,6 +54,8 @@ export type AskUserBridge = ParkedRequests<AskUserRequest, AskUserResult>;
 export function createAskUserBridge(opts: {
   broadcast: (prompt: AskUserPrompt) => void;
   onTimeout?: (prompt: AskUserPrompt) => void;
+  /** Called when a question leaves the registry for any reason. */
+  onSettle?: (id: string) => void;
   timeoutMs?: number;
 }): AskUserBridge {
   return createParkedRequests<AskUserRequest, AskUserResult>({
@@ -62,6 +64,7 @@ export function createAskUserBridge(opts: {
     cancelValue: () => ({ action: "cancel" }),
     timeoutMs: opts.timeoutMs ?? ASK_USER_TIMEOUT_MS,
     ...(opts.onTimeout ? { onTimeout: opts.onTimeout } : {}),
+    ...(opts.onSettle ? { onSettle: opts.onSettle } : {}),
   });
 }
 
