@@ -61,8 +61,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 2.1.0
-        CFBundleVersion: "51"
+        CFBundleShortVersionString: 2.1.1
+        CFBundleVersion: "52"
         # The lock screen and Dynamic Island view of what an agent is doing
         # (KleioWidgets); the host starts and updates it by push.
         NSSupportsLiveActivities: true
@@ -127,8 +127,8 @@ targets:
       properties:
         CFBundleDisplayName: Kleio
         # Must match the app's.
-        CFBundleShortVersionString: 2.1.0
-        CFBundleVersion: "51"
+        CFBundleShortVersionString: 2.1.1
+        CFBundleVersion: "52"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
