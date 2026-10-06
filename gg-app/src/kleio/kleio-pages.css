@@ -1023,6 +1023,24 @@
   list-style: none;
   font-size: 12px;
 }
+/* The live tool calls above a chat's composer: the Code window's panel, inside
+   the composer column. */
+.livetoolpanel.kleio-livetools {
+  margin: 0;
+  padding: 0 var(--rail) 2px;
+  border-top: none;
+  list-style: none;
+  font-size: 12px;
+}
+.kleio-livetools-who {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .kleio-activity-time {
   flex: 0 0 auto;
   color: var(--text-dim);

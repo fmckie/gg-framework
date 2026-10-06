@@ -1,4 +1,4 @@
-// "Ken is on." / "Ken is off." notice shown over the chat BODY (inside
+// "Kleio is on." / "Kleio is off." notice shown over the chat BODY (inside
 // `.transcript-frame`, a non-scrolling sibling of `.transcript` sized to the
 // same viewport — NOT inside `.transcript` itself, which scrolls, so an
 // absolutely positioned overlay there would pin to the scrolled content
@@ -23,7 +23,7 @@ export function KenPowerBanner({ mode, onDone }: Props): React.ReactElement {
           this node instead of restyling it in place — the flash always plays
           from a clean start, even on a rapid on/off/on flip. */}
       <div key={mode} className="ken-power-banner" onAnimationEnd={onDone}>
-        {mode === "on" ? "Ken is on." : "Ken is off."}
+        {mode === "on" ? "Kleio is on." : "Kleio is off."}
       </div>
     </div>
   );

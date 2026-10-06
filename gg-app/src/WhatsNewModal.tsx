@@ -45,13 +45,18 @@ export function WhatsNewModal(): null {
         if (seen === version) return;
         // Only upgrades need the history. Ordinary launches and fresh installs
         // must not load it into every workspace just to check its length.
+        let notes = false;
         if (seen !== null) {
           const { CHANGELOG } = await import("./changelog");
-          if (cancelled || CHANGELOG.length === 0) return;
+          if (cancelled) return;
+          // kleio: only notes written for this very version. Kleio's versions
+          // have none in the upstream changelog, so a Kleio update never opens
+          // the upstream app's release notes.
+          notes = CHANGELOG.some((entry) => entry.version === version);
         }
         // Persist before opening so a re-check never re-opens it.
         localStorage.setItem(STORAGE_KEY, version);
-        if (seen !== null) void openWhatsNewWindow().catch(() => {});
+        if (notes) void openWhatsNewWindow().catch(() => {});
       })
       .catch((e) => logError(`What's-new version check failed: ${String(e)}`));
     return () => {

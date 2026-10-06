@@ -191,8 +191,11 @@ export interface GroupInput {
 
 export type GroupPatch = Partial<GroupInput>;
 
-/** One tool call of a member's current or last turn: a summary, never its output. */
-export interface GroupActivityEntry {
+/**
+ * One tool call of an agent's current or last turn (a group member's, or a
+ * specialist's in its own chat): a summary, never its output.
+ */
+export interface ToolActivityEntry {
   /** The tool call id. */
   id: string;
   name: string;
@@ -228,7 +231,7 @@ export interface GroupMessagesPage {
    * Blob id → the tool calls of its current or last turn, oldest first. Held in
    * the host's memory only; absent from older hosts.
    */
-  activity?: Record<string, GroupActivityEntry[]>;
+  activity?: Record<string, ToolActivityEntry[]>;
   /** Blob id → how its last turn ended. Absent from older hosts. */
   outcomes?: Record<string, GroupTurnOutcome>;
   /**
@@ -423,6 +426,10 @@ export const newBlobSession = (id: string): Promise<ThreadSession> =>
 
 export const listRuns = async (id: string): Promise<Run[]> =>
   (await call<{ runs: Run[] }>("GET", `${blobPath(id)}/runs`)).runs;
+
+/** The tool calls of the agent's run in progress; none between runs. */
+export const getBlobActivity = async (id: string): Promise<ToolActivityEntry[]> =>
+  (await call<{ activity: ToolActivityEntry[] }>("GET", `${blobPath(id)}/activity`)).activity;
 
 export const addSchedule = async (id: string, input: ScheduleInput): Promise<Schedule> =>
   (await call<{ schedule: Schedule }>("POST", `${blobPath(id)}/schedules`, input)).schedule;

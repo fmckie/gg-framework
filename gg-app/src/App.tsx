@@ -147,7 +147,6 @@ import { RadioButton } from "./RadioButton";
 import { ProjectPicker } from "./ProjectPicker";
 import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
-import { Badge } from "./Badge";
 import { AutopilotToggle } from "./AutopilotToggle";
 import { SettingsModal } from "./LazySettingsModal";
 import { initialEntryView, type EntryView } from "./app-entry-view";
@@ -185,6 +184,7 @@ import type { SettingsTabId } from "./SettingsScreen";
 import { Markdown, PromptSendProvider } from "./Markdown";
 import { FooterSkeleton, TranscriptSkeleton, Skeleton } from "./Skeleton";
 import { useAppUpdate } from "./update";
+import { UpdateBanner } from "./UpdateBanner";
 import { recoverPromptLabel } from "./prompt-labels";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
@@ -2847,6 +2847,8 @@ function App(): React.ReactElement {
             onClose={() => withViewTransition(() => setEntryView("home"))}
           />
         )}
+        {/* At the bottom of home and Kleio's pages too, not only in a chat. */}
+        <UpdateBanner update={appUpdate} />
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
         {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
         {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
@@ -2888,6 +2890,7 @@ function App(): React.ReactElement {
         ) : (
           <ProjectPicker initialProjectPath={state?.cwd ?? null} {...pickerProps} />
         )}
+        <UpdateBanner update={appUpdate} />
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
       </div>
     );
@@ -3570,33 +3573,7 @@ function App(): React.ReactElement {
         )}
       </div>
 
-      {appUpdate.phase === "available" && (
-        <button
-          className="update-banner"
-          title={`Update to ${appUpdate.version} — installs and restarts the app`}
-          onClick={() => void appUpdate.install()}
-        >
-          <span className="update-banner-dot" />
-          {"Ken just updated GG Coder!"}
-          <Badge>Install</Badge>
-        </button>
-      )}
-      {appUpdate.phase === "installing" && (
-        // Same .update-banner box (padding/font) as the available state, so
-        // banner → progress bar swaps content with zero layout shift. The fill
-        // is absolutely positioned; only the centered percentage is in flow.
-        <div
-          className="update-banner update-banner-busy update-banner-progress"
-          role="progressbar"
-          aria-valuenow={appUpdate.progress ?? 0}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Downloading update"
-        >
-          <span className="update-banner-fill" style={{ width: `${appUpdate.progress ?? 0}%` }} />
-          <span className="update-banner-pct">{`${appUpdate.progress ?? 0}%`}</span>
-        </div>
-      )}
+      <UpdateBanner update={appUpdate} />
 
       {workspaceMode === "code" && showInitGit && (
         <InitGitModal

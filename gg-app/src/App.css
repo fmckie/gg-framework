@@ -5431,6 +5431,11 @@ select {
   cursor: wait;
 }
 
+/* The full-height screens give the banner its row when one shows. */
+.app > .home,
+.app > .picker {
+  min-height: 0;
+}
 /* App-update banner — its own row below the footer so it reads as a distinct,
    noticeable announcement. Same green gradient as the home-screen update pill
    (#36c489 → #2dd4bf) with dark text; a light sweep draws the eye. The whole

@@ -3,20 +3,13 @@
 // in Kleio's crimson and white, with Kleio's own ways in.
 
 import { useEffect, useState } from "react";
-import {
-  CirclesThreeIcon,
-  CodeIcon,
-  DownloadSimpleIcon,
-  GearSixIcon,
-  SparkleIcon,
-} from "@phosphor-icons/react";
+import { CirclesThreeIcon, CodeIcon, GearSixIcon, SparkleIcon } from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
 import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
-import { useAppUpdate } from "../update";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
@@ -53,7 +46,6 @@ export function KleioHome({
   const { status } = useKleioRemote();
   const [ready, setReady] = useState<{ folder: boolean; model: boolean } | null>(null);
   const [version, setVersion] = useState<string | null>(null);
-  const appUpdate = useAppUpdate();
   const backgroundOn = useHomeBackgroundEnabled();
 
   useEffect(() => {
@@ -167,25 +159,9 @@ export function KleioHome({
       >
         <GearSixIcon size={20} weight="bold" aria-hidden="true" />
       </button>
+      {/* An update shows as the banner along the bottom (App.tsx). */}
       <div className="home-version-corner">
-        {appUpdate.phase === "available" || appUpdate.phase === "installing" ? (
-          <button
-            className={`home-update${appUpdate.phase === "installing" ? " home-update-progress" : ""}`}
-            disabled={appUpdate.phase === "installing"}
-            title={`Update to ${appUpdate.version} — installs and restarts Kleio`}
-            onClick={() => void appUpdate.install()}
-          >
-            {appUpdate.phase === "installing" && (
-              <span className="home-update-fill" style={{ width: `${appUpdate.progress ?? 0}%` }} />
-            )}
-            <DownloadSimpleIcon size={14} weight="bold" aria-hidden="true" />
-            {appUpdate.phase === "installing"
-              ? `Installing… ${appUpdate.progress ?? 0}%`
-              : `Update to ${appUpdate.version}`}
-          </button>
-        ) : (
-          version && <span className="home-version">{`v${version}`}</span>
-        )}
+        {version && <span className="home-version">{`v${version}`}</span>}
       </div>
     </div>
   );

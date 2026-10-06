@@ -58,6 +58,14 @@ describe("release-notes trigger", () => {
     expect(openWhatsNewWindow).toHaveBeenCalledTimes(1);
   });
 
+  it("opens no notes for a version the history doesn't cover, like a Kleio update", async () => {
+    localStorage.setItem(key, "0.73.2");
+    vi.mocked(getVersion).mockResolvedValue("2.1.0");
+    render(<WhatsNewModal />);
+    await waitFor(() => expect(localStorage.getItem(key)).toBe("2.1.0"));
+    expect(openWhatsNewWindow).not.toHaveBeenCalled();
+  });
+
   it("ignores a late version result after unmount", async () => {
     let resolveVersion!: (version: string) => void;
     vi.mocked(getVersion).mockReturnValue(

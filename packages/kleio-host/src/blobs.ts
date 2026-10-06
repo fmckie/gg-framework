@@ -46,6 +46,7 @@ import {
   sessionIdle,
 } from "./pinned-thread.js";
 import { err, ok, type Result } from "./result.js";
+import { type ActivityEntry, serverToolCalled, toolEnded, toolStarted } from "./tool-activity.js";
 
 export const BLOB_COLORS = [
   "sky",
@@ -370,6 +371,8 @@ export function createBlobs(options: BlobsOptions): Blobs {
   const running = new Set<string>();
   /** A fired schedule (or run-now) waiting for its run_end, by Blob id. */
   const open = new Map<string, OpenRun>();
+  /** Each Blob's tool calls in its current or last run, by Blob id. */
+  const activity = new Map<string, ActivityEntry[]>();
   let ticking = false;
 
   // ---------------------------------------------------------------- blobs.json
@@ -857,6 +860,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
   async function deleteBlob(b: Blob): Promise<Reply> {
     await thread(b.id).retire();
     open.delete(b.id);
+    activity.delete(b.id);
     threads.delete(b.id);
     blobs = blobs.filter((x) => x.id !== b.id);
     await save();
@@ -973,6 +977,13 @@ export function createBlobs(options: BlobsOptions): Blobs {
       const { runs } = await runLog(b.id);
       return { status: 200, body: { runs: runs.slice(-LIST_RUNS).reverse() } };
     }
+    if (rest === "/activity" && method === "GET") {
+      // The run in progress only: between runs the chat shows no tool calls,
+      // and a run that has not started yet must not show the last one's.
+      const live = b.sessionId ? running.has(b.sessionId) : false;
+      const entries = live ? (activity.get(b.id) ?? []) : [];
+      return { status: 200, body: { activity: entries.map((e) => ({ ...e })) } };
+    }
     if (rest === "/schedules" && method === "POST") return addSchedule(b, await body());
     const sm = rest.match(/^\/schedules\/(s_[0-9a-f]{8})(\/run)?$/);
     const s = sm ? b.schedules.find((x) => x.id === sm[1]) : undefined;
@@ -1010,6 +1021,8 @@ export function createBlobs(options: BlobsOptions): Blobs {
     switch (f.type) {
       case "run_start":
         running.add(sessionId);
+        // A new run: its tool calls replace the last run's.
+        activity.set(b.id, []);
         if (mine) {
           mine.text = "";
           mine.stale = false;
@@ -1050,6 +1063,19 @@ export function createBlobs(options: BlobsOptions): Blobs {
           title: `${b.emoji} ${b.name}`,
           body: summary || mine.run.label,
         };
+      }
+      case "tool_call_start":
+      case "tool_call_end":
+      case "server_tool_call": {
+        const at = now().toISOString();
+        let entries = activity.get(b.id);
+        if (!entries) activity.set(b.id, (entries = []));
+        if (f.type === "tool_call_start") toolStarted(entries, d, at);
+        else if (f.type === "tool_call_end") toolEnded(entries, d, at);
+        else serverToolCalled(entries, d, at);
+        // A tool call came after the text: the next text is a new message.
+        if (mine && f.type !== "server_tool_call") mine.stale = true;
+        return null;
       }
       default:
         if (
