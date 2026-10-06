@@ -2896,6 +2896,66 @@ function App(): React.ReactElement {
     );
   }
 
+  // The iPhone lays the header out in two rows: back, the project's name and
+  // New on top, the session's tools under them (WorkspaceHeader). The desktop
+  // keeps back and New in its tools row.
+  const phoneHeader = isPhone();
+  const activeRemote = kleioRemote.status?.active ?? null;
+  // The subscription usage bar. The iPhone's title row has no room for it, so
+  // there it sits at the right end of the activity row, by the tools chevron.
+  const usageMeter = <TitleUsageMeter currentProvider={state?.provider ?? ""} />;
+  // The activity row. A code session swaps it for Ken's own bar while Ken
+  // answers an @Ken on his own; when both run, both bars show.
+  const showTaskBar = workspaceMode !== "code" || running || autopilotReviewing || !kenRunning;
+  // Kleio Chat's one tool. On the iPhone it sits beside New on the title row,
+  // so the chat needs no tools row.
+  const brainButton = workspaceMode === "chat" && (
+    <button
+      className="btn btn-sm btn-ghost"
+      title="View and curate chat memories and Jiwa"
+      onClick={() => setShowMemories(true)}
+    >
+      Brain
+    </button>
+  );
+  const backButton = (
+    <BackButton
+      label={
+        workspaceMode === "chat"
+          ? "Back to chats"
+          : workspaceMode === "motion"
+            ? "Back to motion sessions"
+            : "Back to this project's sessions"
+      }
+      onClick={() => withViewTransition(() => setShowPicker(true))}
+    />
+  );
+  const newSessionButton =
+    workspaceMode === "code" ? (
+      // Quiet here on purpose: in a project the header's one accent is the
+      // commit action, so New sits with the other tools.
+      <button
+        className="btn btn-sm btn-ghost"
+        disabled={running}
+        title="Start a new session for this project"
+        onClick={() => setConfirmNewSession(true)}
+      >
+        <PlusIcon size={14} aria-hidden="true" />
+        New
+      </button>
+    ) : (
+      <MetalButton
+        windowFocused={windowFocused}
+        className="btn btn-primary btn-sm"
+        disabled={running}
+        title={workspaceMode === "motion" ? "Start a new video session" : "Start a new chat"}
+        onClick={() => setConfirmNewSession(true)}
+      >
+        <PlusIcon size={14} aria-hidden="true" />
+        New
+      </MetalButton>
+    );
+
   return (
     <div
       className={`app${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
@@ -2920,13 +2980,24 @@ function App(): React.ReactElement {
         additionalRoots={state?.additionalRoots}
         navHidden={navHidden}
         onToggleNav={toggleNav}
+        connection={
+          activeRemote && (
+            <KleioBadge active={activeRemote} onClick={() => setShowKleioRemote(true)} />
+          )
+        }
+        leading={phoneHeader && backButton}
+        trailing={
+          phoneHeader && (
+            <>
+              {newSessionButton}
+              {brainButton}
+            </>
+          )
+        }
+        tools={!(phoneHeader && workspaceMode === "chat")}
         stripExtras={
           <>
-            <KleioBadge
-              active={kleioRemote.status?.active ?? null}
-              onClick={() => setShowKleioRemote(true)}
-            />
-            {kleioRemote.status?.active && (
+            {activeRemote && (
               <button
                 type="button"
                 className="kleio-badge kleio-open"
@@ -2937,7 +3008,7 @@ function App(): React.ReactElement {
                 Specialists
               </button>
             )}
-            <TitleUsageMeter currentProvider={state?.provider ?? ""} />
+            {!phoneHeader && usageMeter}
             {windowTotal > 1 && windowIndex !== null && (
               <span
                 className={`window-index${isThisFocused ? "" : " dim"}`}
@@ -2950,16 +3021,7 @@ function App(): React.ReactElement {
           </>
         }
       >
-        <BackButton
-          label={
-            workspaceMode === "chat"
-              ? "Back to chats"
-              : workspaceMode === "motion"
-                ? "Back to motion sessions"
-                : "Back to this project's sessions"
-          }
-          onClick={() => withViewTransition(() => setShowPicker(true))}
-        />
+        {!phoneHeader && backButton}
         <div className="rank-badge-wrap">
           <RankBadge
             snapshot={progress}
@@ -2976,25 +3038,8 @@ function App(): React.ReactElement {
         </div>
         {workspaceMode !== "code" ? (
           <span className="picker-head-actions">
-            <MetalButton
-              windowFocused={windowFocused}
-              className="btn btn-primary btn-sm"
-              disabled={running}
-              title={workspaceMode === "motion" ? "Start a new video session" : "Start a new chat"}
-              onClick={() => setConfirmNewSession(true)}
-            >
-              <PlusIcon size={14} aria-hidden="true" />
-              New
-            </MetalButton>
-            {workspaceMode === "chat" && (
-              <button
-                className="btn btn-sm btn-ghost"
-                title="View and curate chat memories and Jiwa"
-                onClick={() => setShowMemories(true)}
-              >
-                Brain
-              </button>
-            )}
+            {!phoneHeader && newSessionButton}
+            {!phoneHeader && brainButton}
             <RadioButton />
             <WindowLayoutButton />
           </span>
@@ -3010,17 +3055,7 @@ function App(): React.ReactElement {
                   setKenPowerBanner(next ? "on" : "off");
                 }}
               />
-              {/* Quiet here on purpose: in a project the header's one accent is
-                  the commit action, so New sits with the other tools. */}
-              <button
-                className="btn btn-sm btn-ghost"
-                disabled={running}
-                title="Start a new session for this project"
-                onClick={() => setConfirmNewSession(true)}
-              >
-                <PlusIcon size={14} aria-hidden="true" />
-                New
-              </button>
+              {!phoneHeader && newSessionButton}
               <button
                 className="btn btn-sm btn-ghost"
                 title="Open your notes for this project"
@@ -3168,11 +3203,12 @@ function App(): React.ReactElement {
             thinkingStartTs={kenThinkingStartTs}
             thinkingAccumMs={kenThinkingAccumMs}
             onCancel={() => void cancelKen()}
+            trailing={phoneHeader && !showTaskBar && usageMeter}
           />
         )}
         {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
         {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
-        {(workspaceMode !== "code" || running || autopilotReviewing || !kenRunning) && (
+        {showTaskBar && (
           <ActivityBar
             running={running}
             activity={activity}
@@ -3188,6 +3224,7 @@ function App(): React.ReactElement {
             toolsHidden={toolsHidden}
             hasToolFeed={liveToolFeed.length > 0}
             onToggleTools={toggleTools}
+            trailing={phoneHeader && usageMeter}
           />
         )}
       </div>
@@ -3455,13 +3492,17 @@ function App(): React.ReactElement {
                 Motion Agent
               </span>
             ) : workspaceMode === "chat" ? (
-              <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
-                {state?.chatAgent === "therapist"
-                  ? "Therapist Agent"
-                  : state?.chatAgent === "research"
-                    ? "Research Agent"
-                    : "General Agent"}
-              </span>
+              // On the iPhone the controls take the whole line, and the agent's
+              // name was clipped to "Gene".
+              !phoneHeader && (
+                <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
+                  {state?.chatAgent === "therapist"
+                    ? "Therapist Agent"
+                    : state?.chatAgent === "research"
+                      ? "Research Agent"
+                      : "General Agent"}
+                </span>
+              )
             ) : (
               <span className="footer-left footer-reveal">
                 {runningTaskCount > 0 && <BackgroundTasksButton tasks={tasks} />}
@@ -3536,6 +3577,7 @@ function App(): React.ReactElement {
                   models={models}
                   currentModel={state?.model ?? ""}
                   onSelect={onSelectModel}
+                  compact={phoneHeader}
                   disabled={running}
                   title={`Switch ${workspaceMode === "chat" ? "GG" : workspaceProductName(workspaceMode)}'s model`}
                 />
@@ -3551,6 +3593,7 @@ function App(): React.ReactElement {
                       models={models}
                       currentModel={state?.kenModel ?? state?.model ?? ""}
                       onSelect={(id) => onSelectKenModel(id)}
+                      compact={phoneHeader}
                       color={theme.ken}
                       // Ken's pin retargets BOTH his sessions (chat + the
                       // autopilot reviewer), so it has to stay locked while

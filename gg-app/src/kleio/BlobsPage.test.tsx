@@ -137,6 +137,23 @@ describe("BlobsPage", () => {
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
   });
 
+  it("on the iPhone, puts the specialist's state under its name, so Edit shares the row", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      await renderPage();
+      fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+
+      const heading = screen.getByRole("heading", { name: "Research", level: 1 });
+      const titles = heading.parentElement as HTMLElement;
+      expect(titles.className).toBe("kleio-head-titles");
+      expect(within(titles).getByText(agentRowState(blob({})).text)).toBeTruthy();
+      const head = titles.closest(".kleio-head") as HTMLElement;
+      expect(within(head).getByRole("button", { name: "Edit" })).toBeTruthy();
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+
   it("shows an empty Assets panel until the specialist shares a file", async () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));

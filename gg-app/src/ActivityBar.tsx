@@ -91,6 +91,8 @@ interface Props {
   hasToolFeed?: boolean;
   /** Toggle the live tool panel's collapsed state. */
   onToggleTools?: () => void;
+  /** Leads the right-hand cluster (the iPhone's usage meter). */
+  trailing?: React.ReactNode;
 }
 
 // Chevron toggle for the live tool panel — mirrors the nav-toggle chevron up
@@ -182,6 +184,7 @@ export function ActivityBar({
   toolsHidden = false,
   hasToolFeed = false,
   onToggleTools,
+  trailing,
 }: Props): React.ReactElement {
   const [now, setNow] = useState(0);
   const [fallbackStart, setFallbackStart] = useState(0);
@@ -306,6 +309,7 @@ export function ActivityBar({
           </span>
         )}
         <span className="statusrow-right">
+          {trailing}
           {showToolsToggle && onToggleTools && (
             <ToolsToggle hidden={toolsHidden} onToggle={onToggleTools} />
           )}

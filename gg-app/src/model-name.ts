@@ -13,3 +13,15 @@ export function modelDisplayName(
   if (!id) return "\u2026";
   return models.find((m) => m.id === id)?.name ?? id;
 }
+
+/**
+ * A model name short enough for the iPhone's one-line footer. Claude names lead
+ * with the brand ("Claude Opus 4.5"), and the family after it identifies the
+ * model on its own, so the brand goes: "Opus 4.5". The raw id fallback gets the
+ * same treatment ("claude-opus-4-5" to "opus-4-5"). Names whose first word is
+ * the model itself ("Gemini 3 Pro", "GPT-5 Codex") and Claude names that lead
+ * with a version ("Claude 3.5 Sonnet") stay whole.
+ */
+export function compactModelName(name: string): string {
+  return name.replace(/^claude[\s-]+(?=[a-z])/i, "");
+}

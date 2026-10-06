@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // WorkspaceHeader imports agent.ts (openUrl), which reads the current webview
@@ -227,5 +227,109 @@ describe("WorkspaceHeader", () => {
     // Tauri starts a window drag only from the element carrying the attribute,
     // so without its own the word would stop working as a drag handle.
     expect(word.hasAttribute("data-tauri-drag-region")).toBe(true);
+  });
+
+  it("keeps the connection pill beside the title on the desktop", () => {
+    render(
+      <WorkspaceHeader
+        workspaceMode="code"
+        cwd="/work/app"
+        navHidden
+        onToggleNav={() => {}}
+        connection={<button>on mac-mini-1</button>}
+      >
+        <button>New session</button>
+      </WorkspaceHeader>,
+    );
+
+    const connection = screen.getByRole("button", { name: "on mac-mini-1" });
+    expect(connection.previousElementSibling?.className).toBe("chat-head-title");
+    expect(screen.queryByRole("heading")).toBeNull();
+  });
+});
+
+describe("WorkspaceHeader on the iPhone", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => document.documentElement.classList.remove("platform-ios"));
+
+  function PhoneHeaderHarness(): React.ReactElement {
+    const [navHidden, setNavHidden] = useState(false);
+
+    return (
+      <WorkspaceHeader
+        workspaceMode="code"
+        cwd="/work/kleio-website"
+        gitBranch="main"
+        gitDirtyFileCount={3}
+        gitHubIssues={4}
+        gitHubPRs={1}
+        gitHubRepoUrl="https://github.com/demo/kleio-website"
+        navHidden={navHidden}
+        onToggleNav={() => setNavHidden((hidden) => !hidden)}
+        connection={<button>on mac-mini-1</button>}
+        leading={<button>Back</button>}
+        trailing={<button>New</button>}
+      >
+        <button>Notes</button>
+      </WorkspaceHeader>
+    );
+  }
+
+  it("puts back, the name and New on the top row, with the status under the name", () => {
+    const { container } = render(<PhoneHeaderHarness />);
+
+    const topRow = Array.from(container.querySelector(".chat-head-strip")?.children ?? []);
+    expect(topRow.map((el) => el.textContent || el.getAttribute("aria-label"))).toEqual([
+      "Back",
+      "kleio-websiteon mac-mini-1│4 issues│1 PR",
+      "New",
+      "Hide nav buttons",
+    ]);
+    expect(screen.getByRole("heading", { level: 1, name: "kleio-website" })).toBeDefined();
+    expect(container.querySelector(".chat-head-sub")?.textContent).toBe(
+      "on mac-mini-1│4 issues│1 PR",
+    );
+    // The branch and the uncommitted count stay off, as in a narrow window.
+    expect(screen.queryByText("⎇ main")).toBeNull();
+    expect(screen.queryByText("uncommitted")).toBeNull();
+  });
+
+  it("keeps back and New when the tools row is hidden", () => {
+    render(<PhoneHeaderHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide nav buttons" }));
+
+    expect(screen.queryByRole("button", { name: "Notes" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "New" })).toBeDefined();
+  });
+
+  it("drops the tools row and its toggle when the top row holds every control", () => {
+    render(
+      <WorkspaceHeader
+        workspaceMode="chat"
+        cwd="/work/kleio-projects"
+        navHidden={false}
+        onToggleNav={() => {}}
+        trailing={<button>Brain</button>}
+        tools={false}
+      >
+        <button>Window layout</button>
+      </WorkspaceHeader>,
+    );
+
+    expect(screen.getByRole("button", { name: "Brain" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Hide nav buttons" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Window layout" })).toBeNull();
+  });
+
+  it("titles a session without a folder with the product's name", () => {
+    render(
+      <WorkspaceHeader workspaceMode="chat" navHidden onToggleNav={() => {}}>
+        <button>Brain</button>
+      </WorkspaceHeader>,
+    );
+
+    expect(screen.getByRole("heading", { level: 1, name: "Kleio Chat" })).toBeDefined();
   });
 });

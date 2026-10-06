@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { theme } from "./theme";
-import { modelDisplayName } from "./model-name";
+import { compactModelName, modelDisplayName } from "./model-name";
 import { groupByProvider } from "./provider-labels";
 import { supportsNativeSelectPopup } from "./platform";
 import type { ModelOption } from "./agent";
@@ -18,6 +18,9 @@ interface Props {
    *  clears the pin. `followActive` makes it the selected value. */
   onSelectFollow?: () => void;
   followActive?: boolean;
+  /** Show a shorter name on the closed control (the iPhone footer). The menu
+   *  keeps full names. */
+  compact?: boolean;
 }
 
 const FOLLOW_VALUE = "__follow__";
@@ -89,6 +92,7 @@ export function ModelSelect({
   color,
   onSelectFollow,
   followActive,
+  compact = false,
 }: Props): React.ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -126,6 +130,8 @@ export function ModelSelect({
   // #fff with no visible change. Callers passing their own `color` (Ken's picker)
   // are mid-range already and keep it.
   const controlColor = unavailable ? theme.textDim : (color ?? theme.textSecondary);
+  const currentName = modelDisplayName(models, currentModel);
+  const label = compact ? compactModelName(currentName) : currentName;
 
   useEffect(() => {
     if (!open) return;
@@ -217,7 +223,7 @@ export function ModelSelect({
     return (
       <span className="model-picker model-picker-native" style={{ color: controlColor }}>
         <span className="model-select-text" aria-hidden="true">
-          {modelDisplayName(models, currentModel)}
+          {label}
         </span>
         <select
           className="model-select"
@@ -275,7 +281,7 @@ export function ModelSelect({
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((current) => !current)}
       >
-        {modelDisplayName(models, currentModel)}
+        {label}
       </button>
       {open && (
         <div
