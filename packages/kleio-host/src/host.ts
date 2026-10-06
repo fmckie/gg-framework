@@ -64,6 +64,7 @@ import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
+import { createBriefing } from "./brief.js";
 import {
   createLiveActivityTracker,
   type LiveAttributes,
@@ -493,6 +494,7 @@ export function createHost(options: HostOptions): Host {
             const lf = liveFrame(raw);
             // A group member's work shows on its group's activity instead.
             if (lf && !(groups?.owns(sessionId) ?? false)) liveActivities.onFrame(sessionId, lf);
+            if (!(groups?.owns(sessionId) ?? false)) briefing.onFrame(sessionId, raw);
             const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
             groups?.onFrame(sessionId, raw);
             askNotifier.onFrame(sessionId, raw, !(groups?.owns(sessionId) ?? false));
@@ -619,6 +621,14 @@ export function createHost(options: HostOptions): Host {
   // Set by stop(). A poll that was already in flight when the host stopped
   // must not track sessions or open upstreams into a dead server.
   let stopped = false;
+  // "Brief me" (brief.ts): how each job ended, for the spoken briefing.
+  const briefing = createBriefing({
+    statePath: join(dirname(options.sidecarEndpointPath), "brief.json"),
+    now: () => (options.now?.() ?? new Date()).getTime(),
+    log,
+  });
+  // Group names as the groups last said them, for the briefing.
+  const groupTitles = new Map<string, string>();
   // Lock-screen Live Activities, updated from here while the phone is locked.
   // The iPhone Live Activity per session / group (live-activity.ts).
   const liveActivities = createLiveActivityTracker({
@@ -631,6 +641,7 @@ export function createHost(options: HostOptions): Host {
         ),
     log,
     now: () => (options.now?.() ?? new Date()).getTime(),
+    onEnd: (target, state) => briefing.ended({ target, ...describeJob(target), state }),
   });
   // What POST /session asked for, so push-to-start can name the activity.
   // In memory only: after a restart an unknown session reads as a "Chat".
@@ -648,6 +659,14 @@ export function createHost(options: HostOptions): Host {
     const k = sessionKinds.get(sessionId);
     if (k?.mode === "code") return base("code", basename(k.cwd) || "Code");
     return base("chat", "Chat");
+  }
+  /** A Live Activity target's kind and name, for the briefing. */
+  function describeJob(target: string): { kind: LiveAttributes["kind"]; title: string } {
+    if (target.startsWith("g:")) {
+      return { kind: "group", title: groupTitles.get(target.slice(2)) ?? "" };
+    }
+    const { kind, title } = describeSession(target.slice(2));
+    return { kind, title };
   }
   // `ask_user` questions pushed to the phone (ask-push.ts): through the Live
   // Activity when one is (or can be started) on the phone, else a plain alert.
@@ -709,6 +728,7 @@ export function createHost(options: HostOptions): Host {
     const s = live.get(sessionId);
     s?.upstream?.destroy();
     live.delete(sessionId);
+    briefing.forget(sessionId);
     await persistTracked().catch(() => {});
   }
 
@@ -820,12 +840,14 @@ export function createHost(options: HostOptions): Host {
         notify: async (n) => {
           if (options.apns?.configured) await options.apns.notify(n, registry.list());
         },
-        onLive: (groupId, title, state, alert, fresh) =>
-          liveActivities.set(`g:${groupId}`, state, {
+        onLive: (groupId, title, state, alert, fresh) => {
+          groupTitles.set(groupId, title);
+          return liveActivities.set(`g:${groupId}`, state, {
             fresh: fresh === true,
             ...(alert ? { alert: { title: "Needs your help", body: state.detail ?? title } } : {}),
             describe: () => ({ kind: "group", title: clipText(title, TITLE_MAX), groupId }),
-          }),
+          });
+        },
         router:
           options.groupRouter ??
           jevRouter(
@@ -1396,6 +1418,33 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, { ok: true });
     }
 
+    // "Brief me" (Siri on the phone, the app's voice on the desktop): what
+    // needs you, what finished, what is still working, in a few sentences.
+    // Read-only. Marks the endings heard for every device; `all` repeats the
+    // last day's.
+    if (req.method === "POST" && path === "/kleio/brief") {
+      const started = Date.now();
+      const body = await readBody(req, 256);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let p: { all?: unknown } = {};
+      if (body.length) {
+        try {
+          p = JSON.parse(body.toString("utf8")) as typeof p;
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+      }
+      const all = typeof p === "object" && p !== null && p.all === true;
+      const current = liveActivities
+        .snapshot()
+        .map(({ target, state }) => ({ target, ...describeJob(target), state }));
+      const b = briefing.brief(current, { all });
+      log(
+        `[brief] ${auth.device.label}${all ? " (all)" : ""}: ${b.items.length} item(s) in ${Date.now() - started} ms`,
+      );
+      return json(res, 200, b);
+    }
+
     // The pinned home thread. Any paired device, not admin-only: it is the
     // conversation every device opens.
     if (req.method === "GET" && path === "/kleio/home") {
@@ -1618,6 +1667,7 @@ export function createHost(options: HostOptions): Host {
     previewServer,
     start: async () => {
       await startPreview();
+      await briefing.load();
       await new Promise<void>((resolve, reject) => {
         const failed = (e: Error): void => {
           // No API, no point serving previews: free the port for the next try.
@@ -1681,6 +1731,7 @@ export function createHost(options: HostOptions): Host {
           home?.flush(),
           blobs?.flush(),
           groups?.flush(),
+          briefing.flush(),
         ]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();

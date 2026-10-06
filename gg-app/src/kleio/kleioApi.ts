@@ -285,6 +285,27 @@ export interface ConnectStart {
   connectionId: string;
 }
 
+/** One job in a "Brief me" briefing (the host's brief.ts), in the order it is said. */
+export interface BriefItem {
+  target: string;
+  kind: "chat" | "code" | "specialist" | "group";
+  /** How the briefing names it: "Code in gg-framework", "The Launch group". */
+  name: string;
+  phase: "working" | "needsYou" | "done" | "failed" | "stopped";
+  /** Its question, how it ended, or what it is doing. */
+  detail?: string;
+  /** Unix seconds: when it ended, or when it started. */
+  at: number;
+}
+
+/** What needs you, what finished, what is still working: words to read aloud. */
+export interface Brief {
+  spoken: string;
+  items: BriefItem[];
+  since: number;
+  at: number;
+}
+
 /** The slice of the sidecar's `GET /state` the compact chat view needs. */
 export interface ThreadState {
   running: boolean;
@@ -399,6 +420,12 @@ export const hostHealth = async (): Promise<HostHealth> => {
 
 export const getHome = (): Promise<ThreadSession> => call("GET", "/kleio/home");
 export const newHome = (): Promise<ThreadSession> => call("POST", "/kleio/home/new");
+
+// ─── "Brief me" ──────────────────────────────────────────────────────────────────────
+
+/** The briefing since you were last briefed; `all` repeats the last day's news. */
+export const getBrief = (all = false): Promise<Brief> =>
+  call("POST", "/kleio/brief", all ? { all: true } : {});
 
 // ─── Blobs ──────────────────────────────────────────────────────────────────
 

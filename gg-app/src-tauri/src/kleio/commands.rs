@@ -535,7 +535,11 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
     let product = matches!(
         segs.as_slice(),
-        ["kleio", "home"] | ["kleio", "home", "new"] | ["kleio", "models"] | ["kleio", "health"]
+        ["kleio", "home"]
+            | ["kleio", "home", "new"]
+            | ["kleio", "models"]
+            | ["kleio", "health"]
+            | ["kleio", "brief"]
     ) || under(&segs, &["kleio", "blobs"])
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
@@ -555,8 +559,8 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
 }
 
-/// A one-off client for a Live Activity answer: short timeout (iOS gives a
-/// button's intent little time), the device token from `r`.
+/// A one-off client for a Live Activity answer or a Siri briefing (brief.rs):
+/// short timeout (iOS gives an intent little time), the device token from `r`.
 #[cfg(target_os = "ios")]
 pub(super) fn answer_client(r: &super::Remote) -> Result<reqwest::Client, String> {
     let mut h = reqwest::header::HeaderMap::new();
@@ -744,6 +748,7 @@ mod tests {
             ("GET", "/kleio/home"),
             ("POST", "/kleio/home/new"),
             ("GET", "/kleio/models"),
+            ("POST", "/kleio/brief"),
             ("GET", "/kleio/blobs"),
             ("POST", "/kleio/blobs"),
             ("PATCH", "/kleio/blobs/b_1"),

@@ -173,6 +173,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
+import { briefMe } from "./kleio/BriefPanel";
 import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
@@ -807,6 +808,10 @@ function App(): React.ReactElement {
         case "update":
           void appUpdate.install();
           break;
+        // Read aloud over whatever this window shows.
+        case "brief":
+          void briefMe();
+          break;
         // Route to the session picker for the requested mode. On Home that's the
         // entry view; over an open workspace it's the picker overlay, which keeps
         // the running session intact until a different one is chosen.
@@ -1414,6 +1419,12 @@ function App(): React.ReactElement {
       if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
         e.preventDefault();
         setShowKleioOverlay(true);
+        return;
+      }
+      // kleio: Cmd/Ctrl + Shift + B reads the briefing aloud (remote mode only).
+      if (e.shiftKey && (e.key === "b" || e.key === "B") && !e.altKey && kleioActiveRef.current) {
+        e.preventDefault();
+        void briefMe();
         return;
       }
       // Auto-arrange all windows: Cmd/Ctrl + Shift + A.

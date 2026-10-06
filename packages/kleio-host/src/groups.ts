@@ -868,7 +868,13 @@ export function createGroups(options: GroupsOptions): Groups {
             )
           : outOfTurns
             ? await live(gid, { phase: "stopped", line: `Paused after ${MAX_TURNS} turns` })
-            : await live(gid, { phase: "done", line: "Done" });
+            : await live(gid, {
+                phase: "done",
+                line: "Done",
+                // How it ended, for "Brief me" (the lock screen shows a
+                // detail only with a question).
+                ...(last ? { detail: clip(`${last.authorName}: ${last.text}`, 140) } : {}),
+              });
       // The activity already lit the phone up: no second buzz.
       if (reached) return settled;
     }

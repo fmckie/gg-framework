@@ -1014,6 +1014,49 @@ describe("host: Live Activity", () => {
   });
 });
 
+describe("host: Brief me (POST /kleio/brief)", () => {
+  const tick = (ms = 60): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  it("says what's working and what failed, once; any paired device; never unauthenticated", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    expect((await call("POST", "/kleio/brief", { body: {} })).status).toBe(401);
+    expect((await call("POST", "/kleio/brief", { headers: P, body: [] })).status).toBe(200);
+
+    const created = await call("POST", "/session", {
+      headers: A,
+      body: { mode: "code", cwd: "/Users/me/projects/gg-framework" },
+    });
+    const sid = created.body.sessionId as string;
+    await tick(50);
+    const emit = (type: string, data: Record<string, unknown> = {}): void =>
+      sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
+    emit("run_start", { text: "go" });
+    emit("tool_call_start", { toolCallId: "c1", name: "bash" });
+    await tick();
+    let b = await call("POST", "/kleio/brief", { headers: P, body: {} });
+    expect(b.status).toBe(200);
+    expect(b.body.spoken).toBe(
+      "Nothing needs you right now. Code in gg-framework is working. Running a command.",
+    );
+
+    emit("error", { message: "429", headline: "Claude usage limit reached." });
+    emit("run_end", { failed: true });
+    await tick();
+    // Asked again straight after: the same news, plus the failure.
+    b = await call("POST", "/kleio/brief", { headers: A, body: {} });
+    expect(b.body.spoken).toBe(
+      "Nothing needs you right now. Code in gg-framework failed. Claude usage limit reached.",
+    );
+    expect(b.body.items).toMatchObject([
+      { kind: "code", name: "Code in gg-framework", phase: "failed" },
+    ]);
+  });
+});
+
 describe("host: device diagnostics", () => {
   it("appends a device's crash report as one stamped line; rejects non-objects and oversize", async () => {
     const phone = await registry.mint("Phone");

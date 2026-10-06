@@ -3,13 +3,20 @@
 // in Kleio's crimson and white, with Kleio's own ways in.
 
 import { useEffect, useState } from "react";
-import { CirclesThreeIcon, CodeIcon, GearSixIcon, SparkleIcon } from "@phosphor-icons/react";
+import {
+  CirclesThreeIcon,
+  CodeIcon,
+  GearSixIcon,
+  SparkleIcon,
+  WaveformIcon,
+} from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
 import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
+import { briefMe } from "./BriefPanel";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
@@ -150,6 +157,15 @@ export function KleioHome({
           Specialists
         </button>
       </div>
+      <button
+        type="button"
+        className="home-brief"
+        title="Hear what needs you, what finished and what's still working (⌘⇧B)"
+        onClick={() => void briefMe()}
+      >
+        <WaveformIcon size={16} weight="bold" aria-hidden="true" />
+        Brief me
+      </button>
       <button
         type="button"
         className="icon-circle home-settings"

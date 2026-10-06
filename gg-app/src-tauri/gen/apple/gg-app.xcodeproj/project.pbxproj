@@ -33,6 +33,7 @@
 		D7E59234128B54B269894AC4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 24142BD2FE8A616C0236B4F8 /* Metal.framework */; };
 		DBC1A55E52F49A1875E35E5F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1CE434C6A82C1DA9EA8E5A8 /* Security.framework */; };
 		E728931F31C5285CE6ABBFFA /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 889A5B788BF34E3CA802D11C /* QuartzCore.framework */; };
+		E7D6DC077FEBD80FD846699B /* KleioBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95D5F7508D5965C2357E3210 /* KleioBrief.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -64,6 +65,7 @@
 		09D3104FCC44D36513909505 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		09D9688B360317BD5C21E154 /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
 		10036C03C5FBF1E4252E8C0E /* KleioLiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KleioLiveActivities.swift; sourceTree = "<group>"; };
+		18FFA65858813F7702C1BB91 /* brief.rs */ = {isa = PBXFileReference; path = brief.rs; sourceTree = "<group>"; };
 		211D036161DBC980CD996565 /* live.rs */ = {isa = PBXFileReference; path = live.rs; sourceTree = "<group>"; };
 		24142BD2FE8A616C0236B4F8 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		2653D28BDA9384974E08E7FA /* ActivityKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ActivityKit.framework; path = System/Library/Frameworks/ActivityKit.framework; sourceTree = SDKROOT; };
@@ -86,6 +88,7 @@
 		8E5BDEECE2B1B8A644933E7B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		91ACCBFADD329E338181AF77 /* parked.rs */ = {isa = PBXFileReference; path = parked.rs; sourceTree = "<group>"; };
 		92D95BB79E800D945052D01B /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		95D5F7508D5965C2357E3210 /* KleioBrief.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KleioBrief.swift; sourceTree = "<group>"; };
 		9945505922083CD57532A06E /* radio.rs */ = {isa = PBXFileReference; path = radio.rs; sourceTree = "<group>"; };
 		9F524531703CDDD2711D22CA /* gg-app_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "gg-app_iOS.entitlements"; sourceTree = "<group>"; };
 		A1CE434C6A82C1DA9EA8E5A8 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
@@ -176,6 +179,7 @@
 			children = (
 				BAEBCC74EFA2B91E00356C95 /* kleio-bridge.h */,
 				CF27980278A4A9477EFE623C /* KleioAnswer.swift */,
+				95D5F7508D5965C2357E3210 /* KleioBrief.swift */,
 				10036C03C5FBF1E4252E8C0E /* KleioLiveActivities.swift */,
 				0274E7954E8D9AE5C07B42BA /* main.mm */,
 				1D31A6A9BC290914025A8AD1 /* bindings */,
@@ -216,6 +220,7 @@
 			isa = PBXGroup;
 			children = (
 				F5B2B853DB9F6912581EBC92 /* biometric.rs */,
+				18FFA65858813F7702C1BB91 /* brief.rs */,
 				09D9688B360317BD5C21E154 /* commands.rs */,
 				DB22C834E2BD989203527B84 /* files.rs */,
 				763C1B2D55F82C462179CC87 /* keychain.rs */,
@@ -423,6 +428,7 @@
 				89938A1C5199BAF3C986302A /* KleioActivityAttributes.swift in Sources */,
 				37816FF4605AE4DED08A1366 /* KleioAnswer.swift in Sources */,
 				08BE59EC8021728B2BE9A78F /* KleioAnswerIntent.swift in Sources */,
+				E7D6DC077FEBD80FD846699B /* KleioBrief.swift in Sources */,
 				6895A892C53A18A9C1D02EE3 /* KleioLiveActivities.swift in Sources */,
 				5D1F3E778B5552FE7B00107D /* main.mm in Sources */,
 			);

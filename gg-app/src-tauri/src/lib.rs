@@ -4129,6 +4129,7 @@ mod tray_id {
     pub const NEW_CODE: &str = "tray:new-code";
     pub const REMOTE: &str = "tray:remote";
     pub const SETTINGS: &str = "tray:settings";
+    pub const BRIEF: &str = "tray:brief";
 }
 
 /// Everything the tray menu's labels depend on. Both fields are pushed down by
@@ -4216,6 +4217,14 @@ fn build_tray_menu(
         None::<&str>,
     )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    // kleio: hear what needs you, what finished and what's still working.
+    menu.append(&MenuItem::with_id(
+        app,
+        tray_id::BRIEF,
+        "Brief me",
+        true,
+        None::<&str>,
+    )?)?;
     // kleio: no Telegram serving — the Kleio iPhone app is the remote. The
     // item stays upstream's, just not offered here.
     if !kleio::REMOTE_ONLY {
@@ -4281,6 +4290,7 @@ fn init_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 tray_id::NEW_CODE => "new-code",
                 tray_id::REMOTE => "remote",
                 tray_id::SETTINGS => "settings",
+                tray_id::BRIEF => "brief",
                 _ => return,
             };
             dispatch_tray_action(app.clone(), action);
@@ -4294,8 +4304,8 @@ fn init_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// `new-chat` / `new-code` reuse the single open window when there is exactly
 /// one; with several windows open there is no unambiguous "current" one, so a
 /// NEW window is opened for the session instead of hijacking someone's work.
-/// `remote` / `settings` always act on the existing target window (they're
-/// app-wide, not per-session) and only open a window when none exists.
+/// `remote` / `settings` / `brief` always act on the existing target window
+/// (they're app-wide, not per-session) and only open a window when none exists.
 #[cfg(desktop)]
 fn dispatch_tray_action(app: tauri::AppHandle, action: &'static str) {
     let labels = app_window_labels(&app);

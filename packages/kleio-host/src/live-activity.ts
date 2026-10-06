@@ -217,6 +217,8 @@ export interface LiveActivityTracker {
   dropDevice(deviceId: string): void;
   registration(target: string): LiveRegistration | undefined;
   state(target: string): LiveState | undefined;
+  /** Every job showing now (working or waiting on the user), by target. */
+  snapshot(): readonly { readonly target: string; readonly state: LiveState }[];
   /**
    * A lock-screen button was tapped: the answer it carries, when `key` is the
    * one-off key of the question still showing on `target`, else null. A key
@@ -241,6 +243,8 @@ export function createLiveActivityTracker(opts: {
   /** ms */
   now?: () => number;
   minIntervalMs?: number;
+  /** A job ended (done, failed or stopped), with or without an activity. */
+  onEnd?: (target: string, state: LiveState) => void;
 }): LiveActivityTracker {
   const log = opts.log ?? ((): void => {});
   const now = opts.now ?? Date.now;
@@ -345,6 +349,11 @@ export function createLiveActivityTracker(opts: {
       asks.delete(target);
       states.delete(target);
       clearPace(target);
+      try {
+        opts.onEnd?.(target, change.state);
+      } catch (e) {
+        log(`[live] ${target} end hook failed: ${String(e)}`);
+      }
       const reg = regs.get(target);
       // The activity is over; its token is spent.
       regs.delete(target);
@@ -534,6 +543,10 @@ export function createLiveActivityTracker(opts: {
     },
     registration: (target) => regs.get(target),
     state: (target) => states.get(target),
+    snapshot: () =>
+      [...states]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([target, state]) => ({ target, state })),
     async flush() {
       while (chains.size) await Promise.all([...chains.values()]);
     },
