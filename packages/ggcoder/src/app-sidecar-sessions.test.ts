@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { chatAgentSessionsDir } from "./chat-agents/index.js";
-import { listSidecarSessions } from "./app-sidecar-sessions.js";
+import { deleteChatSession, listSidecarSessions } from "./app-sidecar-sessions.js";
 import { motionSessionsDir } from "./motion-agent/motion-agent.js";
 import { encodeCwd } from "./core/encode-cwd.js";
 import { archiveColdSession, archiveSessionPath } from "./core/session-storage.js";
@@ -229,5 +229,109 @@ describe("gg-app sidecar session listings", () => {
     expect(codingSessions[0]?.path).toBe(archiveSessionPath(codingPlain));
     expect(chatSessions).toHaveLength(1);
     expect(chatSessions[0]?.path).toBe(archiveSessionPath(chatPlain));
+  });
+});
+
+describe("deleteChatSession", () => {
+  let tmp: string;
+  let cwd: string;
+  let coderSessionsDir: string;
+  let chatDir: string;
+
+  async function writeGeneration(name: string, conversationId: string): Promise<string> {
+    const file = path.join(chatDir, `${name}.jsonl`);
+    const header = { type: "session", version: 2, id: name, conversationId, cwd };
+    await fs.writeFile(file, `${JSON.stringify(header)}\n`);
+    return file;
+  }
+
+  async function exists(target: string): Promise<boolean> {
+    return fs.lstat(target).then(
+      () => true,
+      () => false,
+    );
+  }
+
+  beforeEach(async () => {
+    tmp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gg-chat-delete-")));
+    cwd = path.join(tmp, "project");
+    coderSessionsDir = path.join(tmp, "sessions");
+    chatDir = path.join(chatAgentSessionsDir(coderSessionsDir, "general"), encodeCwd(cwd));
+    await fs.mkdir(chatDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("deletes every generation of the conversation with its archive and assets", async () => {
+    const older = await writeGeneration("gen-1", "conv-a");
+    const newer = await writeGeneration("gen-2", "conv-a");
+    const other = await writeGeneration("other", "conv-b");
+    await fs.writeFile(archiveSessionPath(older), "gz");
+    await fs.mkdir(`${older}.assets`);
+    await fs.writeFile(path.join(`${older}.assets`, "img.png"), "x");
+    await fs.mkdir(`${newer}.assets`);
+
+    const result = await deleteChatSession({ path: newer, coderSessionsDir, openPaths: [] });
+
+    expect(result).toEqual({ status: "ok", removed: 2 });
+    for (const gone of [
+      older,
+      newer,
+      archiveSessionPath(older),
+      `${older}.assets`,
+      `${newer}.assets`,
+    ]) {
+      expect(await exists(gone)).toBe(false);
+    }
+    expect(await exists(other)).toBe(true);
+  });
+
+  it("rejects paths outside the chat stores", async () => {
+    await writeSessions(coderSessionsDir, cwd, "coding", 1);
+    const coding = path.join(coderSessionsDir, encodeCwd(cwd), "coding-0.jsonl");
+    const traversal = path.join(chatDir, "..", "..", "..", encodeCwd(cwd), "coding-0.jsonl");
+
+    for (const candidate of [coding, traversal, "relative.jsonl", "", 42, `${chatDir}/x.txt`]) {
+      const result = await deleteChatSession({ path: candidate, coderSessionsDir, openPaths: [] });
+      expect(result.status).toBe("invalid");
+    }
+    expect(await exists(coding)).toBe(true);
+  });
+
+  it("rejects a symlinked folder that escapes the chat store", async () => {
+    await writeSessions(coderSessionsDir, cwd, "coding", 1);
+    const link = path.join(chatAgentSessionsDir(coderSessionsDir, "general"), "escape");
+    await fs.symlink(path.join(coderSessionsDir, encodeCwd(cwd)), link);
+    const result = await deleteChatSession({
+      path: path.join(link, "coding-0.jsonl"),
+      coderSessionsDir,
+      openPaths: [],
+    });
+    expect(result.status).toBe("invalid");
+    expect(await exists(path.join(coderSessionsDir, encodeCwd(cwd), "coding-0.jsonl"))).toBe(true);
+  });
+
+  it("refuses while any generation is open in a window", async () => {
+    const older = await writeGeneration("gen-1", "conv-a");
+    const newer = await writeGeneration("gen-2", "conv-a");
+
+    const result = await deleteChatSession({ path: newer, coderSessionsDir, openPaths: [older] });
+
+    expect(result).toEqual({
+      status: "busy",
+      message: "This chat is open in a window. Close it there first.",
+    });
+    expect(await exists(older)).toBe(true);
+    expect(await exists(newer)).toBe(true);
+  });
+
+  it("treats an already-deleted chat as success", async () => {
+    const missing = path.join(chatDir, "gone.jsonl");
+    expect(await deleteChatSession({ path: missing, coderSessionsDir, openPaths: [] })).toEqual({
+      status: "ok",
+      removed: 0,
+    });
   });
 });

@@ -1385,6 +1385,24 @@ export async function listSessions(
   }
 }
 
+export type DeleteChatResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Permanently delete a saved chat (every generation of the conversation) by
+ * its listed `RecentSession.path`. Refusals (open in a window, invalid path)
+ * come back as `{ ok: false, error }` with a user-facing message.
+ */
+export async function deleteChat(path: string): Promise<DeleteChatResult> {
+  try {
+    await invoke("agent_delete_chat", { path });
+    return { ok: true };
+  } catch (e) {
+    await logError(`agent_delete_chat failed: ${String(e)}`);
+    const error = typeof e === "string" ? e : e instanceof Error ? e.message : "";
+    return { ok: false, error: error || "The chat could not be deleted." };
+  }
+}
+
 /**
  * Re-point this window's agent at a workspace: respawns the sidecar at `cwd`,
  * optionally resuming `sessionPath`. The caller re-runs the ready flow after.

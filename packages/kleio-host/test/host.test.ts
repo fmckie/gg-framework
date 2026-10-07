@@ -41,6 +41,8 @@ function publishEndpoint(sc: FakeSidecar): void {
 
 /** Records nudges instead of calling Apple. */
 const nudges: { sessionId: string; devices: string[] }[] = [];
+/** Each nudge's title and body, by session. */
+const nudgeText = new Map<string, { title?: string; body?: string }>();
 const livePushes: {
   token: string;
   event: string;
@@ -56,6 +58,7 @@ const fakeApns: ApnsPusher = {
   async notify(nudge, devices) {
     const targets = devices.filter((d) => d.push && !d.revoked).map((d) => d.label);
     nudges.push({ sessionId: nudge.sessionId, devices: targets });
+    if (nudge.sessionId) nudgeText.set(nudge.sessionId, { title: nudge.title, body: nudge.body });
     return targets.length;
   },
   async liveActivity(target, push) {
@@ -73,7 +76,11 @@ const fakeApns: ApnsPusher = {
 };
 
 async function startHost(
-  overrides: { rings?: RingStore; create?: typeof createHost } = {},
+  overrides: {
+    rings?: RingStore;
+    create?: typeof createHost;
+    workspaceRoots?: () => Promise<string[]>;
+  } = {},
 ): Promise<Host> {
   const h = (overrides.create ?? createHost)({
     apns: fakeApns,
@@ -88,6 +95,7 @@ async function startHost(
     controlRootKey: ROOT,
     routinePollMs: 200,
     homeCwd: join(home, "Kleio"),
+    ...(overrides.workspaceRoots ? { workspaceRoots: overrides.workspaceRoots } : {}),
   });
   await h.start();
   hostPort = (h.server.address() as { port: number }).port;
@@ -96,6 +104,7 @@ async function startHost(
 
 beforeEach(async () => {
   nudges.length = 0;
+  nudgeText.clear();
   livePushes.length = 0;
   home = mkdtempSync(join(tmpdir(), "kleio-host-it-"));
   const keyPath = join(home, "secure", "headless-master.key");
@@ -1573,5 +1582,204 @@ describe("host: home thread (GET /kleio/home)", () => {
     expect(down.status).toBe(502);
     expect(down.body).toEqual({ error: "sidecar unavailable" });
     sidecar = await fakeSidecar(); // afterEach closes it
+  });
+});
+
+describe("host: chats started by voice (POST /kleio/chats)", () => {
+  const settle = (ms = 50): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  const until = async (check: () => boolean, ms = 5000): Promise<void> => {
+    const t = Date.now();
+    while (!check()) {
+      if (Date.now() - t > ms) throw new Error("timed out waiting");
+      await settle(20);
+    }
+  };
+  const projects = (): string => join(home, "projects");
+  const posts = (): number =>
+    sidecar.seen.filter((s) => s.method === "POST" && s.url === "/session").length;
+  const runEnd = (sid: string): void =>
+    sidecar.emit(sid, `data: ${JSON.stringify({ type: "run_end", runState: "idle" })}`);
+
+  async function withRoots(): Promise<Record<string, string>> {
+    await host.stop();
+    host = await startHost({ workspaceRoots: () => Promise.resolve([projects(), "/elsewhere"]) });
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    return { [DEVICE_TOKEN_HEADER]: phone.value.token };
+  }
+
+  /** Start a chat and give it a transcript on disk. */
+  async function startOne(H: Record<string, string>, path: string): Promise<string> {
+    const r = await call("POST", "/kleio/chats", {
+      headers: H,
+      body: { prompt: "Research heat pumps", agent: "research" },
+    });
+    expect(r.status).toBe(200);
+    const id = r.body.sessionId as string;
+    sidecar.sessions.set(id, path);
+    return id;
+  }
+
+  it("creates a chat session in the first projects folder and prompts it", async () => {
+    const H = await withRoots();
+    const r = await call("POST", "/kleio/chats", {
+      headers: H,
+      body: { prompt: "  Research heat pumps for a small flat  ", agent: "research" },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ sessionId: expect.stringMatching(/^created-/) });
+    expect(sidecar.creates.at(-1)).toEqual({
+      mode: "chat",
+      chatAgent: "research",
+      cwd: projects(),
+    });
+    expect(readdirSync(home)).toContain("projects");
+    expect(sidecar.prompts.at(-1)).toEqual({
+      session: r.body.sessionId,
+      body: { text: "Research heat pumps for a small flat\n\n(Started by voice from Kleio.)" },
+    });
+    const tracked = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+    expect(tracked).toContain(r.body.sessionId);
+
+    await call("POST", "/kleio/chats", { headers: H, body: { prompt: "Hi" } });
+    expect(sidecar.creates.at(-1)).toMatchObject({ chatAgent: "general" });
+  });
+
+  it("refuses bad bodies, other methods and no token; 404 without projects folders", async () => {
+    const admin = await pairAdmin();
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    expect(
+      (await call("POST", "/kleio/chats", { headers: A, body: { prompt: "x" } })).body,
+    ).toEqual({ error: "not_found" });
+    const H = await withRoots();
+    for (const body of [
+      {},
+      { prompt: "   " },
+      { prompt: 3 },
+      { prompt: "x".repeat(4001) },
+      { prompt: "x", agent: "code" },
+      [],
+    ]) {
+      const r = await call("POST", "/kleio/chats", { headers: H, body });
+      expect(r.status).toBe(400);
+      expect(r.body).toMatchObject({ error: "bad_request", detail: expect.any(String) });
+    }
+    const get = await call("GET", "/kleio/chats", { headers: H });
+    expect(get.status).toBe(405);
+    expect(get.headers.allow).toBe("POST");
+    expect((await call("POST", "/kleio/chats", { body: { prompt: "x" } })).status).toBe(401);
+    expect(posts()).toBe(0);
+  });
+
+  it("a failed prompt is a 502 and the session is disposed", async () => {
+    const H = await withRoots();
+    sidecar.failPrompt = true;
+    const r = await call("POST", "/kleio/chats", { headers: H, body: { prompt: "x" } });
+    expect(r.status).toBe(502);
+    expect(r.body).toEqual({ error: "sidecar error", detail: "POST /prompt -> 500" });
+    const id = [...sidecar.createdBodies.keys()].at(-1);
+    expect(sidecar.disposed).toEqual([id]);
+    const tracked = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+    expect(tracked).not.toContain(id);
+  });
+
+  it("caps running started chats at 5", async () => {
+    const H = await withRoots();
+    for (let i = 0; i < 5; i += 1)
+      expect(
+        (await call("POST", "/kleio/chats", { headers: H, body: { prompt: `p${i}` } })).status,
+      ).toBe(200);
+    const r = await call("POST", "/kleio/chats", { headers: H, body: { prompt: "one more" } });
+    expect(r.status).toBe(429);
+    expect(r.body).toMatchObject({ error: "too_many" });
+  });
+
+  it("a run end with nobody watching sends a named nudge", async () => {
+    const H = await withRoots();
+    const id = await startOne(H, "/t/r.jsonl");
+    await settle();
+    runEnd(id);
+    await until(() => nudges.some((n) => n.sessionId === id));
+    expect(nudgeText.get(id)).toEqual({
+      title: "Research ready",
+      body: "Research heat pumps",
+    });
+  });
+
+  it("a device opening the started chat's transcript gets the same session", async () => {
+    const H = await withRoots();
+    const id = await startOne(H, join(home, "t", "r.jsonl"));
+    const before = posts();
+    const r = await call("POST", "/session", {
+      headers: H,
+      body: {
+        mode: "chat",
+        chatAgent: "research",
+        cwd: projects(),
+        sessionPath: join(home, "t", "x", "..", "r.jsonl.gz"),
+      },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ sessionId: id });
+    expect(posts()).toBe(before);
+    // Claimed: the next open of that transcript is an ordinary new session.
+    const again = await call("POST", "/session", {
+      headers: H,
+      body: { mode: "chat", sessionPath: join(home, "t", "r.jsonl") },
+    });
+    expect(again.body.sessionId).not.toBe(id);
+    expect(posts()).toBe(before + 1);
+  });
+
+  it("another transcript is forwarded unchanged", async () => {
+    const H = await withRoots();
+    await startOne(H, "/t/r.jsonl");
+    const body = {
+      mode: "chat",
+      chatAgent: "general",
+      cwd: projects(),
+      sessionPath: "/t/other.jsonl",
+    };
+    const r = await call("POST", "/session", { headers: H, body });
+    expect(r.status).toBe(200);
+    expect(sidecar.creates.at(-1)).toEqual(body);
+  });
+
+  it("removing an idle started chat releases it, then forwards", async () => {
+    const H = await withRoots();
+    const id = await startOne(H, "/t/r.jsonl");
+    await settle();
+    runEnd(id);
+    await until(() => nudges.some((n) => n.sessionId === id));
+    const r = await call("POST", "/sessions/delete", { headers: H, body: { path: "/t/r.jsonl" } });
+    expect(r.status).toBe(200);
+    expect(sidecar.disposed).toEqual([id]);
+    expect(sidecar.deletes).toEqual([{ path: "/t/r.jsonl" }]);
+    const tracked = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")) as string[];
+    expect(tracked).not.toContain(id);
+  });
+
+  it("removing a running started chat is a 409, not forwarded", async () => {
+    const H = await withRoots();
+    await startOne(H, "/t/r.jsonl");
+    const r = await call("POST", "/sessions/delete", { headers: H, body: { path: "/t/r.jsonl" } });
+    expect(r.status).toBe(409);
+    expect(r.body).toEqual({
+      error: "This chat is still working. Try again when it has finished.",
+    });
+    expect(sidecar.deletes).toEqual([]);
+    expect(sidecar.disposed).toEqual([]);
+  });
+
+  it("removing another transcript is forwarded unchanged", async () => {
+    const H = await withRoots();
+    await startOne(H, "/t/r.jsonl");
+    const r = await call("POST", "/sessions/delete", {
+      headers: H,
+      body: { path: "/t/other.jsonl" },
+    });
+    expect(r.status).toBe(200);
+    expect(sidecar.deletes).toEqual([{ path: "/t/other.jsonl" }]);
+    expect(sidecar.disposed).toEqual([]);
   });
 });

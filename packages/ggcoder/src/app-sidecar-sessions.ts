@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import path from "node:path";
+import readline from "node:readline";
 
 import {
   CHAT_AGENT_IDS,
@@ -11,6 +13,14 @@ import {
   listRecentSessions,
   type RecentSession,
 } from "./core/project-discovery.js";
+import {
+  isSessionPath,
+  isSessionTempPath,
+  openSessionReadStream,
+  plainSessionPath,
+  resolveSessionPath,
+  sessionGroupPaths,
+} from "./core/session-storage.js";
 import { MOTION_SESSIONS_QUERY, motionSessionsDir } from "./motion-agent/motion-agent.js";
 
 const CODING_SESSION_LIMIT = 5;
@@ -97,4 +107,150 @@ async function listCodingSessions(
   // Native first: a session already resumable here beats one that needs an
   // import, even when the foreign transcript is a little newer.
   return [...native, ...foreign];
+}
+
+export type DeleteChatResult =
+  | { status: "ok"; removed: number }
+  | { status: "invalid"; message: string }
+  | { status: "busy"; message: string };
+
+const OPEN_CHAT_MESSAGE = "This chat is open in a window. Close it there first.";
+const INVALID_CHAT_MESSAGE = "Only saved chats can be deleted.";
+
+async function realpathOrNull(target: string): Promise<string | null> {
+  try {
+    return await fs.realpath(target);
+  } catch {
+    return null;
+  }
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/** First-line `conversationId` (falls back to the session id); null if unreadable. */
+async function readConversationId(filePath: string): Promise<string | null> {
+  let opened: Awaited<ReturnType<typeof openSessionReadStream>> | undefined;
+  try {
+    opened = await openSessionReadStream(filePath);
+    const rl = readline.createInterface({ input: opened.stream, crlfDelay: Infinity });
+    for await (const line of rl) {
+      rl.close();
+      const header = JSON.parse(line) as { type?: unknown; id?: unknown; conversationId?: unknown };
+      if (header.type !== "session") return null;
+      if (typeof header.conversationId === "string" && header.conversationId) {
+        return header.conversationId;
+      }
+      return typeof header.id === "string" && header.id ? header.id : null;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    opened?.close();
+  }
+}
+
+async function removePath(target: string): Promise<boolean> {
+  try {
+    await fs.lstat(target);
+  } catch {
+    return false;
+  }
+  await fs.rm(target, { recursive: true, force: true });
+  return true;
+}
+
+/**
+ * Permanently delete one chat conversation: every generation sharing the
+ * row's `conversationId` in its encoded-cwd folder, their `.gz` / `.assets`
+ * siblings, and redirect stubs that resolve to them. Only paths inside a
+ * chat-agent store are accepted; a chat open in any live window is refused.
+ * Deleting a chat that is already gone is a no-op success.
+ */
+export async function deleteChatSession(opts: {
+  path: unknown;
+  coderSessionsDir: string;
+  /** Session paths currently open in live sidecar sessions. */
+  openPaths: readonly string[];
+}): Promise<DeleteChatResult> {
+  const input = opts.path;
+  if (
+    typeof input !== "string" ||
+    !input ||
+    !path.isAbsolute(input) ||
+    !isSessionPath(input) ||
+    isSessionTempPath(input) ||
+    input.split(/[\\/]/).includes("..")
+  ) {
+    return { status: "invalid", message: INVALID_CHAT_MESSAGE };
+  }
+
+  const roots = (
+    await Promise.all(
+      CHAT_AGENT_IDS.map((id) => realpathOrNull(chatAgentSessionsDir(opts.coderSessionsDir, id))),
+    )
+  ).filter((root): root is string => root !== null);
+  const dir = path.dirname(input);
+  const realDir = await realpathOrNull(dir);
+  if (realDir === null) {
+    // Folder already gone: fine if it would have been inside a chat store.
+    const lexicalRoots = CHAT_AGENT_IDS.map((id) =>
+      path.resolve(chatAgentSessionsDir(opts.coderSessionsDir, id)),
+    );
+    return lexicalRoots.some((root) => isInside(root, path.resolve(dir)))
+      ? { status: "ok", removed: 0 }
+      : { status: "invalid", message: INVALID_CHAT_MESSAGE };
+  }
+  // Store root itself or one encoded-cwd folder below it — nothing deeper.
+  const inRoot = roots.some(
+    (root) => realDir === root || (isInside(root, realDir) && path.dirname(realDir) === root),
+  );
+  if (!inRoot) return { status: "invalid", message: INVALID_CHAT_MESSAGE };
+
+  const target = path.join(realDir, path.basename(input));
+  const targetStat = await fs.lstat(target).catch(() => null);
+  if (!targetStat) return { status: "ok", removed: 0 };
+  if (!targetStat.isFile()) return { status: "invalid", message: INVALID_CHAT_MESSAGE };
+
+  const conversationId = await readConversationId(target);
+  if (!conversationId) return { status: "invalid", message: INVALID_CHAT_MESSAGE };
+
+  // Every regular session file in the folder whose (redirect-resolved)
+  // header belongs to this conversation. Stubs resolve to their target, so
+  // they match too.
+  const entries = await fs.readdir(realDir, { withFileTypes: true });
+  const doomed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !isSessionPath(entry.name) || isSessionTempPath(entry.name)) continue;
+    const file = path.join(realDir, entry.name);
+    if ((await readConversationId(file)) === conversationId) doomed.push(file);
+  }
+  const doomedPlain = new Set(doomed.map((file) => plainSessionPath(file)));
+
+  for (const open of opts.openPaths) {
+    if (!open) continue;
+    const resolved = await resolveSessionPath(open).catch(() => path.resolve(open));
+    const real = (await realpathOrNull(resolved)) ?? resolved;
+    if (
+      doomedPlain.has(plainSessionPath(real)) ||
+      doomedPlain.has(plainSessionPath(path.resolve(open)))
+    ) {
+      return { status: "busy", message: OPEN_CHAT_MESSAGE };
+    }
+  }
+
+  let removed = 0;
+  for (const plain of doomedPlain) {
+    const group = sessionGroupPaths(plain);
+    const results = await Promise.all([
+      removePath(group.plainPath),
+      removePath(group.archivePath),
+      removePath(group.assetsPath),
+    ]);
+    if (results.some(Boolean)) removed++;
+  }
+  return { status: "ok", removed };
 }

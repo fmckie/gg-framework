@@ -3624,6 +3624,42 @@ async fn agent_sessions(
         .map_err(|e| e.to_string())
 }
 
+/// Pull the sidecar's `{ "error": ".." }` message out of a failed response
+/// body, falling back to the HTTP status.
+fn sidecar_error_message(status: u16, body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| format!("delete failed: HTTP {status}"))
+}
+
+/// Proxy: permanently delete a saved chat (all generations) by its path.
+#[tauri::command]
+async fn agent_delete_chat(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let res = client
+        .post(format!("{}/sessions/delete", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .json(&serde_json::json!({ "path": path }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(sidecar_error_message(status.as_u16(), &body));
+    }
+    res.json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Proxy: search project files for the chat input's `@` picker. Empty `query`
 /// returns the most-recently-modified files; a query returns fuzzy matches.
 #[tauri::command]
@@ -5948,6 +5984,7 @@ pub fn run() {
             routines_add,
             routines_remove,
             agent_sessions,
+            agent_delete_chat,
             agent_files,
             agent_settings,
             agent_save_settings,
@@ -6250,6 +6287,15 @@ fn refresh_live_sessions(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sidecar_error_message_prefers_the_sidecar_error() {
+        assert_eq!(
+            sidecar_error_message(409, r#"{"error":"This chat is open in a window."}"#),
+            "This chat is open in a window."
+        );
+        assert_eq!(sidecar_error_message(502, "<html>"), "delete failed: HTTP 502");
+    }
 
     #[test]
     fn project_folders_passes_the_hosts_list_through() {

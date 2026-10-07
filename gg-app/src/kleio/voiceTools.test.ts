@@ -12,6 +12,7 @@ vi.mock("./kleioApi", () => ({
   listRuns: vi.fn(),
   runBrainTool: vi.fn(),
   sendGroupMessage: vi.fn(),
+  startChat: vi.fn(),
   threadPrompt: vi.fn(),
 }));
 
@@ -207,5 +208,52 @@ describe("createVoiceTools", () => {
     expect(await tools.run("delete_everything", {})).toMatchObject({ error: expect.any(String) });
     await tools.run("end_conversation", {});
     expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("start_chat", () => {
+  it("starts a chat after the user spoke; agent defaults to general", async () => {
+    const { tools } = setup();
+    vi.mocked(api.startChat).mockResolvedValue({ sessionId: "s1" });
+    tools.userSpoke();
+    expect(await tools.run("start_chat", { prompt: "  plan a trip  " })).toMatchObject({
+      started: true,
+      kind: "general",
+    });
+    expect(api.startChat).toHaveBeenCalledWith("plan a trip", "general");
+    expect(await tools.run("start_chat", { prompt: "dig", agent: "research" })).toMatchObject({
+      kind: "research",
+    });
+    expect(api.startChat).toHaveBeenLastCalledWith("dig", "research");
+  });
+
+  it("refuses right after a read, until the user speaks", async () => {
+    const { tools } = setup();
+    vi.mocked(api.startChat).mockResolvedValue({ sessionId: "s1" });
+    tools.userSpoke();
+    await tools.run("list_specialists", {});
+    expect(await tools.run("start_chat", { prompt: "x" })).toHaveProperty("error");
+    tools.userSpoke();
+    tools.noteRead();
+    expect(await tools.run("start_chat", { prompt: "x" })).toHaveProperty("error");
+    expect(api.startChat).not.toHaveBeenCalled();
+    tools.userSpoke();
+    expect(await tools.run("start_chat", { prompt: "x" })).toMatchObject({ started: true });
+  });
+
+  it("caps chats per turn, rejects empty prompts and reports failures", async () => {
+    const { tools } = setup();
+    vi.mocked(api.startChat).mockResolvedValue({ sessionId: "s1" });
+    tools.userSpoke();
+    expect(await tools.run("start_chat", { prompt: "  " })).toHaveProperty("error");
+    for (let i = 0; i < 3; i++) {
+      expect(await tools.run("start_chat", { prompt: "x" })).toMatchObject({ started: true });
+    }
+    expect(await tools.run("start_chat", { prompt: "x" })).toHaveProperty("error");
+    tools.userSpoke();
+    vi.mocked(api.startChat).mockRejectedValue(new Error("too_many"));
+    expect(await tools.run("start_chat", { prompt: "x" })).toEqual({
+      error: expect.stringContaining("too_many"),
+    });
   });
 });

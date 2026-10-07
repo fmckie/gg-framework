@@ -537,6 +537,7 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
         segs.as_slice(),
         ["kleio", "home"]
             | ["kleio", "home", "new"]
+            | ["kleio", "chats"]
             | ["kleio", "models"]
             | ["kleio", "health"]
             | ["kleio", "brief"]
@@ -740,6 +741,12 @@ mod tests {
     #[test]
     fn health_is_a_product_route() {
         assert_eq!(check_route("GET", "/kleio/health", None), Ok(false));
+    }
+
+    #[test]
+    fn chats_is_a_product_route() {
+        assert_eq!(check_route("POST", "/kleio/chats", None), Ok(false));
+        assert!(check_route("POST", "/kleio/chats", Some("s1")).is_err());
     }
 
     fn payload(base: &str, cred: Option<&str>) -> PairingPayload {

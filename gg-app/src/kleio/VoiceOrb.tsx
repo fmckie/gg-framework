@@ -425,8 +425,12 @@ void main() {
   color.rgb = mix(color.rgb, uColor3, core * 0.8);
   // A sphere, not a disc: lit at the centre, shading toward the rim.
   color.rgb *= mix(1.08, 0.62, smoothstep(0.15, 1.0, radius));
-  // A soft rim instead of a hard cut-out disc.
-  color.a *= uOpacity * (1.0 - smoothstep(0.92, 1.0, radius));
+  // A faint lit rim, brighter at the top, so she stands apart from the crimson
+  // room behind her instead of fading into it.
+  float rim = smoothstep(0.8, 0.95, radius) * (1.0 - smoothstep(0.95, 0.995, radius));
+  color.rgb = mix(color.rgb, uColor3, rim * mix(0.18, 0.4, vUv.y));
+  // A clean edge, softened just enough not to look cut out.
+  color.a *= uOpacity * (1.0 - smoothstep(0.955, 1.0, radius));
   gl_FragColor = color;
 }
 `;

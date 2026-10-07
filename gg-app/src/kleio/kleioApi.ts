@@ -421,6 +421,13 @@ export const hostHealth = async (): Promise<HostHealth> => {
 export const getHome = (): Promise<ThreadSession> => call("GET", "/kleio/home");
 export const newHome = (): Promise<ThreadSession> => call("POST", "/kleio/home/new");
 
+/** Who runs a chat started by voice. */
+export type ChatAgent = "general" | "research";
+
+/** Starts a new chat on the Mac (it shows in Chats; a push comes when it's done). */
+export const startChat = (prompt: string, agent: ChatAgent): Promise<{ sessionId: string }> =>
+  call("POST", "/kleio/chats", { prompt, agent });
+
 // ─── "Brief me" ──────────────────────────────────────────────────────────────────────
 
 /** The briefing since you were last briefed; `all` repeats the last day's news. */

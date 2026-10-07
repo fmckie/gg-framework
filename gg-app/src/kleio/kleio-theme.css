@@ -454,12 +454,15 @@
   height: 100%;
   transition: opacity 0.4s var(--ease-out);
 }
+/* A hairline of shadow at her edge, then the glow: she sits in front of the
+   crimson room instead of melting into it. */
 .voice-orb {
-  filter: drop-shadow(0 0 40px color-mix(in srgb, var(--kleio-crimson) 40%, transparent));
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.65))
+    drop-shadow(0 0 36px color-mix(in srgb, var(--kleio-crimson) 32%, transparent));
 }
 /* Muted: the orb drains to grey, and so does its glow. */
 .voice-mode[data-mood="muted"] .voice-orb {
-  filter: drop-shadow(0 0 32px rgb(150 150 160 / 0.22));
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.65)) drop-shadow(0 0 32px rgb(150 150 160 / 0.22));
 }
 /* No WebGL, or still loading: a quiet crimson disc holds the orb's place. */
 .voice-orb-fallback {

@@ -81,6 +81,10 @@ let state: CallState = IDLE;
 const listeners = new Set<() => void>();
 
 function set(patch: Partial<CallState>): void {
+  // Captions arrive many times a second: a patch that changes nothing keeps the
+  // same state, so the voice screen and its WebGL canvases don't re-render.
+  const keys = Object.keys(patch) as (keyof CallState)[];
+  if (keys.every((key) => Object.is(state[key], patch[key]))) return;
   state = { ...state, ...patch };
   for (const l of listeners) l();
 }
@@ -163,6 +167,15 @@ function send(event: Record<string, unknown>): void {
 
 const text = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** A web search the backend ran itself (a hosted tool): nothing to run here. */
+export function isWebSearch(item: unknown): boolean {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    (item as { type?: unknown }).type === "web_search_call"
+  );
+}
+
 /** A finished function call among the backend's output items; null for anything else. */
 export function functionCall(item: unknown): {
   readonly callId: string;
@@ -238,6 +251,11 @@ async function onBackend(L: Live, delegation: string, event: unknown): Promise<v
   const type = typeof ev.type === "string" ? ev.type : "";
   switch (type) {
     case "response.output_item.done": {
+      // She read the web: what it says can't start anything until they speak.
+      if (isWebSearch(ev.item)) {
+        L.tools.noteRead();
+        return;
+      }
       const fc = functionCall(ev.item);
       if (!fc) return;
       // Started now; the results go back together once its turn is complete.
