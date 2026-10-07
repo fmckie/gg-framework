@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1469,
+        "tracked": 1468,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1490,
+        "tracked": 1491,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3345,11 +3345,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:<string>GG Coder allows apps you run during development to access your microphone for recording and testing\\.</string>|<string>GG Coder uses your camera locally to track which window you're looking at and focus it\\. Video never leaves your machine\\.</string>|Permissions apply both to GG Coder's webview and to dev apps launched by|its agent, because macOS identifies GG Coder as the responsible parent\\.)",
+        "regex": "(?:<string>GG Coder uses your camera locally to track which window you're looking at and focus it\\. Video never leaves your machine\\.</string>|Permissions apply both to GG Coder's webview and to dev apps launched by|its agent, because macOS identifies GG Coder as the responsible parent\\.)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 4
+        "tracked": 3
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",

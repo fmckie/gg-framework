@@ -78,7 +78,10 @@ describe("createVoice", () => {
       auth: `Bearer ${KEY}`,
     });
     expect(readFileSync(paths().keyPath, "utf8").trim()).toBe(KEY);
-    expect(statSync(paths().keyPath).mode & 0o777).toBe(0o600);
+    // Owner-only where the file system has unix modes (not Windows).
+    if (process.platform !== "win32") {
+      expect(statSync(paths().keyPath).mode & 0o777).toBe(0o600);
+    }
     expect((await v.status()).ready).toBe(true);
     await v.removeKey();
     expect((await v.status()).ready).toBe(false);
