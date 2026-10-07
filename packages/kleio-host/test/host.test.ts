@@ -1067,9 +1067,10 @@ describe("host: Talk to Kleio (/kleio/voice)", () => {
     const sessions: unknown[] = [];
     const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/realtime/calls")) {
-        sessions.push(JSON.parse(String((init?.body as FormData).get("session"))));
-        return new Response(ANSWER, { status: 201 });
+      if (url.endsWith("/live/sessions")) {
+        sessions.push((JSON.parse(String(init?.body)) as { session: unknown }).session);
+        const answer = { session: { id: "sess_1" }, transport: { type: "webrtc", sdp: ANSWER } };
+        return new Response(JSON.stringify(answer), { status: 200 });
       }
       return new Response("{}", { status: 200 }); // the key check
     }) as typeof fetch;
@@ -1149,14 +1150,12 @@ describe("host: Talk to Kleio (/kleio/voice)", () => {
     expect(answered.body).toBe(ANSWER);
     expect(sessions).toHaveLength(1);
     expect(sessions[0]).toMatchObject({
-      audio: { input: { noise_reduction: { type: "near_field" } }, output: { voice: "cedar" } },
+      audio: { output: { voice: "cedar" } },
       instructions: expect.stringContaining("All quiet."),
     });
-    // A laptop says so: OpenAI filters a far-off microphone's noise.
+    // An app that still says which microphone it has is fine: GPT-Live handles the room itself.
     expect((await postSdp("/kleio/voice/call?mic=far", OFFER, P)).status).toBe(201);
-    expect(sessions[1]).toMatchObject({
-      audio: { input: { noise_reduction: { type: "far_field" } } },
-    });
+    expect(sessions).toHaveLength(2);
   });
 
   it("brings the Brain into her call, and runs only its tools, for any paired device", async () => {
@@ -1182,10 +1181,14 @@ describe("host: Talk to Kleio (/kleio/voice)", () => {
       ],
     };
     expect((await postSdp("/kleio/voice/call", OFFER, P)).status).toBe(201);
-    const session = sessions[1] as { instructions: string; tools: { name: string }[] };
+    const session = sessions[1] as {
+      instructions: string;
+      delegation: { responses: { tools: { name: string }[] } };
+    };
     expect(session.instructions).toContain("Has a dog called Biscuit.");
-    expect(session.tools.map((t) => t.name)).toContain("remember");
-    expect(session.tools.map((t) => t.name)).not.toContain("bash");
+    const tools = session.delegation.responses.tools.map((t) => t.name);
+    expect(tools).toContain("remember");
+    expect(tools).not.toContain("bash");
 
     const saved = await call("POST", "/kleio/voice/brain", {
       headers: P,

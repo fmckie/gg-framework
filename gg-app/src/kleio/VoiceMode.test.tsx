@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { setHomeBackgroundEnabled } from "../home-background";
 import type { CallState } from "./voiceCall";
 
 const call = vi.hoisted(() => ({
@@ -21,8 +22,13 @@ vi.mock("./voiceCall", () => ({
   setMuted: call.setMuted,
   startCall: call.startCall,
 }));
-// The orb is WebGL: not something jsdom can draw.
+// The orb and the waves are WebGL: not something jsdom can draw.
 vi.mock("./VoiceOrb", () => ({ VoiceOrb: () => <div data-testid="orb" /> }));
+vi.mock("../HomeDither", () => ({
+  HomeDither: ({ className }: { className?: string }) => (
+    <div data-testid="waves" className={className} />
+  ),
+}));
 vi.mock("./kleioApi", () => ({ getVoiceStatus: vi.fn() }));
 vi.mock("./BriefPanel", () => ({ briefMe: vi.fn() }));
 
@@ -35,6 +41,7 @@ function set(state: Partial<CallState>): void {
 beforeEach(() => {
   call.state = { phase: "idle", lines: [], muted: false, error: null };
   call.partial = [];
+  setHomeBackgroundEnabled(true);
 });
 afterEach(() => {
   cleanup();
@@ -56,6 +63,17 @@ describe("VoiceMode", () => {
     expect(await screen.findByTestId("orb")).toBeTruthy();
     expect(screen.getByText("Speaking")).toBeTruthy();
     expect(screen.getByText("Morning. Nothing needs you.")).toBeTruthy();
+  });
+
+  it("moves the home screen's waves behind her, unless the background is switched off", () => {
+    set({ phase: "listening" });
+    render(<VoiceMode />);
+    expect(screen.getByTestId("waves").className).toBe("voice-dither");
+    cleanup();
+    setHomeBackgroundEnabled(false);
+    render(<VoiceMode />);
+    expect(screen.queryByTestId("waves")).toBeNull();
+    expect(screen.getByText("Listening")).toBeTruthy();
   });
 
   it("quotes your words while she thinks, so you know she heard you", () => {

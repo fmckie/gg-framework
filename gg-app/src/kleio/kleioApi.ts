@@ -446,8 +446,6 @@ export const setVoiceKey = (key: string): Promise<VoiceStatus> =>
 export const removeVoiceKey = (): Promise<VoiceStatus> => call("DELETE", "/kleio/voice/key");
 export const setVoiceName = (voice: string): Promise<VoiceStatus> =>
   call("POST", "/kleio/voice/settings", { voice });
-export const setVoiceSpeed = (speed: number): Promise<VoiceStatus> =>
-  call("POST", "/kleio/voice/settings", { speed });
 
 /**
  * Runs one of the Brain's tools (remember, forget, set_jiwa…) on the Mac

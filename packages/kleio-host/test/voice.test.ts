@@ -19,6 +19,11 @@ import {
 const KEY = "sk-test-0123456789abcdef";
 const OFFER = "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n";
 const ANSWER = "v=0\r\no=openai 3 4 IN IP4 10.0.0.1\r\n";
+/** GPT-Live's reply to a new session. */
+const LIVE_ANSWER = JSON.stringify({
+  session: { id: "sess_abc" },
+  transport: { type: "webrtc", sdp: ANSWER },
+});
 
 interface Seen {
   url: string;
@@ -100,10 +105,10 @@ describe("createVoice", () => {
     expect(ai.seen).toHaveLength(2);
   });
 
-  it("asks OpenAI for the call with the offer, the session and the key, and returns its answer", async () => {
+  it("asks OpenAI for the live session with the offer, the session and the key, and returns its answer", async () => {
     const ai = fakeOpenAI([
       { status: 200, body: "{}" },
-      { status: 201, body: ANSWER, headers: { location: "/v1/realtime/calls/rtc_abc" } },
+      { status: 200, body: LIVE_ANSWER },
     ]);
     const v = createVoice({ ...paths(), fetch: ai.fetch, log: () => {} });
     await v.setKey(KEY);
@@ -114,27 +119,45 @@ describe("createVoice", () => {
       description: "Save a fact.",
       parameters: { type: "object" },
     };
-    const r = await v.createCall(OFFER, "Be Kleio.", "near", [remember]);
-    expect(r).toEqual({ ok: true, value: { sdp: ANSWER, callId: "rtc_abc" } });
+    const r = await v.createCall(OFFER, "Be Kleio.", [remember]);
+    expect(r).toEqual({ ok: true, value: { sdp: ANSWER, callId: "sess_abc" } });
     const call = ai.seen[1];
     expect(call).toMatchObject({
-      url: "https://api.openai.com/v1/realtime/calls",
+      url: "https://api.openai.com/v1/live/sessions",
       method: "POST",
       auth: `Bearer ${KEY}`,
     });
-    const form = call?.body as FormData;
-    expect(form.get("sdp")).toBe(OFFER);
-    const session = JSON.parse(String(form.get("session"))) as Record<string, unknown>;
-    expect(session).toMatchObject({
-      type: "realtime",
+    const sent = JSON.parse(String(call?.body)) as {
+      session: { delegation: { responses: { tools: { name: string }[] } } };
+      transport: unknown;
+    };
+    expect(sent.transport).toEqual({ type: "webrtc", sdp: OFFER });
+    expect(sent.session).toMatchObject({
       model: DEFAULT_MODEL,
-      instructions: "Be Kleio.",
-      audio: { output: { voice: "cedar", speed: DEFAULT_SPEED } },
+      instructions: expect.stringContaining("Be Kleio."),
+      audio: { output: { voice: "cedar" } },
+      delegation: {
+        type: "responses",
+        responses: { instructions: expect.stringContaining("Be Kleio.") },
+      },
     });
-    // Her own tools, then the Brain's.
-    const names = (session.tools as { name: string }[]).map((t) => t.name);
+    // Her own tools, then the Brain's: the backend calls them, the device runs them.
+    const names = sent.session.delegation.responses.tools.map((t) => t.name);
     expect(names.at(-1)).toBe("remember");
     expect(names).toContain("get_briefing");
+  });
+
+  it("refuses a reply without an SDP answer", async () => {
+    const ai = fakeOpenAI([
+      { status: 200, body: "{}" },
+      { status: 200, body: JSON.stringify({ session: { id: "sess_abc" } }) },
+    ]);
+    const v = createVoice({ ...paths(), fetch: ai.fetch, log: () => {} });
+    await v.setKey(KEY);
+    expect(await v.createCall(OFFER, "x")).toEqual({
+      ok: false,
+      error: { kind: "rejected", status: 200, message: "no SDP answer" },
+    });
   });
 
   it("keeps her pace and voice apart, and refuses a pace OpenAI can't do", async () => {
@@ -170,7 +193,7 @@ describe("createVoice", () => {
   });
 
   it("prefers the environment's key over the file", async () => {
-    const ai = fakeOpenAI([{ status: 201, body: ANSWER }]);
+    const ai = fakeOpenAI([{ status: 200, body: LIVE_ANSWER }]);
     const v = createVoice({ ...paths(), apiKey: "sk-env", fetch: ai.fetch, log: () => {} });
     expect((await v.status()).ready).toBe(true);
     await v.createCall(OFFER, "x");
@@ -232,7 +255,7 @@ describe("the session", () => {
     expect(text).toMatch(/send_plan only after they say yes/);
   });
 
-  it("offers only reading tools and the agreed-plan pair", () => {
+  it("offers only reading tools and the agreed-plan pair, run through the backend", () => {
     expect(VOICE_TOOLS.map((t) => t.name)).toEqual([
       "get_briefing",
       "list_specialists",
@@ -245,21 +268,17 @@ describe("the session", () => {
     ]);
     const s = sessionConfig({ voice: "marin", model: DEFAULT_MODEL, speed: 1.3 }, "x");
     expect(s).toMatchObject({
-      tool_choice: "auto",
-      audio: {
-        input: {
-          noise_reduction: { type: "near_field" },
-          transcription: { model: "gpt-4o-mini-transcribe", language: "en" },
-          turn_detection: { type: "semantic_vad" },
-        },
-        output: { voice: "marin", speed: 1.3 },
-      },
+      model: DEFAULT_MODEL,
+      instructions: expect.stringContaining("delegate"),
+      audio: { output: { voice: "marin" } },
+      delegation: { type: "responses", responses: { tool_choice: "auto" } },
     });
-    const laptop = sessionConfig(
-      { voice: "marin", model: DEFAULT_MODEL, speed: DEFAULT_SPEED },
-      "x",
-      "far",
-    );
-    expect(laptop).toMatchObject({ audio: { input: { noise_reduction: { type: "far_field" } } } });
+    // GPT-Live has no pace setting.
+    expect(s).not.toHaveProperty(["audio", "output", "speed"]);
+    // Their schemas have optional properties, which strict tools can't.
+    const tools = (s.delegation as { responses: { tools: { strict?: unknown }[] } }).responses
+      .tools;
+    expect(tools).toHaveLength(VOICE_TOOLS.length);
+    expect(tools.every((t) => t.strict === false)).toBe(true);
   });
 });

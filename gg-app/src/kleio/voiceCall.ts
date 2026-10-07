@@ -1,14 +1,15 @@
-// A live conversation with Kleio's voice: OpenAI Realtime over WebRTC.
+// A live conversation with Kleio's voice: OpenAI GPT-Live over WebRTC.
 //
 // The microphone goes straight to OpenAI and her voice comes straight back;
 // the Mac mini only sets the call up (it holds the OpenAI key, kleio-host
-// voice.ts). Events arrive on the "oai-events" data channel: captions, and
-// tool calls this device runs (voiceTools.ts) before telling her the result.
+// voice.ts). Events arrive on the "oai-events" data channel: captions, and the
+// tool calls of the backend GPT-Live hands work to, which this device runs
+// (voiceTools.ts) before giving the backend the results.
 
 import { useSyncExternalStore } from "react";
 import { isPhone } from "../platform";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { createVoiceTools, type VoiceTools } from "./voiceTools";
+import { createVoiceTools, type ToolOutput, type VoiceTools } from "./voiceTools";
 import { meterStream, type LevelMeter } from "./voiceLevels";
 
 export type CallPhase = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "ended";
@@ -31,6 +32,21 @@ const IDLE: CallState = { phase: "idle", lines: [], muted: false, error: null };
 const LINES_KEPT = 40;
 /** After she says goodbye: let the last words play out before hanging up. */
 const HANGUP_GRACE_MS = 2_500;
+/** GPT-Live marks no turn ends: this long without captions ends one. */
+const QUIET_MS = 1_200;
+/** Nobody has talked for this long: she hangs up (GPT-Live bills every second, quiet ones too). */
+const IDLE_HANGUP_MIN = 2;
+const IDLE_HANGUP_MS = IDLE_HANGUP_MIN * 60_000;
+/** What counts as someone talking, or her working; usage updates and the like don't. */
+const ACTIVITY: ReadonlySet<string> = new Set([
+  "session.input_transcript.delta",
+  "session.output_transcript.delta",
+  "session.delegation.created",
+  "response.event",
+]);
+/** Her opening, once the session has started. */
+const GREETING =
+  "Greet the user now in one short sentence. If something in what's new needs them, say so in a sentence; otherwise ask what they'd like. Then stop and listen.";
 
 /** A failed start or a dropped call, in words for the screen. */
 export function callError(e: unknown): string {
@@ -82,15 +98,33 @@ export function useCall(): CallState {
   return useSyncExternalStore(subscribe, callState);
 }
 
+/** Whether the voice screen is showing; re-renders only when that changes, not as she talks. */
+export function useCallOpen(): boolean {
+  return useSyncExternalStore(subscribe, () => state.phase !== "idle");
+}
+
+/** A tool call from the backend, running here until its turn is complete. */
+interface PendingCall {
+  readonly callId: string;
+  readonly name: string;
+  readonly output: Promise<ToolOutput>;
+}
+
 interface Live {
   readonly pc: RTCPeerConnection;
   readonly mic: MediaStream;
   readonly audio: HTMLAudioElement;
   readonly channel: RTCDataChannel;
   readonly tools: VoiceTools;
-  /** Partial captions by item id, until each is final. */
-  readonly partial: Map<string, { who: CallLine["who"]; text: string }>;
+  /** The caption being spoken, yours or hers, until it is final. */
+  readonly partial: Map<CallLine["who"], { who: CallLine["who"]; text: string }>;
+  /** Ends the turn being spoken after a pause. */
+  quiet: ReturnType<typeof setTimeout> | null;
+  /** Work handed to the backend, by delegation id, with its unanswered tool calls. */
+  readonly working: Map<string, readonly PendingCall[]>;
   hangup: ReturnType<typeof setTimeout> | null;
+  /** Hangs up after IDLE_HANGUP_MS with nobody talking. */
+  idle: ReturnType<typeof setTimeout> | null;
   /** How loud she and you are (the orb); null until her voice arrives. */
   herLevel: LevelMeter | null;
   readonly yourLevel: LevelMeter | null;
@@ -127,61 +161,153 @@ function send(event: Record<string, unknown>): void {
   if (live?.channel.readyState === "open") live.channel.send(JSON.stringify(event));
 }
 
+const text = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** A finished function call among the backend's output items; null for anything else. */
+export function functionCall(item: unknown): {
+  readonly callId: string;
+  readonly name: string;
+  readonly args: Record<string, unknown>;
+} | null {
+  if (typeof item !== "object" || item === null) return null;
+  const i = item as Record<string, unknown>;
+  if (i.type !== "function_call" || typeof i.call_id !== "string" || typeof i.name !== "string") {
+    return null;
+  }
+  let args: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(text(i.arguments) || "{}");
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      args = parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* the tool says what's missing */
+  }
+  return { callId: i.call_id, name: i.name, args };
+}
+
+/** Moves the caption being spoken into the conversation. */
+function flush(L: Live, who: CallLine["who"]): void {
+  const p = L.partial.get(who);
+  if (!p) return;
+  L.partial.delete(who);
+  addLine(who, p.text);
+}
+
+/** A caption as it is spoken: the other side speaking, or a pause, ends this turn. */
+function caption(L: Live, who: CallLine["who"], delta: string): void {
+  flush(L, who === "you" ? "kleio" : "you");
+  const p = L.partial.get(who) ?? { who, text: "" };
+  p.text += delta;
+  L.partial.set(who, p);
+  if (L.quiet) clearTimeout(L.quiet);
+  L.quiet = setTimeout(() => settle(L), QUIET_MS);
+}
+
+/** A pause: the captions are final, and she listens (or works, while the backend does). */
+function settle(L: Live): void {
+  L.quiet = null;
+  if (live !== L) return;
+  for (const who of [...L.partial.keys()]) flush(L, who);
+  if (L.hangup === null) set({ phase: L.working.size > 0 ? "thinking" : "listening" });
+}
+
+/** A delegation's work is over: she listens again, unless she's talking or still working. */
+function finished(L: Live, delegation: string): void {
+  L.working.delete(delegation);
+  if (L.working.size === 0 && L.quiet === null && L.hangup === null && state.phase === "thinking") {
+    set({ phase: "listening" });
+  }
+}
+
+/** Someone talked, or she's working: the quiet countdown starts again. */
+function active(L: Live): void {
+  if (L.idle) clearTimeout(L.idle);
+  L.idle = setTimeout(() => {
+    if (live === L) endCall(`Hung up after ${IDLE_HANGUP_MIN} minutes of quiet.`);
+  }, IDLE_HANGUP_MS);
+}
+
+/**
+ * The backend's work on a delegation (its Responses events, forwarded): run
+ * its tool calls here, give it every result, then let it carry on.
+ */
+async function onBackend(L: Live, delegation: string, event: unknown): Promise<void> {
+  if (typeof event !== "object" || event === null) return;
+  const ev = event as Record<string, unknown>;
+  const type = typeof ev.type === "string" ? ev.type : "";
+  switch (type) {
+    case "response.output_item.done": {
+      const fc = functionCall(ev.item);
+      if (!fc) return;
+      // Started now; the results go back together once its turn is complete.
+      const output = L.tools
+        .run(fc.name, fc.args)
+        .catch((err: unknown): ToolOutput => ({ error: String(err) }));
+      const calls = L.working.get(delegation) ?? [];
+      L.working.set(delegation, [...calls, { callId: fc.callId, name: fc.name, output }]);
+      return;
+    }
+    case "response.completed": {
+      const calls = L.working.get(delegation) ?? [];
+      if (calls.length === 0) {
+        finished(L, delegation);
+        return;
+      }
+      L.working.set(delegation, []);
+      const results = await Promise.all(calls.map(async (c) => ({ c, output: await c.output })));
+      if (live !== L) return;
+      for (const { c, output } of results) {
+        send({
+          type: "response.item.create",
+          item: { type: "function_call_output", call_id: c.callId, output: JSON.stringify(output) },
+        });
+      }
+      // Hanging up: there's nothing more to say.
+      if (calls.some((c) => c.name === "end_conversation")) finished(L, delegation);
+      else send({ type: "response.create" });
+      return;
+    }
+    case "response.failed":
+    case "response.incomplete":
+      console.warn(`[voice] the backend's work stopped: ${type}`);
+      finished(L, delegation);
+      return;
+  }
+}
+
 async function onEvent(e: Record<string, unknown>): Promise<void> {
   const L = live;
   if (!L) return;
   const type = typeof e.type === "string" ? e.type : "";
-  const itemId = typeof e.item_id === "string" ? e.item_id : "";
+  if (ACTIVITY.has(type)) active(L);
   switch (type) {
-    case "input_audio_buffer.speech_started":
+    case "session.started":
+      // She opens the conversation: a greeting, and anything that needs them.
+      send({ type: "session.instructions.append", delegation_id: null, content: GREETING });
+      return;
+    case "session.input_transcript.delta":
+      // A new utterance: a "yes" counts by the time the backend calls send_plan.
+      if (!L.partial.has("you")) L.tools.userSpoke();
+      caption(L, "you", text(e.delta));
       if (L.hangup === null) set({ phase: "listening" });
       return;
-    case "input_audio_buffer.speech_stopped":
-      // Before her reply to it: a "yes" counts by the time she calls send_plan.
-      L.tools.userSpoke();
-      set({ phase: "thinking" });
-      return;
-    case "conversation.item.input_audio_transcription.completed":
-      addLine("you", typeof e.transcript === "string" ? e.transcript : "");
-      return;
-    case "response.output_audio_transcript.delta": {
-      const p = L.partial.get(itemId) ?? { who: "kleio" as const, text: "" };
-      p.text += typeof e.delta === "string" ? e.delta : "";
-      L.partial.set(itemId, p);
+    case "session.output_transcript.delta":
+      caption(L, "kleio", text(e.delta));
       set({ phase: "speaking" });
       return;
-    }
-    case "response.output_audio_transcript.done":
-      L.partial.delete(itemId);
-      addLine("kleio", typeof e.transcript === "string" ? e.transcript : "");
-      return;
-    // Her voice is playing (the caption may lag behind it).
-    case "output_audio_buffer.started":
-      set({ phase: "speaking" });
-      return;
-    case "output_audio_buffer.stopped":
-      if (state.phase === "speaking") set({ phase: "listening" });
-      return;
-    case "response.function_call_arguments.done": {
-      const name = typeof e.name === "string" ? e.name : "";
-      const callId = typeof e.call_id === "string" ? e.call_id : "";
-      let args: Record<string, unknown> = {};
-      try {
-        const parsed: unknown = JSON.parse(typeof e.arguments === "string" ? e.arguments : "{}");
-        if (typeof parsed === "object" && parsed !== null) args = parsed as Record<string, unknown>;
-      } catch {
-        /* the tool says what's missing */
-      }
-      set({ phase: "thinking" });
-      const output = await L.tools.run(name, args);
-      if (live !== L) return;
-      send({
-        type: "conversation.item.create",
-        item: { type: "function_call_output", call_id: callId, output: JSON.stringify(output) },
-      });
-      if (name !== "end_conversation") send({ type: "response.create" });
+    case "session.delegation.created": {
+      const d = e.delegation as { id?: unknown } | undefined;
+      if (typeof d?.id === "string" && !L.working.has(d.id)) L.working.set(d.id, []);
+      if (!L.partial.has("kleio") && L.hangup === null) set({ phase: "thinking" });
       return;
     }
+    case "response.event":
+      await onBackend(L, text(e.delegation_id), e.event);
+      return;
+    case "session.closed":
+      endCall();
+      return;
     case "error": {
       const err = e.error as { message?: unknown } | undefined;
       console.warn("[voice] OpenAI error:", typeof err?.message === "string" ? err.message : e);
@@ -245,11 +371,15 @@ export async function startCall(): Promise<void> {
       channel,
       tools,
       partial: new Map(),
+      quiet: null,
+      working: new Map(),
       hangup: null,
+      idle: null,
       herLevel:
         metering && audio.srcObject instanceof MediaStream ? meterStream(audio.srcObject) : null,
       yourLevel: metering ? meterStream(mic) : null,
     };
+    active(live);
     channel.addEventListener("message", (m) => {
       try {
         const parsed: unknown = JSON.parse(String(m.data));
@@ -258,16 +388,6 @@ export async function startCall(): Promise<void> {
       } catch {
         /* not JSON */
       }
-    });
-    channel.addEventListener("open", () => {
-      // She opens the conversation: a greeting, and anything that needs them.
-      send({
-        type: "response.create",
-        response: {
-          instructions:
-            "Greet the user in one short sentence. If something needs them, say so in a sentence; otherwise ask what they'd like.",
-        },
-      });
     });
     pc.addEventListener("connectionstatechange", () => {
       if (
@@ -298,6 +418,10 @@ export function endCall(reason?: string): void {
   live = null;
   if (L) {
     if (L.hangup) clearTimeout(L.hangup);
+    if (L.quiet) clearTimeout(L.quiet);
+    if (L.idle) clearTimeout(L.idle);
+    // Ends the session (and its per-second billing) straight away.
+    if (L.channel.readyState === "open") L.channel.send(JSON.stringify({ type: "session.close" }));
     L.herLevel?.stop();
     L.yourLevel?.stop();
     for (const t of L.mic.getTracks()) t.stop();

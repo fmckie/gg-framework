@@ -252,7 +252,10 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
     },
 
     async send_plan(args) {
-      const id = str(args.draft_id);
+      let id = str(args.draft_id);
+      // GPT-Live's backend may not keep a draft's id between requests: a
+      // single waiting draft is the one they just heard read back.
+      if (!drafts.has(id) && drafts.size === 1) id = [...drafts.keys()][0] ?? id;
       const d = drafts.get(id);
       if (!d) return { error: "There's no draft with that id. Draft the plan first." };
       if (userTurns <= d.turn) {

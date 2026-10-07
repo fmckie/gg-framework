@@ -51,18 +51,27 @@ class BackdropBoundary extends Component<{ children: React.ReactNode }, { failed
  * screen behind the logo and buttons. The waves bend away from the pointer,
  * read from the whole home screen, so content on top stays clickable.
  *
- * - Background windows stop rendering (the last frame stays), so an idle
- *   window costs no GPU time.
+ * - Background windows, and a covered screen (`paused`), stop rendering (the
+ *   last frame stays), so neither costs GPU time.
  * - Reduced motion draws one still frame, with no pointer response.
  * - No WebGL: nothing renders, and the plain background shows.
+ *
+ * Kleio's voice screen uses it too (`className="voice-dither"`), so the room
+ * behind her orb moves like the home screen.
  */
 export function HomeDither({
   waveColor = WAVE_COLOR,
   backgroundColor = BACKGROUND_COLOR,
+  className = "home-dither",
+  paused = false,
 }: {
   /** RGB 0–1; defaults to the neutral grey waves on black. */
   waveColor?: readonly [number, number, number];
   backgroundColor?: readonly [number, number, number];
+  /** Where it sits; the parent element must be positioned. */
+  className?: string;
+  /** Hold the last frame, e.g. while another screen covers this one. */
+  paused?: boolean;
 } = {}): React.ReactElement | null {
   const focused = useWindowFocused();
   const [reduced] = useState(prefersReducedMotion);
@@ -74,11 +83,7 @@ export function HomeDither({
   if (!supported) return null;
 
   return (
-    <div
-      className="home-dither"
-      aria-hidden="true"
-      ref={(el) => setHome(el?.parentElement ?? null)}
-    >
+    <div className={className} aria-hidden="true" ref={(el) => setHome(el?.parentElement ?? null)}>
       {home && (
         <BackdropBoundary>
           <Suspense fallback={null}>
@@ -93,7 +98,7 @@ export function HomeDither({
               mouseRadius={0.3}
               disableAnimation={reduced}
               enableMouseInteraction={!reduced}
-              frameloop={focused && !reduced ? "always" : "demand"}
+              frameloop={focused && !reduced && !paused ? "always" : "demand"}
               eventSource={home}
             />
           </Suspense>

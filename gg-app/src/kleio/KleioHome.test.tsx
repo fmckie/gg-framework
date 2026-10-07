@@ -4,9 +4,19 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
 import { KleioHome, shortHost } from "./KleioHome";
+import type * as VoiceCall from "./voiceCall";
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "0.73.2") }));
-vi.mock("../HomeDither", () => ({ HomeDither: () => null }));
+vi.mock("../HomeDither", () => ({
+  HomeDither: ({ paused }: { paused?: boolean }) => (
+    <div data-testid="waves" data-paused={String(Boolean(paused))} />
+  ),
+}));
+const voice = vi.hoisted(() => ({ open: false }));
+vi.mock("./voiceCall", async (importOriginal) => ({
+  ...(await importOriginal<typeof VoiceCall>()),
+  useCallOpen: () => voice.open,
+}));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
 vi.mock("./assets/kleio-mark.png", () => ({ default: "kleio-mark.png" }));
 vi.mock("./useKleioRemote", () => ({
@@ -66,6 +76,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  voice.open = false;
 });
 
 describe("KleioHome", () => {
@@ -91,6 +102,16 @@ describe("KleioHome", () => {
     expect(screen.queryByRole("button", { name: /Blobs/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Apps/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Agents/ })).toBeNull();
+  });
+
+  it("holds its waves still while the voice screen covers it, so a call draws one set", async () => {
+    renderHome();
+    expect(screen.getByTestId("waves").dataset.paused).toBe("false");
+    cleanup();
+    voice.open = true;
+    renderHome();
+    expect(screen.getByTestId("waves").dataset.paused).toBe("true");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
   });
 
   it("shows the Mac mini and opens the Connection settings", async () => {
