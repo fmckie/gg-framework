@@ -390,6 +390,27 @@
   padding: clamp(36px, 7vh, 48px) 28px clamp(18px, 5vh, 36px);
   box-sizing: border-box;
   overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  outline: none;
+  animation: voice-in 0.32s var(--ease-out) both;
+}
+/* The home screen's dithered waves, moving behind her (HomeDither.tsx). They
+   paint the near-black themselves, so the crimson wash sits over them, as on
+   the home screen. Everything else in the room sits above both. */
+.voice-dither {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.voice-mode::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
   background:
     radial-gradient(
       52% 46% at 50% 40%,
@@ -400,12 +421,14 @@
       40% 40% at 100% 100%,
       color-mix(in srgb, var(--kleio-red) 22%, transparent),
       transparent 80%
-    ),
-    var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  outline: none;
-  animation: voice-in 0.32s var(--ease-out) both;
+    );
+}
+/* The orb, the words and the buttons sit above the waves and the wash. */
+.voice-stage,
+.voice-words,
+.voice-controls {
+  position: relative;
+  z-index: 1;
 }
 /* Drag the window by the top, like the rest of Kleio (the close button sits on top). */
 .voice-drag {
@@ -500,6 +523,16 @@
   text-align: center;
   text-wrap: balance;
   animation: voice-words-in 0.24s var(--ease-out);
+}
+/* A soft dark halo keeps the words readable over bright stretches of waves,
+   as the home screen's text has. */
+.voice-status,
+.voice-line,
+.voice-error,
+.voice-button-label {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 12px rgb(0 0 0 / 0.8);
 }
 /* Your words, quoted while she thinks: quieter, so hers stay the focus. */
 .voice-line.is-you {

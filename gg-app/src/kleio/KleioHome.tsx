@@ -13,19 +13,15 @@ import {
 import { getVersion } from "@tauri-apps/api/app";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
+import { KLEIO_BACKGROUND, KLEIO_WAVES } from "./kleioWaves";
 import type { SettingsTabId } from "../SettingsScreen";
 import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
 import { refreshVoiceReady, talkToKleio, useVoiceReady } from "./VoiceMode";
+import { useCallOpen } from "./voiceCall";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
-
-/** Deep crimson waves on the warm near-black (RGB 0–1). The dither snaps each
- * channel to a few levels, so a brighter red turns into loud, saturated dots;
- * this stays a quiet backdrop behind the text, as Ken's grey does. */
-const KLEIO_WAVES = [0.22, 0.03, 0.05] as const;
-const KLEIO_BACKGROUND = [0.047, 0.035, 0.039] as const;
 
 interface Props {
   /** Chat with Kleio: upstream's Chat screen (the general agent), on the Mac mini. */
@@ -54,6 +50,8 @@ export function KleioHome({
   const [ready, setReady] = useState<{ folder: boolean; model: boolean } | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const backgroundOn = useHomeBackgroundEnabled();
+  // The voice screen covers this one and moves its own waves: these hold still.
+  const covered = useCallOpen();
   // Her natural voice is set up on the Mac mini: "Talk to Kleio", else "Brief me".
   const voiceReady = useVoiceReady();
   const connected = Boolean(status?.active);
@@ -124,7 +122,9 @@ export function KleioHome({
 
   return (
     <div className="home kleio-home" data-tauri-drag-region>
-      {backgroundOn && <HomeDither waveColor={KLEIO_WAVES} backgroundColor={KLEIO_BACKGROUND} />}
+      {backgroundOn && (
+        <HomeDither waveColor={KLEIO_WAVES} backgroundColor={KLEIO_BACKGROUND} paused={covered} />
+      )}
       <div className="home-version-row">
         <button
           type="button"

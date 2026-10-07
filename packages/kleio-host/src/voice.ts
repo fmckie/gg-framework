@@ -1,20 +1,37 @@
 /**
- * Kleio's conversational voice: OpenAI Realtime over WebRTC.
+ * Kleio's conversational voice: OpenAI GPT-Live over WebRTC.
  *
  * The OpenAI key never leaves this Mac mini. A device sends its WebRTC offer
- * (SDP); the host adds the session (model, voice, instructions, tools) and the
- * key, asks OpenAI for the call, and returns OpenAI's answer. Audio then flows
- * straight between the device and OpenAI; the device runs the tools, which
- * read Kleio's state, pass on a plan the user has agreed to, or curate the
- * Brain (durable memory and Jiwa, shared with text chat; see `parseBrain`).
+ * (SDP); the host adds the session (model, voice, instructions, and the
+ * backend that does the work) and the key, asks OpenAI to start it, and
+ * returns OpenAI's answer. Audio then flows straight between the device and
+ * OpenAI. GPT-Live talks and listens; what needs doing it delegates to a
+ * backend model (OpenAI's Responses API), whose tool calls the device runs:
+ * reading Kleio's state, passing on a plan the user has agreed to, or curating
+ * the Brain (durable memory and Jiwa, shared with text chat; see `parseBrain`).
  */
 import { readFile, rm } from "node:fs/promises";
 import { atomicWrite } from "./device-registry.js";
 
-/** The voices OpenAI's realtime models speak in. marin and cedar sound the most natural. */
+/**
+ * The voices GPT-Live speaks in. marin and cedar sound the most natural; the
+ * rest add accents and styles (gg-app's VoiceCard.tsx names them).
+ */
 export const VOICES = [
   "marin",
   "cedar",
+  "vesper",
+  "willow",
+  "stone",
+  "quartz",
+  "ripple",
+  "gleam",
+  "meridian",
+  "delta",
+  "cinder",
+  "beacon",
+  "bossa",
+  "tempo",
   "coral",
   "sage",
   "shimmer",
@@ -26,17 +43,12 @@ export const VOICES = [
 ] as const;
 export type VoiceName = (typeof VOICES)[number];
 
-export const DEFAULT_MODEL = "gpt-realtime-2.1-mini";
-/** Captions of the user's words: the cheapest of OpenAI's transcription models. */
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+export const DEFAULT_MODEL = "gpt-live-1";
+/** The backend GPT-Live hands work to: it picks and calls the tools. */
+const BACKEND_MODEL = "gpt-6-luna";
 
-export type MicKind = "near" | "far";
-
-export function isMicKind(v: unknown): v is MicKind {
-  return v === "near" || v === "far";
-}
 const DEFAULT_VOICE: VoiceName = "marin";
-/** Her speaking pace, a multiple of the voice's own. A touch quicker than OpenAI's 1.0. */
+/** Her speaking pace, a multiple of the voice's own. Saved, but GPT-Live has no pace setting. */
 export const DEFAULT_SPEED = 1.15;
 /** OpenAI's range is 0.25–1.5; slower than 0.5 isn't useful in conversation. */
 const SPEED_MIN = 0.5;
@@ -259,30 +271,44 @@ export function voiceInstructions(input: {
   ].join("\n\n");
 }
 
-/** The session OpenAI is asked for. */
+/** GPT-Live's part: it talks, and hands the work to the backend. */
+const LIVE_ROLE = [
+  "How this conversation works: you are Kleio's voice, and a backend does the work for you. It reads their briefing, specialists and groups, drafts and sends plans, changes their memory, and hangs up.",
+  "Delegate to it whenever they ask how something is going, ask about a specialist or group, want something passed on or sent, tell you something to remember, change or forget, or say goodbye. Wherever the notes below say to use or call a tool, delegate that instead.",
+  "Answer greetings, small talk and anything the notes below already tell you yourself, without delegating. Never say something was sent, saved or done until the backend reports it.",
+].join(" ");
+
+/** The backend's part: it does the work, with the tools, for the voice to report. */
+const BACKEND_ROLE = [
+  "You are the part of Kleio that does the work in a live voice conversation: her voice talks with the user and hands you what needs doing. Transcripts can contain mistakes, unfinished phrases and later corrections; use the latest context, and if a needed detail is unclear, say what to ask instead of guessing.",
+  "Do the work with the tools, following the notes below, then return the relevant facts, the task's status and the next step, briefly and in plain words, for her voice to say. Report an action as done only after its tool confirms it.",
+  "If they agree to send a plan and you no longer have its draft_id, call send_plan with an empty draft_id: the one waiting draft is sent.",
+].join(" ");
+
+/** The session OpenAI is asked for: GPT-Live in front, the tools behind it. */
 export function sessionConfig(
   settings: VoiceSettings,
   instructions: string,
-  /** near: a phone or headset close to the mouth; far: a laptop or desk microphone. */
-  mic: MicKind = "near",
   /** Tools beyond VOICE_TOOLS: the Brain's, when it's available. */
   extraTools: readonly VoiceTool[] = [],
 ): Record<string, unknown> {
   return {
-    type: "realtime",
     model: settings.model,
-    instructions,
-    audio: {
-      input: {
-        noise_reduction: { type: `${mic}_field` },
-        // Captions of what the user said (the cheapest transcription model).
-        transcription: { model: TRANSCRIBE_MODEL, language: "en" },
-        turn_detection: { type: "semantic_vad", eagerness: "auto", interrupt_response: true },
+    instructions: `${LIVE_ROLE}\n\n${instructions}`,
+    audio: { output: { voice: settings.voice } },
+    delegation: {
+      type: "responses",
+      responses: {
+        model: BACKEND_MODEL,
+        instructions: `${BACKEND_ROLE}\n\n${instructions}`,
+        // The Responses API makes tools strict by default, which needs every
+        // property required; these schemas have optional ones.
+        tools: [...VOICE_TOOLS, ...extraTools].map((t) => ({ ...t, strict: false })),
+        tool_choice: "auto",
+        // Quick answers matter more in conversation than deep thought.
+        reasoning: { effort: "low" },
       },
-      output: { voice: settings.voice, speed: settings.speed },
     },
-    tools: [...VOICE_TOOLS, ...extraTools],
-    tool_choice: "auto",
   };
 }
 
@@ -329,6 +355,18 @@ function failure(status: number, body: string, key: string): VoiceError {
   return { kind: "rejected", status, message: detail(body, key) };
 }
 
+/** GPT-Live's reply to a new session: its SDP answer and the session's id. */
+function liveAnswer(body: string): { sdp: string; sessionId: string | null } | null {
+  try {
+    const r = JSON.parse(body) as { session?: { id?: unknown }; transport?: { sdp?: unknown } };
+    const sdp = r.transport?.sdp;
+    if (typeof sdp !== "string" || !sdp.startsWith("v=")) return null;
+    return { sdp, sessionId: typeof r.session?.id === "string" ? r.session.id : null };
+  } catch {
+    return null;
+  }
+}
+
 export interface Voice {
   status(): Promise<VoiceStatus>;
   /** Checks the key with OpenAI, then saves it. */
@@ -339,11 +377,10 @@ export interface Voice {
     readonly voice?: VoiceName;
     readonly speed?: number;
   }): Promise<VoiceSettings>;
-  /** OpenAI's SDP answer to the device's offer, and the call's id. */
+  /** OpenAI's SDP answer to the device's offer, and the live session's id. */
   createCall(
     sdp: string,
     instructions: string,
-    mic?: MicKind,
     extraTools?: readonly VoiceTool[],
   ): Promise<VoiceResult<{ sdp: string; callId: string | null }>>;
 }
@@ -443,22 +480,17 @@ export function createVoice(opts: {
       return next;
     },
 
-    async createCall(sdp, instructions, mic = "near", extraTools = []) {
+    async createCall(sdp, instructions, extraTools = []) {
       const k = await key();
       if (!k) return { ok: false, error: { kind: "no_key" } };
-      const form = new FormData();
-      form.set("sdp", sdp);
-      form.set(
-        "session",
-        JSON.stringify(sessionConfig(await settings(), instructions, mic, extraTools)),
-      );
+      const session = sessionConfig(await settings(), instructions, extraTools);
       const started = Date.now();
       let res: Response;
       try {
-        res = await doFetch(`${base}/realtime/calls`, {
+        res = await doFetch(`${base}/live/sessions`, {
           method: "POST",
-          headers: { authorization: `Bearer ${k}` },
-          body: form,
+          headers: { authorization: `Bearer ${k}`, "content-type": "application/json" },
+          body: JSON.stringify({ session, transport: { type: "webrtc", sdp } }),
           signal: AbortSignal.timeout(20_000),
         });
       } catch (e) {
@@ -468,18 +500,18 @@ export function createVoice(opts: {
         };
       }
       const body = await res.text().catch(() => "");
-      const callId = res.headers.get("location")?.split("/").pop() ?? null;
+      const answer = res.ok ? liveAnswer(body) : null;
       log(
-        `[voice] call: ${res.status} in ${Date.now() - started} ms${callId ? ` (${callId})` : ""}`,
+        `[voice] call: ${res.status} in ${Date.now() - started} ms${answer?.sessionId ? ` (${answer.sessionId})` : ""}`,
       );
       if (!res.ok) return { ok: false, error: failure(res.status, body, k) };
-      if (!body.startsWith("v=")) {
+      if (!answer) {
         return {
           ok: false,
           error: { kind: "rejected", status: res.status, message: "no SDP answer" },
         };
       }
-      return { ok: true, value: { sdp: body, callId } };
+      return { ok: true, value: { sdp: answer.sdp, callId: answer.sessionId } };
     },
   };
 }

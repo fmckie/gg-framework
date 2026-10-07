@@ -1,6 +1,6 @@
-// Settings → About: Kleio's voice (OpenAI, natural). The key lives on the Mac
-// mini; an admin device sets it and picks her voice and pace. Talk to Kleio
-// needs this; without it, "Brief me" reads aloud in the system's own voice.
+// Settings → About: Kleio's voice (OpenAI GPT-Live). The key lives on the Mac
+// mini; an admin device sets it and picks her voice. Talk to Kleio needs this;
+// without it, "Brief me" reads aloud in the system's own voice.
 
 import { useEffect, useState } from "react";
 import { SpeakerHighIcon } from "@phosphor-icons/react";
@@ -12,31 +12,26 @@ import {
   removeVoiceKey,
   setVoiceKey,
   setVoiceName,
-  setVoiceSpeed,
   type VoiceStatus,
 } from "./kleioApi";
 import { setVoiceReady, talkToKleio } from "./VoiceMode";
 
-/** Her speaking pace. OpenAI speeds the audio up after it's made, up to 1.5×. */
-const SPEEDS: readonly { readonly value: number; readonly label: string }[] = [
-  { value: 0.9, label: "Relaxed (0.9×)" },
-  { value: 1, label: "Normal (1×)" },
-  { value: 1.15, label: "Brisk (1.15×, recommended)" },
-  { value: 1.3, label: "Fast (1.3×)" },
-  { value: 1.5, label: "Fastest (1.5×)" },
-];
-
-/** The speed choice closest to `speed` (a saved value may sit between two). */
-function nearestSpeed(speed: number): number {
-  let best = SPEEDS[0]?.value ?? 1;
-  for (const s of SPEEDS) if (Math.abs(s.value - speed) < Math.abs(best - speed)) best = s.value;
-  return best;
-}
-
-/** OpenAI's voices, as the picker names them; marin and cedar sound the most natural. */
+/** GPT-Live's voices, as the picker names them; marin and cedar sound the most natural. */
 const VOICE_LABELS: Record<string, string> = {
   marin: "Marin (natural, recommended)",
   cedar: "Cedar (natural)",
+  vesper: "Vesper (British)",
+  willow: "Willow (Irish)",
+  stone: "Stone (Irish)",
+  quartz: "Quartz (Australian)",
+  ripple: "Ripple (Australian)",
+  gleam: "Gleam (North American)",
+  meridian: "Meridian (North American)",
+  delta: "Delta (Southern US)",
+  cinder: "Cinder (Southern US)",
+  beacon: "Beacon (Filipino)",
+  bossa: "Bossa (Brazilian Portuguese)",
+  tempo: "Tempo (Brazilian Portuguese)",
   coral: "Coral",
   sage: "Sage",
   shimmer: "Shimmer",
@@ -120,24 +115,6 @@ function ConversationCard(): React.ReactElement {
               <SpeakerHighIcon size={16} weight="bold" aria-hidden="true" />
               Talk now
             </button>
-          </div>
-          <div className="modal-row">
-            <label className="settings-desc" htmlFor="kleio-voice-speed">
-              Speaking speed
-            </label>
-            <select
-              id="kleio-voice-speed"
-              className="modal-input"
-              value={String(nearestSpeed(status.speed))}
-              disabled={busy}
-              onChange={(e) => void act(() => setVoiceSpeed(Number(e.target.value)))}
-            >
-              {SPEEDS.map((s) => (
-                <option key={s.value} value={String(s.value)}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
           </div>
           <p className="settings-desc">
             She remembers what you tell her in Brain, which text chat shares. Changes apply from

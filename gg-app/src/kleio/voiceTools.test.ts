@@ -127,6 +127,24 @@ describe("createVoiceTools", () => {
     expect(await tools.run("send_plan", { draft_id: "d1" })).toEqual({ sent: true, to: "Kleio" });
   });
 
+  it("sends the one waiting draft when the backend has lost its id, never a guess between two", async () => {
+    const { tools } = setup();
+    vi.mocked(api.getHome).mockResolvedValue({ sessionId: "s-home" } as api.ThreadSession);
+    await tools.run("draft_plan", { to: "Kleio", plan: "Book the dentist." });
+    await tools.run("draft_plan", { to: "Kleio", plan: "Renew the passport." });
+    tools.userSpoke(); // "Yes, send it."
+    expect(await tools.run("send_plan", { draft_id: "" })).toMatchObject({
+      error: expect.any(String),
+    });
+    expect(api.threadPrompt).not.toHaveBeenCalled();
+    expect(await tools.run("send_plan", { draft_id: "d2" })).toEqual({ sent: true, to: "Kleio" });
+    expect(await tools.run("send_plan", { draft_id: "" })).toEqual({ sent: true, to: "Kleio" });
+    expect(api.threadPrompt).toHaveBeenLastCalledWith(
+      "s-home",
+      expect.stringContaining("Book the dentist."),
+    );
+  });
+
   it("remembers through the Brain on the Mac mini, and tells her when it can't", async () => {
     const { tools } = setup();
     tools.userSpoke(); // "I prefer tea."

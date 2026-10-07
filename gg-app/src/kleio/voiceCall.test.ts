@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as KleioApi from "./kleioApi";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { callError, callState, resetCall, startCall } from "./voiceCall";
+import { callError, callState, functionCall, resetCall, startCall } from "./voiceCall";
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
@@ -26,9 +26,29 @@ describe("callError", () => {
   });
 });
 
+describe("functionCall", () => {
+  it("reads a finished tool call from the backend, and nothing else", () => {
+    expect(
+      functionCall({
+        type: "function_call",
+        call_id: "c1",
+        name: "draft_plan",
+        arguments: '{"to":"Chef","plan":"Eggs."}',
+      }),
+    ).toEqual({ callId: "c1", name: "draft_plan", args: { to: "Chef", plan: "Eggs." } });
+    // Broken arguments: the tool says what's missing.
+    expect(
+      functionCall({ type: "function_call", call_id: "c2", name: "send_plan", arguments: "{" }),
+    ).toEqual({ callId: "c2", name: "send_plan", args: {} });
+    expect(functionCall({ type: "message", content: [] })).toBeNull();
+    expect(functionCall(null)).toBeNull();
+  });
+});
+
 describe("startCall", () => {
   afterEach(() => {
     resetCall();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -71,5 +91,58 @@ describe("startCall", () => {
     expect(callState().phase).toBe("idle");
     expect(track.stop).toHaveBeenCalled();
     expect(pcs[0]?.close).toHaveBeenCalled();
+  });
+
+  it("hangs up after 2 minutes with nobody talking; talking starts the countdown again", async () => {
+    vi.useFakeTimers();
+    const track = { stop: vi.fn(), enabled: true };
+    const mic = { getAudioTracks: () => [track], getTracks: () => [track] };
+    let onMessage: (m: { data: string }) => void = () => {};
+    const channel = {
+      readyState: "open",
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: (type: string, fn: (m: { data: string }) => void) => {
+        if (type === "message") onMessage = fn;
+      },
+    };
+    class FakePC {
+      ontrack: unknown = null;
+      close = vi.fn();
+      addTrack(): void {}
+      addEventListener(): void {}
+      createDataChannel(): unknown {
+        return channel;
+      }
+      async createOffer(): Promise<{ type: string; sdp: string }> {
+        return { type: "offer", sdp: "v=0\r\n" };
+      }
+      async setLocalDescription(): Promise<void> {}
+      async setRemoteDescription(): Promise<void> {}
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePC);
+    vi.stubGlobal("Audio", class {});
+    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => mic } });
+    vi.mocked(startVoiceCall).mockResolvedValue("v=0\r\n");
+    const event = (e: Record<string, unknown>): void => onMessage({ data: JSON.stringify(e) });
+
+    await startCall();
+    expect(callState().phase).toBe("listening");
+
+    vi.advanceTimersByTime(90_000);
+    event({ type: "session.input_transcript.delta", delta: "Hello?" }); // The countdown restarts.
+    vi.advanceTimersByTime(90_000);
+    event({ type: "session.usage.updated", usage: { seconds: 180 } }); // Not anyone talking.
+    expect(callState().phase).not.toBe("ended");
+
+    vi.advanceTimersByTime(30_000);
+    expect(callState()).toMatchObject({
+      phase: "ended",
+      error: expect.stringMatching(/2 minutes of quiet/),
+    });
+    // The session ends at OpenAI too, which stops the billing.
+    expect(channel.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "session.close" }));
+    expect(track.stop).toHaveBeenCalled();
   });
 });

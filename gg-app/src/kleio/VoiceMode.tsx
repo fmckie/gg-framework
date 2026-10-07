@@ -25,7 +25,10 @@ import {
   XIcon,
 } from "@phosphor-icons/react";
 import { useDialogFocus } from "../dialog-focus";
+import { HomeDither } from "../HomeDither";
+import { useHomeBackgroundEnabled } from "../home-background";
 import { getVoiceStatus } from "./kleioApi";
+import { KLEIO_BACKGROUND, KLEIO_WAVES } from "./kleioWaves";
 import { briefMe } from "./BriefPanel";
 import {
   callLevels,
@@ -232,6 +235,8 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
   const screen = useRef<HTMLDivElement>(null);
   const reducedMotion = usePrefersReducedMotion();
   const caption = useCaption(call);
+  // The home screen's moving waves, behind her (Settings → Effects turns both off).
+  const backgroundOn = useHomeBackgroundEnabled();
   const inCall = call.phase !== "ended";
   // Esc leaves (ending the call); focus stays here and returns on close.
   useDialogFocus(screen, resetCall);
@@ -249,6 +254,13 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
       data-mood={mood}
       tabIndex={-1}
     >
+      {backgroundOn && (
+        <HomeDither
+          className="voice-dither"
+          waveColor={KLEIO_WAVES}
+          backgroundColor={KLEIO_BACKGROUND}
+        />
+      )}
       <div className="voice-drag" data-tauri-drag-region />
       <button
         type="button"

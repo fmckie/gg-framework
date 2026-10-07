@@ -68,7 +68,6 @@ import { createBriefing, type BriefJob } from "./brief.js";
 import {
   createVoice,
   isBrainToolName,
-  isMicKind,
   isSpeed,
   isVoiceName,
   parseBrain,
@@ -1555,14 +1554,9 @@ export function createHost(options: HostOptions): Host {
         brief: briefing.brief(currentJobs(), { peek: true }).spoken,
         brain: brain?.prompt ?? null,
       });
-      // The device says which microphone it has (a phone: near; a laptop: far).
-      const mic = url.searchParams.get("mic");
-      const r = await voice.createCall(
-        sdp,
-        instructions,
-        isMicKind(mic) ? mic : "near",
-        brain?.tools ?? [],
-      );
+      // Devices still say which microphone they have (?mic=); GPT-Live handles
+      // the room itself, so it isn't needed.
+      const r = await voice.createCall(sdp, instructions, brain?.tools ?? []);
       if (!r.ok) {
         log(`[voice] ${auth.device.label}: call failed (${r.error.kind})`);
         return json(res, voiceErrorStatus(r.error), {
