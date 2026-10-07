@@ -16,7 +16,7 @@ import { useHomeBackgroundEnabled } from "../home-background";
 import type { SettingsTabId } from "../SettingsScreen";
 import { authStatusWithError, getLocalModels, getSettings, waitForReady } from "../agent";
 import { toast } from "../toast";
-import { refreshVoiceReady, talkToKleio, useVoiceReady } from "./TalkPanel";
+import { refreshVoiceReady, talkToKleio, useVoiceReady } from "./VoiceMode";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";

@@ -9,6 +9,7 @@ import { useSyncExternalStore } from "react";
 import { isPhone } from "../platform";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
 import { createVoiceTools, type VoiceTools } from "./voiceTools";
+import { meterStream, type LevelMeter } from "./voiceLevels";
 
 export type CallPhase = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "ended";
 
@@ -90,6 +91,9 @@ interface Live {
   /** Partial captions by item id, until each is final. */
   readonly partial: Map<string, { who: CallLine["who"]; text: string }>;
   hangup: ReturnType<typeof setTimeout> | null;
+  /** How loud she and you are (the orb); null until her voice arrives. */
+  herLevel: LevelMeter | null;
+  readonly yourLevel: LevelMeter | null;
 }
 
 let live: Live | null = null;
@@ -100,6 +104,18 @@ function addLine(who: CallLine["who"], text: string): void {
   const t = text.trim();
   if (!t) return;
   set({ lines: [...state.lines, { who, text: t }].slice(-LINES_KEPT) });
+}
+
+/** How loud she (out) and you (in) are right now, 0–1; zeros between calls. */
+export function callLevels(): { readonly out: number | null; readonly in: number | null } {
+  const L = live;
+  if (!L) return { out: null, in: null };
+  // Null where it isn't measured (the iPhone, or before her voice arrives):
+  // the orb then moves with what she's doing instead.
+  return {
+    out: L.herLevel ? L.herLevel.read() : null,
+    in: state.muted ? 0 : L.yourLevel ? L.yourLevel.read() : null,
+  };
 }
 
 /** The caption being spoken, shown before it is final. */
@@ -190,10 +206,18 @@ export async function startCall(): Promise<void> {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
     pc = new RTCPeerConnection();
+    // Volume meters feed the desktop's floating orb; the iPhone has none, and
+    // its call audio is left exactly as it was.
+    const metering = !isPhone();
     const audio = new Audio();
     audio.autoplay = true;
     pc.ontrack = (ev) => {
-      audio.srcObject = ev.streams[0] ?? null;
+      const stream = ev.streams[0] ?? null;
+      audio.srcObject = stream;
+      // Meter her voice for the orb (measuring only; the <audio> plays it).
+      if (metering && stream && live?.pc === pc && !live.herLevel) {
+        live.herLevel = meterStream(stream);
+      }
     };
     for (const track of mic.getAudioTracks()) pc.addTrack(track, mic);
     const channel = pc.createDataChannel("oai-events");
@@ -214,7 +238,18 @@ export async function startCall(): Promise<void> {
       onSent: (to) => addLine("kleio", `(Sent to ${to}.)`),
       log: (l) => console.info(l),
     });
-    live = { pc, mic, audio, channel, tools, partial: new Map(), hangup: null };
+    live = {
+      pc,
+      mic,
+      audio,
+      channel,
+      tools,
+      partial: new Map(),
+      hangup: null,
+      herLevel:
+        metering && audio.srcObject instanceof MediaStream ? meterStream(audio.srcObject) : null,
+      yourLevel: metering ? meterStream(mic) : null,
+    };
     channel.addEventListener("message", (m) => {
       try {
         const parsed: unknown = JSON.parse(String(m.data));
@@ -263,6 +298,8 @@ export function endCall(reason?: string): void {
   live = null;
   if (L) {
     if (L.hangup) clearTimeout(L.hangup);
+    L.herLevel?.stop();
+    L.yourLevel?.stop();
     for (const t of L.mic.getTracks()) t.stop();
     L.audio.srcObject = null;
     L.channel.close();

@@ -15,7 +15,7 @@ import {
   setVoiceSpeed,
   type VoiceStatus,
 } from "./kleioApi";
-import { setVoiceReady, talkToKleio } from "./TalkPanel";
+import { setVoiceReady, talkToKleio } from "./VoiceMode";
 
 /** Her speaking pace. OpenAI speeds the audio up after it's made, up to 1.5×. */
 const SPEEDS: readonly { readonly value: number; readonly label: string }[] = [

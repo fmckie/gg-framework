@@ -368,36 +368,250 @@
   }
 }
 
-/* ── "Talk to Kleio" (TalkPanel.tsx): the briefing panel, with captions ──
-   Kleio's words in the main text colour; yours quieter and set in, so the
-   conversation reads at a glance. The orb glows softly while she listens. */
-.talk-panel {
-  max-height: min(70vh, 600px);
-}
-.talk-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 48px;
-  overflow-y: auto;
-}
-.talk-line {
-  margin: 0;
-  font-size: 15px;
-  line-height: 1.5;
-}
-.talk-line.is-you {
-  padding-left: 12px;
-  border-left: 2px solid var(--border);
-  color: var(--text-secondary);
-}
-.brief-orb.is-listening {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--kleio-crimson) 18%, transparent);
-  transition: box-shadow var(--t-fast);
-}
-.brief-action.is-hangup {
-  color: var(--error);
-}
 .settings-desc.is-error {
   color: var(--error);
+}
+
+/* ── "Talk to Kleio" (VoiceMode.tsx): the voice screen, inside the window ──
+   Kleio's own room: the home screen's crimson wash on near-black, the living
+   orb in the middle, who's talking and live subtitles under her, and two big
+   round buttons at the bottom. Nothing else: the full conversation lands in
+   the main chat afterwards. */
+.voice-mode {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  /* The orb takes what's left, so a small window shrinks it, never the words. */
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  justify-items: center;
+  align-items: end;
+  gap: clamp(10px, 2.6vh, 18px);
+  padding: clamp(36px, 7vh, 48px) 28px clamp(18px, 5vh, 36px);
+  box-sizing: border-box;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      52% 46% at 50% 40%,
+      color-mix(in srgb, var(--kleio-red) 46%, transparent),
+      transparent 76%
+    ),
+    radial-gradient(
+      40% 40% at 100% 100%,
+      color-mix(in srgb, var(--kleio-red) 22%, transparent),
+      transparent 80%
+    ),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  outline: none;
+  animation: voice-in 0.32s var(--ease-out) both;
+}
+/* Drag the window by the top, like the rest of Kleio (the close button sits on top). */
+.voice-drag {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 40px;
+}
+.voice-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+}
+.voice-stage {
+  align-self: center;
+  width: min(46vh, 72vw, 380px);
+  max-height: 100%;
+  aspect-ratio: 1;
+}
+.voice-orb,
+.voice-orb-fallback {
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.4s var(--ease-out);
+}
+.voice-orb {
+  filter: drop-shadow(0 0 40px color-mix(in srgb, var(--kleio-crimson) 40%, transparent));
+}
+/* Muted: the orb drains to grey, and so does its glow. */
+.voice-mode[data-mood="muted"] .voice-orb {
+  filter: drop-shadow(0 0 32px rgb(150 150 160 / 0.22));
+}
+/* No WebGL, or still loading: a quiet crimson disc holds the orb's place. */
+.voice-orb-fallback {
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 42% 38%,
+    var(--kleio-crimson-hi),
+    var(--kleio-red) 58%,
+    #2a070c
+  );
+  opacity: 0.6;
+}
+/* Not on the line yet, or the call is over: the orb dims. */
+.voice-mode[data-mood="connecting"] .voice-orb,
+.voice-mode[data-mood="ended"] .voice-orb {
+  opacity: 0.45;
+}
+
+/* Who's talking and what's said: no card, no bubble; words on the room. */
+.voice-words {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(560px, 100%);
+  /* Room for the status and three lines, so the screen never jumps as she talks. */
+  min-height: calc(10px + 13px + 3 * 1.45 * 19px);
+}
+.voice-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.voice-mode[data-mood="speaking"] .voice-status {
+  color: color-mix(in srgb, var(--kleio-crimson-hi) 55%, var(--text));
+}
+/* Live subtitles, three lines at most: anchored to the newest line, so a long
+   reply rolls upward; the top line fades only once it overflows. */
+.voice-captions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  max-height: calc(3 * 1.45 * 19px);
+  overflow: hidden;
+}
+.voice-captions[data-rolling="true"] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 19px));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 19px));
+}
+.voice-line {
+  flex: none;
+  margin: 0;
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+  animation: voice-words-in 0.24s var(--ease-out);
+}
+/* Your words, quoted while she thinks: quieter, so hers stay the focus. */
+.voice-line.is-you {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.voice-error {
+  margin: 0;
+  max-width: 44ch;
+  color: #ffb8b2;
+  font-size: 16px;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Mute and hang up: big, round, labelled, like a phone call. */
+.voice-controls {
+  display: flex;
+  gap: 36px;
+}
+.voice-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-button-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  color: var(--text);
+  transition: background var(--t-fast);
+}
+.voice-button:hover .voice-button-icon {
+  background: rgb(255 255 255 / 0.16);
+}
+.voice-button:focus-visible {
+  outline: none;
+}
+.voice-button:focus-visible .voice-button-icon {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 3px;
+}
+/* Muted: light, so it never reads as the red hang-up beside it. */
+.voice-button[aria-pressed="true"] .voice-button-icon {
+  background: #f4ecec;
+  color: #1b1214;
+}
+.voice-button.is-hangup .voice-button-icon,
+.voice-button.is-again .voice-button-icon {
+  background: var(--kleio-crimson);
+  box-shadow: none;
+  color: #fff;
+}
+.voice-button.is-hangup:hover .voice-button-icon,
+.voice-button.is-again:hover .voice-button-icon {
+  background: var(--kleio-crimson-hi);
+}
+@keyframes voice-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes voice-words-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-mode,
+  .voice-line {
+    animation: none;
+  }
+  .voice-orb,
+  .voice-button-icon {
+    transition: none;
+  }
+}
+/* A short window: two lines of words, smaller buttons. */
+@media (max-height: 460px) {
+  .voice-words {
+    min-height: calc(8px + 13px + 2 * 1.45 * 17px);
+    gap: 8px;
+  }
+  .voice-captions {
+    max-height: calc(2 * 1.45 * 17px);
+  }
+  .voice-line {
+    font-size: 17px;
+  }
+  .voice-captions[data-rolling="true"] {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 17px));
+    mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 17px));
+  }
+  .voice-button-icon {
+    width: 48px;
+    height: 48px;
+  }
+  .voice-controls {
+    gap: 28px;
+  }
 }

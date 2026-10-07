@@ -173,7 +173,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
-import { talkToKleio } from "./kleio/TalkPanel";
+import { talkToKleio } from "./kleio/VoiceMode";
 import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
