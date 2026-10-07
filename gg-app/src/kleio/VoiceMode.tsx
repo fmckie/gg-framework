@@ -189,8 +189,9 @@ function useCaption(call: CallState): Caption | null {
 }
 
 /**
- * Live subtitles, a few lines at most. Anchored to the newest line: a long
- * reply rolls upward, and only once it overflows does the top line fade.
+ * Live subtitles, a few lines at most, on a dark glass panel so they read
+ * over the moving waves. Anchored to the newest line: a long reply rolls
+ * upward, and only once it overflows does the top line fade.
  */
 function Captions({ caption }: { readonly caption: Caption }): React.ReactElement {
   const box = useRef<HTMLDivElement>(null);
@@ -202,10 +203,12 @@ function Captions({ caption }: { readonly caption: Caption }): React.ReactElemen
     if (b && l) setRolling(l.offsetHeight > b.clientHeight + 1);
   }, [caption.text]);
   return (
-    <div ref={box} className="voice-captions" data-rolling={rolling}>
-      <p ref={line} className={`voice-line is-${caption.who}`}>
-        {caption.who === "you" ? `“${caption.text}”` : caption.text}
-      </p>
+    <div className={`voice-transcript is-${caption.who}`}>
+      <div ref={box} className="voice-captions" data-rolling={rolling}>
+        <p ref={line} className={`voice-line is-${caption.who}`}>
+          {caption.who === "you" ? `“${caption.text}”` : caption.text}
+        </p>
+      </div>
     </div>
   );
 }

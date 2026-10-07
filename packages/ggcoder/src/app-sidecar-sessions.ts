@@ -13,6 +13,8 @@ import {
   listRecentSessions,
   type RecentSession,
 } from "./core/project-discovery.js";
+import { SessionManager, type SessionEntry } from "./core/session-manager.js";
+import { getUserSessionPrompt } from "./core/session-preview.js";
 import {
   isSessionPath,
   isSessionTempPath,
@@ -253,4 +255,185 @@ export async function deleteChatSession(opts: {
     if (results.some(Boolean)) removed++;
   }
   return { status: "ok", removed };
+}
+
+// ── Saved sessions, read-only (Kleio's voice) ──────────────────────────────
+
+export type StoredSessionKind = "chat" | "code";
+
+/** A `kind` query value, or null when it isn't one. */
+export function parseStoredSessionKind(value: unknown): StoredSessionKind | null {
+  return value === "chat" || value === "code" ? value : null;
+}
+
+export interface StoredSession {
+  /** The newest checkpoint's id; reading looks it up in this same listing. */
+  id: string;
+  kind: StoredSessionKind;
+  /** Which chat agent, for chats. */
+  chatAgent?: ChatAgentId;
+  /** What the app lists it as: its saved title, else its first prompt. */
+  title: string;
+  cwd: string;
+  /** ISO time of its last write. */
+  lastActivity: string;
+}
+
+export interface StoredMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+const STORED_LIST_DEFAULT = 30;
+const STORED_LIST_MAX = 200;
+const STORED_READ_DEFAULT = 8;
+const STORED_READ_MAX = 40;
+/** A title is often a whole first prompt: this much is enough to know it by. */
+const STORED_TITLE_MAX = 200;
+/** One message's words; a long reply keeps its start. */
+const STORED_TEXT_MAX = 8_000;
+
+type StoredRow = StoredSession & { path: string };
+
+function countOr(value: number | undefined, fallback: number, max: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0
+    ? Math.min(value, max)
+    : fallback;
+}
+
+function clipWords(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Every saved chat (from each chat agent) or coding session with messages, newest first. */
+async function storedRows(kind: StoredSessionKind, coderSessionsDir: string): Promise<StoredRow[]> {
+  const sources: { dir: string; chatAgent?: ChatAgentId }[] =
+    kind === "code"
+      ? [{ dir: coderSessionsDir }]
+      : CHAT_AGENT_IDS.map((chatAgent) => ({
+          dir: chatAgentSessionsDir(coderSessionsDir, chatAgent),
+          chatAgent,
+        }));
+  const lists = await Promise.all(
+    sources.map(async ({ dir, chatAgent }) => {
+      const summaries = await new SessionManager(dir).listAllSummaries();
+      return summaries
+        .filter((summary) => summary.hasMessages)
+        .map((summary): StoredRow => ({
+          id: summary.id,
+          kind,
+          ...(chatAgent ? { chatAgent } : {}),
+          title: clipWords(summary.preview?.trim() || "Untitled", STORED_TITLE_MAX),
+          cwd: summary.cwd,
+          lastActivity: summary.lastActivity,
+          path: summary.path,
+        }));
+    }),
+  );
+  return lists
+    .flat()
+    .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity) || a.id.localeCompare(b.id));
+}
+
+function storedSession(row: StoredRow): StoredSession {
+  return {
+    id: row.id,
+    kind: row.kind,
+    ...(row.chatAgent ? { chatAgent: row.chatAgent } : {}),
+    title: row.title,
+    cwd: row.cwd,
+    lastActivity: row.lastActivity,
+  };
+}
+
+/** Saved chats or coding sessions across every folder, newest first. */
+export async function listStoredSessions(opts: {
+  kind: StoredSessionKind;
+  coderSessionsDir: string;
+  limit?: number | undefined;
+}): Promise<StoredSession[]> {
+  const rows = await storedRows(opts.kind, opts.coderSessionsDir);
+  return rows
+    .slice(0, countOr(opts.limit, STORED_LIST_DEFAULT, STORED_LIST_MAX))
+    .map(storedSession);
+}
+
+/**
+ * One saved session's latest prompts and replies, oldest first, or null when
+ * the listing has no such id (a path is never accepted). Read-only: archives
+ * are read in place, never thawed.
+ */
+export async function readStoredSession(opts: {
+  kind: StoredSessionKind;
+  id: string;
+  coderSessionsDir: string;
+  limit?: number | undefined;
+}): Promise<{ session: StoredSession; messages: StoredMessage[] } | null> {
+  const row = (await storedRows(opts.kind, opts.coderSessionsDir)).find((r) => r.id === opts.id);
+  if (!row) return null;
+  const messages = await readStoredMessages(row.path);
+  return {
+    session: storedSession(row),
+    messages: messages.slice(-countOr(opts.limit, STORED_READ_DEFAULT, STORED_READ_MAX)),
+  };
+}
+
+/** An assistant message's visible words: its text blocks, not thinking or tool calls. */
+function replyText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block: unknown) => {
+      if (typeof block !== "object" || block === null) return "";
+      const { type, text } = block as { type?: unknown; text?: unknown };
+      return type === "text" && typeof text === "string" ? text.trim() : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * The active branch's user-authored prompts and assistant replies, as the app
+ * shows them on resume: tool calls and results, thinking, and injected notes
+ * (background updates, compaction summaries) are left out.
+ */
+async function readStoredMessages(filePath: string): Promise<StoredMessage[]> {
+  let leafId: string | null = null;
+  const entries: SessionEntry[] = [];
+  const { stream, close } = await openSessionReadStream(filePath);
+  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      if (!line) continue;
+      let record: unknown;
+      try {
+        record = JSON.parse(line);
+      } catch {
+        continue; // A torn line, skipped as the loader skips it.
+      }
+      if (typeof record !== "object" || record === null) continue;
+      const { type, leafId: leaf } = record as { type?: unknown; leafId?: unknown };
+      if (type === "session") leafId = typeof leaf === "string" ? leaf : null;
+      else if (typeof type === "string") entries.push(record as SessionEntry);
+    }
+  } finally {
+    lines.close();
+    close();
+  }
+  const manager = new SessionManager(path.dirname(filePath));
+  let messages = manager.getMessages(entries, leafId);
+  // A leaf that names nothing here: read it in order rather than say nothing.
+  if (messages.length === 0 && leafId) messages = manager.getMessages(entries, null);
+  const out: StoredMessage[] = [];
+  for (const message of messages) {
+    if (message.provenance?.visibility === "hidden") continue;
+    if (message.role === "user") {
+      const text = getUserSessionPrompt(message.content, message.provenance);
+      if (text) out.push({ role: "user", text: clipWords(text, STORED_TEXT_MAX) });
+    } else if (message.role === "assistant") {
+      const text = replyText(message.content);
+      if (text) out.push({ role: "assistant", text: clipWords(text, STORED_TEXT_MAX) });
+    }
+  }
+  return out;
 }

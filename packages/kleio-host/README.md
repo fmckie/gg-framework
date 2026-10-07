@@ -157,6 +157,22 @@ The voice's `start_chat`. Any paired device. Body `{ prompt, agent?: "general" |
 - Unopened, it is disposed 12 h after it finished (at most 8 idle kept). In memory only: after a
   host restart these are ordinary sessions.
 
+### Saved chats and coding sessions (`GET /kleio/sessions`)
+
+The voice's `list_chats`, `read_chat`, `list_code_sessions` and `read_code_session`. Any paired
+device; read-only. `?kind=chat|code` is required.
+
+- `GET /kleio/sessions?kind=…` answers `200 { sessions: [{ id, title, agent?, project?, lastActivity }] }`,
+  newest first (at most 30). Chats come from every chat agent (`agent` is set for all but General);
+  coding sessions carry their project folder's name.
+- `GET /kleio/sessions/:id?kind=…` answers the same fields plus
+  `messages: [{ from: "user" | "assistant", text }]`: the active branch's latest prompts and replies
+  (no tool calls, thinking or injected notes). The sidecar looks the id up in its own listing
+  (`GET /stored-sessions`); it never takes a path.
+- Kleio's own threads (home, Blobs, groups, under `KLEIO_HOME_CWD`) are left out: they have their
+  own routes. `400 bad_request`, `404 not_found`, `503 sessions_unavailable` when the sidecar
+  can't answer.
+
 ### Blobs (`/kleio/blobs`)
 
 Named helpers with a job, each with its own pinned conversation and schedules, stored in

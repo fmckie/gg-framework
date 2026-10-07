@@ -264,11 +264,19 @@ describe("the session", () => {
       "read_specialist",
       "list_groups",
       "read_group",
+      "list_chats",
+      "read_chat",
+      "list_code_sessions",
+      "read_code_session",
       "draft_plan",
       "send_plan",
       "start_chat",
       "end_conversation",
     ]);
+    // Reading a chat or coding session: no name means the most recent.
+    for (const name of ["read_chat", "read_code_session"]) {
+      expect(VOICE_TOOLS.find((t) => t.name === name)?.parameters).not.toHaveProperty("required");
+    }
     const start = VOICE_TOOLS.find((t) => t.name === "start_chat");
     expect(start?.parameters).toMatchObject({
       required: ["prompt"],
@@ -280,7 +288,11 @@ describe("the session", () => {
       model: DEFAULT_MODEL,
       instructions: expect.stringContaining("delegate"),
       audio: { output: { voice: "marin" } },
-      delegation: { type: "responses", responses: { tool_choice: "auto" } },
+      delegation: {
+        type: "responses",
+        // Fast mode: the user chose quicker lookups at a higher price.
+        responses: { tool_choice: "auto", service_tier: "priority" },
+      },
     });
     // GPT-Live has no pace setting.
     expect(s).not.toHaveProperty(["audio", "output", "speed"]);

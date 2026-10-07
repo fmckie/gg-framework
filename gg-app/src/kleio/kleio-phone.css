@@ -669,6 +669,7 @@ html.platform-ios .home-brief {
 html.platform-ios .voice-mode {
   padding: calc(var(--safe-top) + 56px) calc(var(--safe-right) + 20px)
     calc(var(--safe-bottom) + 28px) calc(var(--safe-left) + 20px);
+  --voice-type: 18px;
 }
 html.platform-ios .voice-close {
   top: calc(var(--safe-top) + 10px);
@@ -676,7 +677,4 @@ html.platform-ios .voice-close {
 }
 html.platform-ios .voice-stage {
   width: min(42vh, 78vw);
-}
-html.platform-ios .voice-line {
-  font-size: 18px;
 }

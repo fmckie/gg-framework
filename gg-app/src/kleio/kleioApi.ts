@@ -465,6 +465,33 @@ export const runBrainTool = (
 ): Promise<{ result?: string; error?: string }> =>
   call("POST", "/kleio/voice/brain", { name, args });
 
+/** Chats or coding sessions saved on the Mac mini (Kleio's own threads aside). */
+export type SavedSessionKind = "chat" | "code";
+
+export interface SavedSession {
+  readonly id: string;
+  readonly title: string;
+  /** The chat agent, for chats other than General's (research, therapist…). */
+  readonly agent?: string;
+  /** The project folder's name, for coding sessions. */
+  readonly project?: string;
+  /** ISO time it was last active. */
+  readonly lastActivity: string;
+}
+
+export interface SavedSessionRead extends SavedSession {
+  /** The latest prompts and replies, oldest first. */
+  readonly messages: readonly { readonly from: "user" | "assistant"; readonly text: string }[];
+}
+
+/** The newest saved chats or coding sessions, newest first (at most 30). */
+export const listSavedSessions = (kind: SavedSessionKind): Promise<{ sessions: SavedSession[] }> =>
+  call("GET", `/kleio/sessions?kind=${kind}`);
+
+/** One saved chat or coding session's latest messages. */
+export const readSavedSession = (kind: SavedSessionKind, id: string): Promise<SavedSessionRead> =>
+  call("GET", `/kleio/sessions/${encodeURIComponent(id)}?kind=${kind}`);
+
 /**
  * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.
  * `mic`: near (a phone or headset) or far (a laptop or desk microphone).
