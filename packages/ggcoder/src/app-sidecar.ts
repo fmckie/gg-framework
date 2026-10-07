@@ -19,7 +19,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { spawn, type ChildProcess } from "node:child_process";
-import { environmentSecrets, formatError, redactValue, type ToolResultContent } from "@kleio/ai";
+import {
+  environmentSecrets,
+  formatError,
+  redactValue,
+  resolveToolSchema,
+  type ToolResultContent,
+} from "@kleio/ai";
 import type { AddressInfo } from "node:net";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runSubagentWorkerMode } from "./modes/subagent-worker-mode.js";
@@ -1168,6 +1174,9 @@ async function main(): Promise<void> {
       }
     },
   });
+  // The Brain tools as voice Kleio gets them (GET /brain, POST /brain/tool):
+  // the very tools text chat runs, so both share one memory and one Jiwa.
+  const brainTools = [...buildMemoryTools(memoryStore), ...buildJiwaTools(jiwaStore)];
 
   // XP/rank progress — loaded once per daemon; awards fan out to every window.
   // Each frame is tagged `origin: true` only for the session that earned the
@@ -1584,6 +1593,55 @@ async function main(): Promise<void> {
           message: error instanceof Error ? error.message : String(error),
         });
         daemonJson(res, 500, { error: "Usage is temporarily unavailable." });
+      });
+      return;
+    }
+
+    // ── The Brain, for voice Kleio (daemon-level: a call has no window) ──
+    // GET: the block text chat's system prompt gets, and the tools' JSON
+    // schemas. POST /brain/tool { name, args }: runs one of those tools; its
+    // own failure (a limit, a bad id) comes back as { error } for the model.
+    if (method === "GET" && url === "/brain") {
+      daemonJson(res, 200, {
+        prompt: `${memoryStore.renderForPrompt()}\n\n${jiwaStore.renderForPrompt()}`,
+        tools: brainTools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          parameters: resolveToolSchema(t),
+        })),
+      });
+      return;
+    }
+    if (method === "POST" && url === "/brain/tool") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        let name: unknown;
+        let args: unknown;
+        try {
+          ({ name, args } = JSON.parse(raw) as { name?: unknown; args?: unknown });
+        } catch {
+          daemonJson(res, 400, { error: "Invalid JSON" });
+          return;
+        }
+        const tool = brainTools.find((t) => t.name === name);
+        if (!tool) {
+          daemonJson(res, 404, { error: "No such Brain tool" });
+          return;
+        }
+        try {
+          const out = await tool.execute(tool.parameters.parse(args ?? {}), {
+            signal: AbortSignal.timeout(10_000),
+            toolCallId: `voice-${Date.now()}`,
+          });
+          daemonJson(res, 200, {
+            result: typeof out === "string" ? out : JSON.stringify(out),
+          });
+        } catch (error) {
+          // A limit, a bad id, bad arguments: plain words the model can act on.
+          daemonJson(res, 422, {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       });
       return;
     }

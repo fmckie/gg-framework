@@ -1494,7 +1494,7 @@ export async function onGazeTarget(cb: (e: GazeTargetEvent) => void): Promise<()
 // ── macOS menu-bar tray ────────────────────────────────────────────────────
 
 /** An action picked from the macOS menu-bar menu. */
-export type TrayIntent = "update" | "new-chat" | "new-code" | "remote" | "settings";
+export type TrayIntent = "update" | "new-chat" | "new-code" | "remote" | "settings" | "brief";
 
 /**
  * Subscribe THIS window to tray actions routed to it. Returns an unlisten fn.

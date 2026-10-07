@@ -535,7 +535,15 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
     let product = matches!(
         segs.as_slice(),
-        ["kleio", "home"] | ["kleio", "home", "new"] | ["kleio", "models"] | ["kleio", "health"]
+        ["kleio", "home"]
+            | ["kleio", "home", "new"]
+            | ["kleio", "models"]
+            | ["kleio", "health"]
+            | ["kleio", "brief"]
+            | ["kleio", "voice"]
+            | ["kleio", "voice", "key"]
+            | ["kleio", "voice", "settings"]
+            | ["kleio", "voice", "brain"]
     ) || under(&segs, &["kleio", "blobs"])
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
@@ -555,8 +563,8 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
     }
 }
 
-/// A one-off client for a Live Activity answer: short timeout (iOS gives a
-/// button's intent little time), the device token from `r`.
+/// A one-off client for a Live Activity answer or a Siri briefing (brief.rs):
+/// short timeout (iOS gives an intent little time), the device token from `r`.
 #[cfg(target_os = "ios")]
 pub(super) fn answer_client(r: &super::Remote) -> Result<reqwest::Client, String> {
     let mut h = reqwest::header::HeaderMap::new();
@@ -621,6 +629,49 @@ pub async fn kleio_api(
         serde_json::Value::Null
     } else {
         serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text))
+    };
+    Ok(ApiResponse { status, body })
+}
+
+/// The most SDP a voice call offer may carry (the host takes up to 64 KB).
+const VOICE_SDP_MAX: usize = 64 * 1024;
+
+/// Starts a conversation with Kleio's voice (packages/kleio-host/src/voice.ts):
+/// sends this device's WebRTC offer to the host, which adds the OpenAI key and
+/// the session and returns OpenAI's answer. SDP is plain text, so this is not
+/// `kleio_api`. A non-2xx status comes back with the host's JSON error.
+///
+/// `mic`: `near` (a phone, or a headset) or `far` (a laptop or desk
+/// microphone), so OpenAI filters the right kind of background noise.
+#[tauri::command]
+pub async fn kleio_voice_call(sdp: String, mic: Option<String>) -> Result<ApiResponse, String> {
+    let r = super::remote().ok_or("kleio_voice_call: not connected to a Kleio host")?;
+    if !sdp.starts_with("v=") || sdp.len() > VOICE_SDP_MAX {
+        return Err("kleio_voice_call: not a WebRTC offer".into());
+    }
+    let mic = match mic.as_deref() {
+        None | Some("near") => "near",
+        Some("far") => "far",
+        Some(_) => return Err("kleio_voice_call: mic is near or far".into()),
+    };
+    let started = std::time::Instant::now();
+    let res = api_client(r)?
+        .post(format!("{}/kleio/voice/call?mic={mic}", r.base))
+        .header(reqwest::header::CONTENT_TYPE, "application/sdp")
+        .body(sdp)
+        .send()
+        .await
+        .map_err(|e| root_cause(&e))?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(|e| root_cause(&e))?;
+    log::info!(
+        "kleio: voice call status={status} elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    let body = if (200..300).contains(&status) {
+        serde_json::Value::String(text)
+    } else {
+        serde_json::from_str(&text).unwrap_or(serde_json::Value::Null)
     };
     Ok(ApiResponse { status, body })
 }
@@ -744,6 +795,12 @@ mod tests {
             ("GET", "/kleio/home"),
             ("POST", "/kleio/home/new"),
             ("GET", "/kleio/models"),
+            ("POST", "/kleio/brief"),
+            ("GET", "/kleio/voice"),
+            ("POST", "/kleio/voice/key"),
+            ("DELETE", "/kleio/voice/key"),
+            ("POST", "/kleio/voice/settings"),
+            ("POST", "/kleio/voice/brain"),
             ("GET", "/kleio/blobs"),
             ("POST", "/kleio/blobs"),
             ("PATCH", "/kleio/blobs/b_1"),

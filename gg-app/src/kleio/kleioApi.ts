@@ -285,6 +285,27 @@ export interface ConnectStart {
   connectionId: string;
 }
 
+/** One job in a "Brief me" briefing (the host's brief.ts), in the order it is said. */
+export interface BriefItem {
+  target: string;
+  kind: "chat" | "code" | "specialist" | "group";
+  /** How the briefing names it: "Code in gg-framework", "The Launch group". */
+  name: string;
+  phase: "working" | "needsYou" | "done" | "failed" | "stopped";
+  /** Its question, how it ended, or what it is doing. */
+  detail?: string;
+  /** Unix seconds: when it ended, or when it started. */
+  at: number;
+}
+
+/** What needs you, what finished, what is still working: words to read aloud. */
+export interface Brief {
+  spoken: string;
+  items: BriefItem[];
+  since: number;
+  at: number;
+}
+
 /** The slice of the sidecar's `GET /state` the compact chat view needs. */
 export interface ThreadState {
   running: boolean;
@@ -399,6 +420,63 @@ export const hostHealth = async (): Promise<HostHealth> => {
 
 export const getHome = (): Promise<ThreadSession> => call("GET", "/kleio/home");
 export const newHome = (): Promise<ThreadSession> => call("POST", "/kleio/home/new");
+
+// ─── "Brief me" ──────────────────────────────────────────────────────────────────────
+
+/** The briefing since you were last briefed; `all` repeats the last day's news. */
+export const getBrief = (all = false): Promise<Brief> =>
+  call("POST", "/kleio/brief", all ? { all: true } : {});
+
+// ─── Kleio's voice (OpenAI Realtime, kleio-host voice.ts) ─────────────────────────────────
+
+export interface VoiceStatus {
+  /** An OpenAI key is saved on the Mac mini: conversations can start. */
+  ready: boolean;
+  voice: string;
+  model: string;
+  voices: string[];
+  /** Her speaking pace: 1 is the voice's own, 1.5 the fastest. */
+  speed: number;
+}
+
+export const getVoiceStatus = (): Promise<VoiceStatus> => call("GET", "/kleio/voice");
+/** Checks the key with OpenAI, then saves it on the Mac mini (admin devices only). */
+export const setVoiceKey = (key: string): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/key", { key });
+export const removeVoiceKey = (): Promise<VoiceStatus> => call("DELETE", "/kleio/voice/key");
+export const setVoiceName = (voice: string): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/settings", { voice });
+export const setVoiceSpeed = (speed: number): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/settings", { speed });
+
+/**
+ * Runs one of the Brain's tools (remember, forget, set_jiwa…) on the Mac
+ * mini, as text chat does: `{ result }` when it worked, `{ error }` when the
+ * Brain said no (a limit, an unknown id). Throws only when it can't be reached.
+ */
+export const runBrainTool = (
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ result?: string; error?: string }> =>
+  call("POST", "/kleio/voice/brain", { name, args });
+
+/**
+ * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.
+ * `mic`: near (a phone or headset) or far (a laptop or desk microphone).
+ */
+export async function startVoiceCall(offerSdp: string, mic: "near" | "far"): Promise<string> {
+  let res: RawResponse;
+  try {
+    res = await invoke<RawResponse>("kleio_voice_call", { sdp: offerSdp, mic });
+  } catch (e) {
+    throw new KleioApiError(0, e instanceof Error ? e.message : String(e));
+  }
+  if (res.status < 200 || res.status >= 300) throw errorFrom(res.status, res.body);
+  if (typeof res.body !== "string" || !res.body.startsWith("v=")) {
+    throw new KleioApiError(res.status, "bad_answer");
+  }
+  return res.body;
+}
 
 // ─── Blobs ──────────────────────────────────────────────────────────────────
 

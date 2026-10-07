@@ -17,6 +17,7 @@
 //! admin devices); the SSE bridge resumes with `Last-Event-ID`.
 
 pub mod biometric;
+pub mod brief;
 pub mod commands;
 pub mod files;
 pub use commands::host_auth;

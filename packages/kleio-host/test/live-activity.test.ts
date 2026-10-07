@@ -431,6 +431,27 @@ describe("createLiveActivityTracker", () => {
     expect(await t.alert("s:s1", { title: "x", body: "y" }, describe)).toBe(false);
   });
 
+  it("tells onEnd how every job ended, activity or not, and lists what's showing", async () => {
+    const ends: string[] = [];
+    const t = createLiveActivityTracker({
+      apns,
+      now: () => clock,
+      onEnd: (target, state) => ends.push(`${target}:${state.phase}`),
+    });
+    t.onFrame("s2", { type: "run_start" });
+    t.onFrame("s1", { type: "run_start" });
+    expect(t.snapshot().map((s) => `${s.target}:${s.state.phase}`)).toEqual([
+      "s:s1:working",
+      "s:s2:working",
+    ]);
+    t.onFrame("s1", { type: "run_end", data: { failed: true } });
+    await t.set("g:g_1", { phase: "working", line: "Starting…" }, { fresh: true });
+    await t.set("g:g_1", { phase: "done", line: "Done" });
+    expect(ends).toEqual(["s:s1:failed", "g:g_1:done"]);
+    expect(t.snapshot().map((s) => s.target)).toEqual(["s:s2"]);
+    expect(sent).toHaveLength(0); // nothing registered: no pushes
+  });
+
   it("set: group words, a fresh timer, and an end only when something was showing", async () => {
     const t = tracker();
     expect(await t.set("g:g_1", { phase: "done", line: "Done" })).toBe(false);

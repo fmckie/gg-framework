@@ -10,6 +10,6 @@
     <key>NSCameraUsageDescription</key>
     <string>GG Coder uses your camera locally to track which window you're looking at and focus it. Video never leaves your machine.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>GG Coder allows apps you run during development to access your microphone for recording and testing.</string>
+    <string>Kleio uses your microphone when you talk to Kleio, and lets apps you run during development record for testing.</string>
 </dict>
 </plist>

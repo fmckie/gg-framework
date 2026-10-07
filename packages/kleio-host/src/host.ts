@@ -64,6 +64,19 @@ import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
+import { createBriefing, type BriefJob } from "./brief.js";
+import {
+  createVoice,
+  isBrainToolName,
+  isMicKind,
+  isSpeed,
+  isVoiceName,
+  parseBrain,
+  SDP_MAX,
+  voiceErrorDetail,
+  voiceErrorStatus,
+  voiceInstructions,
+} from "./voice.js";
 import {
   createLiveActivityTracker,
   type LiveAttributes,
@@ -157,6 +170,18 @@ export interface HostOptions {
     readonly keyPath?: string;
     readonly baseUrl?: string;
     readonly ggHome?: string;
+    readonly fetch?: typeof fetch;
+  };
+  /**
+   * Kleio's conversational voice (OpenAI Realtime, voice.ts). The key is set
+   * from an admin device's Settings; `keyPath` defaults to
+   * <state dir>/openai.key.
+   */
+  readonly voice?: {
+    readonly apiKey?: string;
+    readonly keyPath?: string;
+    readonly model?: string;
+    readonly baseUrl?: string;
     readonly fetch?: typeof fetch;
   };
   /**
@@ -493,6 +518,7 @@ export function createHost(options: HostOptions): Host {
             const lf = liveFrame(raw);
             // A group member's work shows on its group's activity instead.
             if (lf && !(groups?.owns(sessionId) ?? false)) liveActivities.onFrame(sessionId, lf);
+            if (!(groups?.owns(sessionId) ?? false)) briefing.onFrame(sessionId, raw);
             const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
             groups?.onFrame(sessionId, raw);
             askNotifier.onFrame(sessionId, raw, !(groups?.owns(sessionId) ?? false));
@@ -619,6 +645,24 @@ export function createHost(options: HostOptions): Host {
   // Set by stop(). A poll that was already in flight when the host stopped
   // must not track sessions or open upstreams into a dead server.
   let stopped = false;
+  // "Brief me" (brief.ts): how each job ended, for the spoken briefing.
+  const briefing = createBriefing({
+    statePath: join(dirname(options.sidecarEndpointPath), "brief.json"),
+    now: () => (options.now?.() ?? new Date()).getTime(),
+    log,
+  });
+  // Kleio's conversational voice (voice.ts): the OpenAI key stays here.
+  const voice = createVoice({
+    keyPath: options.voice?.keyPath ?? join(dirname(options.sidecarEndpointPath), "openai.key"),
+    settingsPath: join(dirname(options.sidecarEndpointPath), "voice.json"),
+    ...(options.voice?.apiKey ? { apiKey: options.voice.apiKey } : {}),
+    ...(options.voice?.model ? { model: options.voice.model } : {}),
+    ...(options.voice?.baseUrl ? { baseUrl: options.voice.baseUrl } : {}),
+    ...(options.voice?.fetch ? { fetch: options.voice.fetch } : {}),
+    log,
+  });
+  // Group names as the groups last said them, for the briefing.
+  const groupTitles = new Map<string, string>();
   // Lock-screen Live Activities, updated from here while the phone is locked.
   // The iPhone Live Activity per session / group (live-activity.ts).
   const liveActivities = createLiveActivityTracker({
@@ -631,6 +675,7 @@ export function createHost(options: HostOptions): Host {
         ),
     log,
     now: () => (options.now?.() ?? new Date()).getTime(),
+    onEnd: (target, state) => briefing.ended({ target, ...describeJob(target), state }),
   });
   // What POST /session asked for, so push-to-start can name the activity.
   // In memory only: after a restart an unknown session reads as a "Chat".
@@ -648,6 +693,20 @@ export function createHost(options: HostOptions): Host {
     const k = sessionKinds.get(sessionId);
     if (k?.mode === "code") return base("code", basename(k.cwd) || "Code");
     return base("chat", "Chat");
+  }
+  /** Every job showing now, named for the briefing. */
+  function currentJobs(): BriefJob[] {
+    return liveActivities
+      .snapshot()
+      .map(({ target, state }) => ({ target, ...describeJob(target), state }));
+  }
+  /** A Live Activity target's kind and name, for the briefing. */
+  function describeJob(target: string): { kind: LiveAttributes["kind"]; title: string } {
+    if (target.startsWith("g:")) {
+      return { kind: "group", title: groupTitles.get(target.slice(2)) ?? "" };
+    }
+    const { kind, title } = describeSession(target.slice(2));
+    return { kind, title };
   }
   // `ask_user` questions pushed to the phone (ask-push.ts): through the Live
   // Activity when one is (or can be started) on the phone, else a plain alert.
@@ -709,6 +768,7 @@ export function createHost(options: HostOptions): Host {
     const s = live.get(sessionId);
     s?.upstream?.destroy();
     live.delete(sessionId);
+    briefing.forget(sessionId);
     await persistTracked().catch(() => {});
   }
 
@@ -820,12 +880,14 @@ export function createHost(options: HostOptions): Host {
         notify: async (n) => {
           if (options.apns?.configured) await options.apns.notify(n, registry.list());
         },
-        onLive: (groupId, title, state, alert, fresh) =>
-          liveActivities.set(`g:${groupId}`, state, {
+        onLive: (groupId, title, state, alert, fresh) => {
+          groupTitles.set(groupId, title);
+          return liveActivities.set(`g:${groupId}`, state, {
             fresh: fresh === true,
             ...(alert ? { alert: { title: "Needs your help", body: state.detail ?? title } } : {}),
             describe: () => ({ kind: "group", title: clipText(title, TITLE_MAX), groupId }),
-          }),
+          });
+        },
         router:
           options.groupRouter ??
           jevRouter(
@@ -896,6 +958,57 @@ export function createHost(options: HostOptions): Host {
    * the routine→session map and track anything new, so a routine's transcript
    * is in the ring for whichever device attaches later.
    */
+  /**
+   * A JSON call from the host itself to the sidecar (not a device's request):
+   * its status and parsed body, or null when it can't be reached in time.
+   */
+  async function sidecarJson(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    timeoutMs = 5_000,
+  ): Promise<{ status: number; body: unknown } | null> {
+    const ep = await endpoint();
+    if (!ep) return null;
+    const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    return new Promise((resolve) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path,
+          method,
+          headers: {
+            host: `127.0.0.1:${ep.port}`,
+            "x-gg-token": ep.token,
+            ...(payload
+              ? { "content-type": "application/json", "content-length": String(payload.length) }
+              : {}),
+          },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            let parsed: unknown = null;
+            try {
+              parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            } catch {
+              /* not JSON: the status says enough */
+            }
+            resolve({ status: res.statusCode ?? 0, body: parsed });
+          });
+          res.on("error", () => resolve(null));
+        },
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
   async function trackRoutineSessions(): Promise<void> {
     if (stopped) return;
     const ep = await endpoint();
@@ -1396,6 +1509,153 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, { ok: true });
     }
 
+    // "Brief me" (Siri on the phone, the app's voice on the desktop): what
+    // needs you, what finished, what is still working, in a few sentences.
+    // Read-only. Marks the endings heard for every device; `all` repeats the
+    // last day's.
+    if (req.method === "POST" && path === "/kleio/brief") {
+      const started = Date.now();
+      const body = await readBody(req, 256);
+      if (body === null) return json(res, 413, { error: "bad_request" });
+      let p: { all?: unknown } = {};
+      if (body.length) {
+        try {
+          p = JSON.parse(body.toString("utf8")) as typeof p;
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+      }
+      const all = typeof p === "object" && p !== null && p.all === true;
+      const b = briefing.brief(currentJobs(), { all });
+      log(
+        `[brief] ${auth.device.label}${all ? " (all)" : ""}: ${b.items.length} item(s) in ${Date.now() - started} ms`,
+      );
+      return json(res, 200, b);
+    }
+
+    // Kleio's conversational voice (voice.ts). Talking: any paired device.
+    // The OpenAI key and the voice: an admin device's Settings.
+    if (path === "/kleio/voice" && req.method === "GET") {
+      return json(res, 200, await voice.status());
+    }
+    if (path === "/kleio/voice/call" && req.method === "POST") {
+      const body = await readBody(req, SDP_MAX);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      const sdp = body.toString("utf8");
+      if (!sdp.startsWith("v=")) return json(res, 400, { error: "bad_request" });
+      // The Brain (durable memory + Jiwa), as text chat gets it. Without it
+      // she still talks; she just doesn't claim to remember.
+      const fromSidecar = await sidecarJson("GET", "/brain");
+      const brain = fromSidecar?.status === 200 ? parseBrain(fromSidecar.body) : null;
+      if (!brain) log(`[voice] the Brain is unavailable for this call`);
+      // What's new, without marking it heard: she still tells them about it.
+      const now = new Date(options.now?.() ?? new Date());
+      const instructions = voiceInstructions({
+        now,
+        brief: briefing.brief(currentJobs(), { peek: true }).spoken,
+        brain: brain?.prompt ?? null,
+      });
+      // The device says which microphone it has (a phone: near; a laptop: far).
+      const mic = url.searchParams.get("mic");
+      const r = await voice.createCall(
+        sdp,
+        instructions,
+        isMicKind(mic) ? mic : "near",
+        brain?.tools ?? [],
+      );
+      if (!r.ok) {
+        log(`[voice] ${auth.device.label}: call failed (${r.error.kind})`);
+        return json(res, voiceErrorStatus(r.error), {
+          error: r.error.kind,
+          ...voiceErrorDetail(r.error),
+        });
+      }
+      log(`[voice] ${auth.device.label}: call started${brain ? " with the Brain" : ""}`);
+      res.writeHead(201, { "content-type": "application/sdp", "cache-control": "no-store" });
+      res.end(r.value.sdp);
+      return;
+    }
+    // A Brain tool the voice called (remember, update_memory, forget,
+    // set_jiwa, update_jiwa, forget_jiwa): any paired device, as text chat
+    // can be asked to remember from any of them. The sidecar runs the very
+    // tool text chat uses; a tool's own failure comes back as { error }.
+    if (path === "/kleio/voice/brain" && req.method === "POST") {
+      const started = Date.now();
+      const body = await readBody(req, 16 * 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let p: { name?: unknown; args?: unknown };
+      try {
+        p = JSON.parse(body.toString("utf8")) as typeof p;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      if (typeof p !== "object" || p === null || !isBrainToolName(p.name)) {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const args =
+        typeof p.args === "object" && p.args !== null && !Array.isArray(p.args) ? p.args : {};
+      const r = await sidecarJson("POST", "/brain/tool", { name: p.name, args });
+      log(
+        `[voice] ${auth.device.label}: brain ${p.name} ${r?.status ?? "unreachable"} in ${Date.now() - started} ms`,
+      );
+      if (!r || r.status >= 500) return json(res, 503, { error: "brain_unavailable" });
+      const answer = (r.body ?? {}) as { result?: unknown; error?: unknown };
+      if (r.status === 200 && typeof answer.result === "string") {
+        return json(res, 200, { result: answer.result });
+      }
+      return json(res, 200, {
+        error: typeof answer.error === "string" ? answer.error : "The Brain didn't accept that.",
+      });
+    }
+    if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const body = await readBody(req, 2 * 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let p: Record<string, unknown> = {};
+      if (body.length) {
+        try {
+          const parsed: unknown = JSON.parse(body.toString("utf8"));
+          if (typeof parsed === "object" && parsed !== null) p = parsed as Record<string, unknown>;
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+      }
+      if (path === "/kleio/voice/key" && req.method === "POST") {
+        if (typeof p.key !== "string") return json(res, 400, { error: "bad_request" });
+        const r = await voice.setKey(p.key);
+        if (!r.ok) {
+          return json(res, voiceErrorStatus(r.error), {
+            error: r.error.kind,
+            ...voiceErrorDetail(r.error),
+          });
+        }
+        log(`[voice] ${auth.device.label} saved the OpenAI key`);
+        return json(res, 200, await voice.status());
+      }
+      if (path === "/kleio/voice/key" && req.method === "DELETE") {
+        await voice.removeKey();
+        log(`[voice] ${auth.device.label} removed the OpenAI key`);
+        return json(res, 200, await voice.status());
+      }
+      if (path === "/kleio/voice/settings" && req.method === "POST") {
+        const voiceName = p.voice === undefined ? undefined : p.voice;
+        const speed = p.speed === undefined ? undefined : p.speed;
+        if (voiceName === undefined && speed === undefined) {
+          return json(res, 400, { error: "bad_request" });
+        }
+        if (voiceName !== undefined && !isVoiceName(voiceName)) {
+          return json(res, 400, { error: "bad_request" });
+        }
+        if (speed !== undefined && !isSpeed(speed)) return json(res, 400, { error: "bad_request" });
+        await voice.setSettings({
+          ...(voiceName !== undefined ? { voice: voiceName } : {}),
+          ...(speed !== undefined ? { speed } : {}),
+        });
+        return json(res, 200, await voice.status());
+      }
+      return json(res, 405, { error: "method_not_allowed" });
+    }
+
     // The pinned home thread. Any paired device, not admin-only: it is the
     // conversation every device opens.
     if (req.method === "GET" && path === "/kleio/home") {
@@ -1618,6 +1878,7 @@ export function createHost(options: HostOptions): Host {
     previewServer,
     start: async () => {
       await startPreview();
+      await briefing.load();
       await new Promise<void>((resolve, reject) => {
         const failed = (e: Error): void => {
           // No API, no point serving previews: free the port for the next try.
@@ -1681,6 +1942,7 @@ export function createHost(options: HostOptions): Host {
           home?.flush(),
           blobs?.flush(),
           groups?.flush(),
+          briefing.flush(),
         ]);
         void Promise.all([closed, flushed, written]).then(() => resolve());
         setTimeout(resolve, 2000).unref();

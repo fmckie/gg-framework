@@ -23,6 +23,19 @@ function reply(body: unknown, status = 200): Array<Record<string, unknown>> {
   return calls;
 }
 
+describe("getBrief", () => {
+  it("asks the host for what's new, or the last day's news", async () => {
+    const brief = { spoken: "All quiet.", items: [], since: 1, at: 2 };
+    const calls = reply(brief);
+    expect(await api.getBrief()).toEqual(brief);
+    await api.getBrief(true);
+    expect(calls).toEqual([
+      { method: "POST", path: "/kleio/brief", body: {}, session: null },
+      { method: "POST", path: "/kleio/brief", body: { all: true }, session: null },
+    ]);
+  });
+});
+
 const SCHEDULE: api.Schedule = {
   id: "s_00000001",
   label: "Morning brief",
