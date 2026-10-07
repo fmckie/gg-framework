@@ -1585,6 +1585,104 @@ describe("host: home thread (GET /kleio/home)", () => {
   });
 });
 
+describe("host: saved chats and code sessions (GET /kleio/sessions)", () => {
+  it("lists and reads them for any paired device, leaving out Kleio's own threads", async () => {
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    const chat = {
+      id: "c-1",
+      kind: "chat",
+      chatAgent: "research",
+      title: "Research heat pumps",
+      cwd: "/Users/me/projects",
+      lastActivity: "2026-10-07T09:00:00.000Z",
+    };
+    // A Blob's thread: Kleio reads those through their own routes.
+    const own = {
+      ...chat,
+      id: "c-own",
+      chatAgent: "general",
+      cwd: join(home, "Kleio", "blobs", "b1"),
+    };
+    const code = {
+      id: "k-1",
+      kind: "code",
+      title: "Fix the login redirect",
+      cwd: "/Users/me/projects/gg-framework",
+      lastActivity: "2026-10-07T08:00:00.000Z",
+    };
+    sidecar.stored = {
+      chat: [own, chat],
+      code: [code],
+      reads: {
+        "c-1": {
+          session: chat,
+          messages: [
+            { role: "user", text: "Research heat pumps" },
+            { role: "assistant", text: "Air-source suits a flat." },
+          ],
+        },
+        "c-own": { session: own, messages: [] },
+      },
+    };
+
+    expect((await call("GET", "/kleio/sessions?kind=chat")).status).toBe(401);
+    const chats = await call("GET", "/kleio/sessions?kind=chat", { headers: P });
+    expect(chats.status).toBe(200);
+    expect(chats.body).toEqual({
+      sessions: [
+        {
+          id: "c-1",
+          title: "Research heat pumps",
+          agent: "research",
+          lastActivity: chat.lastActivity,
+        },
+      ],
+    });
+    const codes = await call("GET", "/kleio/sessions?kind=code", { headers: P });
+    expect(codes.body).toEqual({
+      sessions: [
+        {
+          id: "k-1",
+          title: "Fix the login redirect",
+          project: "gg-framework",
+          lastActivity: code.lastActivity,
+        },
+      ],
+    });
+    const read = await call("GET", "/kleio/sessions/c-1?kind=chat", { headers: P });
+    expect(read.status).toBe(200);
+    expect(read.body).toEqual({
+      id: "c-1",
+      title: "Research heat pumps",
+      agent: "research",
+      lastActivity: chat.lastActivity,
+      messages: [
+        { from: "user", text: "Research heat pumps" },
+        { from: "assistant", text: "Air-source suits a flat." },
+      ],
+    });
+
+    // Kleio's own thread and an unknown id are not found; a bad kind, id or
+    // method never reaches the sidecar.
+    expect((await call("GET", "/kleio/sessions/c-own?kind=chat", { headers: P })).status).toBe(404);
+    expect((await call("GET", "/kleio/sessions/nope?kind=chat", { headers: P })).status).toBe(404);
+    expect((await call("GET", "/kleio/sessions?kind=motion", { headers: P })).status).toBe(400);
+    expect((await call("GET", "/kleio/sessions/a%2Fb?kind=chat", { headers: P })).status).toBe(400);
+    expect((await call("POST", "/kleio/sessions?kind=chat", { headers: P, body: {} })).status).toBe(
+      405,
+    );
+    expect(sidecar.storedCalls).toEqual([
+      "/stored-sessions?kind=chat&limit=200",
+      "/stored-sessions?kind=code&limit=200",
+      "/stored-sessions/c-1?kind=chat",
+      "/stored-sessions/c-own?kind=chat",
+      "/stored-sessions/nope?kind=chat",
+    ]);
+  });
+});
+
 describe("host: chats started by voice (POST /kleio/chats)", () => {
   const settle = (ms = 50): Promise<void> => new Promise((r) => setTimeout(r, ms));
   const until = async (check: () => boolean, ms = 5000): Promise<void> => {

@@ -545,6 +545,8 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "key"]
             | ["kleio", "voice", "settings"]
             | ["kleio", "voice", "brain"]
+            | ["kleio", "sessions"]
+            | ["kleio", "sessions", _]
     ) || under(&segs, &["kleio", "blobs"])
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
@@ -808,6 +810,8 @@ mod tests {
             ("DELETE", "/kleio/voice/key"),
             ("POST", "/kleio/voice/settings"),
             ("POST", "/kleio/voice/brain"),
+            ("GET", "/kleio/sessions?kind=chat"),
+            ("GET", "/kleio/sessions/0b9f2c1e-5d4a-4c1b-9a8e-3f2d1c0b9a8e?kind=code"),
             ("GET", "/kleio/blobs"),
             ("POST", "/kleio/blobs"),
             ("PATCH", "/kleio/blobs/b_1"),
@@ -888,6 +892,8 @@ mod tests {
             "/kleio/home/other",
             "/kleio/homes",
             "/kleio/blobsx",
+            "/kleio/sessionsx",
+            "/kleio/sessions/a/b",
             "/kleio/models/x",
             "/kleio/blobs/../devices",
             "/kleio/blobs/./x",

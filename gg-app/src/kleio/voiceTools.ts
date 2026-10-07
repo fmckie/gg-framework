@@ -13,6 +13,8 @@ import {
   listGroupMessages,
   listGroups,
   listRuns,
+  listSavedSessions,
+  readSavedSession,
   runBrainTool,
   sendGroupMessage,
   startChat,
@@ -20,6 +22,8 @@ import {
   getBlobSession,
   type Blob,
   type Group,
+  type SavedSession,
+  type SavedSessionKind,
 } from "./kleioApi";
 
 /** The Brain's tools (durable memory + Jiwa), run on the Mac mini like text chat's. */
@@ -32,13 +36,20 @@ const BRAIN_TOOLS = new Set([
   "forget_jiwa",
 ]);
 
-/** Tools that bring others' words into the conversation (a group's messages, a specialist's reply). */
+/**
+ * Tools that bring others' words into the conversation (a group's messages, a
+ * specialist's reply, a chat's or coding session's latest).
+ */
 const READS = new Set([
   "get_briefing",
   "list_specialists",
   "read_specialist",
   "list_groups",
   "read_group",
+  "list_chats",
+  "read_chat",
+  "list_code_sessions",
+  "read_code_session",
 ]);
 
 /** What the model hears back, as JSON. */
@@ -64,6 +75,15 @@ const MESSAGES_TOLD = 6;
 const TEXT_TOLD = 400;
 /** The most chats started in one user turn. */
 const CHATS_PER_TURN = 3;
+/** Chats or coding sessions named when listing them. */
+const SESSIONS_TOLD = 8;
+/**
+ * A saved session's newest reply, often the whole answer (a research report,
+ * say), passed as long as the Mac mini sends it (8,000 characters at most).
+ * Given only the start of a report, the backend read the chat again, a whole
+ * extra round before she could answer.
+ */
+const REPLY_TOLD = 8_000;
 
 function clip(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
@@ -107,6 +127,110 @@ export function matchByName<T extends { readonly name: string }>(
       partial.length > 1
         ? `"${said}" matches more than one: ${partial.map((i) => i.name).join(", ")}.`
         : `No one called "${said}". The names are: ${names}.`,
+  };
+}
+
+/** Words that say what sort of thing they mean, not which one: "my code session about login" → "login". */
+const FILLER = new Set([
+  "a",
+  "an",
+  "the",
+  "my",
+  "our",
+  "that",
+  "this",
+  "one",
+  "about",
+  "on",
+  "in",
+  "for",
+  "of",
+  "to",
+  "with",
+  "and",
+  "chat",
+  "chats",
+  "session",
+  "sessions",
+  "code",
+  "coding",
+  "conversation",
+  "project",
+  "latest",
+  "last",
+  "recent",
+  "newest",
+]);
+
+/** The same word, allowing an ending: "pump" and "pumps". */
+function sameWord(a: string, b: string): boolean {
+  return a === b || (Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a)));
+}
+
+/**
+ * The saved chat or coding session the user means, from a few words of its
+ * name (a title is a whole sentence, so words count rather than the name).
+ * They come newest first: no words means the latest, and of equal matches the
+ * newest wins. A match needs at least half the words they said.
+ */
+export function matchSession<T extends { readonly name: string }>(
+  items: readonly T[],
+  said: string,
+): { ok: true; value: T } | { ok: false; error: string } {
+  const latest = items[0];
+  if (!latest) return { ok: false, error: "There aren't any yet." };
+  const want = words(said)
+    .split(" ")
+    .filter((w) => w && !FILLER.has(w));
+  if (want.length === 0) return { ok: true, value: latest };
+  let best: T | undefined;
+  let bestScore = Math.ceil(want.length / 2) - 1;
+  for (const item of items) {
+    const have = words(item.name).split(" ");
+    const score = want.filter((w) => have.some((h) => sameWord(w, h))).length;
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  if (best) return { ok: true, value: best };
+  const names = items
+    .slice(0, 5)
+    .map((i) => i.name)
+    .join("; ");
+  return { ok: false, error: `Nothing matches "${said}". The most recent are: ${names}.` };
+}
+
+/** What a saved session is called out loud: its kind or project, then its title. */
+function sessionName(s: SavedSession): string {
+  return [s.agent, s.project, s.title].filter(Boolean).join(" ");
+}
+
+/** A saved chat or coding session's latest messages, its newest reply at length. */
+async function readSaved(kind: SavedSessionKind, said: string): Promise<ToolOutput> {
+  const { sessions } = await listSavedSessions(kind);
+  if (sessions.length === 0) {
+    return {
+      error: kind === "chat" ? "There are no chats yet." : "There are no coding sessions yet.",
+    };
+  }
+  const m = matchSession(
+    sessions.map((s) => ({ id: s.id, name: sessionName(s) })),
+    said,
+  );
+  if (!m.ok) return { error: m.error };
+  const read = await readSavedSession(kind, m.value.id);
+  const newestReply = read.messages.map((msg) => msg.from).lastIndexOf("assistant");
+  return {
+    title: read.title,
+    ...(read.agent ? { kind: read.agent } : {}),
+    ...(read.project ? { project: read.project } : {}),
+    last_active: read.lastActivity,
+    latest_messages: read.messages.map((msg, i) => ({
+      from:
+        msg.from === "user" ? "the user" : kind === "code" ? "the coding agent" : "the assistant",
+      text: clip(msg.text, i === newestReply ? REPLY_TOLD : TEXT_TOLD),
+    })),
   };
 }
 
@@ -248,6 +372,36 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
         })),
         busy: page.typing.length > 0,
       };
+    },
+
+    async list_chats() {
+      const { sessions } = await listSavedSessions("chat");
+      return {
+        chats: sessions.slice(0, SESSIONS_TOLD).map((s) => ({
+          title: s.title,
+          ...(s.agent ? { kind: s.agent } : {}),
+          last_active: s.lastActivity,
+        })),
+      };
+    },
+
+    async read_chat(args) {
+      return readSaved("chat", str(args.name));
+    },
+
+    async list_code_sessions() {
+      const { sessions } = await listSavedSessions("code");
+      return {
+        code_sessions: sessions.slice(0, SESSIONS_TOLD).map((s) => ({
+          project: s.project ?? "",
+          title: s.title,
+          last_active: s.lastActivity,
+        })),
+      };
+    },
+
+    async read_code_session(args) {
+      return readSaved("code", str(args.name));
     },
 
     async draft_plan(args) {

@@ -65,6 +65,14 @@ import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
 import { createStartedChats, parseStartChat } from "./started-chats.js";
+import {
+  isSavedSessionKind,
+  isSessionId,
+  SAVED_LIST_MAX,
+  SIDECAR_LIST_LIMIT,
+  savedSessionList,
+  savedSessionRead,
+} from "./saved-sessions.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
 import { createBriefing, type BriefJob } from "./brief.js";
@@ -1626,6 +1634,44 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, {
         error: typeof answer.error === "string" ? answer.error : "The Brain didn't accept that.",
       });
+    }
+    // Saved chats and coding sessions, read-only, for her voice: GET
+    // /kleio/sessions?kind=chat|code lists the newest, GET
+    // /kleio/sessions/<id>?kind=… reads one's latest messages. Any paired
+    // device, as with specialists and groups (saved-sessions.ts).
+    if (path === "/kleio/sessions" || path.startsWith("/kleio/sessions/")) {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const kind = url.searchParams.get("kind");
+      const id = path === "/kleio/sessions" ? null : path.slice("/kleio/sessions/".length);
+      if (!isSavedSessionKind(kind) || (id !== null && !isSessionId(id))) {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const started = Date.now();
+      const r = await sidecarJson(
+        "GET",
+        id === null
+          ? `/stored-sessions?kind=${kind}&limit=${SIDECAR_LIST_LIMIT}`
+          : `/stored-sessions/${id}?kind=${kind}`,
+        undefined,
+        15_000,
+      );
+      log(
+        `[voice] ${auth.device.label}: ${kind} ${id === null ? "list" : "read"} ${r?.status ?? "unreachable"} in ${Date.now() - started} ms`,
+      );
+      if (!r || r.status >= 500) return json(res, 503, { error: "sessions_unavailable" });
+      const homeCwd = options.homeCwd;
+      const kleios = (cwd: string): boolean => homeCwd !== undefined && holds(homeCwd, cwd);
+      if (id === null) {
+        if (r.status !== 200) return json(res, 502, { error: "sidecar error" });
+        return json(res, 200, {
+          sessions: savedSessionList(r.body, kind, kleios, SAVED_LIST_MAX),
+        });
+      }
+      const read = r.status === 200 ? savedSessionRead(r.body, kind, kleios) : null;
+      return read ? json(res, 200, read) : json(res, 404, { error: "not_found" });
     }
     if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });

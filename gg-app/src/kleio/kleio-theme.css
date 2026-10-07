@@ -395,6 +395,9 @@
   font-family: var(--sans);
   outline: none;
   animation: voice-in 0.32s var(--ease-out) both;
+  /* The subtitles' type size and how many of their lines show at once. */
+  --voice-type: 19px;
+  --voice-lines: 4;
 }
 /* The home screen's dithered waves, moving behind her (HomeDither.tsx). They
    paint the near-black themselves, so the crimson wash sits over them, as on
@@ -481,66 +484,90 @@
   opacity: 0.45;
 }
 
-/* Who's talking and what's said: no card, no bubble; words on the room. */
+/* Who's talking, then what's said on a dark glass panel: the waves and the
+   crimson glow move behind the words, never through them. */
 .voice-words {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  width: min(560px, 100%);
-  /* Room for the status and three lines, so the screen never jumps as she talks. */
-  min-height: calc(10px + 13px + 3 * 1.45 * 19px);
+  width: min(600px, 100%);
+  /* Room for the status and a full panel, so the screen never jumps as she talks. */
+  min-height: calc(15px + 10px + 24px + var(--voice-lines) * 1.45 * var(--voice-type));
 }
 .voice-status {
   margin: 0;
-  color: var(--text-muted);
-  font-size: 11px;
+  color: var(--text-secondary);
+  font-size: 12px;
   font-weight: 650;
+  line-height: 1.25;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 .voice-mode[data-mood="speaking"] .voice-status {
   color: color-mix(in srgb, var(--kleio-crimson-hi) 55%, var(--text));
 }
-/* Live subtitles, three lines at most: anchored to the newest line, so a long
+/* The panel: near-black glass, as over a chat window (.kleio-overlay), with a
+   hairline edge that turns crimson when the words are hers. */
+.voice-transcript {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 20px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 12px 32px rgb(0 0 0 / 0.4);
+  animation: voice-words-in 0.24s var(--ease-out);
+}
+.voice-transcript.is-kleio {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kleio-crimson-hi) 34%, transparent),
+    0 12px 32px rgb(0 0 0 / 0.4);
+}
+/* Live subtitles, a few lines at most: anchored to the newest line, so a long
    reply rolls upward; the top line fades only once it overflows. */
 .voice-captions {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   width: 100%;
-  max-height: calc(3 * 1.45 * 19px);
+  max-height: calc(var(--voice-lines) * 1.45 * var(--voice-type));
   overflow: hidden;
 }
 .voice-captions[data-rolling="true"] {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 19px));
-  mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 19px));
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(1.45 * var(--voice-type))
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * var(--voice-type)));
 }
+/* Plain wrapping: her words arrive one by one, and balanced lines would
+   re-break the whole caption with each. */
 .voice-line {
   flex: none;
   margin: 0;
   color: var(--text);
-  font-size: 19px;
+  font-size: var(--voice-type);
   font-weight: 500;
   line-height: 1.45;
   text-align: center;
-  text-wrap: balance;
-  animation: voice-words-in 0.24s var(--ease-out);
 }
-/* A soft dark halo keeps the words readable over bright stretches of waves,
-   as the home screen's text has. */
+/* A soft dark halo keeps the words on the room readable over bright
+   stretches of waves, as the home screen's text has. */
 .voice-status,
-.voice-line,
 .voice-error,
 .voice-button-label {
   text-shadow:
     0 1px 2px rgb(0 0 0 / 0.9),
     0 0 12px rgb(0 0 0 / 0.8);
 }
-/* Your words, quoted while she thinks: quieter, so hers stay the focus. */
+/* Your words, quoted while she thinks: a step quieter than hers. */
 .voice-line.is-you {
   color: var(--text-secondary);
-  font-style: italic;
 }
 .voice-error {
   margin: 0;
@@ -619,7 +646,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .voice-mode,
-  .voice-line {
+  .voice-transcript {
     animation: none;
   }
   .voice-orb,
@@ -629,19 +656,16 @@
 }
 /* A short window: two lines of words, smaller buttons. */
 @media (max-height: 460px) {
+  .voice-mode {
+    --voice-type: 17px;
+    --voice-lines: 2;
+  }
   .voice-words {
-    min-height: calc(8px + 13px + 2 * 1.45 * 17px);
+    min-height: calc(15px + 8px + 20px + var(--voice-lines) * 1.45 * var(--voice-type));
     gap: 8px;
   }
-  .voice-captions {
-    max-height: calc(2 * 1.45 * 17px);
-  }
-  .voice-line {
-    font-size: 17px;
-  }
-  .voice-captions[data-rolling="true"] {
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 17px));
-    mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * 17px));
+  .voice-transcript {
+    padding: 10px 16px;
   }
   .voice-button-icon {
     width: 48px;

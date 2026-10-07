@@ -4,7 +4,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { chatAgentSessionsDir } from "./chat-agents/index.js";
-import { deleteChatSession, listSidecarSessions } from "./app-sidecar-sessions.js";
+import {
+  deleteChatSession,
+  listSidecarSessions,
+  listStoredSessions,
+  readStoredSession,
+} from "./app-sidecar-sessions.js";
 import { motionSessionsDir } from "./motion-agent/motion-agent.js";
 import { encodeCwd } from "./core/encode-cwd.js";
 import { archiveColdSession, archiveSessionPath } from "./core/session-storage.js";
@@ -229,6 +234,169 @@ describe("gg-app sidecar session listings", () => {
     expect(codingSessions[0]?.path).toBe(archiveSessionPath(codingPlain));
     expect(chatSessions).toHaveLength(1);
     expect(chatSessions[0]?.path).toBe(archiveSessionPath(chatPlain));
+  });
+});
+
+describe("stored sessions for Kleio's voice", () => {
+  let tmp: string;
+  let coderSessionsDir: string;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "gg-stored-sessions-"));
+    coderSessionsDir = path.join(tmp, "sessions");
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  async function writeTranscript(
+    root: string,
+    cwd: string,
+    id: string,
+    at: string,
+    records: object[],
+    header: object = {},
+  ): Promise<void> {
+    const dir = path.join(root, encodeCwd(cwd));
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `${id}.jsonl`);
+    const lines = [
+      {
+        type: "session",
+        version: 2,
+        id,
+        conversationId: id,
+        timestamp: at,
+        cwd,
+        provider: "anthropic",
+        model: "claude-sonnet-5",
+        ...header,
+      },
+      ...records,
+    ];
+    await fs.writeFile(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    await fs.utimes(file, new Date(at), new Date(at));
+  }
+
+  function message(
+    id: string,
+    parentId: string | null,
+    role: string,
+    content: unknown,
+    extra: object = {},
+  ): object {
+    return {
+      type: "message",
+      id,
+      parentId,
+      timestamp: "2026-10-07T09:00:00.000Z",
+      message: { role, content, ...extra },
+    };
+  }
+
+  it("lists chats from every chat agent, or coding sessions, newest first", async () => {
+    const projects = "/Users/me/projects";
+    await writeTranscript(
+      chatAgentSessionsDir(coderSessionsDir, "general"),
+      projects,
+      "chat-old",
+      "2026-10-05T09:00:00.000Z",
+      [message("m1", null, "user", "Plan a weekend in Bath")],
+    );
+    await writeTranscript(
+      chatAgentSessionsDir(coderSessionsDir, "research"),
+      projects,
+      "chat-new",
+      "2026-10-07T09:00:00.000Z",
+      [message("m1", null, "user", "Research heat pumps")],
+    );
+    await writeTranscript(
+      coderSessionsDir,
+      `${projects}/app`,
+      "code-1",
+      "2026-10-06T09:00:00.000Z",
+      [message("m1", null, "user", "Fix the login redirect")],
+    );
+    // Nothing said in it yet: not listed.
+    await writeTranscript(
+      coderSessionsDir,
+      `${projects}/app`,
+      "code-empty",
+      "2026-10-07T10:00:00.000Z",
+      [],
+    );
+
+    const chats = await listStoredSessions({ kind: "chat", coderSessionsDir });
+    expect(chats.map((s) => [s.id, s.chatAgent, s.title])).toEqual([
+      ["chat-new", "research", "Research heat pumps"],
+      ["chat-old", "general", "Plan a weekend in Bath"],
+    ]);
+    expect(await listStoredSessions({ kind: "chat", coderSessionsDir, limit: 1 })).toHaveLength(1);
+    expect(await listStoredSessions({ kind: "code", coderSessionsDir })).toEqual([
+      {
+        id: "code-1",
+        kind: "code",
+        title: "Fix the login redirect",
+        cwd: `${projects}/app`,
+        lastActivity: new Date("2026-10-06T09:00:00.000Z").toISOString(),
+      },
+    ]);
+  });
+
+  it("reads the active branch's prompts and replies, without tool calls or injected notes", async () => {
+    await writeTranscript(
+      coderSessionsDir,
+      "/Users/me/projects/app",
+      "code-1",
+      "2026-10-07T09:00:00.000Z",
+      [
+        message("m1", null, "user", "Fix the login redirect"),
+        message("m2", "m1", "assistant", [
+          { type: "thinking", thinking: "Let me look." },
+          { type: "text", text: "Looking at the router." },
+          { type: "tool_call", id: "t1", name: "read", args: {} },
+        ]),
+        message("m3", "m2", "tool", [
+          { type: "tool_result", toolCallId: "t1", content: "file contents" },
+        ]),
+        message("m4", "m3", "user", "[Background update] the build finished", {
+          provenance: { source: "runtime", kind: "notification", visibility: "transcript" },
+        }),
+        message("m5", "m4", "assistant", [
+          { type: "text", text: "Fixed: the redirect now keeps the query." },
+        ]),
+        // Rewound away from: no longer part of the conversation.
+        message("m6", "m1", "assistant", [{ type: "text", text: "An abandoned answer." }]),
+      ],
+      { leafId: "m5" },
+    );
+
+    const read = await readStoredSession({ kind: "code", id: "code-1", coderSessionsDir });
+    expect(read?.session).toMatchObject({
+      id: "code-1",
+      kind: "code",
+      title: "Fix the login redirect",
+    });
+    expect(read?.messages).toEqual([
+      { role: "user", text: "Fix the login redirect" },
+      { role: "assistant", text: "Looking at the router." },
+      { role: "assistant", text: "Fixed: the redirect now keeps the query." },
+    ]);
+    const latest = await readStoredSession({
+      kind: "code",
+      id: "code-1",
+      coderSessionsDir,
+      limit: 1,
+    });
+    expect(latest?.messages).toEqual([
+      { role: "assistant", text: "Fixed: the redirect now keeps the query." },
+    ]);
+    // Only ids from that kind's listing; never a path.
+    expect(await readStoredSession({ kind: "chat", id: "code-1", coderSessionsDir })).toBeNull();
+    expect(
+      await readStoredSession({ kind: "code", id: "../sessions/code-1", coderSessionsDir }),
+    ).toBeNull();
   });
 });
 

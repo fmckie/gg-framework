@@ -177,7 +177,13 @@ import {
 import { PROMPT_COMMANDS } from "./core/prompt-commands.js";
 import { loadCustomCommands } from "./core/custom-commands.js";
 import { discoverProjects, listProjectFolders } from "./core/project-discovery.js";
-import { deleteChatSession, listSidecarSessions } from "./app-sidecar-sessions.js";
+import {
+  deleteChatSession,
+  listSidecarSessions,
+  listStoredSessions,
+  parseStoredSessionKind,
+  readStoredSession,
+} from "./app-sidecar-sessions.js";
 import {
   createRoutineRunner,
   createRoutineStore,
@@ -1617,6 +1623,61 @@ async function main(): Promise<void> {
           });
           daemonJson(res, 500, { error: "The chat could not be deleted." });
         }
+      });
+      return;
+    }
+
+    // Saved chats and coding sessions, read-only, for Kleio's voice (through
+    // kleio-host): GET /stored-sessions?kind=chat|code lists the newest, and
+    // GET /stored-sessions/<id>?kind=… reads one's latest messages. The id is
+    // looked up in that same listing, never used as a path.
+    if (
+      method === "GET" &&
+      (url.startsWith("/stored-sessions?") || url.startsWith("/stored-sessions/"))
+    ) {
+      const started = Date.now();
+      const query = new URL(url, `http://${host}`);
+      const kind = parseStoredSessionKind(query.searchParams.get("kind"));
+      const id = query.pathname.startsWith("/stored-sessions/")
+        ? query.pathname.slice("/stored-sessions/".length)
+        : null;
+      const asked = Number(query.searchParams.get("limit"));
+      const limit = Number.isInteger(asked) && asked > 0 ? asked : undefined;
+      if (!kind || id === "" || (id !== null && id.includes("/"))) {
+        daemonJson(res, 400, { error: "bad request" });
+        return;
+      }
+      const work =
+        id === null
+          ? listStoredSessions({ kind, coderSessionsDir: paths.sessionsDir, limit }).then(
+              (sessions) => {
+                log("INFO", "app-sidecar", "stored sessions listed", {
+                  kind,
+                  count: String(sessions.length),
+                  ms: String(Date.now() - started),
+                });
+                daemonJson(res, 200, { sessions });
+              },
+            )
+          : readStoredSession({ kind, id, coderSessionsDir: paths.sessionsDir, limit }).then(
+              (read) => {
+                log("INFO", "app-sidecar", "stored session read", {
+                  kind,
+                  found: String(read !== null),
+                  messages: String(read?.messages.length ?? 0),
+                  ms: String(Date.now() - started),
+                });
+                if (read) daemonJson(res, 200, read);
+                else daemonJson(res, 404, { error: "no such session" });
+              },
+            );
+      void work.catch((err: unknown) => {
+        log("ERROR", "app-sidecar", "stored sessions failed", {
+          kind,
+          error: err instanceof Error ? err.name : "unknown",
+          ms: String(Date.now() - started),
+        });
+        daemonJson(res, 500, { error: "The sessions could not be read." });
       });
       return;
     }

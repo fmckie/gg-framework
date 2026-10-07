@@ -56,6 +56,13 @@ export interface FakeSidecar {
   /** GET /brain answers this (null: 500); POST /brain/tool calls land in brainCalls. */
   brain: { prompt: string; tools: unknown[] } | null;
   brainCalls: { name: unknown; args: unknown }[];
+  /**
+   * GET /stored-sessions?kind=… answers `{ sessions: stored[kind] }`; GET
+   * /stored-sessions/<id> answers `stored.reads[id]`, else 404.
+   */
+  stored: { chat: unknown[]; code: unknown[]; reads: Record<string, unknown> };
+  /** Every GET /stored-sessions… path and query, in order. */
+  storedCalls: string[];
   close(): Promise<void>;
 }
 
@@ -255,6 +262,17 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "GET" && url.pathname.startsWith("/stored-sessions")) {
+      api.storedCalls.push(url.pathname + url.search);
+      if (url.pathname === "/stored-sessions") {
+        const kind = url.searchParams.get("kind") === "code" ? "code" : "chat";
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify({ sessions: api.stored[kind] }));
+      }
+      const read = api.stored.reads[url.pathname.slice("/stored-sessions/".length)];
+      res.writeHead(read ? 200 : 404, { "content-type": "application/json" });
+      return res.end(JSON.stringify(read ?? { error: "no such session" }));
+    }
     res.writeHead(404);
     res.end();
   });
@@ -290,6 +308,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     completeText: '{"schedules":[]}',
     brain: null,
     brainCalls: [],
+    stored: { chat: [], code: [], reads: {} },
+    storedCalls: [],
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();
