@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
+  deleteChat,
   getSettings,
   listSessions,
   selectWorkspace,
@@ -12,6 +13,7 @@ import { ChatPicker } from "./ChatPicker";
 
 vi.mock("./agent", () => ({
   arrangeAllWindows: vi.fn(),
+  deleteChat: vi.fn(),
   focusWindowByOffset: vi.fn(),
   getSettings: vi.fn(),
   listSessions: vi.fn(),
@@ -23,6 +25,7 @@ vi.mock("./WindowLayoutButton", () => ({
   WindowLayoutButton: () => <button>Windows</button>,
 }));
 
+const deleteChatMock = vi.mocked(deleteChat);
 const getSettingsMock = vi.mocked(getSettings);
 const listSessionsMock = vi.mocked(listSessions);
 const selectWorkspaceMock = vi.mocked(selectWorkspace);
@@ -138,5 +141,89 @@ describe("ChatPicker", () => {
     ).toBeDefined();
     expect(waitForReadyMock).not.toHaveBeenCalled();
     expect(selectWorkspaceMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes a chat after X then Delete, without opening it", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+    deleteChatMock.mockResolvedValue({ ok: true });
+
+    render(<ChatPicker onChosen={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove chat: Plan my week" }));
+    expect(deleteChatMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete chat permanently: Plan my week" }));
+
+    await waitFor(() => expect(screen.queryByText("Plan my week")).toBeNull());
+    expect(deleteChatMock).toHaveBeenCalledWith("/sessions/chat-1.jsonl");
+    expect(selectWorkspaceMock).not.toHaveBeenCalled();
+    expect(screen.getByText("0")).toBeDefined();
+  });
+
+  it("deletes when Delete is pressed in WebKit, which blurs a pressed button", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+    deleteChatMock.mockResolvedValue({ ok: true });
+
+    render(<ChatPicker onChosen={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove chat: Plan my week" }));
+    const confirm = screen.getByRole("button", { name: "Delete chat permanently: Plan my week" });
+    // As WebKit does: mousedown clears focus, blurring the button, unless prevented.
+    if (fireEvent.mouseDown(confirm)) fireEvent.blur(confirm);
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(deleteChatMock).toHaveBeenCalledWith("/sessions/chat-1.jsonl"));
+  });
+
+  it("keeps the row and shows the error when deleting fails", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+    deleteChatMock.mockResolvedValue({
+      ok: false,
+      error: "This chat is open in a window. Close it there first.",
+    });
+
+    render(<ChatPicker onChosen={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove chat: Plan my week" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete chat permanently: Plan my week" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "This chat is open in a window. Close it there first.",
+    );
+    expect(screen.getByText("Plan my week")).toBeDefined();
+  });
+
+  it("cancels the confirm with Escape", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+
+    render(<ChatPicker onChosen={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove chat: Plan my week" }));
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Delete chat permanently: Plan my week" }),
+      {
+        key: "Escape",
+      },
+    );
+    expect(screen.getByRole("button", { name: "Remove chat: Plan my week" })).toBeDefined();
+    expect(deleteChatMock).not.toHaveBeenCalled();
+  });
+
+  it("shows no delete control in Motion mode", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+
+    render(<ChatPicker mode="motion" onChosen={vi.fn()} />);
+
+    expect(await screen.findByText("Plan my week")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Remove chat/ })).toBeNull();
   });
 });

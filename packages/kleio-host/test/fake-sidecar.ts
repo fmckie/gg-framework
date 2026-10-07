@@ -38,6 +38,10 @@ export interface FakeSidecar {
   autoReply: ((sessionId: string, promptText: string) => string | null) | null;
   /** Each created session id's POST /session body. */
   createdBodies: Map<string, any>;
+  /** POST /prompt answers 500. */
+  failPrompt: boolean;
+  /** Bodies of every POST /sessions/delete (answered 200). */
+  deletes: any[];
   /** Ids of every DELETE /session/:id. */
   disposed: string[];
   /** What GET /models answers. */
@@ -147,6 +151,10 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
           session: req.headers["x-gg-session"] as string | undefined,
           body: JSON.parse(body),
         });
+        if (api.failPrompt) {
+          res.writeHead(500, { "content-type": "application/json" });
+          return res.end(JSON.stringify({ error: "busy" }));
+        }
         // Like the real sidecar: 202 once the run is claimed.
         res.writeHead(202, { "content-type": "application/json" });
         res.end(JSON.stringify({ accepted: true, echoed: JSON.parse(body) }));
@@ -212,6 +220,16 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ ok: true }));
     }
+    if (req.method === "POST" && url.pathname === "/sessions/delete") {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        api.deletes.push(raw ? JSON.parse(raw) : {});
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      });
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/models") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ models: api.models }));
@@ -262,6 +280,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     prompts: [],
     autoReply: null,
     createdBodies: new Map(),
+    failPrompt: false,
+    deletes: [],
     disposed: [],
     models: [],
     completions: [],

@@ -7,7 +7,9 @@
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
-//     POST /kleio/home/new starts a fresh one. /kleio/blobs/* and
+//     POST /kleio/home/new starts a fresh one. POST /kleio/chats starts a
+//     chat that works on its own in Kleio's projects folder (voice's
+//     start_chat, see started-chats.ts). /kleio/blobs/* and
 //     GET /kleio/models, the Blobs (see blobs.ts). An agent's files:
 //     GET /kleio/blobs/:id/files/*, /kleio/groups/:gid/members/:bid/files/*
 //     and /kleio/workspace/files/*?cwd= (Chat/Code, see files.ts), always as
@@ -62,6 +64,7 @@ import {
 import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
+import { createStartedChats, parseStartChat } from "./started-chats.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
 import { createBriefing, type BriefJob } from "./brief.js";
@@ -532,9 +535,11 @@ export function createHost(options: HostOptions): Host {
             // A group member's turn is announced by the group (one push per
             // exchange), never per session.
             const groupTurn = groups?.owns(sessionId) ?? false;
+            // A chat started by voice and not yet opened is named in its nudge.
+            const startedNudge = started.onRunEnd(sessionId, s.subs.size === 0);
             if (!groupTurn && (blobNudge || s.subs.size === 0) && options.apns?.configured) {
               void options.apns
-                .notify(blobNudge ?? { sessionId }, registry.list())
+                .notify(blobNudge ?? startedNudge ?? { sessionId }, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
             }
           }
@@ -678,7 +683,8 @@ export function createHost(options: HostOptions): Host {
   });
   // What POST /session asked for, so push-to-start can name the activity.
   // In memory only: after a restart an unknown session reads as a "Chat".
-  const sessionKinds = new Map<string, { mode: "chat" | "code"; cwd: string }>();
+  // A chat started by voice (started-chats.ts) also has its title.
+  const sessionKinds = new Map<string, { mode: "chat" | "code"; cwd: string; title?: string }>();
   /** Static attributes for a session's activity. Names only, never secrets. */
   function describeSession(sessionId: string): LiveAttributes {
     const blob = blobs?.bySession(sessionId);
@@ -691,7 +697,7 @@ export function createHost(options: HostOptions): Host {
     if (home?.sessionId() === sessionId) return base("chat", "Kleio");
     const k = sessionKinds.get(sessionId);
     if (k?.mode === "code") return base("code", basename(k.cwd) || "Code");
-    return base("chat", "Chat");
+    return base("chat", k?.title ?? "Chat");
   }
   /** Every job showing now, named for the briefing. */
   function currentJobs(): BriefJob[] {
@@ -848,6 +854,16 @@ export function createHost(options: HostOptions): Host {
         now,
       })
     : null;
+
+  const started = createStartedChats({
+    ...(options.workspaceRoots ? { workspaceRoots: options.workspaceRoots } : {}),
+    call: sidecarCall,
+    track,
+    untrack,
+    remember: (sessionId, cwd, title) => sessionKinds.set(sessionId, { mode: "chat", cwd, title }),
+    log,
+    now,
+  });
 
   const blobs: Blobs | null = home
     ? createBlobs({
@@ -1105,6 +1121,9 @@ export function createHost(options: HostOptions): Host {
 
   // ------------------------------------------------------------------ proxy
 
+  /** The sidecar API is JSON; 8 MiB is well above any real prompt or attachment. */
+  const PROXY_BODY_MAX = 8 * 1024 * 1024;
+
   /**
    * Forward to the sidecar. A stale endpoint (sidecar respawned on a new port)
    * surfaces as a connect-phase error before any response bytes exist; in that
@@ -1125,11 +1144,18 @@ export function createHost(options: HostOptions): Host {
     }
   }
 
-  async function proxy(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  async function proxy(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: URL,
+    /** The body, when the caller has already read it off the stream. */
+    preRead?: Buffer,
+  ): Promise<void> {
     const body =
-      req.method === "GET" || req.method === "HEAD"
+      preRead ??
+      (req.method === "GET" || req.method === "HEAD"
         ? Buffer.alloc(0)
-        : await readBody(req, 8 * 1024 * 1024);
+        : await readBody(req, PROXY_BODY_MAX));
     if (body === null) return json(res, 413, { error: "body too large" });
     const headers: Record<string, string | string[]> = {};
     for (const [k, v] of Object.entries(req.headers)) {
@@ -1666,6 +1692,21 @@ export function createHost(options: HostOptions): Host {
       return r.ok ? json(res, 200, r.value) : json(res, 502, r.error);
     }
 
+    // Start a chat that works on its own (voice's start_chat). Any paired
+    // device, like the home thread.
+    if (path === "/kleio/chats") {
+      if (req.method !== "POST") {
+        res.setHeader("allow", "POST");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const body = await readBody(req, 16 * 1024);
+      if (body === null) return json(res, 413, { error: "body too large" });
+      const parsed = parseStartChat(body.toString("utf8"));
+      if (!parsed.ok) return json(res, 400, { error: "bad_request", detail: parsed.error });
+      const r = await background(started.start(parsed.value));
+      return r.ok ? json(res, 200, r.value) : json(res, r.error.status, r.error.body);
+    }
+
     // Mint a link that opens an agent-written web page on the preview origin
     // (preview.ts). Any paired device that may read the page's files. The
     // token covers the page's folder, or only the page itself when that folder
@@ -1837,6 +1878,28 @@ export function createHost(options: HostOptions): Host {
 
     if (req.method === "GET" && path === "/events")
       return handleEvents(req, res, url, auth.device.deviceId);
+    // A device opening a voice-started chat from Chats gets its live session,
+    // not a second one on the same transcript. With none waiting, the body is
+    // not touched here.
+    if (req.method === "POST" && path === "/session" && started.pending()) {
+      const body = await readBody(req, PROXY_BODY_MAX);
+      if (body === null) return json(res, 413, { error: "body too large" });
+      const adopted = await background(started.adopt(body));
+      if (adopted) return json(res, 200, { sessionId: adopted });
+      return proxy(req, res, url, body);
+    }
+    // Removing a voice-started chat nobody opened: release its idle session so
+    // the sidecar can delete the transcript; a running one is refused here.
+    if (req.method === "POST" && path === "/sessions/delete" && started.pending()) {
+      const body = await readBody(req, PROXY_BODY_MAX);
+      if (body === null) return json(res, 413, { error: "body too large" });
+      const r = await background(started.release(body));
+      if (r === "running")
+        return json(res, 409, {
+          error: "This chat is still working. Try again when it has finished.",
+        });
+      return proxy(req, res, url, body);
+    }
     return proxy(req, res, url);
   }
 
@@ -1904,6 +1967,7 @@ export function createHost(options: HostOptions): Host {
         stopped = true;
         liveActivities.stop();
         askNotifier.stop();
+        started.stop();
         if (routinePoll) clearInterval(routinePoll);
         routinePoll = null;
         if (routineWake) clearTimeout(routineWake);

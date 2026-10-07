@@ -143,6 +143,20 @@ them with the upstream desktop app on the same Mac (it keeps `~/gg-projects` and
 - Provider sign-ins (`~/.gg/auth.json`) and local model endpoints (Ollama, Tinfoil) stay
   shared: they belong to the machine.
 
+### Started chats (`POST /kleio/chats`)
+
+The voice's `start_chat`. Any paired device. Body `{ prompt, agent?: "general" | "research" }`
+(prompt trimmed, 1–4000 characters; agent defaults to `general`).
+
+- Creates a chat session in the first projects folder (so it shows in Chats), prompts it, and
+  answers `200 { sessionId }`. `400 bad_request`, `404 not_found` (no projects folders),
+  `429 too_many` (5 still running), `502` when the sidecar fails.
+- Its run end, with nobody watching, nudges "Research ready" / "Chat ready" with its title.
+- A device opening it from Chats (`POST /session { sessionPath }`) is handed the same live
+  session. `POST /sessions/delete { path }` on it disposes it first, or is a 409 while it runs.
+- Unopened, it is disposed 12 h after it finished (at most 8 idle kept). In memory only: after a
+  host restart these are ordinary sessions.
+
 ### Blobs (`/kleio/blobs`)
 
 Named helpers with a job, each with its own pinned conversation and schedules, stored in

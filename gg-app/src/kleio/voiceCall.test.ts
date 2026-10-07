@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as KleioApi from "./kleioApi";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { callError, callState, functionCall, resetCall, startCall } from "./voiceCall";
+import { callError, callState, functionCall, isWebSearch, resetCall, startCall } from "./voiceCall";
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
@@ -23,6 +23,16 @@ describe("callError", () => {
       [new Error("boom"), /Something went wrong/],
     ];
     for (const [e, want] of cases) expect(callError(e)).toMatch(want);
+  });
+});
+
+describe("isWebSearch", () => {
+  it("spots the backend's hosted web search, and is not a function call", () => {
+    const item = { type: "web_search_call", id: "ws1", status: "completed" };
+    expect(isWebSearch(item)).toBe(true);
+    expect(functionCall(item)).toBeNull();
+    expect(isWebSearch({ type: "function_call" })).toBe(false);
+    expect(isWebSearch(null)).toBe(false);
   });
 });
 
@@ -91,6 +101,48 @@ describe("startCall", () => {
     expect(callState().phase).toBe("idle");
     expect(track.stop).toHaveBeenCalled();
     expect(pcs[0]?.close).toHaveBeenCalled();
+  });
+
+  it("keeps the same state while her words stream in, so the screen doesn't re-render", async () => {
+    const track = { stop: vi.fn(), enabled: true };
+    const mic = { getAudioTracks: () => [track], getTracks: () => [track] };
+    let onMessage: (m: { data: string }) => void = () => {};
+    const channel = {
+      readyState: "open",
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: (type: string, fn: (m: { data: string }) => void) => {
+        if (type === "message") onMessage = fn;
+      },
+    };
+    class FakePC {
+      ontrack: unknown = null;
+      close = vi.fn();
+      addTrack(): void {}
+      addEventListener(): void {}
+      createDataChannel(): unknown {
+        return channel;
+      }
+      async createOffer(): Promise<{ type: string; sdp: string }> {
+        return { type: "offer", sdp: "v=0\r\n" };
+      }
+      async setLocalDescription(): Promise<void> {}
+      async setRemoteDescription(): Promise<void> {}
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePC);
+    vi.stubGlobal("Audio", class {});
+    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => mic } });
+    vi.mocked(startVoiceCall).mockResolvedValue("v=0\r\n");
+    const event = (e: Record<string, unknown>): void => onMessage({ data: JSON.stringify(e) });
+
+    await startCall();
+    event({ type: "session.output_transcript.delta", delta: "Morning," });
+    const speaking = callState();
+    expect(speaking.phase).toBe("speaking");
+
+    event({ type: "session.output_transcript.delta", delta: " Finn." });
+    expect(callState()).toBe(speaking);
   });
 
   it("hangs up after 2 minutes with nobody talking; talking starts the countdown again", async () => {

@@ -3090,6 +3090,31 @@ select {
 .picker-hide:focus-visible {
   opacity: 1;
 }
+/* Chat rows: keep the timestamp badge clear of the delete control. */
+.picker-item-deletable > .picker-item {
+  padding-right: 40px;
+}
+.picker-item-deletable > .picker-item:disabled {
+  opacity: 0.5;
+}
+/* Second step of a chat delete: a small, always-visible danger button. */
+.picker-hide.picker-delete-confirm {
+  width: auto;
+  padding: 0 8px;
+  opacity: 1;
+  font-size: 12px;
+  color: var(--error);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--error) 45%, var(--border));
+}
+.picker-hide.picker-delete-confirm:hover {
+  color: var(--error);
+}
+/* Touch screens (the iPhone build) have no hover to reveal the X. */
+@media (hover: none) {
+  .picker-hide.picker-delete {
+    opacity: 1;
+  }
+}
 .picker-hide:hover {
   /* Two steps above the row's own hover (--surface-1), or the button is the
      same value as the thing behind it and reads as invisible. */

@@ -177,7 +177,7 @@ import {
 import { PROMPT_COMMANDS } from "./core/prompt-commands.js";
 import { loadCustomCommands } from "./core/custom-commands.js";
 import { discoverProjects, listProjectFolders } from "./core/project-discovery.js";
-import { listSidecarSessions } from "./app-sidecar-sessions.js";
+import { deleteChatSession, listSidecarSessions } from "./app-sidecar-sessions.js";
 import {
   createRoutineRunner,
   createRoutineStore,
@@ -1567,6 +1567,57 @@ async function main(): Promise<void> {
         log("INFO", "app-sidecar", "session disposed", { id });
       }
       daemonJson(res, 200, { ok: true });
+      return;
+    }
+
+    // Permanently delete a saved chat (every generation): POST /sessions/delete
+    // { path }. Daemon-level so it can refuse while any window has it open.
+    if (method === "POST" && url === "/sessions/delete") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        const started = Date.now();
+        let body: { path?: unknown } = {};
+        try {
+          const parsed: unknown = raw ? JSON.parse(raw) : null;
+          // `null`, arrays and primitives are valid JSON but not a body.
+          if (typeof parsed === "object" && parsed !== null) body = parsed as typeof body;
+        } catch {
+          /* invalid body → rejected as an invalid path below */
+        }
+        const name = typeof body.path === "string" ? path.basename(body.path) : "";
+        try {
+          const openPaths = [...sessions.values()]
+            .map((ctx) => ctx.session.getState().sessionPath || ctx.sessionPath || "")
+            .filter(Boolean);
+          const result = await deleteChatSession({
+            path: body.path,
+            coderSessionsDir: paths.sessionsDir,
+            openPaths,
+          });
+          if (result.status === "ok") {
+            log("INFO", "app-sidecar", "chat deleted", {
+              file: name,
+              removed: String(result.removed),
+              ms: String(Date.now() - started),
+            });
+            daemonJson(res, 200, { ok: true, removed: result.removed });
+          } else {
+            log("WARN", "app-sidecar", "chat delete refused", {
+              file: name,
+              reason: result.status,
+              ms: String(Date.now() - started),
+            });
+            daemonJson(res, result.status === "busy" ? 409 : 400, { error: result.message });
+          }
+        } catch (err) {
+          log("ERROR", "app-sidecar", "chat delete failed", {
+            file: name,
+            error: err instanceof Error ? err.name : "unknown",
+            ms: String(Date.now() - started),
+          });
+          daemonJson(res, 500, { error: "The chat could not be deleted." });
+        }
+      });
       return;
     }
 

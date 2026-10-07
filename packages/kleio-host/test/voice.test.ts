@@ -141,9 +141,11 @@ describe("createVoice", () => {
         responses: { instructions: expect.stringContaining("Be Kleio.") },
       },
     });
-    // Her own tools, then the Brain's: the backend calls them, the device runs them.
+    // Her own tools, then the Brain's: the backend calls them, the device runs
+    // them. Hosted web search comes last and has no name.
     const names = sent.session.delegation.responses.tools.map((t) => t.name);
-    expect(names.at(-1)).toBe("remember");
+    expect(names.at(-2)).toBe("remember");
+    expect(names.at(-1)).toBeUndefined();
     expect(names).toContain("get_briefing");
   });
 
@@ -264,8 +266,15 @@ describe("the session", () => {
       "read_group",
       "draft_plan",
       "send_plan",
+      "start_chat",
       "end_conversation",
     ]);
+    const start = VOICE_TOOLS.find((t) => t.name === "start_chat");
+    expect(start?.parameters).toMatchObject({
+      required: ["prompt"],
+      properties: { agent: { enum: ["general", "research"] } },
+      additionalProperties: false,
+    });
     const s = sessionConfig({ voice: "marin", model: DEFAULT_MODEL, speed: 1.3 }, "x");
     expect(s).toMatchObject({
       model: DEFAULT_MODEL,
@@ -276,9 +285,13 @@ describe("the session", () => {
     // GPT-Live has no pace setting.
     expect(s).not.toHaveProperty(["audio", "output", "speed"]);
     // Their schemas have optional properties, which strict tools can't.
-    const tools = (s.delegation as { responses: { tools: { strict?: unknown }[] } }).responses
-      .tools;
-    expect(tools).toHaveLength(VOICE_TOOLS.length);
-    expect(tools.every((t) => t.strict === false)).toBe(true);
+    const tools = (s.delegation as { responses: { tools: { type: string; strict?: unknown }[] } })
+      .responses.tools;
+    expect(tools).toHaveLength(VOICE_TOOLS.length + 1);
+    // Web search is hosted: exactly one, in exactly that shape.
+    expect(tools.filter((t) => t.type === "web_search")).toEqual([{ type: "web_search" }]);
+    const fns = tools.filter((t) => t.type === "function");
+    expect(fns).toHaveLength(VOICE_TOOLS.length);
+    expect(fns.every((t) => t.strict === false)).toBe(true);
   });
 });
