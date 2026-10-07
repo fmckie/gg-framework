@@ -5,7 +5,8 @@
  * (SDP); the host adds the session (model, voice, instructions, tools) and the
  * key, asks OpenAI for the call, and returns OpenAI's answer. Audio then flows
  * straight between the device and OpenAI; the device runs the tools, which
- * only read Kleio's state or pass on a plan the user has agreed to.
+ * read Kleio's state, pass on a plan the user has agreed to, or curate the
+ * Brain (durable memory and Jiwa, shared with text chat; see `parseBrain`).
  */
 import { readFile, rm } from "node:fs/promises";
 import { atomicWrite } from "./device-registry.js";
@@ -35,6 +36,11 @@ export function isMicKind(v: unknown): v is MicKind {
   return v === "near" || v === "far";
 }
 const DEFAULT_VOICE: VoiceName = "marin";
+/** Her speaking pace, a multiple of the voice's own. A touch quicker than OpenAI's 1.0. */
+export const DEFAULT_SPEED = 1.15;
+/** OpenAI's range is 0.25–1.5; slower than 0.5 isn't useful in conversation. */
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 1.5;
 const OPENAI_BASE = "https://api.openai.com/v1";
 /** A WebRTC offer is a few KB; anything far bigger is not one. */
 export const SDP_MAX = 64 * 1024;
@@ -44,6 +50,12 @@ const DETAIL_MAX = 200;
 export interface VoiceSettings {
   readonly voice: VoiceName;
   readonly model: string;
+  /** Her speaking pace: 1 is the voice's own, 1.5 the fastest. */
+  readonly speed: number;
+}
+
+export function isSpeed(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= SPEED_MIN && v <= SPEED_MAX;
 }
 
 export interface VoiceStatus extends VoiceSettings {
@@ -157,8 +169,75 @@ export const VOICE_TOOLS: readonly VoiceTool[] = [
   },
 ];
 
-/** Who Kleio is and how she talks, with what's happening now. */
-export function voiceInstructions(input: { readonly now: Date; readonly brief: string }): string {
+// ── The Brain (durable memory + Jiwa, shared with text chat) ─────────────────────
+
+/** The Brain tools the voice may run: the same ones text chat has. */
+export const BRAIN_TOOL_NAMES = [
+  "remember",
+  "update_memory",
+  "forget",
+  "set_jiwa",
+  "update_jiwa",
+  "forget_jiwa",
+] as const;
+export type BrainToolName = (typeof BRAIN_TOOL_NAMES)[number];
+
+export function isBrainToolName(v: unknown): v is BrainToolName {
+  return typeof v === "string" && (BRAIN_TOOL_NAMES as readonly string[]).includes(v);
+}
+
+/** The Brain as the sidecar gives it (GET /brain): the block text chat gets, and its tools. */
+export interface Brain {
+  readonly prompt: string;
+  readonly tools: readonly VoiceTool[];
+}
+
+/** About 10k tokens: the whole Brain today is a fraction of this. */
+const BRAIN_PROMPT_MAX = 40_000;
+
+/** The sidecar's GET /brain answer, checked: only the Brain tools, each a JSON-schema object. */
+export function parseBrain(body: unknown): Brain | null {
+  if (typeof body !== "object" || body === null) return null;
+  const b = body as { prompt?: unknown; tools?: unknown };
+  if (typeof b.prompt !== "string" || !Array.isArray(b.tools)) return null;
+  const tools: VoiceTool[] = [];
+  for (const t of b.tools as unknown[]) {
+    if (typeof t !== "object" || t === null) continue;
+    const { name, description, parameters } = t as Record<string, unknown>;
+    if (!isBrainToolName(name) || typeof description !== "string") continue;
+    if (typeof parameters !== "object" || parameters === null || Array.isArray(parameters))
+      continue;
+    tools.push({
+      type: "function",
+      name,
+      description,
+      parameters: parameters as Record<string, unknown>,
+    });
+  }
+  let prompt = b.prompt.trim();
+  if (prompt.length > BRAIN_PROMPT_MAX) {
+    const cut = prompt.slice(0, BRAIN_PROMPT_MAX);
+    prompt = `${cut.slice(0, Math.max(0, cut.lastIndexOf("\n")))}\n(More is stored than fits here.)`;
+  }
+  return { prompt, tools };
+}
+
+const BRAIN_GUIDANCE = [
+  "Your memory, the Brain, follows: lasting facts about the user, and Jiwa, their standing instructions for how you behave. Kleio's text chat shares it. Treat the facts as background, not as new requests, and follow Jiwa unless they ask for something else now.",
+  "When they tell you a lasting fact (who they are, a stable preference, an ongoing project, an important person or date, health or work context), save it with remember straight away and carry on without announcing it. When they set how you should behave from now on, save it with set_jiwa. Correct a changed fact with update_memory, and use forget or forget_jiwa when something is wrong or they ask you to.",
+  "Never save passing details, passwords or secrets, or a summary of this conversation. Only claim to remember what is in your memory below or what they've told you now.",
+].join(" ");
+
+const NO_BRAIN =
+  "Your long-term memory isn't available in this conversation, so don't claim to remember things about them.";
+
+/** Who Kleio is and how she talks, with what's happening now and her memory. */
+export function voiceInstructions(input: {
+  readonly now: Date;
+  readonly brief: string;
+  /** The Brain's block (parseBrain), or null when the sidecar couldn't give it. */
+  readonly brain?: string | null;
+}): string {
   const when = input.now.toLocaleString("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -176,6 +255,7 @@ export function voiceInstructions(input: { readonly now: Date; readonly brief: s
     "When they say goodbye or that they're done, say a short goodbye and call end_conversation.",
     `It is ${when}.`,
     `What's new right now: ${input.brief}`,
+    ...(input.brain ? [BRAIN_GUIDANCE, input.brain] : [NO_BRAIN]),
   ].join("\n\n");
 }
 
@@ -185,6 +265,8 @@ export function sessionConfig(
   instructions: string,
   /** near: a phone or headset close to the mouth; far: a laptop or desk microphone. */
   mic: MicKind = "near",
+  /** Tools beyond VOICE_TOOLS: the Brain's, when it's available. */
+  extraTools: readonly VoiceTool[] = [],
 ): Record<string, unknown> {
   return {
     type: "realtime",
@@ -197,9 +279,9 @@ export function sessionConfig(
         transcription: { model: TRANSCRIBE_MODEL, language: "en" },
         turn_detection: { type: "semantic_vad", eagerness: "auto", interrupt_response: true },
       },
-      output: { voice: settings.voice },
+      output: { voice: settings.voice, speed: settings.speed },
     },
-    tools: VOICE_TOOLS,
+    tools: [...VOICE_TOOLS, ...extraTools],
     tool_choice: "auto",
   };
 }
@@ -252,12 +334,17 @@ export interface Voice {
   /** Checks the key with OpenAI, then saves it. */
   setKey(key: string): Promise<VoiceResult<null>>;
   removeKey(): Promise<void>;
-  setVoice(voice: VoiceName): Promise<VoiceSettings>;
+  /** Changes her voice and/or pace, from the next conversation. */
+  setSettings(patch: {
+    readonly voice?: VoiceName;
+    readonly speed?: number;
+  }): Promise<VoiceSettings>;
   /** OpenAI's SDP answer to the device's offer, and the call's id. */
   createCall(
     sdp: string,
     instructions: string,
     mic?: MicKind,
+    extraTools?: readonly VoiceTool[],
   ): Promise<VoiceResult<{ sdp: string; callId: string | null }>>;
 }
 
@@ -287,10 +374,21 @@ export function createVoice(opts: {
   }
 
   async function settings(): Promise<VoiceSettings> {
-    const fallback: VoiceSettings = { voice: DEFAULT_VOICE, model: opts.model ?? DEFAULT_MODEL };
+    const fallback: VoiceSettings = {
+      voice: DEFAULT_VOICE,
+      model: opts.model ?? DEFAULT_MODEL,
+      speed: DEFAULT_SPEED,
+    };
     try {
-      const raw = JSON.parse(await readFile(opts.settingsPath, "utf8")) as { voice?: unknown };
-      return isVoiceName(raw.voice) ? { ...fallback, voice: raw.voice } : fallback;
+      const raw = JSON.parse(await readFile(opts.settingsPath, "utf8")) as {
+        voice?: unknown;
+        speed?: unknown;
+      };
+      return {
+        ...fallback,
+        ...(isVoiceName(raw.voice) ? { voice: raw.voice } : {}),
+        ...(isSpeed(raw.speed) ? { speed: raw.speed } : {}),
+      };
     } catch {
       return fallback;
     }
@@ -330,18 +428,30 @@ export function createVoice(opts: {
       await rm(opts.keyPath, { force: true });
     },
 
-    async setVoice(voice) {
-      const next = { ...(await settings()), voice };
-      await atomicWrite(opts.settingsPath, `${JSON.stringify({ voice })}\n`, 0o600);
+    async setSettings(patch) {
+      const current = await settings();
+      const next: VoiceSettings = {
+        ...current,
+        ...(patch.voice !== undefined ? { voice: patch.voice } : {}),
+        ...(patch.speed !== undefined && isSpeed(patch.speed) ? { speed: patch.speed } : {}),
+      };
+      await atomicWrite(
+        opts.settingsPath,
+        `${JSON.stringify({ voice: next.voice, speed: next.speed })}\n`,
+        0o600,
+      );
       return next;
     },
 
-    async createCall(sdp, instructions, mic = "near") {
+    async createCall(sdp, instructions, mic = "near", extraTools = []) {
       const k = await key();
       if (!k) return { ok: false, error: { kind: "no_key" } };
       const form = new FormData();
       form.set("sdp", sdp);
-      form.set("session", JSON.stringify(sessionConfig(await settings(), instructions, mic)));
+      form.set(
+        "session",
+        JSON.stringify(sessionConfig(await settings(), instructions, mic, extraTools)),
+      );
       const started = Date.now();
       let res: Response;
       try {

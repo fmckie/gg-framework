@@ -49,6 +49,9 @@ export interface FakeSidecar {
   /** POST /complete answers `{ text: completeText, model }` with 200, else `{ error }`. */
   completeStatus: number;
   completeText: string;
+  /** GET /brain answers this (null: 500); POST /brain/tool calls land in brainCalls. */
+  brain: { prompt: string; tools: unknown[] } | null;
+  brainCalls: { name: unknown; args: unknown }[];
   close(): Promise<void>;
 }
 
@@ -213,6 +216,27 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ models: api.models }));
     }
+    if (req.method === "GET" && url.pathname === "/brain") {
+      res.writeHead(api.brain ? 200 : 500, { "content-type": "application/json" });
+      return res.end(JSON.stringify(api.brain ?? { error: "down" }));
+    }
+    if (req.method === "POST" && url.pathname === "/brain/tool") {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        const body = JSON.parse(raw) as { name: unknown; args: unknown };
+        api.brainCalls.push(body);
+        res.writeHead(body.name === "forget" ? 422 : 200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify(
+            body.name === "forget"
+              ? { error: "Memory not found: m9" }
+              : { result: "Remembered as m2. 2 memories stored." },
+          ),
+        );
+      });
+      return;
+    }
     res.writeHead(404);
     res.end();
   });
@@ -244,6 +268,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     asks: [],
     completeStatus: 200,
     completeText: '{"schedules":[]}',
+    brain: null,
+    brainCalls: [],
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();

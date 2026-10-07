@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createVoice,
   DEFAULT_MODEL,
+  DEFAULT_SPEED,
+  isSpeed,
+  parseBrain,
+  type VoiceTool,
   sessionConfig,
   VOICE_TOOLS,
   voiceErrorDetail,
@@ -100,8 +104,14 @@ describe("createVoice", () => {
     ]);
     const v = createVoice({ ...paths(), fetch: ai.fetch, log: () => {} });
     await v.setKey(KEY);
-    await v.setVoice("cedar");
-    const r = await v.createCall(OFFER, "Be Kleio.");
+    await v.setSettings({ voice: "cedar" });
+    const remember: VoiceTool = {
+      type: "function",
+      name: "remember",
+      description: "Save a fact.",
+      parameters: { type: "object" },
+    };
+    const r = await v.createCall(OFFER, "Be Kleio.", "near", [remember]);
     expect(r).toEqual({ ok: true, value: { sdp: ANSWER, callId: "rtc_abc" } });
     const call = ai.seen[1];
     expect(call).toMatchObject({
@@ -116,8 +126,29 @@ describe("createVoice", () => {
       type: "realtime",
       model: DEFAULT_MODEL,
       instructions: "Be Kleio.",
-      audio: { output: { voice: "cedar" } },
+      audio: { output: { voice: "cedar", speed: DEFAULT_SPEED } },
     });
+    // Her own tools, then the Brain's.
+    const names = (session.tools as { name: string }[]).map((t) => t.name);
+    expect(names.at(-1)).toBe("remember");
+    expect(names).toContain("get_briefing");
+  });
+
+  it("keeps her pace and voice apart, and refuses a pace OpenAI can't do", async () => {
+    const v = createVoice({ ...paths(), log: () => {} });
+    expect((await v.status()).speed).toBe(DEFAULT_SPEED);
+    await v.setSettings({ speed: 1.3 });
+    await v.setSettings({ voice: "cedar" });
+    expect(await v.status()).toMatchObject({ voice: "cedar", speed: 1.3 });
+    await v.setSettings({ speed: 3 });
+    expect((await v.status()).speed).toBe(1.3);
+    expect([isSpeed(1.5), isSpeed(0.5), isSpeed(1.51), isSpeed(0.2), isSpeed("1")]).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 
   it("never lets the key into an error a device sees", async () => {
@@ -144,6 +175,48 @@ describe("createVoice", () => {
   });
 });
 
+describe("the Brain", () => {
+  it("keeps only the Brain's own tools from the sidecar, as functions", () => {
+    const brain = parseBrain({
+      prompt: "# Durable memory\n- [m1] Likes tea.",
+      tools: [
+        { name: "remember", description: "Save a fact.", parameters: { type: "object" } },
+        { name: "forget_jiwa", description: "Drop one.", parameters: { type: "object" } },
+        { name: "bash", description: "Run anything.", parameters: { type: "object" } },
+        { name: "forget", description: "No schema." },
+        "nonsense",
+      ],
+    });
+    expect(brain?.prompt).toBe("# Durable memory\n- [m1] Likes tea.");
+    expect(brain?.tools).toEqual([
+      {
+        type: "function",
+        name: "remember",
+        description: "Save a fact.",
+        parameters: { type: "object" },
+      },
+      {
+        type: "function",
+        name: "forget_jiwa",
+        description: "Drop one.",
+        parameters: { type: "object" },
+      },
+    ]);
+    expect(parseBrain(null)).toBeNull();
+    expect(parseBrain({ prompt: 3, tools: [] })).toBeNull();
+  });
+
+  it("tells her what she remembers, or that she remembers nothing", () => {
+    const now = new Date("2026-10-07T09:30:00Z");
+    const withBrain = voiceInstructions({ now, brief: "All quiet.", brain: "- [m1] Likes tea." });
+    expect(withBrain).toContain("- [m1] Likes tea.");
+    expect(withBrain).toMatch(/save it with remember/);
+    const without = voiceInstructions({ now, brief: "All quiet.", brain: null });
+    expect(without).toMatch(/memory isn't available/);
+    expect(without).not.toMatch(/save it with remember/);
+  });
+});
+
 describe("the session", () => {
   it("tells Kleio who she is, the time and what's new", () => {
     const text = voiceInstructions({
@@ -167,7 +240,7 @@ describe("the session", () => {
       "send_plan",
       "end_conversation",
     ]);
-    const s = sessionConfig({ voice: "marin", model: DEFAULT_MODEL }, "x");
+    const s = sessionConfig({ voice: "marin", model: DEFAULT_MODEL, speed: 1.3 }, "x");
     expect(s).toMatchObject({
       tool_choice: "auto",
       audio: {
@@ -176,9 +249,14 @@ describe("the session", () => {
           transcription: { model: "gpt-4o-mini-transcribe", language: "en" },
           turn_detection: { type: "semantic_vad" },
         },
+        output: { voice: "marin", speed: 1.3 },
       },
     });
-    const laptop = sessionConfig({ voice: "marin", model: DEFAULT_MODEL }, "x", "far");
+    const laptop = sessionConfig(
+      { voice: "marin", model: DEFAULT_MODEL, speed: DEFAULT_SPEED },
+      "x",
+      "far",
+    );
     expect(laptop).toMatchObject({ audio: { input: { noise_reduction: { type: "far_field" } } } });
   });
 });

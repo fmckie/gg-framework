@@ -1,16 +1,12 @@
-// Kleio's spoken voice for "Brief me": the system's own speech (Web Speech
-// API: AVSpeechSynthesizer under WKWebView), so it is free, private and works
-// offline. A woman's voice by default, preferring the natural-sounding ones;
-// the user can pick another in Settings.
+// Kleio's spoken voice for "Brief me" when Talk to Kleio isn't set up: the
+// system's own speech (Web Speech API: AVSpeechSynthesizer under WKWebView),
+// so it is free, private and works offline. The best woman's voice installed,
+// preferring the natural-sounding ones.
 
 import { useSyncExternalStore } from "react";
 
-const VOICE_KEY = "kleio:voice";
-const RATE_KEY = "kleio:voice-rate";
-/** Default speaking rate: a touch quicker than the system's, still easy to follow. */
+/** Speaking rate: a touch quicker than the system's, still easy to follow. */
 export const DEFAULT_RATE = 1.05;
-const RATE_MIN = 0.8;
-const RATE_MAX = 1.4;
 /** Long text is spoken a sentence or two at a time: some engines stop on very long utterances. */
 const CHUNK_MAX = 220;
 
@@ -47,28 +43,6 @@ const FEMALE: ReadonlyMap<string, number> = new Map([
 const NOVELTY =
   /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox)\b/i;
 
-export interface VoiceChoice {
-  /** The voice's id (its voiceURI), stable across launches. */
-  id: string;
-  /** "Moira (Irish)". */
-  label: string;
-  female: boolean;
-  /** Enhanced / Premium: the natural-sounding downloads. */
-  natural: boolean;
-}
-
-const REGION: Record<string, string> = {
-  GB: "British",
-  IE: "Irish",
-  AU: "Australian",
-  US: "American",
-  ZA: "South African",
-  IN: "Indian",
-  NZ: "New Zealand",
-  CA: "Canadian",
-  SC: "Scottish",
-};
-
 function baseName(v: SpeechSynthesisVoice): string {
   return v.name.replace(/\s*\((?:Enhanced|Premium)\)\s*$/i, "").trim();
 }
@@ -80,11 +54,6 @@ function isNatural(v: SpeechSynthesisVoice): boolean {
 /** 2: a natural woman's voice, 1: an older woman's voice, 0: not a woman's. */
 function femaleRank(v: SpeechSynthesisVoice): number {
   return FEMALE.get(baseName(v).toLowerCase()) ?? 0;
-}
-
-function regionOf(lang: string): string {
-  const r = lang.replace("_", "-").split("-")[1]?.toUpperCase() ?? "";
-  return REGION[r] ?? r;
 }
 
 function isEnglish(v: SpeechSynthesisVoice): boolean {
@@ -105,47 +74,11 @@ function byName(a: SpeechSynthesisVoice, b: SpeechSynthesisVoice): number {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
-/** English voices for the picker, best defaults first, novelty voices out. */
-export function englishVoices(
-  all: readonly SpeechSynthesisVoice[],
-  local = navigatorLang(),
-): VoiceChoice[] {
-  const seen = new Set<string>();
-  const out: VoiceChoice[] = [];
-  const sorted = all
-    .filter(isEnglish)
-    .sort((a, b) => score(b, local) - score(a, local) || byName(a, b));
-  for (const v of sorted) {
-    if (seen.has(v.voiceURI)) continue;
-    seen.add(v.voiceURI);
-    const natural = isNatural(v);
-    const region = regionOf(v.lang);
-    const quality = natural
-      ? /premium/i.test(`${v.name} ${v.voiceURI}`)
-        ? "premium"
-        : "enhanced"
-      : "";
-    const notes = [region, quality].filter(Boolean).join(", ");
-    out.push({
-      id: v.voiceURI,
-      label: notes ? `${baseName(v)} (${notes})` : baseName(v),
-      female: femaleRank(v) > 0,
-      natural,
-    });
-  }
-  return out;
-}
-
-/** The voice to speak with: the saved one if it is still installed, else the best woman's voice. */
+/** The voice to speak with: the best woman's voice installed, else the system's default. */
 export function pickVoice(
   all: readonly SpeechSynthesisVoice[],
-  saved: string | null,
   local = navigatorLang(),
 ): SpeechSynthesisVoice | null {
-  if (saved) {
-    const v = all.find((x) => x.voiceURI === saved);
-    if (v) return v;
-  }
   let best: SpeechSynthesisVoice | null = null;
   for (const v of all.filter(isEnglish)) {
     const d = best ? score(v, local) - score(best, local) : 1;
@@ -183,42 +116,6 @@ export function chunks(text: string, max = CHUNK_MAX): string[] {
   }
   if (cur) out.push(cur);
   return out;
-}
-
-// ── Settings ───────────────────────────────────────────────────────────────
-
-function read(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function write(key: string, value: string | null): void {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
-  } catch {
-    /* private mode: the choice lasts this launch */
-  }
-}
-
-export function savedVoice(): string | null {
-  return read(VOICE_KEY);
-}
-
-export function setSavedVoice(id: string | null): void {
-  write(VOICE_KEY, id);
-}
-
-export function savedRate(): number {
-  const n = Number(read(RATE_KEY));
-  return Number.isFinite(n) && n >= RATE_MIN && n <= RATE_MAX ? n : DEFAULT_RATE;
-}
-
-export function setSavedRate(rate: number): void {
-  write(RATE_KEY, String(Math.min(RATE_MAX, Math.max(RATE_MIN, rate))));
 }
 
 // ── The speaker ────────────────────────────────────────────────────────────
@@ -293,9 +190,8 @@ export async function speak(text: string): Promise<boolean> {
   if (!s || !text.trim()) return false;
   stopSpeaking();
   const mine = ++token;
-  const voice = pickVoice(await loadVoices(), savedVoice());
+  const voice = pickVoice(await loadVoices());
   if (mine !== token) return false;
-  const rate = savedRate();
   setState("speaking");
   for (const piece of chunks(text)) {
     const said = await new Promise<boolean>((resolve) => {
@@ -304,7 +200,7 @@ export async function speak(text: string): Promise<boolean> {
         u.voice = voice;
         u.lang = voice.lang;
       }
-      u.rate = rate;
+      u.rate = DEFAULT_RATE;
       // An engine that never says it finished must not leave Kleio "speaking"
       // for ever: well past the time the piece takes, carry on.
       const guard = setTimeout(() => resolve(true), 8_000 + piece.length * 160);

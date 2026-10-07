@@ -1159,6 +1159,84 @@ describe("host: Talk to Kleio (/kleio/voice)", () => {
     });
   });
 
+  it("brings the Brain into her call, and runs only its tools, for any paired device", async () => {
+    const { sessions } = await hostWithFakeOpenAI();
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    await call("POST", "/kleio/voice/key", { headers: A, body: { key: KEY } });
+
+    // The sidecar is down: she still talks, and doesn't claim to remember.
+    expect((await postSdp("/kleio/voice/call", OFFER, P)).status).toBe(201);
+    expect(sessions[0]).toMatchObject({
+      instructions: expect.stringMatching(/memory isn't available/),
+    });
+
+    sidecar.brain = {
+      prompt: "# Durable memory\n- [m1] (importance 4) Has a dog called Biscuit.",
+      tools: [
+        { name: "remember", description: "Save a fact.", parameters: { type: "object" } },
+        { name: "bash", description: "Run a command.", parameters: { type: "object" } },
+      ],
+    };
+    expect((await postSdp("/kleio/voice/call", OFFER, P)).status).toBe(201);
+    const session = sessions[1] as { instructions: string; tools: { name: string }[] };
+    expect(session.instructions).toContain("Has a dog called Biscuit.");
+    expect(session.tools.map((t) => t.name)).toContain("remember");
+    expect(session.tools.map((t) => t.name)).not.toContain("bash");
+
+    const saved = await call("POST", "/kleio/voice/brain", {
+      headers: P,
+      body: { name: "remember", args: { content: "Prefers tea.", category: "preference" } },
+    });
+    expect(saved.body).toEqual({ result: "Remembered as m2. 2 memories stored." });
+    expect(sidecar.brainCalls).toEqual([
+      { name: "remember", args: { content: "Prefers tea.", category: "preference" } },
+    ]);
+    // The Brain's own refusal reaches her as words, not a failure.
+    const refused = await call("POST", "/kleio/voice/brain", {
+      headers: P,
+      body: { name: "forget", args: { id: "m9" } },
+    });
+    expect(refused).toMatchObject({ status: 200, body: { error: "Memory not found: m9" } });
+    // Nothing but the Brain's tools, and never without a paired device.
+    const bash = await call("POST", "/kleio/voice/brain", {
+      headers: P,
+      body: { name: "bash", args: { command: "ls" } },
+    });
+    expect(bash.status).toBe(400);
+    expect(
+      (await call("POST", "/kleio/voice/brain", { body: { name: "remember", args: {} } })).status,
+    ).toBe(401);
+    expect(sidecar.brainCalls).toHaveLength(2);
+  });
+
+  it("only an admin changes her pace, within OpenAI's range", async () => {
+    await hostWithFakeOpenAI();
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    expect((await call("GET", "/kleio/voice", { headers: P })).body.speed).toBe(1.15);
+    const faster = await call("POST", "/kleio/voice/settings", {
+      headers: A,
+      body: { speed: 1.3 },
+    });
+    expect(faster.body).toMatchObject({ speed: 1.3, voice: "marin" });
+    expect(
+      (await call("POST", "/kleio/voice/settings", { headers: P, body: { speed: 1.5 } })).status,
+    ).toBe(403);
+    expect(
+      (await call("POST", "/kleio/voice/settings", { headers: A, body: { speed: 2 } })).status,
+    ).toBe(400);
+    expect((await call("POST", "/kleio/voice/settings", { headers: A, body: {} })).status).toBe(
+      400,
+    );
+  });
+
   it("her opening summary doesn't use up the user's next briefing", async () => {
     await hostWithFakeOpenAI();
     const admin = await pairAdmin();

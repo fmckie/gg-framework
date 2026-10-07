@@ -435,6 +435,8 @@ export interface VoiceStatus {
   voice: string;
   model: string;
   voices: string[];
+  /** Her speaking pace: 1 is the voice's own, 1.5 the fastest. */
+  speed: number;
 }
 
 export const getVoiceStatus = (): Promise<VoiceStatus> => call("GET", "/kleio/voice");
@@ -444,6 +446,19 @@ export const setVoiceKey = (key: string): Promise<VoiceStatus> =>
 export const removeVoiceKey = (): Promise<VoiceStatus> => call("DELETE", "/kleio/voice/key");
 export const setVoiceName = (voice: string): Promise<VoiceStatus> =>
   call("POST", "/kleio/voice/settings", { voice });
+export const setVoiceSpeed = (speed: number): Promise<VoiceStatus> =>
+  call("POST", "/kleio/voice/settings", { speed });
+
+/**
+ * Runs one of the Brain's tools (remember, forget, set_jiwa…) on the Mac
+ * mini, as text chat does: `{ result }` when it worked, `{ error }` when the
+ * Brain said no (a limit, an unknown id). Throws only when it can't be reached.
+ */
+export const runBrainTool = (
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ result?: string; error?: string }> =>
+  call("POST", "/kleio/voice/brain", { name, args });
 
 /**
  * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.

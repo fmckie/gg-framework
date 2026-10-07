@@ -67,8 +67,11 @@ import { createAskNotifier } from "./ask-push.js";
 import { createBriefing, type BriefJob } from "./brief.js";
 import {
   createVoice,
+  isBrainToolName,
   isMicKind,
+  isSpeed,
   isVoiceName,
+  parseBrain,
   SDP_MAX,
   voiceErrorDetail,
   voiceErrorStatus,
@@ -955,6 +958,57 @@ export function createHost(options: HostOptions): Host {
    * the routine→session map and track anything new, so a routine's transcript
    * is in the ring for whichever device attaches later.
    */
+  /**
+   * A JSON call from the host itself to the sidecar (not a device's request):
+   * its status and parsed body, or null when it can't be reached in time.
+   */
+  async function sidecarJson(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    timeoutMs = 5_000,
+  ): Promise<{ status: number; body: unknown } | null> {
+    const ep = await endpoint();
+    if (!ep) return null;
+    const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    return new Promise((resolve) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path,
+          method,
+          headers: {
+            host: `127.0.0.1:${ep.port}`,
+            "x-gg-token": ep.token,
+            ...(payload
+              ? { "content-type": "application/json", "content-length": String(payload.length) }
+              : {}),
+          },
+          timeout: timeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            let parsed: unknown = null;
+            try {
+              parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+            } catch {
+              /* not JSON: the status says enough */
+            }
+            resolve({ status: res.statusCode ?? 0, body: parsed });
+          });
+          res.on("error", () => resolve(null));
+        },
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
   async function trackRoutineSessions(): Promise<void> {
     if (stopped) return;
     const ep = await endpoint();
@@ -1489,15 +1543,26 @@ export function createHost(options: HostOptions): Host {
       if (body === null) return json(res, 413, { error: "too_large" });
       const sdp = body.toString("utf8");
       if (!sdp.startsWith("v=")) return json(res, 400, { error: "bad_request" });
+      // The Brain (durable memory + Jiwa), as text chat gets it. Without it
+      // she still talks; she just doesn't claim to remember.
+      const fromSidecar = await sidecarJson("GET", "/brain");
+      const brain = fromSidecar?.status === 200 ? parseBrain(fromSidecar.body) : null;
+      if (!brain) log(`[voice] the Brain is unavailable for this call`);
       // What's new, without marking it heard: she still tells them about it.
       const now = new Date(options.now?.() ?? new Date());
       const instructions = voiceInstructions({
         now,
         brief: briefing.brief(currentJobs(), { peek: true }).spoken,
+        brain: brain?.prompt ?? null,
       });
       // The device says which microphone it has (a phone: near; a laptop: far).
       const mic = url.searchParams.get("mic");
-      const r = await voice.createCall(sdp, instructions, isMicKind(mic) ? mic : "near");
+      const r = await voice.createCall(
+        sdp,
+        instructions,
+        isMicKind(mic) ? mic : "near",
+        brain?.tools ?? [],
+      );
       if (!r.ok) {
         log(`[voice] ${auth.device.label}: call failed (${r.error.kind})`);
         return json(res, voiceErrorStatus(r.error), {
@@ -1505,10 +1570,42 @@ export function createHost(options: HostOptions): Host {
           ...voiceErrorDetail(r.error),
         });
       }
-      log(`[voice] ${auth.device.label}: call started`);
+      log(`[voice] ${auth.device.label}: call started${brain ? " with the Brain" : ""}`);
       res.writeHead(201, { "content-type": "application/sdp", "cache-control": "no-store" });
       res.end(r.value.sdp);
       return;
+    }
+    // A Brain tool the voice called (remember, update_memory, forget,
+    // set_jiwa, update_jiwa, forget_jiwa): any paired device, as text chat
+    // can be asked to remember from any of them. The sidecar runs the very
+    // tool text chat uses; a tool's own failure comes back as { error }.
+    if (path === "/kleio/voice/brain" && req.method === "POST") {
+      const started = Date.now();
+      const body = await readBody(req, 16 * 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let p: { name?: unknown; args?: unknown };
+      try {
+        p = JSON.parse(body.toString("utf8")) as typeof p;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      if (typeof p !== "object" || p === null || !isBrainToolName(p.name)) {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const args =
+        typeof p.args === "object" && p.args !== null && !Array.isArray(p.args) ? p.args : {};
+      const r = await sidecarJson("POST", "/brain/tool", { name: p.name, args });
+      log(
+        `[voice] ${auth.device.label}: brain ${p.name} ${r?.status ?? "unreachable"} in ${Date.now() - started} ms`,
+      );
+      if (!r || r.status >= 500) return json(res, 503, { error: "brain_unavailable" });
+      const answer = (r.body ?? {}) as { result?: unknown; error?: unknown };
+      if (r.status === 200 && typeof answer.result === "string") {
+        return json(res, 200, { result: answer.result });
+      }
+      return json(res, 200, {
+        error: typeof answer.error === "string" ? answer.error : "The Brain didn't accept that.",
+      });
     }
     if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });
@@ -1541,8 +1638,19 @@ export function createHost(options: HostOptions): Host {
         return json(res, 200, await voice.status());
       }
       if (path === "/kleio/voice/settings" && req.method === "POST") {
-        if (!isVoiceName(p.voice)) return json(res, 400, { error: "bad_request" });
-        await voice.setVoice(p.voice);
+        const voiceName = p.voice === undefined ? undefined : p.voice;
+        const speed = p.speed === undefined ? undefined : p.speed;
+        if (voiceName === undefined && speed === undefined) {
+          return json(res, 400, { error: "bad_request" });
+        }
+        if (voiceName !== undefined && !isVoiceName(voiceName)) {
+          return json(res, 400, { error: "bad_request" });
+        }
+        if (speed !== undefined && !isSpeed(speed)) return json(res, 400, { error: "bad_request" });
+        await voice.setSettings({
+          ...(voiceName !== undefined ? { voice: voiceName } : {}),
+          ...(speed !== undefined ? { speed } : {}),
+        });
         return json(res, 200, await voice.status());
       }
       return json(res, 405, { error: "method_not_allowed" });

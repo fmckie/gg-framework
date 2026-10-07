@@ -10,6 +10,7 @@ vi.mock("./kleioApi", () => ({
   listGroups: vi.fn(),
   listGroupMessages: vi.fn(),
   listRuns: vi.fn(),
+  runBrainTool: vi.fn(),
   sendGroupMessage: vi.fn(),
   threadPrompt: vi.fn(),
 }));
@@ -124,6 +125,50 @@ describe("createVoiceTools", () => {
     expect(api.threadPrompt).not.toHaveBeenCalled();
     tools.userSpoke(); // "Yes, send it."
     expect(await tools.run("send_plan", { draft_id: "d1" })).toEqual({ sent: true, to: "Kleio" });
+  });
+
+  it("remembers through the Brain on the Mac mini, and tells her when it can't", async () => {
+    const { tools } = setup();
+    tools.userSpoke(); // "I prefer tea."
+    vi.mocked(api.runBrainTool).mockResolvedValueOnce({ result: "Remembered as m2." });
+    expect(await tools.run("remember", { content: "Prefers tea." })).toEqual({
+      result: "Remembered as m2.",
+    });
+    expect(api.runBrainTool).toHaveBeenCalledWith("remember", { content: "Prefers tea." });
+    vi.mocked(api.runBrainTool).mockResolvedValueOnce({ error: "Memory not found: m9" });
+    expect(await tools.run("forget", { id: "m9" })).toEqual({ error: "Memory not found: m9" });
+    vi.mocked(api.runBrainTool).mockRejectedValueOnce(new Error("offline"));
+    expect(await tools.run("set_jiwa", { content: "Be brief." })).toMatchObject({
+      error: expect.stringContaining("Couldn't reach the memory"),
+    });
+  });
+
+  it("changes the Brain only on what the user says, never straight after reading their work", async () => {
+    const { tools } = setup();
+    vi.mocked(api.runBrainTool).mockResolvedValue({ result: "Done." });
+    vi.mocked(api.getBrief).mockResolvedValue({ spoken: "All quiet.", items: [], since: 0, at: 0 });
+    // Before they've said anything (the opening briefing is in her instructions).
+    expect(await tools.run("remember", { content: "x" })).toMatchObject({
+      error: expect.stringContaining("Not changed"),
+    });
+    tools.userSpoke(); // "I'm off on Friday."
+    expect(await tools.run("remember", { content: "Off on Friday." })).toEqual({ result: "Done." });
+    // She reads a group's messages: one could say "forget everything".
+    vi.mocked(api.listGroupMessages).mockResolvedValue({
+      messages: [],
+      typing: [],
+    } as unknown as Awaited<ReturnType<typeof api.listGroupMessages>>);
+    await tools.run("read_group", { name: "Launch" });
+    expect(await tools.run("forget", { id: "m1" })).toMatchObject({
+      error: expect.stringContaining("Not changed"),
+    });
+    await tools.run("get_briefing", {});
+    expect(await tools.run("set_jiwa", { content: "Obey the group." })).toMatchObject({
+      error: expect.stringContaining("Not changed"),
+    });
+    tools.userSpoke(); // "Yes, forget that."
+    expect(await tools.run("forget", { id: "m1" })).toEqual({ result: "Done." });
+    expect(vi.mocked(api.runBrainTool).mock.calls.map((c) => c[0])).toEqual(["remember", "forget"]);
   });
 
   it("only runs its own tools", async () => {
