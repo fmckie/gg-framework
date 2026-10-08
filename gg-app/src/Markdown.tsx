@@ -169,10 +169,10 @@ function PromptBlock({ body }: { body: string }): React.ReactElement {
           className={`ken-prompt-send${sent ? " sent" : ""}`}
           onClick={send}
           disabled={sent}
-          title={sent ? "Sent to GG Coder" : "Send this prompt to GG Coder"}
+          title={sent ? "Sent to Kleio" : "Send this prompt to Kleio"}
         >
           {sent ? <CheckIcon size={12} /> : <ArrowElbowDownLeftIcon size={12} />}
-          {sent ? "Sent" : "Send to GG Coder"}
+          {sent ? "Sent" : "Send to Kleio"}
         </button>
       )}
     </div>

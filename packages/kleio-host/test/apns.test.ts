@@ -224,7 +224,7 @@ describe("liveActivity", () => {
 
   it("the alert nudge is unchanged by the shared transport: topic is the bare bundle id", async () => {
     const p = pusher();
-    await p.notify({ sessionId: "s" }, [device({ push: reg("11".repeat(16)) })]);
+    await p.notify({ sessionId: "s", kind: "finished" }, [device({ push: reg("11".repeat(16)) })]);
     expect(apple.pushes[0]!.headers["apns-topic"]).toBe("com.kleio.app");
     expect(apple.pushes[0]!.headers["apns-push-type"]).toBe("alert");
   });
@@ -234,7 +234,11 @@ describe("createApnsPusher", () => {
   it("is a no-op when unconfigured", async () => {
     const p = createApnsPusher({ config: null });
     expect(p.configured).toBe(false);
-    expect(await p.notify({ sessionId: "s" }, [device({ push: reg("aa".repeat(16)) })])).toBe(0);
+    expect(
+      await p.notify({ sessionId: "s", kind: "finished" }, [
+        device({ push: reg("aa".repeat(16)) }),
+      ]),
+    ).toBe(0);
     expect(apple.pushes).toHaveLength(0);
   });
 
@@ -246,16 +250,29 @@ describe("createApnsPusher", () => {
       device({ label: "revoked", revoked: true, push: reg("33".repeat(16)) }),
       device({ label: "laptop" }),
     ];
-    expect(await p.notify({ sessionId: "sess-1", title: "Nightly check" }, devices)).toBe(1);
+    expect(
+      await p.notify(
+        { sessionId: "sess-1", kind: "finished", name: "Nightly check", text: "**All** green." },
+        devices,
+      ),
+    ).toBe(1);
     expect(apple.pushes).toHaveLength(1);
     const push = apple.pushes[0]!;
     expect(push.path).toBe(`/3/device/${"11".repeat(16)}`);
     expect(push.headers["apns-topic"]).toBe("com.kleio.app");
     expect(push.headers["apns-push-type"]).toBe("alert");
     expect(push.body).toMatchObject({
-      aps: { alert: { title: "Nightly check" }, "thread-id": "sess-1", "mutable-content": 1 },
+      aps: {
+        alert: { title: "Nightly check", subtitle: "Finished", body: "All green." },
+        sound: "default",
+        "thread-id": "sess-1",
+        "interruption-level": "active",
+        "relevance-score": 0.6,
+        "mutable-content": 1,
+      },
       kleio: { sessionId: "sess-1" },
     });
+    expect(push.headers["apns-collapse-id"]).toBe("sess-1:run");
     // The nudge carries no transcript: content comes from the ring on attach.
     expect(JSON.stringify(push.body)).not.toMatch(/text_delta|prompt/);
   });
@@ -272,7 +289,7 @@ describe("createApnsPusher", () => {
       device({ label: "another phone", push: reg("22".repeat(16)) }),
     ];
 
-    expect(await p.notify({ sessionId: "s" }, devices)).toBe(2);
+    expect(await p.notify({ sessionId: "s", kind: "finished" }, devices)).toBe(2);
 
     expect(apple.pushes.map((x) => x.path).sort()).toEqual([
       `/3/device/${phone}`,
@@ -283,11 +300,11 @@ describe("createApnsPusher", () => {
   it("coalesces completions inside MIN_PUSH_INTERVAL_MS", async () => {
     const p = pusher();
     const devices = [device({ push: reg("11".repeat(16)) })];
-    expect(await p.notify({ sessionId: "a" }, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "a", kind: "finished" }, devices)).toBe(1);
     clock += MIN_PUSH_INTERVAL_MS - 1;
-    expect(await p.notify({ sessionId: "b" }, devices)).toBe(0);
+    expect(await p.notify({ sessionId: "b", kind: "finished" }, devices)).toBe(0);
     clock += 1;
-    expect(await p.notify({ sessionId: "c" }, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "c", kind: "finished" }, devices)).toBe(1);
     expect(
       apple.pushes.map((x) => (x.body as { kleio: { sessionId: string } }).kleio.sessionId),
     ).toEqual(["a", "c"]);
@@ -296,16 +313,21 @@ describe("createApnsPusher", () => {
   it("never throttles an ask push, and an ask push does not stamp the throttle", async () => {
     const p = pusher();
     const devices = [device({ push: reg("11".repeat(16)) })];
-    expect(await p.notify({ sessionId: "a" }, devices)).toBe(1);
-    expect(await p.notify({ sessionId: "a", title: "Q?", body: "x · y", ask: true }, devices)).toBe(
-      1,
-    );
+    expect(await p.notify({ sessionId: "a", kind: "finished" }, devices)).toBe(1);
+    expect(
+      await p.notify({ sessionId: "a", kind: "question", name: "app", text: "Q?" }, devices),
+    ).toBe(1);
     clock += MIN_PUSH_INTERVAL_MS;
-    expect(await p.notify({ sessionId: "b" }, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "b", kind: "finished" }, devices)).toBe(1);
     expect(apple.pushes[1]?.body).toMatchObject({
-      aps: { alert: { title: "Q?", body: "x · y" } },
+      aps: {
+        alert: { title: "app", subtitle: "Needs your answer", body: "Q?" },
+        "relevance-score": 1,
+      },
       kleio: { sessionId: "a", ask: true },
     });
+    // Questions never collapse.
+    expect(apple.pushes[1]?.headers["apns-collapse-id"]).toBeUndefined();
   });
 
   it("counts only accepted pushes and never throws on a rejection", async () => {
@@ -316,7 +338,7 @@ describe("createApnsPusher", () => {
     ];
     // "bad" is not hex, so it would be rejected at registration; force it in
     // here to exercise the 410 path.
-    expect(await p.notify({ sessionId: "s" }, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "s", kind: "finished" }, devices)).toBe(1);
     expect(apple.pushes).toHaveLength(2);
   });
 

@@ -176,13 +176,13 @@ describe("ActivityBar task outcomes", () => {
         activity={{
           ...INITIAL_ACTIVITY,
           phase: "reviewing",
-          label: "Ken reviewing…",
+          label: "Muse reviewing…",
           startedAt: 100,
         }}
       />,
     );
     expect(container.querySelector("canvas")).toBeTruthy();
-    expect(screen.getByText("Ken reviewing…").classList.contains("shimmer-text")).toBe(true);
+    expect(screen.getByText("Muse reviewing…").classList.contains("shimmer-text")).toBe(true);
     expect(screen.queryByText("Response ready")).toBeNull();
   });
   it("shows a compact outcome and metrics without a details panel", () => {

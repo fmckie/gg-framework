@@ -20,7 +20,7 @@ import { ConfirmModal } from "../ConfirmModal";
 import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
 import { MetalButton } from "../MetalButton";
-import { isPhone } from "../platform";
+import { supportsDictation } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
 import { toast } from "../toast";
@@ -741,8 +741,8 @@ function GroupChat({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const windowFocused = useWindowFocused();
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
-  // iPhone dictation: the transcript joins the draft for review before sending.
-  const phoneComposer = isPhone();
+  // Dictation (iPhone and Mac): the transcript joins the draft for review before sending.
+  const showDictation = supportsDictation();
   const dictation = useDictation({
     onText: (text) => setDraft((prev) => appendDictation(prev, text, MESSAGE_MAX)),
     onError: (message) => toast(message, "error"),
@@ -1067,7 +1067,7 @@ function GroupChat({
               />
             </div>
             <div className="inputactions-trailing">
-              {phoneComposer && <DictateButton dictation={dictation} />}
+              {showDictation && <DictateButton dictation={dictation} />}
               <WorkingBeam active={busy} size="sm" />
               <ActionMetal
                 active={!sending && Boolean(draft.trim())}
@@ -1097,7 +1097,7 @@ function GroupChat({
               )}
             </div>
           </div>
-          {phoneComposer && <DictationStatus dictation={dictation} />}
+          {showDictation && <DictationStatus dictation={dictation} />}
         </div>
       </form>
     </div>

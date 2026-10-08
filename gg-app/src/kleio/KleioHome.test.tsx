@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
-import { KleioHome, shortHost } from "./KleioHome";
+import { KleioHome } from "./KleioHome";
+import { shortHost } from "./host-name";
 import type * as VoiceCall from "./voiceCall";
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn(async () => "0.73.2") }));
@@ -210,5 +211,8 @@ describe("KleioHome", () => {
   it("shortens the tailnet host", () => {
     expect(shortHost("mac-mini-1.taila6c237.ts.net")).toBe("mac-mini-1");
     expect(shortHost("mini")).toBe("mini");
+    // An address keeps every part: "100" alone would name nothing.
+    expect(shortHost("100.101.102.103")).toBe("100.101.102.103");
+    expect(shortHost("fd7a:115c::1")).toBe("fd7a:115c::1");
   });
 });

@@ -331,12 +331,15 @@ export class KleioApiError extends Error {
   readonly detail?: string;
   /** A machine-readable reason the host sent, e.g. "needs_setup". */
   readonly code?: string;
-  constructor(status: number, message: string, detail?: string, code?: string) {
+  /** The host's JSON reply, for fields beyond `error` (e.g. `parts` on a 416). */
+  readonly body?: unknown;
+  constructor(status: number, message: string, detail?: string, code?: string, body?: unknown) {
     super(message);
     this.name = "KleioApiError";
     this.status = status;
     this.detail = detail;
     this.code = code;
+    this.body = body;
   }
 }
 
@@ -351,7 +354,7 @@ function errorFrom(status: number, body: unknown): KleioApiError {
   const msg = typeof o.error === "string" ? o.error : `request failed (HTTP ${status})`;
   const detail = typeof o.detail === "string" ? o.detail : undefined;
   const code = typeof o.code === "string" ? o.code : undefined;
-  return new KleioApiError(status, msg, detail, code);
+  return new KleioApiError(status, msg, detail, code, body);
 }
 
 async function call<T>(method: Method, path: string, body?: unknown, session?: string): Promise<T> {
@@ -491,6 +494,66 @@ export const listSavedSessions = (kind: SavedSessionKind): Promise<{ sessions: S
 /** One saved chat or coding session's latest messages. */
 export const readSavedSession = (kind: SavedSessionKind, id: string): Promise<SavedSessionRead> =>
   call("GET", `/kleio/sessions/${encodeURIComponent(id)}?kind=${kind}`);
+
+/** Whose files: Kleio's own, a specialist's, a group's, a saved chat's or coding session's. */
+export type FileSource = "kleio" | "specialist" | "group" | "chat" | "code";
+
+export type FileKind =
+  | "pdf"
+  | "document"
+  | "spreadsheet"
+  | "slides"
+  | "web_page"
+  | "text"
+  | "data"
+  | "code"
+  | "image"
+  | "audio"
+  | "video"
+  | "other";
+
+/** A file an agent made, as the Mac mini lists it. */
+export interface AgentFileEntry {
+  /** Relative, "/"-joined. */
+  readonly path: string;
+  readonly name: string;
+  readonly kind: FileKind;
+  readonly size: number;
+  /** ISO time it was last changed. */
+  readonly modified: string;
+  readonly readable: boolean;
+  /** Group files: the member's blob id. */
+  readonly member?: string;
+  /** Group files: the member's name. */
+  readonly by?: string;
+}
+
+/** One part of a file's text. */
+export interface AgentFileText {
+  readonly name: string;
+  readonly kind: FileKind;
+  readonly part: number;
+  readonly parts: number;
+  readonly text: string;
+  /** A PDF's page count. */
+  readonly pages?: number;
+}
+
+/** The files an agent made, newest first (at most 40). `id` is omitted for Kleio. */
+export const listAgentFiles = (
+  source: FileSource,
+  id?: string,
+): Promise<{ files: AgentFileEntry[] }> =>
+  call("GET", `/kleio/voice/files${query({ source, id })}`);
+
+/** One part of a file's text. The path goes in the body, never the query. */
+export const readAgentFile = (req: {
+  readonly source: FileSource;
+  readonly id?: string;
+  readonly member?: string;
+  readonly path: string;
+  readonly part?: number;
+}): Promise<AgentFileText> => call("POST", "/kleio/voice/files/read", req);
 
 /**
  * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.

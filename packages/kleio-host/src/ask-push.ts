@@ -6,51 +6,30 @@
  * cancelled, timed out). A question nobody is watching is pushed at once; one
  * a device is watching is re-checked after a grace period and pushed only if
  * it is still open and the watcher has gone. A settled question is never
- * pushed. Text only: the question and the option labels, clipped.
+ * pushed. Text only: the question (notification-copy.ts words and clips it).
  */
 import type { Nudge } from "./apns.js";
 
 export const ASK_RECHECK_MS = 20_000;
-const TITLE_MAX = 120;
-const BODY_MAX = 200;
 
 export type AskFrame =
-  | { readonly type: "ask"; readonly id: string; readonly title: string; readonly body: string }
+  | { readonly type: "ask"; readonly id: string; readonly text: string }
   | { readonly type: "done"; readonly id: string };
-
-function clip(text: string, max: number): string {
-  const t = text.replace(/\s+/g, " ").trim();
-  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
-}
 
 interface RawQuestion {
   question?: unknown;
-  kind?: unknown;
-  options?: unknown;
 }
 
-function optionLabels(q: RawQuestion): string[] {
-  if (Array.isArray(q.options)) {
-    return q.options
-      .map((o: unknown) =>
-        typeof o === "object" && o !== null && typeof (o as { label?: unknown }).label === "string"
-          ? (o as { label: string }).label
-          : "",
-      )
-      .filter((l) => l.trim() !== "");
-  }
-  return q.kind === "confirm" ? ["Yes", "No"] : [];
-}
-
-/** Lock-screen text for a question: title = first question, body = its options. */
-export function askNudgeText(questions: readonly RawQuestion[]): { title: string; body: string } {
+/**
+ * What a question's notification quotes: the first question, with a count of
+ * any more. Empty when it has no text (the notice falls back to "Tap to answer.").
+ */
+export function askNudgeText(questions: readonly RawQuestion[]): string {
   const first = questions[0];
-  const question = typeof first?.question === "string" ? first.question : "";
+  const question = typeof first?.question === "string" ? first.question.trim() : "";
+  if (!question) return "";
   const more = questions.length > 1 ? ` (+${questions.length - 1} more)` : "";
-  const title = `${clip(question || "Kleio has a question", TITLE_MAX - more.length)}${more}`;
-  const labels = first ? optionLabels(first) : [];
-  const body = labels.length ? clip(labels.join(" · "), BODY_MAX) : "Tap to answer.";
-  return { title, body };
+  return `${question}${more}`;
 }
 
 /** Parse an SSE frame into an ask event, or null for anything else. */
@@ -72,7 +51,7 @@ export function parseAskFrame(raw: string): AskFrame | null {
   const questions = Array.isArray(d.questions)
     ? d.questions.filter((q: unknown): q is RawQuestion => typeof q === "object" && q !== null)
     : [];
-  return { type: "ask", id: d.id, ...askNudgeText(questions) };
+  return { type: "ask", id: d.id, text: askNudgeText(questions) };
 }
 
 export interface AskNotifier {
@@ -104,7 +83,7 @@ export function createAskNotifier(opts: {
         return;
       }
       if (!eligible || open.has(k)) return;
-      const nudge: Nudge = { sessionId, title: f.title, body: f.body, ask: true };
+      const nudge: Nudge = { sessionId, kind: "question", text: f.text };
       if (!opts.attached(sessionId)) {
         open.set(k, null);
         opts.push(nudge);

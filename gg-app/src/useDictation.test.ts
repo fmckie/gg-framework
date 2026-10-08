@@ -77,6 +77,36 @@ describe("useDictation", () => {
     expect(hook.result.current.phase).toBe("idle");
   });
 
+  it("points a denied microphone at the iPhone's Settings on the phone", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      vi.mocked(startRecording).mockResolvedValue({ ok: false, error: "denied" });
+      const { hook, onError } = setup();
+
+      await act(async () => hook.result.current.toggle());
+      expect(onError).toHaveBeenCalledWith(
+        "Kleio needs the microphone. Turn it on in Settings, then Kleio.",
+      );
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+
+  it("points a denied microphone at macOS's privacy settings on the Mac", async () => {
+    document.documentElement.classList.add("platform-macos");
+    try {
+      vi.mocked(startRecording).mockResolvedValue({ ok: false, error: "denied" });
+      const { hook, onError } = setup();
+
+      await act(async () => hook.result.current.toggle());
+      expect(onError).toHaveBeenCalledWith(
+        expect.stringContaining("System Settings > Privacy & Security > Microphone"),
+      );
+    } finally {
+      document.documentElement.classList.remove("platform-macos");
+    }
+  });
+
   it("surfaces a transcription failure and returns to idle", async () => {
     vi.mocked(startRecording).mockResolvedValue({ ok: true, value: fakeRecording() });
     vi.mocked(transcribeDictation).mockRejectedValue("Couldn't reach your Mac to transcribe.");

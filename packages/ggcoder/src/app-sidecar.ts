@@ -99,7 +99,8 @@ import {
   type PullPhase,
 } from "./hf-pull.js";
 import { cleanupToolOutputs } from "./tools/overflow.js";
-import { readCappedBody } from "./utils/http-body.js";
+import { readCappedBody, readCappedBodyBuffer } from "./utils/http-body.js";
+import { FILE_TEXT_MAX_BODY_BYTES, fileText, fileTextExtension } from "./tools/file-text.js";
 import {
   fetchSubscriptionUsage,
   SubscriptionUsageError,
@@ -1659,18 +1660,23 @@ async function main(): Promise<void> {
                 daemonJson(res, 200, { sessions });
               },
             )
-          : readStoredSession({ kind, id, coderSessionsDir: paths.sessionsDir, limit }).then(
-              (read) => {
-                log("INFO", "app-sidecar", "stored session read", {
-                  kind,
-                  found: String(read !== null),
-                  messages: String(read?.messages.length ?? 0),
-                  ms: String(Date.now() - started),
-                });
-                if (read) daemonJson(res, 200, read);
-                else daemonJson(res, 404, { error: "no such session" });
-              },
-            );
+          : readStoredSession({
+              kind,
+              id,
+              coderSessionsDir: paths.sessionsDir,
+              limit,
+              files: query.searchParams.get("files") === "1",
+            }).then((read) => {
+              log("INFO", "app-sidecar", "stored session read", {
+                kind,
+                found: String(read !== null),
+                messages: String(read?.messages.length ?? 0),
+                files: String(read?.files?.length ?? "-"),
+                ms: String(Date.now() - started),
+              });
+              if (read) daemonJson(res, 200, read);
+              else daemonJson(res, 404, { error: "no such session" });
+            });
       void work.catch((err: unknown) => {
         log("ERROR", "app-sidecar", "stored sessions failed", {
           kind,
@@ -1679,6 +1685,49 @@ async function main(): Promise<void> {
         });
         daemonJson(res, 500, { error: "The sessions could not be read." });
       });
+      return;
+    }
+
+    // A file's readable text for Kleio's voice (through kleio-host): body = the
+    // file's raw bytes, ?name= only picks the parser. A pure transform: no
+    // path is ever opened. Never log the name or any text.
+    if (method === "POST" && (url === "/file-text" || url.startsWith("/file-text?"))) {
+      const started = Date.now();
+      const name = new URL(url, `http://${host}`).searchParams.get("name");
+      const ext = fileTextExtension(name);
+      void readCappedBodyBuffer(req, res, FILE_TEXT_MAX_BODY_BYTES, { error: "too_large" }).then(
+        async (bytes) => {
+          if (bytes === null) {
+            log("INFO", "app-sidecar", "file text", {
+              ext: ext ?? "-",
+              outcome: "too_large",
+              ms: String(Date.now() - started),
+            });
+            return;
+          }
+          const out = await fileText(name, bytes);
+          const fields = {
+            ext: ext ?? "-",
+            bytes: String(bytes.length),
+            chars: String(out.ok ? out.text.length : 0),
+            pages: String(out.ok ? (out.pages ?? "-") : "-"),
+            outcome: out.ok ? "ok" : out.error,
+            ms: String(Date.now() - started),
+          };
+          if (out.ok) {
+            log("INFO", "app-sidecar", "file text", fields);
+            daemonJson(res, 200, {
+              text: out.text,
+              ...(out.pages !== undefined ? { pages: out.pages } : {}),
+            });
+          } else {
+            log(out.error === "unreadable" ? "ERROR" : "INFO", "app-sidecar", "file text", fields);
+            const status =
+              out.error === "unsupported" ? 415 : out.error === "unreadable" ? 422 : 400;
+            daemonJson(res, status, { error: out.error });
+          }
+        },
+      );
       return;
     }
 

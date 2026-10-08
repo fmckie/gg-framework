@@ -136,6 +136,8 @@ export interface Groups {
   owns(sessionId: string): boolean;
   /** True when the group exists. */
   has(groupId: string): Promise<boolean>;
+  /** The group's current member Blob ids, in member order; null when there is no such group. */
+  members(groupId: string): Promise<string[] | null>;
   /** A Blob was deleted: drop it from every group. */
   onBlobDeleted(blobId: string): Promise<void>;
   /** A Blob's name, job or model changed: retire the conversations that describe it. */
@@ -205,7 +207,6 @@ const REASON_CHARS = 120;
 const KEEP_MESSAGES = 500;
 const PROMPT_MESSAGES = 30;
 const PROMPT_CHARS = 6000;
-const NOTIFY_BODY_CHARS = 180;
 /** No push while a device polled the group this recently (it's on screen). */
 const WATCHING_MS = 20_000;
 const INSTRUCTIONS_MAX = 8000;
@@ -883,8 +884,10 @@ export function createGroups(options: GroupsOptions): Groups {
     await options
       .notify({
         groupId: gid,
-        title: `${g.emoji} ${g.name}`,
-        body: clip(`${last.authorName}: ${last.text}`, NOTIFY_BODY_CHARS),
+        kind: "message",
+        name: g.name,
+        author: last.authorName,
+        text: last.text,
       })
       .catch((e) => log(`[groups] notify ${gid}: ${String(e)}`));
     return settled;
@@ -1458,6 +1461,11 @@ export function createGroups(options: GroupsOptions): Groups {
     async has(groupId) {
       await loaded();
       return find(groupId) !== undefined;
+    },
+    async members(groupId) {
+      await loaded();
+      const g = find(groupId);
+      return g ? [...g.members] : null;
     },
     async onBlobDeleted(blobId) {
       await loaded();

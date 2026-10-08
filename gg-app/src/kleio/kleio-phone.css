@@ -416,66 +416,18 @@ html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .enhance-pill-host 
   /* Level with the 36px circles: the box's 9px padding, plus half of 36 - 25. */
   bottom: 14.5px;
 }
-/* Dictation (useDictation.ts). While recording, the mic fills like send, so
-   it is plain that the phone is listening. */
-html.platform-ios .dictate-btn.is-recording,
-html.platform-ios .dictate-btn.is-recording:hover:not(:disabled) {
-  color: var(--on-primary);
-  background: var(--primary);
-}
-/* Its status (timer, then "Transcribing") sits where "Enhance?" does, which
-   hides while dictating, and follows it to the bottom row once text wraps. */
+/* Dictation (App.css has the shared rules): the status pill takes the
+   phone's larger "Enhance?" geometry, and follows it to the bottom row once
+   text wraps. */
 html.platform-ios .dictation-status {
-  position: absolute;
   top: -13px;
-  left: 50%;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   height: 25px;
   padding: 0 12px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
-  color: var(--text);
-  font-family: var(--sans);
   font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  opacity: 0;
-  transform: translate(-50%, -4px);
-  pointer-events: none;
-  transition:
-    opacity var(--t-fast),
-    transform var(--t-fast);
-}
-html.platform-ios .dictation-status.visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }
 html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .dictation-status {
   top: auto;
   bottom: 14.5px;
-}
-html.platform-ios .dictation-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--primary);
-  animation: dictation-pulse 1.2s ease-in-out infinite;
-}
-@keyframes dictation-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  html.platform-ios .dictation-dot {
-    animation: none;
-  }
-  html.platform-ios .dictation-status {
-    transition: none;
-  }
 }
 /* Header pill buttons: the same 36px, with the desktop's proportions. */
 html.platform-ios .btn-nav-icon:not(.btn-icon, .kleio-icon-btn) {
@@ -644,6 +596,37 @@ html.platform-ios .modal {
   width: min(100vw - 24px, 560px);
   max-width: calc(100vw - 24px);
   max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+}
+/* Open existing (HostFoldersModal): native-height rows and 16px names. The
+   separators move with the bigger tile: 14px inset + 30px tile + 14px gap. */
+html.platform-ios .host-folder {
+  min-height: 52px;
+  padding: 10px 14px;
+  gap: 14px;
+}
+html.platform-ios .host-folder-name {
+  font-size: 16px;
+}
+html.platform-ios .host-folder-place {
+  font-size: 13px;
+}
+html.platform-ios .host-folder-icon {
+  width: 30px;
+  height: 30px;
+}
+html.platform-ios .host-folders-list > li + li > .host-folder::before {
+  inset-inline: 58px 0;
+}
+html.platform-ios .host-folders-heading {
+  margin-left: 14px;
+  font-size: 13px;
+}
+html.platform-ios .host-folders-note {
+  margin-inline: 14px;
+  font-size: 13px;
+}
+html.platform-ios .host-folders-body {
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 150px);
 }
 
 /* "Brief me": the panel spans the bottom of the phone, above the home

@@ -1,6 +1,6 @@
-// Dictation for the Chat and Code composer (App.tsx), loaded on the iPhone
-// only. It runs useDictation and reports its state up, so App can keep the mic
-// button and the status pill in their own places in the composer while the
+// Dictation for the Chat and Code composer (App.tsx), loaded on the iPhone and
+// the Mac only (supportsDictation). It runs useDictation and reports its state
+// up, so App can keep the mic button and the status pill in their own places in the composer while the
 // recorder, the button and their icons stay out of the initial chunk.
 // Specialist and group chats are already lazy and use useDictation directly.
 

@@ -1,4 +1,4 @@
-// iPhone dictation, the visible half: the mic button that sits beside send in
+// Dictation (iPhone and Mac), the visible half: the mic button that sits beside send in
 // every chat box, and the status pill (timer, then "Transcribing…") above it.
 // The recording and transcription live in useDictation.ts.
 

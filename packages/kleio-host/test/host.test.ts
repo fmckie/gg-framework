@@ -42,7 +42,7 @@ function publishEndpoint(sc: FakeSidecar): void {
 /** Records nudges instead of calling Apple. */
 const nudges: { sessionId: string; devices: string[] }[] = [];
 /** Each nudge's title and body, by session. */
-const nudgeText = new Map<string, { title?: string; body?: string }>();
+const nudgeText = new Map<string, { kind: string; name?: string; text?: string }>();
 const livePushes: {
   token: string;
   event: string;
@@ -58,7 +58,8 @@ const fakeApns: ApnsPusher = {
   async notify(nudge, devices) {
     const targets = devices.filter((d) => d.push && !d.revoked).map((d) => d.label);
     nudges.push({ sessionId: nudge.sessionId, devices: targets });
-    if (nudge.sessionId) nudgeText.set(nudge.sessionId, { title: nudge.title, body: nudge.body });
+    if (nudge.sessionId)
+      nudgeText.set(nudge.sessionId, { kind: nudge.kind, name: nudge.name, text: nudge.text });
     return targets.length;
   },
   async liveActivity(target, push) {
@@ -1017,7 +1018,7 @@ describe("host: Live Activity", () => {
       event: "start",
       line: "Needs your help",
       priority: 10,
-      alert: { title: "Needs your help", body: "Ship it?", sound: "default" },
+      alert: { title: "my-app", body: "Ship it?", sound: "default" },
       attributes: { kind: "code", title: "my-app", sessionId: sid },
     });
   });
@@ -1798,10 +1799,7 @@ describe("host: chats started by voice (POST /kleio/chats)", () => {
     await settle();
     runEnd(id);
     await until(() => nudges.some((n) => n.sessionId === id));
-    expect(nudgeText.get(id)).toEqual({
-      title: "Research ready",
-      body: "Research heat pumps",
-    });
+    expect(nudgeText.get(id)).toMatchObject({ kind: "finished", name: "Research heat pumps" });
   });
 
   it("a device opening the started chat's transcript gets the same session", async () => {

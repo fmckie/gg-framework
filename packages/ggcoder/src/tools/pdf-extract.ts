@@ -20,6 +20,17 @@ interface UnpdfModule {
   ): Promise<{ totalPages: number; text: string }>;
 }
 
+interface PdfTextItem {
+  str?: unknown;
+  hasEOL?: unknown;
+}
+
+interface PdfDocument {
+  numPages: number;
+  getPage(n: number): Promise<{ getTextContent(): Promise<{ items: PdfTextItem[] }> }>;
+  destroy?: () => Promise<void> | void;
+}
+
 let cached: UnpdfModule | null = null;
 
 async function loadUnpdf(): Promise<UnpdfModule> {
@@ -48,4 +59,35 @@ export async function extractPdfText(bytes: Uint8Array): Promise<{ text: string;
   const pdf = await unpdf.getDocumentProxy(bytes);
   const { totalPages, text } = await unpdf.extractText(pdf, { mergePages: true });
   return { text, pages: totalPages };
+}
+
+/**
+ * Text of at most the first `maxPages` pages (a newline after each item with
+ * `hasEOL` and between pages); `pages` is the PDF's total page count. Throws
+ * `PdfExtractorUnavailable` without `unpdf`, or the parser's error when the
+ * PDF is damaged or encrypted.
+ */
+export async function extractPdfTextPages(
+  bytes: Uint8Array,
+  maxPages: number,
+): Promise<{ text: string; pages: number }> {
+  const unpdf = await loadUnpdf();
+  const pdf = (await unpdf.getDocumentProxy(bytes)) as PdfDocument;
+  try {
+    const total = pdf.numPages;
+    const parts: string[] = [];
+    for (let i = 1; i <= Math.min(total, maxPages); i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      let text = "";
+      for (const item of content.items) {
+        if (typeof item.str === "string") text += item.str;
+        if (item.hasEOL === true) text += "\n";
+      }
+      parts.push(text);
+    }
+    return { text: parts.join("\n"), pages: total };
+  } finally {
+    await Promise.resolve(pdf.destroy?.()).catch(() => undefined);
+  }
 }

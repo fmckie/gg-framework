@@ -118,6 +118,36 @@ private final class KleioLive: @unchecked Sendable {
   }
 }
 
+/// Which conversation was just opened (kleio_live_end_finished).
+struct OpenedConversation: Decodable {
+  let sessionId: String?
+  let groupId: String?
+}
+
+/// End, at once, the opened conversation's activities that have finished.
+/// Working and needsYou activities are left alone.
+private func endFinished(_ opened: OpenedConversation) async {
+  for activity in Activity<KleioActivityAttributes>.activities {
+    let attributes = activity.attributes
+    // A group's activity is matched by its group; anything else by session.
+    let matches: Bool
+    if let group = opened.groupId, attributes.groupId != nil {
+      matches = attributes.groupId == group
+    } else if let session = opened.sessionId {
+      matches = attributes.sessionId == session
+    } else {
+      matches = false
+    }
+    guard matches else { continue }
+    switch activity.content.state.phase {
+    case "done", "failed", "stopped":
+      await activity.end(nil, dismissalPolicy: .immediate)
+    default:
+      continue
+    }
+  }
+}
+
 struct StartRequest: Decodable {
   let kind: String
   let title: String
@@ -145,4 +175,16 @@ public func kleioLiveStart(_ json: UnsafePointer<CChar>) {
     return
   }
   Task { await KleioLive.shared.start(request) }
+}
+
+/// A conversation was opened (a notification or Live Activity tap); `json` is
+/// {"sessionId","groupId"}. Ends its finished activities in the background.
+@_cdecl("kleio_live_end_finished")
+public func kleioLiveEndFinished(_ json: UnsafePointer<CChar>) {
+  let data = Data(String(cString: json).utf8)
+  guard let opened = try? JSONDecoder().decode(OpenedConversation.self, from: data) else {
+    NSLog("kleio: bad Live Activity end request")
+    return
+  }
+  Task { await endFinished(opened) }
 }

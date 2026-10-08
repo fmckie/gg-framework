@@ -17,7 +17,7 @@ import { isAskUserPrompt, type AskAnswers, type AskUserPrompt } from "../ask-use
 import { autosizeComposer } from "../composer-autosize";
 import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
-import { isPhone } from "../platform";
+import { supportsDictation } from "../platform";
 import { theme } from "../theme";
 import { toast } from "../toast";
 import { useDictation } from "../useDictation";
@@ -129,8 +129,8 @@ export function ThreadChat({
   const alive = useRef(true);
   const windowFocused = useWindowFocused();
   const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
-  // iPhone dictation: the transcript joins the draft for review before sending.
-  const phoneComposer = isPhone();
+  // Dictation (iPhone and Mac): the transcript joins the draft for review before sending.
+  const showDictation = supportsDictation();
   const dictation = useDictation({
     onText: (text) => setDraft((prev) => appendDictation(prev, text)),
     onError: (message) => toast(message, "error"),
@@ -393,7 +393,7 @@ export function ThreadChat({
               />
             </div>
             <div className="inputactions-trailing">
-              {phoneComposer && <DictateButton dictation={dictation} disabled={!session} />}
+              {showDictation && <DictateButton dictation={dictation} disabled={!session} />}
               <WorkingBeam active={running} size="sm" />
               <ActionMetal active={!running && !sendDisabled} windowFocused={windowFocused} />
               {running ? (
@@ -419,7 +419,7 @@ export function ThreadChat({
               )}
             </div>
           </div>
-          {phoneComposer && <DictationStatus dictation={dictation} />}
+          {showDictation && <DictationStatus dictation={dictation} />}
         </div>
       </form>
     </div>

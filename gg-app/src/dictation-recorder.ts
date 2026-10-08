@@ -1,6 +1,6 @@
-// iPhone dictation, the recording half: capture the microphone in the webview
-// and hand back 16 kHz mono 16-bit PCM, the format Whisper takes. The paired
-// Mac's sidecar transcribes it (`POST /transcribe`, @kleio/core dictation.ts).
+// Dictation (iPhone and Mac), the recording half: capture the microphone in the
+// webview and hand back 16 kHz mono 16-bit PCM, the format Whisper takes. The
+// Mac's sidecar (the paired one, from the iPhone) transcribes it (`POST /transcribe`, @kleio/core dictation.ts).
 //
 // WKWebView serves the app from `tauri://localhost`, which WebKit treats as a
 // secure context, so getUserMedia works there; iOS asks for permission with

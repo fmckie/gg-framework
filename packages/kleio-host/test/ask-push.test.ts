@@ -20,20 +20,14 @@ describe("askNudgeText / parseAskFrame", () => {
     expect(parseAskFrame(askFrame("ask-1", [Q]))).toEqual({
       type: "ask",
       id: "ask-1",
-      title: "Where should login sessions be stored?",
-      body: "Keep it simple (one file) · Use a real database",
+      text: "Where should login sessions be stored?",
     });
   });
-  it("counts extra questions, defaults confirm to Yes/No, and clips", () => {
-    const t = askNudgeText([
-      { question: "x".repeat(500), kind: "confirm" },
-      { question: "b" },
-      { question: "c" },
-    ]);
-    expect(t.title.endsWith("… (+2 more)")).toBe(true);
-    expect(t.title.length).toBeLessThanOrEqual(120);
-    expect(t.body).toBe("Yes · No");
-    expect(askNudgeText([{ question: "Name?", kind: "text" }]).body).toBe("Tap to answer.");
+  it("counts extra questions, and is empty without a question", () => {
+    expect(askNudgeText([{ question: "Ship it?" }, { question: "b" }, { question: "c" }])).toBe(
+      "Ship it? (+2 more)",
+    );
+    expect(askNudgeText([{ question: "  " }])).toBe("");
   });
   it("ignores other frames", () => {
     expect(parseAskFrame(`data: {"type":"run_end","data":{}}`)).toBeNull();
@@ -60,9 +54,8 @@ describe("createAskNotifier", () => {
     expect(pushes).toEqual([
       {
         sessionId: "s1",
-        ask: true,
-        title: "Where should login sessions be stored?",
-        body: "Keep it simple (one file) · Use a real database",
+        kind: "question",
+        text: "Where should login sessions be stored?",
       },
     ]);
   });

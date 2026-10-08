@@ -173,6 +173,28 @@ device; read-only. `?kind=chat|code` is required.
   own routes. `400 bad_request`, `404 not_found`, `503 sessions_unavailable` when the sidecar
   can't answer.
 
+### Files agents made (`/kleio/voice/files`)
+
+The voice's `list_files` and `read_file`. Any paired device; read-only. `source` is `kleio` (the
+home thread's folder, minus `blobs/` and `groups/`), `specialist` (`id` = Blob id), `group` (`id` =
+group id: every current member's folder), or `chat` / `code` (`id` = saved session id).
+
+- `GET /kleio/voice/files?source=&id=` answers `200 { files: [{ path, name, kind, size, modified,
+  readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
+  symlinks), skipping hidden names and tooling folders, 5 levels and 3,000 entries at most. A chat or
+  coding session lists only files it wrote (`write`, `generate_image`, `screenshot`) or linked in a
+  reply (the sidecar's `GET /stored-sessions/:id?files=1`) that are still regular files inside its
+  folder, which must be in Kleio's projects folders (†).
+- `POST /kleio/voice/files/read { source, id?, member?, path, part? }` (path in the body, 4 KB at
+  most) answers `200 { name, kind, part, parts, text, pages? }`, 12,000 characters a part. The path
+  goes through the file route's checks, must be one the list could show, and for a chat or coding
+  session must be one of its own files. The sidecar's `POST /file-text` extracts the text (plain
+  text and code, HTML, PDF (200 pages), docx, pptx, xlsx; nothing else), capped and redacted like
+  agent tool output. 20 MB at most.
+- `400 bad_request`, `404 not_found`, `413 too_large`, `415 unsupported`,
+  `416 { error: "no_such_part", parts }`, `422 unreadable`, `503 files_unavailable`. Logs carry the
+  device, source, status and time, never names, paths or text.
+
 ### Blobs (`/kleio/blobs`)
 
 Named helpers with a job, each with its own pinned conversation and schedules, stored in

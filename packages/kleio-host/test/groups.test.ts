@@ -914,8 +914,10 @@ describe("groups: notifications", () => {
     expect(nudges).toHaveLength(1);
     expect(nudges[0]).toMatchObject({
       groupId: g.id,
-      title: "🍳 Team",
-      body: "Coach: Coach says hi.",
+      kind: "message",
+      name: "Team",
+      author: "Coach",
+      text: "Coach says hi.",
     });
     // Members' own run ends send no per-session nudge.
     expect(nudges.some((n) => n.sessionId)).toBe(false);
@@ -1000,7 +1002,7 @@ describe("groups: Live Activity", () => {
     expect(ask).toMatchObject({
       event: "update",
       priority: 10,
-      alert: { title: "Needs your help", sound: "default" },
+      alert: { title: "Team", sound: "default" },
       state: { line: "Needs your help", detail: "Chef: Chef: which day suits you?" },
     });
     expect(nudges).toHaveLength(0);
@@ -1076,7 +1078,7 @@ describe("groups: Live Activity", () => {
     await until(() => lives.some((l) => l.state.phase === "needsYou"));
     expect(lives.find((l) => l.state.phase === "needsYou")).toMatchObject({
       priority: 10,
-      alert: { title: "Needs your help" },
+      alert: { title: "Team" },
       state: { detail: "Chef: When?" },
     });
     // Answered on the Mac (the sidecar settles it): back to work.

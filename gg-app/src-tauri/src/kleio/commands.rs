@@ -545,6 +545,8 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "key"]
             | ["kleio", "voice", "settings"]
             | ["kleio", "voice", "brain"]
+            | ["kleio", "voice", "files"]
+            | ["kleio", "voice", "files", "read"]
             | ["kleio", "sessions"]
             | ["kleio", "sessions", _]
     ) || under(&segs, &["kleio", "blobs"])
@@ -810,6 +812,9 @@ mod tests {
             ("DELETE", "/kleio/voice/key"),
             ("POST", "/kleio/voice/settings"),
             ("POST", "/kleio/voice/brain"),
+            ("GET", "/kleio/voice/files?source=kleio"),
+            ("GET", "/kleio/voice/files?source=specialist&id=b_1"),
+            ("POST", "/kleio/voice/files/read"),
             ("GET", "/kleio/sessions?kind=chat"),
             ("GET", "/kleio/sessions/0b9f2c1e-5d4a-4c1b-9a8e-3f2d1c0b9a8e?kind=code"),
             ("GET", "/kleio/blobs"),
@@ -834,6 +839,19 @@ mod tests {
         ] {
             assert_eq!(check_route(m, p, None), Ok(false), "{m} {p}");
         }
+    }
+
+    #[test]
+    fn kleio_api_keeps_file_paths_out_of_the_query() {
+        // Paths go in the body: one in the query is refused for its characters.
+        for p in [
+            "/kleio/voice/files?source=chat&path=out/report (final).pdf",
+            "/kleio/voice/files?source=chat&path=out/report.pdf",
+            "/kleio/voice/files?source=chat&path=it's.pdf",
+        ] {
+            assert!(check_route("GET", p, None).is_err(), "{p}");
+        }
+        assert!(check_route("POST", "/kleio/voice/files/read/x", None).is_err());
     }
 
     #[test]

@@ -1,9 +1,11 @@
-// iPhone dictation, the button's state machine: tap to record, tap again (or
-// hit the 2-minute limit, or leave the app) to stop; the clip is transcribed
-// with Whisper on the paired Mac and the text lands in the composer.
+// Dictation (iPhone and Mac), the button's state machine: tap to record, tap
+// again (or hit the 2-minute limit, or leave the app) to stop; the clip is
+// transcribed with Whisper on the Mac (the paired one, from the iPhone) and
+// the text lands in the composer.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { transcribeDictation } from "./agent";
+import { isPhone } from "./platform";
 import { DICTATION_MAX_MS, startRecording, type Recording } from "./dictation-recorder";
 
 export type DictationPhase = "idle" | "starting" | "recording" | "transcribing";
@@ -27,9 +29,15 @@ export interface UseDictation {
 
 const START_ERRORS = {
   unsupported: "Dictation isn't available here.",
-  denied: "Kleio needs the microphone. Turn it on in Settings, then Kleio.",
   unavailable: "Couldn't start the microphone.",
 } as const;
+
+/** Where to grant the microphone: the iPhone's Settings app, or macOS's. */
+function deniedMessage(): string {
+  return isPhone()
+    ? "Kleio needs the microphone. Turn it on in Settings, then Kleio."
+    : "Kleio needs the microphone. Turn it on in System Settings > Privacy & Security > Microphone.";
+}
 
 export function useDictation({
   onText,
@@ -85,7 +93,10 @@ export function useDictation({
     enter("starting");
     const started = await startRecording();
     if (!started.ok) {
-      if (aliveRef.current) handlers.current.onError(START_ERRORS[started.error]);
+      if (aliveRef.current)
+        handlers.current.onError(
+          started.error === "denied" ? deniedMessage() : START_ERRORS[started.error],
+        );
       enter("idle");
       return;
     }

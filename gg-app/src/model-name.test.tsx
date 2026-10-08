@@ -82,7 +82,7 @@ describe("ModelSelect (native dropdown)", () => {
     expect(screen.queryByText("gemini-3-flash")).toBeNull();
   });
 
-  it("shows the follow choice as selected when Ken follows GG Coder", () => {
+  it("shows the follow choice as selected when Muse follows Kleio", () => {
     render(
       <ModelSelect
         models={MODELS}
@@ -95,7 +95,7 @@ describe("ModelSelect (native dropdown)", () => {
     );
     const select = screen.getByLabelText("Ken's model") as HTMLSelectElement;
     expect(select.value).toBe("__follow__");
-    expect(screen.getByText("Follow GG Coder (Gemini 3.5 Flash)")).toBeDefined();
+    expect(screen.getByText("Follow Kleio (Gemini 3.5 Flash)")).toBeDefined();
   });
 });
 

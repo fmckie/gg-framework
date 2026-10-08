@@ -22,6 +22,7 @@
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { ApnsPusher, LiveActivityAlert, LiveActivityTarget } from "./apns.js";
+import { clipAtWord, plainText } from "./notification-copy.js";
 import {
   askButtons,
   clipText,
@@ -65,7 +66,12 @@ export interface LiveState {
   readonly options?: readonly string[] | null;
   /** Which option the agent recommends (it stands out). */
   readonly recommended?: number | null;
+  /** With done: the result in one plain line (the reply's opening words). */
+  readonly summary?: string | null;
 }
+
+/** A done activity's result line: plain text, one line. */
+export const SUMMARY_MAX = 90;
 
 export interface SidecarFrame {
   readonly type: string;
@@ -184,8 +190,11 @@ export interface LiveAlertText {
 }
 
 export interface LiveActivityTracker {
-  /** Every frame of a session target's session (not group members). */
-  onFrame(sessionId: string, frame: SidecarFrame): void;
+  /**
+   * Every frame of a session target's session (not group members). `reply`:
+   * on run_end, the run's final reply, shown as a done activity's summary.
+   */
+  onFrame(sessionId: string, frame: SidecarFrame, reply?: string): void;
   /**
    * Set a target's state from words (group targets). `fresh` starts the timer
    * again. With `alert`, the push carries it (or starts the activity) and the
@@ -466,16 +475,18 @@ export function createLiveActivityTracker(opts: {
   }
 
   return {
-    onFrame(sessionId, frame) {
+    onFrame(sessionId, frame, reply) {
       const target = `s:${sessionId}`;
       const change = reduceFrame(states.get(target), frame, now());
       if (!change) return;
+      const summary =
+        change.state.phase === "done" && reply ? clipAtWord(plainText(reply), SUMMARY_MAX) : "";
       const state = withAsk(
         target,
         change.state,
         frame.type === "ask_user" ? frame.data : undefined,
       );
-      apply(target, { kind: change.kind, state });
+      apply(target, { kind: change.kind, state: summary ? { ...state, summary } : state });
     },
     claimAnswer(target, askId, key, choice) {
       const a = asks.get(target);
@@ -500,6 +511,9 @@ export function createLiveActivityTracker(opts: {
           ...(live.detail ? { detail: clipText(live.detail, DETAIL_MAX) } : {}),
           startedAt: o.fresh || !prev ? at : prev.startedAt,
           ...(end ? { endedAt: at } : {}),
+          ...(live.phase === "done" && live.detail
+            ? { summary: clipAtWord(plainText(live.detail), SUMMARY_MAX) }
+            : {}),
         },
         live.ask,
       );
