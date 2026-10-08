@@ -118,6 +118,72 @@ describe("specialist file links", () => {
   });
 });
 
+describe("files a reply names without linking", () => {
+  const own = { kind: "blob", blobId: "b_0f35a4fa" } as const;
+  const folder = "/Users/mini/Kleio/blobs/b_0f35a4fa";
+
+  // Regression: specialists and chats began writing their files as code or
+  // bold instead of links, and the cards (preview, Open, Save a copy) vanished.
+  it("cards an output named in code or bold, the reply's own folder only", () => {
+    const md = [
+      "Today's report is ready: **london-ai-jobs-2026-10-08.pdf** in the Job hunter folder.",
+      `Also at \`${folder}/out/table.xlsx\` and **\`chart.png\`**.`,
+      "Not `/Users/mini/Kleio/blobs/b_other/x.pdf` or `../up.pdf`.",
+    ].join("\n");
+    expect(fileLinks(md, own)).toEqual([
+      {
+        path: "london-ai-jobs-2026-10-08.pdf",
+        label: "london-ai-jobs-2026-10-08.pdf",
+        named: true,
+      },
+      { path: "out/table.xlsx", label: "table.xlsx", named: true },
+      { path: "chart.png", label: "chart.png", named: true },
+    ]);
+  });
+
+  it("cards a Chat or Code output named by its absolute path", () => {
+    const cwd = "/Users/willmckie/kleio-projects";
+    const md =
+      "Done — a single-page A4 test PDF is at `/Users/willmckie/kleio-projects/test.pdf` (606 bytes).";
+    expect(workspaceFileLinks(md, cwd)).toEqual([
+      { path: "test.pdf", label: "test.pdf", named: true },
+    ]);
+    expect(workspaceFileLinks("See `/Users/willmckie/elsewhere/test.pdf`.", cwd)).toEqual([]);
+  });
+
+  it("leaves code, notes, prose, commands and code blocks alone", () => {
+    const md = [
+      "Edited `src/App.tsx`, `jobs/latest.json`, `notes.md` and `site/index.html`.",
+      "**Saved the report.pdf** and run `open report.pdf`. **File:** `v2.0`",
+      "```",
+      "listing.pdf",
+      "`inside.pdf`",
+      "```",
+      "~~~~",
+      "**tilde.pdf**",
+      "~~~",
+      "still `fenced.pdf`",
+      "~~~~",
+      "After: `after.pdf`",
+    ].join("\n");
+    expect(fileLinks(md, own).map((l) => l.path)).toEqual(["after.pdf"]);
+    expect(workspaceFileLinks(md, "/Users/me/app").map((l) => l.path)).toEqual(["after.pdf"]);
+  });
+
+  it("reads ~/ paths as absolute, never as a file in the folder", () => {
+    const md = "Saved to `~/Kleio/blobs/b_0f35a4fa/week.pdf`, not `~/Desktop/other.pdf`.";
+    expect(fileLinks(md, own)).toEqual([{ path: "week.pdf", label: "week.pdf", named: true }]);
+    expect(
+      workspaceFileLinks("See `~/kleio-projects/test.pdf`.", "/Users/me/kleio-projects"),
+    ).toEqual([]);
+  });
+
+  it("lists a file once, keeping its link's label", () => {
+    const md = "[The report](report.pdf), also `report.pdf` and **report.pdf**.";
+    expect(fileLinks(md, own)).toEqual([{ path: "report.pdf", label: "The report" }]);
+  });
+});
+
 describe("workspaceFilePath", () => {
   const cwd = "/Users/me/kleio-projects/app";
 

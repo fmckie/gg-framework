@@ -44,7 +44,8 @@ export function isSessionId(value: string): boolean {
   return SESSION_ID.test(value);
 }
 
-interface Row {
+/** One row of the sidecar's listing, as it sends it (its folder included: never sent on). */
+export interface SavedRow {
   readonly id: string;
   readonly title: string;
   readonly cwd: string;
@@ -52,7 +53,7 @@ interface Row {
   readonly chatAgent?: string;
 }
 
-function row(value: unknown): Row | null {
+function row(value: unknown): SavedRow | null {
   if (typeof value !== "object" || value === null) return null;
   const r = value as Record<string, unknown>;
   if (
@@ -72,7 +73,15 @@ function row(value: unknown): Row | null {
   };
 }
 
-function shown(r: Row, kind: SavedSessionKind): SavedSession {
+/** The sidecar's listing's well-formed rows, in its order (newest first). */
+export function savedRows(body: unknown): SavedRow[] {
+  const list =
+    typeof body === "object" && body !== null ? (body as { sessions?: unknown }).sessions : null;
+  if (!Array.isArray(list)) return [];
+  return list.map(row).filter((r): r is SavedRow => r !== null);
+}
+
+function shown(r: SavedRow, kind: SavedSessionKind): SavedSession {
   return {
     id: r.id,
     title: r.title,
@@ -90,14 +99,10 @@ export function savedSessionList(
   isKleios: (cwd: string) => boolean,
   max: number,
 ): SavedSession[] {
-  const list =
-    typeof body === "object" && body !== null ? (body as { sessions?: unknown }).sessions : null;
-  if (!Array.isArray(list)) return [];
   const out: SavedSession[] = [];
-  for (const value of list) {
+  for (const r of savedRows(body)) {
     if (out.length >= max) break;
-    const r = row(value);
-    if (r && !isKleios(r.cwd)) out.push(shown(r, kind));
+    if (!isKleios(r.cwd)) out.push(shown(r, kind));
   }
   return out;
 }

@@ -9,7 +9,9 @@
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
 //     POST /kleio/home/new starts a fresh one. POST /kleio/chats starts a
 //     chat that works on its own in Kleio's projects folder (voice's
-//     start_chat, see started-chats.ts). /kleio/blobs/* and
+//     start_chat, see started-chats.ts). /kleio/projects lists, tells,
+//     makes and starts coding work in her projects (the voice's, see
+//     projects.ts). /kleio/blobs/* and
 //     GET /kleio/models, the Blobs (see blobs.ts). An agent's files:
 //     GET /kleio/blobs/:id/files/*, /kleio/groups/:gid/members/:bid/files/*
 //     and /kleio/workspace/files/*?cwd= (Chat/Code, see files.ts), always as
@@ -44,7 +46,7 @@ import {
 } from "node:http";
 import { appendFile, mkdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, sep } from "node:path";
+import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -84,9 +86,28 @@ import {
   isSessionId,
   SAVED_LIST_MAX,
   SIDECAR_LIST_LIMIT,
+  savedRows,
   savedSessionList,
   savedSessionRead,
+  type SavedMessage,
 } from "./saved-sessions.js";
+import {
+  createProject,
+  findProject,
+  isProjectName,
+  newestSession,
+  parseNewProject,
+  parseStartCode,
+  projectDocAt,
+  projectDocs,
+  projectFolders,
+  projectStatus,
+  projectSummaries,
+  STATUS_DOCS_MAX,
+  type CodeJob,
+  type ProjectFolder,
+  type ProjectScan,
+} from "./projects.js";
 import { createHomeThreads, type SidecarCall, type SidecarReply } from "./home-thread.js";
 import { createAskNotifier } from "./ask-push.js";
 import { createBriefing, type BriefJob } from "./brief.js";
@@ -277,13 +298,14 @@ function holds(dir: string, root: string): boolean {
 }
 
 /** Whose files list_files / read_file look at. */
-type FilesSource = "kleio" | "specialist" | "group" | "chat" | "code";
+type FilesSource = "kleio" | "specialist" | "group" | "chat" | "code" | "project";
 const FILES_SOURCES: ReadonlySet<string> = new Set([
   "kleio",
   "specialist",
   "group",
   "chat",
   "code",
+  "project",
 ]);
 /** Kleio's top-level folders that belong to other owners (her Blobs and groups). */
 const KLEIO_OTHERS: ReadonlySet<string> = new Set(["blobs", "groups"]);
@@ -962,7 +984,7 @@ export function createHost(options: HostOptions): Host {
     call: sidecarCall,
     track,
     untrack,
-    remember: (sessionId, cwd, title) => sessionKinds.set(sessionId, { mode: "chat", cwd, title }),
+    remember: (sessionId, mode, cwd, title) => sessionKinds.set(sessionId, { mode, cwd, title }),
     log,
     now,
   });
@@ -1433,6 +1455,91 @@ export function createHost(options: HostOptions): Host {
     }
   }
 
+  /** Kleio's own folder's real path (as configured while it doesn't exist), or null. */
+  async function kleioFolder(): Promise<string | null> {
+    const homeCwd = options.homeCwd;
+    if (homeCwd === undefined) return null;
+    try {
+      return await realpath(homeCwd);
+    } catch {
+      return resolvePath(homeCwd);
+    }
+  }
+
+  /** How projects are found: never Kleio's own folder, one holding it, or one inside it. */
+  async function projectScan(): Promise<ProjectScan> {
+    const kleio = await kleioFolder();
+    return {
+      home: homedir(),
+      skip: (real) => kleio !== null && (holds(real, kleio) || holds(kleio, real)),
+    };
+  }
+
+  /** The project a files request names (`id` is its name). */
+  async function projectFor(name: string | null): Promise<Result<ProjectFolder, FilesFailure>> {
+    if (name === null || !isProjectName(name)) return filesFail(400, "bad_request");
+    const roots = options.workspaceRoots ? await options.workspaceRoots() : [];
+    const project = await findProject(roots, name, await projectScan());
+    return project ? ok(project) : filesFail(404, "not_found");
+  }
+
+  /**
+   * The latest prompts and replies of the newest saved conversation that ran
+   * in `dir` (one of Kleio's own folders), or null when there is none yet.
+   */
+  async function threadMessages(
+    dir: string,
+  ): Promise<
+    Result<{ messages: readonly SavedMessage[]; lastActivity: string } | null, "unavailable">
+  > {
+    const listed = await sidecarJson(
+      "GET",
+      `/stored-sessions?kind=chat&limit=${SIDECAR_LIST_LIMIT}`,
+      undefined,
+      15_000,
+    );
+    if (!listed || listed.status !== 200) return err("unavailable");
+    let real = resolvePath(dir);
+    try {
+      real = await realpath(dir);
+    } catch {
+      /* not made yet: compared as configured */
+    }
+    const want = new Set([resolvePath(dir), real]);
+    // Newest first: the first in its folder is its current conversation.
+    const row = savedRows(listed.body).find((r) => want.has(resolvePath(r.cwd)));
+    if (!row || !isSessionId(row.id)) return ok(null);
+    const read = await sidecarJson(
+      "GET",
+      `/stored-sessions/${row.id}?kind=chat`,
+      undefined,
+      15_000,
+    );
+    if (!read || read.status >= 500) return err("unavailable");
+    const got = read.status === 200 ? savedSessionRead(read.body, "chat", () => false) : null;
+    return ok(got ? { messages: got.messages, lastActivity: got.lastActivity } : null);
+  }
+
+  /**
+   * The Code sessions working, or waiting on the user, now (their Live Activity
+   * states): those made since the host started, whose kind it noted.
+   */
+  function codeJobs(): CodeJob[] {
+    const jobs: CodeJob[] = [];
+    for (const { target, state } of liveActivities.snapshot()) {
+      if (!target.startsWith("s:")) continue;
+      const k = sessionKinds.get(target.slice(2));
+      if (k?.mode !== "code" || (state.phase !== "working" && state.phase !== "needsYou")) continue;
+      jobs.push({
+        cwd: k.cwd,
+        phase: state.phase,
+        // Waiting on the user: the question it asks.
+        line: state.phase === "needsYou" && state.detail ? state.detail : state.line,
+      });
+    }
+    return jobs;
+  }
+
   /** A saved chat's or coding session's folder and the files it made there. */
   async function sessionFolder(
     kind: "chat" | "code",
@@ -1499,30 +1606,43 @@ export function createHost(options: HostOptions): Host {
         if (!folder.ok) return folder;
         return ok(newestFirst(folder.value.files.map((f) => toEntry(f))));
       }
+      case "project": {
+        const project = await projectFor(id);
+        if (!project.ok) return project;
+        return ok(newestFirst((await projectDocs(project.value.real)).map((f) => toEntry(f))));
+      }
     }
   }
 
-  /** Where a read_file request's file must live, after its owner checks. */
-  async function readRoot(q: FileReadRequest): Promise<Result<string, FilesFailure>> {
+  /**
+   * Where a read_file request's file must live, after its owner checks: the
+   * folder, and the file's path inside it (a project's plan is read from inside
+   * its plans folder, so no hidden name is ever walked).
+   */
+  async function readRoot(
+    q: FileReadRequest,
+  ): Promise<Result<{ root: string; path: string }, FilesFailure>> {
     const homeCwd = options.homeCwd;
     const segments = q.path.split("/");
+    const at = (root: string): Result<{ root: string; path: string }, never> =>
+      ok({ root, path: q.path });
     switch (q.source) {
       case "kleio":
         if (homeCwd === undefined) return filesFail(404, "not_found");
         if (KLEIO_OTHERS.has(segments[0] ?? "")) return filesFail(404, "not_found");
-        return ok(homeCwd);
+        return at(homeCwd);
       case "specialist":
         if (q.id === null || !BLOB_ID_RE.test(q.id)) return filesFail(400, "bad_request");
         if (homeCwd === undefined || !blobs || !(await blobs.find(q.id)))
           return filesFail(404, "not_found");
-        return ok(join(homeCwd, "blobs", q.id));
+        return at(join(homeCwd, "blobs", q.id));
       case "group": {
         if (q.id === null || !GROUP_ID_RE.test(q.id)) return filesFail(400, "bad_request");
         if (q.member === null || !BLOB_ID_RE.test(q.member)) return filesFail(400, "bad_request");
         const members = homeCwd !== undefined && groups ? await groups.members(q.id) : null;
         if (homeCwd === undefined || members === null || !members.includes(q.member))
           return filesFail(404, "not_found");
-        return ok(join(homeCwd, "groups", q.id, q.member));
+        return at(join(homeCwd, "groups", q.id, q.member));
       }
       case "chat":
       case "code": {
@@ -1530,7 +1650,14 @@ export function createHost(options: HostOptions): Host {
         if (!folder.ok) return folder;
         // Least privilege: only a file the session itself made or linked.
         if (!folder.value.files.some((f) => f.path === q.path)) return filesFail(404, "not_found");
-        return ok(folder.value.dir);
+        return at(folder.value.dir);
+      }
+      case "project": {
+        const project = await projectFor(q.id);
+        if (!project.ok) return project;
+        // Least privilege: only one of its documents, never its code or secrets.
+        const doc = await projectDocAt(project.value.real, q.path);
+        return doc ? ok(doc) : filesFail(404, "not_found");
       }
     }
   }
@@ -1544,11 +1671,11 @@ export function createHost(options: HostOptions): Host {
       FilesFailure
     >
   > {
-    const root = await readRoot(q);
-    if (!root.ok) return root;
-    const segments = q.path.split("/");
+    const where = await readRoot(q);
+    if (!where.ok) return where;
+    const segments = where.value.path.split("/");
     const resolved = await resolveAgentFile(
-      root.value,
+      where.value.root,
       segments.map((s) => encodeURIComponent(s)).join("/"),
       MAX_READ_BYTES,
     );
@@ -1566,7 +1693,7 @@ export function createHost(options: HostOptions): Host {
     const file = resolved.value;
     let realRoot: string;
     try {
-      realRoot = await realpath(root.value);
+      realRoot = await realpath(where.value.root);
     } catch {
       return filesFail(404, "not_found");
     }
@@ -2034,6 +2161,122 @@ export function createHost(options: HostOptions): Host {
       }
       const read = r.status === 200 ? savedSessionRead(r.body, kind, kleios) : null;
       return read ? json(res, 200, read) : json(res, 404, { error: "not_found" });
+    }
+    // Kleio's projects, for her voice (projects.ts): GET /kleio/projects lists
+    // them, GET /kleio/projects?name= tells one's status (what a coding agent
+    // is doing in it now, its newest sessions and latest messages, its
+    // documents), POST /kleio/projects { name } makes a new one, and POST
+    // /kleio/projects/code { name, prompt } starts coding work in one. Any
+    // paired device, as a Code session through the proxy is.
+    if (path === "/kleio/projects" || path === "/kleio/projects/code") {
+      const roots = options.workspaceRoots ? await options.workspaceRoots() : [];
+      if (roots.length === 0) return json(res, 404, { error: "not_found" });
+      const since = Date.now();
+      const done = (what: string, status: number): void =>
+        log(`[projects] ${auth.device.label}: ${what} ${status} in ${Date.now() - since} ms`);
+      const scan = await projectScan();
+      if (path === "/kleio/projects/code" || req.method === "POST") {
+        if (req.method !== "POST") {
+          res.setHeader("allow", "POST");
+          return json(res, 405, { error: "method not allowed" });
+        }
+        const code = path === "/kleio/projects/code";
+        const body = await readBody(req, 16 * 1024);
+        if (body === null) return json(res, 413, { error: "body too large" });
+        if (code) {
+          const parsed = parseStartCode(body.toString("utf8"));
+          if (!parsed.ok) return json(res, 400, { error: "bad_request", detail: parsed.error });
+          const project = await findProject(roots, parsed.value.name, scan);
+          if (!project) {
+            done("code", 404);
+            return json(res, 404, { error: "not_found" });
+          }
+          const r = await background(
+            started.startCode({
+              prompt: parsed.value.prompt,
+              cwd: project.dir,
+              project: project.name,
+            }),
+          );
+          done("code", r.ok ? 200 : r.error.status);
+          return r.ok
+            ? json(res, 200, { project: project.name, sessionId: r.value.sessionId })
+            : json(res, r.error.status, r.error.body);
+        }
+        const parsed = parseNewProject(body.toString("utf8"));
+        if (!parsed.ok) return json(res, 400, { error: "bad_request", detail: parsed.error });
+        const made = await background(createProject(roots, parsed.value, scan));
+        const status = made.ok ? 200 : made.error === "exists" ? 409 : 404;
+        done("create", status);
+        if (!made.ok)
+          return json(res, status, { error: made.error === "exists" ? "exists" : "not_found" });
+        return json(res, 200, { name: made.value.name });
+      }
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET, POST");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const name = url.searchParams.get("name");
+      if (name !== null && !isProjectName(name)) return json(res, 400, { error: "bad_request" });
+      const listed = await sidecarJson(
+        "GET",
+        `/stored-sessions?kind=code&limit=${SIDECAR_LIST_LIMIT}`,
+        undefined,
+        15_000,
+      );
+      if (!listed || listed.status >= 500) {
+        done(name === null ? "list" : "status", 503);
+        return json(res, 503, { error: "projects_unavailable" });
+      }
+      if (listed.status !== 200) return json(res, 502, { error: "sidecar error" });
+      const rows = savedRows(listed.body);
+      const jobs = codeJobs();
+      if (name === null) {
+        const projects = projectSummaries(await projectFolders(roots, scan), rows, jobs);
+        done("list", 200);
+        return json(res, 200, { projects });
+      }
+      const project = await findProject(roots, name, scan);
+      if (!project) {
+        done("status", 404);
+        return json(res, 404, { error: "not_found" });
+      }
+      // Its latest update: the newest session's latest prompts and replies.
+      const newest = newestSession(project, rows);
+      const homeCwd = options.homeCwd;
+      const kleios = (cwd: string): boolean => homeCwd !== undefined && holds(homeCwd, cwd);
+      const read =
+        newest !== null && isSessionId(newest)
+          ? await sidecarJson("GET", `/stored-sessions/${newest}?kind=code`, undefined, 15_000)
+          : null;
+      const latest = read?.status === 200 ? savedSessionRead(read.body, "code", kleios) : null;
+      const docs = newestFirst((await projectDocs(project.real)).map((f) => toEntry(f)));
+      done("status", 200);
+      return json(res, 200, {
+        ...projectStatus(project, rows, jobs),
+        ...(latest ? { latest } : {}),
+        docs: docs.slice(0, STATUS_DOCS_MAX),
+      });
+    }
+    // A specialist's latest messages, for her voice's read_specialist: read
+    // from its saved conversation (the sidecar's listing, found by its folder),
+    // so no session is opened for it. Any paired device, like its runs.
+    const specialist = path.match(/^\/kleio\/blobs\/(b_[0-9a-f]{8})\/messages$/);
+    if (specialist && blobs && options.homeCwd !== undefined) {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const blobId = specialist[1] ?? "";
+      if (!(await blobs.find(blobId))) return json(res, 404, { error: "no such agent" });
+      const since = Date.now();
+      const r = await threadMessages(join(options.homeCwd, "blobs", blobId));
+      log(
+        `[voice] ${auth.device.label}: specialist messages ${r.ok ? 200 : 503} in ${Date.now() - since} ms`,
+      );
+      return r.ok
+        ? json(res, 200, r.value ?? { messages: [] })
+        : json(res, 503, { error: "sessions_unavailable" });
     }
     if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });

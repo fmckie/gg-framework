@@ -495,8 +495,55 @@ export const listSavedSessions = (kind: SavedSessionKind): Promise<{ sessions: S
 export const readSavedSession = (kind: SavedSessionKind, id: string): Promise<SavedSessionRead> =>
   call("GET", `/kleio/sessions/${encodeURIComponent(id)}?kind=${kind}`);
 
-/** Whose files: Kleio's own, a specialist's, a group's, a saved chat's or coding session's. */
-export type FileSource = "kleio" | "specialist" | "group" | "chat" | "code";
+// ─── Kleio's projects (her projects folders on the Mac mini, for her voice) ─────────────
+
+/** What a coding agent is doing in a project right now. */
+export interface ProjectNow {
+  readonly state: "working" | "needs_you";
+  /** What it is doing ("Running tests"), or the question it asks. */
+  readonly doing: string;
+}
+
+export interface ProjectSummary {
+  readonly name: string;
+  /** ISO time it was last worked on. */
+  readonly lastActivity: string;
+  /** Its saved coding sessions. */
+  readonly sessions: number;
+  /** Absent when no coding agent is working in it. */
+  readonly now?: ProjectNow;
+}
+
+export interface ProjectStatus extends ProjectSummary {
+  /** Its newest coding sessions, newest first. */
+  readonly recent: readonly { readonly title: string; readonly lastActivity: string }[];
+  /** Its newest coding session's latest prompts and replies. */
+  readonly latest?: SavedSessionRead;
+  /** Its newest documents (README, docs, its coding agents' plans), newest first. */
+  readonly docs: readonly AgentFileEntry[];
+}
+
+/** Kleio's projects, most recently worked on first (at most 40). */
+export const listProjects = (): Promise<{ projects: ProjectSummary[] }> =>
+  call("GET", "/kleio/projects");
+
+/** One project's status: what's running in it, its latest update, its documents. */
+export const readProject = (name: string): Promise<ProjectStatus> =>
+  call("GET", `/kleio/projects${query({ name })}`);
+
+/** Makes a new, empty project; `name` is lowercase words joined by dashes. */
+export const newProject = (name: string): Promise<{ name: string }> =>
+  call("POST", "/kleio/projects", { name });
+
+/** Starts a coding agent on `prompt` in a project (it shows in Code; a push comes when it's done). */
+export const startCodeWork = (
+  project: string,
+  prompt: string,
+): Promise<{ project: string; sessionId: string }> =>
+  call("POST", "/kleio/projects/code", { name: project, prompt });
+
+/** Whose files: Kleio's own, a specialist's, a group's, a saved chat's or coding session's, a project's. */
+export type FileSource = "kleio" | "specialist" | "group" | "chat" | "code" | "project";
 
 export type FileKind =
   | "pdf"
@@ -599,6 +646,12 @@ export const newBlobSession = (id: string): Promise<ThreadSession> =>
 
 export const listRuns = async (id: string): Promise<Run[]> =>
   (await call<{ runs: Run[] }>("GET", `${blobPath(id)}/runs`)).runs;
+
+/** A specialist's latest prompts and replies, oldest first; none before its first conversation. */
+export const listSpecialistMessages = (
+  id: string,
+): Promise<{ messages: SavedSessionRead["messages"]; lastActivity?: string }> =>
+  call("GET", `${blobPath(id)}/messages`);
 
 /** The tool calls of the agent's run in progress; none between runs. */
 export const getBlobActivity = async (id: string): Promise<ToolActivityEntry[]> =>

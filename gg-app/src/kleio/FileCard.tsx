@@ -109,6 +109,11 @@ interface CardProps {
   path: string;
   /** The link's text, e.g. "Download your AI research report — 1 October 2026". */
   label: string;
+  /**
+   * Named in the reply rather than linked ("`report.pdf`"): shown only once the
+   * file is found, never as a missing card (the agent may have meant another folder).
+   */
+  named?: boolean;
 }
 
 export function FileCard(props: CardProps): React.ReactElement {
@@ -152,9 +157,11 @@ function SiteCard({ owner, path, label }: CardProps): React.ReactElement {
         <span className="kleio-file-title" title={title}>
           {title}
         </span>
-        <span className="kleio-file-name" title={name}>
-          {name}
-        </span>
+        {title !== name && (
+          <span className="kleio-file-name" title={name}>
+            {name}
+          </span>
+        )}
         <span className="kleio-file-meta">Website · opens in your browser</span>
         <span className="kleio-file-actions">
           <button
@@ -178,7 +185,7 @@ function SiteCard({ owner, path, label }: CardProps): React.ReactElement {
 }
 
 /** Any other file: fetched once in view for its size and first-page preview. */
-function DocumentCard({ owner, path, label }: CardProps): React.ReactElement {
+function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElement | null {
   const name = path.split("/").pop() ?? path;
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [busy, setBusy] = useState<"open" | "save" | null>(null);
@@ -213,6 +220,8 @@ function DocumentCard({ owner, path, label }: CardProps): React.ReactElement {
     }
   }
 
+  // A file the reply only named, and that isn't there, is no card at all.
+  if (named && load.state === "error") return null;
   const info = load.state === "ready" ? load.info : null;
   const thumb = info?.thumbnail ?? null;
   const missing = load.state === "error";
@@ -246,9 +255,12 @@ function DocumentCard({ owner, path, label }: CardProps): React.ReactElement {
         <span className="kleio-file-title" title={title}>
           {title}
         </span>
-        <span className="kleio-file-name" title={name}>
-          {name}
-        </span>
+        {/* A card titled with the file's name (one the reply named, not linked) shows it once. */}
+        {title !== name && (
+          <span className="kleio-file-name" title={name}>
+            {name}
+          </span>
+        )}
         <span className="kleio-file-meta">
           {missing ? (
             <>
@@ -293,19 +305,25 @@ function DocumentCard({ owner, path, label }: CardProps): React.ReactElement {
   );
 }
 
-/** The cards for every agent-folder file a message links to. */
+/** The cards for every agent-folder file a message links to or names. */
 export function FileCards({
   owner,
   links,
 }: {
   owner: FileOwner;
-  links: readonly { path: string; label: string }[];
+  links: readonly { path: string; label: string; named?: boolean }[];
 }): React.ReactElement | null {
   if (links.length === 0) return null;
   return (
     <div className="kleio-files">
       {links.map((l) => (
-        <FileCard key={l.path} owner={owner} path={l.path} label={l.label} />
+        <FileCard
+          key={l.path}
+          owner={owner}
+          path={l.path}
+          label={l.label}
+          named={l.named === true}
+        />
       ))}
     </div>
   );

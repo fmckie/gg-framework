@@ -64,6 +64,41 @@ describe("FileCard", () => {
     ).toBe(true);
   });
 
+  it("shows the name once when the card is titled with it", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      name: PATH,
+      size: 10,
+      mime: "application/pdf",
+      thumbnail: null,
+    });
+    await act(async () => {
+      render(<FileCard owner={OWNER} path={PATH} label={PATH} />);
+    });
+    await waitFor(() => expect(screen.getByText("PDF document · 10 bytes")).toBeTruthy());
+    expect(screen.getAllByText(PATH)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Save a copy/ })).toBeTruthy();
+  });
+
+  it("shows a file the reply only named once it's found, and nothing when it isn't there", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("no such file"));
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<FileCard owner={OWNER} path="chart.png" label="chart.png" named />);
+    });
+    await waitFor(() => expect(view?.container.innerHTML).toBe(""));
+    cleanup();
+    vi.mocked(invoke).mockResolvedValue({
+      name: "chart.png",
+      size: 2048,
+      mime: "image/png",
+      thumbnail: null,
+    });
+    await act(async () => {
+      render(<FileCard owner={OWNER} path="chart.png" label="chart.png" named />);
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save a copy/ })).toBeTruthy());
+  });
+
   it("fetches a Chat/Code file by its workspace owner", async () => {
     const owner = { kind: "workspace", cwd: "/Users/k/kleio-projects/demo" } as const;
     vi.mocked(invoke).mockResolvedValue({

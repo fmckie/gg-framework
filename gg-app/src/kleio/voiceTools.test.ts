@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "./kleioApi";
-import { createVoiceTools, matchByName } from "./voiceTools";
+import { createVoiceTools, matchByName, projectSlug } from "./voiceTools";
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   KleioApiError: (await importOriginal<typeof api>()).KleioApiError,
   listAgentFiles: vi.fn(),
   readAgentFile: vi.fn(),
+  listProjects: vi.fn(),
+  readProject: vi.fn(),
+  newProject: vi.fn(),
+  startCodeWork: vi.fn(),
+  listSpecialistMessages: vi.fn(),
   getBrief: vi.fn(),
   getHome: vi.fn(),
   getBlobSession: vi.fn(),
@@ -487,6 +492,13 @@ describe("agents' files", () => {
       whose: "app Dark mode",
     });
     expect(api.listAgentFiles).toHaveBeenLastCalledWith("code", "k1");
+    vi.mocked(api.listProjects).mockResolvedValue({
+      projects: [{ name: "recipe-app", lastActivity: "2026-10-07T09:00:00.000Z", sessions: 1 }],
+    });
+    expect(await tools.run("list_files", { from: "project", name: "recipe app" })).toMatchObject({
+      whose: "recipe-app",
+    });
+    expect(api.listAgentFiles).toHaveBeenLastCalledWith("project", "recipe-app");
     expect(await tools.run("list_files", { from: "specialist", name: "Pilot" })).toMatchObject({
       error: expect.stringContaining("No one called"),
     });
@@ -706,5 +718,280 @@ describe("agents' files", () => {
     const tools = createVoiceTools({ onEnd: vi.fn(), log: (l) => lines.push(l) });
     await tools.run("read_file", { from: "kleio", file: "notes.md" });
     expect(lines.join("\n")).not.toMatch(/notes|secret/);
+  });
+});
+
+describe("specialists' and groups' latest messages", () => {
+  it("reads a specialist's latest messages, its newest reply at length", async () => {
+    const { tools } = setup();
+    vi.mocked(api.listRuns).mockResolvedValue([]);
+    vi.mocked(api.listSpecialistMessages).mockResolvedValue({
+      messages: [
+        { from: "user", text: "Plan dinners for the week." },
+        { from: "assistant", text: "x".repeat(5_000) },
+      ],
+      lastActivity: "2026-10-07T09:00:00.000Z",
+    });
+    const out = await tools.run("read_specialist", { name: "the chef" });
+    expect(api.listSpecialistMessages).toHaveBeenCalledWith("b1");
+    expect(out).toMatchObject({
+      name: "Chef",
+      latest_messages: [{ from: "the user", text: "Plan dinners for the week." }, { from: "Chef" }],
+    });
+    const said = out.latest_messages as { text: string }[];
+    expect(said[1]?.text).toHaveLength(5_000);
+  });
+
+  it("still answers with the runs when the Mac mini can't send the messages", async () => {
+    const { tools } = setup();
+    vi.mocked(api.listRuns).mockResolvedValue([]);
+    vi.mocked(api.listSpecialistMessages).mockRejectedValue(new api.KleioApiError(404, "x"));
+    const out = await tools.run("read_specialist", { name: "Chef" });
+    expect(out).toMatchObject({ name: "Chef", recent_runs: [] });
+    expect(out).not.toHaveProperty("latest_messages");
+    expect(out).not.toHaveProperty("error");
+  });
+
+  it("reads a group's newest member reply at length, the rest clipped", async () => {
+    const { tools } = setup();
+    const msg = (author: string, authorName: string, text: string): api.GroupMessage => ({
+      seq: 1,
+      id: author,
+      author,
+      authorName,
+      emoji: "",
+      text,
+      at: "2026-10-07T09:00:00.000Z",
+    });
+    vi.mocked(api.listGroupMessages).mockResolvedValue({
+      messages: [
+        msg("b1", "Chef", "a".repeat(1_000)),
+        msg("b2", "Scout", "b".repeat(1_000)),
+        msg("you", "You", "c".repeat(1_000)),
+      ],
+      typing: [],
+    } as unknown as Awaited<ReturnType<typeof api.listGroupMessages>>);
+    const out = await tools.run("read_group", { name: "launch" });
+    const said = out.latest_messages as { from: string; text: string }[];
+    expect(said.map((m) => [m.from, m.text.length])).toEqual([
+      ["Chef", 400],
+      ["Scout", 1_000],
+      ["the user", 400],
+    ]);
+  });
+});
+
+describe("projectSlug", () => {
+  it("turns what they said into a project's name", () => {
+    expect(projectSlug("Recipe App")).toBe("recipe-app");
+    expect(projectSlug("  Café Finder! ")).toBe("cafe-finder");
+    expect(projectSlug("--x--")).toBe("x");
+    expect(projectSlug("v2 of the API")).toBe("v2-of-the-api");
+    expect(projectSlug("!!!")).toBe("");
+    expect(projectSlug(`${"a".repeat(63)} b`)).toBe("a".repeat(63));
+  });
+});
+
+describe("projects", () => {
+  const PROJECTS: api.ProjectSummary[] = [
+    {
+      name: "recipe-app",
+      lastActivity: "2026-10-07T09:00:00.000Z",
+      sessions: 2,
+      now: { state: "working", doing: "Running the tests" },
+    },
+    { name: "gg-framework", lastActivity: "2026-10-05T09:00:00.000Z", sessions: 5 },
+  ];
+  function withProjects(
+    deps: Partial<Parameters<typeof createVoiceTools>[0]> = {},
+  ): ReturnType<typeof createVoiceTools> {
+    vi.mocked(api.listBlobs).mockResolvedValue([CHEF, SCOUT] as unknown as api.Blob[]);
+    vi.mocked(api.listGroups).mockResolvedValue([LAUNCH] as unknown as api.Group[]);
+    vi.mocked(api.listProjects).mockResolvedValue({ projects: PROJECTS });
+    return createVoiceTools({ onEnd: vi.fn(), ...deps });
+  }
+
+  it("lists them with what a coding agent is doing in one", async () => {
+    const tools = withProjects();
+    expect(await tools.run("list_projects", {})).toEqual({
+      projects: [
+        {
+          name: "recipe-app",
+          last_worked_on: "2026-10-07T09:00:00.000Z",
+          coding_sessions: 2,
+          now: "Working: Running the tests",
+        },
+        { name: "gg-framework", last_worked_on: "2026-10-05T09:00:00.000Z", coding_sessions: 5 },
+      ],
+    });
+    vi.mocked(api.listProjects).mockResolvedValue({ projects: [] });
+    expect(await tools.run("list_projects", {})).toEqual({
+      projects: [],
+      note: "No projects yet.",
+    });
+  });
+
+  it("reads the one they mean: what's running, its latest update and its documents", async () => {
+    const tools = withProjects();
+    vi.mocked(api.readProject).mockResolvedValue({
+      name: "recipe-app",
+      lastActivity: "2026-10-07T09:00:00.000Z",
+      sessions: 2,
+      now: { state: "needs_you", doing: "Which database should I use?" },
+      recent: [{ title: "Add search", lastActivity: "2026-10-07T09:00:00.000Z" }],
+      latest: {
+        id: "k1",
+        title: "Add search",
+        project: "recipe-app",
+        lastActivity: "2026-10-07T09:00:00.000Z",
+        messages: [
+          { from: "user", text: "Add search." },
+          { from: "assistant", text: "y".repeat(6_000) },
+        ],
+      },
+      docs: [
+        {
+          path: ".gg/plans/search.md",
+          name: "search.md",
+          kind: "text",
+          size: 900,
+          modified: "2026-10-07T08:00:00.000Z",
+          readable: true,
+        },
+      ],
+    });
+    const out = await tools.run("read_project", { name: "the recipe app project" });
+    expect(api.readProject).toHaveBeenCalledWith("recipe-app");
+    expect(out).toMatchObject({
+      name: "recipe-app",
+      coding_sessions: 2,
+      now: "Waiting for the user: Which database should I use?",
+      recent_sessions: [{ title: "Add search" }],
+      latest_update: {
+        session: "Add search",
+        latest_messages: [{ from: "the user", text: "Add search." }, { from: "the coding agent" }],
+      },
+      documents: [{ file: ".gg/plans/search.md", made: "2026-10-07T08:00:00.000Z" }],
+      next: expect.stringContaining("read_file"),
+    });
+    const update = out.latest_update as { latest_messages: { text: string }[] };
+    expect(update.latest_messages[1]?.text).toHaveLength(6_000);
+    expect(await tools.run("read_project", { name: "pottery" })).toMatchObject({
+      error: expect.stringContaining('No project called "pottery"'),
+    });
+    expect(await tools.run("read_project", {})).toMatchObject({ error: "No name given." });
+  });
+
+  it("makes a project only on what the user said, a few per turn", async () => {
+    const lines: string[] = [];
+    const onMade = vi.fn();
+    const tools = withProjects({ onMade, log: (l) => lines.push(l) });
+    vi.mocked(api.newProject).mockImplementation((name) => Promise.resolve({ name }));
+    // Nothing is made before they've said anything.
+    expect(await tools.run("create_project", { name: "x" })).toMatchObject({
+      error: expect.stringContaining("Not made"),
+    });
+    tools.userSpoke(); // "Make a new project for a recipe app."
+    expect(await tools.run("create_project", { name: "Recipe App!" })).toMatchObject({
+      made: true,
+      project: "recipe-app",
+      next: expect.stringContaining("draft_plan"),
+    });
+    expect(api.newProject).toHaveBeenCalledWith("recipe-app");
+    expect(onMade).toHaveBeenCalledWith("project recipe-app");
+    expect(await tools.run("create_project", { name: "two" })).toMatchObject({ made: true });
+    expect(await tools.run("create_project", { name: "three" })).toMatchObject({
+      error: expect.stringContaining("already made 2"),
+    });
+    tools.userSpoke();
+    expect(await tools.run("create_project", { name: "!!!" })).toMatchObject({
+      error: expect.stringContaining("short name"),
+    });
+    vi.mocked(api.newProject).mockRejectedValueOnce(new api.KleioApiError(409, "exists"));
+    expect(await tools.run("create_project", { name: "recipe-app" })).toEqual({
+      error: "There's already a project called recipe-app. Use it, or choose another name.",
+    });
+    // Straight after reading their work: what she read could have asked for it.
+    await tools.run("list_projects", {});
+    expect(await tools.run("create_project", { name: "four" })).toMatchObject({
+      error: expect.stringContaining("Not made"),
+    });
+    expect(api.newProject).toHaveBeenCalledTimes(3);
+    expect(lines.join("\n")).not.toMatch(/recipe|two|four/);
+  });
+
+  it("starts a coding agent in a project only after they've heard the brief and said yes", async () => {
+    const onSent = vi.fn();
+    const tools = withProjects({ onSent });
+    vi.mocked(api.startCodeWork).mockResolvedValue({ project: "recipe-app", sessionId: "k9" });
+    tools.userSpoke(); // "Get a coding agent to add search to the recipe app."
+    expect(
+      await tools.run("draft_plan", {
+        project: "recipe app",
+        plan: "Add search to the recipes page.",
+      }),
+    ).toMatchObject({
+      draft_id: "d1",
+      project: "recipe-app",
+      next: expect.stringContaining("Read the brief back briefly"),
+    });
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toMatchObject({
+      error: expect.stringContaining("haven't answered"),
+    });
+    expect(api.startCodeWork).not.toHaveBeenCalled();
+    tools.userSpoke(); // "Yes, start it."
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toMatchObject({
+      started: true,
+      project: "recipe-app",
+      next: expect.stringContaining("open it from Code"),
+    });
+    expect(api.startCodeWork).toHaveBeenCalledWith("recipe-app", "Add search to the recipes page.");
+    expect(onSent).toHaveBeenCalledWith("a coding agent in recipe-app");
+    // Started once: the draft is gone.
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toHaveProperty("error");
+    expect(api.startCodeWork).toHaveBeenCalledTimes(1);
+    expect(await tools.run("draft_plan", { project: "pottery", plan: "x" })).toMatchObject({
+      error: expect.stringContaining('No project called "pottery"'),
+    });
+  });
+
+  it("asks for the whole brief back when it was drafted from what she just read", async () => {
+    const tools = withProjects();
+    vi.mocked(api.readProject).mockResolvedValue({
+      name: "recipe-app",
+      lastActivity: "2026-10-07T09:00:00.000Z",
+      sessions: 0,
+      recent: [],
+      docs: [],
+    });
+    tools.userSpoke(); // "Read the plan in recipe app and get it built."
+    await tools.run("read_project", { name: "recipe-app" });
+    expect(
+      await tools.run("draft_plan", { project: "recipe-app", plan: "Build what the plan says." }),
+    ).toMatchObject({ next: expect.stringContaining("word for word") });
+  });
+
+  it("keeps the brief when the Mac can't start it, and says why", async () => {
+    const tools = withProjects();
+    tools.userSpoke();
+    await tools.run("draft_plan", { project: "recipe-app", plan: "Fix the failing tests." });
+    tools.userSpoke();
+    vi.mocked(api.startCodeWork).mockRejectedValueOnce(new api.KleioApiError(429, "too_many"));
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toEqual({
+      error: expect.stringContaining("still running"),
+    });
+    vi.mocked(api.startCodeWork).mockRejectedValueOnce(new api.KleioApiError(404, "not_found"));
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toEqual({
+      error: "There's no project called recipe-app any more.",
+    });
+    vi.mocked(api.startCodeWork).mockResolvedValueOnce({ project: "recipe-app", sessionId: "k1" });
+    expect(await tools.run("send_plan", { draft_id: "d1" })).toMatchObject({ started: true });
+  });
+
+  it("tells her to name a project for coding work when `to` names no one", async () => {
+    const tools = withProjects();
+    expect(await tools.run("draft_plan", { to: "recipe app", plan: "x" })).toMatchObject({
+      error: expect.stringContaining("give project instead of to"),
+    });
   });
 });

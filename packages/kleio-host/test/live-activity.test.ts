@@ -7,7 +7,7 @@ import {
   type SidecarFrame,
   type StartToken,
 } from "../src/live-activity.js";
-import { clipText, stepText } from "../src/live-text.js";
+import { clipText, stepDone, stepText, toolStep } from "../src/live-text.js";
 
 const T0 = 1_790_000_000_000; // ms
 const S0 = T0 / 1000;
@@ -42,7 +42,70 @@ describe("stepText", () => {
   });
 });
 
+describe("toolStep and stepDone", () => {
+  it("names each step's kind, and says it in the past once done", () => {
+    expect(toolStep("read", { path: "/a/host.ts" })).toEqual({
+      kind: "read",
+      line: "Reading host.ts",
+      done: "Read host.ts",
+    });
+    expect(toolStep("bash", { command: "rm -rf /" })).toEqual({
+      kind: "command",
+      line: "Running a command",
+      done: "Ran a command",
+    });
+    expect(toolStep("edit", {}).done).toBe("Edited a file");
+    // Every file search is one kind; two different unknown tools are two.
+    expect(toolStep("grep", {}).kind).toBe(toolStep("find", {}).kind);
+    expect(toolStep("mcp__a", {}).kind).not.toBe(toolStep("mcp__b", {}).kind);
+  });
+
+  it("counts a step of several calls; searches read the same however many", () => {
+    expect(stepDone("read", 1, "Read host.ts")).toBe("Read host.ts");
+    expect(stepDone("read", 3, "Read b.ts")).toBe("Read 3 files");
+    expect(stepDone("command", 2, "Ran a command")).toBe("Ran 2 commands");
+    expect(stepDone("search", 4, "Searched files")).toBe("Searched files");
+    expect(stepDone("tool:mcp__a", 2, "Used a tool")).toBe("Used a tool 2 times");
+  });
+});
+
 describe("reduceFrame", () => {
+  it("counts steps: calls of one kind in a row are one, with the last finished one in the past tense", () => {
+    const out = run([
+      { type: "run_start" },
+      { type: "tool_call_start", data: { name: "read", args: { path: "src/a.ts" } } },
+      { type: "tool_call_end", data: {} },
+      { type: "tool_call_start", data: { name: "read", args: { path: "src/b.ts" } } },
+      { type: "tool_call_end", data: {} },
+      { type: "tool_call_start", data: { name: "edit", args: { path: "src/b.ts" } } },
+      {
+        type: "ask_user",
+        data: { id: "ask-1", questions: [{ id: "q", kind: "confirm", question: "Ship it?" }] },
+      },
+      { type: "ask_user_done", data: {} },
+      { type: "tool_call_start", data: { name: "bash", args: { command: "pnpm test" } } },
+      { type: "run_end", data: { failed: true } },
+    ]);
+    expect(out.map((r) => r && [r.state.step ?? 0, r.state.prevLine ?? "", r.state.line])).toEqual([
+      [0, "", "Thinking…"],
+      [1, "", "Reading a.ts"],
+      [1, "Read a.ts", "Thinking…"],
+      [1, "Read a.ts", "Reading b.ts"],
+      [1, "Read 2 files", "Thinking…"],
+      [2, "Read 2 files", "Editing b.ts"],
+      // A question and its answer keep the trail.
+      [2, "Read 2 files", "Needs your help"],
+      [2, "Read 2 files", "Back to work"],
+      [3, "Edited b.ts", "Running a command"],
+      [3, "", "Something went wrong"],
+    ]);
+    // The end keeps how far it got, and none of the host's bookkeeping.
+    expect(out[9]?.state).toMatchObject({ phase: "failed", step: 3 });
+    expect(out[9]?.state).not.toHaveProperty("trail");
+    // A new run counts from the start again.
+    expect(reduceFrame(out[8]?.state, { type: "run_start" }, T0)?.state.step).toBeUndefined();
+  });
+
   it("walks a run: thinking, steps, done only when the run ends", () => {
     const out = run([
       { type: "run_start", data: { text: "go" } },
@@ -293,6 +356,30 @@ describe("createLiveActivityTracker", () => {
     expect(sent[0]!.push.staleDate).toBe(S0 + 1800);
   });
 
+  it("sends the step trail, never the host's bookkeeping behind it", async () => {
+    const t = tracker();
+    t.register("s:s1", reg);
+    t.onFrame("s1", { type: "run_start" });
+    await flush();
+    clock += 5_000;
+    t.onFrame("s1", { type: "tool_call_start", data: { name: "read", args: { path: "x/a.ts" } } });
+    await flush();
+    expect(sent.at(-1)!.push.contentState).toEqual({
+      phase: "working",
+      line: "Reading a.ts",
+      startedAt: S0,
+      step: 1,
+    });
+    expect(t.state("s:s1")?.trail).toEqual({ kind: "read", calls: 1, last: "Read a.ts" });
+    t.onFrame("s1", { type: "run_end", data: {} });
+    await flush();
+    expect(sent.at(-1)!.push).toMatchObject({
+      event: "end",
+      contentState: { phase: "done", step: 1 },
+    });
+    expect(sent.at(-1)!.push.contentState).not.toHaveProperty("trail");
+  });
+
   it("paces routine steps to one per 5 s, latest wins; phase changes go at once at priority 10", async () => {
     const t = tracker();
     t.register("s:s1", reg);
@@ -328,7 +415,14 @@ describe("createLiveActivityTracker", () => {
     expect(sent.map((s) => s.push.event)).toEqual(["update", "end"]);
     const end = sent[1]!.push;
     expect(end).toMatchObject({ priority: 10, dismissalDate: S0 + 1800 });
-    expect(end.contentState).toEqual({ phase: "done", line: "Done", startedAt: S0, endedAt: S0 });
+    // With how far it got: one step.
+    expect(end.contentState).toEqual({
+      phase: "done",
+      line: "Done",
+      startedAt: S0,
+      endedAt: S0,
+      step: 1,
+    });
     expect(end.staleDate).toBeUndefined();
     vi.advanceTimersByTime(10_000);
     await flush();

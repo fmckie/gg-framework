@@ -380,6 +380,7 @@ export async function startCall(): Promise<void> {
         L.hangup = setTimeout(() => endCall(), HANGUP_GRACE_MS);
       },
       onSent: (to) => addLine("kleio", `(Sent to ${to}.)`),
+      onMade: (what) => addLine("kleio", `(Made ${what}.)`),
       log: (l) => console.info(l),
     });
     live = {

@@ -31,6 +31,11 @@ struct KleioActivityAttributes: ActivityAttributes {
     var recommended: Int?
     /// When done: the result in one plain line. Optional: older hosts don't send it.
     var summary: String?
+    /// The run's step trail: which step it's on (tool calls of one kind in a
+    /// row count once), and while working, the last finished step in the past
+    /// tense ("Read 3 files"). Optional: older hosts don't send them.
+    var step: Int?
+    var prevLine: String?
   }
 
   /// chat | code | specialist | group
