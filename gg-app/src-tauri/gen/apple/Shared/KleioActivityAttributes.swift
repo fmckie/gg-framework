@@ -29,6 +29,8 @@ struct KleioActivityAttributes: ActivityAttributes {
     var options: [String]?
     /// The option the agent recommends (it stands out).
     var recommended: Int?
+    /// When done: the result in one plain line. Optional: older hosts don't send it.
+    var summary: String?
   }
 
   /// chat | code | specialist | group

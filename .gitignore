@@ -16,6 +16,8 @@ coverage/
 !/.gg/commands/
 /.gg/commands/*
 !/.gg/commands/release.md
+# The agent's per-machine record of the checks it ran: local state, like .gg/.
+/.gg-checklist.json
 
 # After Effects source projects never belong in the repo.
 *.[aA][eE][pP]

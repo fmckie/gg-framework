@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import type { Message } from "@kleio/ai";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -23,6 +24,7 @@ import {
   resolveSessionPath,
   sessionGroupPaths,
 } from "./core/session-storage.js";
+import { sessionFilesFromMessages } from "./session-files.js";
 import { MOTION_SESSIONS_QUERY, motionSessionsDir } from "./motion-agent/motion-agent.js";
 
 const CODING_SESSION_LIMIT = 5;
@@ -368,13 +370,17 @@ export async function readStoredSession(opts: {
   id: string;
   coderSessionsDir: string;
   limit?: number | undefined;
-}): Promise<{ session: StoredSession; messages: StoredMessage[] } | null> {
+  /** Also list the files the session made (`files=1`). */
+  files?: boolean | undefined;
+}): Promise<{ session: StoredSession; messages: StoredMessage[]; files?: string[] } | null> {
   const row = (await storedRows(opts.kind, opts.coderSessionsDir)).find((r) => r.id === opts.id);
   if (!row) return null;
-  const messages = await readStoredMessages(row.path);
+  const branch = await readStoredBranch(row.path);
+  const messages = storedMessages(branch);
   return {
     session: storedSession(row),
     messages: messages.slice(-countOr(opts.limit, STORED_READ_DEFAULT, STORED_READ_MAX)),
+    ...(opts.files ? { files: sessionFilesFromMessages(branch, row.cwd) } : {}),
   };
 }
 
@@ -392,12 +398,8 @@ function replyText(content: unknown): string {
     .join("\n\n");
 }
 
-/**
- * The active branch's user-authored prompts and assistant replies, as the app
- * shows them on resume: tool calls and results, thinking, and injected notes
- * (background updates, compaction summaries) are left out.
- */
-async function readStoredMessages(filePath: string): Promise<StoredMessage[]> {
+/** The active branch's messages, without hidden (runtime-only) ones. */
+async function readStoredBranch(filePath: string): Promise<Message[]> {
   let leafId: string | null = null;
   const entries: SessionEntry[] = [];
   const { stream, close } = await openSessionReadStream(filePath);
@@ -424,9 +426,17 @@ async function readStoredMessages(filePath: string): Promise<StoredMessage[]> {
   let messages = manager.getMessages(entries, leafId);
   // A leaf that names nothing here: read it in order rather than say nothing.
   if (messages.length === 0 && leafId) messages = manager.getMessages(entries, null);
+  return messages.filter((message) => message.provenance?.visibility !== "hidden");
+}
+
+/**
+ * The active branch's user-authored prompts and assistant replies, as the app
+ * shows them on resume: tool calls and results, thinking, and injected notes
+ * (background updates, compaction summaries) are left out.
+ */
+function storedMessages(messages: readonly Message[]): StoredMessage[] {
   const out: StoredMessage[] = [];
   for (const message of messages) {
-    if (message.provenance?.visibility === "hidden") continue;
     if (message.role === "user") {
       const text = getUserSessionPrompt(message.content, message.provenance);
       if (text) out.push({ role: "user", text: clipWords(text, STORED_TEXT_MAX) });

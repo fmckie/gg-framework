@@ -63,6 +63,12 @@ export interface FakeSidecar {
   stored: { chat: unknown[]; code: unknown[]; reads: Record<string, unknown> };
   /** Every GET /stored-sessions… path and query, in order. */
   storedCalls: string[];
+  /**
+   * POST /file-text answers this status and body; null body = `{ text: <the
+   * bytes as UTF-8> }`. Every call's name, content type and body lands in fileTextCalls.
+   */
+  fileText: { status: number; body: unknown | null };
+  fileTextCalls: { name: string | null; type: string | undefined; bytes: Buffer }[];
   close(): Promise<void>;
 }
 
@@ -262,6 +268,21 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/file-text") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const bytes = Buffer.concat(chunks);
+        api.fileTextCalls.push({
+          name: url.searchParams.get("name"),
+          type: req.headers["content-type"],
+          bytes,
+        });
+        res.writeHead(api.fileText.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(api.fileText.body ?? { text: bytes.toString("utf8") }));
+      });
+      return;
+    }
     if (req.method === "GET" && url.pathname.startsWith("/stored-sessions")) {
       api.storedCalls.push(url.pathname + url.search);
       if (url.pathname === "/stored-sessions") {
@@ -310,6 +331,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     brainCalls: [],
     stored: { chat: [], code: [], reads: {} },
     storedCalls: [],
+    fileText: { status: 200, body: null },
+    fileTextCalls: [],
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();

@@ -266,18 +266,37 @@ mod ios {
     struct Swift {
         begin: extern "C" fn(ReportFn),
         start: extern "C" fn(*const c_char),
+        end_finished: extern "C" fn(*const c_char),
     }
 
     static SWIFT: OnceLock<Swift> = OnceLock::new();
     static APP: OnceLock<AppHandle> = OnceLock::new();
 
-    /// main.mm: `kleio_live_install(kleio_live_begin, kleio_live_start)`.
+    /// main.mm: `kleio_live_install(kleio_live_begin, kleio_live_start,
+    /// kleio_live_end_finished)`.
     #[no_mangle]
     pub extern "C" fn kleio_live_install(
         begin: extern "C" fn(ReportFn),
         start: extern "C" fn(*const c_char),
+        end_finished: extern "C" fn(*const c_char),
     ) {
-        let _ = SWIFT.set(Swift { begin, start });
+        let _ = SWIFT.set(Swift {
+            begin,
+            start,
+            end_finished,
+        });
+    }
+
+    /// A conversation was opened: end its Live Activity if it has finished
+    /// (done, failed or stopped; Swift leaves working and needsYou alone).
+    pub fn end_finished(tap: &crate::kleio::push::NotificationTap) {
+        let Some(swift) = SWIFT.get() else {
+            return;
+        };
+        let Some(json) = super::end_finished_request(tap).and_then(|j| CString::new(j).ok()) else {
+            return;
+        };
+        (swift.end_finished)(json.as_ptr());
     }
 
     /// Start collecting tokens. Call from Tauri's `setup`.
@@ -449,13 +468,23 @@ mod ios {
             tap.session_id.is_some(),
             tap.group_id.is_some()
         );
+        end_finished(&tap);
         app.state::<PendingTap>().set(tap);
         let _ = app.emit("kleio-notification-tap", ());
     }
 }
 
 #[cfg(target_os = "ios")]
-pub use ios::{begin, open_url, register_due};
+pub use ios::{begin, end_finished, open_url, register_due};
+
+/// What Swift's `kleio_live_end_finished` gets for an opened conversation:
+/// `{"sessionId":…,"groupId":…}`. `None` when the tap names no conversation.
+pub fn end_finished_request(tap: &NotificationTap) -> Option<String> {
+    if tap.session_id.is_none() && tap.group_id.is_none() {
+        return None;
+    }
+    serde_json::to_string(tap).ok()
+}
 
 /// Show a Live Activity for a conversation (no-op off the iPhone).
 pub fn start(kind: &str, title: &str, session_id: Option<&str>, group_id: Option<&str>) {
@@ -488,6 +517,31 @@ pub fn kleio_live_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn end_finished_request_names_the_conversation() {
+        let tap = NotificationTap {
+            session_id: Some("s1".into()),
+            group_id: Some("g1".into()),
+        };
+        assert_eq!(
+            end_finished_request(&tap).as_deref(),
+            Some(r#"{"sessionId":"s1","groupId":"g1"}"#)
+        );
+        let tap = NotificationTap {
+            session_id: Some("s1".into()),
+            group_id: None,
+        };
+        assert_eq!(
+            end_finished_request(&tap).as_deref(),
+            Some(r#"{"sessionId":"s1","groupId":null}"#)
+        );
+        let none = NotificationTap {
+            session_id: None,
+            group_id: None,
+        };
+        assert_eq!(end_finished_request(&none), None);
+    }
 
     const TOKEN: &str = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9";
 

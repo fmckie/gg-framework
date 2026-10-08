@@ -22,6 +22,21 @@ export function readCappedBody(
   res: http.ServerResponse,
   maxBytes: number = MAX_HTTP_BODY_BYTES,
 ): Promise<string | null> {
+  return readCappedBodyBuffer(req, res, maxBytes).then((buf) =>
+    buf === null ? null : buf.toString("utf-8"),
+  );
+}
+
+/**
+ * `readCappedBody`, keeping the raw bytes. On overflow it responds 413 with
+ * `overflowBody` (default `{ error: "request body too large" }`) and resolves null.
+ */
+export function readCappedBodyBuffer(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  maxBytes: number = MAX_HTTP_BODY_BYTES,
+  overflowBody: unknown = { error: "request body too large" },
+): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -39,7 +54,7 @@ export function readCappedBody(
               "content-type": "application/json",
               "access-control-allow-origin": "*",
             });
-            res.end(JSON.stringify({ error: "request body too large" }));
+            res.end(JSON.stringify(overflowBody));
           }
         } catch {
           /* response already gone */
@@ -51,7 +66,7 @@ export function readCappedBody(
       chunks.push(buf);
     });
     req.on("end", () => {
-      if (!aborted) resolve(Buffer.concat(chunks).toString("utf-8"));
+      if (!aborted) resolve(Buffer.concat(chunks));
     });
     req.on("error", () => {
       if (!aborted) resolve(null);

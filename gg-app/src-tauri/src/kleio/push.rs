@@ -188,9 +188,36 @@ async fn register_with_host(token: &str, env: ApnsEnv) -> Result<(), String> {
     }
 }
 
+/// Which of the delivered notifications (`(request id, thread id)`) to clear
+/// once one in `thread` was opened: the whole conversation, like Messages.
+/// An empty thread matches nothing (the tapped one is removed on its own).
+pub fn same_thread_ids(thread: &str, delivered: &[(String, String)]) -> Vec<String> {
+    if thread.is_empty() {
+        return Vec::new();
+    }
+    delivered
+        .iter()
+        .filter(|(_, t)| t == thread)
+        .map(|(id, _)| id.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clears_the_opened_conversations_notifications_only() {
+        let delivered = vec![
+            ("a".to_string(), "g1".to_string()),
+            ("b".to_string(), "s2".to_string()),
+            ("c".to_string(), "g1".to_string()),
+            ("d".to_string(), String::new()),
+        ];
+        assert_eq!(same_thread_ids("g1", &delivered), vec!["a", "c"]);
+        assert!(same_thread_ids("", &delivered).is_empty());
+        assert!(same_thread_ids("nope", &delivered).is_empty());
+    }
 
     const DEV_PROFILE: &[u8] = b"\x30\x82junk<plist><dict><key>Entitlements</key><dict>\
         <key>aps-environment</key>\n\t\t<string>development</string>\

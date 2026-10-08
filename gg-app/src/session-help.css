@@ -1,0 +1,138 @@
+/* The session screen's guide (SessionHelp.tsx) and its header button. */
+
+/* ── Mac: a centred card ─────────────────────────────────────────────── */
+
+.modal.session-help {
+  width: min(680px, 100vw - 48px);
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--sans);
+}
+.session-help-body {
+  container-type: inline-size;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -24px -24px;
+  padding: 4px 24px 24px;
+}
+.session-help-section + .session-help-section {
+  margin-top: 20px;
+}
+.session-help-heading {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.session-help-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px 24px;
+}
+@container (min-width: 600px) {
+  .session-help-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.session-help-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.session-help-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.session-help-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text);
+}
+.session-help-text {
+  margin: 2px 0 0;
+  max-width: 68ch;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ── iPhone: a bottom sheet ──────────────────────────────────────────── */
+
+html.platform-ios .modal-backdrop:has(> .session-help-sheet) {
+  align-items: flex-end;
+}
+html.platform-ios .modal.session-help-sheet {
+  position: fixed;
+  left: calc(var(--safe-left) + 12px);
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 12px);
+  width: auto;
+  max-width: none;
+  max-height: 80dvh;
+  padding: 8px 16px 0;
+  /* It floats above the home indicator, so every corner is rounded. */
+  border-radius: var(--radius-card);
+}
+html.platform-ios .session-help-sheet .modal-close {
+  width: 44px;
+  height: 44px;
+  margin-right: -10px;
+}
+html.platform-ios .session-help-sheet .session-help-body {
+  margin: 0 -16px;
+  padding: 0 16px 16px;
+}
+.session-help-list {
+  border-top: 1px solid var(--border);
+}
+.session-help-topic {
+  border-bottom: 1px solid var(--border);
+}
+.session-help-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 4px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--radius-button);
+  transition: background var(--t-fast);
+}
+.session-help-summary::-webkit-details-marker {
+  display: none;
+}
+.session-help-summary .session-help-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.session-help-caret {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform var(--t-fast);
+}
+.session-help-topic[open] .session-help-caret {
+  transform: rotate(90deg);
+}
+.session-help-topic .session-help-text {
+  margin: 0;
+  padding: 0 4px 12px 36px;
+}
+@media (hover: hover) {
+  .session-help-summary:hover {
+    background: var(--surface-3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-help-caret,
+  .session-help-summary {
+    transition: none;
+  }
+}

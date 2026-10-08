@@ -245,8 +245,8 @@ export function ModelSelect({
           {onSelectFollow && (
             <option value={FOLLOW_VALUE}>
               {following
-                ? `Follow GG Coder (${modelDisplayName(models, currentModel)})`
-                : "Follow GG Coder"}
+                ? `Follow Kleio (${modelDisplayName(models, currentModel)})`
+                : "Follow Kleio"}
             </option>
           )}
           {!known && currentModel !== "" && <option value={currentModel}>{currentModel}</option>}
@@ -305,9 +305,9 @@ export function ModelSelect({
                 background: following ? theme.surface2 : "transparent",
               }}
               onClick={chooseFollow}
-              title="Ken adopts whatever model GG Coder is using"
+              title="Muse uses whatever model Kleio is using"
             >
-              Follow GG Coder
+              Follow Kleio
             </button>
           )}
           {groups.map((group) => (

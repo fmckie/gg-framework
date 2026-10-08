@@ -42,14 +42,15 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, sep } from "node:path";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
-import type { ApnsPusher } from "./apns.js";
+import type { ApnsPusher, Nudge } from "./apns.js";
+import { createReplyTracker, noticeFor, type NoticeInput } from "./notification-copy.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
 import {
@@ -61,6 +62,19 @@ import {
   type AgentFile,
   type AgentFileError,
 } from "./files.js";
+import {
+  createTextCache,
+  isReadable,
+  listFolder,
+  MAX_READ_BYTES,
+  newestFirst,
+  partOf,
+  sessionFiles,
+  toEntry,
+  walkable,
+  type AgentFileEntry,
+  type FoundFile,
+} from "./agent-files.js";
 import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { createJev, readKeyFile } from "./jev.js";
@@ -89,6 +103,7 @@ import {
 } from "./voice.js";
 import {
   createLiveActivityTracker,
+  type LiveAlertText,
   type LiveAttributes,
   type SidecarFrame,
 } from "./live-activity.js";
@@ -259,6 +274,66 @@ function parseFileOwner(v: unknown): FileOwner | null {
 /** Whether `dir` is `root` or holds it: a preview of `dir` would expose all of `root`. */
 function holds(dir: string, root: string): boolean {
   return root === dir || root.startsWith(dir.endsWith(sep) ? dir : dir + sep);
+}
+
+/** Whose files list_files / read_file look at. */
+type FilesSource = "kleio" | "specialist" | "group" | "chat" | "code";
+const FILES_SOURCES: ReadonlySet<string> = new Set([
+  "kleio",
+  "specialist",
+  "group",
+  "chat",
+  "code",
+]);
+/** Kleio's top-level folders that belong to other owners (her Blobs and groups). */
+const KLEIO_OTHERS: ReadonlySet<string> = new Set(["blobs", "groups"]);
+/** Longest relative path read_file accepts. */
+const MAX_READ_PATH = 1024;
+/** Highest part read_file accepts (20 MB of text is well under this many parts). */
+const MAX_PART = 100_000;
+
+function isFilesSource(v: unknown): v is FilesSource {
+  return typeof v === "string" && FILES_SOURCES.has(v);
+}
+
+/** A voice files route's failure: the status and body to answer with. */
+interface FilesFailure {
+  readonly status: number;
+  readonly error: string;
+  readonly parts?: number;
+}
+
+function filesFail(status: number, error: string): Result<never, FilesFailure> {
+  return err({ status, error });
+}
+
+/** A validated POST /kleio/voice/files/read body. */
+interface FileReadRequest {
+  readonly source: FilesSource;
+  readonly id: string | null;
+  readonly member: string | null;
+  readonly path: string;
+  readonly part: number;
+}
+
+function parseFileRead(v: unknown): FileReadRequest | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (!isFilesSource(o.source)) return null;
+  if (o.id !== undefined && typeof o.id !== "string") return null;
+  if (o.member !== undefined && typeof o.member !== "string") return null;
+  if (typeof o.path !== "string" || o.path.length === 0 || o.path.length > MAX_READ_PATH)
+    return null;
+  const part = o.part === undefined ? 1 : o.part;
+  if (typeof part !== "number" || !Number.isInteger(part) || part < 1 || part > MAX_PART)
+    return null;
+  return {
+    source: o.source,
+    id: typeof o.id === "string" ? o.id : null,
+    member: typeof o.member === "string" ? o.member : null,
+    path: o.path,
+    part,
+  };
 }
 
 /** Whose files: a Blob, a Blob in a group, or a Chat/Code session's folder. */
@@ -526,8 +601,10 @@ export function createHost(options: HostOptions): Host {
             const frame = s.ring.push(raw);
             for (const sub of s.subs) sub.write(frame.frame);
             const lf = liveFrame(raw);
+            const outcome = replies.onFrame(sessionId, raw);
             // A group member's work shows on its group's activity instead.
-            if (lf && !(groups?.owns(sessionId) ?? false)) liveActivities.onFrame(sessionId, lf);
+            if (lf && !(groups?.owns(sessionId) ?? false))
+              liveActivities.onFrame(sessionId, lf, outcome?.text);
             if (!(groups?.owns(sessionId) ?? false)) briefing.onFrame(sessionId, raw);
             const blobNudge = blobs?.onFrame(sessionId, raw) ?? null;
             groups?.onFrame(sessionId, raw);
@@ -546,8 +623,14 @@ export function createHost(options: HostOptions): Host {
             // A chat started by voice and not yet opened is named in its nudge.
             const startedNudge = started.onRunEnd(sessionId, s.subs.size === 0);
             if (!groupTurn && (blobNudge || s.subs.size === 0) && options.apns?.configured) {
+              const runNudge: Nudge = {
+                sessionId,
+                kind: outcome?.kind ?? "finished",
+                name: startedNudge?.name ?? describeSession(sessionId).title,
+                ...(outcome?.text ? { text: outcome.text } : {}),
+              };
               void options.apns
-                .notify(blobNudge ?? startedNudge ?? { sessionId }, registry.list())
+                .notify(blobNudge ?? runNudge, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
             }
           }
@@ -692,6 +775,13 @@ export function createHost(options: HostOptions): Host {
   // What POST /session asked for, so push-to-start can name the activity.
   // In memory only: after a restart an unknown session reads as a "Chat".
   // A chat started by voice (started-chats.ts) also has its title.
+  // The final reply (or error) of each session's run, quoted by its run-end nudge.
+  const replies = createReplyTracker();
+  /** A Live Activity alert in the notifications' anatomy (title = name, body = substance). */
+  function liveAlert(input: NoticeInput): LiveAlertText {
+    const n = noticeFor(input);
+    return { title: n.title, body: n.body };
+  }
   const sessionKinds = new Map<string, { mode: "chat" | "code"; cwd: string; title?: string }>();
   /** Static attributes for a session's activity. Names only, never secrets. */
   function describeSession(sessionId: string): LiveAttributes {
@@ -733,11 +823,14 @@ export function createHost(options: HostOptions): Host {
         const viaLive = sid
           ? await liveActivities.alert(
               `s:${sid}`,
-              { title: "Needs your help", body: nudge.title ?? "Kleio has a question" },
+              liveAlert({ ...nudge, name: describeSession(sid).title }),
               () => describeSession(sid),
             )
           : false;
-        if (!viaLive) await apns.notify(nudge, registry.list());
+        if (!viaLive) {
+          const name = sid ? describeSession(sid).title : undefined;
+          await apns.notify({ ...nudge, ...(name ? { name } : {}) }, registry.list());
+        }
       })().catch((e) => log(`[apns] ${String(e)}`));
     },
   });
@@ -782,6 +875,7 @@ export function createHost(options: HostOptions): Host {
     s?.upstream?.destroy();
     live.delete(sessionId);
     briefing.forget(sessionId);
+    replies.forget(sessionId);
     await persistTracked().catch(() => {});
   }
 
@@ -907,7 +1001,15 @@ export function createHost(options: HostOptions): Host {
           groupTitles.set(groupId, title);
           return liveActivities.set(`g:${groupId}`, state, {
             fresh: fresh === true,
-            ...(alert ? { alert: { title: "Needs your help", body: state.detail ?? title } } : {}),
+            ...(alert
+              ? {
+                  alert: liveAlert({
+                    kind: "question",
+                    name: title,
+                    ...(state.detail ? { text: state.detail } : {}),
+                  }),
+                }
+              : {}),
             describe: () => ({ kind: "group", title: clipText(title, TITLE_MAX), groupId }),
           });
         },
@@ -991,9 +1093,28 @@ export function createHost(options: HostOptions): Host {
     body?: unknown,
     timeoutMs = 5_000,
   ): Promise<{ status: number; body: unknown } | null> {
+    const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    return sidecarSend(method, path, payload, "application/json", timeoutMs);
+  }
+
+  /** sidecarJson's sibling for a raw-bytes body (POST /file-text); the answer is still JSON. */
+  function sidecarBytes(
+    path: string,
+    bytes: Buffer,
+    timeoutMs: number,
+  ): Promise<{ status: number; body: unknown } | null> {
+    return sidecarSend("POST", path, bytes, "application/octet-stream", timeoutMs);
+  }
+
+  async function sidecarSend(
+    method: "GET" | "POST",
+    path: string,
+    payload: Buffer | null,
+    contentType: string,
+    timeoutMs: number,
+  ): Promise<{ status: number; body: unknown } | null> {
     const ep = await endpoint();
     if (!ep) return null;
-    const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
     return new Promise((resolve) => {
       const req = httpRequest(
         {
@@ -1005,7 +1126,7 @@ export function createHost(options: HostOptions): Host {
             host: `127.0.0.1:${ep.port}`,
             "x-gg-token": ep.token,
             ...(payload
-              ? { "content-type": "application/json", "content-length": String(payload.length) }
+              ? { "content-type": contentType, "content-length": String(payload.length) }
               : {}),
           },
           timeout: timeoutMs,
@@ -1293,6 +1414,200 @@ export function createHost(options: HostOptions): Host {
         return ok({ root: ws.value.dir, workspaceRoot: ws.value.root });
       }
     }
+  }
+
+  // ------------------------------------------------- voice: agents' files
+
+  /** Extracted text of recently read files, by real path + size + mtime. */
+  const fileTexts = createTextCache();
+
+  /** Whether `dir` (a real path) is Kleio's own folder or inside it. */
+  async function inKleiosFolder(cwd: string, dir: string): Promise<boolean> {
+    const homeCwd = options.homeCwd;
+    if (homeCwd === undefined) return false;
+    if (holds(homeCwd, cwd)) return true;
+    try {
+      return holds(await realpath(homeCwd), dir);
+    } catch {
+      return false;
+    }
+  }
+
+  /** A saved chat's or coding session's folder and the files it made there. */
+  async function sessionFolder(
+    kind: "chat" | "code",
+    id: string | null,
+  ): Promise<Result<{ dir: string; files: FoundFile[] }, FilesFailure>> {
+    if (id === null || !isSessionId(id)) return filesFail(400, "bad_request");
+    const r = await sidecarJson(
+      "GET",
+      `/stored-sessions/${id}?kind=${kind}&files=1`,
+      undefined,
+      15_000,
+    );
+    if (!r || r.status >= 500) return filesFail(503, "files_unavailable");
+    if (r.status !== 200 || typeof r.body !== "object" || r.body === null)
+      return filesFail(404, "not_found");
+    const b = r.body as { session?: unknown; files?: unknown };
+    const cwd =
+      typeof b.session === "object" && b.session !== null
+        ? (b.session as { cwd?: unknown }).cwd
+        : undefined;
+    if (typeof cwd !== "string" || !options.workspaceRoots) return filesFail(404, "not_found");
+    const ws = await resolveWorkspaceDir(await options.workspaceRoots(), cwd);
+    if (!ws.ok || (await inKleiosFolder(cwd, ws.value.dir))) return filesFail(404, "not_found");
+    return ok({ dir: ws.value.dir, files: await sessionFiles(ws.value.dir, b.files) });
+  }
+
+  async function blobName(blobId: string): Promise<string | undefined> {
+    return (await blobs?.find(blobId))?.name;
+  }
+
+  /** GET /kleio/voice/files: an owner's files, newest first. */
+  async function listAgentFiles(
+    source: FilesSource,
+    id: string | null,
+  ): Promise<Result<AgentFileEntry[], FilesFailure>> {
+    const homeCwd = options.homeCwd;
+    switch (source) {
+      case "kleio":
+        if (homeCwd === undefined) return filesFail(404, "not_found");
+        return ok(newestFirst((await listFolder(homeCwd, KLEIO_OTHERS)).map((f) => toEntry(f))));
+      case "specialist":
+        if (id === null || !BLOB_ID_RE.test(id)) return filesFail(400, "bad_request");
+        if (homeCwd === undefined || !blobs || !(await blobs.find(id)))
+          return filesFail(404, "not_found");
+        return ok(
+          newestFirst((await listFolder(join(homeCwd, "blobs", id))).map((f) => toEntry(f))),
+        );
+      case "group": {
+        if (id === null || !GROUP_ID_RE.test(id)) return filesFail(400, "bad_request");
+        const members = homeCwd !== undefined && groups ? await groups.members(id) : null;
+        if (homeCwd === undefined || members === null) return filesFail(404, "not_found");
+        const all: AgentFileEntry[] = [];
+        for (const member of members) {
+          if (!BLOB_ID_RE.test(member)) continue;
+          const by = await blobName(member);
+          const found = await listFolder(join(homeCwd, "groups", id, member));
+          for (const f of found) all.push(toEntry(f, { member, ...(by ? { by } : {}) }));
+        }
+        return ok(newestFirst(all));
+      }
+      case "chat":
+      case "code": {
+        const folder = await sessionFolder(source, id);
+        if (!folder.ok) return folder;
+        return ok(newestFirst(folder.value.files.map((f) => toEntry(f))));
+      }
+    }
+  }
+
+  /** Where a read_file request's file must live, after its owner checks. */
+  async function readRoot(q: FileReadRequest): Promise<Result<string, FilesFailure>> {
+    const homeCwd = options.homeCwd;
+    const segments = q.path.split("/");
+    switch (q.source) {
+      case "kleio":
+        if (homeCwd === undefined) return filesFail(404, "not_found");
+        if (KLEIO_OTHERS.has(segments[0] ?? "")) return filesFail(404, "not_found");
+        return ok(homeCwd);
+      case "specialist":
+        if (q.id === null || !BLOB_ID_RE.test(q.id)) return filesFail(400, "bad_request");
+        if (homeCwd === undefined || !blobs || !(await blobs.find(q.id)))
+          return filesFail(404, "not_found");
+        return ok(join(homeCwd, "blobs", q.id));
+      case "group": {
+        if (q.id === null || !GROUP_ID_RE.test(q.id)) return filesFail(400, "bad_request");
+        if (q.member === null || !BLOB_ID_RE.test(q.member)) return filesFail(400, "bad_request");
+        const members = homeCwd !== undefined && groups ? await groups.members(q.id) : null;
+        if (homeCwd === undefined || members === null || !members.includes(q.member))
+          return filesFail(404, "not_found");
+        return ok(join(homeCwd, "groups", q.id, q.member));
+      }
+      case "chat":
+      case "code": {
+        const folder = await sessionFolder(q.source, q.id);
+        if (!folder.ok) return folder;
+        // Least privilege: only a file the session itself made or linked.
+        if (!folder.value.files.some((f) => f.path === q.path)) return filesFail(404, "not_found");
+        return ok(folder.value.dir);
+      }
+    }
+  }
+
+  /** POST /kleio/voice/files/read: one part of a file's text. */
+  async function readAgentFile(
+    q: FileReadRequest,
+  ): Promise<
+    Result<
+      { name: string; kind: string; part: number; parts: number; text: string; pages?: number },
+      FilesFailure
+    >
+  > {
+    const root = await readRoot(q);
+    if (!root.ok) return root;
+    const segments = q.path.split("/");
+    const resolved = await resolveAgentFile(
+      root.value,
+      segments.map((s) => encodeURIComponent(s)).join("/"),
+      MAX_READ_BYTES,
+    );
+    if (!resolved.ok) {
+      const e = resolved.error.kind;
+      return e === "bad_path"
+        ? filesFail(400, "bad_request")
+        : e === "too_large"
+          ? filesFail(413, "too_large")
+          : filesFail(404, "not_found");
+    }
+    // Only a file the listing could show: no skipped folder on the way, and
+    // no symlink anywhere (its real path is the path asked for, so a link
+    // inside Kleio's folder can't reach her Blobs' or groups' files).
+    const file = resolved.value;
+    let realRoot: string;
+    try {
+      realRoot = await realpath(root.value);
+    } catch {
+      return filesFail(404, "not_found");
+    }
+    if (!walkable(segments) || file.path !== join(realRoot, ...segments))
+      return filesFail(404, "not_found");
+    if (!isReadable(file.name)) return filesFail(415, "unsupported");
+    const key = `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
+    let extracted = fileTexts.get(key);
+    if (!extracted) {
+      const bytes = await readFile(file.path);
+      if (bytes.length > MAX_READ_BYTES) return filesFail(413, "too_large");
+      const r = await sidecarBytes(
+        `/file-text?name=${encodeURIComponent(file.name)}`,
+        bytes,
+        60_000,
+      );
+      if (!r || r.status >= 500) return filesFail(503, "files_unavailable");
+      if (r.status === 413) return filesFail(413, "too_large");
+      if (r.status === 415) return filesFail(415, "unsupported");
+      if (r.status === 422) return filesFail(422, "unreadable");
+      const body = (r.body ?? {}) as { text?: unknown; pages?: unknown };
+      if (r.status !== 200 || typeof body.text !== "string")
+        return filesFail(503, "files_unavailable");
+      extracted = {
+        text: body.text,
+        ...(typeof body.pages === "number" && Number.isInteger(body.pages) && body.pages >= 0
+          ? { pages: body.pages }
+          : {}),
+      };
+      fileTexts.set(key, extracted);
+    }
+    const slice = partOf(extracted.text, q.part);
+    if (!slice.ok) return err({ status: 416, error: "no_such_part", parts: slice.error.parts });
+    return ok({
+      name: file.name,
+      kind: toEntry({ path: q.path, name: file.name, size: file.size, mtimeMs: file.mtimeMs }).kind,
+      part: q.part,
+      parts: slice.value.parts,
+      text: slice.value.text,
+      ...(extracted.pages !== undefined ? { pages: extracted.pages } : {}),
+    });
   }
 
   // ------------------------------------------------------------------ routes
@@ -1633,6 +1948,53 @@ export function createHost(options: HostOptions): Host {
       }
       return json(res, 200, {
         error: typeof answer.error === "string" ? answer.error : "The Brain didn't accept that.",
+      });
+    }
+    // The files agents made, for her voice (list_files, read_file): any
+    // paired device, as with /kleio/sessions. Every argument came from the
+    // voice model, so each is checked here; names, paths and text are never logged.
+    if (path === "/kleio/voice/files" || path === "/kleio/voice/files/read") {
+      const read = path === "/kleio/voice/files/read";
+      if (req.method !== (read ? "POST" : "GET")) {
+        res.setHeader("allow", read ? "POST" : "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const started = Date.now();
+      let source = "unknown";
+      let outcome: Result<unknown, FilesFailure>;
+      if (!read) {
+        const s = url.searchParams.get("source");
+        if (isFilesSource(s)) {
+          source = s;
+          const listed = await listAgentFiles(s, url.searchParams.get("id"));
+          outcome = listed.ok ? ok({ files: listed.value }) : listed;
+        } else outcome = filesFail(400, "bad_request");
+      } else {
+        const body = await readBody(req, 4 * 1024);
+        let q: FileReadRequest | null = null;
+        if (body !== null) {
+          try {
+            q = parseFileRead(JSON.parse(body.toString("utf8")));
+          } catch {
+            q = null;
+          }
+        }
+        if (body === null) outcome = filesFail(413, "too_large");
+        else if (q === null) outcome = filesFail(400, "bad_request");
+        else {
+          source = q.source;
+          outcome = await readAgentFile(q);
+        }
+      }
+      const status = outcome.ok ? 200 : outcome.error.status;
+      log(
+        `[voice] ${auth.device.label}: files ${source} ${read ? "read" : "list"} ${status} in ${Date.now() - started} ms`,
+      );
+      if (outcome.ok) return json(res, 200, outcome.value);
+      const e = outcome.error;
+      return json(res, e.status, {
+        error: e.error,
+        ...(e.parts !== undefined ? { parts: e.parts } : {}),
       });
     }
     // Saved chats and coding sessions, read-only, for her voice: GET

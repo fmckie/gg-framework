@@ -47,6 +47,16 @@ export function supportsNativeSelectPopup(doc: Document = document): boolean {
   return html.contains("platform-macos") || html.contains("platform-ios");
 }
 
+/**
+ * Dictation (the composer mic button): the iPhone and the Mac, where the
+ * webview's getUserMedia is wired to the system microphone permission. Hidden
+ * on Windows/Linux, where it is untested.
+ */
+export function supportsDictation(doc: Document = document): boolean {
+  const html = doc.documentElement.classList;
+  return html.contains("platform-ios") || html.contains("platform-macos");
+}
+
 /** kleio: the iPhone build — one full-screen webview, touch only, no windows. */
 export function isPhone(doc: Document = document): boolean {
   return doc.documentElement.classList.contains("platform-ios");

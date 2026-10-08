@@ -96,7 +96,7 @@ import {
   showJumpToLatest,
   TOUCH_SETTLE_MS,
 } from "./transcript-pin";
-import { isPhone } from "./platform";
+import { isPhone, supportsDictation } from "./platform";
 import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
 import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
 import { onScreenKeyboardUp } from "./phone-viewport";
@@ -196,6 +196,7 @@ import {
   ArrowUpIcon,
   SquareIcon,
   PlusIcon,
+  QuestionIcon,
 } from "@phosphor-icons/react";
 import type { UseDictation } from "./useDictation";
 import { AttachmentBar } from "./AttachmentBar";
@@ -208,8 +209,8 @@ import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
 import "./glass.css";
 
-// iPhone dictation in the Chat and Code composer: the recorder, the mic button
-// and the status pill load on the phone only (see DictationSession.tsx).
+// Dictation in the Chat and Code composer: the recorder, the mic button and
+// the status pill load on the iPhone and the Mac only (see DictationSession.tsx).
 const DictationSession = lazy(() =>
   import("./DictationSession").then((m) => ({ default: m.DictationSession })),
 );
@@ -219,6 +220,8 @@ const DictateButton = lazy(() =>
 const DictationStatus = lazy(() =>
   import("./DictateButton").then((m) => ({ default: m.DictationStatus })),
 );
+// The session screen's guide, behind the header's Help button.
+const SessionHelp = lazy(() => import("./SessionHelp").then((m) => ({ default: m.SessionHelp })));
 
 const DEFAULT_INPUT_PLACEHOLDER = `Type a message, / commands, @ files, ${HELPER_MENTION} for help`;
 const INPUT_PLACEHOLDERS = [
@@ -654,6 +657,7 @@ function App(): React.ReactElement {
   // Free-form per-project notes, persisted to localStorage keyed by project cwd.
   const [showNotes, setShowNotes] = useState(false);
   const [showMemories, setShowMemories] = useState(false);
+  const [showSessionHelp, setShowSessionHelp] = useState(false);
   const [notes, setNotes] = useState("");
   // Every window chooses a code or chat workspace before connecting. Mode stays
   // separate from picker visibility so restore and reopened pickers are explicit.
@@ -1638,7 +1642,7 @@ function App(): React.ReactElement {
             if (h.error) {
               const prefix =
                 h.error.scope === "ken_error"
-                  ? "Ken: "
+                  ? "Muse: "
                   : h.error.scope === "autopilot_error"
                     ? "Autopilot: "
                     : "";
@@ -2399,9 +2403,10 @@ function App(): React.ReactElement {
     });
   }
 
-  // iPhone dictation (useDictation.ts): Whisper on the paired Mac turns the clip
-  // into text, which joins the end of the draft for the user to review and send.
+  // Dictation on the iPhone and the Mac (useDictation.ts): Whisper on the Mac
+  // turns the clip into text, which joins the end of the draft for review.
   const phoneComposer = isPhone();
+  const showDictation = supportsDictation();
   const [dictation, setDictation] = useState<UseDictation | null>(null);
   const onDictated = useCallback(() => {
     setEnhancement(null);
@@ -2968,6 +2973,20 @@ function App(): React.ReactElement {
       </MetalButton>
     );
 
+  // The session guide. On the iPhone it is the back button's 36px circle
+  // (.btn-icon); the phone's header rule would pad a plain icon to a pill.
+  const helpButton = (
+    <button
+      type="button"
+      className={`btn btn-ghost btn-sm btn-nav-icon${phoneHeader ? " btn-icon" : ""}`}
+      aria-label="Help"
+      title="Help"
+      onClick={() => setShowSessionHelp(true)}
+    >
+      <QuestionIcon size={16} aria-hidden="true" />
+    </button>
+  );
+
   return (
     <div
       className={`app${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
@@ -3003,6 +3022,7 @@ function App(): React.ReactElement {
             <>
               {newSessionButton}
               {brainButton}
+              {helpButton}
             </>
           )
         }
@@ -3054,6 +3074,7 @@ function App(): React.ReactElement {
             {!phoneHeader && brainButton}
             <RadioButton />
             <WindowLayoutButton />
+            {!phoneHeader && helpButton}
           </span>
         ) : (
           <>
@@ -3119,6 +3140,7 @@ function App(): React.ReactElement {
                   </MetalButton>
                 )
               )}
+              {!phoneHeader && helpButton}
             </span>
           </>
         )}
@@ -3428,7 +3450,7 @@ function App(): React.ReactElement {
               line while the draft fits one line, and drops below with the field
               once the text wraps. */}
           <div className="inputactions-trailing">
-            {phoneComposer && dictation && (
+            {showDictation && dictation && (
               // The enhance animation locks the draft, so no dictating into it.
               <Suspense fallback={null}>
                 <DictateButton dictation={dictation} disabled={enhanceAnim !== null} />
@@ -3483,7 +3505,7 @@ function App(): React.ReactElement {
             </button>
           </div>
         )}
-        {phoneComposer && (
+        {showDictation && (
           <Suspense fallback={null}>
             <DictationSession setDraft={setInput} onDictated={onDictated} onChange={setDictation} />
             {dictation && <DictationStatus dictation={dictation} />}
@@ -3583,7 +3605,7 @@ function App(): React.ReactElement {
                 })()}
               <span className="model-anchor">
                 <span className="model-label" style={{ color: theme.text }}>
-                  GG
+                  Kleio
                 </span>
                 <ModelSelect
                   models={models}
@@ -3591,7 +3613,7 @@ function App(): React.ReactElement {
                   onSelect={onSelectModel}
                   compact={phoneHeader}
                   disabled={running}
-                  title={`Switch ${workspaceMode === "chat" ? "GG" : workspaceProductName(workspaceMode)}'s model`}
+                  title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
                 />
               </span>
               {workspaceMode === "code" && (
@@ -3599,7 +3621,7 @@ function App(): React.ReactElement {
                   <FooterSep />
                   <span className="model-anchor">
                     <span className="model-label" style={{ color: theme.ken }}>
-                      Ken
+                      Muse
                     </span>
                     <ModelSelect
                       models={models}
@@ -3614,8 +3636,8 @@ function App(): React.ReactElement {
                       disabled={running || kenRunning || autopilotReviewing}
                       title={
                         state?.kenModelOverride
-                          ? "Ken is pinned to his own model — click to change"
-                          : "Ken follows GG Coder's model — click to pin one"
+                          ? "Muse is pinned to its own model. Click to change it"
+                          : "Muse follows Kleio's model. Click to pin one"
                       }
                       onSelectFollow={() => onSelectKenModel(null)}
                       followActive={!state?.kenModelOverride}
@@ -3675,6 +3697,11 @@ function App(): React.ReactElement {
         />
       )}
 
+      {showSessionHelp && (
+        <Suspense fallback={null}>
+          <SessionHelp mode={workspaceMode} onClose={() => setShowSessionHelp(false)} />
+        </Suspense>
+      )}
       {workspaceMode === "chat" && showMemories && (
         <MemoryModal onClose={() => setShowMemories(false)} />
       )}
@@ -3934,8 +3961,8 @@ function TranscriptRowBody({
       // repeating the exact same sentence turn after turn.
       const copy: Record<Extract<Item, { kind: "autopilot" }>["phase"], string> = {
         prompted: item.body?.trim()
-          ? `Sending GG Coder back in:\n\n${item.body.trim()}`
-          : "Sending GG Coder back in for another pass.",
+          ? `Sending Kleio back in:\n\n${item.body.trim()}`
+          : "Sending Kleio back in for another pass.",
         done: [allClearCopy(item.copySeed, item.id), item.reason?.trim()]
           .filter(Boolean)
           .join("\n\n"),

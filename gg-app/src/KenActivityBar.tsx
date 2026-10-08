@@ -94,7 +94,7 @@ export function KenActivityBar({
         />
         <span style={{ color: theme.ken }}>
           <ShimmerText base={theme.ken} bright={theme.text}>
-            {"Ken is thinking…"}
+            {"Muse is thinking…"}
           </ShimmerText>
         </span>
         <span style={{ color: theme.textMuted }}>

@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1468,
+        "tracked": 1465,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1491,
+        "tracked": 1499,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3425,7 +3425,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 23
+        "tracked": 20
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3441,25 +3441,6 @@
       ],
       "match": {
         "regex": "(?:// Centered \"GG CODER\" ASCII banner with a horizontal gradient \\+ animated|<div className=\"ascii-logo\" aria-label=\"GG Coder\">)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260911-de8aeb067b2a",
-      "path": "gg-app/src/AskBand.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:<div className=\"ask-band\" ref=\\{bandRef\\} role=\"group\" aria-label=\"GG Coder needs your answer\">)",
         "flags": "gu"
       },
       "expectedOccurrences": {
@@ -3634,7 +3615,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 12
+        "tracked": 9
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3672,7 +3653,7 @@
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 7
+        "tracked": 3
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -3955,25 +3936,6 @@
       },
       "expectedOccurrences": {
         "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
-      "id": "upstream-20260911-39ded6e08d7c",
-      "path": "gg-app/src/model-name.test.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:expect\\(screen\\.getByText\\(\"Follow GG Coder \\(Gemini 3\\.5 Flash\\)\"\\)\\)\\.toBeDefined\\(\\);|it\\(\"shows the follow choice as selected when Ken follows GG Coder\", \\(\\) => \\{)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",

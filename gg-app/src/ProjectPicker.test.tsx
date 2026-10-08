@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   getSettings,
@@ -14,6 +14,7 @@ import {
   type DiscoveredProject,
   type RecentSession,
 } from "./agent";
+import { folderPlace } from "./HostFoldersModal";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { ProjectPicker } from "./ProjectPicker";
 
@@ -246,11 +247,12 @@ describe("ProjectPicker open existing", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
 
-    expect(await screen.findByText("Open a project on mac-mini-1.taila6c237.ts.net")).toBeDefined();
+    expect(await screen.findByText("Open from mac-mini-1")).toBeDefined();
     expect(openFolderDialogMock).not.toHaveBeenCalled();
-    const testRow = (await screen.findByText("test")).closest("button");
-    expect(testRow?.textContent).toContain("Hidden");
-    expect(screen.getByText("site").closest("button")?.textContent).not.toContain("Hidden");
+    const hiddenGroup = await screen.findByRole("list", { name: "Hidden" });
+    const testRow = within(hiddenGroup).getByText("test").closest("button");
+    expect(within(screen.getByRole("list", { name: "Projects" })).getByText("site")).toBeDefined();
+    expect(within(hiddenGroup).queryByText("site")).toBeNull();
 
     fireEvent.click(testRow!);
 
@@ -302,5 +304,58 @@ describe("ProjectPicker open existing", () => {
       "Your Mac mini needs a Kleio update before it can list its folders here.",
     );
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("lists the host's folders again after Try again", async () => {
+    setPaired("mac-mini-1.taila6c237.ts.net");
+    listHostProjectFoldersMock
+      .mockRejectedValueOnce("Couldn't reach your Mac mini.")
+      .mockResolvedValueOnce([
+        { name: "site", path: "/Users/willmckie/kleio-projects/site", hidden: false },
+      ]);
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("site")).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(listHostProjectFoldersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("searches a long folder list, and shows where same-named folders live", async () => {
+    setPaired("mac-mini-1.taila6c237.ts.net");
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      name: `app-${i}`,
+      path: `/Users/willmckie/kleio-projects/app-${i}`,
+      hidden: false,
+    }));
+    listHostProjectFoldersMock.mockResolvedValue([
+      ...many,
+      { name: "site", path: "/Users/willmckie/kleio-projects/site", hidden: false },
+      { name: "site", path: "/Volumes/Work/site", hidden: false },
+    ]);
+    await renderProjectList([PROJECT]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
+    // Only a name two folders share needs to say where it lives.
+    expect((await screen.findByText("app-0")).closest("button")?.textContent).toBe("app-0");
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search folders" }), {
+      target: { value: "SITE" },
+    });
+
+    const rows = screen.getAllByText("site").map((name) => name.closest("button")?.textContent);
+    expect(rows).toEqual(["site~/kleio-projects", "site/Volumes/Work"]);
+    expect(screen.queryByText("app-0")).toBeNull();
+  });
+});
+
+describe("folderPlace", () => {
+  it("names a folder's parent, with the home folder as ~", () => {
+    expect(folderPlace("/Users/will/kleio-projects/site")).toBe("~/kleio-projects");
+    expect(folderPlace("/home/will/code/site/")).toBe("~/code");
+    expect(folderPlace("/Users/will/site")).toBe("~");
+    expect(folderPlace("/Volumes/Work/site")).toBe("/Volumes/Work");
+    expect(folderPlace("/site")).toBe("/");
   });
 });

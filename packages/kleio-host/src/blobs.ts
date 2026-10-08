@@ -1058,11 +1058,16 @@ export function createBlobs(options: BlobsOptions): Blobs {
         });
         log(`[blobs] ${b.id} "${mine.run.label}" ended ${failed ? "with an error" : "ok"}`);
         if (!closed?.notify) return null;
-        return {
-          sessionId,
-          title: `${b.emoji} ${b.name}`,
-          body: summary || mine.run.label,
-        };
+        if (d.cancelled === true) return { sessionId, kind: "stopped", name: b.name };
+        if (failed) {
+          return {
+            sessionId,
+            kind: "failed",
+            name: b.name,
+            ...(mine.error ? { text: mine.error } : {}),
+          };
+        }
+        return { sessionId, kind: "finished", name: b.name, text: summary || mine.run.label };
       }
       case "tool_call_start":
       case "tool_call_end":

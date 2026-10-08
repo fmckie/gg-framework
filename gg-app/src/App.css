@@ -3190,23 +3190,143 @@ select {
   font-family: var(--sans);
   font-size: 12px;
 }
-/* Open existing on a paired Mac: the Kleio host's folders, as project rows.
-   A long list scrolls inside, so the dialog never outgrows the window. The
-   list's share of the window divides out the app zoom (--zoom, ZoomController). */
+/* Open existing on a paired device (HostFoldersModal): the Kleio host's
+   folders as a grouped list, hidden ones in a group of their own. A long list
+   scrolls inside, so the dialog never outgrows the window; the list's share
+   of the window divides out the app zoom (--zoom, ZoomController). The fills
+   are the soft white of Kleio's other lists, so they sit on glass too. */
 .host-folders-modal {
-  width: min(480px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 32px));
   max-height: calc(100% - 32px);
   overflow-y: auto;
 }
-.host-folders-list {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
+.host-folders-search.picker-search {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin-bottom: 14px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+.host-folders-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: min(calc(56vh / var(--zoom, 1)), 420px);
+  gap: 18px;
+  max-height: min(calc(56vh / var(--zoom, 1)), 440px);
   overflow-y: auto;
+}
+.host-folders-heading {
+  margin: 0 0 6px 12px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.host-folders-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.04);
+}
+.host-folder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  /* Set, not inherited: iOS paints button text in system blue by default. */
+  color: var(--text);
+  font-family: var(--sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t-fast);
+}
+.host-folders-list > li:first-child > .host-folder {
+  border-start-start-radius: 12px;
+  border-start-end-radius: 12px;
+}
+.host-folders-list > li:last-child > .host-folder {
+  border-end-start-radius: 12px;
+  border-end-end-radius: 12px;
+}
+/* Inset separators that start at the name, as in a native grouped list:
+   the row's 12px inset + the 28px tile + the 12px gap. */
+.host-folders-list > li + li > .host-folder::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline: 52px 0;
+  border-top: 1px solid var(--border);
+}
+/* Hover only where a pointer hovers: a tap on the phone must not leave the
+   row lit after the dialog closes. */
+@media (hover: hover) {
+  .host-folder:hover {
+    background: rgb(255 255 255 / 0.05);
+  }
+}
+.host-folder:active {
+  background: rgb(255 255 255 / 0.09);
+}
+/* Inside the row, so the group's rounded edge never clips the ring. */
+.host-folder:focus-visible {
+  outline-offset: -2px;
+}
+.host-folder-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text-muted);
+}
+.host-folder-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.host-folder-name,
+.host-folder-place {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.host-folder-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+.host-folder-place {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.host-folder-chevron {
+  flex: none;
+  margin-inline-end: 2px;
+  color: var(--text-dim);
+}
+.host-folders-note {
+  margin: 6px 12px 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.host-folders-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
 }
 
 /* ── Reusable pill badge ── */
@@ -4951,6 +5071,66 @@ select {
   }
   .enhance-pill-host.visible .enhance-pill.enhancing {
     animation: none;
+  }
+}
+
+/* Dictation (useDictation.ts, iPhone and Mac). While recording, the mic fills
+   like send, so it is plain that Kleio is listening. Two classes (plus the
+   hover state's pseudo-classes) out-rank glass.css's `.icon-circle` and
+   `.icon-circle:hover:not(:disabled)` backgrounds, so the fill wins there too. */
+.dictate-btn.is-recording,
+.dictate-btn.is-recording:hover:not(:disabled) {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+/* Its status (timer, then "Transcribing") sits exactly where "Enhance?" does,
+   which hides while dictating; same geometry as .enhance-pill-host. */
+.dictation-status {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transform: translate(-50%, -4px);
+  pointer-events: none;
+  transition:
+    opacity var(--t-fast) ease,
+    transform var(--t-fast) ease;
+}
+.dictation-status.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.dictation-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: dictation-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dictation-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dictation-dot {
+    animation: none;
+  }
+  .dictation-status {
+    transition: none;
   }
 }
 

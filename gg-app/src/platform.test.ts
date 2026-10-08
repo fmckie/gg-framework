@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { isPhone, platformClass, supportsNativeSelectPopup } from "./platform";
+import { isPhone, platformClass, supportsDictation, supportsNativeSelectPopup } from "./platform";
 
 describe("platformClass", () => {
   it("maps macOS identifiers", () => {
@@ -59,5 +59,25 @@ describe("isPhone", () => {
 
     doc.documentElement.className = "platform-macos";
     expect(isPhone(doc)).toBe(false);
+  });
+});
+
+describe("supportsDictation", () => {
+  it("is true on the iPhone and the Mac only", () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.documentElement.className = "platform-ios";
+    expect(supportsDictation(doc)).toBe(true);
+
+    doc.documentElement.className = "platform-macos";
+    expect(supportsDictation(doc)).toBe(true);
+
+    doc.documentElement.className = "platform-windows";
+    expect(supportsDictation(doc)).toBe(false);
+
+    doc.documentElement.className = "platform-linux";
+    expect(supportsDictation(doc)).toBe(false);
+
+    doc.documentElement.className = "";
+    expect(supportsDictation(doc)).toBe(false);
   });
 });

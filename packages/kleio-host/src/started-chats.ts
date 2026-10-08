@@ -264,8 +264,9 @@ export function createStartedChats(options: StartedChatsOptions): StartedChats {
       if (!unwatched) return null;
       return {
         sessionId,
-        title: rec.agent === "research" ? "Research ready" : "Chat ready",
-        body: rec.title,
+        // The chat's name; the host adds how the run ended and its reply.
+        kind: "finished",
+        name: rec.title,
       };
     },
 

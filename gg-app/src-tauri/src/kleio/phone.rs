@@ -11,7 +11,9 @@ use objc2_foundation::{NSError, NSString};
 use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
 use tauri::{Emitter, Manager};
 
-use super::push::{apns_env, hex, register_due, tap_from_payload, PendingTap, PushToken};
+use super::push::{
+    apns_env, hex, register_due, same_thread_ids, tap_from_payload, PendingTap, PushToken,
+};
 use super::Presence;
 
 /// `UIScrollViewContentInsetAdjustmentBehavior.never`.
@@ -271,9 +273,12 @@ unsafe extern "C-unwind" fn did_receive_response(
 ) {
     // SAFETY: `response` and `done` are what iOS passed for this call. iOS
     // expects the completion block to be called once, when handling is done.
+    // Nothing may unwind into Objective-C, and `done` must still be called.
     unsafe {
         if !response.is_null() {
-            notification_tapped(response);
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                notification_tapped(response)
+            }));
         }
         if !done.is_null() {
             (*done).call(());
@@ -297,11 +302,15 @@ unsafe fn notification_tapped(response: *mut AnyObject) {
         let request: *mut AnyObject = msg_send![notification, request];
         let content: *mut AnyObject = msg_send![request, content];
         let user_info: *mut AnyObject = msg_send![content, userInfo];
+        let id: *mut NSString = msg_send![request, identifier];
+        let thread: *mut NSString = msg_send![content, threadIdentifier];
+        clear_delivered(ns_string(id), ns_string(thread));
         json_of(user_info)
     };
     let Some(tap) = payload.as_ref().and_then(tap_from_payload) else {
         return;
     };
+    super::live::end_finished(&tap);
     let Some(app) = APP.get() else {
         return;
     };
@@ -312,6 +321,89 @@ unsafe fn notification_tapped(response: *mut AnyObject) {
     );
     app.state::<PendingTap>().set(tap);
     let _ = app.emit("kleio-notification-tap", ());
+}
+
+/// An NSString's text ("" for nil).
+///
+/// # Safety
+/// `s` must be null or a live NSString.
+unsafe fn ns_string(s: *mut NSString) -> String {
+    if s.is_null() {
+        String::new()
+    } else {
+        // SAFETY: non-null and live (caller).
+        unsafe { (*s).to_string() }
+    }
+}
+
+/// Remove the opened notification from Notification Centre, then every other
+/// delivered one in the same conversation (`thread`: aps.thread-id, see
+/// packages/kleio-host/src/apns.ts), so none has to be swiped away by hand.
+fn clear_delivered(id: String, thread: String) {
+    // SAFETY: the current center is process-wide. The arrays are built and
+    // handed over within this call; `removeDeliveredNotificationsWithIdentifiers:`
+    // copies what it needs. The completion block is copied by the center and
+    // may run on any thread; it only reads the array iOS passes it.
+    unsafe {
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        if !id.is_empty() {
+            remove_delivered(&center, &[id]);
+        }
+        if thread.is_empty() {
+            return;
+        }
+        let block = block2::RcBlock::new(move |list: *mut AnyObject| {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if list.is_null() {
+                    return;
+                }
+                // SAFETY: `list` is the NSArray<UNNotification> iOS passed,
+                // alive for this call.
+                let delivered: Vec<(String, String)> = {
+                    let count: usize = msg_send![list, count];
+                    (0..count)
+                        .map(|i| {
+                            let n: *mut AnyObject = msg_send![list, objectAtIndex: i];
+                            let request: *mut AnyObject = msg_send![n, request];
+                            let content: *mut AnyObject = msg_send![request, content];
+                            let id: *mut NSString = msg_send![request, identifier];
+                            let thread: *mut NSString = msg_send![content, threadIdentifier];
+                            (ns_string(id), ns_string(thread))
+                        })
+                        .collect()
+                };
+                let ids = same_thread_ids(&thread, &delivered);
+                if !ids.is_empty() {
+                    // SAFETY: as above.
+                    {
+                        let center = UNUserNotificationCenter::currentNotificationCenter();
+                        remove_delivered(&center, &ids);
+                    }
+                }
+            }));
+        });
+        let _: () = msg_send![&*center, getDeliveredNotificationsWithCompletionHandler: &*block];
+    }
+}
+
+/// `removeDeliveredNotificationsWithIdentifiers:` for `ids`.
+///
+/// # Safety
+/// Any thread; `center` is the live current notification center.
+unsafe fn remove_delivered(center: &UNUserNotificationCenter, ids: &[String]) {
+    // SAFETY: `array` is an autoreleased NSMutableArray; each NSString is
+    // retained by it while the center reads it.
+    unsafe {
+        let array: *mut AnyObject = msg_send![class!(NSMutableArray), array];
+        if array.is_null() {
+            return;
+        }
+        for id in ids {
+            let s = NSString::from_str(id);
+            let _: () = msg_send![array, addObject: &*s];
+        }
+        let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: array];
+    }
 }
 
 /// A Foundation object (here: a push payload) as JSON.

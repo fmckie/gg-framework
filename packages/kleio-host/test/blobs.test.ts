@@ -902,8 +902,9 @@ describe("blobs: scheduler", () => {
     expect(nudges).toEqual([
       {
         sessionId: sid,
-        title: "🫧 Gardener",
-        body: "Three notes need watering.",
+        kind: "finished",
+        name: "Gardener",
+        text: "Three notes need watering.",
         devices: ["Phone"],
       },
     ]);
@@ -974,7 +975,15 @@ describe("blobs: scheduler", () => {
     await until(() => nudges.length > 0);
     await settle();
     // notify is off: only the ordinary nobody-attached nudge, with no Blob title.
-    expect(nudges).toEqual([{ sessionId: sid, devices: ["Phone"] }]);
+    expect(nudges).toEqual([
+      {
+        sessionId: sid,
+        kind: "failed",
+        name: "Gardener",
+        text: "rate limited",
+        devices: ["Phone"],
+      },
+    ]);
     await restart(0);
     const [run] = await runs(b.id);
     expect(run).toMatchObject({ id: r.body.run.id, outcome: "error", error: "rate limited" });

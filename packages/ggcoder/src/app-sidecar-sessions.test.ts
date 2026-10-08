@@ -393,10 +393,41 @@ describe("stored sessions for Kleio's voice", () => {
       { role: "assistant", text: "Fixed: the redirect now keeps the query." },
     ]);
     // Only ids from that kind's listing; never a path.
+    // Without files=1 the shape is unchanged.
+    expect(read && "files" in read).toBe(false);
     expect(await readStoredSession({ kind: "chat", id: "code-1", coderSessionsDir })).toBeNull();
     expect(
       await readStoredSession({ kind: "code", id: "../sessions/code-1", coderSessionsDir }),
     ).toBeNull();
+  });
+
+  it("lists the files the active branch made when asked, ignoring hidden and rewound messages", async () => {
+    const cwd = path.resolve("/Users/me/projects/app");
+    await writeTranscript(
+      coderSessionsDir,
+      cwd,
+      "code-1",
+      "2026-10-07T09:00:00.000Z",
+      [
+        message("m1", null, "user", "Write the report"),
+        message("m2", "m1", "assistant", [
+          { type: "tool_call", id: "t1", name: "write", args: { file_path: "report.md" } },
+        ]),
+        message("m3", "m2", "assistant", [{ type: "text", text: "[secret](hidden.pdf)" }], {
+          provenance: { source: "runtime", kind: "notification", visibility: "hidden" },
+        }),
+        message("m4", "m3", "assistant", [{ type: "text", text: "Done: [deck](out/deck.pptx)" }]),
+        message("m5", "m1", "assistant", [{ type: "text", text: "[gone](abandoned.pdf)" }]),
+      ],
+      { leafId: "m4" },
+    );
+    const read = await readStoredSession({
+      kind: "code",
+      id: "code-1",
+      coderSessionsDir,
+      files: true,
+    });
+    expect(read?.files).toEqual([path.join(cwd, "out/deck.pptx"), path.join(cwd, "report.md")]);
   });
 });
 

@@ -22,6 +22,7 @@ import { useCallOpen } from "./voiceCall";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
+import { shortHost } from "./host-name";
 
 interface Props {
   /** Chat with Kleio: upstream's Chat screen (the general agent), on the Mac mini. */
@@ -32,11 +33,6 @@ interface Props {
   onBlobs: () => void;
   onSettings: (tab?: SettingsTabId) => void;
   refreshSignal?: number;
-}
-
-/** "mac-mini-1.tailnet.ts.net" → "mac-mini-1". */
-export function shortHost(host: string): string {
-  return host.split(".")[0] || host;
 }
 
 export function KleioHome({

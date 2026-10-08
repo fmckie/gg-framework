@@ -23,6 +23,7 @@ import { readFile } from "node:fs/promises";
 import { connect as http2Connect, constants as h2 } from "node:http2";
 import { request as httpRequest } from "node:http";
 import type { PairedDevice, PushRegistration } from "./device-registry.js";
+import { noticeFor, type NoticeInput } from "./notification-copy.js";
 
 const PRODUCTION = "https://api.push.apple.com";
 const SANDBOX = "https://api.sandbox.push.apple.com";
@@ -64,19 +65,11 @@ export function apnsConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ApnsCon
  * What a push is about: a session, a group chat (groups.ts), or both. The
  * payload's `kleio` carries whichever is set; thread-id is the group when set.
  */
-export type Nudge = {
-  /** A short label for the lock screen, e.g. the routine's prompt. */
-  readonly title?: string;
-  readonly body?: string;
-  /**
-   * An `ask_user` question awaiting the user (ask-push.ts). Never throttled
-   * and never stamps the throttle: a turn is blocked on it.
-   */
-  readonly ask?: boolean;
-} & (
-  | { readonly sessionId: string; readonly groupId?: string }
-  | { readonly sessionId?: string; readonly groupId: string }
-);
+export type Nudge = NoticeInput &
+  (
+    | { readonly sessionId: string; readonly groupId?: string }
+    | { readonly sessionId?: string; readonly groupId: string }
+  );
 
 /** A Live Activity's own push token, registered by the phone for one session. */
 export interface LiveActivityTarget {
@@ -122,7 +115,9 @@ export interface ApnsPusher {
   /** The APNs environment pushes go to, when configured. */
   readonly env?: "sandbox" | "production";
   /**
-   * One best-effort alert to every registered device for this env. Returns the
+   * One best-effort alert, worded by notification-copy.ts. A `question` (an
+   * `ask_user` awaiting the user) is never throttled and never stamps the
+   * throttle: a turn is blocked on it. One to every registered device for this env. Returns the
    * number of devices that accepted. Coalesced within MIN_PUSH_INTERVAL_MS.
    */
   notify(nudge: Nudge, devices: readonly PairedDevice[]): Promise<number>;
@@ -229,7 +224,7 @@ export function createApnsPusher(opts: {
     cfg: ApnsConfig,
     token: string,
     payload: unknown,
-    kind: { pushType: "alert" | "liveactivity"; priority: 5 | 10 } = {
+    kind: { pushType: "alert" | "liveactivity"; priority: 5 | 10; collapseId?: string } = {
       pushType: "alert",
       priority: 10,
     },
@@ -240,6 +235,7 @@ export function createApnsPusher(opts: {
         kind.pushType === "liveactivity" ? `${cfg.bundleId}.push-type.liveactivity` : cfg.bundleId,
       "apns-push-type": kind.pushType,
       "apns-priority": String(kind.priority),
+      ...(kind.collapseId ? { "apns-collapse-id": kind.collapseId } : {}),
     };
     const body = JSON.stringify(payload);
     if (cfg.endpoint) return sendHttp1(cfg.endpoint, path, headers, body);
@@ -252,7 +248,8 @@ export function createApnsPusher(opts: {
     ...(config ? { env: config.env } : {}),
     async notify(nudge, devices) {
       if (!config) return 0;
-      if (!nudge.ask) {
+      const ask = nudge.kind === "question";
+      if (!ask) {
         const t = now();
         if (t - lastPushAt < MIN_PUSH_INTERVAL_MS) return 0;
         // Stamp first so a near-simultaneous second completion coalesces.
@@ -267,27 +264,32 @@ export function createApnsPusher(opts: {
       // otherwise ring it again.
       const targets = [...new Map(registered.map((d) => [d.push.token, d])).values()];
       if (targets.length === 0) return 0;
+      const thread = nudge.groupId ?? nudge.sessionId;
+      const notice = noticeFor(nudge, thread);
       const payload = {
         aps: {
-          alert: {
-            title: nudge.title ?? "Kleio",
-            body: nudge.body ?? "A run finished on your host. Open to see the result.",
-          },
+          alert: { title: notice.title, subtitle: notice.subtitle, body: notice.body },
           sound: "default",
-          "thread-id": nudge.groupId ?? nudge.sessionId,
-          "interruption-level": "time-sensitive",
-          "relevance-score": 0.8,
+          "thread-id": thread,
+          // "active", not "time-sensitive": the app has no time-sensitive entitlement.
+          "interruption-level": notice.interruptionLevel,
+          "relevance-score": notice.relevanceScore,
           "mutable-content": 1,
         },
         kleio: {
           ...(nudge.sessionId ? { sessionId: nudge.sessionId } : {}),
           ...(nudge.groupId ? { groupId: nudge.groupId } : {}),
-          ...(nudge.ask ? { ask: true } : {}),
+          ...(ask ? { ask: true } : {}),
         },
+      };
+      const kind = {
+        pushType: "alert" as const,
+        priority: 10 as const,
+        ...(notice.collapseId ? { collapseId: notice.collapseId } : {}),
       };
       try {
         const results = await Promise.allSettled(
-          targets.map((d) => send(config, d.push.token, payload)),
+          targets.map((d) => send(config, d.push.token, payload, kind)),
         );
         const okCount = results.filter((r) => r.status === "fulfilled" && r.value === 200).length;
         log(
