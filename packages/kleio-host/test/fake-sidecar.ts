@@ -33,9 +33,10 @@ export interface FakeSidecar {
   /**
    * When set, every POST /prompt is answered like a real run: run_start, the
    * returned text as text_delta frames, run_end. null = no reply (the test
-   * drives the frames itself).
+   * drives the frames itself). `{ text, tools }` calls those tools first
+   * (tool_call_start, tool_call_end).
    */
-  autoReply: ((sessionId: string, promptText: string) => string | null) | null;
+  autoReply: ((sessionId: string, promptText: string) => string | AutoReply | null) | null;
   /** Each created session id's POST /session body. */
   createdBodies: Map<string, any>;
   /** POST /prompt answers 500. */
@@ -72,12 +73,19 @@ export interface FakeSidecar {
   close(): Promise<void>;
 }
 
+/** An auto reply that calls tools before it answers. */
+export interface AutoReply {
+  readonly text: string;
+  readonly tools: readonly string[];
+}
+
 /** Unique across fake sidecars, so a "restarted" sidecar never reuses an id. */
 let createdCount = 0;
 
 export async function fakeSidecar(): Promise<FakeSidecar> {
   const token = "sidecar-" + Math.random().toString(36).slice(2);
   const streams = new Map<string, Set<ServerResponse>>();
+  let toolCalls = 0;
   const seen: FakeSidecar["seen"] = [];
   const routineSessions: Record<string, string> = {};
   const routines: { id: string; nextRunAt: number }[] = [];
@@ -175,6 +183,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
         const reply =
           sid && api.autoReply ? api.autoReply(sid, String(JSON.parse(body).text)) : null;
         if (sid && reply !== null) {
+          const { text: replyText, tools } =
+            typeof reply === "string" ? { text: reply, tools: [] } : reply;
           const say = (type: string, data: unknown = {}): void =>
             api.emit(sid, `data: ${JSON.stringify({ type, data })}`);
           // Reply once the host is listening on this session's events (up to
@@ -187,7 +197,13 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
               return;
             }
             say("run_start");
-            if (reply) say("text_delta", { text: reply });
+            for (const name of tools) {
+              toolCalls += 1;
+              const toolCallId = `auto-${toolCalls}`;
+              say("tool_call_start", { toolCallId, name, args: {} });
+              say("tool_call_end", { toolCallId, isError: false });
+            }
+            if (replyText) say("text_delta", { text: replyText });
             say("run_end", {});
           };
           setTimeout(replyWhenListened, 5);
