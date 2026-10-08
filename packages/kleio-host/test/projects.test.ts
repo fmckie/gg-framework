@@ -36,6 +36,7 @@ import {
   projectStatus,
   projectSummaries,
   usableRoot,
+  worksIn,
   type ProjectFolder,
 } from "../src/projects.js";
 import { createRingStore } from "../src/sse-ring.js";
@@ -230,6 +231,16 @@ describe("projects.ts", () => {
       ["app", 2],
       ["web", 0],
     ]);
+  });
+
+  // Regression: the project's folders were compared as given while the
+  // session's was resolved, so on Windows no session matched its project.
+  it("compares a project's folders resolved, as the session's is", () => {
+    const p: ProjectFolder = { name: "app", dir: "/p/x/../app", real: "/p/app/", mtimeMs: 0 };
+    expect(worksIn("/p/app", p)).toBe(true);
+    expect(worksIn("/p/app/src", p)).toBe(true);
+    expect(worksIn("/p/apple", p)).toBe(false);
+    expect(worksIn("/p", p)).toBe(false);
   });
 });
 

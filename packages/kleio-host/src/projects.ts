@@ -230,7 +230,11 @@ export async function findProject(
 /** Whether a session that ran in `cwd` worked in `project` (its folder or one inside it). */
 export function worksIn(cwd: string, project: ProjectFolder): boolean {
   const at = resolve(cwd);
-  return [project.dir, project.real].some((d) => at === d || at.startsWith(d + sep));
+  // Both sides resolved, so they compare alike (on Windows, "/p/app" is "D:\p\app").
+  return [project.dir, project.real].some((d) => {
+    const base = resolve(d);
+    return at === base || at.startsWith(base + sep);
+  });
 }
 
 export type CreateProjectError = "exists" | "no_folder";
