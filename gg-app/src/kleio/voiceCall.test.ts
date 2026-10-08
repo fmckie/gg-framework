@@ -2,7 +2,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as KleioApi from "./kleioApi";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { callError, callState, functionCall, isWebSearch, resetCall, startCall } from "./voiceCall";
+import {
+  callError,
+  callState,
+  functionCall,
+  GREETING,
+  isWebSearch,
+  resetCall,
+  startCall,
+} from "./voiceCall";
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
@@ -101,6 +109,54 @@ describe("startCall", () => {
     expect(callState().phase).toBe("idle");
     expect(track.stop).toHaveBeenCalled();
     expect(pcs[0]?.close).toHaveBeenCalled();
+  });
+
+  it("opens with a warm welcome, not a report of what isn't happening", async () => {
+    const track = { stop: vi.fn(), enabled: true };
+    const mic = { getAudioTracks: () => [track], getTracks: () => [track] };
+    let onMessage: (m: { data: string }) => void = () => {};
+    const channel = {
+      readyState: "open",
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: (type: string, fn: (m: { data: string }) => void) => {
+        if (type === "message") onMessage = fn;
+      },
+    };
+    class FakePC {
+      ontrack: unknown = null;
+      close = vi.fn();
+      addTrack(): void {}
+      addEventListener(): void {}
+      createDataChannel(): unknown {
+        return channel;
+      }
+      async createOffer(): Promise<{ type: string; sdp: string }> {
+        return { type: "offer", sdp: "v=0\r\n" };
+      }
+      async setLocalDescription(): Promise<void> {}
+      async setRemoteDescription(): Promise<void> {}
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePC);
+    vi.stubGlobal("Audio", class {});
+    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => mic } });
+    vi.mocked(startVoiceCall).mockResolvedValue("v=0\r\n");
+
+    await startCall();
+    onMessage({ data: JSON.stringify({ type: "session.started" }) });
+
+    const sent = channel.send.mock.calls.map(([raw]) => JSON.parse(String(raw)));
+    expect(sent).toContainEqual({
+      type: "session.instructions.append",
+      delegation_id: null,
+      content: GREETING,
+    });
+    // Welcoming: the time of day, their name, an offer to help; never "nothing is pressing".
+    expect(GREETING).toMatch(/welcome/i);
+    expect(GREETING).toMatch(/good morning, good afternoon or good evening/);
+    expect(GREETING).toMatch(/by name/);
+    expect(GREETING).toMatch(/If nothing does, don't say so/);
   });
 
   it("keeps the same state while her words stream in, so the screen doesn't re-render", async () => {

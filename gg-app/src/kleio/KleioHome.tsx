@@ -22,6 +22,7 @@ import { useCallOpen } from "./voiceCall";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
+import { useHostReach } from "./hostReach";
 import { shortHost } from "./host-name";
 
 interface Props {
@@ -50,7 +51,9 @@ export function KleioHome({
   const covered = useCallOpen();
   // Her natural voice is set up on the Mac mini: "Talk to Kleio", else "Brief me".
   const voiceReady = useVoiceReady();
-  const connected = Boolean(status?.active);
+  // Paired is not enough: the Mac mini has to be answering right now.
+  const reach = useHostReach();
+  const connected = Boolean(status?.active) && reach === "connected";
 
   useEffect(() => {
     void getVersion()
@@ -115,6 +118,14 @@ export function KleioHome({
   }
 
   const host = status?.active?.host;
+  const mini = host ? shortHost(host) : "your Mac mini";
+  const pill = !status?.active
+    ? { state: "is-down", text: `Disconnected from ${mini}` }
+    : reach === "checking"
+      ? { state: "is-checking", text: `Connecting to ${mini}…` }
+      : reach === "connected"
+        ? { state: "is-up", text: `Connected to ${mini}` }
+        : { state: "is-down", text: `Disconnected from ${mini}` };
 
   return (
     <div className="home kleio-home" data-tauri-drag-region>
@@ -124,12 +135,16 @@ export function KleioHome({
       <div className="home-version-row">
         <button
           type="button"
-          className="kleio-status"
-          title="Connection to your Mac mini"
+          className={`kleio-status ${pill.state}`}
+          title={
+            pill.state === "is-down"
+              ? "Can't reach your Mac mini. Open Connection to see why."
+              : "Connection to your Mac mini"
+          }
           onClick={() => onSettings("connection")}
         >
           <span className="kleio-status-dot" aria-hidden="true" />
-          {host ? `Connected to ${shortHost(host)}` : "Connected to your Mac mini"}
+          {pill.text}
         </button>
       </div>
       <KleioMark />

@@ -60,6 +60,8 @@
      theme.ts; both MUST match or the inline-styled @Ken input drifts from the
      CSS-styled chat bubbles. Marks every Ken element. */
   --ken: #62e8d8;
+  /* The composer's golden check (HelperCheckButton): `@muse check` in one tap. */
+  --gold: #e9c46a;
 
   /* Agent Steroids — red sibling of the brand tint. Marks the Steroids
      button, the "Roided!" stamp and the modal status dot. */
@@ -4759,6 +4761,18 @@ select {
 .icon-circle:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+/* The golden check (HelperCheckButton): the paperclip's glass circle with a
+   gold tick and a thin gold ring. Hover, and the sticky hover a tap leaves on
+   the iPhone, keep it gold rather than turning it white. */
+.icon-circle.helper-check,
+.icon-circle.helper-check:hover:not(:disabled) {
+  color: var(--gold);
+}
+.icon-circle.helper-check {
+  box-shadow:
+    var(--liquid-rim-small, 0 0 #0000),
+    inset 0 0 0 1px color-mix(in srgb, var(--gold) 45%, transparent);
 }
 /* Decorative rim only; the original button remains the hit target and fallback. */
 .inputactions-trailing > .action-metal,

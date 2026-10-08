@@ -357,7 +357,14 @@ function errorFrom(status: number, body: unknown): KleioApiError {
   return new KleioApiError(status, msg, detail, code, body);
 }
 
-async function call<T>(method: Method, path: string, body?: unknown, session?: string): Promise<T> {
+/** `timeoutMs`: give up sooner than an ordinary call's minute (a reachability check). */
+async function call<T>(
+  method: Method,
+  path: string,
+  body?: unknown,
+  session?: string,
+  timeoutMs?: number,
+): Promise<T> {
   let res: RawResponse;
   try {
     res = await invoke<RawResponse>("kleio_api", {
@@ -365,6 +372,7 @@ async function call<T>(method: Method, path: string, body?: unknown, session?: s
       path,
       body: body ?? null,
       session: session ?? null,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
   } catch (e) {
     throw new KleioApiError(0, e instanceof Error ? e.message : String(e));
@@ -410,9 +418,16 @@ export interface HostHealth {
   latencyMs: number;
 }
 
-export const hostHealth = async (): Promise<HostHealth> => {
+/** `timeoutMs`: how long to wait before calling the Mac mini unreachable. */
+export const hostHealth = async (timeoutMs?: number): Promise<HostHealth> => {
   const started = performance.now();
-  const body = await call<Record<string, unknown>>("GET", "/kleio/health");
+  const body = await call<Record<string, unknown>>(
+    "GET",
+    "/kleio/health",
+    undefined,
+    undefined,
+    timeoutMs,
+  );
   const latencyMs = Math.round(performance.now() - started);
   const sidecar = body.sidecar === "up" || body.sidecar === "stale" ? body.sidecar : "down";
   const devices = typeof body.devices === "number" ? body.devices : 0;

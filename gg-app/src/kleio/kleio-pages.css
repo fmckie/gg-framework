@@ -2020,6 +2020,144 @@
   line-height: 1.5;
   color: var(--text-secondary);
 }
+
+/* The verdict under the map: one sentence on whether it works, what was
+   checked, and numbered steps when it doesn't. Only the edge carries the
+   tone; the words and the icons say it too. */
+.conn-verdict {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  margin: 0 0 26px;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+}
+.conn-verdict.is-warn {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+}
+.conn-verdict.is-bad {
+  border-color: color-mix(in srgb, var(--error) 55%, var(--border));
+}
+.conn-verdict-icon {
+  display: flex;
+  padding-top: 1px;
+  color: var(--text-muted);
+}
+.conn-verdict.is-good .conn-verdict-icon {
+  color: var(--success);
+}
+.conn-verdict.is-warn .conn-verdict-icon {
+  color: var(--warning);
+}
+.conn-verdict.is-bad .conn-verdict-icon {
+  color: var(--error);
+}
+.conn-verdict-body {
+  min-width: 0;
+}
+.conn-verdict-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+.conn-verdict-detail {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.conn-verdict > .conn-verdict-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.conn-checks {
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.conn-check {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  /* Keeps each answer within reach of its label on a wide window. */
+  max-width: 560px;
+  color: var(--text-muted);
+}
+.conn-check.is-good > svg {
+  color: var(--success);
+}
+.conn-check.is-warn > svg {
+  color: var(--warning);
+}
+.conn-check.is-bad > svg {
+  color: var(--error);
+}
+.conn-check-label {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.conn-check-text {
+  color: var(--text);
+  text-align: end;
+}
+.conn-fix {
+  margin-top: 16px;
+}
+.conn-fix-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.conn-fix .conn-steps {
+  color: var(--text);
+}
+.conn-fix-link {
+  margin-inline-start: 8px;
+  vertical-align: baseline;
+}
+/* A command to run on the Mac mini, with its copy button. */
+.conn-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 6px 6px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.conn-command code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  /* Scrolls rather than spill if one word is wider than the box. */
+  overflow-x: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.conn-command-word {
+  white-space: nowrap;
+}
+.conn-command .btn {
+  flex-shrink: 0;
+}
+.conn-health-box {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
 .conn-pair {
   display: flex;
   gap: 20px;

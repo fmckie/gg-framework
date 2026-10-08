@@ -158,11 +158,14 @@ import {
 import {
   addressesHelper,
   composerButtonAction,
+  HELPER_CHECK,
+  HELPER_CHECK_QUESTION,
   HELPER_MENTION,
   helperQuestion,
   helperTokenParts,
   withHelperMention,
 } from "./helper-mention";
+import { HelperCheckButton } from "./HelperCheckButton";
 import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
@@ -2109,6 +2112,16 @@ function App(): React.ReactElement {
     if (next === input) el?.setSelectionRange(next.length, next.length);
   }
 
+  // The golden check: `@muse check`, sent as if typed (same bubble, same run,
+  // same history entry), without touching whatever is in the draft.
+  function checkWithHelper(): void {
+    if (!readyRef.current || kenRunning) return;
+    recordHistory(HELPER_CHECK);
+    stickToBottomRef.current = true;
+    pushItem({ kind: "user", id: nextId(), text: HELPER_CHECK, ken: true });
+    void sendKenPrompt(HELPER_CHECK_QUESTION);
+  }
+
   // Drop a referenced-file chip.
   function removeMentionChip(p: string): void {
     setMentionedPaths((prev) => prev.filter((x) => x !== p));
@@ -3322,6 +3335,9 @@ function App(): React.ReactElement {
             >
               {HELPER_MENTION}
             </button>
+          )}
+          {workspaceMode === "code" && (
+            <HelperCheckButton busy={kenRunning} onCheck={checkWithHelper} />
           )}
           <div className="input-stack">
             {enhanceAnim && (

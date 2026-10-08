@@ -44,9 +44,11 @@ const ACTIVITY: ReadonlySet<string> = new Set([
   "session.delegation.created",
   "response.event",
 ]);
-/** Her opening, once the session has started. */
-const GREETING =
-  "Greet the user now in one short sentence. If something in what's new needs them, say so in a sentence; otherwise ask what they'd like. Then stop and listen.";
+/** Her opening, once the session has started: a welcome, never a status report.
+ *  ("Hi there, nothing is pressing right now, what do you want to do next?" was
+ *  the flat version: it led with what wasn't happening.) */
+export const GREETING =
+  "Open the conversation now, and make them feel welcome, like someone who's glad they called. Greet them for the time of day (good morning, good afternoon or good evening), and by name if you know it. If something in what's new needs them or has just finished, mention the most useful one in a sentence. If nothing does, don't say so and don't list what isn't happening: just ask, warmly and in your own words, what you can help with. Keep it to two or three short sentences, then stop and listen.";
 
 /** A failed start or a dropped call, in words for the screen. */
 export function callError(e: unknown): string {
