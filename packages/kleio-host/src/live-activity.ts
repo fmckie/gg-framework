@@ -28,8 +28,9 @@ import {
   clipText,
   DETAIL_MAX,
   LINE_MAX,
-  stepText,
+  stepDone,
   TITLE_MAX,
+  toolStep,
   type AskButtons,
   type GroupLive,
   type LivePhase,
@@ -68,6 +69,28 @@ export interface LiveState {
   readonly recommended?: number | null;
   /** With done: the result in one plain line (the reply's opening words). */
   readonly summary?: string | null;
+  /**
+   * The run's step trail: which step it's on (tool calls of one kind in a row
+   * count once; absent before the first), and while working, the last
+   * finished step in the past tense ("Read 3 files").
+   */
+  readonly step?: number | null;
+  readonly prevLine?: string | null;
+  /** How the current step formed. The host's own: never sent to the phone. */
+  readonly trail?: StepTrail;
+}
+
+/** The current step's bookkeeping: its kind, how many calls it has had, and the latest one's past line. */
+export interface StepTrail {
+  readonly kind: string;
+  readonly calls: number;
+  readonly last: string;
+}
+
+/** What the phone gets: the state without the host's bookkeeping. */
+function wire(state: LiveState): Record<string, unknown> {
+  const { trail: _trail, ...sent } = state;
+  return sent;
 }
 
 /** A done activity's result line: plain text, one line. */
@@ -88,13 +111,43 @@ export interface Change {
 
 const isEnd = (p: LivePhase): boolean => p === "done" || p === "failed" || p === "stopped";
 
-function working(prev: LiveState | undefined, line: string, at: number): Change {
-  const state: LiveState = { phase: "working", line, startedAt: prev?.startedAt ?? at };
+type Steps = Pick<LiveState, "step" | "prevLine" | "trail">;
+
+/** The step trail as it stands, carried into the next state. */
+function stepsOf(prev: LiveState | undefined): Steps {
+  if (!prev?.step) return {};
+  return {
+    step: prev.step,
+    ...(prev.prevLine ? { prevLine: prev.prevLine } : {}),
+    ...(prev.trail ? { trail: prev.trail } : {}),
+  };
+}
+
+/** The current step, in the past tense: done so far. */
+const doneSoFar = (t: StepTrail): string => stepDone(t.kind, t.calls, t.last);
+
+function working(
+  prev: LiveState | undefined,
+  line: string,
+  at: number,
+  steps: Steps = stepsOf(prev),
+): Change {
+  const state: LiveState = { phase: "working", line, startedAt: prev?.startedAt ?? at, ...steps };
   return { kind: prev?.phase === "working" ? "routine" : "phase", state };
 }
 
 function ended(prev: LiveState, phase: LivePhase, line: string, at: number): Change {
-  return { kind: "end", state: { phase, line, startedAt: prev.startedAt, endedAt: at } };
+  return {
+    kind: "end",
+    state: {
+      phase,
+      line,
+      startedAt: prev.startedAt,
+      endedAt: at,
+      // How far it got: the end card's "3 steps" or "at step 3".
+      ...(prev.step ? { step: prev.step } : {}),
+    },
+  };
 }
 
 const ASK_TOOL = "ask_user";
@@ -129,14 +182,32 @@ export function reduceFrame(
       // own tool call starts right after its ask_user frame and must not
       // turn "Needs your help" back into a step.
       if (prev?.phase === "needsYou" || d.name === ASK_TOOL) return null;
-      if (frame.type === "tool_call_end") return prev ? working(prev, "Thinking…", at) : null;
+      if (frame.type === "tool_call_end") {
+        if (!prev) return null;
+        // Between steps: the step it was on is done so far.
+        const t = prev.trail;
+        return working(prev, "Thinking…", at, {
+          ...stepsOf(prev),
+          ...(t ? { prevLine: doneSoFar(t) } : {}),
+        });
+      }
       const name = typeof d.name === "string" ? d.name : "";
       // Server tools (web search) carry `input`, local ones `args`.
-      return working(
-        prev,
-        stepText(name, frame.type === "server_tool_call" ? d.input : d.args),
-        at,
-      );
+      const s = toolStep(name, frame.type === "server_tool_call" ? d.input : d.args);
+      const t = prev?.trail;
+      if (t?.kind === s.kind) {
+        // The same kind again: still the same step.
+        return working(prev, s.line, at, {
+          step: prev?.step ?? 1,
+          prevLine: doneSoFar(t),
+          trail: { kind: t.kind, calls: t.calls + 1, last: s.done },
+        });
+      }
+      return working(prev, s.line, at, {
+        step: (prev?.step ?? 0) + 1,
+        ...(t ? { prevLine: doneSoFar(t) } : {}),
+        trail: { kind: s.kind, calls: 1, last: s.done },
+      });
     }
     case "ask_user": {
       const buttons = askButtons(d);
@@ -147,6 +218,7 @@ export function reduceFrame(
           line: "Needs your help",
           detail: questionText(d),
           startedAt: prev?.startedAt ?? at,
+          ...stepsOf(prev),
           ...(buttons ? { askId: buttons.askId, options: buttons.labels } : {}),
           ...(buttons && buttons.recommended !== null ? { recommended: buttons.recommended } : {}),
         },
@@ -156,7 +228,12 @@ export function reduceFrame(
       return prev?.phase === "needsYou"
         ? {
             kind: "phase",
-            state: { phase: "working", line: "Back to work", startedAt: prev.startedAt },
+            state: {
+              phase: "working",
+              line: "Back to work",
+              startedAt: prev.startedAt,
+              ...stepsOf(prev),
+            },
           }
         : null;
     case "run_end":
@@ -305,7 +382,7 @@ export function createLiveActivityTracker(opts: {
         { token: reg.token, env: reg.env },
         {
           event: end ? "end" : "update",
-          contentState: { ...state },
+          contentState: wire(state),
           priority: kind === "routine" && !alert ? 5 : 10,
           ...(alert ? { alert } : {}),
           ...(end
@@ -458,7 +535,7 @@ export function createLiveActivityTracker(opts: {
               event: "start",
               attributesType: ATTRIBUTES_TYPE,
               attributes,
-              contentState: { ...state },
+              contentState: wire(state),
               alert: full,
               staleDate: nowS() + STALE_AFTER_S,
               priority: 10,

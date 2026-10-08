@@ -157,6 +157,45 @@ The voice's `start_chat`. Any paired device. Body `{ prompt, agent?: "general" |
 - Unopened, it is disposed 12 h after it finished (at most 8 idle kept). In memory only: after a
   host restart these are ordinary sessions.
 
+### Projects (`/kleio/projects`)
+
+The voice's `list_projects`, `read_project` and `create_project`, and coding work it sends with
+`send_plan`. Any paired device, as a Code session through the proxy is. A project is a plain folder
+directly inside one of Kleio's projects folders: not hidden, not a symlink, not a tooling or build
+folder, not Kleio's own folder (`KLEIO_HOME_CWD`), and never the home folder, a filesystem root or a
+Mac consent-gated folder (Desktop, Documents, Downloads) used as a projects folder. A device only
+ever sends a project's name; the host finds the folder again among the ones it lists.
+
+- `GET /kleio/projects` answers `200 { projects: [{ name, lastActivity, sessions, now? }] }`, most
+  recently worked on first (at most 40). `sessions` counts its saved coding sessions; `now`
+  (`{ state: "working" | "needs_you", doing }`) is a Code session working, or asking a question, in
+  it right now.
+- `GET /kleio/projects?name=` answers the same fields plus `recent` (its 5 newest coding sessions'
+  titles), `latest` (the newest one's latest prompts and replies, as `GET /kleio/sessions/:id`) and
+  `docs` (its 10 newest documents, as the files list).
+- `POST /kleio/projects { name }` makes an empty project in the first projects folder: lowercase
+  letters, digits and single dashes, at most 64 (the app's own rule). `409 exists` when any projects
+  folder has that name (case-insensitively).
+- `POST /kleio/projects/code { name, prompt }` (prompt 1–4000 characters) starts a Code session in
+  that project's folder, prompts it, and answers `200 { project, sessionId }`. It is a started chat
+  in all but mode: the same cap (5 started chats and coding sessions running), nudge (named for the
+  project), handover when a device opens it, and disposal.
+- `400 bad_request`, `404 not_found` (no such project, or no projects folders), `405`,
+  `503 projects_unavailable` when the sidecar can't answer. Logs carry the device, what was asked,
+  the status and the time, never names or prompts.
+
+A project's documents are also files for the voice (`source=project`, below): words to read (text,
+PDF, documents, spreadsheets, slides, web pages) outside build output, plus its coding agents' plans
+in `.gg/plans/` (read only from inside that folder, and never through a symlink). Its code, data and
+other hidden files are never listed or read.
+
+### A specialist's latest messages (`GET /kleio/blobs/:id/messages`)
+
+The voice's `read_specialist`. Any paired device; read-only. Answers
+`200 { messages: [{ from, text }], lastActivity? }` from the Blob's newest saved conversation (the
+sidecar's listing, found by its folder), as `GET /kleio/sessions/:id`, without opening a session;
+`{ messages: [] }` before its first. `404` for an unknown Blob, `503 sessions_unavailable`.
+
 ### Saved chats and coding sessions (`GET /kleio/sessions`)
 
 The voice's `list_chats`, `read_chat`, `list_code_sessions` and `read_code_session`. Any paired
@@ -177,7 +216,8 @@ device; read-only. `?kind=chat|code` is required.
 
 The voice's `list_files` and `read_file`. Any paired device; read-only. `source` is `kleio` (the
 home thread's folder, minus `blobs/` and `groups/`), `specialist` (`id` = Blob id), `group` (`id` =
-group id: every current member's folder), or `chat` / `code` (`id` = saved session id).
+group id: every current member's folder), `chat` / `code` (`id` = saved session id), or `project`
+(`id` = project name: its documents only, see Projects).
 
 - `GET /kleio/voice/files?source=&id=` answers `200 { files: [{ path, name, kind, size, modified,
   readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no

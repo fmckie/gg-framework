@@ -87,41 +87,79 @@ export function clipText(text: string, max: number): string {
   return cs.length > max ? `${cs.slice(0, max - 1).join("")}…` : cs.join("");
 }
 
-/** One tool call as a plain step, e.g. "Editing host.ts", "Running a command". */
-export function stepText(name: string, args: unknown): string {
+/** One tool call as a step of the run's trail. */
+export interface ToolStep {
+  /** What kind of action it is: calls of one kind in a row are one step. */
+  readonly kind: string;
+  /** While it runs: "Editing host.ts". */
+  readonly line: string;
+  /** Once it's done: "Edited host.ts". */
+  readonly done: string;
+}
+
+/** One tool call as a step, e.g. "Editing host.ts" (done: "Edited host.ts"). */
+export function toolStep(name: string, args: unknown): ToolStep {
   const summary = toolSummary(args);
   const last = summary.split(/[/\\]/).pop()?.trim() ?? "";
   const file = last && [...last].length <= FILE_MAX ? last : "";
-  let line: string;
+  const step = (kind: string, line: string, done: string): ToolStep => ({
+    kind,
+    line: clipText(line, LINE_MAX),
+    done: clipText(done, LINE_MAX),
+  });
   switch (name) {
     case "bash":
-      line = "Running a command";
-      break;
+      return step("command", "Running a command", "Ran a command");
     case "read":
-      line = file ? `Reading ${file}` : "Reading a file";
-      break;
+      return file
+        ? step("read", `Reading ${file}`, `Read ${file}`)
+        : step("read", "Reading a file", "Read a file");
     case "write":
-      line = file ? `Writing ${file}` : "Writing a file";
-      break;
+      return file
+        ? step("write", `Writing ${file}`, `Wrote ${file}`)
+        : step("write", "Writing a file", "Wrote a file");
     case "edit":
-      line = file ? `Editing ${file}` : "Editing a file";
-      break;
+      return file
+        ? step("edit", `Editing ${file}`, `Edited ${file}`)
+        : step("edit", "Editing a file", "Edited a file");
     case "ls":
     case "grep":
     case "find":
-      line = "Searching files";
-      break;
+      return step("search", "Searching files", "Searched files");
     case "web_fetch":
-      line = "Reading a web page";
-      break;
+      return step("web_page", "Reading a web page", "Read a web page");
     case "web_search":
-      line = "Searching the web";
-      break;
+      return step("web_search", "Searching the web", "Searched the web");
     case "subagent":
-      line = "Handing off a task";
-      break;
+      return step("handoff", "Handing off a task", "Handed off a task");
     default:
-      line = "Working";
+      // Each other tool is its own kind: two different ones are two steps.
+      return step(`tool:${name}`, "Working", "Used a tool");
   }
-  return clipText(line, LINE_MAX);
+}
+
+/** One tool call as a plain step, e.g. "Editing host.ts", "Running a command". */
+export function stepText(name: string, args: unknown): string {
+  return toolStep(name, args).line;
+}
+
+/** A step of several calls, in the past tense; searches read the same however many. */
+const MANY_DONE: Readonly<Record<string, (n: number) => string>> = {
+  command: (n) => `Ran ${n} commands`,
+  read: (n) => `Read ${n} files`,
+  write: (n) => `Wrote ${n} files`,
+  edit: (n) => `Edited ${n} files`,
+  web_page: (n) => `Read ${n} web pages`,
+  handoff: (n) => `Handed off ${n} tasks`,
+};
+
+/**
+ * A finished step in the past tense: what its one call did (`last`, e.g.
+ * "Read host.ts"), or a count of its `calls` ("Read 3 files").
+ */
+export function stepDone(kind: string, calls: number, last: string): string {
+  if (calls <= 1) return last;
+  const many = MANY_DONE[kind];
+  if (many) return many(calls);
+  return kind.startsWith("tool:") ? `Used a tool ${calls} times` : last;
 }

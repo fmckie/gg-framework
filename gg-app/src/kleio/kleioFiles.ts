@@ -12,6 +12,7 @@ import {
   agentFilePath,
   fileExtension,
   isOutputPath,
+  isSitePath,
   specialistFilePath,
   workspaceFilePath,
 } from "./filePaths";
@@ -68,14 +69,17 @@ export interface FileLink {
   path: string;
   /** The link text, without inline markup. */
   label: string;
+  /** Named in the message rather than linked: its card shows only if the file is there. */
+  named?: true;
 }
 
-/** The agent-folder files a message links to, in order, each once. Images
- *  (`![…](…)`) are left to the message itself. With the message's `owner`
- *  (a Specialist or group member), absolute links into that owner's own
- *  folder count too (see `specialistFilePath`). */
+/** The agent-folder files a message links to, in order, each once, then the
+ *  outputs it names without linking (see `filesBy`). Images (`![…](…)`) are
+ *  left to the message itself. With the message's `owner` (a Specialist or
+ *  group member), absolute links into that owner's own folder count too (see
+ *  `specialistFilePath`). */
 export function fileLinks(markdown: string, owner?: FileOwner): FileLink[] {
-  return linksBy(markdown, (href) => ownerFilePath(href, owner));
+  return filesBy(markdown, (href) => ownerFilePath(href, owner));
 }
 
 /** The path inside `owner`'s folder a link points at, or null. */
@@ -91,29 +95,69 @@ export function ownerFilePath(href: string, owner?: FileOwner): string | null {
   }
 }
 
-/** The outputs (see `isOutputPath`) a Chat/Code reply links to inside its
- *  session folder `cwd`, in order, each once. Source files the agent mentions
- *  (`src/App.tsx`) stay plain links. */
+/** The outputs (see `isOutputPath`) a Chat/Code reply links to or names inside
+ *  its session folder `cwd`, in order, each once. Source files the agent
+ *  mentions (`src/App.tsx`) stay plain links. */
 export function workspaceFileLinks(markdown: string, cwd: string): FileLink[] {
-  return linksBy(markdown, (href) => {
+  return filesBy(markdown, (href) => {
     const path = workspaceFilePath(href, cwd);
     return path && isOutputPath(path) ? path : null;
   });
 }
 
-function linksBy(markdown: string, pathOf: (href: string) => string | null): FileLink[] {
+/** Inline code and bold: how replies name a file they made without linking it. */
+const MENTION = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__/g;
+
+/**
+ * The files `pathOf` accepts that a message links to, in order, then the ones
+ * it names in inline code or bold without linking ("`report.pdf`",
+ * "**report.pdf**", an absolute path into the folder), each once. A named
+ * file counts only when the whole span is the name, with no spaces, and it is
+ * an output (see `isOutputPath`) other than a web page ("Edited `index.html`"
+ * is everyday in a coding reply); names inside fenced code blocks (listings,
+ * commands) never count.
+ */
+function filesBy(markdown: string, pathOf: (href: string) => string | null): FileLink[] {
   const out: FileLink[] = [];
   const seen = new Set<string>();
+  const add = (path: string | null, label: string, named = false): void => {
+    if (!path || seen.has(path)) return;
+    seen.add(path);
+    out.push(named ? { path, label, named: true } : { path, label });
+  };
   for (const m of markdown.matchAll(LINK)) {
     if (m[1]) continue;
     let href = m[3] ?? "";
     if (href.startsWith("<")) href = href.slice(1, -1);
-    const path = pathOf(href);
-    if (!path || seen.has(path)) continue;
-    seen.add(path);
-    out.push({ path, label: (m[2] ?? "").replace(/[*_`]/g, "").trim() });
+    add(pathOf(href), (m[2] ?? "").replace(/[*_`]/g, "").trim());
+  }
+  for (const m of outsideCodeBlocks(markdown).matchAll(MENTION)) {
+    const named = (m[1] ?? m[2] ?? m[3] ?? "").replace(/`/g, "").trim();
+    if (!named || /\s/.test(named)) continue;
+    // "~/…" is under a home folder the app doesn't know: an absolute path, never a relative one.
+    const path = pathOf(named.startsWith("~/") ? `/${named}` : named);
+    if (path && isOutputPath(path) && !isSitePath(path))
+      add(path, path.split("/").pop() ?? path, true);
   }
   return out;
+}
+
+/** The message without its fenced code blocks (``` or ~~~). */
+function outsideCodeBlocks(markdown: string): string {
+  const kept: string[] = [];
+  let fence = "";
+  for (const line of markdown.split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1] ?? "";
+    if (fence) {
+      // Closed by the same character, at least as many times.
+      if (marker.startsWith(fence)) fence = "";
+    } else if (marker) {
+      fence = marker;
+    } else {
+      kept.push(line);
+    }
+  }
+  return kept.join("\n");
 }
 
 const KINDS: Record<string, string> = {

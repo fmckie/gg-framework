@@ -549,6 +549,8 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "files", "read"]
             | ["kleio", "sessions"]
             | ["kleio", "sessions", _]
+            | ["kleio", "projects"]
+            | ["kleio", "projects", "code"]
     ) || under(&segs, &["kleio", "blobs"])
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
@@ -817,6 +819,11 @@ mod tests {
             ("POST", "/kleio/voice/files/read"),
             ("GET", "/kleio/sessions?kind=chat"),
             ("GET", "/kleio/sessions/0b9f2c1e-5d4a-4c1b-9a8e-3f2d1c0b9a8e?kind=code"),
+            ("GET", "/kleio/projects"),
+            ("GET", "/kleio/projects?name=recipe%20app%20%28old%29"),
+            ("POST", "/kleio/projects"),
+            ("POST", "/kleio/projects/code"),
+            ("GET", "/kleio/voice/files?source=project&id=recipe-app"),
             ("GET", "/kleio/blobs"),
             ("POST", "/kleio/blobs"),
             ("PATCH", "/kleio/blobs/b_1"),
@@ -912,6 +919,10 @@ mod tests {
             "/kleio/blobsx",
             "/kleio/sessionsx",
             "/kleio/sessions/a/b",
+            "/kleio/projectsx",
+            "/kleio/projects/recipe-app",
+            "/kleio/projects/code/x",
+            "/kleio/projects?name=it's",
             "/kleio/models/x",
             "/kleio/blobs/../devices",
             "/kleio/blobs/./x",
