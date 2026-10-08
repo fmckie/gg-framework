@@ -35,6 +35,12 @@ vi.mock("./useKleioRemote", () => ({
     refresh: vi.fn(),
   }),
 }));
+// Whether the Mac mini answers right now (HostReachProvider, mounted in main.tsx).
+const reach = vi.hoisted(() => ({
+  value: "connected" as "checking" | "connected" | "disconnected",
+}));
+vi.mock("./hostReach", () => ({ useHostReach: () => reach.value }));
+
 vi.mock("../agent", () => ({
   waitForReady: vi.fn(async () => undefined),
   getSettings: vi.fn(),
@@ -78,6 +84,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   voice.open = false;
+  reach.value = "connected";
 });
 
 describe("KleioHome", () => {
@@ -118,6 +125,15 @@ describe("KleioHome", () => {
   it("shows the Mac mini and opens the Connection settings", async () => {
     const p = renderHome();
     fireEvent.click(screen.getByRole("button", { name: /Connected to mac-mini-1/ }));
+    expect(p.onSettings).toHaveBeenCalledWith("connection");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+  });
+
+  it("says Disconnected when the Mac mini stops answering, not a Connected left over from launch", async () => {
+    reach.value = "disconnected";
+    const p = renderHome();
+    expect(screen.queryByRole("button", { name: /Connected to/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Disconnected from mac-mini-1/ }));
     expect(p.onSettings).toHaveBeenCalledWith("connection");
     await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
   });

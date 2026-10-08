@@ -6,6 +6,11 @@
 /** The trigger the composer advertises and the iPhone chip inserts. */
 export const HELPER_MENTION = "@muse";
 
+/** What the golden check button asks the helper, as typing `@muse check` would. */
+export const HELPER_CHECK_QUESTION = "check";
+/** The golden check button's message, as it shows in the transcript. */
+export const HELPER_CHECK = `${HELPER_MENTION} ${HELPER_CHECK_QUESTION}`;
+
 // The token at the start of a draft, after any leading whitespace. The word
 // boundary keeps `@museum.ts` and `@kennedy.ts` file mentions.
 const LEADING_TOKEN = /^(\s*)(@(?:muse|ken))\b/i;

@@ -216,6 +216,19 @@
   background: var(--success);
   box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
 }
+/* The Mac mini stopped answering (Tailscale dropped, or it's asleep): red, and
+   the words say Disconnected, so colour isn't the only sign. */
+.kleio-status.is-down {
+  color: var(--text);
+}
+.kleio-status.is-down .kleio-status-dot {
+  background: var(--error);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--error) 60%, transparent);
+}
+.kleio-status.is-checking .kleio-status-dot {
+  background: var(--text-dim);
+  box-shadow: none;
+}
 
 /* ── Connect / can't-reach screens: the same crimson wash ── */
 .kleio-gate::before {

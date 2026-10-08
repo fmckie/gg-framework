@@ -467,6 +467,15 @@ pub fn kleio_admin_lock(gate: State<'_, BiometricGate>) {
 /// Blob create/patch waits for the auto-schedule model call (~25 s on the host).
 const API_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How long one call may take: the caller's own deadline when it gives one (a
+/// reachability check wants an answer in seconds, not a minute, when the Mac
+/// mini has dropped off Tailscale), kept between 1 s and `API_TIMEOUT`.
+fn api_timeout(ms: Option<u64>) -> Duration {
+    ms.map_or(API_TIMEOUT, |ms| {
+        Duration::from_millis(ms).clamp(Duration::from_secs(1), API_TIMEOUT)
+    })
+}
+
 /// Ordinary sidecar routes the pane may call against a specific session (the
 /// home thread or a Blob's chat): the compact chat view. `/memories` (and
 /// below) is matched separately.
@@ -615,12 +624,15 @@ pub async fn kleio_api(
     path: String,
     body: Option<serde_json::Value>,
     session: Option<String>,
+    timeout_ms: Option<u64>,
 ) -> Result<ApiResponse, String> {
     let r = super::remote().ok_or("kleio_api: not connected to a Kleio host")?;
     let method = method.to_ascii_uppercase();
     let scoped = check_route(&method, &path, session.as_deref())?;
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-    let mut req = api_client(r)?.request(m, format!("{}{}", r.base, path));
+    let mut req = api_client(r)?
+        .request(m, format!("{}{}", r.base, path))
+        .timeout(api_timeout(timeout_ms));
     if scoped {
         if let Some(s) = session.as_deref() {
             req = req.header("x-gg-session", s);
@@ -742,6 +754,14 @@ mod tests {
         assert!(!auth_route_allowed("POST", "/auth/status"));
         assert!(!auth_route_allowed("POST", "/auth/oauth/start"));
         assert!(!auth_route_allowed("GET", "/kleio/home"));
+    }
+
+    #[test]
+    fn api_timeout_keeps_a_callers_deadline_within_bounds() {
+        assert_eq!(api_timeout(None), API_TIMEOUT);
+        assert_eq!(api_timeout(Some(6_000)), Duration::from_secs(6));
+        assert_eq!(api_timeout(Some(10)), Duration::from_secs(1));
+        assert_eq!(api_timeout(Some(600_000)), API_TIMEOUT);
     }
 
     #[test]
