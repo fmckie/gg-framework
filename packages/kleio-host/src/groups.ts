@@ -9,9 +9,10 @@
  * next. Each (group, Blob) pair has its own pinned sidecar conversation, a
  * persona of the Blob's job plus a short group addendum, so a Blob keeps
  * context between turns. Every turn is prompted with the group messages that
- * Blob has not seen yet. One serial queue per group; at most MAX_TURNS Blob
- * turns per user message. A Blob that has nothing to add answers PASS and
- * posts nothing.
+ * Blob has not seen yet. One serial queue per group: it pauses after
+ * STALL_TURNS turns in a row with no tool call, or at MAX_TURNS turns per user
+ * message (a backstop). A Blob that has nothing to add answers PASS and posts
+ * nothing.
  *
  * State: groups.json (atomic), messages in group-<id>.jsonl (last 500); a new
  * session moves the log aside to group-<id>.<time>.jsonl. The conductor's
@@ -181,11 +182,19 @@ export type GroupRouter = (req: RouteRequest, signal: AbortSignal) => Promise<Ro
 const MAX_GROUPS = 20;
 const MAX_MEMBERS = 8;
 /**
- * Member turns per user message: the runaway guard for members @mentioning
- * each other, or the router handing the turn on, in a loop. At 20, longer
- * jobs (build, check, fix, re-check) ran out with work left (5 Oct 2026).
+ * The stall guard: the group pauses after this many member turns in a row with
+ * no tool call, however each ended (a reply, PASS, a failure, a timeout). It
+ * catches members @mentioning each other, or the router handing the turn on, in
+ * a loop of talk. The job search the old 35-turn cap cut off halfway (8 Oct
+ * 2026) never went more than 3 turns without a tool call.
  */
-const MAX_TURNS = 35;
+const STALL_TURNS = 10;
+/**
+ * Member turns per user message, counted afresh for each one: a cost and
+ * runaway backstop only, for a loop the stall guard can't see (members calling
+ * tools at each other). Not a work budget: keep it far above real jobs.
+ */
+const MAX_TURNS = 200;
 /** How long the router may take to decide; past it, the fallback rule decides. */
 const ROUTE_TIMEOUT_MS = 12_000;
 /** Messages the router sees: since the user's latest one, and a few before it. */
@@ -211,7 +220,27 @@ const PROMPT_CHARS = 6000;
 const WATCHING_MS = 20_000;
 const INSTRUCTIONS_MAX = 8000;
 
-/** How a member's last turn ended, or that the reply budget ran out first. */
+/** Why the group paused with members still waiting. */
+type Pause = "stalled" | "ceiling";
+
+/** How each pause is told: in the log, as a waiting member's outcome, on the Live Activity. */
+const PAUSES: Readonly<Record<Pause, { log: string; reason: string; line: string }>> = {
+  stalled: {
+    log: `paused after ${STALL_TURNS} turns in a row with no tool call`,
+    reason: `the group paused after ${STALL_TURNS} turns with no tool use`,
+    line: `Paused: no tool use in ${STALL_TURNS} turns`,
+  },
+  ceiling: {
+    log: `paused at the ${MAX_TURNS}-turn ceiling`,
+    reason: `the group used all ${MAX_TURNS} turns for this message`,
+    line: `Paused after ${MAX_TURNS} turns`,
+  },
+};
+
+/**
+ * How a member's last turn ended, or that the group paused before its turn came
+ * ("budget_exhausted": the stall guard or the turn ceiling; see PAUSES).
+ */
 export type TurnOutcomeKind =
   "replied" | "passed" | "timed_out" | "failed" | "unavailable" | "budget_exhausted";
 
@@ -246,6 +275,8 @@ interface Active {
   cancelled: boolean;
   /** The run's error frame, as a short reason. */
   error: string | null;
+  /** It called a tool this turn: work, not just talk (for the stall guard). */
+  usedTool: boolean;
   readonly activity: MemberActivity;
   readonly finish: () => void;
   /** The group, the member and its name, for the Live Activity's step line. */
@@ -302,14 +333,17 @@ export function askPromptOf(d: Record<string, unknown>): AskPrompt | null {
 
 interface Conductor {
   queue: string[];
-  budget: number;
+  /** Set by the user's message; Stop and a new session clear it, ending the work. */
+  working: boolean;
   running: Promise<void> | null;
   typing: string | null;
   lastReply: GroupMessage | null;
   /** seq of the user's latest message: the request the group works on. */
   askSeq: number;
-  /** Turns taken since that message. */
+  /** Turns taken since that message: the ceiling's count. */
   turns: number;
+  /** Turns in a row that called no tool, however they ended: the stall guard's count. */
+  chatter: number;
   /** Members who took a turn without replying since the last reply: not routed to. */
   idle: Set<string>;
   /** The member the router just handed the turn to (its prompt gets NUDGE). */
@@ -685,12 +719,13 @@ export function createGroups(options: GroupsOptions): Groups {
     if (!c) {
       c = {
         queue: [],
-        budget: 0,
+        working: false,
         running: null,
         typing: null,
         lastReply: null,
         askSeq: 0,
         turns: 0,
+        chatter: 0,
         idle: new Set(),
         nudge: null,
         epoch: 0,
@@ -788,7 +823,7 @@ export function createGroups(options: GroupsOptions): Groups {
     // A message that came in while the last one wound down is worked on next.
     let settled: number;
     do settled = await conduct(gid, c);
-    while (c.askSeq !== settled && c.budget > 0);
+    while (c.askSeq !== settled && c.working);
   }
 
   /** Tell the Live Activity; never lets a failure reach the conductor. */
@@ -813,40 +848,44 @@ export function createGroups(options: GroupsOptions): Groups {
     const router = options.router;
     const epoch = c.epoch;
     c.stopWhy = null;
-    while (c.budget > 0) {
+    let paused: Pause | null = null;
+    while (c.working) {
       if (!c.queue.length) {
         if (!router) break;
         const routed = await route(gid, c, router);
         if (routed === "stop") break;
         if (routed === "stale") continue;
       }
+      // Someone is up next: pause if the last turns were all talk, or at the ceiling.
+      paused = c.chatter >= STALL_TURNS ? "stalled" : c.turns >= MAX_TURNS ? "ceiling" : null;
+      if (paused) break;
       const bid = c.queue.shift();
       if (bid === undefined) break;
       const nudged = c.nudge === bid;
       c.nudge = null;
-      c.budget -= 1;
       c.turns += 1;
+      const askSeq = c.askSeq;
+      let usedTool = false;
       try {
-        await turn(gid, bid, nudged);
+        usedTool = await turn(gid, bid, nudged);
       } catch (e) {
         log(`[groups] ${gid} turn of ${bid} failed: ${String(e)}`);
         setOutcome(gid, bid, "failed", "the host hit an error (see its log)");
         c.idle.add(bid);
       }
+      // Every turn ends here, so the stall guard counts here: a turn that
+      // called no tool is talk however it ended (a reply, PASS, a failure, a
+      // timeout, a host error), and one that called a tool is work. A turn a
+      // new message overtook counts toward neither.
+      if (c.askSeq === askSeq) c.chatter = usedTool ? 0 : c.chatter + 1;
     }
     const settled = c.askSeq;
-    const outOfTurns = c.queue.length > 0 || (c.budget <= 0 && c.stopWhy === null);
-    // Only the budget ends the loop with members still waiting.
-    if (c.queue.length) {
+    // Only a pause ends the loop with members still waiting.
+    if (paused) {
+      const { log: why, reason } = PAUSES[paused];
       const names = c.queue.map((id) => blobCache.get(id)?.name ?? id);
-      log(`[groups] ${gid}: all ${MAX_TURNS} turns used; not reached: ${names.join(", ")}`);
-      for (const id of c.queue)
-        setOutcome(
-          gid,
-          id,
-          "budget_exhausted",
-          `the group used all ${MAX_TURNS} turns for this message`,
-        );
+      log(`[groups] ${gid}: ${why}; not reached: ${names.join(", ")}`);
+      for (const id of c.queue) setOutcome(gid, id, "budget_exhausted", reason);
     }
     c.queue = [];
     c.nudge = null;
@@ -867,8 +906,8 @@ export function createGroups(options: GroupsOptions): Groups {
               },
               !watching,
             )
-          : outOfTurns
-            ? await live(gid, { phase: "stopped", line: `Paused after ${MAX_TURNS} turns` })
+          : paused
+            ? await live(gid, { phase: "stopped", line: PAUSES[paused].line })
             : await live(gid, {
                 phase: "done",
                 line: "Done",
@@ -893,22 +932,25 @@ export function createGroups(options: GroupsOptions): Groups {
     return settled;
   }
 
-  /** One member's turn. `nudged`: the router handed it the turn, so it is told to carry on. */
-  async function turn(gid: string, bid: string, nudged: boolean): Promise<void> {
+  /**
+   * One member's turn. `nudged`: the router handed it the turn, so it is told
+   * to carry on. Resolves whether the member called a tool (the stall guard's test).
+   */
+  async function turn(gid: string, bid: string, nudged: boolean): Promise<boolean> {
     const g = find(gid);
-    if (!g || !g.members.includes(bid)) return;
+    if (!g || !g.members.includes(bid)) return false;
     const c = conductor(gid);
     const epoch = c.epoch;
     const all = await membersOf(g);
     const self = all.find((b) => b.id === bid);
-    if (!self) return;
+    if (!self) return false;
     const list = await messages(gid);
     const seen = g.sessions[bid]?.seenSeq ?? 0;
     const unseen = list.filter((m) => m.seq > seen && m.author !== bid);
     const prompt = [promptFor(unseen), nudged ? NUDGE : ""].filter(Boolean).join("\n");
     if (!prompt) {
       c.idle.add(bid);
-      return;
+      return false;
     }
 
     c.typing = bid;
@@ -939,9 +981,9 @@ export function createGroups(options: GroupsOptions): Groups {
       if (!session.ok) {
         log(`[groups] ${gid}: ${self.name} unavailable: ${session.error.error}`);
         end("unavailable", session.error.error);
-        return;
+        return false;
       }
-      if (c.epoch !== epoch) return;
+      if (c.epoch !== epoch) return false;
       const sid = session.value.sessionId;
       sessionId = sid;
       const lastSeq = list[list.length - 1]?.seq;
@@ -956,6 +998,7 @@ export function createGroups(options: GroupsOptions): Groups {
           failed: false,
           cancelled: false,
           error: null,
+          usedTool: false,
           activity: mine,
           finish: () => resolve("done"),
           gid,
@@ -976,33 +1019,35 @@ export function createGroups(options: GroupsOptions): Groups {
           "unavailable",
           r ? `the agent didn't take the message (HTTP ${r.status})` : "couldn't reach the agent",
         );
-        return;
+        return false;
       }
       const how = await ended;
+      const a = actives.get(sid);
+      // A tool call is work, however the turn ends.
+      const usedTool = a?.usedTool ?? false;
       // Stopped, or a new session began, during the turn: drop what it said.
       if (c.epoch !== epoch) {
         log(`[groups] ${gid}: ${self.name}'s turn was stopped; reply dropped`);
-        return;
+        return usedTool;
       }
       if (how === "timeout") {
         log(`[groups] ${gid}: ${self.name} took too long`);
         end("timed_out", `took over ${durationText(turnTimeoutMs)}`);
         void options.call("POST", "/cancel", { session: sid }).catch(() => null);
-        return;
+        return usedTool;
       }
-      const a = actives.get(sid);
       if (!a || a.failed) {
         const why = a?.cancelled ? "the run was cancelled" : (a?.error ?? "the run failed");
         log(`[groups] ${gid}: ${self.name}'s run failed: ${why}`);
         end("failed", why);
-        return;
+        return usedTool;
       }
       const last = a.text.trim();
       const reply = last && !isPass(last) ? last : a.answer;
       if (!reply) {
         log(`[groups] ${gid}: ${self.name} ${last ? "passed" : "sent an empty reply"}`);
         end("passed", last ? "had nothing to add" : "sent an empty reply");
-        return;
+        return usedTool;
       }
       const msg = await append(gid, {
         author: bid,
@@ -1016,6 +1061,7 @@ export function createGroups(options: GroupsOptions): Groups {
       end("replied", "");
       for (const id of mentioned(reply, all))
         if (id !== bid && !c.queue.includes(id)) c.queue.push(id);
+      return usedTool;
     } finally {
       clearTimeout(timer);
       if (sessionId) actives.delete(sessionId);
@@ -1040,7 +1086,7 @@ export function createGroups(options: GroupsOptions): Groups {
     const was = c.typing;
     c.epoch += 1;
     c.queue = [];
-    c.budget = 0;
+    c.working = false;
     c.lastReply = null;
     c.nudge = null;
     const g = find(gid);
@@ -1067,10 +1113,11 @@ export function createGroups(options: GroupsOptions): Groups {
     const c = conductor(gid);
     c.epoch += 1;
     c.queue = [];
-    c.budget = 0;
+    c.working = false;
     c.lastReply = null;
     c.nudge = null;
     c.turns = 0;
+    c.chatter = 0;
     c.idle.clear();
     c.stopWhy = null;
     const g = find(gid);
@@ -1255,9 +1302,10 @@ export function createGroups(options: GroupsOptions): Groups {
       replace({ ...(find(g.id) ?? g), updatedAt: message.at });
       void save();
       const c = conductor(g.id);
-      c.budget = MAX_TURNS;
+      c.working = true;
       c.askSeq = message.seq;
       c.turns = 0;
+      c.chatter = 0;
       c.idle.clear();
       void live(g.id, { phase: "working", line: "Starting…" }, false, true);
       // Mentioned members go first, in the order mentioned. Otherwise the
@@ -1376,6 +1424,7 @@ export function createGroups(options: GroupsOptions): Groups {
       case "tool_call_start":
         if (a) {
           a.stale = true;
+          a.usedTool = true;
           toolStarted(a.activity.entries, d, now().toISOString());
           if (typeof d.name === "string" && d.name && d.name !== "ask_user" && !a.ask)
             void live(a.gid, { phase: "working", line: `${a.name} · ${stepText(d.name, d.args)}` });
@@ -1386,6 +1435,7 @@ export function createGroups(options: GroupsOptions): Groups {
         // and finishes inside the model call, so it shows as done at once.
         if (a) {
           a.stale = true;
+          a.usedTool = true;
           serverToolCalled(a.activity.entries, d, now().toISOString());
           if (typeof d.name === "string" && d.name)
             void live(a.gid, {
