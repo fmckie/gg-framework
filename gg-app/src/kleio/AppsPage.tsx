@@ -30,6 +30,7 @@ import {
   type Connection,
   type Toolkit,
 } from "./kleioApi";
+import { GetKeyButton, KeyForm } from "./KeyForm";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
@@ -282,9 +283,15 @@ export function AppsPage(): React.ReactElement {
         description="Apps connect through Composio on your host."
       >
         <p className="kleio-page-intro">
-          Put a Composio API key in the host's <code>composio.key</code> file and restart the Kleio
-          host. Then Gmail, Calendar, Notion and hundreds more can work for Kleio and every
-          specialist.
+          Add a Composio API key and Gmail, Calendar, Notion and hundreds more can work for Kleio
+          and every specialist.
+        </p>
+        <KeyForm name="composio" onSaved={() => void load()} />
+        <div className="modal-row">
+          <GetKeyButton name="composio" />
+        </div>
+        <p className="settings-desc">
+          In Composio, open Settings, then API Keys, and create a key.
         </p>
       </SettingsCard>
     );

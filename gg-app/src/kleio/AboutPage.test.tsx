@@ -18,6 +18,8 @@ describe("AboutPage", () => {
     expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
     expect(await screen.findByText("Version 0.73.2")).toBeDefined();
     expect(screen.getByText("Built on GG Coder by Ken Kai")).toBeDefined();
+    // Kleio's voice moved to the Setup page.
+    expect(screen.queryByText("Talk to Kleio")).toBeNull();
   });
 
   it("keeps the credit and drops the version when it can't be read", async () => {

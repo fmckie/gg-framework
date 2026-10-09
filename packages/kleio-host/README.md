@@ -323,12 +323,37 @@ createdAt}]}`.
 **Errors:** with no key, the list says `configured:false` and the other routes answer 503. A
 Composio error is a 502 `{error:"composio", status, detail}`.
 
-**Key:** set `KLEIO_COMPOSIO_API_KEY`, or put the key in `<state dir>/composio.key` (mode 0600;
-`~/Library/Application Support/Kleio/host/composio.key` on the mini), then restart the host. The
-key never appears in a response or log.
+**Key:** set it from the app (Settings → Setup, on an admin device), or put it in
+`<state dir>/composio.key` (mode 0600; `~/Library/Application Support/Kleio/host/composio.key`
+on the mini). `KLEIO_COMPOSIO_API_KEY` overrides the file. No restart is needed: the key is read
+on every use, and a changed or removed key drops the old Tool Router session and the
+`mcpServers.composio` entry in `~/.gg/mcp.json` (other servers are kept). The key never appears in
+a response or log.
 
 **Privacy:** Composio sees tool arguments and results and stores the app logins. It is less
 private than Tinfoil.
+
+### Setup keys (`/kleio/setup`)
+
+Third-party keys an admin device can set from Settings → Setup. An env key always wins over the
+key file; no restart is needed for any of them.
+
+- **Composio** (Apps): see above.
+- **Typesafe** (Jev, the group chats' router): `TYPESAFE_API_KEY` or `<state dir>/typesafe.key`.
+  Without it, groups route by relevance.
+- **OpenAI** (voice): `POST/DELETE /kleio/voice/key`; shown here for completeness.
+
+Routes (a paired device's token on all):
+
+- `GET /kleio/setup` (any device) → `{admin, keys:{openai, composio, typesafe}}`, each
+  `"missing" | "saved" | "env"`. Never a key or part of one.
+- `POST /kleio/setup/keys/composio|typesafe` `{key}` (admin): the key is trimmed and checked with
+  the provider (15 s) before it is written (0600, atomic). Answers the setup body, or 403
+  `forbidden`, 404 `not_found` (other names; Composio without a home thread), 413 `too_large`
+  (body over 4 KiB), 400 `bad_request`, 409 `set_by_env`, 422 `bad_key` (empty, over 512
+  characters, whitespace, or the provider said 401/403), 502 `{error:"rejected", detail}`, 504
+  `{error:"unreachable", detail}`. `detail` is redacted of the key.
+- `DELETE /kleio/setup/keys/composio|typesafe` (admin): removes the key file; same 403/404/409.
 
 ### Files and site previews
 

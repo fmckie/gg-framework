@@ -3,6 +3,7 @@ import {
   GearSixIcon,
   InfoIcon,
   KeyIcon,
+  ListChecksIcon,
   PuzzlePieceIcon,
   ShareNetworkIcon,
   SquaresFourIcon,
@@ -17,13 +18,14 @@ import { SteroidsModal } from "./SteroidsModal";
 import { ConnectionPage } from "./kleio/LazyConnectionPage";
 import { AppsPage } from "./kleio/LazyAppsPage";
 import { AboutPage } from "./kleio/AboutPage";
+import { SetupPage } from "./kleio/SetupPage";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
 import { toast } from "./toast";
 
 export type SettingsTabId =
-  "general" | "providers" | "connection" | "apps" | "mcp" | "steroids" | "about";
+  "setup" | "general" | "providers" | "connection" | "apps" | "mcp" | "steroids" | "about";
 
 interface Props {
   onClose: () => void;
@@ -59,6 +61,8 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
   }, []);
 
   const tabs: SettingsTab<SettingsTabId>[] = [
+    // kleio: first-run setup; a new device opens here once after pairing.
+    { id: "setup", label: "Setup", icon: ListChecksIcon },
     { id: "general", label: "General", icon: GearSixIcon },
     { id: "providers", label: "AI Providers", icon: KeyIcon },
     // kleio: the Mac mini, Tailscale and the iPhone app take the place of
@@ -109,6 +113,7 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
       >
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: actionsSlot }}>
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
+            {tab === "setup" && <SetupPage onOpenTab={selectTab} />}
             {tab === "general" && (
               <EmbeddedModal>
                 <SettingsModal

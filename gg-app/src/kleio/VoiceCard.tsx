@@ -55,7 +55,12 @@ function keyError(e: unknown): string {
   return errorText(e);
 }
 
-function ConversationCard(): React.ReactElement {
+/**
+ * `canEdit` false (a device that isn't an admin): the key, the voice and
+ * removing the key are left to the admin device, as the host only lets it
+ * change them. Talking works from any device.
+ */
+function ConversationCard({ canEdit }: { canEdit: boolean }): React.ReactElement {
   const [status, setStatus] = useState<VoiceStatus | null | "unavailable">(null);
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -104,19 +109,21 @@ function ConversationCard(): React.ReactElement {
       ) : status.ready ? (
         <>
           <div className="modal-row">
-            <select
-              className="modal-input"
-              aria-label="Kleio's conversation voice"
-              value={status.voice}
-              disabled={busy}
-              onChange={(e) => void act(() => setVoiceName(e.target.value))}
-            >
-              {status.voices.map((v) => (
-                <option key={v} value={v}>
-                  {VOICE_LABELS[v] ?? v}
-                </option>
-              ))}
-            </select>
+            {canEdit && (
+              <select
+                className="modal-input"
+                aria-label="Kleio's conversation voice"
+                value={status.voice}
+                disabled={busy}
+                onChange={(e) => void act(() => setVoiceName(e.target.value))}
+              >
+                {status.voices.map((v) => (
+                  <option key={v} value={v}>
+                    {VOICE_LABELS[v] ?? v}
+                  </option>
+                ))}
+              </select>
+            )}
             <button type="button" className="btn btn-ghost" onClick={() => void talkToKleio()}>
               <SpeakerHighIcon size={16} weight="bold" aria-hidden="true" />
               Talk now
@@ -126,17 +133,21 @@ function ConversationCard(): React.ReactElement {
             She remembers what you tell her in Brain, which text chat shares. Changes apply from
             your next conversation.
           </p>
-          <div className="modal-row">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={busy}
-              onClick={() => void act(removeVoiceKey)}
-            >
-              Remove OpenAI key
-            </button>
-          </div>
+          {canEdit && (
+            <div className="modal-row">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => void act(removeVoiceKey)}
+              >
+                Remove OpenAI key
+              </button>
+            </div>
+          )}
         </>
+      ) : !canEdit ? (
+        <p className="settings-desc">Not set up yet. Your admin device can add the OpenAI key.</p>
       ) : (
         <form
           className="modal-row"
@@ -177,6 +188,7 @@ function ConversationCard(): React.ReactElement {
   );
 }
 
-export function VoiceCard(): React.ReactElement {
-  return <ConversationCard />;
+/** `canEdit`: whether this device may change the key and voice (an admin device). */
+export function VoiceCard({ canEdit = true }: { canEdit?: boolean }): React.ReactElement {
+  return <ConversationCard canEdit={canEdit} />;
 }

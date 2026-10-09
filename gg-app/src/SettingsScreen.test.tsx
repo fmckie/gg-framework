@@ -24,6 +24,13 @@ vi.mock("./kleio/LazyConnectionPage", async () => {
   };
 });
 vi.mock("./kleio/LazyAppsPage", () => ({ AppsPage: () => <p>apps page</p> }));
+vi.mock("./kleio/SetupPage", () => ({
+  SetupPage: ({ onOpenTab }: { onOpenTab: (tab: string) => void }) => (
+    <button type="button" onClick={() => onOpenTab("connection")}>
+      setup page
+    </button>
+  ),
+}));
 vi.mock("./kleio/AboutPage", () => ({ AboutPage: () => <p>about page</p> }));
 vi.mock("./LoginScreen", async () => {
   const { SettingsHeaderStatus } = await import("./settings-header");
@@ -78,6 +85,18 @@ describe("SettingsScreen", () => {
     expect(screen.queryByText("general page")).toBeNull();
   });
 
+  it("puts Setup first, still opens on General, and lets Setup switch tabs", async () => {
+    await renderScreen();
+    expect(screen.getAllByRole("tab")[0]?.getAttribute("aria-label")).toBe("Setup");
+    expect(heading()).toBe("General");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
+    expect(heading()).toBe("Setup");
+    fireEvent.click(screen.getByRole("button", { name: "setup page" }));
+    expect(heading()).toBe("Connection");
+    expect(screen.getByText("connection page")).toBeTruthy();
+  });
+
   it("opens on the requested tab", async () => {
     await renderScreen({ initialTab: "steroids" });
 
@@ -116,6 +135,7 @@ describe("SettingsScreen", () => {
 
     const labels = screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"));
     expect(labels).toEqual([
+      "Setup",
       "General",
       "AI Providers",
       "Connection",

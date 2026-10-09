@@ -472,6 +472,25 @@ export const removeVoiceKey = (): Promise<VoiceStatus> => call("DELETE", "/kleio
 export const setVoiceName = (voice: string): Promise<VoiceStatus> =>
   call("POST", "/kleio/voice/settings", { voice });
 
+// ─── First-run setup (kleio-host setup routes) ───────────────────────────────────────────
+
+/** "env": set on the host itself, so the app can't change or remove it. */
+export type KeyState = "missing" | "saved" | "env";
+/** The keys the app can set; OpenAI's goes through the voice routes. */
+export type SetupKeyName = "composio" | "typesafe";
+
+export interface SetupStatus {
+  /** Whether this device may change keys. */
+  admin: boolean;
+  keys: { openai: KeyState; composio: KeyState; typesafe: KeyState };
+}
+
+export const getSetupStatus = (): Promise<SetupStatus> => call("GET", "/kleio/setup");
+export const setSetupKey = (name: SetupKeyName, key: string): Promise<SetupStatus> =>
+  call("POST", `/kleio/setup/keys/${name}`, { key });
+export const removeSetupKey = (name: SetupKeyName): Promise<SetupStatus> =>
+  call("DELETE", `/kleio/setup/keys/${name}`);
+
 /**
  * Runs one of the Brain's tools (remember, forget, set_jiwa…) on the Mac
  * mini, as text chat does: `{ result }` when it worked, `{ error }` when the
