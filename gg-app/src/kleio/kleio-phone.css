@@ -42,15 +42,30 @@ html.platform-ios body {
   touch-action: manipulation;
 }
 
-/* Reading and writing stay selectable: messages, code, and every input. */
+/* Reading and writing stay selectable: messages, code, and every input. The
+   specialist and group chats (.kleio-transcript) and the voice captions sit
+   outside the code session's .transcript, so only their message text is
+   listed: your messages, the replies' Markdown (code blocks too) and the
+   captions, not the avatars, names, dots and file cards around them. */
 html.platform-ios .transcript,
 html.platform-ios .transcript *,
+html.platform-ios .kleio-transcript .user-msg,
+html.platform-ios .kleio-transcript .markdown,
+html.platform-ios .voice-line,
 html.platform-ios input,
 html.platform-ios textarea,
 html.platform-ios [contenteditable="true"] {
   -webkit-user-select: text;
   user-select: text;
   -webkit-touch-callout: default;
+}
+/* Within that text, the buttons in a reply (Copy, Show full output, Send to
+   Kleio) and a scheduled message's tag stay chrome. */
+html.platform-ios .kleio-transcript .markdown button,
+html.platform-ios .kleio-transcript .kleio-scheduled-tag {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* iOS zooms the whole page into any field under 16px when it is focused. */

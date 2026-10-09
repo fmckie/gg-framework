@@ -11,5 +11,9 @@ export default defineConfig({
     // and shadows jsdom's. Tests use jsdom's (or stub it), so turn Node's off.
     // The flag exists since Node 22.4, CI's floor.
     execArgv: ["--no-experimental-webstorage"],
+    // CSS is off in tests, so a stylesheet imported `?raw` would come back "".
+    // Those imports get the file's text (kleio-phone.test.tsx reads the iPhone
+    // CSS); plain CSS imports stay off.
+    css: { include: [/\.css\?raw$/] },
   },
 });

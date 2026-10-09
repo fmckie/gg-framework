@@ -44,7 +44,7 @@ const NOT_PROJECTS: ReadonlySet<string> = new Set([
   "Library",
   "Applications",
   "GG Motion",
-  // Where chats in a projects folder keep their files (ggcoder's CHAT_FILES_FOLDER).
+  // Where chats in a projects folder keep their files (CHAT_FILES_FOLDER in @kleio/coder).
   "Kleio Chat",
 ]);
 

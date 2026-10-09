@@ -285,8 +285,9 @@ Several Blobs in one conversation with you, stored in `groups.json`. Messages ar
 
 - **Who replies:** a message's `@mentions` reply; if there are none, every member replies in
   order.
-- **Handing on:** a reply that `@mentions` another member passes the turn to them. The limit is
-  6 Blob turns per message of yours.
+- **Handing on:** a reply that `@mentions` another member passes the turn to them. The group
+  pauses after 10 turns in a row with no tool call, PASSes included (Blobs talking in circles),
+  and after 200 turns per message of yours, a cost backstop only.
 - **Staying quiet:** a Blob with nothing to add answers `PASS`, and nothing is posted.
 - **Sessions:** each (group, Blob) pair has its own pinned conversation (cwd
   `<KLEIO_HOME_CWD>/groups/<gid>/<bid>`). Its persona is the Blob's job plus a short group

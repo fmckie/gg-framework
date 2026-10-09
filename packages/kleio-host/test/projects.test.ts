@@ -531,7 +531,7 @@ describe("project routes", () => {
     const paths = (listed.body as { files: { path: string }[] }).files.map((f) => f.path).sort();
     expect(paths).toEqual([".gg/plans/dark-mode.md", "README.md"]);
     // The project's folder, which the phone fetches a document from to show it.
-    expect((listed.body as { cwd?: string }).cwd).toBe(realpathSync(dir));
+    expect((listed.body as { cwd?: string }).cwd).toBe(realpathSync.native(dir));
     const plan = await call("POST", "/kleio/voice/files/read", {
       source: "project",
       id: "app",

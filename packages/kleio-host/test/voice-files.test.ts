@@ -318,7 +318,7 @@ describe("GET /kleio/voice/files", () => {
     put(join(projectsDir(), "Kleio"), "reports/q3.pdf", "%PDF-1.7");
     const r = await list("source=kleio");
     const cwd = (r.body as { cwd?: string }).cwd;
-    expect(cwd).toBe(realpathSync(join(projectsDir(), "Kleio")));
+    expect(cwd).toBe(realpathSync.native(join(projectsDir(), "Kleio")));
     // What the phone then does to show it: the same route as every file card.
     const shown = await call(
       "GET",
@@ -556,7 +556,7 @@ describe("voice files: chats and coding sessions", () => {
       ["out/report.md", "text"],
     ]);
     // Its folder, which the phone fetches a file from to show it.
-    expect((r.body as { cwd?: string }).cwd).toBe(realpathSync(dir));
+    expect((r.body as { cwd?: string }).cwd).toBe(realpathSync.native(dir));
     expect(sidecar.storedCalls).toContain("/stored-sessions/s1?kind=code&files=1");
 
     const ok = await read({ source: "code", id: "s1", path: "out/report.md" });

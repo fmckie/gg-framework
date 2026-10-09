@@ -416,23 +416,118 @@ describe("groups: the conductor", () => {
     expect((await allMessages(g.id)).map((m) => m.authorName)).toEqual(["You", "Coach", "Chef"]);
   });
 
-  it("stops after 35 Blob turns per user message", async () => {
+  it("pauses after 10 turns in a row with no tool use", async () => {
     const a = await newBlob("Chef");
     const b = await newBlob("Coach");
     const g = await newGroup([a.id, b.id]);
     sidecar.autoReply = (sid) => (nameOf(sid) === "Chef" ? "@Coach over to you" : "@Chef back");
 
     await call("POST", `/kleio/groups/${g.id}/messages`, { text: "@Chef go" });
-    await until(async () => (await allMessages(g.id)).length === 36, 6000);
+    await until(async () => (await allMessages(g.id)).length === 11);
     await quiet(g.id);
-    expect(await allMessages(g.id)).toHaveLength(36); // you + 35 turns
-    // Chef's last reply asked Coach again, after the budget was spent.
+    expect(await allMessages(g.id)).toHaveLength(11); // you + 10 replies, one a turn
+    // Coach's last reply asked Chef again, after the guard tripped.
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: {
+        kind: "budget_exhausted",
+        reason: "the group paused after 10 turns with no tool use",
+      },
+      [b.id]: { kind: "replied", reason: "" },
+    });
+    expect(logs).toContain(
+      `[groups] ${g.id}: paused after 10 turns in a row with no tool call; not reached: Chef`,
+    );
+  });
+
+  it("a PASS counts toward the stall: a router loop of chat and PASSes pauses after 10 turns", async () => {
+    const a = await newBlob("Chef");
+    const b = await newBlob("Coach");
+    const g = await newGroup([a.id, b.id]);
+    // The router never calls it done: it hands the turn to whoever it may.
+    routeWith = async (req) => ({
+      ranked: req.members.map((m) => m.id),
+      stop: false,
+      note: "next",
+    });
+    // Chef chats (no tool, no @mention); Coach, nudged, passes.
+    sidecar.autoReply = (sid) => (nameOf(sid) === "Chef" ? "Still thinking." : "PASS");
+
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "Plan dinner" });
+    await until(() => logs.some((l) => l.includes(": paused after ")));
+    await quiet(g.id);
+    // 10 turns: Chef's 5 replies and Coach's 5 PASSes. Counting only the
+    // replies, it ran 19.
+    expect(sidecar.prompts).toHaveLength(10);
+    const authors = (await allMessages(g.id)).map((m) => m.authorName);
+    expect(authors).toEqual(["You", "Chef", "Chef", "Chef", "Chef", "Chef"]);
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: {
+        kind: "budget_exhausted",
+        reason: "the group paused after 10 turns with no tool use",
+      },
+      [b.id]: { kind: "passed", reason: "had nothing to add" },
+    });
+    expect(logs).toContain(
+      `[groups] ${g.id}: paused after 10 turns in a row with no tool call; not reached: Chef`,
+    );
+  });
+
+  it("members who use tools work on past 35 turns", async () => {
+    const a = await newBlob("Chef");
+    const b = await newBlob("Coach");
+    const g = await newGroup([a.id, b.id]);
+    // 40 replies; only every 10th calls a tool, so 9 in a row go without one.
+    let replies = 0;
+    sidecar.autoReply = (sid) => {
+      replies += 1;
+      const text =
+        replies === 40 ? "All done." : nameOf(sid) === "Chef" ? "@Coach over to you" : "@Chef back";
+      return { text, tools: replies % 10 === 0 ? ["bash"] : [] };
+    };
+
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "@Chef go" });
+    await until(async () => (await allMessages(g.id)).length === 41, 10_000);
+    await quiet(g.id);
+    expect(await allMessages(g.id)).toHaveLength(41); // you + 40 replies
     expect((await page(g.id)).outcomes).toEqual({
       [a.id]: { kind: "replied", reason: "" },
-      [b.id]: { kind: "budget_exhausted", reason: "the group used all 35 turns for this message" },
+      [b.id]: { kind: "replied", reason: "" },
     });
-    expect(logs).toContain(`[groups] ${g.id}: all 35 turns used; not reached: Coach`);
+    expect(logs.filter((l) => l.includes("paused"))).toEqual([]);
   });
+
+  it("stops at the 200-turn ceiling, even when every turn uses a tool", async () => {
+    const a = await newBlob("Chef");
+    const b = await newBlob("Coach");
+    const g = await newGroup([a.id, b.id]);
+    const reg = await call("POST", "/kleio/live-activity", {
+      groupId: g.id,
+      token: "ef".repeat(32),
+      env: "sandbox",
+    });
+    expect(reg.status).toBe(200);
+    // Busy ping-pong: every turn calls a tool, so the stall guard never trips.
+    sidecar.autoReply = (sid) => ({
+      text: nameOf(sid) === "Chef" ? "@Coach over to you" : "@Chef back",
+      tools: ["bash"],
+    });
+
+    await call("POST", `/kleio/groups/${g.id}/messages`, { text: "@Chef go" });
+    await until(() => lives.some((l) => l.event === "end"), 25_000);
+    await quiet(g.id);
+    expect(sidecar.prompts).toHaveLength(200);
+    // You, then 200 replies.
+    const rest = await call("GET", `/kleio/groups/${g.id}/messages?after=201`);
+    expect(rest.body).toMatchObject({ messages: [], lastSeq: 201 });
+    // Coach's reply on turn 200 asked Chef again, past the ceiling.
+    expect((await page(g.id)).outcomes).toEqual({
+      [a.id]: { kind: "budget_exhausted", reason: "the group used all 200 turns for this message" },
+      [b.id]: { kind: "replied", reason: "" },
+    });
+    expect(logs).toContain(`[groups] ${g.id}: paused at the 200-turn ceiling; not reached: Chef`);
+    expect(logs.filter((l) => l.includes("no tool call"))).toEqual([]);
+    expect(lives.at(-1)!.state).toMatchObject({ phase: "stopped", line: "Paused after 200 turns" });
+  }, 30_000);
 
   it("PASS and empty replies post nothing; typing shows while a turn runs", async () => {
     const a = await newBlob("Chef");
@@ -1181,7 +1276,7 @@ describe("groups: Live Activity", () => {
     expect(lives).toHaveLength(0);
   });
 
-  it("running out of turns ends it as paused", async () => {
+  it("10 turns in a row with no tool use end it as paused", async () => {
     const a = await newBlob("Chef");
     const b = await newBlob("Coach");
     const g = await newGroup([a.id, b.id]);
@@ -1189,7 +1284,10 @@ describe("groups: Live Activity", () => {
     sidecar.autoReply = (sid) => (nameOf(sid) === "Chef" ? "@Coach over to you" : "@Chef back");
     await call("POST", `/kleio/groups/${g.id}/messages`, { text: "@Chef go" });
     await until(() => lives.some((l) => l.event === "end"), 6000);
-    expect(lives.at(-1)!.state).toMatchObject({ phase: "stopped", line: "Paused after 35 turns" });
+    expect(lives.at(-1)!.state).toMatchObject({
+      phase: "stopped",
+      line: "Paused: no tool use in 10 turns",
+    });
   });
 });
 
