@@ -14,7 +14,10 @@
 //   5. the @helper highlight wraps like the textarea, so the caret lands at the
 //      end of the visible text (with a control showing the old 15px misses);
 //   6. the transcript never scrolls sideways, and the status dots are drawn
-//      circles centred on their line.
+//      circles centred on their line;
+//   7. a table wider than the phone keeps every word whole and scrolls
+//      sideways in its own card, never the page (with a control showing the
+//      old split words).
 // Screenshots go to gg-app/.gg/phone-composer/ (git-ignored).
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
@@ -30,6 +33,17 @@ const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 const CWD = "/Users/demo/projects/kleio-website";
 const QUESTION = "what happened while I was away? Did the screenshots get retaken";
+// A research-style table, wider than the phone: long cells, inline code and a
+// bare link. The closing line keeps the table from being the block still typing.
+const TABLE_REPLY = [
+  "\n\nHere is how the budget picks compare:\n\n",
+  "| Headphones | Price | Battery life | Noise cancelling | Best for | Source |\n",
+  "| --- | --- | --- | --- | --- | --- |\n",
+  "| Soundcore Space One | $99 | 40 hours (55 with ANC off) | Very good, adaptive | ",
+  "Commuting and long flights | `reviews/soundcore-space-one.md` |\n",
+  "| Sony WH-CH720N | $148 | 35 hours | Good | Everyday use | https://www.rtings.com/headphones |\n",
+  "\nMy pick is the Soundcore.",
+].join("");
 
 const responses = {
   sidecar_port: 45678,
@@ -293,6 +307,68 @@ async function run(page) {
   await page.evaluate(() => document.querySelector(".subagents")?.scrollIntoView());
   await page.waitForTimeout(150);
   await shot("0-transcript-rows");
+
+  // ── A wide table: whole words, scrolling in its own card ──────────────
+  step("a table wider than the phone keeps its words whole and scrolls in its card");
+  await emit("text_delta", { text: TABLE_REPLY });
+  await page.waitForTimeout(1200);
+  const measureTable = () =>
+    page.evaluate(() => {
+      const table = document.querySelector(".transcript .markdown table");
+      const transcript = document.querySelector(".transcript");
+      // A line may break after a hyphen; any other piece of a word drawn on
+      // two lines was split.
+      const split = [];
+      for (const cell of table.querySelectorAll("th, td")) {
+        const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          for (const m of node.data.matchAll(/[^\s-]+-?/g)) {
+            const range = document.createRange();
+            range.setStart(node, m.index);
+            range.setEnd(node, m.index + m[0].length);
+            const lines = new Set([...range.getClientRects()].map((r) => Math.round(r.top)));
+            if (lines.size > 1) split.push(m[0]);
+          }
+        }
+      }
+      const box = table.getBoundingClientRect();
+      const reply = table.closest(".assistant-text").getBoundingClientRect();
+      const page = document.documentElement;
+      return {
+        split,
+        typing: table.querySelectorAll(".md-word").length,
+        scrolls: table.scrollWidth > table.clientWidth,
+        overflowX: getComputedStyle(table).overflowX,
+        insideReply: box.left >= reply.left - 0.5 && box.right <= reply.right + 0.5,
+        transcriptPans: transcript.scrollWidth > transcript.clientWidth,
+        viewport: window.innerWidth,
+        pagePans: page.scrollWidth > page.clientWidth,
+      };
+    });
+  const wide = await measureTable();
+  console.log(`  ${JSON.stringify(wide)}`);
+  console.log(
+    `  ${wide.split.length} split words at ${wide.viewport}px; page scrolls sideways: ${wide.pagePans}`,
+  );
+  assert.equal(wide.typing, 0, "the table finished typing before it was measured");
+  assert.deepEqual(wide.split, [], "no word in the table is split across lines");
+  assert(wide.scrolls && wide.overflowX === "auto", "the wide table scrolls sideways");
+  assert(wide.insideReply, "the table's card stays inside the reply");
+  assert(!wide.transcriptPans, "the table scrolls, not the transcript");
+  assert(!wide.pagePans, "the page never scrolls sideways");
+  await page.evaluate(() =>
+    document.querySelector(".transcript .markdown table").scrollIntoView({ block: "center" }),
+  );
+  await page.waitForTimeout(150);
+  await shot("0-table");
+  // Control: the reply's `word-break: break-word` back on the cells.
+  const breakWords = await page.addStyleTag({
+    content: ".markdown :is(th, td), .markdown :is(th, td) code { word-break: break-word; }",
+  });
+  const squeezed = await measureTable();
+  console.log(`  control: ${squeezed.split.length} split words, scrolls ${squeezed.scrolls}`);
+  assert(squeezed.split.length > 0, "the control should split words");
+  await breakWords.evaluate((style) => style.remove());
   await page.evaluate(() => {
     const transcript = document.querySelector(".transcript");
     transcript.scrollTop = transcript.scrollHeight;

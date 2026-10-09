@@ -17,7 +17,11 @@ import {
   type Blob,
   type Group,
 } from "./kleioApi";
+import appCss from "../App.css?raw";
+import glassCss from "../glass.css?raw";
+import pagesCss from "./kleio-pages.css?raw";
 import phoneCss from "./kleio-phone.css?raw";
+import themeCss from "./kleio-theme.css?raw";
 import { ThreadChat } from "./ThreadChat";
 import { VoiceMode } from "./VoiceMode";
 
@@ -98,6 +102,42 @@ function expectSelects(text: readonly string[], chrome: readonly string[]): void
     text: Object.fromEntries(text.map((s) => [s, "text"])),
     chrome: Object.fromEntries(chrome.map((s) => [s, "none"])),
   });
+}
+
+type Declared = { selector: string; value: string };
+
+/** Every selector, across the app's stylesheets, that sets `property`. */
+function rulesSetting(property: string): Declared[] {
+  const found: Declared[] = [];
+  const declares = new RegExp(`(?:^|[\\s;])${property}:\\s*([\\w-]+)`);
+  for (const css of [appCss, glassCss, themeCss, pagesCss, phoneCss]) {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const [, selectors = "", body = ""] of plain.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const value = declares.exec(body)?.[1];
+      if (!value) continue;
+      // Commas inside :is(…) don't separate selectors. A pseudo-element's
+      // rule styles no element of its own.
+      for (const selector of selectors.split(/,(?![^(]*\))/).map((s) => s.trim())) {
+        if (!selector.includes("::")) found.push({ selector, value });
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * An inherited property's value: set on the element or its nearest ancestor
+ * with a rule for it, else the initial `normal`.
+ */
+function inheritedValue(el: Element, rules: readonly Declared[]): string {
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const at = node;
+    const values = new Set(rules.filter((r) => at.matches(r.selector)).map((r) => r.value));
+    if (values.size > 1) throw new Error(`rules disagree on <${at.tagName.toLowerCase()}>`);
+    const [value] = values;
+    if (value) return value;
+  }
+  return "normal";
 }
 
 const AT = "2026-10-08T09:00:00Z";
@@ -205,5 +245,41 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
         ".voice-corner [aria-label=Close]",
       ],
     );
+  });
+});
+
+// A reply carries `word-break: break-word`, which let a table squeeze its
+// columns to a letter wide and split every word to fit the phone (Oct 2026).
+// Cells keep words whole, so a wide table scrolls sideways in its own card
+// instead; scripts/check-phone-composer.mjs measures that in a real browser.
+describe("on the iPhone, a table in a reply keeps its words whole", () => {
+  it("in a specialist's chat", async () => {
+    vi.mocked(threadState).mockResolvedValue({ running: false });
+    vi.mocked(threadHistory).mockResolvedValue([
+      { role: "user", text: "Research budget noise-cancelling headphones" },
+      {
+        role: "assistant",
+        text: [
+          "| Headphones | Price | Battery life | Best for |",
+          "| --- | --- | --- | --- |",
+          "| Soundcore Space One | $99 | 40 hours (55 with ANC off) | Commuting and long flights |",
+          "| Sony WH-CH720N | $148 | 35 hours | Everyday use |",
+        ].join("\n"),
+      },
+    ]);
+    render(
+      <ThreadChat
+        label="Research"
+        resolve={async () => ({ sessionId: "s1", sessionPath: null, created: false })}
+      />,
+    );
+    await screen.findByText("Soundcore Space One");
+    const cells = [...document.querySelectorAll(".assistant-text .markdown :is(th, td)")];
+    expect(cells).toHaveLength(12);
+    const wordBreak = rulesSetting("word-break");
+    const overflowWrap = rulesSetting("overflow-wrap");
+    const wrapping = (c: Element): string =>
+      `${c.textContent}: ${inheritedValue(c, wordBreak)}, ${inheritedValue(c, overflowWrap)}`;
+    expect(cells.map(wrapping)).toEqual(cells.map((c) => `${c.textContent}: normal, break-word`));
   });
 });

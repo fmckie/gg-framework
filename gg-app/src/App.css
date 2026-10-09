@@ -4282,6 +4282,16 @@ select {
   padding: 4px 9px;
   text-align: left;
 }
+/* A table cell keeps its words whole, inline code included. A reply inherits
+   `word-break: break-word` (inline code sets it too), and that lets a column
+   shrink to a single letter: a table wider than the iPhone was squeezed to fit
+   it and split every word a letter or two per line. With whole words, a table
+   too wide for the reply scrolls sideways in its own card (`overflow-x` above). */
+.markdown :is(th, td),
+.markdown :is(th, td) code {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
 .markdown th {
   background: var(--surface-1);
   font-weight: 600;
