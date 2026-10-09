@@ -299,6 +299,12 @@ async function discoverCodexProjects(): Promise<DiscoveredProject[]> {
  */
 const INFERRED_ROOT_MIN_PROJECTS = 3;
 
+/**
+ * Where a chat running in a projects folder keeps the files it makes, so a
+ * chat's report never shows up as a project (chat-agents/shared.ts tells it).
+ */
+export const CHAT_FILES_FOLDER = "Kleio Chat";
+
 /** Directory names that are never a project of their own. */
 const FOLDER_SCAN_IGNORED = new Set([
   "node_modules",
@@ -314,6 +320,8 @@ const FOLDER_SCAN_IGNORED = new Set([
   "Applications",
   // GG Motion's video workspace lives in the projects root but is not a codebase.
   "GG Motion",
+  // Nor is the folder chats keep their files in.
+  CHAT_FILES_FOLDER,
 ]);
 
 /**

@@ -149,7 +149,8 @@ The voice's `start_chat`. Any paired device. Body `{ prompt, agent?: "general" |
 (prompt trimmed, 1–4000 characters; agent defaults to `general`).
 
 - Creates a chat session in the first projects folder (so it shows in Chats), prompts it, and
-  answers `200 { sessionId }`. `400 bad_request`, `404 not_found` (no projects folders),
+  answers `200 { sessionId }`. Like every chat there, it saves what it makes under `Kleio Chat/`, so
+  its files never look like a new project. `400 bad_request`, `404 not_found` (no projects folders),
   `429 too_many` (5 still running), `502` when the sidecar fails.
 - Its run end, with nobody watching, nudges "Research ready" / "Chat ready" with its title.
 - A device opening it from Chats (`POST /session { sessionPath }`) is handed the same live
@@ -162,7 +163,7 @@ The voice's `start_chat`. Any paired device. Body `{ prompt, agent?: "general" |
 The voice's `list_projects`, `read_project` and `create_project`, and coding work it sends with
 `send_plan`. Any paired device, as a Code session through the proxy is. A project is a plain folder
 directly inside one of Kleio's projects folders: not hidden, not a symlink, not a tooling or build
-folder, not Kleio's own folder (`KLEIO_HOME_CWD`), and never the home folder, a filesystem root or a
+folder, not `Kleio Chat` (where chats keep their files), not Kleio's own folder (`KLEIO_HOME_CWD`), and never the home folder, a filesystem root or a
 Mac consent-gated folder (Desktop, Documents, Downloads) used as a projects folder. A device only
 ever sends a project's name; the host finds the folder again among the ones it lists.
 

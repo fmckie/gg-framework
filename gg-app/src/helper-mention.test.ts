@@ -10,16 +10,25 @@ import {
 
 describe("helperQuestion", () => {
   const cases: [string, string | null][] = [
-    ["@muse what changed?", "what changed?"],
+    ["@helper question", "question"],
+    ["@Helper question", "question"],
+    ["@helper: question", "question"],
+    ["  @HELPER   what changed?  ", "what changed?"],
+    ["@helper", ""],
+    ["@helper   ", ""],
+    // The old triggers keep working, unadvertised.
+    ["@muse question", "question"],
     ["@Muse: what changed?", "what changed?"],
-    ["  @MUSE   what changed?  ", "what changed?"],
-    // The old trigger keeps working, unadvertised.
-    ["@ken what changed?", "what changed?"],
+    ["@ken question", "question"],
     ["@muse", ""],
-    ["@muse   ", ""],
+    // File mentions stay file mentions.
+    ["@helper.ts", null],
+    ["@helper-mention.ts is broken", null],
+    ["@helpers", null],
+    ["@museum.ts", null],
     ["@museum.ts is broken", null],
     ["@kennedy.ts is broken", null],
-    ["ask @muse later", null],
+    ["ask @helper later", null],
     ["", null],
   ];
   it.each(cases)("%j asks %j", (draft, expected) => {
@@ -34,15 +43,27 @@ describe("helperTokenParts", () => {
 
   it("is null when the draft is not addressed to the helper", () => {
     expect(helperTokenParts("@museum.ts")).toBeNull();
+    expect(helperTokenParts("@helper.ts")).toBeNull();
+    expect(helperTokenParts("@helper-mention.ts")).toBeNull();
+  });
+
+  it("splits a leading @helper token", () => {
+    expect(helperTokenParts("@Helper: why?")).toEqual({
+      lead: "",
+      token: "@Helper",
+      rest: ": why?",
+    });
   });
 });
 
 describe("withHelperMention", () => {
   const cases: [string, string][] = [
-    ["", "@muse "],
-    ["what happened?", "@muse what happened?"],
-    ["  what happened?", "@muse what happened?"],
+    ["", "@helper "],
+    ["what happened?", "@helper what happened?"],
+    ["  what happened?", "@helper what happened?"],
+    ["@helper what happened?", "@helper what happened?"],
     ["@muse what happened?", "@muse what happened?"],
+    ["@helper.ts is broken", "@helper @helper.ts is broken"],
     ["@ken what happened?", "@ken what happened?"],
   ];
   it.each(cases)("%j becomes %j", (draft, expected) => {

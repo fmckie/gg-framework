@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ConfigModule from "../config.js";
 import { encodeCwd } from "./encode-cwd.js";
 import {
+  CHAT_FILES_FOLDER,
   discoverProjects,
   isAbsoluteCwd,
   listProjectFolders,
@@ -123,6 +124,8 @@ describe("discoverProjects (ggcoder store)", () => {
     await fs.mkdir(path.join(root, "never-opened"), { recursive: true });
     await fs.mkdir(path.join(root, "node_modules"), { recursive: true });
     await fs.mkdir(path.join(root, ".hidden"), { recursive: true });
+    // Where chats keep their files: a research report is not a project.
+    await fs.mkdir(path.join(root, CHAT_FILES_FOLDER, "london-ai-jobs"), { recursive: true });
 
     const projects = await discoverProjects({ projectsRoot: root });
 
@@ -132,6 +135,7 @@ describe("discoverProjects (ggcoder store)", () => {
     // Build output and dotfolders are not projects.
     expect(projects.some((p) => p.path.endsWith("node_modules"))).toBe(false);
     expect(projects.some((p) => p.path.endsWith(".hidden"))).toBe(false);
+    expect(projects.some((p) => p.path.includes(CHAT_FILES_FOLDER))).toBe(false);
   });
 
   it("follows a symlinked project folder (readdir reports it as neither file nor dir)", async () => {

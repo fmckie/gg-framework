@@ -329,6 +329,14 @@ function filesFail(status: number, error: string): Result<never, FilesFailure> {
   return err({ status, error });
 }
 
+/** GET /kleio/voice/files: an owner's files, and for a session's or project's
+ *  files the folder they are in (the `cwd` of the workspace file route), so the
+ *  phone can show one through that route. */
+interface AgentFileListing {
+  readonly files: AgentFileEntry[];
+  readonly cwd?: string;
+}
+
 /** A validated POST /kleio/voice/files/read body. */
 interface FileReadRequest {
   readonly source: FilesSource;
@@ -1574,19 +1582,26 @@ export function createHost(options: HostOptions): Host {
   async function listAgentFiles(
     source: FilesSource,
     id: string | null,
-  ): Promise<Result<AgentFileEntry[], FilesFailure>> {
+  ): Promise<Result<AgentFileListing, FilesFailure>> {
     const homeCwd = options.homeCwd;
     switch (source) {
-      case "kleio":
+      case "kleio": {
         if (homeCwd === undefined) return filesFail(404, "not_found");
-        return ok(newestFirst((await listFolder(homeCwd, KLEIO_OTHERS)).map((f) => toEntry(f))));
+        const files = newestFirst((await listFolder(homeCwd, KLEIO_OTHERS)).map((f) => toEntry(f)));
+        // Its folder only when the workspace file route serves it (inside a
+        // projects folder); otherwise the phone can't fetch these to show them.
+        const served = options.workspaceRoots
+          ? await resolveWorkspaceDir(await options.workspaceRoots(), homeCwd)
+          : null;
+        return ok(served?.ok ? { files, cwd: served.value.dir } : { files });
+      }
       case "specialist":
         if (id === null || !BLOB_ID_RE.test(id)) return filesFail(400, "bad_request");
         if (homeCwd === undefined || !blobs || !(await blobs.find(id)))
           return filesFail(404, "not_found");
-        return ok(
-          newestFirst((await listFolder(join(homeCwd, "blobs", id))).map((f) => toEntry(f))),
-        );
+        return ok({
+          files: newestFirst((await listFolder(join(homeCwd, "blobs", id))).map((f) => toEntry(f))),
+        });
       case "group": {
         if (id === null || !GROUP_ID_RE.test(id)) return filesFail(400, "bad_request");
         const members = homeCwd !== undefined && groups ? await groups.members(id) : null;
@@ -1598,18 +1613,24 @@ export function createHost(options: HostOptions): Host {
           const found = await listFolder(join(homeCwd, "groups", id, member));
           for (const f of found) all.push(toEntry(f, { member, ...(by ? { by } : {}) }));
         }
-        return ok(newestFirst(all));
+        return ok({ files: newestFirst(all) });
       }
       case "chat":
       case "code": {
         const folder = await sessionFolder(source, id);
         if (!folder.ok) return folder;
-        return ok(newestFirst(folder.value.files.map((f) => toEntry(f))));
+        return ok({
+          files: newestFirst(folder.value.files.map((f) => toEntry(f))),
+          cwd: folder.value.dir,
+        });
       }
       case "project": {
         const project = await projectFor(id);
         if (!project.ok) return project;
-        return ok(newestFirst((await projectDocs(project.value.real)).map((f) => toEntry(f))));
+        return ok({
+          files: newestFirst((await projectDocs(project.value.real)).map((f) => toEntry(f))),
+          cwd: project.value.real,
+        });
       }
     }
   }
@@ -2093,8 +2114,7 @@ export function createHost(options: HostOptions): Host {
         const s = url.searchParams.get("source");
         if (isFilesSource(s)) {
           source = s;
-          const listed = await listAgentFiles(s, url.searchParams.get("id"));
-          outcome = listed.ok ? ok({ files: listed.value }) : listed;
+          outcome = await listAgentFiles(s, url.searchParams.get("id"));
         } else outcome = filesFail(400, "bad_request");
       } else {
         const body = await readBody(req, 4 * 1024);

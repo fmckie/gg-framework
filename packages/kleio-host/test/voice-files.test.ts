@@ -5,6 +5,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   truncateSync,
@@ -308,6 +309,25 @@ describe("GET /kleio/voice/files", () => {
     expect(line).toMatch(/^\[voice\] Phone: files kleio list 200 in \d+ ms$/);
   });
 
+  it("gives Kleio's folder for showing a file only when the workspace file route serves it", async () => {
+    put(kleioDir(), "reports/q3.pdf", "%PDF-1.7");
+    // Here Kleio's folder is outside the projects folders: nothing fetches from it.
+    expect((await list("source=kleio")).body).not.toHaveProperty("cwd");
+    await host.stop();
+    host = await startHost({ homeCwd: join(projectsDir(), "Kleio") });
+    put(join(projectsDir(), "Kleio"), "reports/q3.pdf", "%PDF-1.7");
+    const r = await list("source=kleio");
+    const cwd = (r.body as { cwd?: string }).cwd;
+    expect(cwd).toBe(realpathSync.native(join(projectsDir(), "Kleio")));
+    // What the phone then does to show it: the same route as every file card.
+    const shown = await call(
+      "GET",
+      `/kleio/workspace/files/reports/q3.pdf?cwd=${encodeURIComponent(cwd ?? "")}`,
+    );
+    expect(shown.status).toBe(200);
+    expect(shown.raw.toString("utf8")).toBe("%PDF-1.7");
+  });
+
   it("answers at most 40", async () => {
     for (let i = 0; i < 45; i++) put(kleioDir(), `f${i}.txt`, "x", i);
     const r = await list("source=kleio");
@@ -535,6 +555,8 @@ describe("voice files: chats and coding sessions", () => {
       ["data.csv", "data"],
       ["out/report.md", "text"],
     ]);
+    // Its folder, which the phone fetches a file from to show it.
+    expect((r.body as { cwd?: string }).cwd).toBe(realpathSync.native(dir));
     expect(sidecar.storedCalls).toContain("/stored-sessions/s1?kind=code&files=1");
 
     const ok = await read({ source: "code", id: "s1", path: "out/report.md" });

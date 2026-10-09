@@ -452,11 +452,14 @@
   inset: 0 0 auto 0;
   height: 40px;
 }
-.voice-close {
+/* "What Kleio Voice can do" and close, top right. */
+.voice-corner {
   position: absolute;
   top: 14px;
   right: 14px;
   z-index: 1;
+  display: flex;
+  gap: 8px;
 }
 .voice-stage {
   align-self: center;

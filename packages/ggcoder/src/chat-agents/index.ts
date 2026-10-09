@@ -12,7 +12,7 @@ import {
 import { parseChatAgentId, type ChatAgentId } from "./types.js";
 
 export { CHAT_AGENT_IDS, parseChatAgentId, type ChatAgentId } from "./types.js";
-export { chatAgentSessionsDir } from "./shared.js";
+export { chatAgentSessionsDir, isProjectsFolder } from "./shared.js";
 
 export const CHAT_AGENT_LABELS: Record<ChatAgentId, string> = {
   general: "General Agent",
@@ -112,6 +112,7 @@ export function createChatAgent(
           CHAT_AGENT_PROMPTS[nextAgent],
           options.cwd,
           delegationEnabled,
+          options.projectsFolder === true,
         ),
         `ggchat:${nextAgent}`,
       );

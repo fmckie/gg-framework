@@ -127,6 +127,8 @@ describe("projects.ts", () => {
     mkdirSync(join(projectsDir(), "Alpha"), { recursive: true });
     mkdirSync(join(projectsDir(), ".hidden"), { recursive: true });
     mkdirSync(join(projectsDir(), "node_modules"), { recursive: true });
+    // Where chats keep their files: a research report is not a project.
+    mkdirSync(join(projectsDir(), "Kleio Chat", "london-ai-jobs"), { recursive: true });
     put(projectsDir(), "notes.txt");
     mkdirSync(join(home, "elsewhere"), { recursive: true });
     link(join(home, "elsewhere"), join(projectsDir(), "linked"));
@@ -528,6 +530,8 @@ describe("project routes", () => {
     expect(listed.status).toBe(200);
     const paths = (listed.body as { files: { path: string }[] }).files.map((f) => f.path).sort();
     expect(paths).toEqual([".gg/plans/dark-mode.md", "README.md"]);
+    // The project's folder, which the phone fetches a document from to show it.
+    expect((listed.body as { cwd?: string }).cwd).toBe(realpathSync.native(dir));
     const plan = await call("POST", "/kleio/voice/files/read", {
       source: "project",
       id: "app",

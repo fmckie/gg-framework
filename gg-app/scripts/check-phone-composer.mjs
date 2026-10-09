@@ -6,12 +6,12 @@
 // viewport (390x844) with an iPhone user agent, so the app tags <html>
 // `platform-ios` and loads its phone layout. A fake Tauri IPC layer stands in
 // for the shell and records every command the webview invokes. It proves:
-//   1. the @muse chip addresses the draft and focuses the input;
-//   2. mid-run, the round button sends a @muse question as a helper prompt
+//   1. the @helper chip addresses the draft and focuses the input;
+//   2. mid-run, the round button sends a @helper question as a helper prompt
 //      (agent_ken_prompt) instead of stopping, and stays Stop for other drafts;
 //   3. with the on-screen keyboard up, Return still adds a line (no send);
 //   4. with an empty draft, the round button still stops the run (agent_cancel);
-//   5. the @muse highlight wraps like the textarea, so the caret lands at the
+//   5. the @helper highlight wraps like the textarea, so the caret lands at the
 //      end of the visible text (with a control showing the old 15px misses);
 //   6. the transcript never scrolls sideways, and the status dots are drawn
 //      circles centred on their line.
@@ -298,22 +298,22 @@ async function run(page) {
     transcript.scrollTop = transcript.scrollHeight;
   });
 
-  // ── The @muse chip ────────────────────────────────────────────────────
-  step("the @muse chip addresses the draft and focuses the input");
+  // ── The @helper chip ────────────────────────────────────────────────────
+  step("the @helper chip addresses the draft and focuses the input");
   assert.equal(await roundTitle(), "Stop the run", "an empty draft mid-run keeps Stop");
   await page.tap(".helper-chip");
   await page.waitForTimeout(100);
-  assert.equal(await textarea.inputValue(), "@muse ");
+  assert.equal(await textarea.inputValue(), "@helper ");
   assert(
     await page.evaluate(() => document.activeElement?.matches("textarea.input") ?? false),
     "the chip should leave the cursor in the input",
   );
-  assert.equal(await roundTitle(), "Stop the run", "@muse with nothing to ask yet keeps Stop");
+  assert.equal(await roundTitle(), "Stop the run", "@helper with nothing to ask yet keeps Stop");
   await page.keyboard.type(QUESTION);
   await page.waitForTimeout(300);
 
   // ── Caret vs the visible text ─────────────────────────────────────────
-  step("the caret lands at the end of the visible @muse text");
+  step("the caret lands at the end of the visible @helper text");
   const measure = () =>
     page.evaluate(() => {
       const ta = document.querySelector("textarea.input");
@@ -425,8 +425,8 @@ async function run(page) {
   });
 
   // ── Mid-run send ──────────────────────────────────────────────────────
-  step("mid-run, the round button sends the @muse question to the helper");
-  assert.equal(await roundTitle(), "Send", "a @muse question mid-run turns Stop into Send");
+  step("mid-run, the round button sends the @helper question to the helper");
+  assert.equal(await roundTitle(), "Send", "a @helper question mid-run turns Stop into Send");
   const cancelsBefore = await callCount("agent_cancel");
   await page.tap(roundButton);
   await page.waitForTimeout(300);
@@ -453,7 +453,7 @@ async function run(page) {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(200);
   assert.equal(await callCount("agent_ken_prompt"), 1, "Return did not send");
-  assert.equal(await textarea.inputValue(), "@muse is return still a new line?\n");
+  assert.equal(await textarea.inputValue(), "@helper is return still a new line?\n");
   await textarea.fill("");
   await page.evaluate(() => document.documentElement.classList.remove("keyboard-open"));
 

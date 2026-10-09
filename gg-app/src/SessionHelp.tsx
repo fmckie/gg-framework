@@ -76,7 +76,7 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
         id: "models",
         icon: CpuIcon,
         title: "Models",
-        body: "The Kleio picker in the bottom bar chooses Kleio's model. The Muse picker follows Kleio's unless you pin one, and Thinking sets how hard the model reasons when it supports it.",
+        body: "The Kleio picker in the bottom bar chooses Kleio's model. The Helper picker follows Kleio's unless you pin one, and Thinking sets how hard the model reasons when it supports it.",
       }
     : {
         id: "models",
@@ -125,21 +125,21 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
   return [
     { heading: "Basics", topics: basics },
     {
-      heading: "Working with Muse",
+      heading: "Working with Helper",
       topics: [
         {
           id: "muse",
           icon: ChatCircleTextIcon,
-          title: "Ask Muse",
+          title: "Ask Helper",
           body: phone
-            ? "Start a message with @muse, or tap the @muse button, to ask Muse. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
-            : "Start a message with @muse to ask Muse. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
+            ? "Start a message with @helper, or tap the @helper button, to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
+            : "Start a message with @helper to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
         },
         {
           id: "autopilot",
           icon: RocketLaunchIcon,
           title: "Autopilot",
-          body: "With Autopilot on in the header, Muse reviews Kleio's work when a run finishes and sends it back for fixes if needed. It pauses after a few rounds so you can take a look.",
+          body: "With Autopilot on in the header, Helper reviews Kleio's work when a run finishes and sends it back for fixes if needed. It pauses after a few rounds so you can take a look.",
         },
         model,
       ],

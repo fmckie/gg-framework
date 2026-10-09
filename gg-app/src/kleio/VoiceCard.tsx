@@ -3,7 +3,7 @@
 // without it, "Brief me" reads aloud in the system's own voice.
 
 import { useEffect, useState } from "react";
-import { SpeakerHighIcon } from "@phosphor-icons/react";
+import { QuestionIcon, SpeakerHighIcon } from "@phosphor-icons/react";
 import { SettingsCard } from "../settings-section";
 import {
   errorText,
@@ -14,6 +14,7 @@ import {
   setVoiceName,
   type VoiceStatus,
 } from "./kleioApi";
+import { VoiceGuide } from "./VoiceGuide";
 import { setVoiceReady, talkToKleio } from "./VoiceMode";
 
 /** GPT-Live's voices, as the picker names them; marin and cedar sound the most natural. */
@@ -59,6 +60,7 @@ function ConversationCard(): React.ReactElement {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guide, setGuide] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -89,8 +91,12 @@ function ConversationCard(): React.ReactElement {
   return (
     <SettingsCard
       title="Talk to Kleio"
-      description="A natural, two-way conversation, using OpenAI. Your key is kept on your Mac mini. A typical day costs a few cents."
+      description="A natural, two-way conversation, run by OpenAI's model with your own API key. Your key is kept on your Mac mini. A typical day costs a few cents."
     >
+      <p className="settings-desc">
+        To answer you, what she reads is sent to OpenAI under your key, including your memories,
+        chats, files and project details.
+      </p>
       {status === null ? (
         <p className="settings-desc">Checking…</p>
       ) : status === "unavailable" ? (
@@ -160,6 +166,13 @@ function ConversationCard(): React.ReactElement {
           {error}
         </p>
       )}
+      <div className="modal-row">
+        <button type="button" className="btn btn-ghost" onClick={() => setGuide(true)}>
+          <QuestionIcon size={16} weight="bold" aria-hidden="true" />
+          What Kleio Voice can do
+        </button>
+      </div>
+      {guide && <VoiceGuide onClose={() => setGuide(false)} />}
     </SettingsCard>
   );
 }

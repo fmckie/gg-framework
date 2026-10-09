@@ -8,8 +8,9 @@
 
 import { useSyncExternalStore } from "react";
 import { isPhone } from "../platform";
+import { holdAwake, type AwakeHold } from "./keepAwake";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { createVoiceTools, type ToolOutput, type VoiceTools } from "./voiceTools";
+import type { ShownFile, ToolOutput, VoiceTools } from "./voiceTools";
 import { meterStream, type LevelMeter } from "./voiceLevels";
 
 export type CallPhase = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "ended";
@@ -26,9 +27,11 @@ export interface CallState {
   readonly muted: boolean;
   /** Why the call couldn't start or stopped, in words for the screen. */
   readonly error: string | null;
+  /** The file she put on the screen (show_file), over the call; null when none. */
+  readonly shown: ShownFile | null;
 }
 
-const IDLE: CallState = { phase: "idle", lines: [], muted: false, error: null };
+const IDLE: CallState = { phase: "idle", lines: [], muted: false, error: null, shown: null };
 const LINES_KEPT = 40;
 /** After she says goodbye: let the last words play out before hanging up. */
 const HANGUP_GRACE_MS = 2_500;
@@ -134,6 +137,10 @@ interface Live {
   /** How loud she and you are (the orb); null until her voice arrives. */
   herLevel: LevelMeter | null;
   readonly yourLevel: LevelMeter | null;
+  /** Keeps the display awake (and the Mac from idling to sleep) once connected. */
+  awake: AwakeHold | null;
+  /** Stops listening for the page going away. */
+  readonly unhook: () => void;
 }
 
 let live: Live | null = null;
@@ -344,6 +351,10 @@ export async function startCall(): Promise<void> {
   let mic: MediaStream | null = null;
   let pc: RTCPeerConnection | null = null;
   const started = Date.now();
+  // Her tools load alongside the microphone and the connection, not with the
+  // app (they keep the app's first load small); the call never waits on them.
+  const toolsModule = import("./voiceTools");
+  toolsModule.catch(() => {}); // Seen by the await below; a call that ends sooner ignores it.
   try {
     if (typeof RTCPeerConnection === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       throw new Error("This device can't make voice calls.");
@@ -375,6 +386,8 @@ export async function startCall(): Promise<void> {
     // Closed or hung up while connecting: don't bring the call back.
     if (mine !== callSeq) throw new Error("ended");
 
+    const { createVoiceTools } = await toolsModule;
+    if (mine !== callSeq) throw new Error("ended");
     const tools = createVoiceTools({
       onEnd: () => {
         const L = live;
@@ -383,8 +396,16 @@ export async function startCall(): Promise<void> {
       },
       onSent: (to) => addLine("kleio", `(Sent to ${to}.)`),
       onMade: (what) => addLine("kleio", `(Made ${what}.)`),
+      onShow: (file) => {
+        if (live?.pc === pc) set({ shown: file });
+      },
       log: (l) => console.info(l),
     });
+    // The page closing or reloading ends the call (and lets the Mac sleep again).
+    const onPageHide = (): void => {
+      if (live?.pc === pc) endCall();
+    };
+    window.addEventListener("pagehide", onPageHide);
     live = {
       pc,
       mic,
@@ -399,6 +420,8 @@ export async function startCall(): Promise<void> {
       herLevel:
         metering && audio.srcObject instanceof MediaStream ? meterStream(audio.srcObject) : null,
       yourLevel: metering ? meterStream(mic) : null,
+      awake: null,
+      unhook: () => window.removeEventListener("pagehide", onPageHide),
     };
     active(live);
     channel.addEventListener("message", (m) => {
@@ -410,14 +433,23 @@ export async function startCall(): Promise<void> {
         /* not JSON */
       }
     });
+    // Awake from when the call is really connected until it ends (endCall).
+    const stayAwake = (): void => {
+      if (live?.pc === pc && pc?.connectionState === "connected" && !live.awake) {
+        live.awake = holdAwake();
+      }
+    };
     pc.addEventListener("connectionstatechange", () => {
       if (
         live?.pc === pc &&
         (pc?.connectionState === "failed" || pc?.connectionState === "closed")
       ) {
         endCall("The connection dropped.");
+      } else {
+        stayAwake();
       }
     });
+    stayAwake();
     console.info(`[voice] connected in ${Date.now() - started} ms`);
     set({ phase: "listening" });
   } catch (e) {
@@ -438,6 +470,8 @@ export function endCall(reason?: string): void {
   const L = live;
   live = null;
   if (L) {
+    L.awake?.release();
+    L.unhook();
     if (L.hangup) clearTimeout(L.hangup);
     if (L.quiet) clearTimeout(L.quiet);
     if (L.idle) clearTimeout(L.idle);
@@ -460,6 +494,11 @@ export function endCall(reason?: string): void {
 export function resetCall(): void {
   if (state.phase !== "idle" && state.phase !== "ended") endCall();
   set(IDLE);
+}
+
+/** Close the file she's showing; the call carries on. */
+export function closeShownFile(): void {
+  set({ shown: null });
 }
 
 export function setMuted(muted: boolean): void {

@@ -172,11 +172,11 @@ export function useKenMentor(opts: {
               ? {
                   kind: "error",
                   id: nextId(),
-                  headline: `Muse: ${headline}`,
+                  headline: `Helper: ${headline}`,
                   message: typeof d.message === "string" ? d.message : undefined,
                   guidance: typeof d.guidance === "string" ? d.guidance : undefined,
                 }
-              : { kind: "error", id: nextId(), text: `Muse: ${String(d.message ?? "unknown")}` },
+              : { kind: "error", id: nextId(), text: `Helper: ${String(d.message ?? "unknown")}` },
           ]);
           return true;
         }

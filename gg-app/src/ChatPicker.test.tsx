@@ -2,7 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
+  arrangeAllWindows,
   deleteChat,
+  focusWindowByOffset,
   getSettings,
   listSessions,
   selectWorkspace,
@@ -69,6 +71,18 @@ describe("ChatPicker", () => {
       );
       expect(onChosen).toHaveBeenCalledWith("/workspaces");
     });
+  });
+
+  it("leaves window shortcuts to App's one listener, so a press acts once", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([session]);
+    render(<ChatPicker onChosen={vi.fn()} />);
+    await screen.findByText(session.preview);
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", metaKey: true });
+    fireEvent.keyDown(window, { key: "A", code: "KeyA", metaKey: true, shiftKey: true });
+    expect(focusWindowByOffset).not.toHaveBeenCalled();
+    expect(arrangeAllWindows).not.toHaveBeenCalled();
   });
 
   it("starts a new chat without a resume path", async () => {

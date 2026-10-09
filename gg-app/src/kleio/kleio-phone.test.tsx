@@ -31,9 +31,10 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   getVoiceStatus: vi.fn(async () => ({ ready: true })),
 }));
 vi.mock("./voiceCall", () => ({
-  useCall: () => ({ phase: "speaking", lines: [], muted: false, error: null }),
+  useCall: () => ({ phase: "speaking", lines: [], muted: false, error: null, shown: null }),
   callLevels: () => ({ out: null, in: null }),
   partialLines: () => [{ who: "kleio", text: "Chef finished the dinner plan." }],
+  closeShownFile: vi.fn(),
   endCall: vi.fn(),
   resetCall: vi.fn(),
   setMuted: vi.fn(),
@@ -194,6 +195,15 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
   it("in the voice captions", async () => {
     render(<VoiceMode />);
     await screen.findByText("Chef finished the dinner plan.");
-    expectSelects([".voice-line"], [".voice-status", ".voice-button", ".voice-close"]);
+    // The corner's buttons: "What Kleio Voice can do" (the first) and Close.
+    expectSelects(
+      [".voice-line"],
+      [
+        ".voice-status",
+        ".voice-button",
+        ".voice-corner button",
+        ".voice-corner [aria-label=Close]",
+      ],
+    );
   });
 });

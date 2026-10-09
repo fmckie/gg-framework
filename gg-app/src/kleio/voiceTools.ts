@@ -5,7 +5,8 @@
 // to send (a draft first, then a send that names the draft), which for coding
 // work starts a coding agent in a project; changing the Brain; and starting a
 // new chat or making a new project on their Mac (a few per turn, never
-// straight after reading outside content).
+// straight after reading outside content). show_file puts a file on this
+// screen, over the call; it changes nothing.
 
 import {
   getBrief,
@@ -30,6 +31,7 @@ import {
   listSpecialistMessages,
   KleioApiError,
   type AgentFileEntry,
+  type AgentFileList,
   type AgentFileText,
   type Blob,
   type FileKind,
@@ -40,6 +42,7 @@ import {
   type SavedSession,
   type SavedSessionKind,
 } from "./kleioApi";
+import { fetchFile, fileErrorText, type FileInfo, type FileOwner as FileFrom } from "./kleioFiles";
 
 /** The Brain's tools (durable memory + Jiwa), run on the Mac mini like text chat's. */
 const BRAIN_TOOLS = new Set([
@@ -457,21 +460,22 @@ export function matchFile<T extends { readonly name: string; readonly path?: str
   items: readonly T[],
   said: string,
   label: (item: T) => string = (i) => i.name,
-): { ok: true; value: T } | { ok: false; error: string } {
+): { ok: true; value: T } | { ok: false; error: string; reason: "unsaid" | "many" | "none" } {
   const some = (): string =>
     items
       .slice(0, 6)
       .map((i) => i.name)
       .join("; ") || "none";
-  if (!said) return { ok: false, error: `Say which file. Some are: ${some()}.` };
+  if (!said) return { ok: false, error: `Say which file. Some are: ${some()}.`, reason: "unsaid" };
   const pick = (
     found: readonly T[],
-  ): { ok: true; value: T } | { ok: false; error: string } | undefined => {
+  ): { ok: true; value: T } | { ok: false; error: string; reason: "many" } | undefined => {
     if (found.length === 1 && found[0]) return { ok: true, value: found[0] };
     if (found.length > 1) {
       return {
         ok: false,
         error: `"${said}" matches more than one: ${found.slice(0, 6).map(label).join("; ")}.`,
+        reason: "many",
       };
     }
     return undefined;
@@ -504,7 +508,29 @@ export function matchFile<T extends { readonly name: string; readonly path?: str
     const m = pick(best);
     if (m) return m;
   }
-  return { ok: false, error: `No file matches "${said}". Some are: ${some()}.` };
+  return { ok: false, error: `No file matches "${said}". Some are: ${some()}.`, reason: "none" };
+}
+
+/** Of files none of which matched, the one sharing most words with what was said, if any. */
+function closestFile<T extends { readonly name: string }>(
+  items: readonly T[],
+  said: string,
+  label: (item: T) => string,
+): T | undefined {
+  const want = words(said)
+    .split(" ")
+    .filter((w) => w && !FILLER.has(w) && w !== "file");
+  let best: T | undefined;
+  let bestScore = 0;
+  for (const item of items) {
+    const have = words(label(item)).split(" ");
+    const score = want.filter((w) => have.some((h) => sameWord(w, h))).length;
+    if (score > bestScore) {
+      best = item;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 function partArg(v: unknown): number {
@@ -534,6 +560,97 @@ async function listFiles(args: Record<string, unknown>): Promise<ToolOutput> {
       can_read: f.readable === true,
     })),
     ...(files.length > FILES_TOLD ? { more: files.length - FILES_TOLD } : {}),
+  };
+}
+
+/** A file show_file put on the screen, fetched already (FileCard shows it). */
+export interface ShownFile {
+  readonly owner: FileFrom;
+  readonly path: string;
+  readonly name: string;
+  /** Whose it is, as the model was told ("Kleio", a chat's title). */
+  readonly whose: string;
+  readonly info: FileInfo;
+}
+
+/** Where a listed file is fetched from to show it, or null if it can't be. */
+function shownOwner(
+  source: FileSource,
+  id: string | undefined,
+  file: AgentFileEntry,
+  cwd: string | undefined,
+): FileFrom | null {
+  // The device's fetch refuses hidden folders (a project's .gg/plans).
+  if (file.path.split("/").some((s) => s.startsWith("."))) return null;
+  switch (source) {
+    case "specialist":
+      return id ? { kind: "blob", blobId: id } : null;
+    case "group":
+      return id && file.member ? { kind: "group", groupId: id, blobId: file.member } : null;
+    case "kleio":
+    case "chat":
+    case "code":
+    case "project":
+      return cwd ? { kind: "workspace", cwd } : null;
+  }
+}
+
+async function showFile(
+  args: Record<string, unknown>,
+  onShow: ((file: ShownFile) => void) | undefined,
+): Promise<ToolOutput> {
+  const o = await fileOwner(args.from, clip(str(args.name), NAME_MAX));
+  if (!o.ok) return { shown: false, error: o.error };
+  const { source, id, whose } = o.value;
+  let listing: AgentFileList;
+  try {
+    listing = await listAgentFiles(source, id);
+  } catch (e) {
+    return { shown: false, error: fileError(e, whose, false) };
+  }
+  const { files } = listing;
+  if (files.length === 0) return { shown: false, error: `${whose} has no files yet.` };
+  const label = (f: AgentFileEntry): string => (f.by ? `${f.path} (by ${f.by})` : f.path);
+  const said = clip(str(args.file), FILE_MAX);
+  const m = matchFile(files, said, label);
+  if (!m.ok) {
+    if (m.reason === "many") {
+      return { shown: false, error: m.error, next: "Ask which one they mean, then show that one." };
+    }
+    const near = closestFile(files, said, label);
+    const newest = files[0];
+    return {
+      shown: false,
+      error: said ? `No file matches "${said}".` : "Say which file to show.",
+      ...(near
+        ? { closest: label(near), next: "Ask whether they mean the closest match." }
+        : newest
+          ? { newest: label(newest), next: "Ask whether they mean the newest file." }
+          : {}),
+    };
+  }
+  const f = m.value;
+  const owner = shownOwner(source, id, f, listing.cwd);
+  const cantShow = (why: string): ToolOutput => ({
+    shown: false,
+    file: label(f),
+    error: why,
+    ...(f.readable ? { next: "Offer to read it out instead (read_file)." } : {}),
+  });
+  if (!owner || !onShow) return cantShow("That file can't be shown on this screen.");
+  // Fetched here, so she only says it's up once it is (the viewer reuses this).
+  let info: FileInfo;
+  try {
+    info = await fetchFile(owner, f.path);
+  } catch (e) {
+    return cantShow(fileErrorText(e));
+  }
+  onShow({ owner, path: f.path, name: f.name, whose, info });
+  return {
+    shown: true,
+    file: label(f),
+    type: kindLabel(f.kind),
+    note: "It's open on their screen now, over this call, which keeps going. Say so in a few words; don't read it out unless they ask.",
   };
 }
 
@@ -621,6 +738,8 @@ export interface VoiceToolsDeps {
   readonly onSent?: (to: string) => void;
   /** Something new was made on their Mac, e.g. "project recipe-app" (shown on screen too). */
   readonly onMade?: (what: string) => void;
+  /** show_file: put a file on the screen, over the call. Without it nothing can be shown. */
+  readonly onShow?: (file: ShownFile) => void;
   readonly log?: (line: string) => void;
 }
 
@@ -901,6 +1020,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
 
     list_files: listFiles,
     read_file: readFile,
+    show_file: (args) => showFile(args, deps.onShow),
 
     async draft_plan(args) {
       const plan = str(args.plan);

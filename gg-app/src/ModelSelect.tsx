@@ -305,7 +305,7 @@ export function ModelSelect({
                 background: following ? theme.surface2 : "transparent",
               }}
               onClick={chooseFollow}
-              title="Muse uses whatever model Kleio is using"
+              title="Helper uses whatever model Kleio is using"
             >
               Follow Kleio
             </button>

@@ -30,9 +30,7 @@ export function AboutPage(): React.ReactElement {
     <>
       <section className="settings-card about-card" aria-label="About Kleio">
         <KleioMark small />
-        <p className="about-tagline">
-          Your private assistant, specialists and coder, in one place.
-        </p>
+        <p className="about-tagline">Talk to your work: chat, code and specialists in one app.</p>
         {version && <p className="about-version">{`Version ${version}`}</p>}
         <p className="about-credit">Built on GG Coder by Ken Kai</p>
       </section>

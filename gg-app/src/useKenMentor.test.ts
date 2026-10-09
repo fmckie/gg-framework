@@ -108,7 +108,7 @@ describe("useKenMentor", () => {
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({
       kind: "error",
-      headline: "Muse: Anthropic usage limit reached.",
+      headline: "Helper: Anthropic usage limit reached.",
       message: "Your Anthropic usage is finished. It resets at 12:50 PM.",
       guidance: "Try again once it's back. Your conversation is preserved.",
     });

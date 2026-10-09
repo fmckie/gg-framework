@@ -148,9 +148,7 @@ export function KleioHome({
         </button>
       </div>
       <KleioMark />
-      <div className="home-tagline">
-        Your private assistant, specialists and coder, in one place.
-      </div>
+      <div className="home-tagline">Talk to your work: chat, code and specialists in one app.</div>
       <div className="home-actions">
         <button
           type="button"

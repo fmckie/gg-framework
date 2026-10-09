@@ -2,9 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as KleioApi from "./kleioApi";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
+import { holdAwake } from "./keepAwake";
 import {
   callError,
   callState,
+  closeShownFile,
+  endCall,
   functionCall,
   GREETING,
   isWebSearch,
@@ -16,6 +19,8 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
   startVoiceCall: vi.fn(),
 }));
+const awake = vi.hoisted(() => ({ release: vi.fn() }));
+vi.mock("./keepAwake", () => ({ holdAwake: vi.fn(() => awake) }));
 
 describe("callError", () => {
   it("says plainly what stopped the conversation", () => {
@@ -252,5 +257,145 @@ describe("startCall", () => {
     // The session ends at OpenAI too, which stops the billing.
     expect(channel.send).toHaveBeenLastCalledWith(JSON.stringify({ type: "session.close" }));
     expect(track.stop).toHaveBeenCalled();
+  });
+});
+
+describe("keeping the Mac awake", () => {
+  afterEach(() => {
+    resetCall();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  /** A call whose connection you drive: `to("connected")`, `to("failed")`. */
+  async function connecting(): Promise<{
+    to: (state: string) => void;
+    message: (e: Record<string, unknown>) => void;
+  }> {
+    const track = { stop: vi.fn(), enabled: true };
+    const mic = { getAudioTracks: () => [track], getTracks: () => [track] };
+    let onMessage: (m: { data: string }) => void = () => {};
+    let onState: () => void = () => {};
+    const channel = {
+      readyState: "open",
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: (type: string, fn: (m: { data: string }) => void) => {
+        if (type === "message") onMessage = fn;
+      },
+    };
+    const pcs: FakePC[] = [];
+    class FakePC {
+      ontrack: unknown = null;
+      connectionState = "new";
+      close = vi.fn();
+      constructor() {
+        pcs.push(this);
+      }
+      addTrack(): void {}
+      addEventListener(type: string, fn: () => void): void {
+        if (type === "connectionstatechange") onState = fn;
+      }
+      createDataChannel(): unknown {
+        return channel;
+      }
+      async createOffer(): Promise<{ type: string; sdp: string }> {
+        return { type: "offer", sdp: "v=0\r\n" };
+      }
+      async setLocalDescription(): Promise<void> {}
+      async setRemoteDescription(): Promise<void> {}
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePC);
+    vi.stubGlobal("Audio", class {});
+    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => mic } });
+    vi.mocked(startVoiceCall).mockResolvedValue("v=0\r\n");
+    await startCall();
+    return {
+      to: (state) => {
+        const pc = pcs[0];
+        if (pc) pc.connectionState = state;
+        onState();
+      },
+      message: (e) => onMessage({ data: JSON.stringify(e) }),
+    };
+  }
+
+  it("holds the display awake only once the call has really connected", async () => {
+    const call = await connecting();
+    expect(holdAwake).not.toHaveBeenCalled();
+    call.to("connecting");
+    expect(holdAwake).not.toHaveBeenCalled();
+    call.to("connected");
+    call.to("connected"); // A repeat event doesn't take a second hold.
+    expect(holdAwake).toHaveBeenCalledTimes(1);
+    expect(awake.release).not.toHaveBeenCalled();
+  });
+
+  it("lets go when you hang up, and only once", async () => {
+    const call = await connecting();
+    call.to("connected");
+    endCall();
+    endCall();
+    resetCall();
+    expect(awake.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets go when the connection drops or fails", async () => {
+    const dropped = await connecting();
+    dropped.to("connected");
+    dropped.to("failed");
+    expect(callState()).toMatchObject({ phase: "ended", error: expect.any(String) });
+    expect(awake.release).toHaveBeenCalledTimes(1);
+
+    resetCall();
+    vi.mocked(holdAwake).mockClear();
+    awake.release.mockClear();
+    const closed = await connecting();
+    closed.to("connected");
+    closed.to("closed");
+    expect(awake.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets go when OpenAI ends the session, or the screen closes", async () => {
+    const ended = await connecting();
+    ended.to("connected");
+    ended.message({ type: "error", error: { message: "boom" } });
+    resetCall();
+    expect(awake.release).toHaveBeenCalledTimes(1);
+
+    vi.mocked(holdAwake).mockClear();
+    awake.release.mockClear();
+    const closing = await connecting();
+    closing.to("connected");
+    resetCall(); // The voice screen closes (Esc, close, or it unmounts with the window).
+    expect(awake.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets go when the page goes away mid-call (reload or the window closing)", async () => {
+    const call = await connecting();
+    call.to("connected");
+    window.dispatchEvent(new Event("pagehide"));
+    expect(callState().phase).toBe("ended");
+    expect(awake.release).toHaveBeenCalledTimes(1);
+    // The listener goes with the call: a later pagehide does nothing more.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(awake.release).toHaveBeenCalledTimes(1);
+  });
+
+  it("never holds anything for a call that never connected", async () => {
+    const call = await connecting();
+    call.to("failed");
+    resetCall();
+    expect(holdAwake).not.toHaveBeenCalled();
+    expect(awake.release).not.toHaveBeenCalled();
+  });
+
+  it("closing a file she showed leaves the call, and the hold, alone", async () => {
+    const call = await connecting();
+    call.to("connected");
+    closeShownFile();
+    expect(callState().phase).not.toBe("ended");
+    expect(awake.release).not.toHaveBeenCalled();
   });
 });

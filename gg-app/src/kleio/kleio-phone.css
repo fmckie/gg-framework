@@ -74,7 +74,7 @@ html.platform-ios textarea,
 html.platform-ios select {
   font-size: max(16px, 1em);
 }
-/* The @muse highlight is a copy of the draft drawn under the textarea, whose
+/* The @helper highlight is a copy of the draft drawn under the textarea, whose
    own text goes clear, so it takes the textarea's 16px too. At the desktop's
    15px it wrapped on different words from the textarea, and the caret, which
    the textarea draws, sat a line below the text you could see. */
@@ -384,7 +384,7 @@ html.platform-ios .icon-circle {
   width: 36px;
   height: 36px;
 }
-/* @muse beside the paperclip: one tap addresses the draft to the helper, with
+/* @helper beside the paperclip: one tap addresses the draft to the helper, with
    no trip to the symbols keyboard for the @. The paperclip's glass circle,
    stretched to a pill around the trigger in Ken's colour, which a tap's
    sticky hover must not turn white. */
@@ -426,12 +426,7 @@ html.platform-ios .enhance-pill {
 html.platform-ios .enhance-pill-host {
   top: -13px;
 }
-/* In code sessions the golden check (HelperCheckButton) fills that row, and
-   the pill would cover it, so there it stays on the top border; the draft's
-   first line starts below the pill's lower edge. */
-html.platform-ios
-  .inputwrap:has(> .inputrow.is-multiline):not(:has(.helper-check))
-  > .enhance-pill-host {
+html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .enhance-pill-host {
   top: auto;
   /* Level with the 36px circles: the box's 9px padding, plus half of 36 - 25. */
   bottom: 14.5px;
@@ -445,9 +440,7 @@ html.platform-ios .dictation-status {
   padding: 0 12px;
   font-size: 13px;
 }
-html.platform-ios
-  .inputwrap:has(> .inputrow.is-multiline):not(:has(.helper-check))
-  > .dictation-status {
+html.platform-ios .inputwrap:has(> .inputrow.is-multiline) > .dictation-status {
   top: auto;
   bottom: 14.5px;
 }
@@ -701,7 +694,7 @@ html.platform-ios .voice-mode {
     calc(var(--safe-bottom) + 28px) calc(var(--safe-left) + 20px);
   --voice-type: 18px;
 }
-html.platform-ios .voice-close {
+html.platform-ios .voice-corner {
   top: calc(var(--safe-top) + 10px);
   right: calc(var(--safe-right) + 14px);
 }
