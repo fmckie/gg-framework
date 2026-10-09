@@ -240,7 +240,7 @@ pub(crate) fn host_error(status: u16, body: &str) -> String {
         .ok()
         .and_then(|v| v.get("error")?.as_str().map(str::to_string))
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| format!("Your Mac mini answered {status}"))
+        .unwrap_or_else(|| format!("Your host answered {status}"))
 }
 
 /// `text/plain` of `text/plain; charset=utf-8`, lowercase; octet-stream when
@@ -338,7 +338,7 @@ async fn download(
     owner: &FileOwner,
     segs: &[&str],
 ) -> Result<(PathBuf, u64, String), String> {
-    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let r = super::remote().ok_or("Not connected to your host.")?;
     let dest = cache_file(&cache_root(app)?, owner, segs);
     let (bytes, mime) = fetch_bytes(r, owner.kind(), &file_url(&r.base, owner, segs)).await?;
     let size = bytes.len() as u64;
@@ -626,7 +626,7 @@ struct MintedPreview {
 /// loopback http in a debug build, for local hosts), no credentials, and the
 /// same host name as `base`. Anything else is refused rather than opened.
 fn checked_preview_url(url: &str, base: &str) -> Result<String, String> {
-    let refused = || "Your Mac mini sent a site link Kleio won't open.".to_string();
+    let refused = || "Your host sent a site link Kleio won't open.".to_string();
     let u = reqwest::Url::parse(url).map_err(|_| refused())?;
     let paired = reqwest::Url::parse(base).map_err(|_| refused())?;
     let scheme_ok = u.scheme() == "https"
@@ -650,7 +650,7 @@ pub async fn kleio_site_open(app: AppHandle, owner: FileOwner, path: String) -> 
     if !segs.last().is_some_and(|name| is_site(name)) {
         return Err("Only web pages open as a site.".to_string());
     }
-    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let r = super::remote().ok_or("Not connected to your host.")?;
     let kind = owner.kind();
     let started = Instant::now();
     let fail = |status: Option<u16>, e: String| {
@@ -1043,13 +1043,13 @@ mod tests {
         );
         assert_eq!(
             host_error(502, "<html>bad gateway</html>"),
-            "Your Mac mini answered 502"
+            "Your host answered 502"
         );
         assert_eq!(
             host_error(500, r#"{"error":""}"#),
-            "Your Mac mini answered 500"
+            "Your host answered 500"
         );
-        assert_eq!(host_error(401, ""), "Your Mac mini answered 401");
+        assert_eq!(host_error(401, ""), "Your host answered 401");
     }
 
     #[test]

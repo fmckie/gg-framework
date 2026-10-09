@@ -220,7 +220,7 @@ describe("KleioHome", () => {
     await waitFor(() => expect(code.getAttribute("aria-disabled")).toBe("true"));
     fireEvent.click(code);
     expect(p.onCode).not.toHaveBeenCalled();
-    expect(toast).toHaveBeenCalledWith("Set a projects folder on your Mac mini first.", "warning");
+    expect(toast).toHaveBeenCalledWith("Set a projects folder on your host first.", "warning");
     expect(p.onSettings).toHaveBeenCalledWith("general");
   });
 

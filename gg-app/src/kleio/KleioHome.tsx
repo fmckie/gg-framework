@@ -113,12 +113,12 @@ export function KleioHome({
   function openCode(): void {
     if (codeReady) return onCode();
     if (!ready?.model) return needModel();
-    toast("Set a projects folder on your Mac mini first.", "warning");
+    toast("Set a projects folder on your host first.", "warning");
     onSettings("general");
   }
 
   const host = status?.active?.host;
-  const mini = host ? shortHost(host) : "your Mac mini";
+  const mini = host ? shortHost(host) : "your host";
   const pill = !status?.active
     ? { state: "is-down", text: `Disconnected from ${mini}` }
     : reach === "checking"
@@ -138,8 +138,8 @@ export function KleioHome({
           className={`kleio-status ${pill.state}`}
           title={
             pill.state === "is-down"
-              ? "Can't reach your Mac mini. Open Connection to see why."
-              : "Connection to your Mac mini"
+              ? "Can't reach your host. Open Connection to see why."
+              : "Connection to your host"
           }
           onClick={() => onSettings("connection")}
         >

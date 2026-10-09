@@ -109,12 +109,12 @@ describe("useDictation", () => {
 
   it("surfaces a transcription failure and returns to idle", async () => {
     vi.mocked(startRecording).mockResolvedValue({ ok: true, value: fakeRecording() });
-    vi.mocked(transcribeDictation).mockRejectedValue("Couldn't reach your Mac to transcribe.");
+    vi.mocked(transcribeDictation).mockRejectedValue("Couldn't reach your host to transcribe.");
     const { hook, onError } = setup();
 
     await act(async () => hook.result.current.toggle());
     await act(async () => hook.result.current.toggle());
-    expect(onError).toHaveBeenCalledWith("Couldn't reach your Mac to transcribe.");
+    expect(onError).toHaveBeenCalledWith("Couldn't reach your host to transcribe.");
     expect(hook.result.current.phase).toBe("idle");
   });
 

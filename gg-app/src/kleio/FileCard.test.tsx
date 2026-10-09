@@ -57,7 +57,7 @@ describe("FileCard", () => {
   it("explains a file that's gone, without Open or Save", async () => {
     vi.mocked(invoke).mockRejectedValue(new Error("no such file"));
     await renderCard();
-    await waitFor(() => expect(screen.getByText(/isn't on your Mac mini any more/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/isn't on your host any more/)).toBeTruthy());
     expect(screen.queryByRole("button", { name: /Save a copy/ })).toBeNull();
     expect(
       (screen.getByRole("button", { name: `Open ${PATH}` }) as HTMLButtonElement).disabled,
@@ -142,8 +142,8 @@ describe("FileCard for a website", () => {
 
   it.each([
     ["not_a_site", "Only web pages open as a site."],
-    ["not_found", "Your Mac mini needs an update to open sites."],
-    ["no such file", "isn't on your Mac mini any more"],
+    ["not_found", "Your host needs an update to open sites."],
+    ["no such file", "isn't on your host any more"],
     ["no such workspace", "Kleio only opens files from its project folders."],
     ["bad_request", "Update Kleio on both devices."],
   ])("explains a %s error", async (raw, shown) => {

@@ -166,12 +166,12 @@ describe("LoginScreen providers", () => {
   it("says why the list is empty when the Mac mini can't answer", async () => {
     vi.mocked(authStatusWithError).mockResolvedValue({
       providers: [],
-      error: "Still connecting to your Mac mini — try again in a moment.",
+      error: "Still connecting to your host — try again in a moment.",
     });
     await renderScreen();
 
     expect(screen.getByRole("status").textContent).toBe(
-      "Still connecting to your Mac mini — try again in a moment.",
+      "Still connecting to your host — try again in a moment.",
     );
     // The private models are still offered.
     expect(screen.getByText("Tinfoil")).toBeTruthy();

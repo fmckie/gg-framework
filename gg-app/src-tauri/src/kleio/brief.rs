@@ -24,10 +24,10 @@ pub enum Reply {
 pub fn words(reply: &Reply) -> String {
     match reply {
         Reply::NotPaired => {
-            "Kleio isn't connected to your Mac mini yet. Open Kleio to connect it.".into()
+            "Kleio isn't connected to your host yet. Open Kleio to connect it.".into()
         }
         Reply::Unreachable => {
-            "I couldn't reach your Mac mini. Check it's switched on and online.".into()
+            "I couldn't reach your host. Check it's switched on and online.".into()
         }
         Reply::Answered(200, body) => match body.get("spoken").and_then(|s| s.as_str()) {
             Some(s) if !s.trim().is_empty() => {
@@ -38,14 +38,14 @@ pub fn words(reply: &Reply) -> String {
                     .take(WORDS_MAX)
                     .collect()
             }
-            _ => "Your Mac mini answered, but without a briefing. Try again in a moment.".into(),
+            _ => "Your host answered, but without a briefing. Try again in a moment.".into(),
         },
         Reply::Answered(401 | 403, _) => {
-            "This iPhone isn't connected to your Mac mini any more. Open Kleio to reconnect.".into()
+            "This iPhone isn't connected to your host any more. Open Kleio to reconnect.".into()
         }
         // A Mac mini running a Kleio from before briefings.
         Reply::Answered(404, _) => {
-            "Your Mac mini needs the latest Kleio before it can brief you.".into()
+            "Your host needs the latest Kleio before it can brief you.".into()
         }
         Reply::Answered(..) => {
             "Something went wrong getting your briefing. Try again in a moment.".into()
@@ -143,8 +143,8 @@ mod tests {
     #[test]
     fn says_why_when_there_is_no_briefing() {
         let cases = [
-            (Reply::NotPaired, "isn't connected to your Mac mini yet"),
-            (Reply::Unreachable, "couldn't reach your Mac mini"),
+            (Reply::NotPaired, "isn't connected to your host yet"),
+            (Reply::Unreachable, "couldn't reach your host"),
             (Reply::Answered(200, json!({})), "without a briefing"),
             (Reply::Answered(200, json!({ "spoken": "   " })), "without a briefing"),
             (Reply::Answered(200, serde_json::Value::Null), "without a briefing"),

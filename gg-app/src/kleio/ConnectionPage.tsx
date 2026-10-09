@@ -138,7 +138,7 @@ export function ConnectionPage(): React.ReactElement {
     return () => window.clearInterval(id);
   }, [check]);
 
-  const hostLabel = shortName(active?.host ?? paired?.host ?? "Mac mini");
+  const hostLabel = shortName(active?.host ?? paired?.host ?? "Host");
   const verdict = checks ? diagnose({ ...checks, hostLabel, device }) : null;
   const health = checks?.health ?? null;
 
@@ -173,7 +173,7 @@ export function ConnectionPage(): React.ReactElement {
       <div className="settings-cols">
         <div className="settings-col">
           <SettingsCard
-            title="Mac mini"
+            title="Host"
             description="Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this device sleeps."
           >
             <dl className="conn-facts">
@@ -567,11 +567,11 @@ function PhoneCard({
   return (
     <SettingsCard
       title="iPhone"
-      description="Pair the Kleio iPhone app with your Mac mini. Your phone needs Tailscale too."
+      description="Pair the Kleio iPhone app with your host. Your phone needs Tailscale too."
     >
       {!admin ? (
         <p className="settings-desc">
-          Only an admin Mac can pair a new phone. On the Mac mini, run{" "}
+          Only an admin Mac can pair a new phone. On the host, run{" "}
           <code className="conn-code">kleio-host pair</code> and type the code on your phone.
         </p>
       ) : offer && ticket?.ok ? (
@@ -591,7 +591,7 @@ function PhoneCard({
                 the host's address and this code (it has no QR scanner). */}
             <ol className="conn-steps">
               <li>
-                Open Kleio on your iPhone and tap <strong>Pair with your Mac mini</strong>.
+                Open Kleio on your iPhone and tap <strong>Pair with your host</strong>.
               </li>
               <li>
                 Host URL: <code className="conn-pair-code">{baseUrl}</code>
@@ -690,7 +690,7 @@ function DevicesCard({
   return (
     <SettingsCard
       title="Devices"
-      description="Everything paired with your Mac mini. Remove one and it's signed out straight away."
+      description="Everything paired with your host. Remove one and it's signed out straight away."
     >
       {!admin ? (
         <p className="settings-desc">Only an admin Mac can see and remove devices.</p>

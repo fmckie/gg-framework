@@ -279,7 +279,7 @@ export function AppsPage(): React.ReactElement {
     return (
       <SettingsCard
         title="Apps aren't set up yet"
-        description="Apps connect through Composio on your Mac mini."
+        description="Apps connect through Composio on your host."
       >
         <p className="kleio-page-intro">
           Put a Composio API key in the host's <code>composio.key</code> file and restart the Kleio

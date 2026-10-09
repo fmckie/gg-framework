@@ -50,7 +50,7 @@ function keyError(e: unknown): string {
     if (e.message === "no_credit")
       return "That key works, but the account has no credit. Add some on platform.openai.com.";
     if (e.message === "forbidden") return "Only an admin device can set the key.";
-    if (e.status === 404) return "Your Mac mini needs the latest Kleio first.";
+    if (e.status === 404) return "Your host needs the latest Kleio first.";
   }
   return errorText(e);
 }
@@ -91,7 +91,7 @@ function ConversationCard(): React.ReactElement {
   return (
     <SettingsCard
       title="Talk to Kleio"
-      description="A natural, two-way conversation, run by OpenAI's model with your own API key. Your key is kept on your Mac mini. A typical day costs a few cents."
+      description="A natural, two-way conversation, run by OpenAI's model with your own API key. Your key is kept on your host. A typical day costs a few cents."
     >
       <p className="settings-desc">
         To answer you, what she reads is sent to OpenAI under your key, including your memories,
@@ -100,7 +100,7 @@ function ConversationCard(): React.ReactElement {
       {status === null ? (
         <p className="settings-desc">Checking…</p>
       ) : status === "unavailable" ? (
-        <p className="settings-desc">Your Mac mini needs the latest Kleio first.</p>
+        <p className="settings-desc">Your host needs the latest Kleio first.</p>
       ) : status.ready ? (
         <>
           <div className="modal-row">

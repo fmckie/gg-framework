@@ -720,7 +720,7 @@ pub async fn host_auth(
     if !auth_route_allowed(method, path) {
         return Err(format!("host_auth: {method} {path} not allowed"));
     }
-    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let r = super::remote().ok_or("Not connected to your host.")?;
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut req = api_client(r)?
         .request(m, format!("{}{}", r.base, path))
@@ -737,7 +737,7 @@ pub async fn host_auth(
             .get("error")
             .and_then(|e| e.as_str())
             .map(str::to_string)
-            .unwrap_or_else(|| format!("Your Mac mini answered {}", status.as_u16())));
+            .unwrap_or_else(|| format!("Your host answered {}", status.as_u16())));
     }
     Ok(value)
 }

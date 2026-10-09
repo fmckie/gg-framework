@@ -262,9 +262,9 @@ describe("BlobsPage", () => {
   });
 
   it("says what's wrong when the Mac mini can't list them", async () => {
-    vi.mocked(listBlobs).mockRejectedValue(new Error("Can't reach your Mac mini."));
+    vi.mocked(listBlobs).mockRejectedValue(new Error("Can't reach your host."));
     await renderPage();
-    expect(screen.getByRole("alert").textContent).toBe("Can't reach your Mac mini.");
+    expect(screen.getByRole("alert").textContent).toBe("Can't reach your host.");
   });
 });
 

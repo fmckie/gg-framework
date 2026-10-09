@@ -31,9 +31,9 @@ describe("createProject", () => {
   });
 
   it("passes any other failure through unchanged", async () => {
-    invokeMock.mockRejectedValue("Still connecting to your Mac mini — try again in a moment.");
+    invokeMock.mockRejectedValue("Still connecting to your host — try again in a moment.");
     await expect(createProject("test")).rejects.toBe(
-      "Still connecting to your Mac mini — try again in a moment.",
+      "Still connecting to your host — try again in a moment.",
     );
   });
 });

@@ -63,16 +63,16 @@ export function callError(e: unknown): string {
       case "no_key":
         return "Kleio's voice isn't set up yet. Add an OpenAI key in Settings, under Kleio's voice.";
       case "bad_key":
-        return "OpenAI didn't accept the key on your Mac mini. Check it in Settings.";
+        return "OpenAI didn't accept the key on your host. Check it in Settings.";
       case "no_credit":
         return "Your OpenAI account is out of credit. Add some on platform.openai.com, then try again.";
       case "unreachable":
-        return "Your Mac mini couldn't reach OpenAI. Check its internet connection.";
+        return "Your host couldn't reach OpenAI. Check its internet connection.";
       case "forbidden":
         return "This device can't start a conversation.";
     }
-    if (e.status === 0) return "I couldn't reach your Mac mini. Check it's on and connected.";
-    if (e.status === 404) return "Your Mac mini needs the latest Kleio before you can talk to her.";
+    if (e.status === 0) return "I couldn't reach your host. Check it's on and connected.";
+    if (e.status === 404) return "Your host needs the latest Kleio before you can talk to her.";
     return e.detail
       ? `OpenAI said: ${e.detail}`
       : "Something went wrong starting the conversation.";

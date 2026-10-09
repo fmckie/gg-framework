@@ -316,7 +316,7 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
               {load.text}
             </>
           ) : load.state === "loading" ? (
-            "Fetching from your Mac mini…"
+            "Fetching from your host…"
           ) : (
             meta
           )}
