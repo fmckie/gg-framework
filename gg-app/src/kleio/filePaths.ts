@@ -91,20 +91,37 @@ function relativeFile(segments: readonly string[]): string | null {
 /**
  * The path inside a Chat/Code session's folder (`cwd`, absolute on the host)
  * that a chat link points at, or null. Takes relative links like
- * `agentFilePath`, and also absolute or `file://` links under `cwd` (Code
- * agents often print absolute paths), cut down to the part below `cwd`.
+ * `agentFilePath`, and also absolute, `file://` and `~/` links under `cwd`
+ * (Code agents often print absolute paths, chats `~/…` ones), cut down to the
+ * part below `cwd`.
  */
 export function workspaceFilePath(href: string, cwd: string): string | null {
   let h = href.trim();
   const file = /^file:\/\/(?:localhost)?(\/[^?#]*)/i.exec(h);
+  // "~/…", or "/~/…" as `filesBy` passes a named one on.
+  const tilde = /^\/?~(?=\/)/.exec(h);
   if (file) h = file[1] ?? "";
-  else if (!h.startsWith("/")) return agentFilePath(h);
+  else if (tilde) {
+    const home = homeFolder(cwd);
+    if (!home) return null;
+    h = home + h.slice(tilde[0].length);
+  } else if (!h.startsWith("/")) return agentFilePath(h);
   const base = cwd.replace(/\/+$/, "").split("/");
   if (!cwd.startsWith("/") || base.slice(1).some((s) => !s)) return null;
   const parts = decodedSegments(h.replace(/[?#].*$/, ""));
   if (!parts || parts.length <= base.length) return null;
   if (base.some((s, i) => parts[i] !== s)) return null;
   return relativeFile(parts.slice(base.length));
+}
+
+/**
+ * The home folder `cwd` is in, `/Users/<name>` (the host is a Mac), which a
+ * `~/…` path the agent wrote starts from; null when `cwd` is in no home
+ * (`/Users/Shared` is nobody's).
+ */
+function homeFolder(cwd: string): string | null {
+  const name = /^\/Users\/([^/]+)(?:\/|$)/.exec(cwd)?.[1];
+  return name && name !== "Shared" && plainSegment(name) ? `/Users/${name}` : null;
 }
 
 /** File types that are results for the user (reports, data, media, sites),

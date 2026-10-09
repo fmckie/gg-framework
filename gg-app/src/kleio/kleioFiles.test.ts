@@ -173,9 +173,72 @@ describe("files a reply names without linking", () => {
   it("reads ~/ paths as absolute, never as a file in the folder", () => {
     const md = "Saved to `~/Kleio/blobs/b_0f35a4fa/week.pdf`, not `~/Desktop/other.pdf`.";
     expect(fileLinks(md, own)).toEqual([{ path: "week.pdf", label: "week.pdf", named: true }]);
-    expect(
-      workspaceFileLinks("See `~/kleio-projects/test.pdf`.", "/Users/me/kleio-projects"),
-    ).toEqual([]);
+    // A Chat or Code session's ~ is the home its folder is in.
+    const chat = "See `~/kleio-projects/out/test.pdf`, not `~/Desktop/other.pdf`.";
+    expect(workspaceFileLinks(chat, "/Users/me/kleio-projects")).toEqual([
+      { path: "out/test.pdf", label: "test.pdf", named: true },
+    ]);
+    // A folder in no home has no ~ to read it against.
+    for (const cwd of ["/Volumes/Data/kleio-projects", "/Users/Shared/kleio-projects"]) {
+      expect(workspaceFileLinks("See `~/kleio-projects/test.pdf`.", cwd), cwd).toEqual([]);
+    }
+  });
+
+  // Regression: Chat saves what it makes under "Kleio Chat/", and a named path
+  // with a space in it never counted, so none of its files got a card.
+  it("cards a path with spaces in its names, as Chat's own folder has", () => {
+    const cwd = "/Users/willmckie/kleio-projects";
+    // A Chat reply on the Mac mini, 9 Oct 2026.
+    const md =
+      'Done — your test PDF is at **Kleio Chat/test-pdf/test.pdf** (1 page, ~17 KB). It just says "Test PDF", today\'s date, and a line confirming generation works.';
+    expect(workspaceFileLinks(md, cwd)).toEqual([
+      { path: "Kleio Chat/test-pdf/test.pdf", label: "test.pdf", named: true },
+    ]);
+    expect(workspaceFileLinks("At `~/kleio-projects/Kleio Chat/q3/Q3 report.pdf`.", cwd)).toEqual([
+      { path: "Kleio Chat/q3/Q3 report.pdf", label: "Q3 report.pdf", named: true },
+    ]);
+    // A lone name with a space, or spaces beside a slash, is prose or a command.
+    expect(workspaceFileLinks("Run `open report.pdf` or **out / report.pdf**.", cwd)).toEqual([]);
+  });
+
+  // Regression: a Chat reply listed the London jobs report by name under its
+  // folder (WorkspaceFiles.test.tsx has the reply), and the card looked for it
+  // in the session folder itself.
+  it("finds a list's bare names in the folder the line above the list names", () => {
+    const md = [
+      "**`~/kleio-projects/job-research/report/`**",
+      "- `jobs.pdf` — the report",
+      "",
+      "- `page-1.png` and `notes.md`",
+      "  with `chart.png` under it",
+      "Then `summary.pdf`.",
+      "Files in `out/`:",
+      "1. `table.xlsx`",
+      "2) `other/data.csv`",
+    ].join("\n");
+    expect(workspaceFileLinks(md, "/Users/me/kleio-projects").map((l) => l.path)).toEqual([
+      "job-research/report/jobs.pdf",
+      "job-research/report/page-1.png",
+      "job-research/report/chart.png",
+      "summary.pdf",
+      "out/table.xlsx",
+      "other/data.csv",
+    ]);
+  });
+
+  it("never moves a list's names out of the folder, or into a folder an item names", () => {
+    const md = [
+      "In `~/Desktop/stuff/`:",
+      "- `report.pdf`",
+      "In `../`:",
+      "- `up.pdf`",
+      "Done:",
+      "- `out/` has the charts",
+      "- `chart.png`",
+    ].join("\n");
+    expect(workspaceFileLinks(md, "/Users/me/kleio-projects").map((l) => l.path)).toEqual([
+      "chart.png",
+    ]);
   });
 
   it("lists a file once, keeping its link's label", () => {
@@ -194,6 +257,8 @@ describe("workspaceFilePath", () => {
     ["/Users/me/kleio-projects/app/out/week%2040.pdf", "out/week 40.pdf"],
     ["file:///Users/me/kleio-projects/app/data.csv", "data.csv"],
     ["file://localhost/Users/me/kleio-projects/app/data.csv?x=1", "data.csv"],
+    ["~/kleio-projects/app/out/report.pdf", "out/report.pdf"],
+    ["/~/kleio-projects/app/out/report.pdf", "out/report.pdf"],
   ])("accepts %s", (href, path) => {
     expect(workspaceFilePath(href, cwd)).toBe(path);
   });
@@ -213,12 +278,18 @@ describe("workspaceFilePath", () => {
     "file://server/Users/me/kleio-projects/app/report.pdf",
     "../report.pdf",
     "https://example.com/report.pdf",
+    "~/kleio-projects/other/report.pdf",
+    "~/kleio-projects/app/../other/report.pdf",
+    "~/../me/kleio-projects/app/report.pdf",
+    "~/kleio-projects/app/.secret/report.pdf",
+    "~/kleio-projects/app",
   ])("rejects %s", (href) => {
     expect(workspaceFilePath(href, cwd)).toBeNull();
   });
 
   it("takes no absolute links when the cwd is not absolute", () => {
     expect(workspaceFilePath("/a/b.pdf", "a")).toBeNull();
+    expect(workspaceFilePath("~/a/b.pdf", "a")).toBeNull();
     expect(workspaceFilePath("b.pdf", "a")).toBe("b.pdf");
   });
 });

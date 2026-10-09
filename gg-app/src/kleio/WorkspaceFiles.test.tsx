@@ -90,6 +90,58 @@ describe("Chat/Code outputs when paired to a Mac mini", () => {
     );
   });
 
+  // Regression: the London jobs report a Chat session made got no card. The
+  // reply (on the Mac mini, 9 Oct 2026) lists it by name under its folder.
+  it("shows and opens a report a Chat reply lists under its folder", async () => {
+    const cwd = "/Users/willmckie/kleio-projects";
+    const reply = [
+      "I can't push a file attachment into the iPhone chat from here — the image I viewed only lands in my own context, not on your screen. So I've put everything somewhere you can open it:",
+      "",
+      "**`~/kleio-projects/job-research/report-2026-10-09/`**",
+      "- `london-ai-jobs-2026-10-09.pdf` — the full 6-page report",
+      "- `report-p1.png` … `report-p6.png` — each page as an image (p1 = the eight top picks + notes; p2–p6 = the full 175-role table)",
+      "",
+      "Trying an inline render in case the Kleio client supports it:",
+      "",
+      "![Page 1 – top picks](/Users/willmckie/kleio-projects/job-research/report-2026-10-09/report-p1.png)",
+      "",
+      "![Page 2 – all roles](/Users/willmckie/kleio-projects/job-research/report-2026-10-09/report-p2.png)",
+      "",
+      "If those show as broken links, the quickest route on the phone is Files → Mac mini (over Tailscale) → that folder, or ask the Job hunter agent to resend this morning's PDF the way it normally delivers it. My comparison write-up is alongside it: `~/kleio-projects/job-research/2026-10-09-london-roles-vs-report-picks.md`.",
+    ].join("\n");
+    const owner = { kind: "workspace", cwd } as const;
+    const folder = "job-research/report-2026-10-09";
+    vi.mocked(invoke).mockResolvedValue({
+      name: "london-ai-jobs-2026-10-09.pdf",
+      size: 456453,
+      mime: "application/pdf",
+      thumbnail: null,
+    });
+    await renderReply(cwd, reply);
+
+    const open = await screen.findByRole("button", { name: "Open london-ai-jobs-2026-10-09.pdf" });
+    const fetched = (): unknown[] =>
+      vi
+        .mocked(invoke)
+        .mock.calls.filter(([cmd]) => cmd === "kleio_file_fetch")
+        .map(([, args]) => args);
+    await waitFor(() =>
+      expect(fetched()).toEqual([
+        { owner, path: `${folder}/london-ai-jobs-2026-10-09.pdf` },
+        { owner, path: `${folder}/report-p1.png` },
+        { owner, path: `${folder}/report-p6.png` },
+      ]),
+    );
+    vi.mocked(invoke).mockClear();
+    fireEvent.click(open);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_file_open", {
+        owner,
+        path: `${folder}/london-ai-jobs-2026-10-09.pdf`,
+      }),
+    );
+  });
+
   it("changes nothing when not paired", async () => {
     await renderReply(null);
     expect(document.querySelector(".kleio-file")).toBeNull();
