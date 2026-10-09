@@ -108,14 +108,19 @@ export function workspaceFileLinks(markdown: string, cwd: string): FileLink[] {
 /** Inline code and bold: how replies name a file they made without linking it. */
 const MENTION = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|__([^_\n]+)__/g;
 
+/** A Markdown list item: "- …", "* …", "+ …", "1. …" or "1) …". */
+const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s/;
+
 /**
  * The files `pathOf` accepts that a message links to, in order, then the ones
  * it names in inline code or bold without linking ("`report.pdf`",
- * "**report.pdf**", an absolute path into the folder), each once. A named
- * file counts only when the whole span is the name, with no spaces, and it is
- * an output (see `isOutputPath`) other than a web page ("Edited `index.html`"
- * is everyday in a coding reply); names inside fenced code blocks (listings,
- * commands) never count.
+ * "**report.pdf**", a path into the folder), each once. A named file counts
+ * only when the whole span is the name (see `isWholeName`), and it is an
+ * output (see `isOutputPath`) other than a web page ("Edited `index.html`" is
+ * everyday in a coding reply); names inside fenced code blocks (listings,
+ * commands) never count. A list's bare names are in the folder the line
+ * above the list names, if it names one ("**`~/…/report-2026-10-09/`**" over
+ * "- `report.pdf`").
  */
 function filesBy(markdown: string, pathOf: (href: string) => string | null): FileLink[] {
   const out: FileLink[] = [];
@@ -131,15 +136,38 @@ function filesBy(markdown: string, pathOf: (href: string) => string | null): Fil
     if (href.startsWith("<")) href = href.slice(1, -1);
     add(pathOf(href), (m[2] ?? "").replace(/[*_`]/g, "").trim());
   }
-  for (const m of outsideCodeBlocks(markdown).matchAll(MENTION)) {
-    const named = (m[1] ?? m[2] ?? m[3] ?? "").replace(/`/g, "").trim();
-    if (!named || /\s/.test(named)) continue;
-    // "~/…" is under a home folder the app doesn't know: an absolute path, never a relative one.
-    const path = pathOf(named.startsWith("~/") ? `/${named}` : named);
-    if (path && isOutputPath(path) && !isSitePath(path))
-      add(path, path.split("/").pop() ?? path, true);
+  // The folder the line above the current list names, or "".
+  let listFolder = "";
+  for (const line of outsideCodeBlocks(markdown).split("\n")) {
+    // A list item, or a line indented under one, is still in the list.
+    const inList = LIST_ITEM.test(line) || /^\s/.test(line);
+    if (!inList && line.trim()) listFolder = "";
+    for (const m of line.matchAll(MENTION)) {
+      const named = (m[1] ?? m[2] ?? m[3] ?? "").replace(/`/g, "").trim();
+      if (!isWholeName(named)) continue;
+      if (named.endsWith("/")) {
+        if (!inList) listFolder = named;
+        continue;
+      }
+      const href = inList && !named.includes("/") ? listFolder + named : named;
+      // "~/…" is under a home folder the app doesn't know: an absolute path, never a relative one.
+      const path = pathOf(href.startsWith("~/") ? `/${href}` : href);
+      if (path && isOutputPath(path) && !isSitePath(path))
+        add(path, path.split("/").pop() ?? path, true);
+    }
   }
   return out;
+}
+
+/**
+ * Whether a span in code or bold is a name or path as a whole: spaces only
+ * inside the folder and file names of a path ("`Kleio Chat/test/report.pdf`",
+ * Chat's own files folder has one), never beside a `/`, and never in a name
+ * on its own ("`open report.pdf`" is a command).
+ */
+function isWholeName(named: string): boolean {
+  if (!/\s/.test(named)) return named.length > 0;
+  return named.includes("/") && named.split("/").every((part) => part === part.trim());
 }
 
 /** The message without its fenced code blocks (``` or ~~~). */
