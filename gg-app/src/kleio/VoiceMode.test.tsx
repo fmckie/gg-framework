@@ -107,7 +107,7 @@ describe("VoiceMode", () => {
     expect(call.resetCall).toHaveBeenCalledTimes(2);
   });
 
-  it("shows the file she pulls up over the call, which keeps going until you go back to it", () => {
+  it("shows the file she pulls up over the call, which keeps going until you go back to it", async () => {
     set({
       phase: "speaking",
       shown: {
@@ -125,7 +125,10 @@ describe("VoiceMode", () => {
     });
     render(<VoiceMode />);
     const viewer = screen.getByRole("dialog", { name: "Q3 report.pdf" });
-    expect(viewer.querySelector("img")?.getAttribute("alt")).toBe("First page of Q3 report.pdf");
+    // The file view loads when first shown, keeping it out of the app's first load.
+    expect(
+      (await screen.findByAltText("First page of Q3 report.pdf")).closest("[role=dialog]"),
+    ).toBe(viewer);
     expect(viewer.textContent).toContain("PDF document · 240 KB");
     // The call is still on, under the file: nothing ended or reset it.
     expect(screen.getByRole("button", { name: "Hang up" })).toBeTruthy();
@@ -139,11 +142,12 @@ describe("VoiceMode", () => {
     expect(call.resetCall).not.toHaveBeenCalled();
   });
 
-  it("explains what Kleio Voice can and can't do, without leaving the call", () => {
+  it("explains what Kleio Voice can and can't do, without leaving the call", async () => {
     set({ phase: "listening" });
     render(<VoiceMode />);
     fireEvent.click(screen.getByRole("button", { name: "What Kleio Voice can do" }));
-    const guide = screen.getByRole("dialog", { name: "What Kleio Voice can do" });
+    // The guide loads when first opened.
+    const guide = await screen.findByRole("dialog", { name: "What Kleio Voice can do" });
     expect(guide.textContent).toContain("Read and show your files");
     expect(guide.textContent).toContain("Run a job on her own");
     expect(guide.textContent).toContain("Runs on OpenAI");

@@ -10,7 +10,7 @@ import { useSyncExternalStore } from "react";
 import { isPhone } from "../platform";
 import { holdAwake, type AwakeHold } from "./keepAwake";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import { createVoiceTools, type ShownFile, type ToolOutput, type VoiceTools } from "./voiceTools";
+import type { ShownFile, ToolOutput, VoiceTools } from "./voiceTools";
 import { meterStream, type LevelMeter } from "./voiceLevels";
 
 export type CallPhase = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "ended";
@@ -351,6 +351,10 @@ export async function startCall(): Promise<void> {
   let mic: MediaStream | null = null;
   let pc: RTCPeerConnection | null = null;
   const started = Date.now();
+  // Her tools load alongside the microphone and the connection, not with the
+  // app (they keep the app's first load small); the call never waits on them.
+  const toolsModule = import("./voiceTools");
+  toolsModule.catch(() => {}); // Seen by the await below; a call that ends sooner ignores it.
   try {
     if (typeof RTCPeerConnection === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       throw new Error("This device can't make voice calls.");
@@ -382,6 +386,8 @@ export async function startCall(): Promise<void> {
     // Closed or hung up while connecting: don't bring the call back.
     if (mine !== callSeq) throw new Error("ended");
 
+    const { createVoiceTools } = await toolsModule;
+    if (mine !== callSeq) throw new Error("ended");
     const tools = createVoiceTools({
       onEnd: () => {
         const L = live;

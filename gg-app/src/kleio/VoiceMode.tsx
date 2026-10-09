@@ -29,8 +29,6 @@ import {
 } from "@phosphor-icons/react";
 import { useDialogFocus } from "../dialog-focus";
 import { Modal } from "../Modal";
-import { FileView } from "./FileCard";
-import { VoiceGuide } from "./VoiceGuide";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import { getVoiceStatus } from "./kleioApi";
@@ -52,6 +50,10 @@ import type { OrbMood } from "./VoiceOrb";
 
 // three.js loads with the first conversation, not with the app.
 const VoiceOrb = lazy(() => import("./VoiceOrb").then((m) => ({ default: m.VoiceOrb })));
+// The guide and the file view load when first opened, keeping the app's
+// first load small (the file card's module brings markdown with it).
+const VoiceGuide = lazy(() => import("./VoiceGuide").then((m) => ({ default: m.VoiceGuide })));
+const FileView = lazy(() => import("./FileCard").then((m) => ({ default: m.FileView })));
 
 // ── Whether her voice is set up (cached; Settings refreshes it) ────────────
 
@@ -372,7 +374,11 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
           </button>
         )}
       </div>
-      {guide && <VoiceGuide onClose={() => setGuide(false)} />}
+      {guide && (
+        <Suspense fallback={null}>
+          <VoiceGuide onClose={() => setGuide(false)} />
+        </Suspense>
+      )}
       {call.shown && (
         <Modal
           key={call.shown.path}
@@ -380,7 +386,9 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
           onClose={closeShownFile}
           className="voice-file"
         >
-          <FileView path={call.shown.path} label={call.shown.name} info={call.shown.info} />
+          <Suspense fallback={<div className="kleio-file-view-page" aria-hidden="true" />}>
+            <FileView path={call.shown.path} label={call.shown.name} info={call.shown.info} />
+          </Suspense>
           <div className="modal-actions">
             <button
               type="button"
