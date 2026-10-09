@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
+  arrangeAllWindows,
+  focusWindowByOffset,
   getSettings,
   importTranscript,
   listHostProjectFolders,
@@ -119,6 +121,17 @@ async function renderProjectList(projects: DiscoveredProject[]): Promise<void> {
   render(<ProjectPicker onChosen={vi.fn()} />);
   await screen.findByText(projects[0]!.name);
 }
+
+describe("ProjectPicker window shortcuts", () => {
+  it("leaves them to App's one listener, so a press moves one window, not two", async () => {
+    await renderProjectList([PROJECT, OTHER_PROJECT]);
+    fireEvent.keyDown(window, { key: "`", code: "Backquote", metaKey: true });
+    fireEvent.keyDown(window, { key: "~", code: "Backquote", metaKey: true, shiftKey: true });
+    fireEvent.keyDown(window, { key: "A", code: "KeyA", metaKey: true, shiftKey: true });
+    expect(focusWindowByOffset).not.toHaveBeenCalled();
+    expect(arrangeAllWindows).not.toHaveBeenCalled();
+  });
+});
 
 describe("ProjectPicker hide", () => {
   it("removes the row and persists the decision", async () => {

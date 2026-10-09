@@ -1,21 +1,19 @@
-// The composer's helper trigger. A draft that opens with `@muse` goes to the
+// The composer's helper trigger. A draft that opens with `@helper` goes to the
 // read-only helper (the sidecar's mentor run, see `sendKenPrompt`) instead of
-// the coder, and that helper runs alongside a build. `@ken`, the old trigger,
-// still works but is no longer advertised.
+// the coder, and that helper runs alongside a build. `@muse` and `@ken`, the
+// old triggers, still work but are no longer advertised.
 
 /** The trigger the composer advertises and the iPhone chip inserts. */
-export const HELPER_MENTION = "@muse";
+export const HELPER_MENTION = "@helper";
 
-/** What the golden check button asks the helper, as typing `@muse check` would. */
-export const HELPER_CHECK_QUESTION = "check";
-/** The golden check button's message, as it shows in the transcript. */
-export const HELPER_CHECK = `${HELPER_MENTION} ${HELPER_CHECK_QUESTION}`;
-
-// The token at the start of a draft, after any leading whitespace. The word
-// boundary keeps `@museum.ts` and `@kennedy.ts` file mentions.
-const LEADING_TOKEN = /^(\s*)(@(?:muse|ken))\b/i;
-// The token as an address: an optional colon, then the spaces after it.
-const ADDRESS = /^@(?:muse|ken)\b:?\s*/i;
+// The token at the start of a draft, after any leading whitespace. It counts
+// only when followed by whitespace, a colon or the end of the draft, so file
+// mentions such as `@helper.ts`, `@helper-mention.ts`, `@museum.ts` and
+// `@kennedy.ts` stay file mentions.
+const LEADING_TOKEN = /^(\s*)(@(?:helper|muse|ken))(?=[\s:]|$)/i;
+// The token as an address: the same end rule, an optional colon, then the
+// spaces after it.
+const ADDRESS = /^@(?:helper|muse|ken)(?=[\s:]|$):?\s*/i;
 
 /** Whether the draft is addressed to the helper. */
 export function addressesHelper(draft: string): boolean {

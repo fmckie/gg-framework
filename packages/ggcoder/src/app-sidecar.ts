@@ -39,6 +39,7 @@ import {
   chatAgentSessionsDir,
   createChatAgent,
   createPersonaChatAgent,
+  isProjectsFolder,
   parseChatAgentId,
   parseChatPersona,
   switchChatAgent,
@@ -2428,9 +2429,16 @@ async function createSession(
   };
   let session!: AgentSession;
   if (mode === "chat") {
+    // A chat in a projects folder (Chats, and chats the Kleio host starts)
+    // keeps its files in one folder there, or each would look like a project.
+    const settings = await loadAppSettings();
     const chatOptions = {
       ...baseSessionOptions,
       sessionsDir: paths.sessionsDir,
+      projectsFolder: isProjectsFolder(cwd, [
+        settings.projectsRoot,
+        ...(settings.projectRoots ?? []),
+      ]),
       additionalTools: [
         askUserTool,
         ...buildMemoryTools(memoryStore),

@@ -2,9 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { XIcon } from "@phosphor-icons/react";
 import { theme } from "./theme";
 import {
-  arrangeAllWindows,
   deleteChat,
-  focusWindowByOffset,
   getSettings,
   listSessions,
   selectWorkspace,
@@ -77,21 +75,8 @@ export function ChatPicker({
     return () => window.clearTimeout(timer);
   }, [confirmPath]);
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      const meta = event.metaKey || event.ctrlKey;
-      if (!meta) return;
-      if (event.code === "Backquote" && !event.altKey) {
-        event.preventDefault();
-        void focusWindowByOffset(event.shiftKey ? -1 : 1);
-      } else if (event.shiftKey && (event.key === "a" || event.key === "A") && !event.altKey) {
-        event.preventDefault();
-        void arrangeAllWindows();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  // The window shortcuts (cycle, arrange) work here through App's listener;
+  // handling them here as well made one press act twice.
 
   useEffect(() => {
     let cancelled = false;

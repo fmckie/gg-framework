@@ -117,7 +117,7 @@ const reason = (d: Record<string, unknown>, fallback: string): string =>
 
 function finish(s: TaskActivity, now: number): TaskActivity {
   if (["failed", "stopped", "attention"].includes(s.phase)) return { ...s, reviewPending: false };
-  const reviewed = s.reviewed ? "Muse reviewed this task." : "Muse did not review this task.";
+  const reviewed = s.reviewed ? "Helper reviewed this task." : "Helper did not review this task.";
   if (s.verification === "failed")
     return {
       ...s,
@@ -293,7 +293,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
           ...s,
           project,
           phase: "reviewing",
-          label: "Muse reviewing…",
+          label: "Helper reviewing…",
           reviewPending: true,
           connectionLost: false,
           endedAt: null,
@@ -340,7 +340,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
       return {
         ...(continuation ? s : { ...INITIAL_ACTIVITY, project: s.project }),
         phase: "working",
-        label: continuation ? "Applying Muse’s corrections…" : wording.label,
+        label: continuation ? "Applying Helper’s corrections…" : wording.label,
         phraseCounts: wording.phraseCounts,
         detail: "",
         startedAt: continuation ? s.startedAt : now,
@@ -576,14 +576,14 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
           endedAt: now,
         };
       return d.reviewPending === true
-        ? { ...next, phase: "reviewing", label: "Preparing Muse’s review…", reviewPending: true }
+        ? { ...next, phase: "reviewing", label: "Preparing Helper’s review…", reviewPending: true }
         : finish(next, now);
     }
     case "autopilot_review_start":
       return {
         ...s,
         phase: "reviewing",
-        label: "Muse reviewing…",
+        label: "Helper reviewing…",
         reviewPending: true,
         endedAt: null,
         startedAt: s.startedAt ?? now,
@@ -592,7 +592,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
       return {
         ...s,
         phase: "working",
-        label: "Applying Muse’s corrections…",
+        label: "Applying Helper’s corrections…",
         reviewPending: true,
         endedAt: null,
       };
@@ -622,7 +622,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
         ...s,
         phase: "attention",
         label: "Your decision needed",
-        detail: reason(d, "Review Muse’s message in chat before continuing."),
+        detail: reason(d, "Review Helper’s message in chat before continuing."),
         endedAt: now,
         reviewPending: false,
       };
@@ -632,7 +632,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
         phase: "stopped",
         label: "Paused · review limit reached",
         detail:
-          "Muse reached the correction limit. Review the remaining work in chat before continuing.",
+          "Helper reached the correction limit. Review the remaining work in chat before continuing.",
         endedAt: now,
         reviewPending: false,
       };
@@ -640,7 +640,7 @@ export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number
       return {
         ...s,
         phase: "failed",
-        label: "Muse’s review failed",
+        label: "Helper’s review failed",
         detail: "The work was not approved. Review the error in chat before retrying.",
         endedAt: now,
         reviewPending: false,

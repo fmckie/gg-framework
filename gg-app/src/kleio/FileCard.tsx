@@ -116,6 +116,54 @@ interface CardProps {
   named?: boolean;
 }
 
+/**
+ * A file shown on its own, over a voice call (show_file): its first page large,
+ * from a fetch already made. Nothing hands it to another app, which on the
+ * iPhone could take the screen from the call and stop the microphone.
+ */
+export function FileView({
+  path,
+  label,
+  info,
+}: {
+  path: string;
+  label: string;
+  info: FileInfo;
+}): React.ReactElement {
+  const name = path.split("/").pop() ?? path;
+  const title = label && label !== name ? label : name;
+  const meta = [fileKind(name), formatBytes(info.size)].filter(Boolean).join(" · ");
+  return (
+    <div className="kleio-file-view">
+      <div className={`kleio-file-view-page${info.thumbnail ? " has-thumb" : ""}`}>
+        {info.thumbnail ? (
+          <img
+            src={info.thumbnail}
+            alt={`First page of ${name}`}
+            className="kleio-file-view-img"
+            draggable={false}
+          />
+        ) : (
+          <span className="kleio-file-glyph">
+            <KindIcon name={name} size={48} />
+          </span>
+        )}
+      </div>
+      <div className="kleio-file-body">
+        <span className="kleio-file-title" title={title}>
+          {title}
+        </span>
+        {title !== name && (
+          <span className="kleio-file-name" title={name}>
+            {name}
+          </span>
+        )}
+        <span className="kleio-file-meta">{meta}</span>
+      </div>
+    </div>
+  );
+}
+
 export function FileCard(props: CardProps): React.ReactElement {
   return isSitePath(props.path) ? <SiteCard {...props} /> : <DocumentCard {...props} />;
 }

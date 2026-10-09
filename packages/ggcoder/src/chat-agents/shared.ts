@@ -1,5 +1,6 @@
 import path from "node:path";
 import { AgentSession, type AgentSessionOptions } from "../core/agent-session.js";
+import { CHAT_FILES_FOLDER } from "../core/project-discovery.js";
 import type { ChatAgentId } from "./types.js";
 
 export type ChatAgentOptions = Omit<
@@ -18,7 +19,21 @@ export type ChatAgentOptions = Omit<
 > & {
   sessionsDir: string;
   onAgentChange?: (agentId: ChatAgentId) => void | Promise<void>;
+  /** The workspace root is one of the user's projects folders (isProjectsFolder). */
+  projectsFolder?: boolean;
 };
+
+/** Whether `cwd` is one of the user's projects folders: the configured root or an extra one. */
+export function isProjectsFolder(cwd: string, roots: readonly string[]): boolean {
+  const here = path.resolve(cwd);
+  return roots.some((root) => root.trim() !== "" && path.resolve(root) === here);
+}
+
+/**
+ * For a chat working in a projects folder, where every folder shows to the
+ * user as a coding project: its files go in one folder the project lists skip.
+ */
+const PROJECTS_FOLDER_FILES = `- This workspace root is the user's projects folder: every folder directly inside it shows to them as a coding project, so never create a file or folder directly in it. Save everything you make under "${CHAT_FILES_FOLDER}/", in a folder named for the work (for example "${CHAT_FILES_FOLDER}/london-ai-jobs/report.pdf"), creating them if they're missing, unless the user asks for a specific place.`;
 
 export function chatAgentSessionsDir(coderSessionsDir: string, agentId: ChatAgentId): string {
   return path.resolve(coderSessionsDir, "..", "chat-sessions", agentId);
@@ -39,6 +54,7 @@ export function buildChatAgentSystemPrompt(
   rolePrompt: string,
   cwd: string,
   handoffEnabled: boolean,
+  projectsFolder = false,
 ): string {
   const handoffInstructions = handoffEnabled
     ? `\n\nAgent handoff:\nYou can call delegate_to_agent to hand the entire conversation to a better-suited agent. Hand off to Therapist when the conversation primarily needs emotional support, reflection, coping, relationships, or wellbeing. Hand off to Research when it primarily needs evidence gathering, source verification, comparisons, current information, or deep analysis. Hand off to General when the conversation becomes broad or no longer needs a specialist. A handoff changes the active agent for this conversation; it is not a one-off subtask. Use it when the conversation's primary need clearly shifts, not for a brief side question or work you can handle naturally.`
@@ -48,6 +64,7 @@ export function buildChatAgentSystemPrompt(
     `- Active agent: ${agentId}`,
     `- Current date: ${new Date().toISOString().slice(0, 10)}`,
     `- Workspace root: ${cwd}`,
+    ...(projectsFolder ? [PROJECTS_FOLDER_FILES] : []),
     "- Conversation history and tool results are the authoritative changing context for this session.",
   ].join("\n");
 
@@ -61,7 +78,12 @@ export function createChatAgentSession(
   options: ChatAgentOptions,
   overrides: { promptCacheKeyPrefix?: string } = {},
 ): AgentSession {
-  const { sessionsDir, onAgentChange: _onAgentChange, ...sessionOptions } = options;
+  const {
+    sessionsDir,
+    onAgentChange: _onAgentChange,
+    projectsFolder = false,
+    ...sessionOptions
+  } = options;
   const sessionRootDir = chatAgentSessionsDir(sessionsDir, agentId);
   const requestedSession = sessionOptions.sessionId ? path.resolve(sessionOptions.sessionId) : null;
   const resumableSession =
@@ -82,6 +104,7 @@ export function createChatAgentSession(
       systemPrompt,
       sessionOptions.cwd,
       handoffEnabled === true,
+      projectsFolder,
     ),
     promptCacheKeyPrefix: overrides.promptCacheKeyPrefix ?? `ggchat:${agentId}`,
     sessionRootDir,

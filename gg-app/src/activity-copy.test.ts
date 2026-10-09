@@ -29,7 +29,7 @@ describe("GG outcome wording", () => {
       "Checks failed",
       "Verification incomplete",
       "Task failed",
-      "Muse’s review failed",
+      "Helper’s review failed",
     ]) {
       for (const phrase of OUTCOME_PHRASES[label]!)
         expect(phrase).not.toMatch(/passed|green|ready|success/i);

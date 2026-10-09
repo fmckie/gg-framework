@@ -10,16 +10,16 @@ afterEach(() => {
 });
 
 describe("SessionHelp", () => {
-  it("shows the Muse and Autopilot topics in a code session", () => {
+  it("shows the Helper and Autopilot topics in a code session", () => {
     render(<SessionHelp mode="code" phone={false} onClose={() => {}} />);
-    expect(screen.getByText("Ask Muse")).toBeTruthy();
+    expect(screen.getByText("Ask Helper")).toBeTruthy();
     expect(screen.getByText("Autopilot")).toBeTruthy();
     expect(screen.getByText("Plans")).toBeTruthy();
   });
 
   it("leaves the code-only topics out of a chat", () => {
     render(<SessionHelp mode="chat" phone={false} onClose={() => {}} />);
-    expect(screen.queryByText("Ask Muse")).toBeNull();
+    expect(screen.queryByText("Ask Helper")).toBeNull();
     expect(screen.queryByText("Autopilot")).toBeNull();
     expect(screen.queryByText("Commit")).toBeNull();
     expect(screen.getByText("Brain")).toBeTruthy();

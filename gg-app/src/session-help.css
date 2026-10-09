@@ -18,6 +18,14 @@
   margin: 0 -24px -24px;
   padding: 4px 24px 24px;
 }
+/* The voice guide's opening line (VoiceGuide.tsx). */
+.voice-guide-intro {
+  margin: 0 0 18px;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
 .session-help-section + .session-help-section {
   margin-top: 20px;
 }

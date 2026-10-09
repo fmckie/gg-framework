@@ -141,6 +141,7 @@ import { PlanReviewModal } from "./PlanReviewModal";
 import { McpElicitModal } from "./McpElicitModal";
 import { AskBand } from "./AskBand";
 import { WindowLayoutButton } from "./WindowLayoutButton";
+import { windowShortcut } from "./window-shortcuts";
 // Experimental gaze focus — disabled for now (see main.tsx).
 // import { GazeButton } from "./GazeButton";
 import { RadioButton } from "./RadioButton";
@@ -158,14 +159,11 @@ import {
 import {
   addressesHelper,
   composerButtonAction,
-  HELPER_CHECK,
-  HELPER_CHECK_QUESTION,
   HELPER_MENTION,
   helperQuestion,
   helperTokenParts,
   withHelperMention,
 } from "./helper-mention";
-import { HelperCheckButton } from "./HelperCheckButton";
 import { Toaster } from "./Toaster";
 import { Confetti } from "./Confetti";
 import { RankBadge } from "./RankBadge";
@@ -1394,51 +1392,33 @@ function App(): React.ReactElement {
     };
   }, [autosizeInput]);
 
-  // Keyboard shortcuts for multi-window navigation.
-  //   Cmd/Ctrl+N         → new project window
-  //   Cmd/Ctrl+`          → cycle forward through windows (reading order)
-  //   Cmd/Ctrl+Shift+`    → cycle backward
-  //   Cmd/Ctrl+Shift+A    → auto-arrange all windows into a clean grid
+  // Keyboard shortcuts (window-shortcuts.ts lists them), handled here only:
+  // this runs on every screen, the pickers included.
+  // kleio: Cmd/Ctrl + Shift + K opens the remote-host pane (registration 3/3).
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const meta = e.metaKey || e.ctrlKey;
-      if (!meta) return;
-      // New window: Cmd/Ctrl + N (no Shift/Alt).
-      if (e.key.toLowerCase() === "n" && !e.altKey && !e.shiftKey) {
-        e.preventDefault();
-        void newWindow();
-        return;
-      }
-      // Cycle windows: Cmd/Ctrl + Backquote (Shift = backward).
-      // Use e.code (physical key) — Shift turns ` into ~, but code stays stable.
-      if (e.code === "Backquote" && !e.altKey) {
-        e.preventDefault();
-        void focusWindowByOffset(e.shiftKey ? -1 : 1);
-        return;
-      }
-      // kleio: Cmd/Ctrl + Shift + K opens the remote-host pane (registration 3/3).
-      if (e.shiftKey && (e.key === "k" || e.key === "K") && !e.altKey) {
-        e.preventDefault();
-        setShowKleioRemote(true);
-        return;
-      }
-      // kleio: Cmd/Ctrl + Shift + L opens Agents and Groups (remote mode only).
-      if (e.shiftKey && (e.key === "l" || e.key === "L") && !e.altKey && kleioActiveRef.current) {
-        e.preventDefault();
-        setShowKleioOverlay(true);
-        return;
-      }
-      // kleio: Cmd/Ctrl + Shift + B talks to Kleio, or reads the briefing
-      // aloud before her voice is set up (remote mode only).
-      if (e.shiftKey && (e.key === "b" || e.key === "B") && !e.altKey && kleioActiveRef.current) {
-        e.preventDefault();
-        void talkToKleio();
-        return;
-      }
-      // Auto-arrange all windows: Cmd/Ctrl + Shift + A.
-      if (e.shiftKey && (e.key === "a" || e.key === "A") && !e.altKey) {
-        e.preventDefault();
-        void arrangeAllWindows();
+      const shortcut = windowShortcut(e, { kleioActive: kleioActiveRef.current });
+      if (!shortcut) return;
+      e.preventDefault();
+      switch (shortcut.kind) {
+        case "new-window":
+          void newWindow();
+          return;
+        case "cycle-windows":
+          void focusWindowByOffset(shortcut.offset);
+          return;
+        case "arrange-windows":
+          void arrangeAllWindows();
+          return;
+        case "remote-host":
+          setShowKleioRemote(true);
+          return;
+        case "specialists":
+          setShowKleioOverlay(true);
+          return;
+        case "talk":
+          void talkToKleio();
+          return;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1645,7 +1625,7 @@ function App(): React.ReactElement {
             if (h.error) {
               const prefix =
                 h.error.scope === "ken_error"
-                  ? "Muse: "
+                  ? "Helper: "
                   : h.error.scope === "autopilot_error"
                     ? "Autopilot: "
                     : "";
@@ -1922,9 +1902,9 @@ function App(): React.ReactElement {
   // Clamp so a shrinking match list never points past the end.
   const clampedSlashIndex = slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
 
-  // The helper trigger (`@muse`, or the old `@ken`) addresses the mentor agent,
+  // The helper trigger (`@helper`, or the old `@muse` and `@ken`) addresses the mentor agent,
   // not a file. When the input leads with it (case-insensitive, word-boundary so
-  // `@museum.ts` still picks files), the file picker is suppressed and the token
+  // `@helperum.ts` still picks files), the file picker is suppressed and the token
   // shimmers in Ken's color, so it's obvious where the message goes.
   const kenActive = workspaceMode === "code" && addressesHelper(input);
   // Split the input for the highlight overlay: any leading whitespace, the token
@@ -2054,7 +2034,7 @@ function App(): React.ReactElement {
   }
 
   // Debounced file search whenever the active mention query changes. Skipped
-  // while the helper token leads the draft, so typing `@muse` never spawns a
+  // while the helper token leads the draft, so typing `@helper` never spawns a
   // file lookup or picker.
   useEffect(() => {
     if (mention === null || kenActive) {
@@ -2110,16 +2090,6 @@ function App(): React.ReactElement {
     // only an unchanged one needs moving. (Deferring this to a frame later
     // moved the caret back behind a keystroke typed in between.)
     if (next === input) el?.setSelectionRange(next.length, next.length);
-  }
-
-  // The golden check: `@muse check`, sent as if typed (same bubble, same run,
-  // same history entry), without touching whatever is in the draft.
-  function checkWithHelper(): void {
-    if (!readyRef.current || kenRunning) return;
-    recordHistory(HELPER_CHECK);
-    stickToBottomRef.current = true;
-    pushItem({ kind: "user", id: nextId(), text: HELPER_CHECK, ken: true });
-    void sendKenPrompt(HELPER_CHECK_QUESTION);
   }
 
   // Drop a referenced-file chip.
@@ -2500,7 +2470,7 @@ function App(): React.ReactElement {
       return;
     }
 
-    // `@muse <question>` (or the old `@ken`; any case, optional colon) goes to Ken Kai, the
+    // `@helper <question>` (or the old `@muse` or `@ken`; any case, optional colon) goes to Ken Kai, the
     // read-only mentor agent — NOT GG Coder. Ken runs concurrently with any
     // build run; his reply streams into his own bubble via ken_* events. Enter
     // and the round button both land here.
@@ -3336,9 +3306,6 @@ function App(): React.ReactElement {
               {HELPER_MENTION}
             </button>
           )}
-          {workspaceMode === "code" && (
-            <HelperCheckButton busy={kenRunning} onCheck={checkWithHelper} />
-          )}
           <div className="input-stack">
             {enhanceAnim && (
               <EnhanceDissolve
@@ -3348,7 +3315,7 @@ function App(): React.ReactElement {
               />
             )}
             {/* Helper token active: a textarea can't color just one token, so we
-                mirror the input in an aligned overlay where the leading `@muse`
+                mirror the input in an aligned overlay where the leading `@helper`
                 (or `@ken`) shimmers in Ken's color. The textarea text below is
                 made transparent (caret stays visible) so only this styled copy
                 shows. Metrics match `.input` 1:1 so wrapping/caret line up (the
@@ -3637,7 +3604,7 @@ function App(): React.ReactElement {
                   <FooterSep />
                   <span className="model-anchor">
                     <span className="model-label" style={{ color: theme.ken }}>
-                      Muse
+                      Helper
                     </span>
                     <ModelSelect
                       models={models}
@@ -3652,8 +3619,8 @@ function App(): React.ReactElement {
                       disabled={running || kenRunning || autopilotReviewing}
                       title={
                         state?.kenModelOverride
-                          ? "Muse is pinned to its own model. Click to change it"
-                          : "Muse follows Kleio's model. Click to pin one"
+                          ? "Helper is pinned to its own model. Click to change it"
+                          : "Helper follows Kleio's model. Click to pin one"
                       }
                       onSelectFollow={() => onSelectKenModel(null)}
                       followActive={!state?.kenModelOverride}

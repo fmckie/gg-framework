@@ -1,6 +1,6 @@
 [package]
 name = "gg-app"
-version = "2.1.2"
+version = "2.1.3"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -68,6 +68,15 @@ objc2-local-authentication = "0.3.2"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSString", "NSError"] }
 block2 = "0.6"
+
+# kleio (iPhone): first-page file thumbnails via QuickLookThumbnailing
+# (kleio/files.rs). Same objc2 0.3.2 family already in the tree; objc2-ui-kit
+# (UIImage + UIImagePNGRepresentation) is already in the iOS build via tao.
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-quick-look-thumbnailing = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-foundation", "objc2-ui-kit", "QLThumbnailGenerator", "QLThumbnailGenerationRequest", "QLThumbnailRepresentation"] }
+objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIImage"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSURL", "NSString", "NSError"] }
 
 # kleio (iPhone): asking permission for "agent finished" notifications. The
 # crate is already in the iOS build via tao's objc2-ui-kit; this only turns on

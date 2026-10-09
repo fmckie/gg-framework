@@ -421,7 +421,72 @@ fn thumbnail(cache_root: &Path, file: &Path) -> Option<String> {
     out
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Quick Look thumbnail (QuickLookThumbnailing) as a PNG data URL. Any failure
+/// is None, never an error; blocks at most `LIMIT` waiting for the generator.
+#[cfg(target_os = "ios")]
+fn thumbnail(_cache_root: &Path, file: &Path) -> Option<String> {
+    use base64::Engine as _;
+    use block2::RcBlock;
+    use objc2::AllocAnyThread as _;
+    use objc2_core_foundation::CGSize;
+    use objc2_foundation::{NSError, NSString, NSURL};
+    use objc2_quick_look_thumbnailing::{
+        QLThumbnailGenerationRequest, QLThumbnailGenerationRequestRepresentationTypes,
+        QLThumbnailGenerator, QLThumbnailRepresentation,
+    };
+    use std::sync::mpsc;
+
+    const LIMIT: Duration = Duration::from_secs(10);
+    if !file.is_file() {
+        return None;
+    }
+    let path = file.to_str()?;
+    let (tx, rx) = mpsc::channel::<Option<Vec<u8>>>();
+    objc2::rc::autoreleasepool(|_| {
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path));
+        // SAFETY: a freshly allocated request initialised with a valid file
+        // URL, a finite size, scale 1.0 (mirrors the Mac's 640 px) and a valid
+        // representation-type mask; types match the framework header.
+        let request = unsafe {
+            QLThumbnailGenerationRequest::initWithFileAtURL_size_scale_representationTypes(
+                QLThumbnailGenerationRequest::alloc(),
+                &url,
+                CGSize::new(640.0, 640.0),
+                1.0,
+                QLThumbnailGenerationRequestRepresentationTypes::Thumbnail,
+            )
+        };
+        let handler = RcBlock::new(
+            move |rep: *mut QLThumbnailRepresentation, _err: *mut NSError| {
+                // SAFETY: the framework passes either nil or a valid
+                // representation that lives for the duration of this call.
+                let png = unsafe { rep.as_ref() }.and_then(|rep| {
+                    objc2::rc::autoreleasepool(|_| {
+                        // SAFETY: plain property getter on a valid
+                        // representation; UIImage is thread-safe to read.
+                        let image = unsafe { rep.UIImage() };
+                        image.png_representation().map(|d| d.to_vec())
+                    })
+                });
+                // The receiver may have timed out and gone; that's fine.
+                let _ = tx.send(png.filter(|b| !b.is_empty()));
+            },
+        );
+        // SAFETY: the shared generator is thread-safe; the block is copied
+        // by the callee and only captures a Sender, so it may outlive us.
+        unsafe {
+            QLThumbnailGenerator::sharedGenerator()
+                .generateBestRepresentationForRequest_completionHandler(&request, &handler);
+        }
+    });
+    let bytes = rx.recv_timeout(LIMIT).ok().flatten()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 fn thumbnail(_cache_root: &Path, _file: &Path) -> Option<String> {
     None
 }

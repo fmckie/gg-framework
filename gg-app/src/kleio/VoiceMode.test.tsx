@@ -5,12 +5,13 @@ import { setHomeBackgroundEnabled } from "../home-background";
 import type { CallState } from "./voiceCall";
 
 const call = vi.hoisted(() => ({
-  state: { phase: "idle", lines: [], muted: false, error: null } as CallState,
+  state: { phase: "idle", lines: [], muted: false, error: null, shown: null } as CallState,
   partial: [] as { who: "you" | "kleio"; text: string }[],
   endCall: vi.fn(),
   resetCall: vi.fn(),
   setMuted: vi.fn(),
   startCall: vi.fn(),
+  closeShownFile: vi.fn(),
 }));
 
 vi.mock("./voiceCall", () => ({
@@ -21,6 +22,7 @@ vi.mock("./voiceCall", () => ({
   resetCall: call.resetCall,
   setMuted: call.setMuted,
   startCall: call.startCall,
+  closeShownFile: call.closeShownFile,
 }));
 // The orb and the waves are WebGL: not something jsdom can draw.
 vi.mock("./VoiceOrb", () => ({ VoiceOrb: () => <div data-testid="orb" /> }));
@@ -39,7 +41,7 @@ function set(state: Partial<CallState>): void {
 }
 
 beforeEach(() => {
-  call.state = { phase: "idle", lines: [], muted: false, error: null };
+  call.state = { phase: "idle", lines: [], muted: false, error: null, shown: null };
   call.partial = [];
   setHomeBackgroundEnabled(true);
 });
@@ -105,6 +107,59 @@ describe("VoiceMode", () => {
     expect(call.resetCall).toHaveBeenCalledTimes(2);
   });
 
+  it("shows the file she pulls up over the call, which keeps going until you go back to it", () => {
+    set({
+      phase: "speaking",
+      shown: {
+        owner: { kind: "workspace", cwd: "/Users/me/Kleio" },
+        path: "out/Q3 report.pdf",
+        name: "Q3 report.pdf",
+        whose: "Kleio",
+        info: {
+          name: "Q3 report.pdf",
+          size: 245_760,
+          mime: "application/pdf",
+          thumbnail: "data:image/png;base64,AAAA",
+        },
+      },
+    });
+    render(<VoiceMode />);
+    const viewer = screen.getByRole("dialog", { name: "Q3 report.pdf" });
+    expect(viewer.querySelector("img")?.getAttribute("alt")).toBe("First page of Q3 report.pdf");
+    expect(viewer.textContent).toContain("PDF document · 240 KB");
+    // The call is still on, under the file: nothing ended or reset it.
+    expect(screen.getByRole("button", { name: "Hang up" })).toBeTruthy();
+    // Nothing hands it to another app, which on the iPhone would take over the screen.
+    expect(screen.queryByRole("button", { name: /^Open|Save a copy/ })).toBeNull();
+    // Esc closes the file, not the call; so does the button back.
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Back to the call" }));
+    expect(call.closeShownFile).toHaveBeenCalledTimes(2);
+    expect(call.endCall).not.toHaveBeenCalled();
+    expect(call.resetCall).not.toHaveBeenCalled();
+  });
+
+  it("explains what Kleio Voice can and can't do, without leaving the call", () => {
+    set({ phase: "listening" });
+    render(<VoiceMode />);
+    fireEvent.click(screen.getByRole("button", { name: "What Kleio Voice can do" }));
+    const guide = screen.getByRole("dialog", { name: "What Kleio Voice can do" });
+    expect(guide.textContent).toContain("Read and show your files");
+    expect(guide.textContent).toContain("Run a job on her own");
+    expect(guide.textContent).toContain("Runs on OpenAI");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "What Kleio Voice can do" })).toBeNull();
+    expect(call.resetCall).not.toHaveBeenCalled();
+  });
+
+  it("ends the call if the voice screen goes away mid-call", () => {
+    set({ phase: "listening" });
+    const { unmount } = render(<VoiceMode />);
+    expect(call.resetCall).not.toHaveBeenCalled();
+    unmount();
+    expect(call.resetCall).toHaveBeenCalledTimes(1);
+  });
+
   it("says why a call ended, and offers to talk again", () => {
     set({ phase: "ended", error: "Your Mac mini couldn't reach OpenAI." });
     render(<VoiceMode />);
@@ -134,6 +189,7 @@ describe("latestCaption", () => {
     lines,
     muted: false,
     error: null,
+    shown: null,
   });
 
   it("prefers her words as she says them, else whoever spoke last", () => {

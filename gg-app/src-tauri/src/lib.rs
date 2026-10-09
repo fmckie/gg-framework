@@ -4154,6 +4154,7 @@ fn gaze_focus(
 
 /// Kleio remote-host support (all platforms). See `kleio/mod.rs`.
 mod ask_notify;
+mod keep_awake;
 mod kleio;
 
 /// Tray menu item ids. Kept as one list so the builder and the click handler
@@ -5905,6 +5906,7 @@ pub fn run() {
         .manage(kleio::push::PendingTap::default()) // kleio
         .manage(kleio::live::LiveTokens::default()) // kleio
         .manage(kleio::BridgeEpochs::default()) // kleio
+        .manage(keep_awake::KeepAwake::default()) // kleio voice keep-awake
         .manage(kleio::parked::Parked::load(
             kleio::parked::path(&home_dir()),
         )) // kleio
@@ -5924,6 +5926,8 @@ pub fn run() {
             kleio::commands::kleio_api,
             kleio::commands::kleio_voice_call,
             kleio::files::kleio_file_fetch,
+            keep_awake::keep_awake_acquire,
+            keep_awake::keep_awake_release,
             kleio::files::kleio_file_open,
             kleio::files::kleio_file_save,
             kleio::files::kleio_site_open,
@@ -6095,9 +6099,22 @@ pub fn run() {
             restore_or_default_windows(&app.handle().clone())?;
             Ok(())
         })
+        .on_page_load(|webview, payload| {
+            // Backstop: a page that (re)loads holds nothing, so a reload in the
+            // middle of a voice call can't keep the Mac awake.
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                webview
+                    .app_handle()
+                    .state::<keep_awake::KeepAwake>()
+                    .release_window(webview.label());
+            }
+        })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::Destroyed => {
                 let app = window.app_handle();
+                // Backstop: a closed window can't keep the Mac awake.
+                app.state::<keep_awake::KeepAwake>()
+                    .release_window(window.label());
                 // A target can remain pending when a webview closes before mount.
                 remove_restore_target(
                     &mut app.state::<RestoreTargets>().map.lock().unwrap(),
@@ -6212,6 +6229,10 @@ pub fn run() {
                 }
                 // kleio: remote mode's radio plays locally — silence it.
                 app.state::<kleio::radio::LocalRadio>().stop();
+            }
+            if let RunEvent::Exit = event {
+                // Backstop: never leave a power assertion behind on quit.
+                app.state::<keep_awake::KeepAwake>().release_all();
             }
         });
 }

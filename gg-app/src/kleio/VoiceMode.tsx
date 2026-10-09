@@ -6,7 +6,8 @@
 //
 // Opened from the home screen's button, the menu bar or ⌘⇧B once her voice is
 // set up (Settings → Kleio's voice). Esc or the close button leaves; the call
-// ends with it.
+// ends with it. A file she shows (show_file) and the "What Kleio Voice can do"
+// guide open over the call, which keeps going; Esc closes those first.
 
 import {
   Component,
@@ -19,12 +20,17 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  ArrowLeftIcon,
   MicrophoneIcon,
   MicrophoneSlashIcon,
   PhoneDisconnectIcon,
+  QuestionIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { useDialogFocus } from "../dialog-focus";
+import { Modal } from "../Modal";
+import { FileView } from "./FileCard";
+import { VoiceGuide } from "./VoiceGuide";
 import { HomeDither } from "../HomeDither";
 import { useHomeBackgroundEnabled } from "../home-background";
 import { getVoiceStatus } from "./kleioApi";
@@ -32,6 +38,7 @@ import { KLEIO_BACKGROUND, KLEIO_WAVES } from "./kleioWaves";
 import { briefMe } from "./BriefPanel";
 import {
   callLevels,
+  closeShownFile,
   endCall,
   partialLines,
   resetCall,
@@ -230,6 +237,9 @@ class OrbBoundary extends Component<{ children: React.ReactNode }, { failed: boo
 
 export function VoiceMode(): React.ReactElement | null {
   const call = useCall();
+  // Going away mid-call ends it, so nobody is left on an invisible call that
+  // holds the microphone and keeps the Mac awake.
+  useEffect(() => () => resetCall(), []);
   if (call.phase === "idle") return null;
   return <VoiceScreen call={call} />;
 }
@@ -241,8 +251,14 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
   // The home screen's moving waves, behind her (Settings → Effects turns both off).
   const backgroundOn = useHomeBackgroundEnabled();
   const inCall = call.phase !== "ended";
-  // Esc leaves (ending the call); focus stays here and returns on close.
-  useDialogFocus(screen, resetCall);
+  const [guide, setGuide] = useState(false);
+  // Esc leaves, ending the call; while the file she showed or the guide is
+  // open over it, Esc is theirs (each closes itself) and the call stays.
+  // Focus stays here and returns on close.
+  const covered = call.shown !== null || guide;
+  useDialogFocus(screen, () => {
+    if (!covered) resetCall();
+  });
 
   const mood: OrbMood =
     call.muted && inCall && call.phase !== "connecting" ? "muted" : MOOD[call.phase];
@@ -265,15 +281,26 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
         />
       )}
       <div className="voice-drag" data-tauri-drag-region />
-      <button
-        type="button"
-        className="icon-circle voice-close"
-        aria-label="Close"
-        title="Close (Esc)"
-        onClick={resetCall}
-      >
-        <XIcon size={18} weight="bold" aria-hidden="true" />
-      </button>
+      <div className="voice-corner">
+        <button
+          type="button"
+          className="icon-circle"
+          aria-label="What Kleio Voice can do"
+          title="What Kleio Voice can do"
+          onClick={() => setGuide(true)}
+        >
+          <QuestionIcon size={18} weight="bold" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="icon-circle"
+          aria-label="Close"
+          title="Close (Esc)"
+          onClick={resetCall}
+        >
+          <XIcon size={18} weight="bold" aria-hidden="true" />
+        </button>
+      </div>
 
       <div className="voice-stage">
         <OrbBoundary>
@@ -345,6 +372,28 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
           </button>
         )}
       </div>
+      {guide && <VoiceGuide onClose={() => setGuide(false)} />}
+      {call.shown && (
+        <Modal
+          key={call.shown.path}
+          title={call.shown.name}
+          onClose={closeShownFile}
+          className="voice-file"
+        >
+          <FileView path={call.shown.path} label={call.shown.name} info={call.shown.info} />
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={closeShownFile}
+              data-modal-initial-focus
+            >
+              <ArrowLeftIcon size={16} weight="bold" aria-hidden="true" />
+              {inCall ? "Back to the call" : "Close"}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

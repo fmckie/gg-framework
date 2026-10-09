@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as api from "./kleioApi";
-import { createVoiceTools, matchByName, projectSlug } from "./voiceTools";
+import type * as files from "./kleioFiles";
+import { fetchFile, type FileInfo } from "./kleioFiles";
+import { createVoiceTools, matchByName, projectSlug, type ShownFile } from "./voiceTools";
+
+vi.mock("./kleioFiles", async (importOriginal) => ({
+  ...(await importOriginal<typeof files>()),
+  fetchFile: vi.fn(),
+}));
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   KleioApiError: (await importOriginal<typeof api>()).KleioApiError,
+  errorText: (await importOriginal<typeof api>()).errorText,
   listAgentFiles: vi.fn(),
   readAgentFile: vi.fn(),
   listProjects: vi.fn(),
@@ -703,6 +711,114 @@ describe("agents' files", () => {
       expect(await tools.run("send_plan", { draft_id: "d2" })).toMatchObject({ sent: true });
     },
   );
+
+  describe("show_file", () => {
+    const PDF: FileInfo = {
+      name: "Report (final).pdf",
+      size: 245_760,
+      mime: "application/pdf",
+      thumbnail: "data:image/png;base64,AAAA",
+    };
+    function showing(
+      files: api.AgentFileEntry[] = FILES,
+      cwd?: string,
+    ): { tools: ReturnType<typeof createVoiceTools>; shown: ShownFile[] } {
+      vi.mocked(api.listSavedSessions).mockImplementation((kind) =>
+        Promise.resolve({ sessions: kind === "chat" ? CHATS : CODE }),
+      );
+      vi.mocked(api.listAgentFiles).mockResolvedValue(cwd ? { files, cwd } : { files });
+      vi.mocked(api.listBlobs).mockResolvedValue([CHEF, SCOUT] as unknown as api.Blob[]);
+      vi.mocked(api.listGroups).mockResolvedValue([LAUNCH] as unknown as api.Group[]);
+      vi.mocked(fetchFile).mockResolvedValue(PDF);
+      const shown: ShownFile[] = [];
+      return { tools: createVoiceTools({ onEnd: vi.fn(), onShow: (f) => shown.push(f) }), shown };
+    }
+
+    it("puts a PDF it found on the screen, fetched, and says it's open", async () => {
+      const { tools, shown } = showing(FILES, "/Users/me/Kleio");
+      const out = await tools.run("show_file", { from: "kleio", file: "the final report" });
+      expect(out).toMatchObject({ shown: true, file: "out/Report (final).pdf", type: "PDF" });
+      expect(fetchFile).toHaveBeenCalledWith(
+        { kind: "workspace", cwd: "/Users/me/Kleio" },
+        "out/Report (final).pdf",
+      );
+      expect(shown).toEqual([
+        {
+          owner: { kind: "workspace", cwd: "/Users/me/Kleio" },
+          path: "out/Report (final).pdf",
+          name: "Report (final).pdf",
+          whose: "Kleio",
+          info: PDF,
+        },
+      ]);
+    });
+
+    it("shows a specialist's and a group member's files from their own folders", async () => {
+      const { tools, shown } = showing([file({ member: "b1", by: "Chef" })]);
+      await tools.run("show_file", { from: "specialist", name: "Chef", file: "report" });
+      await tools.run("show_file", { from: "group", name: "Launch", file: "report" });
+      expect(shown.map((f) => f.owner)).toEqual([
+        { kind: "blob", blobId: "b1" },
+        { kind: "group", groupId: "g1", blobId: "b1" },
+      ]);
+    });
+
+    it("says a missing file isn't there and offers the closest match, showing nothing", async () => {
+      const { tools, shown } = showing(FILES, "/Users/me/Kleio");
+      // One word of three fits budget.xlsx: not enough to show it, enough to offer it.
+      const out = await tools.run("show_file", { from: "kleio", file: "budget forecast summary" });
+      expect(out).toMatchObject({
+        shown: false,
+        error: 'No file matches "budget forecast summary".',
+        closest: "budget.xlsx",
+        next: expect.stringContaining("closest match"),
+      });
+      expect(await tools.run("show_file", { from: "kleio", file: "invoice" })).toMatchObject({
+        shown: false,
+        newest: "out/Report (final).pdf",
+      });
+      expect(shown).toEqual([]);
+      expect(fetchFile).not.toHaveBeenCalled();
+    });
+
+    it("asks which one when the name fits more than one file", async () => {
+      const { tools, shown } = showing(FILES, "/Users/me/Kleio");
+      const out = await tools.run("show_file", { from: "kleio", file: "heat pump" });
+      expect(out).toMatchObject({
+        shown: false,
+        error: expect.stringMatching(/more than one.*costs.*guide/),
+        next: expect.stringContaining("Ask which one"),
+      });
+      expect(shown).toEqual([]);
+    });
+
+    it("never claims a file is up when it couldn't be fetched or has nowhere to come from", async () => {
+      const { tools, shown } = showing(FILES, "/Users/me/Kleio");
+      vi.mocked(fetchFile).mockRejectedValueOnce(new Error("no such file"));
+      expect(await tools.run("show_file", { from: "kleio", file: "notes" })).toMatchObject({
+        shown: false,
+        error: "This file isn't on your Mac mini any more.",
+        next: expect.stringContaining("read_file"),
+      });
+      // Kleio's own folder outside the projects folders: the device can't fetch it.
+      const noCwd = showing(FILES);
+      expect(await noCwd.tools.run("show_file", { from: "kleio", file: "notes" })).toMatchObject({
+        shown: false,
+      });
+      // A project's plans live in a hidden folder the device's fetch refuses.
+      const plans = showing(
+        [file({ path: ".gg/plans/plan.md", name: "plan.md", kind: "text" })],
+        "/p",
+      );
+      vi.mocked(api.listProjects).mockResolvedValue({
+        projects: [{ name: "app", lastActivity: "2026-10-07T09:00:00.000Z", sessions: 1 }],
+      });
+      expect(
+        await plans.tools.run("show_file", { from: "project", name: "app", file: "plan" }),
+      ).toMatchObject({ shown: false });
+      expect([...shown, ...noCwd.shown, ...plans.shown]).toEqual([]);
+    });
+  });
 
   it("never logs file names or text", async () => {
     const lines: string[] = [];

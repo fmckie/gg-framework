@@ -82,7 +82,7 @@ describe("ModelSelect (native dropdown)", () => {
     expect(screen.queryByText("gemini-3-flash")).toBeNull();
   });
 
-  it("shows the follow choice as selected when Muse follows Kleio", () => {
+  it("shows the follow choice as selected when Helper follows Kleio", () => {
     render(
       <ModelSelect
         models={MODELS}

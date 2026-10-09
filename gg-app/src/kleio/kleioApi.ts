@@ -602,10 +602,14 @@ export interface AgentFileText {
 }
 
 /** The files an agent made, newest first (at most 40). `id` is omitted for Kleio. */
-export const listAgentFiles = (
-  source: FileSource,
-  id?: string,
-): Promise<{ files: AgentFileEntry[] }> =>
+/** An owner's files; for a session's, project's or (when served) Kleio's own
+ *  folder, that folder too, which FileCard fetches them through. */
+export interface AgentFileList {
+  readonly files: AgentFileEntry[];
+  readonly cwd?: string;
+}
+
+export const listAgentFiles = (source: FileSource, id?: string): Promise<AgentFileList> =>
   call("GET", `/kleio/voice/files${query({ source, id })}`);
 
 /** One part of a file's text. The path goes in the body, never the query. */

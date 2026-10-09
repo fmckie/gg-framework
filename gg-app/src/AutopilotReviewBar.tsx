@@ -32,7 +32,7 @@ export function AutopilotReviewBar({ onCancel }: Props): React.ReactElement {
           {SPINNER_FRAMES[frame]}
         </span>
         <span className="working" style={{ color: theme.ken }}>
-          {"Muse reviewing\u2026"}
+          {"Helper reviewing\u2026"}
         </span>
       </span>
       <span className="statusrow-right">
