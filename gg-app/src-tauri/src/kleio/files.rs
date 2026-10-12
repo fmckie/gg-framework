@@ -1045,10 +1045,7 @@ mod tests {
             host_error(502, "<html>bad gateway</html>"),
             "Your host answered 502"
         );
-        assert_eq!(
-            host_error(500, r#"{"error":""}"#),
-            "Your host answered 500"
-        );
+        assert_eq!(host_error(500, r#"{"error":""}"#), "Your host answered 500");
         assert_eq!(host_error(401, ""), "Your host answered 401");
     }
 

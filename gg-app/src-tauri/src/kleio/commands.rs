@@ -556,6 +556,9 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "brain"]
             | ["kleio", "voice", "files"]
             | ["kleio", "voice", "files", "read"]
+            // Settings → Setup: the status, and an admin's Composio/Typesafe keys.
+            | ["kleio", "setup"]
+            | ["kleio", "setup", "keys", "composio" | "typesafe"]
             | ["kleio", "sessions"]
             | ["kleio", "sessions", _]
             | ["kleio", "projects"]
@@ -863,9 +866,29 @@ mod tests {
             ("GET", "/kleio/connections"),
             ("GET", "/kleio/connections/toolkits"),
             ("POST", "/kleio/connections/gmail/connect"),
+            ("GET", "/kleio/setup"),
+            ("POST", "/kleio/setup/keys/composio"),
+            ("DELETE", "/kleio/setup/keys/composio"),
+            ("POST", "/kleio/setup/keys/typesafe"),
+            ("DELETE", "/kleio/setup/keys/typesafe"),
         ] {
             assert_eq!(check_route(m, p, None), Ok(false), "{m} {p}");
         }
+    }
+
+    #[test]
+    fn kleio_api_allows_only_the_setup_keys_it_knows() {
+        // Settings → Setup was refused ("path not allowed") until its routes
+        // were listed here; only the two key names, nothing else under it.
+        for p in [
+            "/kleio/setup/keys",
+            "/kleio/setup/keys/openai",
+            "/kleio/setup/keys/composio/extra",
+            "/kleio/setup/anything",
+        ] {
+            assert!(check_route("POST", p, None).is_err(), "{p}");
+        }
+        assert!(check_route("GET", "/kleio/setup", Some("sess-1")).is_err());
     }
 
     #[test]
