@@ -82,7 +82,7 @@ describe("RemoteHostModal — not paired", () => {
     fireEvent.change(screen.getByLabelText("This device's name"), { target: { value: "Laptop" } });
     fireEvent.click(screen.getByRole("button", { name: "Pair" }));
     await screen.findByRole("status");
-    expect(screen.getByRole("status").textContent).toMatch(/Restart gg-app to apply/);
+    expect(screen.getByRole("status").textContent).toMatch(/Restart Kleio to apply/);
     fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
     expect(relaunch).toHaveBeenCalledOnce();
     // The pairing ticket (with token) is consumed in Rust; React only ever saw the record.
