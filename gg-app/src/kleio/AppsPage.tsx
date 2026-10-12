@@ -30,7 +30,7 @@ import {
   type Connection,
   type Toolkit,
 } from "./kleioApi";
-import { GetKeyButton, KeyForm } from "./KeyForm";
+import { KeyForm } from "./KeyForm";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
@@ -287,12 +287,6 @@ export function AppsPage(): React.ReactElement {
           and every specialist.
         </p>
         <KeyForm name="composio" onSaved={() => void load()} />
-        <div className="modal-row">
-          <GetKeyButton name="composio" />
-        </div>
-        <p className="settings-desc">
-          In Composio, open Settings, then API Keys, and create a key.
-        </p>
       </SettingsCard>
     );
   }

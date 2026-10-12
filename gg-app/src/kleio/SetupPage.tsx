@@ -1,47 +1,29 @@
-// Settings → Setup: the short checklist a new device opens on once after
-// pairing (see shouldOpenSetup in app-entry-view.ts). Each card says what it's
-// for, whether it's done, and offers one thing to do. Keys live on the host;
+// Settings → Setup: the checklist a new device opens on once after pairing
+// (see shouldOpenSetup in app-entry-view.ts). At the top, how much is done;
+// then one card per step, with its status in the header and one thing to do.
+// The optional step sits apart, under its own label. Keys live on the host;
 // only an admin device can change them.
 
-import { useCallback, useEffect, useState } from "react";
-import { Badge } from "../Badge";
+import { useCallback, useEffect, useId, useState } from "react";
+import { LockSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { SettingsCard } from "../settings-section";
-import { theme } from "../theme";
 import { authStatusWithError, type AuthStatusResult } from "../agent";
 import { localStorageOrNull, markSetupSeen } from "../app-entry-view";
 import type { SettingsTabId } from "../SettingsScreen";
+import { shortHost } from "./host-name";
+import { useHostReach, type HostReach } from "./hostReach";
 import {
   errorText,
   KleioApiError,
   removeSetupKey,
   getSetupStatus,
-  type KeyState,
   type SetupKeyName,
   type SetupStatus,
 } from "./kleioApi";
-import { GetKeyButton, KeyForm, setupKeyError } from "./KeyForm";
+import { KeyForm, setupKeyError } from "./KeyForm";
+import { StepBadge, type StepMark } from "./StepBadge";
+import { useKleioRemote } from "./useKleioRemote";
 import { VoiceCard } from "./VoiceCard";
-
-type Mark = "done" | "needed" | "optional" | "env";
-
-const MARK_TEXT: Record<Mark, string> = {
-  done: "Done",
-  needed: "Needed",
-  optional: "Optional",
-  env: "Set on the host",
-};
-
-function StateBadge({ mark }: { mark: Mark }): React.ReactElement {
-  const color =
-    mark === "done" || mark === "env"
-      ? theme.success
-      : mark === "needed"
-        ? theme.warning
-        : undefined;
-  return <Badge color={color}>{MARK_TEXT[mark]}</Badge>;
-}
-
-const OLDER_HOST = "Your host needs the latest Kleio first.";
 
 type Load = { kind: "loading" } | { kind: "old" } | { kind: "error"; text: string } | SetupLoaded;
 interface SetupLoaded {
@@ -49,29 +31,166 @@ interface SetupLoaded {
   status: SetupStatus;
 }
 
+/** How many of the needed steps are done, as words and a bar of one segment each. */
+function Progress({ done, total }: { done: number; total: number }): React.ReactElement {
+  const id = useId();
+  const all = done === total;
+  return (
+    <div className="setup-progress">
+      <p className="setup-progress-count" id={`${id}-count`}>
+        {all ? `All ${total} done` : `${done} of ${total} done`}
+      </p>
+      <div
+        className="setup-progress-bar"
+        role="progressbar"
+        aria-labelledby={`${id}-count`}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+      >
+        {Array.from({ length: total }, (_, i) => (
+          <span key={i} className={i < done ? "is-done" : undefined} />
+        ))}
+      </div>
+      <p className="settings-desc">You can come back here any time.</p>
+    </div>
+  );
+}
+
+/** A note about the whole page, not a step: outlined, with an icon. */
+function Callout({
+  tone,
+  title,
+  children,
+}: {
+  tone: "info" | "warn";
+  title: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const Icon = tone === "warn" ? WarningCircleIcon : LockSimpleIcon;
+  return (
+    <div className={`setup-callout${tone === "warn" ? " is-warn" : ""}`} role="note">
+      <span className="setup-callout-icon">
+        <Icon size={18} weight="bold" aria-hidden="true" />
+      </span>
+      <div>
+        <p className="setup-callout-title">{title}</p>
+        <p className="settings-desc">{children}</p>
+      </div>
+    </div>
+  );
+}
+
+function HostCard({
+  reach,
+  name,
+  onOpenTab,
+}: {
+  reach: HostReach;
+  name: string;
+  onOpenTab: (tab: SettingsTabId) => void;
+}): React.ReactElement {
+  const mark: StepMark =
+    reach === "connected" ? "done" : reach === "checking" ? "checking" : "unreachable";
+  const line =
+    reach === "connected"
+      ? `Connected to ${name}.`
+      : reach === "checking"
+        ? `Checking ${name}…`
+        : `Can't reach ${name} right now.`;
+  return (
+    <SettingsCard
+      title="Host"
+      badge={<StepBadge mark={mark} />}
+      description="The always-on computer Kleio runs on."
+    >
+      <div className="setup-status">
+        <p className="settings-desc">{line}</p>
+        <button
+          type="button"
+          className={reach === "disconnected" ? "btn btn-primary" : "btn btn-ghost"}
+          onClick={() => onOpenTab("connection")}
+        >
+          Connection
+        </button>
+      </div>
+    </SettingsCard>
+  );
+}
+
+function ProviderCard({
+  auth,
+  onOpenTab,
+}: {
+  auth: AuthStatusResult | null;
+  onOpenTab: (tab: SettingsTabId) => void;
+}): React.ReactElement {
+  const signedIn = auth?.providers.filter((p) => p.connected) ?? [];
+  const mark: StepMark = auth === null ? "checking" : signedIn.length > 0 ? "done" : "needed";
+  return (
+    <SettingsCard
+      title="AI provider"
+      badge={<StepBadge mark={mark} />}
+      description="The models Kleio and your specialists think with."
+    >
+      {auth === null ? null : signedIn.length > 0 ? (
+        <div className="setup-status">
+          <p className="settings-desc">{`Signed in to ${signedIn.map((p) => p.label).join(", ")}.`}</p>
+          <button type="button" className="btn btn-ghost" onClick={() => onOpenTab("providers")}>
+            AI Providers
+          </button>
+        </div>
+      ) : (
+        <>
+          {auth.error && <p className="settings-desc is-error">{auth.error}</p>}
+          <div className="modal-row">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onOpenTab("providers")}
+            >
+              Sign in
+            </button>
+          </div>
+        </>
+      )}
+    </SettingsCard>
+  );
+}
+
 function KeyCard({
   name,
   title,
+  subtitle,
   description,
-  hint,
   required,
   load,
   onStatus,
 }: {
   name: SetupKeyName;
   title: string;
+  subtitle: string;
   description: string;
-  hint: string;
   required: boolean;
   load: Load;
   onStatus: (s: SetupStatus) => void;
 }): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const state: KeyState | null = load.kind === "ready" ? load.status.keys[name] : null;
+  const state = load.kind === "ready" ? load.status.keys[name] : null;
   const admin = load.kind === "ready" && load.status.admin;
-  const mark: Mark =
-    state === "saved" ? "done" : state === "env" ? "env" : required ? "needed" : "optional";
+  const mark: StepMark =
+    load.kind === "loading"
+      ? "checking"
+      : state === null
+        ? "unknown"
+        : state === "saved"
+          ? "done"
+          : state === "env"
+            ? "env"
+            : required
+              ? "needed"
+              : "optional";
 
   async function remove(): Promise<void> {
     setBusy(true);
@@ -86,46 +205,33 @@ function KeyCard({
   }
 
   return (
-    <SettingsCard title={title} description={description}>
-      {load.kind === "loading" ? (
-        <p className="settings-desc">Checking…</p>
-      ) : load.kind === "old" ? (
-        <p className="settings-desc">{OLDER_HOST}</p>
-      ) : load.kind === "error" ? null : (
-        <>
-          <div className="modal-row">
-            <StateBadge mark={mark} />
-          </div>
-          {state === "env" ? (
-            <p className="settings-desc">
-              This key is set on the host itself, so it can't be changed here.
-            </p>
-          ) : !admin ? null : state === "saved" ? (
-            <div className="modal-row">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={busy}
-                onClick={() => void remove()}
-              >
-                {busy ? "Removing…" : "Remove key"}
-              </button>
-            </div>
-          ) : (
-            <>
-              <KeyForm name={name} onSaved={onStatus} />
-              <div className="modal-row">
-                <GetKeyButton name={name} />
-              </div>
-              <p className="settings-desc">{hint}</p>
-            </>
-          )}
-          {error && (
-            <p className="settings-desc is-error" role="alert">
-              {error}
-            </p>
-          )}
-        </>
+    <SettingsCard
+      title={title}
+      subtitle={subtitle}
+      badge={<StepBadge mark={mark} />}
+      description={description}
+    >
+      {state === "env" ? (
+        <p className="settings-desc">Set on the host itself, so it can't be changed here.</p>
+      ) : state === "saved" && admin ? (
+        <div className="setup-status">
+          <p className="settings-desc">Saved on your host.</p>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy}
+            onClick={() => void remove()}
+          >
+            {busy ? "Removing…" : "Remove key"}
+          </button>
+        </div>
+      ) : state === "missing" && admin ? (
+        <KeyForm name={name} onSaved={onStatus} />
+      ) : null}
+      {error && (
+        <p className="settings-desc is-error" role="alert">
+          {error}
+        </p>
       )}
     </SettingsCard>
   );
@@ -138,6 +244,10 @@ export function SetupPage({
 }): React.ReactElement {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [auth, setAuth] = useState<AuthStatusResult | null>(null);
+  // From the voice card, which asks the host itself: null until it knows.
+  const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
+  const reach = useHostReach();
+  const host = useKleioRemote().status?.active?.host;
 
   // Seeing Setup, however it was reached, means it needn't open by itself again.
   useEffect(() => markSetupSeen(localStorageOrNull()), []);
@@ -162,13 +272,18 @@ export function SetupPage({
   }, [fetchSetup]);
 
   const onStatus = (status: SetupStatus): void => setLoad({ kind: "ready", status });
-  const signedIn = auth?.providers.filter((p) => p.connected) ?? [];
+  const apps = load.kind === "ready" ? load.status.keys.composio : null;
+  // The needed steps; Group chats is optional and doesn't count.
+  const steps = [
+    reach === "connected",
+    Boolean(auth?.providers.some((p) => p.connected)),
+    voiceReady === true,
+    apps === "saved" || apps === "env",
+  ];
 
   return (
-    <>
-      <p className="kleio-page-intro">
-        A few things to set up so Kleio can do everything. You can come back here any time.
-      </p>
+    <div className="setup-page">
+      <Progress done={steps.filter(Boolean).length} total={steps.length} />
 
       {load.kind === "error" && (
         <div className="kleio-error" role="alert">
@@ -186,76 +301,42 @@ export function SetupPage({
         </div>
       )}
       {load.kind === "ready" && !load.status.admin && (
-        <p className="settings-desc">Finish this on your admin device.</p>
+        <Callout tone="info" title="Finish setup on your admin device">
+          This device shows what's done. Only your admin device can add or change keys.
+        </Callout>
+      )}
+      {load.kind === "old" && (
+        <Callout tone="warn" title="Update Kleio on your host">
+          Your host runs an older Kleio, so Setup can't check or change the Composio and Typesafe
+          keys yet.
+        </Callout>
       )}
 
-      <SettingsCard title="Host" description="The always-on computer Kleio runs on.">
-        <div className="modal-row">
-          <StateBadge mark="done" />
-          <span className="settings-desc">Connected to your host.</span>
-        </div>
-        <div className="modal-row">
-          <button type="button" className="btn btn-ghost" onClick={() => onOpenTab("connection")}>
-            Connection
-          </button>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        title="AI provider"
-        description="The AI models Kleio and your specialists think with."
-      >
-        {auth === null ? (
-          <p className="settings-desc">Checking…</p>
-        ) : (
-          <>
-            <div className="modal-row">
-              <StateBadge mark={signedIn.length > 0 ? "done" : "needed"} />
-              {signedIn.length > 0 && (
-                <span className="settings-desc">
-                  {`Signed in to ${signedIn.map((p) => p.label).join(", ")}.`}
-                </span>
-              )}
-            </div>
-            {auth.error && signedIn.length === 0 && (
-              <p className="settings-desc is-error">{auth.error}</p>
-            )}
-            <div className="modal-row">
-              <button
-                type="button"
-                className={signedIn.length > 0 ? "btn btn-ghost" : "btn btn-primary"}
-                onClick={() => onOpenTab("providers")}
-              >
-                {signedIn.length > 0 ? "AI Providers" : "Sign in"}
-              </button>
-            </div>
-          </>
-        )}
-      </SettingsCard>
-
+      <HostCard reach={reach} name={host ? shortHost(host) : "your host"} onOpenTab={onOpenTab} />
+      <ProviderCard auth={auth} onOpenTab={onOpenTab} />
       {/* Until the host says otherwise (an older host can't), assume an admin:
           the host still refuses a change from any other device. */}
-      <VoiceCard canEdit={load.kind !== "ready" || load.status.admin} />
-
+      <VoiceCard canEdit={load.kind !== "ready" || load.status.admin} onReady={setVoiceReady} />
       <KeyCard
         name="composio"
-        title="Apps (Composio)"
+        title="Apps"
+        subtitle="Composio"
         description="Lets Kleio and your specialists use Gmail, Calendar, Notion and hundreds more."
-        hint="In Composio, open Settings, then API Keys, and create a key."
         required
         load={load}
         onStatus={onStatus}
       />
 
+      <h2 className="setup-group-label">Optional</h2>
       <KeyCard
         name="typesafe"
-        title="Group chats (Typesafe Jev)"
+        title="Group chats"
+        subtitle="Typesafe"
         description="Decides who answers in a group chat. Without it, group chats still work, with simpler rules."
-        hint="Typesafe is in early access, so new accounts may have to wait."
         required={false}
         load={load}
         onStatus={onStatus}
       />
-    </>
+    </div>
   );
 }

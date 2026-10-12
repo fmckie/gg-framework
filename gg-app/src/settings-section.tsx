@@ -59,17 +59,34 @@ export function SettingsSection({
  */
 export function SettingsCard({
   title,
+  subtitle,
+  badge,
   description,
   children,
 }: {
   title: string;
+  /** Quieter text beside the title, e.g. the service a step uses ("Composio"). */
+  subtitle?: string;
+  /** A status at the end of the title row (a `Badge`). */
+  badge?: React.ReactNode;
   description: React.ReactNode;
   children?: React.ReactNode;
 }): React.ReactElement {
+  const heading = <h3 className="settings-section-title">{title}</h3>;
   return (
     <section className="settings-card" aria-label={title}>
       <div className="settings-section-head">
-        <h3 className="settings-section-title">{title}</h3>
+        {subtitle || badge ? (
+          <div className="settings-card-title-row">
+            <div className="settings-card-titles">
+              {heading}
+              {subtitle && <span className="settings-card-sub">{subtitle}</span>}
+            </div>
+            {badge}
+          </div>
+        ) : (
+          heading
+        )}
         <p className="settings-desc">{description}</p>
       </div>
       {children}

@@ -1315,6 +1315,29 @@ select {
   font-size: 13px;
   line-height: 1.45;
 }
+/* A card's title row (SettingsCard's `subtitle` and `badge`): the title with a
+   quieter name beside it, and a status badge at the row's end, so a page of
+   cards reads down one column of statuses. */
+.settings-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-card-titles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+}
+.settings-card-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.settings-card-title-row > .badge {
+  flex: none;
+}
 /* Inside a card the card's own gap spaces fields, so the dialog margins go. */
 .settings-card :is(.modal-row, .mcp-scope-toggle, .modal-hint, .modal-error, .mcp-list) {
   margin: 0;
