@@ -347,9 +347,13 @@ class ScriptedSession {
     this.eventBus.emit("turn_end", { turn: 1, stopReason: "end_turn" });
   }
 
-  /** Resolve once something is queued, or the turn is cancelled. */
-  async #waitForQueue() {
-    while (this.#queue.length === 0 && !this.signal.aborted) {
+  /**
+   * Resolve once `count` messages are queued, or the turn is cancelled. A
+   * caller queueing several must wait for all of them: draining after the
+   * first lets a slow runner end the turn before the rest arrive.
+   */
+  async #waitForQueue(count = 1) {
+    while (this.#queue.length < count && !this.signal.aborted) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
@@ -383,7 +387,8 @@ class ScriptedSession {
 
     // Steering folds in at a boundary: drained mid-run.
     if (content === "steer me") {
-      await this.#waitForQueue();
+      // The test queues two; drain only once both are in.
+      await this.#waitForQueue(2);
       this.#queue.splice(0);
       this.eventBus.emit("queue_drained", { count: 0 });
       this.eventBus.emit("turn_end", { turn: 1, stopReason: "end_turn" });
