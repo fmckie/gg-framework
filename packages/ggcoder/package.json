@@ -151,7 +151,7 @@
     "@types/turndown": "^5.0.6",
     "esbuild": "0.28.2",
     "tsx": "^4.22.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.11"
   },
   "publishConfig": {
     "access": "public"
