@@ -112,6 +112,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.mocked(isPhone).mockReturnValue(false);
 });
 
@@ -123,6 +124,18 @@ function stubMatchMedia(): void {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
+}
+
+/**
+ * Stop the clock, Date only (timers, waitFor and React keep real time), and
+ * return the time it stopped at. A live call's time is the poll's Date.now()
+ * minus its start, so a test that expects "live · 4s" would otherwise read
+ * "5s" on a machine slower than a second between its setup and the poll.
+ */
+function pinClock(): number {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-13T12:00:00.000Z"));
+  return Date.now();
 }
 
 describe("GroupsPage", () => {
@@ -156,7 +169,7 @@ describe("GroupsPage", () => {
   it("shows each member's tool calls and how its last turn ended, outside the transcript", async () => {
     // A member replying turns on the composer's beam, which reads matchMedia.
     stubMatchMedia();
-    const now = Date.now();
+    const now = pinClock();
     const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
     vi.mocked(listGroupMessages).mockResolvedValue({
       messages: [],
@@ -456,7 +469,7 @@ describe("GroupsPage", () => {
   it("iPhone: the same verbose tool calls as the Mac, live and per member", async () => {
     vi.mocked(isPhone).mockReturnValue(true);
     stubMatchMedia();
-    const now = Date.now();
+    const now = pinClock();
     vi.mocked(listGroupMessages).mockResolvedValue({
       messages: [],
       typing: ["b1"],
