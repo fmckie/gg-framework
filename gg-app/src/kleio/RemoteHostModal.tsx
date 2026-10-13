@@ -301,7 +301,7 @@ function RestartNotice({ what }: { what: string }): React.ReactElement {
   }
   return (
     <div className="kleio-restart" role="status">
-      <span>{what} Restart gg-app to apply — every window comes back where it was.</span>
+      <span>{what} Restart Kleio to apply — every window comes back where it was.</span>
       <button
         type="button"
         className="btn btn-primary btn-sm"

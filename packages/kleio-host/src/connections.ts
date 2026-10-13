@@ -14,12 +14,23 @@
  * page below, which bounces to kleio://connections) and disconnects.
  *
  * The API key comes from KLEIO_COMPOSIO_API_KEY or <state dir>/composio.key.
- * It never appears in a response body or a log line.
+ * It never appears in a response body or a log line. An admin device can set
+ * or remove the key file (setKey/removeKey); a change drops the old key's
+ * session and mcp.json entry so nothing keeps using it.
  */
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "./device-registry.js";
+import {
+  checkKey,
+  envKeySet,
+  keyFileState,
+  normalizeKey,
+  saveKeyFile,
+  type KeyCheckError,
+  type KeyState,
+} from "./setup-keys.js";
 
 export interface ConnectionsOptions {
   /** composio.json (user id, session). */
@@ -61,6 +72,16 @@ export interface Connections {
   ): Promise<Reply | null>;
   /** The unauthenticated OAuth landing page, or null when the path is not it. */
   callback(method: string, path: string, query: URLSearchParams): HtmlReply | null;
+  /** Where the key comes from, for the setup screen. */
+  keyState(): Promise<KeyState>;
+  /**
+   * Check `raw` with Composio and save it to the key file; a different key
+   * resets the session and sets up a new one in the background. Re-saving
+   * the same key changes nothing.
+   */
+  setKey(raw: string): Promise<KeyCheckError | { readonly kind: "set_by_env" } | null>;
+  /** Delete the key file and everything made with it. False when the env sets the key. */
+  removeKey(): Promise<boolean>;
 }
 
 interface State {
@@ -173,15 +194,34 @@ export function createConnections(options: ConnectionsOptions): Connections {
   let state: State | null = null;
   let ensuring: Promise<State | null> | null = null;
   let toolkitCache: { at: number; items: ReturnType<typeof toolkitView>[] } | null = null;
+  /** Bumped by a key change: an older in-flight ensureNow() must not save anything. */
+  let generation = 0;
+  // Edits to composio.json and mcp.json run one at a time, and an ensureNow()
+  // checks the generation inside its turn. Otherwise a key change could land
+  // between that check and the write, and the write would bring the old key's
+  // session or mcp.json entry back, with nothing left to remove it.
+  let queue: Promise<void> = Promise.resolve();
+  function exclusive<T>(edit: () => Promise<T>): Promise<T> {
+    const run = queue.then(edit);
+    queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
-  async function apiKey(): Promise<string | null> {
-    if (options.apiKey?.trim()) return options.apiKey.trim();
+  async function fileKey(): Promise<string | null> {
     try {
       const k = (await readFile(options.keyPath, "utf8")).trim();
       return k || null;
     } catch {
       return null;
     }
+  }
+
+  async function apiKey(): Promise<string | null> {
+    if (options.apiKey?.trim()) return options.apiKey.trim();
+    return fileKey();
   }
 
   /** A Composio call; a non-2xx is a ComposioError whose detail never holds the key. */
@@ -275,10 +315,54 @@ export function createConnections(options: ConnectionsOptions): Connections {
     return true;
   }
 
+  /** Drop the composio entry from ~/.gg/mcp.json, keeping every other server. */
+  async function removeMcpEntry(): Promise<boolean> {
+    let file: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(await readFile(mcpPath, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        log(`[apps] ~/.gg/mcp.json is not an object; not removing Composio`);
+        return false;
+      }
+      file = parsed as Record<string, unknown>;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT")
+        log(`[apps] ~/.gg/mcp.json is unreadable; not removing Composio (${String(e)})`);
+      return false;
+    }
+    const servers = obj(file.mcpServers);
+    if (!(MCP_NAME in servers)) return false;
+    const { [MCP_NAME]: _dropped, ...rest } = servers;
+    await atomicWrite(
+      mcpPath,
+      JSON.stringify({ ...file, mcpServers: rest }, null, 2) + "\n",
+      0o600,
+    );
+    return true;
+  }
+
+  /** Forget the old key's session, caches and mcp.json entry; keep the user id. */
+  async function resetSession(): Promise<void> {
+    // Before taking a turn: any ensureNow() whose turn comes later sees this.
+    generation += 1;
+    ensuring = null;
+    toolkitCache = null;
+    const removed = await exclusive(async () => {
+      state = null;
+      const s = await loadState();
+      if (s.sessionId || s.mcpUrl) await saveState({ userId: s.userId });
+      return removeMcpEntry();
+    });
+    if (removed) log(`[apps] removed Composio from ~/.gg/mcp.json`);
+    await options.onToolsChanged?.().catch((e) => log(`[apps] retiring idle: ${String(e)}`));
+  }
+
   async function ensureNow(): Promise<State | null> {
+    const gen = generation;
     const key = await apiKey();
     if (!key) return null;
     let s = await loadState();
+    if (gen !== generation) return null;
     if (!s.sessionId || !s.mcpUrl) {
       const created = obj(
         await api(key, "POST", "/api/v3.1/tool_router/session", {
@@ -293,11 +377,23 @@ export function createConnections(options: ConnectionsOptions): Connections {
       const sessionId = str(created.session_id);
       const mcpUrl = str(obj(created.mcp).url);
       if (!sessionId || !mcpUrl) throw new ComposioError(502, "session response had no MCP URL");
-      s = { ...s, sessionId, mcpUrl };
-      await saveState(s);
+      const next: State = { ...s, sessionId, mcpUrl };
+      // A key change since this began makes the session the old key's: drop it.
+      const saved = await exclusive(async () => {
+        if (gen !== generation) return false;
+        await saveState(next);
+        return true;
+      });
+      if (!saved) return null;
+      s = next;
       log(`[apps] Composio session ready`);
     }
-    if (await writeMcpEntry(s.mcpUrl!, key)) {
+    const url = s.mcpUrl;
+    const wrote = await exclusive(async () =>
+      gen === generation && url ? await writeMcpEntry(url, key) : null,
+    );
+    if (wrote === null) return null;
+    if (wrote) {
       log(`[apps] added Composio to ~/.gg/mcp.json`);
       await options.onToolsChanged?.().catch((e) => log(`[apps] retiring idle: ${String(e)}`));
     }
@@ -306,10 +402,13 @@ export function createConnections(options: ConnectionsOptions): Connections {
 
   /** The ready state, or null when no key is configured. Shared by concurrent callers. */
   function ensured(): Promise<State | null> {
-    ensuring ??= ensureNow().finally(() => {
-      ensuring = null;
+    if (ensuring) return ensuring;
+    const p: Promise<State | null> = ensureNow().finally(() => {
+      // A reset may have started a newer one; leave that alone.
+      if (ensuring === p) ensuring = null;
     });
-    return ensuring;
+    ensuring = p;
+    return p;
   }
 
   // ---------------------------------------------------------------- routes
@@ -454,17 +553,46 @@ export function createConnections(options: ConnectionsOptions): Connections {
     return { status: 200, body: { ok: true } };
   }
 
+  async function ensure(): Promise<void> {
+    try {
+      await ensured();
+    } catch (e) {
+      log(
+        `[apps] Composio setup failed (${e instanceof ComposioError ? e.status : "error"}); ` +
+          "will retry on the next request",
+      );
+    }
+  }
+
   return {
-    async ensure() {
-      try {
-        await ensured();
-      } catch (e) {
-        log(
-          `[apps] Composio setup failed (${e instanceof ComposioError ? e.status : "error"}); ` +
-            "will retry on the next request",
-        );
-      }
+    keyState: () => keyFileState(options.apiKey, options.keyPath),
+
+    async setKey(raw) {
+      if (envKeySet(options.apiKey)) return { kind: "set_by_env" };
+      const k = normalizeKey(raw);
+      if (!k) return { kind: "bad_key" };
+      const failed = await checkKey(
+        doFetch,
+        `${base}/api/v3.1/toolkits?limit=1`,
+        { method: "GET", headers: { "x-api-key": k } },
+        k,
+      );
+      if (failed) return failed;
+      if ((await fileKey()) === k) return null;
+      await saveKeyFile(options.keyPath, k);
+      await resetSession();
+      void ensure();
+      return null;
     },
+
+    async removeKey() {
+      if (envKeySet(options.apiKey)) return false;
+      await rm(options.keyPath, { force: true });
+      await resetSession();
+      return true;
+    },
+
+    ensure,
 
     async route(method, path, query, body) {
       if (path !== "/kleio/connections" && !path.startsWith("/kleio/connections/")) return null;

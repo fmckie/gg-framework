@@ -308,7 +308,7 @@ function codeError(e: unknown, project: string): string {
   switch (e.status) {
     case 0:
     case 503:
-      return "Couldn't reach their Mac just now.";
+      return "Couldn't reach their host just now.";
     case 404:
       return `There's no project called ${project} any more.`;
     case 429:
@@ -429,7 +429,7 @@ function fileError(e: unknown, whose: string, reading: boolean): string {
   switch (e.status) {
     case 0:
     case 503:
-      return "Couldn't reach the files on their Mac just now.";
+      return "Couldn't reach the files on their host just now.";
     case 404:
       return reading ? "That file isn't there any more." : `No one called "${whose}" any more.`;
     case 413:
@@ -449,9 +449,9 @@ function fileError(e: unknown, whose: string, reading: boolean): string {
     case 422:
       return "That file couldn't be read: it may be damaged or protected.";
     case 400:
-      return "The Mac didn't accept that request.";
+      return "The host didn't accept that request.";
     default:
-      return "That didn't work: the Mac couldn't get the files.";
+      return "That didn't work: the host couldn't get the files.";
   }
 }
 
@@ -1000,7 +1000,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
           };
         }
         if (e instanceof KleioApiError && e.status === 404) {
-          return { error: "Their Mac has no projects folder to make it in." };
+          return { error: "Their host has no projects folder to make it in." };
         }
         if (e instanceof KleioApiError && e.status === 400) {
           return {
@@ -1091,7 +1091,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
         return {
           started: true,
           project: d.to.name,
-          next: "Tell them a coding agent is working on it on their Mac, they'll get a notification when it's done, and they can open it from Code.",
+          next: "Tell them a coding agent is working on it on their host, they'll get a notification when it's done, and they can open it from Code.",
         };
       }
       await send(d);
@@ -1129,7 +1129,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
         started: true,
         kind: agent,
         ...(prompt.length > PLAN_MAX ? { note: "The prompt was too long and was shortened." } : {}),
-        next: "Tell them it's running on their Mac, they'll get a notification when it's done, and they can open it from Chats.",
+        next: "Tell them it's running on their host, they'll get a notification when it's done, and they can open it from Chats.",
       };
     },
 

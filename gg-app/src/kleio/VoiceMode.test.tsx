@@ -165,10 +165,10 @@ describe("VoiceMode", () => {
   });
 
   it("says why a call ended, and offers to talk again", () => {
-    set({ phase: "ended", error: "Your Mac mini couldn't reach OpenAI." });
+    set({ phase: "ended", error: "Your host couldn't reach OpenAI." });
     render(<VoiceMode />);
     expect(screen.getByText("Call ended")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toBe("Your Mac mini couldn't reach OpenAI.");
+    expect(screen.getByRole("alert").textContent).toBe("Your host couldn't reach OpenAI.");
     fireEvent.click(screen.getByRole("button", { name: "Talk again" }));
     expect(call.startCall).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Hang up" })).toBeNull();

@@ -44,7 +44,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { appendFile, mkdir, readFile, realpath } from "node:fs/promises";
+import { appendFile, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { atomicWrite } from "./device-registry.js";
@@ -79,7 +79,16 @@ import {
 } from "./agent-files.js";
 import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
-import { createJev, readKeyFile } from "./jev.js";
+import { checkTypesafeKey, createJev, readKeyFile } from "./jev.js";
+import {
+  envKeySet,
+  keyFileState,
+  normalizeKey,
+  saveKeyFile,
+  type KeyCheckError,
+  type KeyState,
+} from "./setup-keys.js";
+import { createDictationSetup, DICTATION_SETUP_MAX_BODY } from "./dictation-setup.js";
 import { createStartedChats, parseStartChat } from "./started-chats.js";
 import {
   isSavedSessionKind,
@@ -776,9 +785,16 @@ export function createHost(options: HostOptions): Host {
     now: () => (options.now?.() ?? new Date()).getTime(),
     log,
   });
+  // Key files an admin device can set from Settings -> Setup (env keys win).
+  const voiceKeyPath =
+    options.voice?.keyPath ?? join(dirname(options.sidecarEndpointPath), "openai.key");
+  const composioKeyPath =
+    options.composio?.keyPath ?? join(dirname(options.sidecarEndpointPath), "composio.key");
+  const typesafeKeyPath =
+    options.jev?.keyPath ?? join(dirname(options.sidecarEndpointPath), "typesafe.key");
   // Kleio's conversational voice (voice.ts): the OpenAI key stays here.
   const voice = createVoice({
-    keyPath: options.voice?.keyPath ?? join(dirname(options.sidecarEndpointPath), "openai.key"),
+    keyPath: voiceKeyPath,
     settingsPath: join(dirname(options.sidecarEndpointPath), "voice.json"),
     ...(options.voice?.apiKey ? { apiKey: options.voice.apiKey } : {}),
     ...(options.voice?.model ? { model: options.voice.model } : {}),
@@ -975,6 +991,8 @@ export function createHost(options: HostOptions): Host {
     return again === "refused" ? null : again;
   };
 
+  const dictationSetup = createDictationSetup(sidecarCall);
+
   const home = options.homeCwd
     ? createHomeThreads({
         statePath: join(dirname(options.sidecarEndpointPath), "home.json"),
@@ -1048,11 +1066,7 @@ export function createHost(options: HostOptions): Host {
           jevRouter(
             createJev({
               apiKey: async () =>
-                options.jev?.apiKey?.trim() ||
-                (await readKeyFile(
-                  options.jev?.keyPath ??
-                    join(dirname(options.sidecarEndpointPath), "typesafe.key"),
-                )),
+                options.jev?.apiKey?.trim() || (await readKeyFile(typesafeKeyPath)),
               ...(options.jev?.baseUrl ? { baseUrl: options.jev.baseUrl } : {}),
               ...(options.jev?.fetch ? { fetch: options.jev.fetch } : {}),
             }),
@@ -1071,8 +1085,7 @@ export function createHost(options: HostOptions): Host {
   const connections = home
     ? createConnections({
         statePath: join(dirname(options.sidecarEndpointPath), "composio.json"),
-        keyPath:
-          options.composio?.keyPath ?? join(dirname(options.sidecarEndpointPath), "composio.key"),
+        keyPath: composioKeyPath,
         ...(options.composio?.apiKey ? { apiKey: options.composio.apiKey } : {}),
         ...(options.composio?.baseUrl ? { baseUrl: options.composio.baseUrl } : {}),
         ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
@@ -1088,6 +1101,20 @@ export function createHost(options: HostOptions): Host {
         now,
       })
     : null;
+
+  async function setupBody(admin: boolean): Promise<{
+    admin: boolean;
+    keys: { openai: KeyState; composio: KeyState; typesafe: KeyState };
+  }> {
+    return {
+      admin,
+      keys: {
+        openai: await keyFileState(options.voice?.apiKey, voiceKeyPath),
+        composio: await keyFileState(options.composio?.apiKey, composioKeyPath),
+        typesafe: await keyFileState(options.jev?.apiKey, typesafeKeyPath),
+      },
+    };
+  }
 
   /**
    * Tap the stored home and Blob sessions at start, so they record with no
@@ -2297,6 +2324,88 @@ export function createHost(options: HostOptions): Host {
       return r.ok
         ? json(res, 200, r.value ?? { messages: [] })
         : json(res, 503, { error: "sessions_unavailable" });
+    }
+    // Setup: which third-party keys are present (any paired device; never a
+    // key or a fragment of one), and an admin sets or removes the Composio and
+    // Typesafe keys. A key is checked with its provider before it is saved.
+    if (path === "/kleio/setup") {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      return json(res, 200, await setupBody(auth.admin));
+    }
+    // Dictation's step (dictation-setup.ts): where the host's speech model is,
+    // and starting its download. Any paired device: dictating starts it too,
+    // there is no key, and the sidecar runs one download at a time.
+    if (path === "/kleio/setup/dictation") {
+      if (req.method === "GET") {
+        const r = await dictationSetup.status();
+        return r.ok ? json(res, 200, { dictation: r.value }) : json(res, 503, { error: r.error });
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req, DICTATION_SETUP_MAX_BODY);
+        if (body === null) return json(res, 413, { error: "too_large" });
+        const r = await dictationSetup.prepare();
+        if (!r.ok) return json(res, 503, { error: r.error });
+        if (r.value.started) log(`[setup] ${auth.device.label} started the dictation download`);
+        return json(res, 200, { dictation: r.value.dictation });
+      }
+      res.setHeader("allow", "GET, POST");
+      return json(res, 405, { error: "method not allowed" });
+    }
+    const setupKey = path.match(/^\/kleio\/setup\/keys\/([^/]+)$/);
+    if (setupKey) {
+      // The Composio key needs the connections (a home thread); Typesafe's doesn't.
+      const apps = setupKey[1] === "composio" ? connections : null;
+      if (!apps && setupKey[1] !== "typesafe") return json(res, 404, { error: "not_found" });
+      if (req.method !== "POST" && req.method !== "DELETE") {
+        res.setHeader("allow", "POST, DELETE");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const label = apps ? "Composio" : "Typesafe";
+      const envSet = envKeySet(apps ? options.composio?.apiKey : options.jev?.apiKey);
+      if (req.method === "DELETE") {
+        if (envSet) return json(res, 409, { error: "set_by_env" });
+        if (apps) await apps.removeKey();
+        else await rm(typesafeKeyPath, { force: true });
+        log(`[setup] ${auth.device.label} removed the ${label} key`);
+        return json(res, 200, await setupBody(auth.admin));
+      }
+      const body = await readBody(req, 4096);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let key: unknown;
+      try {
+        key = (JSON.parse(body.toString("utf8")) as { key?: unknown } | null)?.key;
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      if (typeof key !== "string") return json(res, 400, { error: "bad_request" });
+      if (envSet) return json(res, 409, { error: "set_by_env" });
+      let failed: KeyCheckError | { readonly kind: "set_by_env" } | null;
+      if (apps) failed = await apps.setKey(key);
+      else {
+        const k = normalizeKey(key);
+        failed = k
+          ? await checkTypesafeKey(k, {
+              ...(options.jev?.baseUrl ? { baseUrl: options.jev.baseUrl } : {}),
+              ...(options.jev?.fetch ? { fetch: options.jev.fetch } : {}),
+            })
+          : { kind: "bad_key" };
+        if (k && !failed) await saveKeyFile(typesafeKeyPath, k);
+      }
+      if (failed) {
+        log(`[setup] ${auth.device.label}: ${label} key not saved (${failed.kind})`);
+        if (failed.kind === "set_by_env") return json(res, 409, { error: "set_by_env" });
+        if (failed.kind === "bad_key") return json(res, 422, { error: "bad_key" });
+        return json(res, failed.kind === "rejected" ? 502 : 504, {
+          error: failed.kind,
+          detail: failed.detail,
+        });
+      }
+      log(`[setup] ${auth.device.label} saved the ${label} key`);
+      return json(res, 200, await setupBody(auth.admin));
     }
     if (path === "/kleio/voice/key" || path === "/kleio/voice/settings") {
       if (!auth.admin) return json(res, 403, { error: "forbidden" });

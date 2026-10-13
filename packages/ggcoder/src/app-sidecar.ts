@@ -118,6 +118,7 @@ import {
   trimToSpeech,
   DICTATION_MAX_SECONDS,
   DICTATION_SAMPLE_RATE,
+  DictationUnavailableError,
   type Dictation,
   toModelInfo as localModelInfo,
   type LocalEndpoint,
@@ -201,6 +202,7 @@ import {
   markTaskInProgress,
 } from "./core/tasks-store.js";
 import { initLogger, log } from "./core/logger.js";
+import { dictationUnavailableReply } from "./core/dictation-reply.js";
 import { installTerminationHandlers } from "./core/shutdown.js";
 import {
   RADIO_STATIONS,
@@ -1094,8 +1096,9 @@ async function main(): Promise<void> {
   // cannot race two browser flows for the same provider into one auth file.
   const oauthInFlightProviders = new Set<string>();
 
-  // iPhone dictation (`POST /transcribe`): one Whisper for the daemon, loaded
-  // on the first clip, so windows share the model instead of each loading it.
+  // Dictation (`POST /transcribe`, and `/dictation` for Settings → Setup): one
+  // Whisper for the daemon, so windows and devices share the model instead of
+  // each loading it. It is downloaded and loaded by Setup or the first clip.
   const dictation = createDictation({ cacheDir: path.join(paths.agentDir, "models") });
 
   // Routines (`/schedule`): daemon-owned so they fire with no window open.
@@ -1808,6 +1811,40 @@ async function main(): Promise<void> {
       return;
     }
 
+    // ── Dictation's speech model (daemon-level: one Whisper for every client) ──
+    // GET: where the model is. POST /dictation/prepare: start getting it ready
+    // (download, then load) or join the run under way, answering at once with
+    // the status. Both carry reason codes only; the details are in this log.
+    if (method === "GET" && url === "/dictation") {
+      void dictation.status().then(
+        (status) => daemonJson(res, 200, status),
+        (error: unknown) => {
+          log("ERROR", "app-sidecar", "dictation status failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+          daemonJson(res, 500, { error: "Couldn't check dictation." });
+        },
+      );
+      return;
+    }
+    if (method === "POST" && url === "/dictation/prepare") {
+      void daemonReadBody(req, res).then(async (raw) => {
+        if (raw === null) return;
+        dictation.prepare();
+        try {
+          const status = await dictation.status();
+          log("INFO", "app-sidecar", "dictation prepare", { state: status.state });
+          daemonJson(res, 200, status);
+        } catch (error) {
+          log("ERROR", "app-sidecar", "dictation status failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+          daemonJson(res, 500, { error: "Couldn't check dictation." });
+        }
+      });
+      return;
+    }
+
     // ── Routines (daemon-level; a routine outlives any window) ──────────
     if (method === "GET" && url === "/routines") {
       // `sessions` includes finished routines' sessions on purpose: a Kleio
@@ -1905,6 +1942,8 @@ async function main(): Promise<void> {
       // Radio playback is app-wide (one stream across all windows), so it stops
       // at the daemon level, not per session.
       stopRadio();
+      // A speech model download stops; its `.part` stays, to pick up from.
+      dictation.dispose();
       // Close the ~/.gg progress fs.watch handle (baseline #8 leak fix).
       progress.dispose();
       await Promise.all([...sessions.values()].map((c) => c.dispose().catch(() => {})));
@@ -5162,9 +5201,11 @@ async function createSession(
       return;
     }
 
-    // iPhone dictation: `{ audio }` is base64 16 kHz mono 16-bit PCM, answered
-    // with `{ text }` ("" when nothing was said). Like /enhance it touches no
-    // session state, so it is allowed mid-run. The text is never logged.
+    // Dictation (iPhone and Mac apps): `{ audio }` is base64 16 kHz mono 16-bit
+    // PCM, answered with `{ text }` ("" when nothing was said). Like /enhance it
+    // touches no session state, so it is allowed mid-run. The text is never
+    // logged. When the speech model can't be got ready, 503 (502 when Hugging
+    // Face erred) with plain words for the reason.
     if (method === "POST" && url === "/transcribe") {
       void readBody(req, res).then(async (raw) => {
         if (raw === null) return;
@@ -5211,6 +5252,17 @@ async function createSession(
           json(res, 200, { text });
         } catch (err) {
           if (gone.signal.aborted) return;
+          if (err instanceof DictationUnavailableError) {
+            // Why is already in the log (gg-core's dictation lines); the
+            // device gets plain words for the reason.
+            log("WARN", "app-sidecar", "dictation unavailable", {
+              reason: err.reason,
+              elapsedMs: String(Date.now() - started),
+            });
+            const reply = dictationUnavailableReply(err.reason);
+            json(res, reply.status, { error: reply.error });
+            return;
+          }
           log("ERROR", "app-sidecar", "dictation failed", {
             message: err instanceof Error ? err.message : String(err),
             elapsedMs: String(Date.now() - started),

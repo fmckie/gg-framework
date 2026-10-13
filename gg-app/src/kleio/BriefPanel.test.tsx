@@ -61,7 +61,7 @@ describe("BriefPanel", () => {
     vi.mocked(getBrief).mockRejectedValue(new KleioApiError(0, "offline"));
     render(<BriefPanel />);
     await act(() => briefMe());
-    expect(screen.getByRole("alert").textContent).toMatch(/couldn't reach your Mac mini/);
+    expect(screen.getByRole("alert").textContent).toMatch(/couldn't reach your host/);
     expect(speak).not.toHaveBeenCalled();
   });
 });

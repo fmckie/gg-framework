@@ -2,8 +2,9 @@
 // BUNDLED daemon, wait for the GG_APP_LISTENING handshake, create a session
 // (POST /session), hit /state for that session, then terminate and assert a
 // clean shutdown. Proves the per-platform runtime + single-file bundle + copied
-// native deps (sharp) actually load on this OS, bundled default skills are
-// present, AND the shared-daemon session protocol works in the bundle.
+// native deps (sharp, and dictation's speech engine) actually load on this OS,
+// bundled default skills are present, the shared-daemon session protocol works
+// in the bundle, and GET /dictation answers without downloading anything.
 //
 // Run AFTER `stage:node` + `bundle:sidecar`. Exits non-zero on any failure so
 // it can gate CI.
@@ -11,7 +12,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const srcTauri = join(here, "..", "src-tauri");
@@ -195,6 +196,51 @@ function smokeSandboxRuntime(node) {
 }
 
 /**
+ * Dictation's speech engine: transformers.js and onnxruntime-node, imported by
+ * the bundled node from the bundle's own node_modules, as the sidecar does for
+ * the first recording. onnxruntime-node loads its native library at import, so
+ * a missing or wrong-platform binary fails here rather than on a user's first
+ * clip. (onnxruntime-node has no build for macOS on Intel; such a leg would
+ * fail here, and that is reported, not skipped.)
+ */
+function smokeSpeechEngine(node) {
+  const sidecarDir = join(srcTauri, "sidecar");
+  const probe = [
+    "const t = await import('@huggingface/transformers');",
+    "const ort = await import('onnxruntime-node');",
+    "console.log(JSON.stringify({",
+    "  pipeline: typeof t.pipeline,",
+    "  session: typeof ort.InferenceSession?.create,",
+    "  from: [import.meta.resolve('@huggingface/transformers'), import.meta.resolve('onnxruntime-node')],",
+    "}));",
+  ].join("\n");
+  const run = spawnSync(node, ["--input-type=module", "-e", probe], {
+    cwd: sidecarDir,
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  if (run.status !== 0) {
+    fail(
+      `bundled speech engine did not load: ${(run.stderr || run.error?.message || "").trim().slice(0, 600)}`,
+    );
+  }
+  let seen;
+  try {
+    seen = JSON.parse(run.stdout.trim().split("\n").pop() ?? "");
+  } catch {
+    fail(`bundled speech engine probe printed no result: ${run.stdout.slice(0, 300)}`);
+  }
+  if (seen.pipeline !== "function" || seen.session !== "function") {
+    fail(`bundled speech engine is incomplete: ${JSON.stringify(seen)}`);
+  }
+  // Loaded from the bundle, not a node_modules further up (a dev checkout has one).
+  const bundled = `${pathToFileURL(join(sidecarDir, "node_modules")).href}/`;
+  const outside = seen.from.filter((url) => !url.toLowerCase().startsWith(bundled.toLowerCase()));
+  if (outside.length > 0) fail(`speech engine resolved outside the bundle: ${outside.join(", ")}`);
+  console.log("smoke: bundled speech engine (transformers.js + onnxruntime-node) loads");
+}
+
+/**
  * Payload gate: bundle-sidecar strips dev-only weight after copying the
  * dependency tree (source maps; onnxruntime-web's browser wasm/webgl/webgpu
  * payloads, which the Node exports map never resolves). If either returns,
@@ -226,6 +272,7 @@ async function main() {
   smokeOpenSrc(node);
   smokeSandboxRuntime(node);
   smokeMotionBundle(node);
+  smokeSpeechEngine(node);
   smokeLeanPayload();
 
   const child = spawn(node, [sidecar], {
@@ -330,6 +377,24 @@ async function main() {
     fail(`/state body missing "ready": ${JSON.stringify(body)}`);
   }
   console.log(`smoke: session ${sessionId.slice(0, 8)} /state 200 ready=${body.ready}`);
+
+  // Dictation's speech model: a few file stats, never a download. A fresh
+  // runner has no model (absent); a machine that already has it, ready.
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/dictation`, {
+      headers: { "x-gg-token": token },
+    });
+    const d = await r.json().catch(() => ({}));
+    const known = d.state === "absent" || d.state === "ready";
+    if (r.status !== 200 || !known || !Number.isSafeInteger(d.bytes) || d.bytes <= 0) {
+      child.kill("SIGKILL");
+      fail(`GET /dictation returned ${r.status}: ${JSON.stringify(d)}`);
+    }
+    console.log(`smoke: GET /dictation ${d.state} (model ${Math.round(d.bytes / 1e6)} MB)`);
+  } catch (err) {
+    child.kill("SIGKILL");
+    fail(`GET /dictation failed: ${err.message}`);
+  }
 
   // A Motion session must build from the packaged bundle (skills + prompt).
   const motionCwd = mkdtempSync(join(tmpdir(), "gg-smoke-motion-"));

@@ -660,7 +660,7 @@ describe("agents' files", () => {
       [415, { error: "unsupported" }, /no words to read/],
       [416, { error: "no_such_part", parts: 4 }, "There are only 4 parts."],
       [422, { error: "unreadable" }, "That file couldn't be read: it may be damaged or protected."],
-      [503, { error: "files_unavailable" }, "Couldn't reach the files on their Mac just now."],
+      [503, { error: "files_unavailable" }, "Couldn't reach the files on their host just now."],
     ];
     for (const [status, body, want] of cases) {
       vi.mocked(api.readAgentFile).mockRejectedValueOnce(
@@ -671,7 +671,7 @@ describe("agents' files", () => {
     }
     vi.mocked(api.listAgentFiles).mockRejectedValueOnce(new api.KleioApiError(503, "x"));
     expect(await tools.run("list_files", { from: "kleio" })).toEqual({
-      error: "Couldn't reach the files on their Mac just now.",
+      error: "Couldn't reach the files on their host just now.",
     });
     vi.mocked(api.listAgentFiles).mockRejectedValueOnce(new api.KleioApiError(404, "x"));
     expect(await tools.run("list_files", { from: "specialist", name: "Chef" })).toMatchObject({
@@ -797,7 +797,7 @@ describe("agents' files", () => {
       vi.mocked(fetchFile).mockRejectedValueOnce(new Error("no such file"));
       expect(await tools.run("show_file", { from: "kleio", file: "notes" })).toMatchObject({
         shown: false,
-        error: "This file isn't on your Mac mini any more.",
+        error: "This file isn't on your host any more.",
         next: expect.stringContaining("read_file"),
       });
       // Kleio's own folder outside the projects folders: the device can't fetch it.

@@ -12,6 +12,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { err, ok, type Result } from "./result.js";
+import { checkKey, type KeyCheckError } from "./setup-keys.js";
 
 export type JevQuestion =
   | {
@@ -89,6 +90,35 @@ export async function readKeyFile(path: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Check a Typesafe key with one tiny System One call (the only endpoint Kleio
+ * uses; a fraction of a cent). null when the key works.
+ */
+export function checkTypesafeKey(
+  key: string,
+  options: { readonly baseUrl?: string; readonly fetch?: typeof fetch } = {},
+): Promise<KeyCheckError | null> {
+  const base = (options.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, "");
+  return checkKey(
+    options.fetch ?? fetch,
+    `${base}/v1/systemone`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        model: DEFAULT_MODEL,
+        state: "Kleio is checking this API key.",
+        questions: { ok: { type: "noul", instructions: "Is this a test?" } },
+      }),
+    },
+    key,
+  );
 }
 
 export function createJev(options: JevOptions): Jev {

@@ -307,14 +307,14 @@ describe("ProjectPicker open existing", () => {
   it("shows why the Mac mini's folders couldn't be listed", async () => {
     setPaired("mac-mini-1.taila6c237.ts.net");
     listHostProjectFoldersMock.mockRejectedValue(
-      "Your Mac mini needs a Kleio update before it can list its folders here.",
+      "Your host needs a Kleio update before it can list its folders here.",
     );
     await renderProjectList([PROJECT]);
 
     fireEvent.click(screen.getByRole("button", { name: "Open existing" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Your Mac mini needs a Kleio update before it can list its folders here.",
+      "Your host needs a Kleio update before it can list its folders here.",
     );
     expect(selectProjectMock).not.toHaveBeenCalled();
   });
@@ -322,7 +322,7 @@ describe("ProjectPicker open existing", () => {
   it("lists the host's folders again after Try again", async () => {
     setPaired("mac-mini-1.taila6c237.ts.net");
     listHostProjectFoldersMock
-      .mockRejectedValueOnce("Couldn't reach your Mac mini.")
+      .mockRejectedValueOnce("Couldn't reach your host.")
       .mockResolvedValueOnce([
         { name: "site", path: "/Users/willmckie/kleio-projects/site", hidden: false },
       ]);

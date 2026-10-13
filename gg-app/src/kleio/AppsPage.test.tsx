@@ -17,7 +17,9 @@ import {
   disconnect,
   listConnections,
   listToolkits,
+  setSetupKey,
 } from "./kleioApi";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type * as KleioApi from "./kleioApi";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
@@ -31,6 +33,7 @@ vi.mock("./kleioApi", async (importOriginal) => {
     listToolkits: vi.fn(),
     connectToolkit: vi.fn(),
     disconnect: vi.fn(),
+    setSetupKey: vi.fn(),
   };
 });
 
@@ -222,6 +225,45 @@ describe("AppsPage", () => {
     });
     expect(await screen.findByText("Apps aren't set up yet")).toBeTruthy();
     expect(listToolkits).not.toHaveBeenCalled();
+  });
+
+  it("takes a Composio key when the host has none, then shows the apps", async () => {
+    vi.mocked(listConnections).mockResolvedValueOnce({ configured: false, connections: [] });
+    vi.mocked(setSetupKey).mockResolvedValue({
+      admin: true,
+      keys: { openai: "missing", composio: "saved", typesafe: "missing" },
+    });
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    const input = await screen.findByLabelText("Composio API key");
+    expect(input.getAttribute("type")).toBe("password");
+    expect(screen.queryByText(/composio\.key/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Get a key" }));
+    expect(openUrl).toHaveBeenCalledWith("https://dashboard.composio.dev");
+
+    fireEvent.change(input, { target: { value: "ak_test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Gmail", {}, { timeout: 2000 });
+    expect(setSetupKey).toHaveBeenCalledWith("composio", "ak_test");
+    expect(listConnections).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Apps aren't set up yet")).toBeNull();
+  });
+
+  it("says why Composio refused the key", async () => {
+    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
+    vi.mocked(setSetupKey).mockRejectedValue(new KleioApiError(422, "bad_key"));
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    fireEvent.change(await screen.findByLabelText("Composio API key"), {
+      target: { value: "nope" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Composio didn't accept that key. Check you copied all of it.",
+    );
   });
 
   it("labels categories in sentence case, keeping acronyms whole", () => {

@@ -341,7 +341,7 @@ describe("file words", () => {
   });
 
   it("explains the host's file errors", () => {
-    expect(fileErrorText(new Error("no such file"))).toMatch(/isn't on your Mac mini/);
+    expect(fileErrorText(new Error("no such file"))).toMatch(/isn't on your host/);
     expect(fileErrorText(new Error("file too large"))).toMatch(/too big/);
     expect(fileErrorText(new Error("not found"))).toMatch(/needs an update/);
     expect(fileErrorText(new Error("no such workspace"))).toMatch(/project folders/);
@@ -353,11 +353,9 @@ describe("file words", () => {
     expect(siteErrorText(new Error("not found"))).toMatch(/needs an update to open sites/);
     expect(siteErrorText(new Error("not_a_site"))).toBe("Only web pages open as a site.");
     expect(siteErrorText(new Error("bad_request"))).toMatch(/didn't understand/);
-    expect(siteErrorText(new Error("no such file"))).toMatch(/isn't on your Mac mini/);
+    expect(siteErrorText(new Error("no such file"))).toMatch(/isn't on your host/);
     expect(siteErrorText(new Error("no such workspace"))).toMatch(/project folders/);
-    expect(siteErrorText(new Error("Your Mac mini answered 401"))).toBe(
-      "Your Mac mini answered 401",
-    );
+    expect(siteErrorText(new Error("Your host answered 401"))).toBe("Your host answered 401");
   });
 });
 

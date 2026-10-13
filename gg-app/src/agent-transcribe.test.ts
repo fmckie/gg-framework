@@ -33,9 +33,9 @@ describe("transcribeDictation bridge", () => {
   });
 
   it("passes the native error through for the toast", async () => {
-    vi.mocked(invoke).mockRejectedValueOnce("Couldn't reach your Mac to transcribe.");
+    vi.mocked(invoke).mockRejectedValueOnce("Couldn't reach your host to transcribe.");
     await expect(transcribeDictation("AAAA")).rejects.toBe(
-      "Couldn't reach your Mac to transcribe.",
+      "Couldn't reach your host to transcribe.",
     );
   });
 });

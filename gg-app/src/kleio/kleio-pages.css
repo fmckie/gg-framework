@@ -2325,6 +2325,177 @@
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 }
 
+/* ── Setup (Settings): a checklist. Progress at the top, a card per step with
+   its status in the header, and the optional step under its own label. ── */
+/* Names the page for its rules; the page's own column and gaps lay out what's
+   inside it. */
+.setup-page {
+  display: contents;
+}
+.setup-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.setup-progress-count {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+/* One segment per needed step: done ones filled, the rest outlined. The count
+   above says the same in words. */
+.setup-progress-bar {
+  display: flex;
+  gap: 6px;
+}
+.setup-progress-bar > span {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.setup-progress-bar > span.is-done {
+  background: var(--success);
+  box-shadow: none;
+}
+/* A note about the whole page (a device that isn't the admin, an older host):
+   a neutral card with an icon, so it reads as a note, not a step. */
+.setup-callout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+}
+.setup-callout.is-warn {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--border));
+}
+.setup-callout-icon {
+  display: flex;
+  padding-top: 1px;
+  color: var(--text-secondary);
+}
+.setup-callout.is-warn .setup-callout-icon {
+  color: var(--warning);
+}
+.setup-callout-title {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text);
+}
+/* A step's state in words, with the one thing to do beside it. */
+.setup-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+/* The optional steps sit apart, under their own label. */
+.setup-group-label {
+  margin: 4px 0 -16px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Dictation's download (DictationCard.tsx): what the host is doing and how
+   much it has, then a bar on Setup's progress track, filled with the app's
+   progress flux (glass.css, the model install's bar too) rather than the
+   green of a step done. */
+.setup-download {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup-download-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 16px;
+}
+.setup-download-size {
+  font-variant-numeric: tabular-nums;
+}
+.setup-download-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.setup-download-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--flux-fill);
+}
+/* High contrast drops backgrounds: keep the track's edge and the fill. */
+@media (forced-colors: active) {
+  .setup-download-bar {
+    border: 1px solid CanvasText;
+  }
+  .setup-download-bar > span {
+    background: Highlight;
+  }
+}
+/* Try it: the chat box's own mic, with what it's doing beside it. */
+.setup-dictation-try {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup-dictation-try-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.setup-dictation-try-row > .dictate-btn {
+  flex: none;
+}
+
+/* A provider key (KeyForm.tsx): its label with "Get a key" on one line, where
+   to find one under it, then the field and Save. */
+.key-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.key-field-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.key-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.key-field-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+.key-field .modal-row {
+  margin-top: 4px;
+}
+/* The browser's own placeholder grey (#757575) is too faint on the dark field
+   (4.2:1), so the placeholder takes the theme's muted text colour. */
+.key-field .modal-input::placeholder {
+  color: var(--text-muted);
+}
+
 /* ── About (Settings): the mark, the version and the credit, centred like a
    Mac app's About window. ── */
 .about-card {

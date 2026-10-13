@@ -150,7 +150,12 @@ import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
 import { AutopilotToggle } from "./AutopilotToggle";
 import { SettingsModal } from "./LazySettingsModal";
-import { initialEntryView, type EntryView } from "./app-entry-view";
+import {
+  initialEntryView,
+  localStorageOrNull,
+  shouldOpenSetup,
+  type EntryView,
+} from "./app-entry-view";
 import {
   showsQueuedBubble,
   submitDisposition,
@@ -669,6 +674,10 @@ function App(): React.ReactElement {
   // Every window starts from the mode-neutral home screen before choosing Code or Chat.
   const [entryView, setEntryView] = useState<EntryView>(initialEntryView(isSecondaryWindow));
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>("general");
+  // The view as of the last render, so boot-time code can tell whether
+  // something (a notification tap, a tray intent) already moved off Home.
+  const entryViewRef = useRef(entryView);
+  entryViewRef.current = entryView;
   // Re-open the matching session picker over an already-open workspace.
   const [showPicker, setShowPicker] = useState(false);
   // Bumped on each workspace/session choice to force re-hydration.
@@ -1749,6 +1758,15 @@ function App(): React.ReactElement {
           setWorkspaceMode(target.mode);
           // No crossfade on boot: there's no previous screen to fade from.
           resetForChosenProject();
+        } else if (
+          // kleio: a new device opens on Setup once after pairing — main window
+          // only, and only if nothing (a restored workspace, a notification
+          // tap, a tray intent) has already taken this window off Home.
+          entryViewRef.current === "home" &&
+          shouldOpenSetup(localStorageOrNull(), isSecondaryWindow)
+        ) {
+          setSettingsTab("setup");
+          setEntryView("settings");
         }
       })
       .finally(() => setRestoreChecked(true));

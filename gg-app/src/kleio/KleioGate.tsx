@@ -45,23 +45,22 @@ export function KleioGate({ children }: { children: ReactNode }): React.ReactEle
   } else if (!active) {
     body = (
       <>
-        <h1 className="kleio-gate-title">Connect to your Mac mini</h1>
+        <h1 className="kleio-gate-title">Connect to your host</h1>
         <p className="kleio-gate-text">
-          Kleio runs on your Mac mini and talks to it over Tailscale. Pair this {device} once and
-          Kleio opens straight into your conversations, specialists and apps.
+          Kleio runs on your host and talks to it over Tailscale. Pair this {device} once and Kleio
+          opens straight into your conversations, specialists and apps.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setPairing(true)}>
-          {status.paired ? "Finish connecting" : "Pair with your Mac mini"}
+          {status.paired ? "Finish connecting" : "Pair with your host"}
         </button>
       </>
     );
   } else {
     body = (
       <>
-        <h1 className="kleio-gate-title">Can't reach your Mac mini</h1>
+        <h1 className="kleio-gate-title">Can't reach your host</h1>
         <p className="kleio-gate-text">
-          Make sure Tailscale is on, on this {device} and on the Mac mini, and that the mini is
-          awake.
+          Make sure Tailscale is on, on this {device} and on the host, and that it is awake.
         </p>
         <div className="kleio-gate-actions">
           <button type="button" className="btn btn-primary" onClick={() => void probe()}>

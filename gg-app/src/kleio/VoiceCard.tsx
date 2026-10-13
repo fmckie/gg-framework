@@ -1,6 +1,7 @@
-// Settings → About: Kleio's voice (OpenAI GPT-Live). The key lives on the Mac
-// mini; an admin device sets it and picks her voice. Talk to Kleio needs this;
-// without it, "Brief me" reads aloud in the system's own voice.
+// Settings → Setup: Kleio's voice (OpenAI GPT-Live), one of the setup steps.
+// The key lives on the host; an admin device sets it and picks her voice. Talk
+// to Kleio needs this; without it, "Brief me" reads aloud in the system's own
+// voice.
 
 import { useEffect, useState } from "react";
 import { QuestionIcon, SpeakerHighIcon } from "@phosphor-icons/react";
@@ -14,8 +15,12 @@ import {
   setVoiceName,
   type VoiceStatus,
 } from "./kleioApi";
+import { KeyField } from "./KeyForm";
+import { StepBadge, type StepMark } from "./StepBadge";
 import { VoiceGuide } from "./VoiceGuide";
 import { setVoiceReady, talkToKleio } from "./VoiceMode";
+
+const OPENAI_KEYS_URL = "https://platform.openai.com/api-keys";
 
 /** GPT-Live's voices, as the picker names them; marin and cedar sound the most natural. */
 const VOICE_LABELS: Record<string, string> = {
@@ -50,14 +55,25 @@ function keyError(e: unknown): string {
     if (e.message === "no_credit")
       return "That key works, but the account has no credit. Add some on platform.openai.com.";
     if (e.message === "forbidden") return "Only an admin device can set the key.";
-    if (e.status === 404) return "Your Mac mini needs the latest Kleio first.";
+    if (e.status === 404) return "Your host needs the latest Kleio first.";
   }
   return errorText(e);
 }
 
-function ConversationCard(): React.ReactElement {
+/**
+ * `canEdit` false (a device that isn't an admin): the key, the voice and
+ * removing the key are left to the admin device, as the host only lets it
+ * change them. Talking works from any device. `onReady` hears whether she can
+ * talk (null until the host says), for Setup's progress.
+ */
+function ConversationCard({
+  canEdit,
+  onReady,
+}: {
+  canEdit: boolean;
+  onReady?: (ready: boolean | null) => void;
+}): React.ReactElement {
   const [status, setStatus] = useState<VoiceStatus | null | "unavailable">(null);
-  const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guide, setGuide] = useState(false);
@@ -73,14 +89,20 @@ function ConversationCard(): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    onReady?.(status === null || status === "unavailable" ? null : status.ready);
+  }, [status, onReady]);
+
+  function took(s: VoiceStatus): void {
+    setStatus(s);
+    setVoiceReady(s.ready);
+  }
+
   async function act(f: () => Promise<VoiceStatus>): Promise<void> {
     setBusy(true);
     setError(null);
     try {
-      const s = await f();
-      setStatus(s);
-      setVoiceReady(s.ready);
-      setKey("");
+      took(await f());
     } catch (e) {
       setError(keyError(e));
     } finally {
@@ -88,35 +110,42 @@ function ConversationCard(): React.ReactElement {
     }
   }
 
+  const mark: StepMark =
+    status === null
+      ? "checking"
+      : status === "unavailable"
+        ? "unknown"
+        : status.ready
+          ? "done"
+          : "needed";
+
   return (
     <SettingsCard
       title="Talk to Kleio"
-      description="A natural, two-way conversation, run by OpenAI's model with your own API key. Your key is kept on your Mac mini. A typical day costs a few cents."
+      subtitle="OpenAI"
+      badge={<StepBadge mark={mark} />}
+      description="A natural, two-way conversation, run by OpenAI with your own key, kept on your host. What she reads, including your memories, chats, files and project details, goes to OpenAI under that key. A typical day costs a few cents."
     >
-      <p className="settings-desc">
-        To answer you, what she reads is sent to OpenAI under your key, including your memories,
-        chats, files and project details.
-      </p>
-      {status === null ? (
-        <p className="settings-desc">Checking…</p>
-      ) : status === "unavailable" ? (
-        <p className="settings-desc">Your Mac mini needs the latest Kleio first.</p>
+      {status === null ? null : status === "unavailable" ? (
+        <p className="settings-desc">Your host needs the latest Kleio first.</p>
       ) : status.ready ? (
         <>
           <div className="modal-row">
-            <select
-              className="modal-input"
-              aria-label="Kleio's conversation voice"
-              value={status.voice}
-              disabled={busy}
-              onChange={(e) => void act(() => setVoiceName(e.target.value))}
-            >
-              {status.voices.map((v) => (
-                <option key={v} value={v}>
-                  {VOICE_LABELS[v] ?? v}
-                </option>
-              ))}
-            </select>
+            {canEdit && (
+              <select
+                className="modal-input"
+                aria-label="Kleio's conversation voice"
+                value={status.voice}
+                disabled={busy}
+                onChange={(e) => void act(() => setVoiceName(e.target.value))}
+              >
+                {status.voices.map((v) => (
+                  <option key={v} value={v}>
+                    {VOICE_LABELS[v] ?? v}
+                  </option>
+                ))}
+              </select>
+            )}
             <button type="button" className="btn btn-ghost" onClick={() => void talkToKleio()}>
               <SpeakerHighIcon size={16} weight="bold" aria-hidden="true" />
               Talk now
@@ -126,49 +155,37 @@ function ConversationCard(): React.ReactElement {
             She remembers what you tell her in Brain, which text chat shares. Changes apply from
             your next conversation.
           </p>
-          <div className="modal-row">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              disabled={busy}
-              onClick={() => void act(removeVoiceKey)}
-            >
-              Remove OpenAI key
-            </button>
-          </div>
+          {canEdit && (
+            <div className="modal-row">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy}
+                onClick={() => void act(removeVoiceKey)}
+              >
+                Remove OpenAI key
+              </button>
+            </div>
+          )}
         </>
-      ) : (
-        <form
-          className="modal-row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (key.trim()) void act(() => setVoiceKey(key));
-          }}
-        >
-          <input
-            className="modal-input"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="OpenAI API key (sk-…)"
-            aria-label="OpenAI API key"
-            value={key}
-            disabled={busy}
-            onChange={(e) => setKey(e.target.value)}
-          />
-          <button type="submit" className="btn btn-primary" disabled={busy || !key.trim()}>
-            {busy ? "Checking…" : "Save"}
-          </button>
-        </form>
-      )}
+      ) : canEdit ? (
+        <KeyField
+          label="OpenAI API key"
+          placeholder="OpenAI API key (sk-…)"
+          url={OPENAI_KEYS_URL}
+          hint="On platform.openai.com, open API keys and create a key."
+          save={async (key) => took(await setVoiceKey(key))}
+          describeError={keyError}
+        />
+      ) : null}
       {error && (
         <p className="settings-desc is-error" role="alert">
           {error}
         </p>
       )}
       <div className="modal-row">
-        <button type="button" className="btn btn-ghost" onClick={() => setGuide(true)}>
-          <QuestionIcon size={16} weight="bold" aria-hidden="true" />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setGuide(true)}>
+          <QuestionIcon size={14} weight="bold" aria-hidden="true" />
           What Kleio Voice can do
         </button>
       </div>
@@ -177,6 +194,13 @@ function ConversationCard(): React.ReactElement {
   );
 }
 
-export function VoiceCard(): React.ReactElement {
-  return <ConversationCard />;
+/** `canEdit`: whether this device may change the key and voice (an admin device). */
+export function VoiceCard({
+  canEdit = true,
+  onReady,
+}: {
+  canEdit?: boolean;
+  onReady?: (ready: boolean | null) => void;
+}): React.ReactElement {
+  return <ConversationCard canEdit={canEdit} onReady={onReady} />;
 }

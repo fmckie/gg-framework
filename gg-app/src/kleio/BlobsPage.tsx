@@ -232,8 +232,8 @@ function AgentList({
             <BlobAvatar look={{ shape: "orb", face: "happy", color: "sky" }} size={64} animated />
             <h2 className="kleio-first-title">No specialists yet</h2>
             <p className="kleio-first-text" style={{ color: theme.textMuted }}>
-              A specialist does one job for you on your Mac mini — on a schedule or when you ask —
-              and shares Kleio's memory of you.
+              A specialist does one job for you on your host — on a schedule or when you ask — and
+              shares Kleio's memory of you.
             </p>
             <MetalButton
               windowFocused={windowFocused}
@@ -445,7 +445,7 @@ function AgentDetail({
       {confirmNew && (
         <ConfirmModal
           title="Start a new conversation?"
-          message={`Every device switches to a fresh conversation with ${blob.name}. The old one stays on your Mac mini.`}
+          message={`Every device switches to a fresh conversation with ${blob.name}. The old one stays on your host.`}
           confirmLabel="New conversation"
           busy={starting}
           onConfirm={() => void startFresh()}

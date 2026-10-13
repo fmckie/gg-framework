@@ -39,10 +39,10 @@ describe("KleioGate", () => {
         <p>the app</p>
       </KleioGate>,
     );
-    expect(await screen.findByText("Connect to your Mac mini")).toBeDefined();
+    expect(await screen.findByText("Connect to your host")).toBeDefined();
     expect(screen.queryByText("the app")).toBeNull();
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_api", expect.anything());
-    fireEvent.click(screen.getByRole("button", { name: "Pair with your Mac mini" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair with your host" }));
     expect(screen.getByRole("dialog", { name: "Pair" })).toBeDefined();
   });
 
@@ -71,7 +71,7 @@ describe("KleioGate", () => {
         <p>the app</p>
       </KleioGate>,
     );
-    expect(await screen.findByText("Can't reach your Mac mini")).toBeDefined();
+    expect(await screen.findByText("Can't reach your host")).toBeDefined();
     expect(screen.queryByText("the app")).toBeNull();
     up = true;
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));

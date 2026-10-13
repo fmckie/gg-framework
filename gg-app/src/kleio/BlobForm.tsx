@@ -57,7 +57,7 @@ const JOB_EXAMPLES: readonly { label: string; job: string }[] = [
 export function whereItRuns(m: KleioModel): string {
   if (!m.private) return "Cloud — runs on the provider's servers";
   if (/tinfoil/i.test(m.label)) return "Private — runs in Tinfoil's sealed cloud";
-  return "Private — runs on your Mac mini";
+  return "Private — runs on your host";
 }
 
 export function modelOptions(list: ModelList | null): DropdownOption[] {

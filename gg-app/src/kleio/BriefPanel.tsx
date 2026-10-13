@@ -34,10 +34,10 @@ function subscribe(l: () => void): () => void {
 /** What went wrong, in words for the panel. */
 export function briefError(e: unknown): string {
   if (e instanceof KleioApiError) {
-    if (e.status === 0) return "I couldn't reach your Mac mini. Check it's on and connected.";
-    if (e.status === 404) return "Your Mac mini needs the latest Kleio to give briefings.";
+    if (e.status === 0) return "I couldn't reach your host. Check it's on and connected.";
+    if (e.status === 404) return "Your host needs the latest Kleio to give briefings.";
     if (e.status === 401 || e.status === 403)
-      return "This device isn't connected to your Mac mini any more.";
+      return "This device isn't connected to your host any more.";
   }
   return "Something went wrong getting your briefing. Try again in a moment.";
 }
@@ -112,7 +112,7 @@ export function BriefPanel(): React.ReactElement | null {
           <XIcon size={16} weight="bold" aria-hidden="true" />
         </button>
       </header>
-      {v.kind === "loading" && <p className="brief-text is-muted">Asking your Mac mini…</p>}
+      {v.kind === "loading" && <p className="brief-text is-muted">Asking your host…</p>}
       {v.kind === "error" && (
         <p className="brief-text is-error" role="alert">
           {v.message}

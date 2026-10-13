@@ -142,7 +142,7 @@ export function LoginScreen({ onClose }: Props): React.ReactElement {
         type="button"
         className="login-tile"
         onClick={() => setLocalOpen(true)}
-        title="Tinfoil — private AI in secure hardware, set up on your Mac mini"
+        title="Tinfoil — private AI in secure hardware, set up on your host"
       >
         {servers.tinfoil.reachable && (
           <span className="login-conn-dot" title="Running" aria-label="Running" />
@@ -153,9 +153,7 @@ export function LoginScreen({ onClose }: Props): React.ReactElement {
           </span>
         </span>
         <span className="login-tile-name">Tinfoil</span>
-        <span className="login-tile-methods">
-          {serverBadge(servers.tinfoil, "Set up on Mac mini")}
-        </span>
+        <span className="login-tile-methods">{serverBadge(servers.tinfoil, "Set up on host")}</span>
       </button>
       {/* Ollama's official mark (dark-icon-64 from ollama.com), same 48px
           logo box as every provider tile. */}
@@ -163,7 +161,7 @@ export function LoginScreen({ onClose }: Props): React.ReactElement {
         type="button"
         className="login-tile"
         onClick={() => setLocalOpen(true)}
-        title="Ollama — models running on your Mac mini"
+        title="Ollama — models running on your host"
       >
         {servers.ollama.reachable && (
           <span className="login-conn-dot" title="Running" aria-label="Running" />
@@ -275,7 +273,7 @@ export function LoginScreen({ onClose }: Props): React.ReactElement {
               <Badge color={theme.success} className="login-recommended">
                 Recommended
               </Badge>{" "}
-              Run on your Mac mini or in secure hardware, so your chats stay yours.
+              Run on your host or in secure hardware, so your chats stay yours.
             </>
           }
         >

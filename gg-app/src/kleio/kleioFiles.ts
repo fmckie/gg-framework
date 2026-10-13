@@ -227,7 +227,7 @@ export function formatBytes(n: number): string {
 /** The Rust/host error as something to show under a file. */
 export function fileErrorText(e: unknown): string {
   const raw = errorText(e);
-  if (/^no such file/i.test(raw)) return "This file isn't on your Mac mini any more.";
+  if (/^no such file/i.test(raw)) return "This file isn't on your host any more.";
   if (/^no such agent/i.test(raw)) return "That specialist no longer exists.";
   if (/^no such group/i.test(raw)) return "That group no longer exists.";
   if (/^no such workspace/i.test(raw) || /bad folder/i.test(raw))
@@ -235,9 +235,9 @@ export function fileErrorText(e: unknown): string {
   if (/^file too large/i.test(raw) || /larger than/i.test(raw))
     return "This file is too big to open from Kleio (over 50 MB).";
   if (/bad path/i.test(raw)) return "Kleio only opens files from its own folders.";
-  if (/^not found$/i.test(raw)) return "Your Mac mini needs an update to share files.";
+  if (/^not found$/i.test(raw)) return "Your host needs an update to share files.";
   if (/^bad_request$/i.test(raw))
-    return "Your Mac mini didn't understand that request. Update Kleio on both devices.";
+    return "Your host didn't understand that request. Update Kleio on both devices.";
   return raw;
 }
 
@@ -246,7 +246,7 @@ export function siteErrorText(e: unknown): string {
   const raw = errorText(e);
   // An older host has no preview route ("not found"); a newer one without a
   // preview port answers "not_found".
-  if (/^not[ _]found$/i.test(raw)) return "Your Mac mini needs an update to open sites.";
+  if (/^not[ _]found$/i.test(raw)) return "Your host needs an update to open sites.";
   if (/^not_a_site$/i.test(raw)) return "Only web pages open as a site.";
   return fileErrorText(e);
 }

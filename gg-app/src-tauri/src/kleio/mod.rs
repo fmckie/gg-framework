@@ -491,7 +491,7 @@ mod tests {
         );
         assert_eq!(
             created_project(502, "<html>bad gateway</html>"),
-            Err("Your Mac mini answered 502".to_string())
+            Err("Your host answered 502".to_string())
         );
     }
 
@@ -556,7 +556,7 @@ pub async fn host_create_project(
     name: &str,
 ) -> Result<serde_json::Value, String> {
     let cant_reach =
-        |e: reqwest::Error| format!("Couldn't reach your Mac mini: {}", commands::root_cause(&e));
+        |e: reqwest::Error| format!("Couldn't reach your host: {}", commands::root_cause(&e));
     let res = client
         .post(format!("{base}/create-project"))
         .header("x-gg-session", gg_sid)
@@ -585,5 +585,5 @@ fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String>
         .and_then(|v| v.get("path")?.as_str().map(str::to_string))
         .filter(|p| !p.trim().is_empty())
         .map(|path| serde_json::json!({ "path": path }))
-        .ok_or_else(|| "Your Mac mini didn't say where it made the project.".to_string())
+        .ok_or_else(|| "Your host didn't say where it made the project.".to_string())
 }

@@ -88,7 +88,7 @@ const HOW_IT_WORKS = [
   "Send a message and the specialist best placed for it starts; others join in as needed.",
   "@mention specialists to choose who replies, in the order you mention them.",
   "Specialists can @mention each other to hand over.",
-  "The pen button starts a new conversation; the old one stays on your Mac mini.",
+  "The pen button starts a new conversation; the old one stays on your host.",
 ];
 
 function HowItWorks(): React.ReactElement {
@@ -1204,7 +1204,7 @@ function GroupChat({
       {confirmNew && (
         <ConfirmModal
           title="Start a new conversation?"
-          message={`Every device switches to a fresh conversation with ${group.name}, and any reply in progress stops. The old one stays on your Mac mini.`}
+          message={`Every device switches to a fresh conversation with ${group.name}, and any reply in progress stops. The old one stays on your host.`}
           confirmLabel="New conversation"
           busy={starting}
           onConfirm={() => void startFresh()}

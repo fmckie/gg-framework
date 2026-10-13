@@ -1,6 +1,7 @@
 // Dictation (iPhone and Mac), the visible half: the mic button that sits beside send in
-// every chat box, and the status pill (timer, then "Transcribing…") above it.
-// The recording and transcription live in useDictation.ts.
+// every chat box, and the status pill (timer, then "Transcribing…", or
+// "Preparing speech model…" while the host gets it) above it. The recording and
+// transcription live in useDictation.ts.
 
 import { CircleNotchIcon, MicrophoneIcon, SquareIcon } from "@phosphor-icons/react";
 import type React from "react";
@@ -45,10 +46,11 @@ export function DictateButton({
   );
 }
 
-/** Always mounted, so screen readers hear each change. The ticking timer is
- * hidden from them; they hear "Recording" once. */
+/** Always mounted, so screen readers hear each change. The ticking timer and
+ * the download's percent are hidden from them; they hear "Recording" or
+ * "Preparing speech model…" once. */
 export function DictationStatus({ dictation }: { dictation: UseDictation }): React.ReactElement {
-  const { phase } = dictation;
+  const { phase, preparing } = dictation;
   return (
     <div
       className={`dictation-status${phase === "recording" || phase === "transcribing" ? " visible" : ""}`}
@@ -61,7 +63,17 @@ export function DictationStatus({ dictation }: { dictation: UseDictation }): Rea
           <span aria-hidden="true">{formatElapsed(dictation.elapsedMs)}</span>
         </>
       )}
-      {phase === "transcribing" && "Transcribing…"}
+      {phase === "transcribing" &&
+        (preparing ? (
+          <>
+            Preparing speech model…
+            {preparing.percent !== null && (
+              <span aria-hidden="true">{`${preparing.percent}%`}</span>
+            )}
+          </>
+        ) : (
+          "Transcribing…"
+        ))}
     </div>
   );
 }

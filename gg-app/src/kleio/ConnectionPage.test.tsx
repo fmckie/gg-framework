@@ -99,7 +99,7 @@ describe("ConnectionPage", () => {
       "Kleio on mac-mini-1: Running",
     ]);
     expect(within(box).queryByText("How to fix it")).toBeNull();
-    const mini = screen.getByRole("region", { name: "Mac mini" });
+    const mini = screen.getByRole("region", { name: "Host" });
     expect(within(mini).getByText("https://mac-mini-1.tail0000.ts.net:8443")).toBeTruthy();
     expect(within(mini).getByText("38 ms")).toBeTruthy();
     const ts = screen.getByRole("region", { name: "Tailscale" });
@@ -192,7 +192,7 @@ describe("ConnectionPage", () => {
     // The iPhone app pairs by typing: it needs the host's address too.
     const steps = within(screen.getByRole("region", { name: "iPhone" })).getByRole("list");
     expect(within(steps).getByText("https://mac-mini-1.tail0000.ts.net:8443")).toBeTruthy();
-    expect(within(steps).getByText("Pair with your Mac mini")).toBeTruthy();
+    expect(within(steps).getByText("Pair with your host")).toBeTruthy();
     expect(screen.getByText(/expires in [45]:\d\d/)).toBeTruthy();
   });
 

@@ -556,6 +556,11 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "brain"]
             | ["kleio", "voice", "files"]
             | ["kleio", "voice", "files", "read"]
+            // Settings → Setup: the status, an admin's Composio/Typesafe keys,
+            // and dictation's speech model (its status, and starting its download).
+            | ["kleio", "setup"]
+            | ["kleio", "setup", "keys", "composio" | "typesafe"]
+            | ["kleio", "setup", "dictation"]
             | ["kleio", "sessions"]
             | ["kleio", "sessions", _]
             | ["kleio", "projects"]
@@ -720,7 +725,7 @@ pub async fn host_auth(
     if !auth_route_allowed(method, path) {
         return Err(format!("host_auth: {method} {path} not allowed"));
     }
-    let r = super::remote().ok_or("Not connected to your Mac mini.")?;
+    let r = super::remote().ok_or("Not connected to your host.")?;
     let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
     let mut req = api_client(r)?
         .request(m, format!("{}{}", r.base, path))
@@ -737,7 +742,7 @@ pub async fn host_auth(
             .get("error")
             .and_then(|e| e.as_str())
             .map(str::to_string)
-            .unwrap_or_else(|| format!("Your Mac mini answered {}", status.as_u16())));
+            .unwrap_or_else(|| format!("Your host answered {}", status.as_u16())));
     }
     Ok(value)
 }
@@ -863,9 +868,52 @@ mod tests {
             ("GET", "/kleio/connections"),
             ("GET", "/kleio/connections/toolkits"),
             ("POST", "/kleio/connections/gmail/connect"),
+            ("GET", "/kleio/setup"),
+            ("POST", "/kleio/setup/keys/composio"),
+            ("DELETE", "/kleio/setup/keys/composio"),
+            ("POST", "/kleio/setup/keys/typesafe"),
+            ("DELETE", "/kleio/setup/keys/typesafe"),
+            ("GET", "/kleio/setup/dictation"),
+            ("POST", "/kleio/setup/dictation"),
         ] {
             assert_eq!(check_route(m, p, None), Ok(false), "{m} {p}");
         }
+    }
+
+    #[test]
+    fn kleio_api_allows_the_dictation_step_and_nothing_near_it() {
+        // The exact path only: nothing below it, no session, and never the
+        // sidecar's own /dictation routes (the host checks what they answer).
+        for p in [
+            "/kleio/setup/dictation/prepare",
+            "/kleio/setup/dictations",
+            "/dictation",
+            "/dictation/prepare",
+        ] {
+            for m in ["GET", "POST"] {
+                assert!(check_route(m, p, None).is_err(), "{m} {p}");
+                assert!(
+                    check_route(m, p, Some("sess-1")).is_err(),
+                    "{m} {p} with a session"
+                );
+            }
+        }
+        assert!(check_route("GET", "/kleio/setup/dictation", Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_allows_only_the_setup_keys_it_knows() {
+        // Settings → Setup was refused ("path not allowed") until its routes
+        // were listed here; only the two key names, nothing else under it.
+        for p in [
+            "/kleio/setup/keys",
+            "/kleio/setup/keys/openai",
+            "/kleio/setup/keys/composio/extra",
+            "/kleio/setup/anything",
+        ] {
+            assert!(check_route("POST", p, None).is_err(), "{p}");
+        }
+        assert!(check_route("GET", "/kleio/setup", Some("sess-1")).is_err());
     }
 
     #[test]

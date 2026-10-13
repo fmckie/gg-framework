@@ -9,7 +9,7 @@ import Foundation
 struct BriefMeIntent: AppIntent {
   static let title: LocalizedStringResource = "Brief Me"
   static let description = IntentDescription(
-    "Hear what needs you, what finished and what is still working on your Mac mini.")
+    "Hear what needs you, what finished and what is still working on your host.")
   // The pairing is in the Keychain, which opens only while the phone is
   // unlocked, and a briefing is private: Siri asks to unlock first.
   static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication

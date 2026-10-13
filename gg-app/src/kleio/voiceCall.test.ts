@@ -30,7 +30,7 @@ describe("callError", () => {
       [new KleioApiError(422, "bad_key"), /didn't accept the key/],
       [new KleioApiError(422, "no_credit"), /out of credit/],
       [new KleioApiError(504, "unreachable"), /couldn't reach OpenAI/],
-      [new KleioApiError(0, "offline"), /couldn't reach your Mac mini/],
+      [new KleioApiError(0, "offline"), /couldn't reach your host/],
       [new KleioApiError(404, "not_found"), /needs the latest Kleio/],
       [new KleioApiError(502, "rejected", "Model not found"), /OpenAI said: Model not found/],
       [new Error("boom"), /Something went wrong/],

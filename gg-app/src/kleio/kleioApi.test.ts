@@ -92,6 +92,103 @@ describe("kleioApi transport", () => {
   });
 });
 
+describe("dictation setup", () => {
+  const BYTES = 138_853_314;
+
+  it("asks the host where its speech model is, and starts the download, with a 10 s limit", async () => {
+    const calls = reply({ dictation: { state: "absent", bytes: BYTES } });
+    expect(await api.getDictationSetup()).toEqual({ state: "absent", bytes: BYTES });
+    const started = reply({ dictation: { state: "downloading", loaded: 0, bytes: BYTES } });
+    expect(await api.startDictationSetup()).toEqual({
+      state: "downloading",
+      loaded: 0,
+      bytes: BYTES,
+    });
+    expect([...calls, ...started]).toEqual([
+      {
+        method: "GET",
+        path: "/kleio/setup/dictation",
+        body: null,
+        session: null,
+        timeoutMs: 10_000,
+      },
+      {
+        method: "POST",
+        path: "/kleio/setup/dictation",
+        body: null,
+        session: null,
+        timeoutMs: 10_000,
+      },
+    ]);
+  });
+
+  it("throws the host's status, so the card can tell an old host from a down engine", async () => {
+    reply({ error: "not_found" }, 404);
+    await expect(api.getDictationSetup()).rejects.toMatchObject({ status: 404 });
+    reply({ error: "engine_unavailable" }, 503);
+    await expect(api.startDictationSetup()).rejects.toMatchObject({
+      status: 503,
+      message: "engine_unavailable",
+    });
+  });
+
+  it("refuses an answer it can't read rather than guessing", async () => {
+    reply({ dictation: { state: "paused", bytes: BYTES } });
+    await expect(api.getDictationSetup()).rejects.toBeInstanceOf(api.KleioApiError);
+    reply({});
+    await expect(api.getDictationSetup()).rejects.toMatchObject({ status: 502 });
+  });
+
+  it.each([
+    [
+      { state: "absent", bytes: 5 },
+      { state: "absent", bytes: 5 },
+    ],
+    [
+      { state: "loading", bytes: 5 },
+      { state: "loading", bytes: 5 },
+    ],
+    [
+      { state: "ready", bytes: 5, extra: "dropped" },
+      { state: "ready", bytes: 5 },
+    ],
+    [
+      { state: "downloading", loaded: 2, bytes: 5 },
+      { state: "downloading", loaded: 2, bytes: 5 },
+    ],
+    [
+      { state: "failed", reason: "storage", bytes: 5, detail: "ENOSPC" },
+      { state: "failed", reason: "storage", bytes: 5 },
+    ],
+    [
+      { state: "unsupported", os: "darwin", arch: "x64", bytes: 5 },
+      { state: "unsupported", os: "darwin", arch: "x64", bytes: 5 },
+    ],
+  ])("parseDictationStatus reads %j", (raw, parsed) => {
+    expect(api.parseDictationStatus(raw)).toEqual(parsed);
+  });
+
+  it.each([
+    null,
+    "ready",
+    [],
+    { state: "ready" },
+    { state: "ready", bytes: -1 },
+    { state: "ready", bytes: 1.5 },
+    { state: "ready", bytes: "5" },
+    { state: "downloading", bytes: 5 },
+    { state: "downloading", loaded: 6, bytes: 5 },
+    { state: "failed", bytes: 5 },
+    { state: "failed", reason: "ENOSPC: no space left", bytes: 5 },
+    { state: "failed", reason: "toString", bytes: 5 },
+    { state: "unsupported", os: "darwin", bytes: 5 },
+    { state: "unsupported", os: "../../etc", arch: "x64", bytes: 5 },
+    { state: "paused", bytes: 5 },
+  ])("parseDictationStatus refuses %j", (raw) => {
+    expect(api.parseDictationStatus(raw)).toBeNull();
+  });
+});
+
 describe("kleioApi routes", () => {
   const cases: Array<{
     name: string;

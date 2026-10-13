@@ -17,7 +17,7 @@ export function pairTicket(baseUrl: string, code: string): TicketResult {
   try {
     url = new URL(baseUrl.trim());
   } catch {
-    return { ok: false, error: "The Mac mini's address isn't a valid link." };
+    return { ok: false, error: "The host's address isn't a valid link." };
   }
   const host = url.hostname;
   if (

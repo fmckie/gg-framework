@@ -626,7 +626,7 @@ fn port_for(webview: &WebviewWindow) -> Option<u16> {
 /// The daemon session id for the window that issued a command, or `None` until
 /// the daemon's `POST /session` has returned for this window.
 /// kleio: a remote call made before this window's host session is up.
-const STILL_CONNECTING: &str = "Still connecting to your Mac mini — try again in a moment.";
+const STILL_CONNECTING: &str = "Still connecting to your host — try again in a moment.";
 
 fn session_for(webview: &WebviewWindow) -> Option<String> {
     let windows: State<Windows> = webview.state();
@@ -1768,7 +1768,8 @@ async fn agent_transcribe(
         .post(format!("{}/transcribe", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
         .json(&serde_json::json!({ "audio": audio }))
-        // The first clip also downloads the speech model (~140 MB) on the Mac.
+        // The first clip also downloads the speech model (~140 MB) where the
+        // sidecar runs: the host once paired.
         .timeout(std::time::Duration::from_secs(300))
         .send()
         .await
@@ -1776,7 +1777,7 @@ async fn agent_transcribe(
             if e.is_timeout() {
                 "Transcribing took too long. Try again.".to_owned()
             } else {
-                "Couldn't reach your Mac to transcribe.".to_owned()
+                "Couldn't reach your host to transcribe.".to_owned()
             }
         })?;
     let status = res.status();
@@ -3503,12 +3504,12 @@ async fn agent_project_folders(
         .header("x-gg-session", &gg_sid)
         .send()
         .await
-        .map_err(|e| format!("Couldn't reach your Mac mini: {e}"))?;
+        .map_err(|e| format!("Couldn't reach your host: {e}"))?;
     let status = res.status().as_u16();
     let body = res
         .text()
         .await
-        .map_err(|e| format!("Couldn't reach your Mac mini: {e}"))?;
+        .map_err(|e| format!("Couldn't reach your host: {e}"))?;
     project_folders(status, &body)
 }
 
@@ -3517,7 +3518,7 @@ async fn agent_project_folders(
 fn project_folders(status: u16, body: &str) -> Result<serde_json::Value, String> {
     if status == 404 {
         return Err(
-            "Your Mac mini needs a Kleio update before it can list its folders here.".to_string(),
+            "Your host needs a Kleio update before it can list its folders here.".to_string(),
         );
     }
     if !(200..300).contains(&status) {
@@ -3526,7 +3527,7 @@ fn project_folders(status: u16, body: &str) -> Result<serde_json::Value, String>
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .filter(|v| v.get("folders").is_some_and(serde_json::Value::is_array))
-        .ok_or_else(|| "Your Mac mini sent a folder list this app can't read.".to_string())
+        .ok_or_else(|| "Your host sent a folder list this app can't read.".to_string())
 }
 
 /// Routines (`/schedule`) are daemon-level: they outlive any window, and on a
@@ -6333,7 +6334,7 @@ mod tests {
     fn project_folders_explains_an_old_host_and_other_failures() {
         assert_eq!(
             project_folders(404, r#"{"error":"not found"}"#),
-            Err("Your Mac mini needs a Kleio update before it can list its folders here.".into())
+            Err("Your host needs a Kleio update before it can list its folders here.".into())
         );
         assert_eq!(
             project_folders(500, r#"{"error":"Couldn't list the project folders."}"#),

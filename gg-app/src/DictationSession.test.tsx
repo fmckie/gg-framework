@@ -10,12 +10,14 @@ vi.mock("./dictation-recorder", async (importOriginal) => ({
   ...(await importOriginal<typeof Recorder>()),
   startRecording: vi.fn(),
 }));
+vi.mock("./kleio/kleioApi", () => ({ getDictationSetup: vi.fn() }));
 
 import { transcribeDictation } from "./agent";
 import { startRecording } from "./dictation-recorder";
 import { DictationSession } from "./DictationSession";
+import { getDictationSetup } from "./kleio/kleioApi";
 import { toast } from "./toast";
-import type { UseDictation } from "./useDictation";
+import { READINESS_DELAY_MS, type UseDictation } from "./useDictation";
 
 afterEach(() => {
   cleanup();
@@ -72,6 +74,41 @@ describe("DictationSession (Chat and Code composer)", () => {
     expect(toast).toHaveBeenCalledWith(expect.stringMatching(/microphone/i), "error");
     expect(s.draft()).toBe("Keep me.");
     expect(s.onDictated).not.toHaveBeenCalled();
+  });
+
+  it("passes the host's preparing state up, for the composer's pill", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(getDictationSetup).mockResolvedValue({
+        state: "downloading",
+        loaded: 37_000_000,
+        bytes: 138_853_314,
+      });
+      vi.mocked(startRecording).mockResolvedValue({
+        ok: true,
+        value: { stop: vi.fn(async () => "AAAA"), cancel: vi.fn() },
+      });
+      let finish: (text: string) => void = () => undefined;
+      vi.mocked(transcribeDictation).mockReturnValue(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const s = mount();
+      await act(async () => s.last()?.toggle());
+      await act(async () => s.last()?.toggle());
+      expect(s.last()?.preparing).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(READINESS_DELAY_MS);
+      });
+      expect(s.last()).toMatchObject({ phase: "transcribing", preparing: { percent: 26 } });
+
+      await act(async () => finish("then ship it."));
+      expect(s.last()).toMatchObject({ phase: "idle", preparing: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reports null when it goes away, so the composer hides the mic", () => {

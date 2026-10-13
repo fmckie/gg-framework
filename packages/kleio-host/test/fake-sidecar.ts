@@ -1,6 +1,6 @@
 // The fake gg-app sidecar the host tests talk to: loopback Host allowlist +
 // token like the real one, POST /session, /state, /events, /prompt, /complete,
-// /routines, DELETE /session/:id and GET /models.
+// /routines, DELETE /session/:id, GET /models and /dictation.
 
 import { createServer, type Server, type ServerResponse } from "node:http";
 
@@ -70,6 +70,14 @@ export interface FakeSidecar {
    */
   fileText: { status: number; body: unknown | null };
   fileTextCalls: { name: string | null; type: string | undefined; bytes: Buffer }[];
+  /**
+   * GET /dictation answers this status and body. POST /dictation/prepare
+   * first moves the body to `dictationPrepared` (when set), like a run that
+   * started, then answers the same way. Each call lands in dictationCalls.
+   */
+  dictation: { status: number; body: unknown };
+  dictationPrepared: unknown;
+  dictationCalls: string[];
   close(): Promise<void>;
 }
 
@@ -299,6 +307,21 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (
+      (req.method === "GET" && url.pathname === "/dictation") ||
+      (req.method === "POST" && url.pathname === "/dictation/prepare")
+    ) {
+      req.resume();
+      req.on("end", () => {
+        api.dictationCalls.push(`${req.method} ${url.pathname}`);
+        if (req.method === "POST" && api.dictationPrepared !== undefined) {
+          api.dictation = { status: 200, body: api.dictationPrepared };
+        }
+        res.writeHead(api.dictation.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(api.dictation.body));
+      });
+      return;
+    }
     if (req.method === "GET" && url.pathname.startsWith("/stored-sessions")) {
       api.storedCalls.push(url.pathname + url.search);
       if (url.pathname === "/stored-sessions") {
@@ -349,6 +372,9 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     storedCalls: [],
     fileText: { status: 200, body: null },
     fileTextCalls: [],
+    dictation: { status: 200, body: { state: "absent", bytes: 138_853_314 } },
+    dictationPrepared: undefined,
+    dictationCalls: [],
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();
