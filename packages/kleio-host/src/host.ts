@@ -88,6 +88,7 @@ import {
   type KeyCheckError,
   type KeyState,
 } from "./setup-keys.js";
+import { createDictationSetup, DICTATION_SETUP_MAX_BODY } from "./dictation-setup.js";
 import { createStartedChats, parseStartChat } from "./started-chats.js";
 import {
   isSavedSessionKind,
@@ -989,6 +990,8 @@ export function createHost(options: HostOptions): Host {
     const again = await once(fresh);
     return again === "refused" ? null : again;
   };
+
+  const dictationSetup = createDictationSetup(sidecarCall);
 
   const home = options.homeCwd
     ? createHomeThreads({
@@ -2331,6 +2334,25 @@ export function createHost(options: HostOptions): Host {
         return json(res, 405, { error: "method not allowed" });
       }
       return json(res, 200, await setupBody(auth.admin));
+    }
+    // Dictation's step (dictation-setup.ts): where the host's speech model is,
+    // and starting its download. Any paired device: dictating starts it too,
+    // there is no key, and the sidecar runs one download at a time.
+    if (path === "/kleio/setup/dictation") {
+      if (req.method === "GET") {
+        const r = await dictationSetup.status();
+        return r.ok ? json(res, 200, { dictation: r.value }) : json(res, 503, { error: r.error });
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req, DICTATION_SETUP_MAX_BODY);
+        if (body === null) return json(res, 413, { error: "too_large" });
+        const r = await dictationSetup.prepare();
+        if (!r.ok) return json(res, 503, { error: r.error });
+        if (r.value.started) log(`[setup] ${auth.device.label} started the dictation download`);
+        return json(res, 200, { dictation: r.value.dictation });
+      }
+      res.setHeader("allow", "GET, POST");
+      return json(res, 405, { error: "method not allowed" });
     }
     const setupKey = path.match(/^\/kleio\/setup\/keys\/([^/]+)$/);
     if (setupKey) {

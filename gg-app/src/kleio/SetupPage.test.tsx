@@ -7,6 +7,7 @@ import { authStatusWithError } from "../agent";
 import { useHostReach } from "./hostReach";
 import {
   KleioApiError,
+  getDictationSetup,
   getSetupStatus,
   removeSetupKey,
   setSetupKey,
@@ -31,6 +32,8 @@ vi.mock("./kleioApi", async (importOriginal) => {
     getSetupStatus: vi.fn(),
     setSetupKey: vi.fn(),
     removeSetupKey: vi.fn(),
+    getDictationSetup: vi.fn(),
+    startDictationSetup: vi.fn(),
   };
 });
 
@@ -64,6 +67,7 @@ function voiceCard(ready: boolean | null) {
 beforeEach(() => {
   localStorage.clear();
   vi.mocked(getSetupStatus).mockResolvedValue(status());
+  vi.mocked(getDictationSetup).mockResolvedValue({ state: "absent", bytes: 138_853_314 });
   vi.mocked(authStatusWithError).mockResolvedValue({ providers: [PROVIDER], error: null });
   vi.mocked(useHostReach).mockReturnValue("connected");
   vi.mocked(useKleioRemote).mockReturnValue({
@@ -143,6 +147,33 @@ describe("SetupPage", () => {
     expect(optional.nextElementSibling).toBe(groups);
     expect(
       card("Apps").compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows dictation under Optional, after Group chats, without counting it", async () => {
+    await renderPage();
+    const dictation = card("Dictation");
+    expect(card("Group chats").nextElementSibling).toBe(dictation);
+    expect(within(dictation).getByText("Not set up")).toBeTruthy();
+    expect(
+      within(dictation).getByRole("button", { name: "Download speech model (139 MB)" }),
+    ).toBeTruthy();
+    expect(screen.getByText("2 of 4 done")).toBeTruthy();
+    cleanup();
+
+    // Ready or not, the count of needed steps doesn't move.
+    vi.mocked(getDictationSetup).mockResolvedValue({ state: "ready", bytes: 138_853_314 });
+    await renderPage();
+    expect(within(card("Dictation")).getByText("Done")).toBeTruthy();
+    expect(screen.getByText("2 of 4 done")).toBeTruthy();
+    expect(progress().getAttribute("aria-valuemax")).toBe("4");
+  });
+
+  it("shows dictation to a device that isn't the admin, with the download", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(status({}, false));
+    await renderPage();
+    expect(
+      within(card("Dictation")).getByRole("button", { name: "Download speech model (139 MB)" }),
     ).toBeTruthy();
   });
 

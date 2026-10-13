@@ -491,6 +491,85 @@ export const setSetupKey = (name: SetupKeyName, key: string): Promise<SetupStatu
 export const removeSetupKey = (name: SetupKeyName): Promise<SetupStatus> =>
   call("DELETE", `/kleio/setup/keys/${name}`);
 
+// ─── Dictation's step (kleio-host dictation-setup.ts) ────────────────────────────────────
+
+/** Why the host couldn't get dictation's speech model ready. */
+export type DictationFailure = "offline" | "server" | "missing" | "storage" | "integrity" | "load";
+
+const DICTATION_FAILURES: readonly string[] = [
+  "offline",
+  "server",
+  "missing",
+  "storage",
+  "integrity",
+  "load",
+] satisfies readonly DictationFailure[];
+
+/** Where the host's speech model is. `bytes` is the whole model's size, in every state. */
+export type DictationSetup =
+  | { state: "absent"; bytes: number }
+  | { state: "downloading"; loaded: number; bytes: number }
+  | { state: "loading"; bytes: number }
+  | { state: "ready"; bytes: number }
+  | { state: "failed"; reason: DictationFailure; bytes: number }
+  /** The speech engine has no build for the host (`os`, `arch`: Node's names). */
+  | { state: "unsupported"; os: string; arch: string; bytes: number };
+
+const isCount = (v: unknown): v is number =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const isPlatformWord = (v: unknown): v is string =>
+  typeof v === "string" && /^[a-z0-9_]{1,16}$/.test(v);
+
+/** The host's `dictation`, checked: a known state with only its own fields, else null. */
+export function parseDictationStatus(value: unknown): DictationSetup | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const bytes = v.bytes;
+  if (!isCount(bytes)) return null;
+  switch (v.state) {
+    case "absent":
+    case "loading":
+    case "ready":
+      return { state: v.state, bytes };
+    case "downloading":
+      return isCount(v.loaded) && v.loaded <= bytes
+        ? { state: "downloading", loaded: v.loaded, bytes }
+        : null;
+    case "failed":
+      return typeof v.reason === "string" && DICTATION_FAILURES.includes(v.reason)
+        ? { state: "failed", reason: v.reason as DictationFailure, bytes }
+        : null;
+    case "unsupported":
+      return isPlatformWord(v.os) && isPlatformWord(v.arch)
+        ? { state: "unsupported", os: v.os, arch: v.arch, bytes }
+        : null;
+    default:
+      return null;
+  }
+}
+
+/** A status call gives up after this, so the card can say so instead of spinning. */
+const DICTATION_SETUP_TIMEOUT_MS = 10_000;
+
+async function dictationCall(method: "GET" | "POST"): Promise<DictationSetup> {
+  const body = await call<{ dictation?: unknown } | null>(
+    method,
+    "/kleio/setup/dictation",
+    undefined,
+    undefined,
+    DICTATION_SETUP_TIMEOUT_MS,
+  );
+  const dictation = parseDictationStatus(body?.dictation);
+  // A state this app doesn't know: a newer host. Shown as "couldn't check".
+  if (!dictation) throw new KleioApiError(502, "unexpected reply from the host");
+  return dictation;
+}
+
+/** Where the host's speech model is (any paired device). */
+export const getDictationSetup = (): Promise<DictationSetup> => dictationCall("GET");
+/** Starts the host's speech model download, or joins the one under way (any paired device). */
+export const startDictationSetup = (): Promise<DictationSetup> => dictationCall("POST");
+
 /**
  * Runs one of the Brain's tools (remember, forget, set_jiwa…) on the Mac
  * mini, as text chat does: `{ result }` when it worked, `{ error }` when the

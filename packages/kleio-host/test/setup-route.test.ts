@@ -445,3 +445,135 @@ describe("POST/DELETE /kleio/setup/keys/:name", () => {
     expect(readFileSync(keyFile("composio"), "utf8")).toBe(`${KEY2}\n`);
   });
 });
+
+describe("GET/POST /kleio/setup/dictation", () => {
+  const PATH = "/kleio/setup/dictation";
+  const ABSENT = { state: "absent", bytes: 138_853_314 };
+  const UNAVAILABLE = { status: 503, body: { error: "engine_unavailable" } };
+
+  /** A request whose answer we only need the status and Allow header of. */
+  function allowOf(
+    method: string,
+    headers: Record<string, string>,
+  ): Promise<{ status: number; allow: string | undefined }> {
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(
+        { host: "127.0.0.1", port: hostPort, method, path: PATH, headers },
+        (res) => {
+          res.resume();
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, allow: res.headers.allow }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("needs a device token", async () => {
+    expect((await call("GET", PATH)).status).toBe(401);
+    expect((await call("POST", PATH)).status).toBe(401);
+    expect(sidecar.dictationCalls).toEqual([]);
+  });
+
+  it("tells any paired device where the host's speech model is", async () => {
+    expect(await call("GET", PATH, P)).toEqual({ status: 200, body: { dictation: ABSENT } });
+    expect(sidecar.dictationCalls).toEqual(["GET /dictation"]);
+  });
+
+  it("lets any paired device start the download, and logs it once", async () => {
+    const downloading = { state: "downloading", loaded: 0, bytes: ABSENT.bytes };
+    sidecar.dictationPrepared = downloading;
+
+    expect(await call("POST", PATH, P)).toEqual({ status: 200, body: { dictation: downloading } });
+    // Asked again mid-download, it joins the run: nothing new to log.
+    expect(await call("POST", PATH, A)).toEqual({ status: 200, body: { dictation: downloading } });
+
+    expect(sidecar.dictationCalls).toEqual([
+      "GET /dictation",
+      "POST /dictation/prepare",
+      "GET /dictation",
+      "POST /dictation/prepare",
+    ]);
+    expect(logs.filter((l) => l.includes("dictation"))).toEqual([
+      "[setup] Phone started the dictation download",
+    ]);
+  });
+
+  it("is 405 with allow: GET, POST for any other method", async () => {
+    for (const method of ["PUT", "DELETE", "PATCH"]) {
+      expect(await allowOf(method, P)).toEqual({ status: 405, allow: "GET, POST" });
+    }
+    expect(sidecar.dictationCalls).toEqual([]);
+  });
+
+  it("refuses a body over 1 KB without asking the sidecar", async () => {
+    expect(await call("POST", PATH, P, "x".repeat(1025))).toEqual({
+      status: 413,
+      body: { error: "too_large" },
+    });
+    expect(sidecar.dictationCalls).toEqual([]);
+  });
+
+  it.each([
+    ["answers with an error", { status: 500, body: { error: "boom" } }],
+    ["answers something that isn't a status", { status: 200, body: "nope" }],
+    ["names a state it doesn't know", { status: 200, body: { state: "paused", bytes: 1 } }],
+    ["gives no size", { status: 200, body: { state: "absent" } }],
+    ["gives a size that isn't a count", { status: 200, body: { state: "absent", bytes: -1 } }],
+    [
+      "has more downloaded than the model holds",
+      { status: 200, body: { state: "downloading", loaded: 2, bytes: 1 } },
+    ],
+    [
+      "gives a reason it doesn't know",
+      { status: 200, body: { state: "failed", reason: "ENOSPC: no space left", bytes: 1 } },
+    ],
+    [
+      "names its platform with a path",
+      { status: 200, body: { state: "unsupported", os: "/etc/passwd", arch: "x64", bytes: 1 } },
+    ],
+  ])("is 503 engine_unavailable when the sidecar %s", async (_label, answer) => {
+    sidecar.dictation = answer;
+    expect(await call("GET", PATH, P)).toEqual(UNAVAILABLE);
+    expect(await call("POST", PATH, P)).toEqual(UNAVAILABLE);
+    expect(logs.filter((l) => l.includes("dictation"))).toEqual([]);
+  });
+
+  it("is 503 engine_unavailable when the sidecar can't be reached", async () => {
+    await sidecar.close();
+    expect(await call("GET", PATH, P)).toEqual(UNAVAILABLE);
+    expect(await call("POST", PATH, P)).toEqual(UNAVAILABLE);
+  });
+
+  it("passes on only the fields it knows: no raw errors, paths or extras", async () => {
+    sidecar.dictation = {
+      status: 200,
+      body: {
+        state: "failed",
+        reason: "offline",
+        bytes: 5,
+        error: "getaddrinfo ENOTFOUND huggingface.co",
+        dir: "/Users/me/.gg/models",
+      },
+    };
+    expect(await call("GET", PATH, P)).toEqual({
+      status: 200,
+      body: { dictation: { state: "failed", reason: "offline", bytes: 5 } },
+    });
+    sidecar.dictation = {
+      status: 200,
+      body: {
+        state: "unsupported",
+        os: "darwin",
+        arch: "x64",
+        bytes: 5,
+        stack: "Error: dlopen(/x/onnxruntime_binding.node)",
+      },
+    };
+    expect(await call("POST", PATH, P)).toEqual({
+      status: 200,
+      body: { dictation: { state: "unsupported", os: "darwin", arch: "x64", bytes: 5 } },
+    });
+    for (const b of bodies) expect(b).not.toMatch(/ENOTFOUND|\/Users|onnxruntime/);
+  });
+});

@@ -1,7 +1,7 @@
 // Settings → Setup: the checklist a new device opens on once after pairing
 // (see shouldOpenSetup in app-entry-view.ts). At the top, how much is done;
 // then one card per step, with its status in the header and one thing to do.
-// The optional step sits apart, under its own label. Keys live on the host;
+// The optional steps sit apart, under their own label. Keys live on the host;
 // only an admin device can change them.
 
 import { useCallback, useEffect, useId, useState } from "react";
@@ -20,6 +20,7 @@ import {
   type SetupKeyName,
   type SetupStatus,
 } from "./kleioApi";
+import { DictationCard } from "./DictationCard";
 import { KeyForm, setupKeyError } from "./KeyForm";
 import { StepBadge, type StepMark } from "./StepBadge";
 import { useKleioRemote } from "./useKleioRemote";
@@ -273,7 +274,7 @@ export function SetupPage({
 
   const onStatus = (status: SetupStatus): void => setLoad({ kind: "ready", status });
   const apps = load.kind === "ready" ? load.status.keys.composio : null;
-  // The needed steps; Group chats is optional and doesn't count.
+  // The needed steps; Group chats and Dictation are optional and don't count.
   const steps = [
     reach === "connected",
     Boolean(auth?.providers.some((p) => p.connected)),
@@ -337,6 +338,8 @@ export function SetupPage({
         load={load}
         onStatus={onStatus}
       />
+      {/* Any paired device: dictating starts the same download, and no key is involved. */}
+      <DictationCard />
     </div>
   );
 }

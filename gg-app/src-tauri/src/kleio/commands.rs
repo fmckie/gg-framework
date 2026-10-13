@@ -556,9 +556,11 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "voice", "brain"]
             | ["kleio", "voice", "files"]
             | ["kleio", "voice", "files", "read"]
-            // Settings → Setup: the status, and an admin's Composio/Typesafe keys.
+            // Settings → Setup: the status, an admin's Composio/Typesafe keys,
+            // and dictation's speech model (its status, and starting its download).
             | ["kleio", "setup"]
             | ["kleio", "setup", "keys", "composio" | "typesafe"]
+            | ["kleio", "setup", "dictation"]
             | ["kleio", "sessions"]
             | ["kleio", "sessions", _]
             | ["kleio", "projects"]
@@ -871,9 +873,32 @@ mod tests {
             ("DELETE", "/kleio/setup/keys/composio"),
             ("POST", "/kleio/setup/keys/typesafe"),
             ("DELETE", "/kleio/setup/keys/typesafe"),
+            ("GET", "/kleio/setup/dictation"),
+            ("POST", "/kleio/setup/dictation"),
         ] {
             assert_eq!(check_route(m, p, None), Ok(false), "{m} {p}");
         }
+    }
+
+    #[test]
+    fn kleio_api_allows_the_dictation_step_and_nothing_near_it() {
+        // The exact path only: nothing below it, no session, and never the
+        // sidecar's own /dictation routes (the host checks what they answer).
+        for p in [
+            "/kleio/setup/dictation/prepare",
+            "/kleio/setup/dictations",
+            "/dictation",
+            "/dictation/prepare",
+        ] {
+            for m in ["GET", "POST"] {
+                assert!(check_route(m, p, None).is_err(), "{m} {p}");
+                assert!(
+                    check_route(m, p, Some("sess-1")).is_err(),
+                    "{m} {p} with a session"
+                );
+            }
+        }
+        assert!(check_route("GET", "/kleio/setup/dictation", Some("sess-1")).is_err());
     }
 
     #[test]

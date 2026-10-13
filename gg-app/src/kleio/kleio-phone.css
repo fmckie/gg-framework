@@ -345,6 +345,11 @@ html.platform-ios :is(.setup-page, .key-field) :is(.btn, .modal-input) {
   min-height: 44px;
   min-width: 44px;
 }
+/* Dictation's Try it mic, the same 44pt, and still a circle. */
+html.platform-ios .setup-page .dictate-btn {
+  width: 44px;
+  height: 44px;
+}
 /* With short model names (ModelSelect's compact), context, thinking and both
    models fit one line under the message box; the desktop's 16px gaps wrapped
    Ken's model onto a second. */

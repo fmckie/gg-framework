@@ -355,6 +355,56 @@ Routes (a paired device's token on all):
   `{error:"unreachable", detail}`. `detail` is redacted of the key.
 - `DELETE /kleio/setup/keys/composio|typesafe` (admin): removes the key file; same 403/404/409.
 
+### Dictation (`/kleio/setup/dictation`)
+
+The mic in every chat box (iPhone and Mac apps) records on the device and sends the clip here;
+Whisper turns it into text in the sidecar, so recordings never leave the user's devices and host.
+There is no key. The engine (transformers.js and onnxruntime-node) ships with the sidecar; the
+speech model doesn't:
+
+- **What:** `onnx-community/whisper-base.en` at a pinned commit, 7 files, 139 MB. Each file is
+  checked against its size and SHA-256 in `@kleio/core` (`dictation-model.ts`) before it is put in
+  place, and a download that stops picks up where it left off.
+- **Where:** `~/.gg/models/onnx-community/whisper-base.en/` in the home of the user the host runs
+  as (the sidecar's `~/.gg`, not the host's state folder), with a `.kleio-verified.json` marker.
+  Once it is there, starting dictation needs no network.
+- **From:** `huggingface.co`, which redirects the model files to its `*.hf.co` CDN (for example
+  `us.aws.cdn.hf.co`): outbound HTTPS to both.
+- **When:** from Settings → Setup on any device, or the first recording if nobody did that.
+
+Routes (a paired device's token; any device, since dictating already starts the download):
+
+- `GET /kleio/setup/dictation` → `200 {dictation}`, where `dictation` is `{state, bytes}` plus:
+  `absent`, `downloading {loaded}`, `loading`, `ready`, `failed {reason}` (`offline`, `server`,
+  `missing`, `storage`, `integrity`, `load`) or `unsupported {os, arch}`. `bytes` is the model's
+  size. Reason codes only: the details are in the sidecar's log. `503 {error:"engine_unavailable"}`
+  when the sidecar doesn't answer in 3 s or its answer doesn't check out (only known fields are
+  passed on).
+- `POST /kleio/setup/dictation` (body up to 1 KiB, ignored) starts the download and load, or
+  joins the one under way, and answers like `GET`. It logs `[setup] <device> started the
+dictation download` when the state changed. `413 too_large`; other methods `405` with
+  `Allow: GET, POST`.
+- The sidecar's own routes (daemon-level, the host's token): `GET /dictation`,
+  `POST /dictation/prepare`. Its `POST /transcribe` answers `503` with plain words for the
+  reason (`502` when Hugging Face erred) when the model can't be got ready.
+
+Where dictation runs:
+
+| Host                        | Dictation                                                                                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mac, Apple silicon          | Works (`install-mini.sh`)                                                                                                                                 |
+| Mac, Intel                  | Can't: onnxruntime-node 1.24.3 (the version transformers 4.2.0 pins) has no build for macOS on Intel; Setup says so                                       |
+| Linux (glibc), x64 or arm64 | Should work: the engine ships. Untested                                                                                                                   |
+| Windows, x64 or arm64       | Should work: the engine ships. Untested; the model goes under the service account's `%USERPROFILE%\.gg\models`, and onnxruntime may need the VC++ runtime |
+
+Untested anywhere: musl (Alpine), small-RAM machines, and hosts behind a proxy (Node's `fetch`
+ignores `HTTPS_PROXY`).
+
+Memory, measured on an Apple silicon Mac by `gg-app/scripts/e2e-dictation-setup.mjs` (two
+runs): the sidecar went from 170 MB to 640–690 MB once Whisper was loaded, and to about 1.3 GB
+after a chat session opened and the first clip was transcribed. Plan for about 1.5 GB free for
+the sidecar on a host that dictates.
+
 ### Files and site previews
 
 Paired devices open what agents write on the mini: PDFs, spreadsheets, images, reports and

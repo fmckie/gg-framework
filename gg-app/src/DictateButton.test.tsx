@@ -5,7 +5,7 @@ import { appendDictation, DictateButton, DictationStatus } from "./DictateButton
 import type { DictationPhase, UseDictation } from "./useDictation";
 
 function dictationIn(phase: DictationPhase, elapsedMs = 0): UseDictation {
-  return { phase, elapsedMs, toggle: vi.fn() };
+  return { phase, elapsedMs, toggle: vi.fn(), preparing: null };
 }
 
 afterEach(cleanup);
@@ -74,5 +74,26 @@ describe("DictationStatus", () => {
   it("shows when it is transcribing", () => {
     render(<DictationStatus dictation={dictationIn("transcribing")} />);
     expect(screen.getByRole("status").textContent).toBe("Transcribing…");
+  });
+
+  it("says the host is preparing the speech model, with the percent hidden from screen readers", () => {
+    render(
+      <DictationStatus
+        dictation={{ ...dictationIn("transcribing"), preparing: { percent: 37 } }}
+      />,
+    );
+    const status = screen.getByRole("status");
+    expect(status.className).toContain("visible");
+    expect(status.textContent).toBe("Preparing speech model…37%");
+    expect(screen.getByText("37%").getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("says preparing without a percent while the model loads", () => {
+    render(
+      <DictationStatus
+        dictation={{ ...dictationIn("transcribing"), preparing: { percent: null } }}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Preparing speech model…");
   });
 });

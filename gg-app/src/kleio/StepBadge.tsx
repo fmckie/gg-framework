@@ -5,7 +5,15 @@ import { Badge } from "../Badge";
 import { theme } from "../theme";
 
 export type StepMark =
-  "done" | "env" | "needed" | "unreachable" | "optional" | "checking" | "unknown";
+  | "done"
+  | "env"
+  | "needed"
+  | "unreachable"
+  | "optional"
+  | "checking"
+  | "unknown"
+  | "working"
+  | "unavailable";
 
 const MARKS: Record<StepMark, { text: string; color?: string }> = {
   done: { text: "Done", color: theme.success },
@@ -18,6 +26,11 @@ const MARKS: Record<StepMark, { text: string; color?: string }> = {
   checking: { text: "Checking…" },
   // The host couldn't say (an older host, or it didn't answer).
   unknown: { text: "Can't check" },
+  // The host is doing the step now (dictation's download). Neutral: Kleio's
+  // accent is nearly its error red, and the card's own bar shows the motion.
+  working: { text: "In progress" },
+  // The host can't do this step at all (no speech engine for its chip).
+  unavailable: { text: "Not available" },
 };
 
 export function StepBadge({ mark }: { mark: StepMark }): React.ReactElement {

@@ -5,12 +5,13 @@ import path from "node:path";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { modelBytes } from "@kleio/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
- * Boots the REAL app sidecar daemon and drives POST /transcribe (iPhone
- * dictation) over HTTP. Every case here is answered before Whisper loads, so
- * no speech model is downloaded.
+ * Boots the REAL app sidecar daemon and drives POST /transcribe (dictation)
+ * and GET /dictation over HTTP. Every case here is answered before Whisper
+ * loads, so no speech model is downloaded.
  */
 const SIDECAR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -168,5 +169,17 @@ describe("POST /transcribe", () => {
   it("needs a session, like every other session route", async () => {
     const res = await request("POST", "/transcribe", { raw: JSON.stringify({ audio: pcm(1) }) });
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe("GET /dictation", () => {
+  it("says absent, with the model's size, on a fresh host: no session, nothing downloaded", async () => {
+    const res = await request("GET", "/dictation");
+
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ state: "absent", bytes: modelBytes() });
+    await expect(
+      fs.stat(path.join(tmpHome, ".gg", "models", "onnx-community")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

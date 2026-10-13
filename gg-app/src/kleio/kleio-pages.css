@@ -2407,6 +2407,60 @@
   text-transform: uppercase;
   color: var(--text-muted);
 }
+/* Dictation's download (DictationCard.tsx): what the host is doing and how
+   much it has, then a bar on Setup's progress track, filled with the app's
+   progress flux (glass.css, the model install's bar too) rather than the
+   green of a step done. */
+.setup-download {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup-download-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 16px;
+}
+.setup-download-size {
+  font-variant-numeric: tabular-nums;
+}
+.setup-download-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.setup-download-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--flux-fill);
+}
+/* High contrast drops backgrounds: keep the track's edge and the fill. */
+@media (forced-colors: active) {
+  .setup-download-bar {
+    border: 1px solid CanvasText;
+  }
+  .setup-download-bar > span {
+    background: Highlight;
+  }
+}
+/* Try it: the chat box's own mic, with what it's doing beside it. */
+.setup-dictation-try {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.setup-dictation-try-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.setup-dictation-try-row > .dictate-btn {
+  flex: none;
+}
 
 /* A provider key (KeyForm.tsx): its label with "Get a key" on one line, where
    to find one under it, then the field and Save. */

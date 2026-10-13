@@ -3,13 +3,27 @@
  * this machine with Whisper (@huggingface/transformers: no API keys, and the
  * audio never leaves the user's own devices).
  *
- * The iPhone records 16 kHz mono 16-bit PCM and sends it to the sidecar on the
- * Mac it is paired with. The flow follows Ken's Vape-n-Vibe desktop dictation:
- * skip clips that are too short or silent (Whisper invents text for silence),
- * trim the quiet ends, transcribe with the project vocabulary as Whisper's
- * prompt, drop non-speech tags and filler words, then fix how project names
- * are written.
+ * The iPhone and Mac apps record 16 kHz mono 16-bit PCM and send it to the
+ * sidecar on the host they are paired with. The flow follows Ken's
+ * Vape-n-Vibe desktop dictation: skip clips that are too short or silent
+ * (Whisper invents text for silence), trim the quiet ends, transcribe with the
+ * project vocabulary as Whisper's prompt, drop non-speech tags and filler
+ * words, then fix how project names are written.
+ *
+ * The model itself comes from Kleio's own pinned, checked download
+ * (dictation-model.ts), started from Settings → Setup or by the first clip.
  */
+
+import {
+  downloadModel,
+  modelBytes,
+  modelDir,
+  verifiedOnDisk,
+  WHISPER_MODEL,
+  type ModelDownloadError,
+  type SpeechModel,
+} from "./dictation-model.js";
+import { log } from "./logger.js";
 
 export const DICTATION_SAMPLE_RATE = 16_000;
 /** Longest clip accepted. 2 minutes of PCM is 3.84 MB (5.1 MB as base64). */
@@ -27,12 +41,6 @@ const SEGMENT_SAMPLES = DICTATION_SAMPLE_RATE / 20;
 const SILENCE_RMS = 150 / 32_768;
 /** Audio kept either side of the speech so word edges are not clipped. */
 const TRIM_GUARD_SAMPLES = Math.round(DICTATION_SAMPLE_RATE * 0.12);
-/**
- * English Whisper "base": about 140 MB, downloaded once. On an M-series Mac a
- * 10 s clip transcribes in about half a second, with better casing of terms
- * like "TypeScript" than "small" managed in the same test.
- */
-const MODEL_ID = "onnx-community/whisper-base.en";
 /** Whisper reads at most 30 s at once; longer speech is transcribed in chunks. */
 const SINGLE_PASS_MAX_SAMPLES = DICTATION_SAMPLE_RATE * 30;
 /**
@@ -213,9 +221,75 @@ export function correctVocabulary(text: string): string {
   return out.join(" ");
 }
 
+/** Why the speech model couldn't be got ready. The details stay in the host's log. */
+export type DictationFailure =
+  /** The host couldn't reach Hugging Face. */
+  | "offline"
+  /** Hugging Face answered with an error. */
+  | "server"
+  /** The pinned model is gone from Hugging Face. */
+  | "missing"
+  /** The host couldn't save the files (space, permissions, a read-only disk). */
+  | "storage"
+  /** A download didn't match the pin and was thrown away. */
+  | "integrity"
+  /** The files are here but the engine couldn't load them. */
+  | "load";
+
+/**
+ * Where dictation's model is, for Settings → Setup and the chat box. `bytes`
+ * is the whole model's size, in every state.
+ */
+export type DictationStatus =
+  | { readonly state: "absent"; readonly bytes: number }
+  | { readonly state: "downloading"; readonly loaded: number; readonly bytes: number }
+  | { readonly state: "loading"; readonly bytes: number }
+  | { readonly state: "ready"; readonly bytes: number }
+  | { readonly state: "failed"; readonly reason: DictationFailure; readonly bytes: number }
+  /** The speech engine has no build for this host (an Intel Mac, for one). */
+  | {
+      readonly state: "unsupported";
+      readonly os: string;
+      readonly arch: string;
+      readonly bytes: number;
+    };
+
+/** transcribe() couldn't get the model ready; `reason` says why, in words a device can show. */
+export class DictationUnavailableError extends Error {
+  constructor(readonly reason: DictationFailure | "unsupported") {
+    super(`dictation is unavailable: ${reason}`);
+    this.name = "DictationUnavailableError";
+  }
+}
+
 export interface Dictation {
-  /** Transcribe speech samples (16 kHz mono). Resolves "" when nothing was said. */
+  /**
+   * Transcribe speech samples (16 kHz mono). Resolves "" when nothing was
+   * said. Waits for the model when it isn't ready yet, and throws
+   * DictationUnavailableError when it can't be got.
+   */
   transcribe(samples: Float32Array, signal?: AbortSignal): Promise<string>;
+  /** Where the model is. A few file stats at most; never downloads or loads. */
+  status(): Promise<DictationStatus>;
+  /** Get the model ready (download, then load), or join the run under way. */
+  prepare(): void;
+  /** Shutting down: a download stops (its `.part` stays for next time) and nothing new starts. */
+  dispose(): void;
+}
+
+export interface DictationOptions {
+  /** The models folder (`~/.gg/models`); the model sits in `<cacheDir>/<hub id>`. */
+  readonly cacheDir: string;
+  /** Stand-in for Whisper (tests). */
+  readonly loadModel?: () => Promise<DictationModel>;
+  /** Loads the speech engine, throwing where it can't run (tests). */
+  readonly loadEngine?: () => Promise<unknown>;
+  /** The model to download (tests use a small one). */
+  readonly model?: SpeechModel;
+  /** Download seams (tests). */
+  readonly fetch?: typeof fetch;
+  readonly freeBytes?: (dir: string) => Promise<number>;
+  readonly baseUrl?: string;
 }
 
 /** The parts of Whisper dictation uses, so tests can stand one in. */
@@ -233,12 +307,18 @@ export interface DictationModel {
   transcribeLong(samples: Float32Array): Promise<string>;
 }
 
-async function loadWhisper(cacheDir: string): Promise<DictationModel> {
+/**
+ * Load Whisper from the files Kleio downloaded and checked into `dir`. An
+ * absolute folder isn't a Hub id, so transformers reads those files and nothing
+ * else: no question to the Hub, no global settings, and a restart works
+ * offline.
+ */
+async function loadWhisper(dir: string): Promise<DictationModel> {
   const { pipeline, Tensor } = await import("@huggingface/transformers");
-  const asr = await pipeline("automatic-speech-recognition", MODEL_ID, {
+  const asr = await pipeline("automatic-speech-recognition", dir, {
     // Full-precision encoder (the accuracy), 8-bit decoder (the speed).
     dtype: { encoder_model: "fp32", decoder_model_merged: "q8" },
-    cache_dir: cacheDir,
+    local_files_only: true,
   });
   const encode = (text: string): number[] =>
     asr.tokenizer.encode(text, { add_special_tokens: false });
@@ -293,47 +373,211 @@ async function transcribeOnce(
   return whisper.decode(startsWith(tokens, prefix) ? tokens.slice(prefix.length) : tokens);
 }
 
+function describeError(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** What a failed download leaves in the host's log: the kind, and its detail. */
+function downloadFailureDetail(error: ModelDownloadError): Record<string, string> {
+  switch (error.kind) {
+    case "offline":
+    case "storage":
+      return { reason: error.kind, detail: error.detail };
+    case "server":
+    case "missing":
+      return { reason: error.kind, status: String(error.status) };
+    case "integrity":
+      return { reason: error.kind, file: error.file };
+    case "aborted":
+      return { reason: error.kind };
+  }
+}
+
+/** `promise`, unless `signal` aborts first: the clip stops waiting, the run goes on. */
+function unlessAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(signal.reason);
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (e: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
+    );
+  });
+}
+
+interface Loaded {
+  readonly whisper: DictationModel;
+  readonly prompt: readonly number[];
+}
+
+/** How a run ended. "stopped": dispose() ended it. */
+type RunResult =
+  | { readonly ok: true; readonly value: Loaded }
+  | { readonly ok: false; readonly reason: DictationFailure | "unsupported" | "stopped" };
+
+/** What this process knows beyond the disk. "idle": nothing yet, so the disk says. */
+type Phase =
+  | { readonly state: "idle" }
+  | { readonly state: "downloading"; readonly loaded: number }
+  | { readonly state: "loading" }
+  | { readonly state: "ready" }
+  | { readonly state: "failed"; readonly reason: DictationFailure }
+  | { readonly state: "unsupported" };
+
 /**
- * A lazily loaded Whisper. The model downloads into `cacheDir` on first use;
- * clips are transcribed one at a time.
+ * Whisper, got ready on demand. One run (engine check, download, load) serves
+ * Settings → Setup and clips alike: later callers join it, and after a failure
+ * the next call starts a fresh one. Clips are transcribed one at a time.
  */
-export function createDictation(options: {
-  cacheDir: string;
-  /** Stand-in for Whisper (tests). */
-  loadModel?: () => Promise<DictationModel>;
-}): Dictation {
-  const loadModel = options.loadModel ?? (() => loadWhisper(options.cacheDir));
-  let loaded: Promise<{ whisper: DictationModel; prompt: number[] }> | null = null;
+export function createDictation(options: DictationOptions): Dictation {
+  const model = options.model ?? WHISPER_MODEL;
+  const bytes = modelBytes(model);
+  const loadModel = options.loadModel ?? (() => loadWhisper(modelDir(options.cacheDir, model)));
+  const loadEngine = options.loadEngine ?? (() => import("@huggingface/transformers"));
+  const stop = new AbortController();
+  let phase: Phase = { state: "idle" };
+  let loaded: Loaded | null = null;
+  let run: Promise<RunResult> | null = null;
+  let engine: Promise<boolean> | null = null;
   let queue: Promise<unknown> = Promise.resolve();
 
-  const load = (): Promise<{ whisper: DictationModel; prompt: number[] }> => {
-    if (loaded) return loaded;
-    const loading = (async () => {
-      const whisper = await loadModel();
-      return { whisper, prompt: whisper.encode(PROMPT_TEXT) };
-    })();
-    loaded = loading;
-    // A failed download must not stick: the next clip tries again.
-    loading.catch(() => {
-      if (loaded === loading) loaded = null;
-    });
-    return loading;
+  /** Whether the speech engine runs here. Asked once: the answer can't change. */
+  const engineRuns = (): Promise<boolean> => {
+    engine ??= loadEngine().then(
+      () => true,
+      (e: unknown) => {
+        log("ERROR", "dictation", "the speech engine can't run on this host", {
+          platform: `${process.platform}-${process.arch}`,
+          error: describeError(e),
+        });
+        return false;
+      },
+    );
+    return engine;
+  };
+
+  const getReady = async (): Promise<RunResult> => {
+    // The engine first: nothing downloads for an engine that can't run here.
+    if (!(await engineRuns())) {
+      phase = { state: "unsupported" };
+      return { ok: false, reason: "unsupported" };
+    }
+    if (!(await verifiedOnDisk(options.cacheDir, model))) {
+      phase = { state: "downloading", loaded: 0 };
+      const got = await downloadModel(options.cacheDir, {
+        model,
+        fetch: options.fetch,
+        freeBytes: options.freeBytes,
+        baseUrl: options.baseUrl,
+        signal: stop.signal,
+        onProgress: (n) => {
+          phase = { state: "downloading", loaded: n };
+        },
+      });
+      if (!got.ok) {
+        if (got.error.kind === "aborted") {
+          phase = { state: "idle" };
+          return { ok: false, reason: "stopped" };
+        }
+        log("ERROR", "dictation", "couldn't download the speech model", {
+          model: model.id,
+          ...downloadFailureDetail(got.error),
+        });
+        phase = { state: "failed", reason: got.error.kind };
+        return { ok: false, reason: got.error.kind };
+      }
+      log("INFO", "dictation", "speech model downloaded and checked", {
+        model: model.id,
+        revision: model.revision,
+      });
+    }
+    phase = { state: "loading" };
+    const whisper = await loadModel();
+    loaded = { whisper, prompt: whisper.encode(PROMPT_TEXT) };
+    phase = { state: "ready" };
+    return { ok: true, value: loaded };
+  };
+
+  /** The loaded model, or the one run that gets it. Never rejects. */
+  const ensure = (): Promise<RunResult> => {
+    if (loaded) return Promise.resolve({ ok: true, value: loaded });
+    if (stop.signal.aborted) return Promise.resolve({ ok: false, reason: "stopped" });
+    if (phase.state === "unsupported") return Promise.resolve({ ok: false, reason: "unsupported" });
+    if (run) return run;
+    // Before the run's first await, so a status() straight after prepare() shows it under way.
+    phase = { state: "loading" };
+    const current = getReady()
+      .catch((e: unknown): RunResult => {
+        log("ERROR", "dictation", "couldn't load the speech model", { error: describeError(e) });
+        phase = { state: "failed", reason: "load" };
+        return { ok: false, reason: "load" };
+      })
+      .then((result) => {
+        run = null;
+        return result;
+      });
+    run = current;
+    return current;
   };
 
   return {
     transcribe(samples, signal) {
-      const run = queue.then(async () => {
+      const job = queue.then(async () => {
         signal?.throwIfAborted();
-        const { whisper, prompt } = await load();
+        const got = await unlessAborted(ensure(), signal);
+        if (!got.ok) {
+          if (got.reason === "stopped") throw new Error("dictation has shut down");
+          throw new DictationUnavailableError(got.reason);
+        }
         signal?.throwIfAborted();
+        const { whisper, prompt } = got.value;
         const raw =
           samples.length > SINGLE_PASS_MAX_SAMPLES
             ? await whisper.transcribeLong(samples)
             : await transcribeOnce(whisper, prompt, samples);
         return correctVocabulary(cleanTranscript(raw));
       });
-      queue = run.catch(() => undefined);
-      return run;
+      queue = job.catch(() => undefined);
+      return job;
+    },
+
+    async status() {
+      const now = phase;
+      switch (now.state) {
+        case "idle":
+          return (await verifiedOnDisk(options.cacheDir, model))
+            ? { state: "ready", bytes }
+            : { state: "absent", bytes };
+        case "downloading":
+          return { state: "downloading", loaded: now.loaded, bytes };
+        case "loading":
+        case "ready":
+          return { state: now.state, bytes };
+        case "failed":
+          return { state: "failed", reason: now.reason, bytes };
+        case "unsupported":
+          return { state: "unsupported", os: process.platform, arch: process.arch, bytes };
+      }
+    },
+
+    prepare() {
+      // ensure() never rejects; the run's outcome is read back through status().
+      void ensure();
+    },
+
+    dispose() {
+      stop.abort();
     },
   };
 }
