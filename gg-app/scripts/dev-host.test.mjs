@@ -1,15 +1,41 @@
 // Unit tests for dev-host.mjs: the sandbox guard (kleio-sandbox.mjs) that keeps
 // the host and sidecar away from the real ~/.gg, ~/.kleio and host state folder,
 // the fingerprint behind its before-and-after check, and the line it prints to
-// start the desktop app. The "real home" here is always a temp folder handed to
-// the guard; nothing looks at, or writes to, the real one.
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+// start the desktop app. Then --app's pure parts: its options and checks, the
+// app's environment and its guard, the guard on the sandbox keychain's path,
+// how it finds the app's processes, and the Keychain items it watches. The
+// "real home" here is always a temp folder handed to the guard; nothing looks
+// at, or writes to, the real one, and nothing here runs `security`.
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { launchLine } from "./dev-host.mjs";
-import { fingerprint, fingerprintChanges, sandboxEnv, sandboxProblems } from "./kleio-sandbox.mjs";
+import {
+  appModeProblems,
+  KEYCHAIN_SERVICE,
+  launchLine,
+  LOOPBACK_ACCOUNTS,
+  parseArgs,
+  psLineHasHome,
+} from "./dev-host.mjs";
+import {
+  appEnv,
+  appEnvProblems,
+  fingerprint,
+  fingerprintChanges,
+  keychainPathProblems,
+  sandboxEnv,
+  sandboxProblems,
+} from "./kleio-sandbox.mjs";
 
 const tempDirs = [];
 
@@ -283,5 +309,244 @@ describe("the app's launch line", () => {
     expect(() => launchLine({ url: "http://127.0.0.1:41000", token: bad })).toThrow(
       /32 or more URL-safe characters/,
     );
+  });
+});
+
+describe("the options", () => {
+  it("takes --app, alone or with --keep", () => {
+    expect(parseArgs(["--app"])).toEqual({
+      options: { dir: null, keep: false, app: true, help: false },
+    });
+    expect(parseArgs(["--app", "--keep"]).options).toMatchObject({ app: true, keep: true });
+    expect(parseArgs(["--dir", "/tmp/kleio"]).options).toMatchObject({
+      app: false,
+      dir: "/tmp/kleio",
+    });
+  });
+
+  it.each([[["--app", "--dir", "/tmp/kleio"]], [["--dir=/tmp/kleio", "--app"]]])(
+    "refuses --app with --dir: %j",
+    (argv) => {
+      expect(parseArgs(argv)).toEqual({
+        error: "--app needs a fresh sandbox: use it without --dir",
+      });
+    },
+  );
+});
+
+describe("--app's own checks", () => {
+  it("pass on macOS, with cargo and pnpm, and a sandbox path without whitespace", () => {
+    expect(
+      appModeProblems({
+        platform: "darwin",
+        sandbox: "/private/var/folders/x/T/kleio-dev-host-abc",
+        tools: { cargo: true, pnpm: true },
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuse other platforms, missing tools and a sandbox path with whitespace", () => {
+    expect(
+      appModeProblems({
+        platform: "linux",
+        sandbox: "/tmp/my sandbox",
+        tools: { pnpm: false, cargo: false },
+      }),
+    ).toEqual([
+      "--app runs on macOS only: the app keeps its pairing in the macOS Keychain",
+      "--app needs cargo on PATH",
+      "--app needs pnpm on PATH",
+      "the sandbox /tmp/my sandbox has whitespace in its path: --app finds the app's processes by their HOME",
+    ]);
+  });
+});
+
+describe("the desktop app's environment", () => {
+  it("is this shell's without its Kleio, GG and preload settings, with every home in the sandbox", () => {
+    const realHome = fakeRealHome();
+    const sandbox = temp("kleio-dev-host-");
+    const env = appEnv({
+      sandbox,
+      baseEnv: {
+        PATH: "/usr/bin:/bin",
+        LANG: "en_GB.UTF-8",
+        HOME: realHome,
+        USERPROFILE: realHome,
+        CFFIXED_USER_HOME: realHome,
+        KLEIO_HOST_URL: "http://127.0.0.1:41000",
+        KLEIO_DEVICE_TOKEN: "a-device-token",
+        KLEIO_CONTROL_CREDENTIAL: "a-control-credential",
+        GG_APP_SETTINGS_FILE: join(realHome, ".gg", "gg-app.json"),
+        NODE_OPTIONS: "--import=/somewhere/preload.mjs",
+      },
+    });
+    const home = join(sandbox, "home");
+
+    expect(env).toEqual({
+      PATH: "/usr/bin:/bin",
+      LANG: "en_GB.UTF-8",
+      HOME: home,
+      USERPROFILE: home,
+      CFFIXED_USER_HOME: home,
+    });
+    expect(appEnvProblems({ sandbox, env, realHome })).toEqual([]);
+  });
+
+  it("refuses the real home, the real ~/.kleio, a home outside the sandbox and a relative one", () => {
+    const realHome = fakeRealHome();
+    const sandbox = temp("kleio-dev-host-");
+    const other = temp("kleio-other-");
+    const env = appEnv({ sandbox, baseEnv: { PATH: "/usr/bin:/bin" } });
+    const problems = (change) => appEnvProblems({ sandbox, env: { ...env, ...change }, realHome });
+    const kleio = join(realHome, ".kleio");
+
+    expect(problems({ HOME: realHome })).toContain(`HOME=${realHome} is the real home`);
+    expect(problems({ CFFIXED_USER_HOME: kleio })).toContain(
+      `CFFIXED_USER_HOME=${kleio} is the real ~/.kleio`,
+    );
+    expect(problems({ USERPROFILE: other })).toContain(
+      `USERPROFILE=${other} is not inside the sandbox ${sandbox}`,
+    );
+    expect(problems({ HOME: "home" })).toContain("HOME=home is not a plain absolute path");
+    expect(problems({ CFFIXED_USER_HOME: undefined })).toContain("CFFIXED_USER_HOME is not set");
+    expect(appEnvProblems({ sandbox: realHome, env, realHome })).toContain(
+      `the sandbox ${realHome} is the real home`,
+    );
+  });
+
+  it("refuses any Kleio setting, even one the host runs with, and GG and preload settings", () => {
+    const realHome = fakeRealHome();
+    const sandbox = temp("kleio-dev-host-");
+    const env = appEnv({ sandbox, baseEnv: { PATH: "/usr/bin:/bin" } });
+
+    expect(
+      appEnvProblems({
+        sandbox,
+        env: {
+          ...env,
+          KLEIO_DEVICE_TOKEN: "left-over",
+          KLEIO_HOST_PORT: "41000",
+          GG_DIAGNOSTICS_DIR: "/somewhere",
+          NODE_OPTIONS: "--import=/somewhere/preload.mjs",
+        },
+        realHome,
+      }),
+    ).toEqual([
+      "GG_DIAGNOSTICS_DIR comes from outside the sandbox",
+      "KLEIO_DEVICE_TOKEN comes from outside the sandbox",
+      "KLEIO_HOST_PORT comes from outside the sandbox",
+      "NODE_OPTIONS comes from outside the sandbox",
+    ]);
+  });
+});
+
+describe("the sandbox keychain's path", () => {
+  const KEYCHAIN = join("Library", "Keychains", "kleio-dev-host.keychain-db");
+
+  /** A sandbox home as dev-host makes it: under its real path, with a Keychains folder. */
+  function sandboxHome() {
+    const home = join(realpathSync.native(temp("kleio-dev-host-")), "home");
+    mkdirSync(join(home, "Library", "Keychains"), { recursive: true });
+    return home;
+  }
+
+  it("lets the keychain in the sandbox home through, before and after it exists", () => {
+    const realHome = fakeRealHome();
+    const home = sandboxHome();
+    const path = join(home, KEYCHAIN);
+
+    expect(keychainPathProblems({ path, sandboxHome: home, realHome })).toEqual([]);
+    writeFileSync(path, "");
+    expect(keychainPathProblems({ path, sandboxHome: home, realHome })).toEqual([]);
+  });
+
+  it("refuses the real login keychain, a path outside the sandbox home and the home itself", () => {
+    const realHome = fakeRealHome();
+    const home = sandboxHome();
+    const login = join(realpathSync.native(realHome), "Library", "Keychains", "login.keychain-db");
+    const other = join(realpathSync.native(temp("kleio-other-")), "other.keychain-db");
+
+    expect(keychainPathProblems({ path: login, sandboxHome: home, realHome })).toEqual([
+      `the keychain ${login} is inside the real home`,
+      `the keychain ${login} is not inside the sandbox home ${home}`,
+    ]);
+    expect(keychainPathProblems({ path: other, sandboxHome: home, realHome })).toEqual([
+      `the keychain ${other} is not inside the sandbox home ${home}`,
+    ]);
+    expect(keychainPathProblems({ path: home, sandboxHome: home, realHome })).toEqual([
+      `the keychain ${home} is not inside the sandbox home ${home}`,
+    ]);
+  });
+
+  it("refuses a relative path and one with ..", () => {
+    const realHome = fakeRealHome();
+    const home = sandboxHome();
+
+    for (const path of ["kleio-dev-host.keychain-db", `${home}/../other.keychain-db`]) {
+      expect(keychainPathProblems({ path, sandboxHome: home, realHome })).toEqual([
+        `the keychain ${path} is not a plain absolute path`,
+      ]);
+    }
+  });
+
+  it("refuses a path through a link into the real home", () => {
+    const realHome = fakeRealHome();
+    const home = join(realpathSync.native(temp("kleio-dev-host-")), "home");
+    mkdirSync(join(home, "Library"), { recursive: true });
+    mkdirSync(join(realHome, "Library", "Keychains"), { recursive: true });
+    link(join(realHome, "Library", "Keychains"), join(home, "Library", "Keychains"));
+    const path = join(home, KEYCHAIN);
+    const problems = keychainPathProblems({ path, sandboxHome: home, realHome });
+
+    expect(problems.some((p) => p.startsWith(`the keychain ${path} is not its real path `))).toBe(
+      true,
+    );
+    expect(problems).toContain(`the keychain ${path} is inside the real home`);
+    expect(problems).toContain(`the keychain ${path} is not inside the sandbox home ${home}`);
+  });
+});
+
+describe("finding the app's processes", () => {
+  const binary = "/repo/gg-app/src-tauri/target/debug/gg-app";
+  const home = "/private/var/folders/x/T/kleio-dev-host-abc/home";
+  const match = { binary, home };
+
+  it("counts the binary running with exactly the sandbox's HOME", () => {
+    expect(
+      psLineHasHome(
+        ` 4242 ${binary} PATH=/usr/bin:/bin HOME=${home} CFFIXED_USER_HOME=${home}`,
+        match,
+      ),
+    ).toBe(true);
+    expect(psLineHasHome(`4242 ${binary} --flag HOME=${home}`, match)).toBe(true);
+  });
+
+  it.each([
+    ["another HOME", `4242 ${binary} HOME=/Users/someone`],
+    ["a HOME that starts like it", `4242 ${binary} HOME=${home}2`],
+    ["a HOME inside it", `4242 ${binary} HOME=${home}/x`],
+    ["only CFFIXED_USER_HOME", `4242 ${binary} CFFIXED_USER_HOME=${home}`],
+    ["no environment shown", `4242 ${binary}`],
+    ["another binary", `4242 /Applications/Kleio.app/Contents/MacOS/gg-app HOME=${home}`],
+    ["a binary whose path starts like it", `4242 ${binary}-old HOME=${home}`],
+    ["the binary in another command's arguments", `4242 /bin/echo ${binary} HOME=${home}`],
+    ["a line without a pid", `${binary} HOME=${home}`],
+  ])("ignores %s", (_, line) => {
+    expect(psLineHasHome(line, match)).toBe(false);
+  });
+});
+
+describe("the app's Keychain items", () => {
+  it("are named as gg-app's keychain.rs names them, for a dev host at 127.0.0.1", () => {
+    const source = readFileSync(
+      new URL("../src-tauri/src/kleio/keychain.rs", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(`const SERVICE: &str = "${KEYCHAIN_SERVICE}";`);
+    for (const kind of ["control-credential", "device-token"]) {
+      expect(source).toContain(`format!("${kind}:{host}")`);
+    }
+    expect(LOOPBACK_ACCOUNTS).toEqual(["control-credential:127.0.0.1", "device-token:127.0.0.1"]);
   });
 });

@@ -135,6 +135,7 @@ pnpm --filter gg-app stage:node && pnpm --filter gg-app bundle:sidecar
 node gg-app/scripts/dev-host.mjs                        # a fresh sandbox, removed at exit
 node gg-app/scripts/dev-host.mjs --keep                 # keep the fresh sandbox at exit
 node gg-app/scripts/dev-host.mjs --dir /tmp/kleio-dev   # reuse one: pairings and chats survive
+node gg-app/scripts/dev-host.mjs --app                  # and the app as a new user (below)
 ```
 
 It prints:
@@ -166,8 +167,9 @@ KLEIO_HOST_URL=http://127.0.0.1:<port> KLEIO_DEVICE_TOKEN=<token> pnpm --filter 
 ```
 
 The app then takes its host from the environment, not from `~/.kleio/remote.json`, and leaves that
-file alone. The pairing form can't be used here: it takes `https://` URLs only, and pairing writes
-`~/.kleio/remote.json` and the Keychain, replacing your pairing with the mini.
+file alone. Don't pair from it: a debug build's pairing form takes `http://127.0.0.1:<port>`, but
+this app runs with your real home, so pairing would write `~/.kleio/remote.json` and the Keychain,
+replacing your pairing with the mini. To try pairing, use `--app` (below).
 
 - **Not an admin.** Env mode is always `admin: false`, so the app hides its admin screens.
   dev-host pairs the app as an ordinary device, so Setup (which asks the host) agrees: its key
@@ -181,6 +183,48 @@ file alone. The pairing form can't be used here: it takes `https://` URLs only, 
 > **Warning:** in an app started this way, don't use **Forget host** or **Pair**. Forget host
 > (`kleio_forget`) deletes the real `~/.kleio/remote.json` and the mini's Keychain items, whatever
 > the environment says, and Pair replaces them.
+
+### Open the desktop app as a new user (`--app`)
+
+`--app` runs Kleio's first run for real: the app with no pairing, the pairing form, the restart,
+and Setup as an admin device. It runs on macOS only, needs `cargo` and `pnpm` on PATH, and takes a
+fresh sandbox (no `--dir`).
+
+```sh
+node gg-app/scripts/dev-host.mjs --app           # sandbox removed at exit
+node gg-app/scripts/dev-host.mjs --app --keep    # sandbox kept at exit (its keychain isn't)
+```
+
+It builds the debug app (`cargo build`), uses gg-app's Vite on port 1420 or starts it, starts the
+host as above, mints one admin code and opens the app. It prints the host URL and the code. In the
+app: **Pair with your host**, then the URL and the code, **Pair**, **Restart now**. The relaunched
+app opens on Setup with the admin key forms (Composio, Typesafe). The code lasts 5 minutes; the
+printed command makes another.
+
+**A new user, in the sandbox.** The app gets your environment without `KLEIO_*`, `GG_*` and
+`NODE_OPTIONS`, and with `HOME`, `USERPROFILE` and `CFFIXED_USER_HOME` set to `<sandbox>/home`.
+Its `~/.kleio`, its `~/Library` folders (logs, caches, webview storage, so Setup opens by itself)
+and its keychain are all in there. dev-host finds the app again after **Restart now** by that
+`HOME`, and at exit stops it, then Vite (if it started Vite), then the host.
+
+**Its own keychain.** macOS finds a user's keychains through `HOME`, so dev-host gives the sandbox
+home a throwaway keychain, `Library/Keychains/kleio-dev-host.keychain-db`, as its default and only
+keychain: a random password kept in memory, unlocked, never locking itself. The app's token and
+control credential go there, never to your login Keychain. After each `security` command that
+changes a keychain, dev-host checks your real search list and default keychain; if either changed,
+it puts them back and stops. At exit it deletes the sandbox keychain (with `--keep` too), and fails
+if your search list, default keychain, login keychain, or the app's items for your host and for
+127.0.0.1 changed.
+
+Not in the sandbox: what macOS keeps per app rather than per home folder (permissions,
+notification settings), the build in `gg-app/src-tauri/target`, and Vite.
+
+> **Warning:** pair it with the printed URL only. Pair and Forget host there touch only the
+> sandbox's `~/.kleio` and keychain, but pairing a real host from it would register a throwaway
+> device there.
+
+Run one `--app` at a time: runs share Vite on port 1420, and the run that started it stops it at
+exit.
 
 ## Pair a device
 
@@ -206,6 +250,9 @@ device closes its open streams immediately.
    code → **Pair** → **Restart now**.
 3. The title strip shows **on mac-mini-1**; sessions now run there. The picker lists
    the mini's projects; "New project" points you at the mini.
+
+Debug builds also take a host on this Mac, exactly `http://127.0.0.1:<port>` (dev-host `--app`);
+release builds take `https://` only.
 
 The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
 non-secret record to `~/.kleio/remote.json`. Admin actions in the pane's
@@ -351,7 +398,7 @@ group id: every current member's folder), `chat` / `code` (`id` = saved session 
 (`id` = project name: its documents only, see Projects).
 
 - `GET /kleio/voice/files?source=&id=` answers `200 { files: [{ path, name, kind, size, modified,
-  readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
+readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
   symlinks), skipping hidden names and tooling folders, 5 levels and 3,000 entries at most. A chat or
   coding session lists only files it wrote (`write`, `generate_image`, `screenshot`) or linked in a
   reply (the sidecar's `GET /stored-sessions/:id?files=1`) that are still regular files inside its

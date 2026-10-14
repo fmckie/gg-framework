@@ -3,7 +3,8 @@
  * machine (dev-host.mjs): a spare loopback port, the environment the host and
  * sidecar run with, the guard that keeps every path they write inside one
  * throwaway folder, and a fingerprint of the real Kleio folders to compare
- * before and after.
+ * before and after. For `dev-host.mjs --app`, also the desktop app's
+ * environment, its guard, and the guard on the sandbox's own keychain path.
  *
  * Adapted from the helpers in e2e-dictation-setup.mjs, which keeps its own.
  */
@@ -31,6 +32,14 @@ const SANDBOX_KLEIO_KEYS = Object.freeze([
   "KLEIO_SIDECAR_PATH",
   "KLEIO_NODE_BIN",
 ]);
+
+/**
+ * Every env key that places the desktop app's home: HOME (~/.kleio, the
+ * Keychain's search list and default keychain, and the Library folders the
+ * app's Rust resolves), USERPROFILE (as sandboxEnv sets it), and
+ * CFFIXED_USER_HOME (NSHomeDirectory(), so the webview's storage).
+ */
+export const APP_HOME_KEYS = Object.freeze(["HOME", "USERPROFILE", "CFFIXED_USER_HOME"]);
 
 /**
  * Settings of the calling shell that never reach the sandbox: its own Kleio
@@ -132,24 +141,15 @@ const isPort = (value) =>
   /^\d{1,5}$/.test(value ?? "") && Number(value) >= 1 && Number(value) <= 65535;
 
 /**
- * Why the host and sidecar must not run with `env`, or [] when they may.
- *
- * - The sandbox folder, and every path in SANDBOX_PATH_KEYS, may not be, contain
- *   or sit inside the real home, ~/.gg, ~/.kleio or host state folder. Real
- *   paths (symlinks resolved), ignoring case.
- * - Each of those paths must be set, absolute, free of "..", and inside the
- *   sandbox.
- * - The host's public URL must be http://127.0.0.1:<its port>: loopback HTTP.
- * - No KLEIO_* setting beyond the sandbox's own, no GG_*, no NODE_OPTIONS.
- *
- * `realHome` is an argument, not os.homedir(), so tests can use temp folders.
+ * The sandbox folder, then each of `keys` in `env`: set, a plain absolute
+ * path, clear of the real home and its Kleio folders, and inside `sandbox`.
  */
-export function sandboxProblems({ sandbox, env, realHome }) {
+function pathProblems({ keys, sandbox, env, realHome }) {
   const problems = [];
   const sandboxClash = realHomeClash(sandbox, realHome);
   if (sandboxClash) problems.push(`the sandbox ${sandbox} ${sandboxClash}`);
   const box = comparable(sandbox);
-  for (const key of SANDBOX_PATH_KEYS) {
+  for (const key of keys) {
     const value = env[key];
     if (!value) {
       problems.push(`${key} is not set`);
@@ -165,6 +165,39 @@ export function sandboxProblems({ sandbox, env, realHome }) {
       problems.push(`${key}=${value} is not inside the sandbox ${sandbox}`);
     }
   }
+  return problems;
+}
+
+/** Each KLEIO_* key not in `allowed`, each GG_* key and NODE_OPTIONS, in sorted order. */
+function outsideKeyProblems(env, allowed) {
+  return Object.keys(env)
+    .sort()
+    .filter((key) => {
+      const upper = key.toUpperCase();
+      return (
+        (upper.startsWith("KLEIO_") && !allowed.includes(key)) ||
+        upper.startsWith("GG_") ||
+        upper === "NODE_OPTIONS"
+      );
+    })
+    .map((key) => `${key} comes from outside the sandbox`);
+}
+
+/**
+ * Why the host and sidecar must not run with `env`, or [] when they may.
+ *
+ * - The sandbox folder, and every path in SANDBOX_PATH_KEYS, may not be, contain
+ *   or sit inside the real home, ~/.gg, ~/.kleio or host state folder. Real
+ *   paths (symlinks resolved), ignoring case.
+ * - Each of those paths must be set, absolute, free of "..", and inside the
+ *   sandbox.
+ * - The host's public URL must be http://127.0.0.1:<its port>: loopback HTTP.
+ * - No KLEIO_* setting beyond the sandbox's own, no GG_*, no NODE_OPTIONS.
+ *
+ * `realHome` is an argument, not os.homedir(), so tests can use temp folders.
+ */
+export function sandboxProblems({ sandbox, env, realHome }) {
+  const problems = pathProblems({ keys: SANDBOX_PATH_KEYS, sandbox, env, realHome });
   const port = env.KLEIO_HOST_PORT;
   if (!isPort(port)) problems.push(`KLEIO_HOST_PORT=${port} is not a port`);
   if (!isPort(env.KLEIO_PREVIEW_PORT) || env.KLEIO_PREVIEW_PORT === port) {
@@ -173,13 +206,59 @@ export function sandboxProblems({ sandbox, env, realHome }) {
   if (env.KLEIO_PUBLIC_URL !== `http://127.0.0.1:${port}`) {
     problems.push(`KLEIO_PUBLIC_URL=${env.KLEIO_PUBLIC_URL} is not http://127.0.0.1:${port}`);
   }
-  for (const key of Object.keys(env).sort()) {
-    const upper = key.toUpperCase();
-    const foreign =
-      (upper.startsWith("KLEIO_") && !SANDBOX_KLEIO_KEYS.includes(key)) ||
-      upper.startsWith("GG_") ||
-      upper === "NODE_OPTIONS";
-    if (foreign) problems.push(`${key} comes from outside the sandbox`);
+  problems.push(...outsideKeyProblems(env, SANDBOX_KLEIO_KEYS));
+  return problems;
+}
+
+/**
+ * Why the desktop app must not run with `env`, or [] when it may: the same
+ * folder checks as sandboxProblems for every key in APP_HOME_KEYS, and no
+ * KLEIO_* setting at all (KLEIO_HOST_URL with a token would skip pairing,
+ * and the rest name real folders), no GG_*, no NODE_OPTIONS.
+ */
+export function appEnvProblems({ sandbox, env, realHome }) {
+  return [
+    ...pathProblems({ keys: APP_HOME_KEYS, sandbox, env, realHome }),
+    ...outsideKeyProblems(env, []),
+  ];
+}
+
+/**
+ * The desktop app's environment: this shell's, minus anything in
+ * fromShellOnly and any CFFIXED_USER_HOME, plus every APP_HOME_KEYS key set
+ * to `<sandbox>/home`. So the app starts unpaired, as a new user, with no
+ * env-mode host.
+ */
+export function appEnv({ sandbox, baseEnv }) {
+  const home = join(sandbox, "home");
+  const inherited = Object.fromEntries(
+    Object.entries(baseEnv).filter(
+      ([key]) => !fromShellOnly(key) && !APP_HOME_KEYS.includes(key.toUpperCase()),
+    ),
+  );
+  return { ...inherited, ...Object.fromEntries(APP_HOME_KEYS.map((key) => [key, home])) };
+}
+
+/**
+ * Why `path` must not be handed to `security` as the sandbox's own keychain,
+ * or [] when it may. It must be a plain absolute path that is already its
+ * real path (realpath finds no symlink along it), strictly inside
+ * `sandboxHome`, and clear of the real home and its Kleio folders. The login
+ * keychain lives in the real home, so it can never pass.
+ */
+export function keychainPathProblems({ path, sandboxHome, realHome }) {
+  if (!isAbsolute(path) || path.split(/[\\/]/).includes("..")) {
+    return [`the keychain ${path} is not a plain absolute path`];
+  }
+  const problems = [];
+  const real = canonicalPath(path);
+  if (real !== path) problems.push(`the keychain ${path} is not its real path ${real}`);
+  const clash = realHomeClash(path, realHome);
+  if (clash) problems.push(`the keychain ${path} ${clash}`);
+  const target = comparable(path);
+  const home = comparable(sandboxHome);
+  if (target === home || !within(target, home)) {
+    problems.push(`the keychain ${path} is not inside the sandbox home ${sandboxHome}`);
   }
   return problems;
 }
