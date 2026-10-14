@@ -397,6 +397,16 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
 
     expect(deploy.status, deploy.out).toBe(0);
     expect(rollback.status, rollback.out).toBe(0);
+    // The bundle is made from the dist folders of @kleio/coder and the
+    // workspace packages it uses, so those are built first, or an older
+    // build would ship.
+    const builds = [
+      "+ pnpm --filter @kleio/coder... build",
+      "+ node gg-app/scripts/bundle-sidecar.mjs",
+      "+ pnpm --filter @kleio/host build",
+    ].map((line) => deploy.out.indexOf(`\n${line}\n`));
+    expect(builds, deploy.out).not.toContain(-1);
+    expect([...builds].sort((a, b) => a - b)).toEqual(builds);
     for (const line of [
       "+ node gg-app/scripts/bundle-sidecar.mjs",
       "+ pnpm --filter @kleio/host build",
