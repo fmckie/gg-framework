@@ -28,6 +28,76 @@ be redeployed without killing a run. State lives under
 
 ## Install on the mini
 
+Install the first time by hand (below). After that, deploy from the laptop with `deploy-mini.sh`,
+which keeps a way back:
+
+```sh
+# laptop, anywhere in the repo
+sh packages/kleio-host/scripts/deploy-mini.sh --dry-run   # print every command; run none
+sh packages/kleio-host/scripts/deploy-mini.sh             # build, back up, deploy, check health
+sh packages/kleio-host/scripts/rollback-mini.sh           # back to the code that ran before
+```
+
+`MINI=<ssh host>` picks another machine (default `mac-mini-1`). `--no-build` deploys what is
+already built. Both scripts take `--dry-run` and `--help`.
+
+A deploy, in order:
+
+1. **Builds** the sidecar bundle and the host, as the steps below do.
+2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
+   there, and the disk has room for a full copy of them plus 1 GB.
+3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
+   the two `com.kleio.host.*` plists. It is built as `.prev.new` and then renamed, so a dropped
+   connection never leaves half a `.prev`. The last deploy's `.prev` becomes `.prev-<UTC time>`.
+4. **Snapshots the state** into `~/kleio-backups/<UTC time>/` on the mini, with a `manifest.txt`:
+   - `state/`: the host's state folder (keys, device registry, rings, Blobs, groups);
+   - `gg/`: `~/.gg` (sign-ins, sessions, memory, the dictation model).
+
+   The folder is 0700 and never leaves the mini. Files are APFS clones where the disk allows
+   (seconds, little space), with modes kept and file counts checked. The host keeps running: the
+   registry and keys are always written whole, but a ring file may catch an append in progress.
+
+5. **Deploys** with the three `rsync` commands below, then runs `install-mini.sh`.
+6. **Waits up to 60 s** for `/kleio/health` on the mini to say `ok`, with the sidecar up.
+
+**The in-progress mark.** Step 3 writes `~/kleio-host/.deploy-in-progress`, and a healthy deploy
+removes it. A deploy that fails after the code started changing keeps the mark and prints the
+rollback command; nothing rolls back by itself. While the mark is there another deploy refuses, so
+it can never save broken code as `.prev`. `--force` deploys anyway, keeping the `.prev` from before
+the unfinished deploy.
+
+**Rollback** (`rollback-mini.sh`) needs `.prev/dist/cli.js` and `.prev/sidecar/app-sidecar.mjs`.
+It moves the current code and plists aside to `~/kleio-host/.rolled-back-<UTC time>/`, puts
+`.prev`'s in their place, restarts both jobs (sidecar first, as `install-mini.sh` does), waits for
+health and clears the mark. It restores code only, and `.prev` stays, so it can run again.
+
+**Nothing is deleted** by either script. A deploy ends by listing what is kept, with sizes (clones
+share blocks, so the disk holds less than they add up to). Remove old snapshots, `.prev-*` and
+`.rolled-back-*` folders by hand.
+
+### Restore a state snapshot
+
+By hand, on the mini, and only when the state itself is damaged. Everything since the snapshot
+goes: devices paired since must pair again, and **a device revoked since works again** until you
+revoke it again. Restoring `gg/` too also drops the chats and sign-ins since.
+
+```sh
+# mini
+launchctl bootout gui/$(id -u)/com.kleio.host.serve
+launchctl bootout gui/$(id -u)/com.kleio.host.sidecar
+launchctl list | grep com.kleio.host               # wait until this prints nothing
+B=~/kleio-backups/<UTC time>
+S="$HOME/Library/Application Support/Kleio/host"
+mv "$S" "$S.replaced-$(date -u +%Y%m%dT%H%M%SZ)"   # keep what you replace
+cp -cRp "$B/state" "$S"
+# ~/.gg too, only if it needs it: mv ~/.gg ~/.gg.replaced-<time> && cp -cRp "$B/gg" ~/.gg
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.sidecar.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.serve.plist
+curl -s http://127.0.0.1:8443/kleio/health
+```
+
+### By hand
+
 ```sh
 # laptop
 node gg-app/scripts/bundle-sidecar.mjs
@@ -51,6 +121,64 @@ creates keys and the first admin device, and points `tailscale serve --https=844
 them). Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
 allows it; otherwise they are listed with the one `sudo mv` to run (they are disabled
 in launchd and cannot start, so this is cleanup, not a blocker).
+
+## Develop against a local host
+
+`gg-app/scripts/dev-host.mjs` runs the real host and sidecar from this checkout on the laptop, in a
+throwaway sandbox, for the desktop app to talk to. It never goes near the mini.
+
+```sh
+pnpm --filter "@kleio/coder..." build && pnpm --filter @kleio/host build
+pnpm --filter gg-app stage:node && pnpm --filter gg-app bundle:sidecar
+node gg-app/scripts/dev-host.mjs                        # a fresh sandbox, removed at exit
+node gg-app/scripts/dev-host.mjs --keep                 # keep the fresh sandbox at exit
+node gg-app/scripts/dev-host.mjs --dir /tmp/kleio-dev   # reuse one: pairings and chats survive
+```
+
+It prints:
+
+- the host's URL, `http://127.0.0.1:<port>`;
+- an admin pairing code (single use, 5 minutes), the `curl` that redeems it, and the command for
+  another;
+- the line that starts the app against the host (below);
+- the sandbox folder, the app's token file (`app.env`, 0600), the logs and the process ids.
+
+Ctrl-C stops the host and sidecar (SIGTERM, then SIGKILL after 8 s; on Windows, a hard kill),
+checks the real folders and removes the sandbox (kept with `--dir` or `--keep`).
+
+**Sandboxed.** One folder holds everything the host and sidecar write: their home, the host's
+state folder, the Kleio and projects folders, the settings file and the sidecar's working folder.
+The shell's own `KLEIO_*`, `GG_*` and `NODE_OPTIONS` don't reach them. It refuses to run when any
+of those paths is, contains or is inside the real home, `~/.gg`, `~/.kleio` or host state folder
+(symlinks resolved, case ignored). At exit it compares the real `~/.kleio` and host state folder
+with how they were, and fails if `remote.json` or the state folder changed. Other changes in
+`~/.kleio` (the app keeps its workspace file there) are only reported.
+
+**Loopback HTTP only.** The API and the preview origin listen on spare 127.0.0.1 ports, and the
+sidecar on its own as always: no Tailscale Serve, no TLS, nothing on the LAN or tailnet.
+
+**Start the app** with the printed line, which uses the env override in gg-app's `kleio/mod.rs`:
+
+```sh
+KLEIO_HOST_URL=http://127.0.0.1:<port> KLEIO_DEVICE_TOKEN=<token> pnpm --filter gg-app tauri dev
+```
+
+The app then takes its host from the environment, not from `~/.kleio/remote.json`, and leaves that
+file alone. The pairing form can't be used here: it takes `https://` URLs only, and pairing writes
+`~/.kleio/remote.json` and the Keychain, replacing your pairing with the mini.
+
+- **Not an admin.** Env mode is always `admin: false`, so the app hides its admin screens.
+  dev-host pairs the app as an ordinary device, so Setup (which asks the host) agrees: its key
+  forms show status only. Leave `KLEIO_CONTROL_CREDENTIAL` unset: the app would send it, and the
+  host would then treat the app as an admin while the app still hides its admin screens. Try the
+  admin routes with the admin code and `curl` instead.
+- **No AI sign-in.** The sandbox starts with no provider signed in, so Setup shows that step as
+  missing, and chats need one first. A sign-in from the app is the host's, so it lives in the
+  sandbox and goes with it.
+
+> **Warning:** in an app started this way, don't use **Forget host** or **Pair**. Forget host
+> (`kleio_forget`) deletes the real `~/.kleio/remote.json` and the mini's Keychain items, whatever
+> the environment says, and Pair replaces them.
 
 ## Pair a device
 
@@ -78,7 +206,7 @@ device closes its open streams immediately.
    the mini's projects; "New project" points you at the mini.
 
 The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
-non-secret record to `~/.gg/kleio-remote.json`. Admin actions in the pane's
+non-secret record to `~/.kleio/remote.json`. Admin actions in the pane's
 **Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
 refuse without it. **Forget host** + restart returns to local mode. Env override for
 development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
