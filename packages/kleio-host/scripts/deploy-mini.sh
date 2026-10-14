@@ -331,8 +331,8 @@ fi
 
 step "1/6 build"
 if [ "$BUILD" = 1 ]; then
-  # The bundle is made from packages/ggcoder/dist and its workspace packages'
-  # dist folders; build them from this checkout, or an older build ships.
+  # The bundle is made from the dist folders of @kleio/coder and the workspace
+  # packages it uses; build them from this checkout, or an older build ships.
   run pnpm --filter '@kleio/coder...' build
   run node gg-app/scripts/bundle-sidecar.mjs
   run pnpm --filter @kleio/host build

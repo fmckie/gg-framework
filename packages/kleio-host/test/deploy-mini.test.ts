@@ -397,8 +397,9 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
 
     expect(deploy.status, deploy.out).toBe(0);
     expect(rollback.status, rollback.out).toBe(0);
-    // The bundle is made from ggcoder's dist and its workspace packages' dist
-    // folders, so those are built first, or an older build would ship.
+    // The bundle is made from the dist folders of @kleio/coder and the
+    // workspace packages it uses, so those are built first, or an older
+    // build would ship.
     const builds = [
       "+ pnpm --filter @kleio/coder... build",
       "+ node gg-app/scripts/bundle-sidecar.mjs",
