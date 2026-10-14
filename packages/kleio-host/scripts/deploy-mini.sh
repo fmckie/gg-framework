@@ -4,7 +4,8 @@
 #
 #   sh packages/kleio-host/scripts/deploy-mini.sh [--dry-run] [--no-build] [--force]
 #
-# MINI is the SSH host (default mac-mini-1). In order:
+# MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
+# step 6 waits (1 to 600, default 60). In order:
 #   1. Builds the sidecar bundle and the host, as the README does.
 #   2. Checks the mini, read-only: the code, state and launchd files are there,
 #      there is room for a backup, and no earlier deploy was left unfinished.
@@ -16,7 +17,8 @@
 #      APFS clones where the disk allows, so it takes seconds and little space.
 #   5. Copies the new code with the README's three rsync commands, then runs
 #      install-mini.sh, which restarts both jobs.
-#   6. Waits up to 60 s for /kleio/health to say ok, with the sidecar up.
+#   6. Waits up to HEALTH_WAIT seconds for /kleio/health to say ok, with the
+#      sidecar up, trying once a second.
 #
 # On success the in-progress mark goes. On failure it stays and the rollback
 # command is printed; nothing is rolled back without you. Nothing is deleted
@@ -50,6 +52,11 @@ done
 MINI="${MINI:-mac-mini-1}"
 case "$MINI" in
   '' | -* | *[!A-Za-z0-9._@-]*) echo "deploy-mini: MINI must be an SSH host name, not '$MINI'" >&2; exit 2 ;;
+esac
+HEALTH_WAIT="${HEALTH_WAIT:-60}"
+case "$HEALTH_WAIT" in
+  [1-9] | [1-9][0-9] | [1-5][0-9][0-9] | 600) ;;
+  *) echo "deploy-mini: HEALTH_WAIT must be a whole number of seconds from 1 to 600, not '$HEALTH_WAIT'" >&2; exit 2 ;;
 esac
 
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -98,7 +105,7 @@ step() { printf '\n== %s\n' "$*"; }
 # What every remote script starts with: this deploy's settings, then the
 # mini's layout (install-mini.sh, src/paths.ts).
 prelude() {
-  printf 'MINI=%s\nSTAMP=%s\nFORCE=%s\nCOMMIT=%s\n' "$MINI" "$STAMP" "$FORCE" "$COMMIT"
+  printf 'MINI=%s\nSTAMP=%s\nFORCE=%s\nCOMMIT=%s\nWAIT=%s\n' "$MINI" "$STAMP" "$FORCE" "$COMMIT" "$HEALTH_WAIT"
   cat <<'EOF'
 set -eu
 CODE="$HOME/kleio-host"
@@ -252,7 +259,8 @@ if [ -f "$PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
   p=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KLEIO_HOST_PORT' "$PLIST" 2>/dev/null || true)
   case "$p" in '' | *[!0-9]*) ;; *) PORT=$p ;; esac
 fi
-end=$(( $(date +%s) + 60 ))
+# At most WAIT tries, a second apart, and never past WAIT seconds.
+end=$(( $(date +%s) + WAIT ))
 tries=0
 body=""
 while :; do
@@ -261,7 +269,7 @@ while :; do
     case "$body" in *'"sidecar":"up"'*) echo "healthy: ok, sidecar up (port $PORT)"; exit 0 ;; esac ;;
   esac
   tries=$(( tries + 1 ))
-  if [ "$tries" -ge 120 ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
+  if [ "$tries" -ge "$WAIT" ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
   sleep 1
 done
 if [ -z "$body" ]; then
@@ -269,7 +277,7 @@ if [ -z "$body" ]; then
 else
   why="sidecar $(printf '%s' "$body" | sed -n 's/.*"sidecar":"\([a-z]*\)".*/\1/p')"
 fi
-echo "Not healthy after 60 s on port $PORT: $why" >&2
+echo "Not healthy after $WAIT s on port $PORT: $why" >&2
 exit 1
 EOF
 }

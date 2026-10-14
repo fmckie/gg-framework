@@ -182,13 +182,26 @@ printf '{"ok":true,"sidecar":"up","devices":1,"offer":false,"sessions":[]}'
   return w;
 }
 
-function run(w: World, script: string, ...args: string[]) {
+/** Runs a script with `env` added; HEALTH_WAIT unset means the scripts' default (60). */
+function runWith(w: World, env: Record<string, string>, script: string, ...args: string[]) {
   const r = spawnSync("sh", [join(w.repo, "packages/kleio-host/scripts", script), ...args], {
     cwd: w.repo,
-    env: { PATH: `${join(w.mini, "..", "bin")}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: w.laptopHome },
+    env: {
+      PATH: `${join(w.mini, "..", "bin")}:/usr/bin:/bin:/usr/sbin:/sbin`,
+      HOME: w.laptopHome,
+      ...env,
+    },
     encoding: "utf8",
   });
   return { status: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+/**
+ * Runs a script with a 2-try health wait. The sleep stand-in returns at once,
+ * so a failing health check costs one curl per try, not 60 of them.
+ */
+function run(w: World, script: string, ...args: string[]) {
+  return runWith(w, { HEALTH_WAIT: "2" }, script, ...args);
 }
 
 const read = (w: World, rel: string): string => readFileSync(join(w.mini, rel), "utf8");
@@ -217,7 +230,17 @@ function backups(w: World): string[] {
 /** The deploy stamp has one-second steps: two deploys need a second between them. */
 const nextSecond = (): Promise<void> => new Promise((done) => setTimeout(done, 1_100));
 
-describe.skipIf(process.platform === "win32")("deploy-mini.sh and rollback-mini.sh", () => {
+/**
+ * Each test runs whole deploys as shell scripts, about a hundred short-lived
+ * processes apiece. One deploy took 3.2 s on a macOS CI runner, so vitest's
+ * default 5 s per test is too tight.
+ */
+const DEPLOY_TEST_TIMEOUT_MS = 20_000;
+
+/** The scripts need sh, which Windows lacks. */
+const posixOnly = describe.skipIf(process.platform === "win32");
+
+posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_MS }, () => {
   it("keeps the old code in .prev and the state in a snapshot, then deploys", () => {
     const w = world();
 
@@ -289,7 +312,9 @@ describe.skipIf(process.platform === "win32")("deploy-mini.sh and rollback-mini.
     const r = run(w, "deploy-mini.sh", "--no-build");
 
     expect(r.status).not.toBe(0);
-    expect(r.out).toContain("Not healthy after 60 s on port 8443: no answer");
+    expect(r.out).toContain("Not healthy after 2 s on port 8443: no answer");
+    // One try a second, at most HEALTH_WAIT of them.
+    expect(w.calls().filter((c) => c.startsWith("curl"))).toHaveLength(2);
     expect(r.out).toContain(
       "To go back to the code that ran before:  sh packages/kleio-host/scripts/rollback-mini.sh",
     );
@@ -384,9 +409,35 @@ describe.skipIf(process.platform === "win32")("deploy-mini.sh and rollback-mini.
     }
     expect(deploy.out.split("<<'REMOTE'").length - 1).toBe(4);
     expect(rollback.out).toContain("+ ssh -o ConnectTimeout=15 mac-mini-1 sh -s <<'REMOTE'");
+    // HEALTH_WAIT reaches the scripts run on the mini; 60 when unset or empty.
+    expect(deploy.out.split("\nWAIT=2\n").length - 1).toBe(4);
+    expect(rollback.out).toContain("\nWAIT=2\n");
+    const unset: Record<string, string>[] = [{}, { HEALTH_WAIT: "" }];
+    for (const env of unset) {
+      expect(runWith(w, env, "deploy-mini.sh", "--dry-run").out).toContain("\nWAIT=60\n");
+      expect(runWith(w, env, "rollback-mini.sh", "--dry-run").out).toContain("\nWAIT=60\n");
+    }
     expect(w.calls()).toEqual([]);
     expect(tree(w.mini)).toEqual(before);
   });
+
+  it.each(["0", "060", "601", "1.5", "-1", "60s"])(
+    "refuses HEALTH_WAIT=%j before doing anything",
+    (wait) => {
+      const w = world();
+      const before = tree(w.mini);
+
+      const deploy = runWith(w, { HEALTH_WAIT: wait }, "deploy-mini.sh", "--no-build");
+      const rollback = runWith(w, { HEALTH_WAIT: wait }, "rollback-mini.sh");
+
+      for (const r of [deploy, rollback]) {
+        expect(r.status).toBe(2);
+        expect(r.out).toContain("HEALTH_WAIT must be a whole number of seconds from 1 to 600");
+      }
+      expect(w.calls()).toEqual([]);
+      expect(tree(w.mini)).toEqual(before);
+    },
+  );
 
   it("with --force over an unfinished deploy, keeps the .prev from before it", async () => {
     const w = world();

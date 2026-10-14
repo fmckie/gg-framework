@@ -4,14 +4,16 @@
 #
 #   sh packages/kleio-host/scripts/rollback-mini.sh [--dry-run]
 #
-# MINI is the SSH host (default mac-mini-1). On the mini it:
+# MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
+# step 4 waits (1 to 600, default 60). On the mini it:
 #   1. Refuses unless .prev holds dist/cli.js and sidecar/app-sidecar.mjs.
 #   2. Moves the current dist, sidecar, install-mini.sh and launchd plists aside
 #      to ~/kleio-host/.rolled-back-<UTC time>/ (nothing is deleted), and puts
 #      .prev's copies in their place. .prev itself stays as it is.
 #   3. Restarts both launchd jobs the way install-mini.sh does, sidecar first.
-#   4. Waits up to 60 s for /kleio/health, then clears the deploy's
-#      in-progress mark and says which snapshot holds the state.
+#   4. Waits up to HEALTH_WAIT seconds for /kleio/health, trying once a
+#      second, then clears the deploy's in-progress mark and says which
+#      snapshot holds the state.
 #
 # Code only: the host's state and ~/.gg stay as they are. Restoring a snapshot
 # from ~/kleio-backups/ would drop pairings and chats made since, so it is a
@@ -34,10 +36,15 @@ MINI="${MINI:-mac-mini-1}"
 case "$MINI" in
   '' | -* | *[!A-Za-z0-9._@-]*) echo "rollback-mini: MINI must be an SSH host name, not '$MINI'" >&2; exit 2 ;;
 esac
+HEALTH_WAIT="${HEALTH_WAIT:-60}"
+case "$HEALTH_WAIT" in
+  [1-9] | [1-9][0-9] | [1-5][0-9][0-9] | 600) ;;
+  *) echo "rollback-mini: HEALTH_WAIT must be a whole number of seconds from 1 to 600, not '$HEALTH_WAIT'" >&2; exit 2 ;;
+esac
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 script() {
-  printf 'STAMP=%s\n' "$STAMP"
+  printf 'STAMP=%s\nWAIT=%s\n' "$STAMP" "$HEALTH_WAIT"
   cat <<'EOF'
 set -eu
 umask 077
@@ -122,7 +129,8 @@ if [ -f "$PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
   p=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KLEIO_HOST_PORT' "$PLIST" 2>/dev/null || true)
   case "$p" in '' | *[!0-9]*) ;; *) PORT=$p ;; esac
 fi
-end=$(( $(date +%s) + 60 ))
+# At most WAIT tries, a second apart, and never past WAIT seconds.
+end=$(( $(date +%s) + WAIT ))
 tries=0
 healthy=0
 while :; do
@@ -131,11 +139,11 @@ while :; do
     case "$body" in *'"sidecar":"up"'*) healthy=1; break ;; esac ;;
   esac
   tries=$(( tries + 1 ))
-  if [ "$tries" -ge 120 ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
+  if [ "$tries" -ge "$WAIT" ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
   sleep 1
 done
 if [ "$healthy" != 1 ]; then
-  echo "The host isn't healthy 60 s after the rollback (port $PORT). The in-progress mark stays." >&2
+  echo "The host isn't healthy $WAIT s after the rollback (port $PORT). The in-progress mark stays." >&2
   echo "Logs: ~/Library/Application Support/Kleio/host/logs/" >&2
   exit 1
 fi

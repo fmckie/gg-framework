@@ -38,8 +38,9 @@ sh packages/kleio-host/scripts/deploy-mini.sh             # build, back up, depl
 sh packages/kleio-host/scripts/rollback-mini.sh           # back to the code that ran before
 ```
 
-`MINI=<ssh host>` picks another machine (default `mac-mini-1`). `--no-build` deploys what is
-already built. Both scripts take `--dry-run` and `--help`.
+`MINI=<ssh host>` picks another machine (default `mac-mini-1`). `HEALTH_WAIT=<seconds>` sets how
+long both scripts wait for the host to be healthy (1–600, default 60). `--no-build` deploys what
+is already built. Both scripts take `--dry-run` and `--help`.
 
 A deploy, in order:
 
@@ -58,7 +59,8 @@ A deploy, in order:
    registry and keys are always written whole, but a ring file may catch an append in progress.
 
 5. **Deploys** with the three `rsync` commands below, then runs `install-mini.sh`.
-6. **Waits up to 60 s** for `/kleio/health` on the mini to say `ok`, with the sidecar up.
+6. **Waits up to 60 s** (`HEALTH_WAIT`) for `/kleio/health` on the mini to say `ok`, with the
+   sidecar up, trying once a second.
 
 **The in-progress mark.** Step 3 writes `~/kleio-host/.deploy-in-progress`, and a healthy deploy
 removes it. A deploy that fails after the code started changing keeps the mark and prints the
