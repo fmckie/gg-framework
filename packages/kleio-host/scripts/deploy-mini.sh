@@ -6,7 +6,8 @@
 #
 # MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
 # step 6 waits (1 to 600, default 60). In order:
-#   1. Builds the sidecar bundle and the host, as the README does.
+#   1. Builds @kleio/coder and the packages it bundles from this checkout, then
+#      the sidecar bundle from them, then the host, as the README does.
 #   2. Checks the mini, read-only: the code, state and launchd files are there,
 #      there is room for a backup, and no earlier deploy was left unfinished.
 #   3. Marks a deploy in progress (~/kleio-host/.deploy-in-progress) and keeps
@@ -330,6 +331,9 @@ fi
 
 step "1/6 build"
 if [ "$BUILD" = 1 ]; then
+  # The bundle is made from packages/ggcoder/dist and its workspace packages'
+  # dist folders; build them from this checkout, or an older build ships.
+  run pnpm --filter '@kleio/coder...' build
   run node gg-app/scripts/bundle-sidecar.mjs
   run pnpm --filter @kleio/host build
 else

@@ -44,7 +44,9 @@ is already built. Both scripts take `--dry-run` and `--help`.
 
 A deploy, in order:
 
-1. **Builds** the sidecar bundle and the host, as the steps below do.
+1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle and
+   the host, as the steps below do. The bundle is made from those packages' `dist` folders, so
+   building them first keeps an older build from shipping.
 2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
    there, and the disk has room for a full copy of them plus 1 GB.
 3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
@@ -102,6 +104,7 @@ curl -s http://127.0.0.1:8443/kleio/health
 
 ```sh
 # laptop
+pnpm --filter '@kleio/coder...' build   # the packages the sidecar bundle is made from
 node gg-app/scripts/bundle-sidecar.mjs
 pnpm --filter @kleio/host build
 rsync -az --delete packages/kleio-host/dist/   mini:kleio-host/dist/
