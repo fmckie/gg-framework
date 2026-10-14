@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostRecord {
-    /// `https://host:port`, no trailing slash.
+    /// `https://host:port`, no trailing slash. A debug build also accepts
+    /// `http://127.0.0.1:<port>`, a host on this Mac (`super::host_url_allowed`).
     pub base_url: String,
     /// Tailnet host name as the host reports it (the macaroon node caveat).
     pub host: String,
@@ -26,9 +27,11 @@ pub fn path(home: &Path) -> PathBuf {
 pub fn load(home: &Path) -> Option<HostRecord> {
     let raw = std::fs::read_to_string(path(home)).ok()?;
     match serde_json::from_str::<HostRecord>(&raw) {
-        Ok(r) if r.base_url.starts_with("https://") && !r.device_id.is_empty() => Some(r),
+        Ok(r) if super::host_url_allowed(&r.base_url) && !r.device_id.is_empty() => Some(r),
         Ok(_) => {
-            log::warn!("kleio: ignoring ~/.kleio/remote.json (not https or no deviceId)");
+            log::warn!(
+                "kleio: ignoring ~/.kleio/remote.json (base URL not allowed or no deviceId)"
+            );
             None
         }
         Err(e) => {
@@ -137,6 +140,27 @@ mod tests {
         )
         .unwrap();
         assert!(!load(&home).unwrap().admin);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_loopback_http_record_loads_in_debug_builds_only() {
+        // A host on this Mac (gg-app/scripts/dev-host.mjs --app).
+        let home = tmp_home();
+        let local = HostRecord {
+            base_url: "http://127.0.0.1:52714".into(),
+            host: "127.0.0.1".into(),
+            ..rec()
+        };
+        save(&home, &local).unwrap();
+        assert_eq!(load(&home), cfg!(debug_assertions).then(|| local.clone()));
+        let named = HostRecord {
+            base_url: "http://localhost:52714".into(),
+            host: "localhost".into(),
+            ..rec()
+        };
+        save(&home, &named).unwrap();
+        assert_eq!(load(&home), None);
         let _ = std::fs::remove_dir_all(&home);
     }
 }
