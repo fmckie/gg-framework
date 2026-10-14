@@ -34,7 +34,7 @@ struct PairingPayload {
 
 fn validate_payload(p: &PairingPayload) -> Result<(), String> {
     let non_empty = |s: &str| !s.trim().is_empty();
-    if !p.base_url.starts_with("https://") {
+    if !super::host_url_allowed(&p.base_url) {
         return Err("host returned a non-https base URL".into());
     }
     if !(non_empty(&p.base_url)
@@ -76,10 +76,13 @@ fn compact_code(raw: &str) -> Result<String, String> {
 
 fn normalize_base(raw: &str) -> Result<String, String> {
     let b = raw.trim().trim_end_matches('/').to_string();
-    if !b.starts_with("https://") {
+    if !super::host_url_allowed(&b) {
         return Err("Host URL must start with https:// (Tailscale Serve terminates TLS).".into());
     }
-    if b.len() < "https://x".len() || b["https://".len()..].contains('/') {
+    // A loopback base (debug builds) is already exactly scheme, host and port.
+    if b.starts_with("https://")
+        && (b.len() < "https://x".len() || b["https://".len()..].contains('/'))
+    {
         return Err("Host URL should be just scheme, host and port — no path.".into());
     }
     Ok(b)
@@ -803,6 +806,13 @@ mod tests {
         p.device_id = "dev-1".into();
         p.token = " ".into();
         assert!(validate_payload(&p).is_err());
+
+        // A host on this Mac (gg-app/scripts/dev-host.mjs), in debug builds only.
+        let mut local = payload("http://127.0.0.1:52714", Some("admin-credential"));
+        local.host = "127.0.0.1".into();
+        assert_eq!(validate_payload(&local).is_ok(), cfg!(debug_assertions));
+        local.base_url = "http://localhost:52714".into();
+        assert!(validate_payload(&local).is_err());
     }
 
     #[test]
@@ -817,6 +827,14 @@ mod tests {
         );
         assert!(normalize_base("http://h:8443").is_err());
         assert!(normalize_base("https://h:8443/kleio").is_err());
+
+        // A host on this Mac (gg-app/scripts/dev-host.mjs), in debug builds only.
+        assert_eq!(
+            normalize_base(" http://127.0.0.1:52714/ ").ok().as_deref(),
+            cfg!(debug_assertions).then_some("http://127.0.0.1:52714")
+        );
+        assert!(normalize_base("http://127.0.0.1:52714/kleio").is_err());
+        assert!(normalize_base("http://localhost:52714").is_err());
     }
 
     #[test]

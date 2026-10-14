@@ -28,6 +28,78 @@ be redeployed without killing a run. State lives under
 
 ## Install on the mini
 
+Install the first time by hand (below). After that, deploy from the laptop with `deploy-mini.sh`,
+which keeps a way back:
+
+```sh
+# laptop, anywhere in the repo
+sh packages/kleio-host/scripts/deploy-mini.sh --dry-run   # print every command; run none
+sh packages/kleio-host/scripts/deploy-mini.sh             # build, back up, deploy, check health
+sh packages/kleio-host/scripts/rollback-mini.sh           # back to the code that ran before
+```
+
+`MINI=<ssh host>` picks another machine (default `mac-mini-1`). `HEALTH_WAIT=<seconds>` sets how
+long both scripts wait for the host to be healthy (1–600, default 60). `--no-build` deploys what
+is already built. Both scripts take `--dry-run` and `--help`.
+
+A deploy, in order:
+
+1. **Builds** the sidecar bundle and the host, as the steps below do.
+2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
+   there, and the disk has room for a full copy of them plus 1 GB.
+3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
+   the two `com.kleio.host.*` plists. It is built as `.prev.new` and then renamed, so a dropped
+   connection never leaves half a `.prev`. The last deploy's `.prev` becomes `.prev-<UTC time>`.
+4. **Snapshots the state** into `~/kleio-backups/<UTC time>/` on the mini, with a `manifest.txt`:
+   - `state/`: the host's state folder (keys, device registry, rings, Blobs, groups);
+   - `gg/`: `~/.gg` (sign-ins, sessions, memory, the dictation model).
+
+   The folder is 0700 and never leaves the mini. Files are APFS clones where the disk allows
+   (seconds, little space), with modes kept and file counts checked. The host keeps running: the
+   registry and keys are always written whole, but a ring file may catch an append in progress.
+
+5. **Deploys** with the three `rsync` commands below, then runs `install-mini.sh`.
+6. **Waits up to 60 s** (`HEALTH_WAIT`) for `/kleio/health` on the mini to say `ok`, with the
+   sidecar up, trying once a second.
+
+**The in-progress mark.** Step 3 writes `~/kleio-host/.deploy-in-progress`, and a healthy deploy
+removes it. A deploy that fails after the code started changing keeps the mark and prints the
+rollback command; nothing rolls back by itself. While the mark is there another deploy refuses, so
+it can never save broken code as `.prev`. `--force` deploys anyway, keeping the `.prev` from before
+the unfinished deploy.
+
+**Rollback** (`rollback-mini.sh`) needs `.prev/dist/cli.js` and `.prev/sidecar/app-sidecar.mjs`.
+It moves the current code and plists aside to `~/kleio-host/.rolled-back-<UTC time>/`, puts
+`.prev`'s in their place, restarts both jobs (sidecar first, as `install-mini.sh` does), waits for
+health and clears the mark. It restores code only, and `.prev` stays, so it can run again.
+
+**Nothing is deleted** by either script. A deploy ends by listing what is kept, with sizes (clones
+share blocks, so the disk holds less than they add up to). Remove old snapshots, `.prev-*` and
+`.rolled-back-*` folders by hand.
+
+### Restore a state snapshot
+
+By hand, on the mini, and only when the state itself is damaged. Everything since the snapshot
+goes: devices paired since must pair again, and **a device revoked since works again** until you
+revoke it again. Restoring `gg/` too also drops the chats and sign-ins since.
+
+```sh
+# mini
+launchctl bootout gui/$(id -u)/com.kleio.host.serve
+launchctl bootout gui/$(id -u)/com.kleio.host.sidecar
+launchctl list | grep com.kleio.host               # wait until this prints nothing
+B=~/kleio-backups/<UTC time>
+S="$HOME/Library/Application Support/Kleio/host"
+mv "$S" "$S.replaced-$(date -u +%Y%m%dT%H%M%SZ)"   # keep what you replace
+cp -cRp "$B/state" "$S"
+# ~/.gg too, only if it needs it: mv ~/.gg ~/.gg.replaced-<time> && cp -cRp "$B/gg" ~/.gg
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.sidecar.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.serve.plist
+curl -s http://127.0.0.1:8443/kleio/health
+```
+
+### By hand
+
 ```sh
 # laptop
 node gg-app/scripts/bundle-sidecar.mjs
@@ -51,6 +123,108 @@ creates keys and the first admin device, and points `tailscale serve --https=844
 them). Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
 allows it; otherwise they are listed with the one `sudo mv` to run (they are disabled
 in launchd and cannot start, so this is cleanup, not a blocker).
+
+## Develop against a local host
+
+`gg-app/scripts/dev-host.mjs` runs the real host and sidecar from this checkout on the laptop, in a
+throwaway sandbox, for the desktop app to talk to. It never goes near the mini.
+
+```sh
+pnpm --filter "@kleio/coder..." build && pnpm --filter @kleio/host build
+pnpm --filter gg-app stage:node && pnpm --filter gg-app bundle:sidecar
+node gg-app/scripts/dev-host.mjs                        # a fresh sandbox, removed at exit
+node gg-app/scripts/dev-host.mjs --keep                 # keep the fresh sandbox at exit
+node gg-app/scripts/dev-host.mjs --dir /tmp/kleio-dev   # reuse one: pairings and chats survive
+node gg-app/scripts/dev-host.mjs --app                  # and the app as a new user (below)
+```
+
+It prints:
+
+- the host's URL, `http://127.0.0.1:<port>`;
+- an admin pairing code (single use, 5 minutes), the `curl` that redeems it, and the command for
+  another;
+- the line that starts the app against the host (below);
+- the sandbox folder, the app's token file (`app.env`, 0600), the logs and the process ids.
+
+Ctrl-C stops the host and sidecar (SIGTERM, then SIGKILL after 8 s; on Windows, a hard kill),
+checks the real folders and removes the sandbox (kept with `--dir` or `--keep`).
+
+**Sandboxed.** One folder holds everything the host and sidecar write: their home, the host's
+state folder, the Kleio and projects folders, the settings file and the sidecar's working folder.
+The shell's own `KLEIO_*`, `GG_*` and `NODE_OPTIONS` don't reach them. It refuses to run when any
+of those paths is, contains or is inside the real home, `~/.gg`, `~/.kleio` or host state folder
+(symlinks resolved, case ignored). At exit it compares the real `~/.kleio` and host state folder
+with how they were, and fails if `remote.json` or the state folder changed. Other changes in
+`~/.kleio` (the app keeps its workspace file there) are only reported.
+
+**Loopback HTTP only.** The API and the preview origin listen on spare 127.0.0.1 ports, and the
+sidecar on its own as always: no Tailscale Serve, no TLS, nothing on the LAN or tailnet.
+
+**Start the app** with the printed line, which uses the env override in gg-app's `kleio/mod.rs`:
+
+```sh
+KLEIO_HOST_URL=http://127.0.0.1:<port> KLEIO_DEVICE_TOKEN=<token> pnpm --filter gg-app tauri dev
+```
+
+The app then takes its host from the environment, not from `~/.kleio/remote.json`, and leaves that
+file alone. Don't pair from it: a debug build's pairing form takes `http://127.0.0.1:<port>`, but
+this app runs with your real home, so pairing would write `~/.kleio/remote.json` and the Keychain,
+replacing your pairing with the mini. To try pairing, use `--app` (below).
+
+- **Not an admin.** Env mode is always `admin: false`, so the app hides its admin screens.
+  dev-host pairs the app as an ordinary device, so Setup (which asks the host) agrees: its key
+  forms show status only. Leave `KLEIO_CONTROL_CREDENTIAL` unset: the app would send it, and the
+  host would then treat the app as an admin while the app still hides its admin screens. Try the
+  admin routes with the admin code and `curl` instead.
+- **No AI sign-in.** The sandbox starts with no provider signed in, so Setup shows that step as
+  missing, and chats need one first. A sign-in from the app is the host's, so it lives in the
+  sandbox and goes with it.
+
+> **Warning:** in an app started this way, don't use **Forget host** or **Pair**. Forget host
+> (`kleio_forget`) deletes the real `~/.kleio/remote.json` and the mini's Keychain items, whatever
+> the environment says, and Pair replaces them.
+
+### Open the desktop app as a new user (`--app`)
+
+`--app` runs Kleio's first run for real: the app with no pairing, the pairing form, the restart,
+and Setup as an admin device. It runs on macOS only, needs `cargo` and `pnpm` on PATH, and takes a
+fresh sandbox (no `--dir`).
+
+```sh
+node gg-app/scripts/dev-host.mjs --app           # sandbox removed at exit
+node gg-app/scripts/dev-host.mjs --app --keep    # sandbox kept at exit (its keychain isn't)
+```
+
+It builds the debug app (`cargo build`), uses gg-app's Vite on port 1420 or starts it, starts the
+host as above, mints one admin code and opens the app. It prints the host URL and the code. In the
+app: **Pair with your host**, then the URL and the code, **Pair**, **Restart now**. The relaunched
+app opens on Setup with the admin key forms (Composio, Typesafe). The code lasts 5 minutes; the
+printed command makes another.
+
+**A new user, in the sandbox.** The app gets your environment without `KLEIO_*`, `GG_*` and
+`NODE_OPTIONS`, and with `HOME`, `USERPROFILE` and `CFFIXED_USER_HOME` set to `<sandbox>/home`.
+Its `~/.kleio`, its `~/Library` folders (logs, caches, webview storage, so Setup opens by itself)
+and its keychain are all in there. dev-host finds the app again after **Restart now** by that
+`HOME`, and at exit stops it, then Vite (if it started Vite), then the host.
+
+**Its own keychain.** macOS finds a user's keychains through `HOME`, so dev-host gives the sandbox
+home a throwaway keychain, `Library/Keychains/kleio-dev-host.keychain-db`, as its default and only
+keychain: a random password kept in memory, unlocked, never locking itself. The app's token and
+control credential go there, never to your login Keychain. After each `security` command that
+changes a keychain, dev-host checks your real search list and default keychain; if either changed,
+it puts them back and stops. At exit it deletes the sandbox keychain (with `--keep` too), and fails
+if your search list, default keychain, login keychain, or the app's items for your host and for
+127.0.0.1 changed.
+
+Not in the sandbox: what macOS keeps per app rather than per home folder (permissions,
+notification settings), the build in `gg-app/src-tauri/target`, and Vite.
+
+> **Warning:** pair it with the printed URL only. Pair and Forget host there touch only the
+> sandbox's `~/.kleio` and keychain, but pairing a real host from it would register a throwaway
+> device there.
+
+Run one `--app` at a time: runs share Vite on port 1420, and the run that started it stops it at
+exit.
 
 ## Pair a device
 
@@ -77,8 +251,11 @@ device closes its open streams immediately.
 3. The title strip shows **on mac-mini-1**; sessions now run there. The picker lists
    the mini's projects; "New project" points you at the mini.
 
+Debug builds also take a host on this Mac, exactly `http://127.0.0.1:<port>` (dev-host `--app`);
+release builds take `https://` only.
+
 The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
-non-secret record to `~/.gg/kleio-remote.json`. Admin actions in the pane's
+non-secret record to `~/.kleio/remote.json`. Admin actions in the pane's
 **Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
 refuse without it. **Forget host** + restart returns to local mode. Env override for
 development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
@@ -221,7 +398,7 @@ group id: every current member's folder), `chat` / `code` (`id` = saved session 
 (`id` = project name: its documents only, see Projects).
 
 - `GET /kleio/voice/files?source=&id=` answers `200 { files: [{ path, name, kind, size, modified,
-  readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
+readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
   symlinks), skipping hidden names and tooling folders, 5 levels and 3,000 entries at most. A chat or
   coding session lists only files it wrote (`write`, `generate_image`, `screenshot`) or linked in a
   reply (the sidecar's `GET /stored-sessions/:id?files=1`) that are still regular files inside its

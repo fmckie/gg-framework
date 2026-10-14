@@ -207,6 +207,28 @@ pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
+/// Hosts Kleio pairs with: https (Tailscale Serve terminates TLS) and, in a
+/// debug build only, exactly `http://127.0.0.1:<port>`, a host on this Mac
+/// (`gg-app/scripts/dev-host.mjs`). Mirrors `checked_preview_url` in `files.rs`.
+fn host_url_allowed(url: &str) -> bool {
+    host_url_allowed_in(url, cfg!(debug_assertions))
+}
+
+fn host_url_allowed_in(url: &str, debug_build: bool) -> bool {
+    url.starts_with("https://") || (debug_build && is_loopback_http(url))
+}
+
+/// Exactly `http://127.0.0.1:<1-65535>`, the port written plainly: no user,
+/// path, query, fragment or other host.
+fn is_loopback_http(url: &str) -> bool {
+    url.strip_prefix("http://127.0.0.1:").is_some_and(|port| {
+        !port.is_empty()
+            && !port.starts_with('0')
+            && port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u16>().is_ok()
+    })
+}
+
 /// Kleio Desktop is a client of the Kleio host and nothing else: it never
 /// spawns a local engine (sidecar), never sweeps sidecar processes (those on
 /// this Mac belong to GG Coder), and shows a connect screen until paired.
@@ -458,6 +480,60 @@ mod tests {
         let dir = state_dir(std::path::Path::new("/Users/someone"));
         assert_eq!(dir, std::path::PathBuf::from("/Users/someone/.kleio"));
         assert!(REMOTE_ONLY);
+    }
+
+    #[test]
+    fn host_url_is_https_or_in_a_debug_build_a_loopback_port() {
+        for debug_build in [false, true] {
+            assert!(host_url_allowed_in(
+                "https://mac-mini-1.x.ts.net:8443",
+                debug_build
+            ));
+            for local in [
+                "http://127.0.0.1:52714",
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:65535",
+            ] {
+                assert_eq!(
+                    host_url_allowed_in(local, debug_build),
+                    debug_build,
+                    "{local}"
+                );
+            }
+            for refused in [
+                "http://127.0.0.1",
+                "http://127.0.0.1:",
+                "http://127.0.0.1:0",
+                "http://127.0.0.1:080",
+                "http://127.0.0.1:65536",
+                "http://127.0.0.1:+80",
+                "http://127.0.0.1:52714/",
+                "http://127.0.0.1:52714/kleio",
+                "http://127.0.0.1:52714?x=1",
+                "http://127.0.0.1:52714#x",
+                "http://127.0.0.1:52714@evil.example",
+                "http://127.0.0.1.evil.example:52714",
+                "http://user@127.0.0.1:52714",
+                "http://localhost:52714",
+                "http://127.0.0.2:52714",
+                "http://[::1]:52714",
+                "http://mac-mini-1.x.ts.net:8443",
+                "HTTP://127.0.0.1:52714",
+                " http://127.0.0.1:52714",
+                "127.0.0.1:52714",
+                "",
+            ] {
+                assert!(
+                    !host_url_allowed_in(refused, debug_build),
+                    "{refused:?} (debug build {debug_build})"
+                );
+            }
+        }
+        assert_eq!(
+            host_url_allowed("http://127.0.0.1:52714"),
+            cfg!(debug_assertions)
+        );
+        assert!(host_url_allowed("https://mac-mini-1.x.ts.net:8443"));
     }
 
     #[test]
