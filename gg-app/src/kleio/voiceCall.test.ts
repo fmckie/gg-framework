@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type * as KleioApi from "./kleioApi";
-import { KleioApiError, startVoiceCall } from "./kleioApi";
+import {
+  createFileShow,
+  createLinkShow,
+  getShow,
+  KleioApiError,
+  listAgentFiles,
+  startVoiceCall,
+  type ShowInfo,
+} from "./kleioApi";
 import { holdAwake } from "./keepAwake";
 import {
   callError,
   callState,
-  closeShownFile,
+  closeShown,
   endCall,
   functionCall,
   GREETING,
@@ -18,6 +26,10 @@ import {
 vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
   startVoiceCall: vi.fn(),
+  listAgentFiles: vi.fn(),
+  createFileShow: vi.fn(),
+  createLinkShow: vi.fn(),
+  getShow: vi.fn(),
 }));
 const awake = vi.hoisted(() => ({ release: vi.fn() }));
 vi.mock("./keepAwake", () => ({ holdAwake: vi.fn(() => awake) }));
@@ -394,8 +406,157 @@ describe("keeping the Mac awake", () => {
   it("closing a file she showed leaves the call, and the hold, alone", async () => {
     const call = await connecting();
     call.to("connected");
-    closeShownFile();
+    closeShown();
     expect(callState().phase).not.toBe("ended");
     expect(awake.release).not.toHaveBeenCalled();
+  });
+});
+
+describe("what she shows", () => {
+  afterEach(() => {
+    resetCall();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  const NOTES: ShowInfo = {
+    id: `sh_${"c".repeat(32)}`,
+    kind: "text",
+    name: "notes.md",
+    state: "ready",
+    format: "markdown",
+  };
+
+  /** A connected call whose backend you drive: `tool(name, args)` runs a tool call to its end. */
+  async function talking(): Promise<{
+    tool: (name: string, args: Record<string, unknown>) => Promise<void>;
+    said: (text: string) => void;
+    sent: () => Record<string, unknown>[];
+  }> {
+    const track = { stop: vi.fn(), enabled: true };
+    const mic = { getAudioTracks: () => [track], getTracks: () => [track] };
+    let onMessage: (m: { data: string }) => void = () => {};
+    const channel = {
+      readyState: "open",
+      send: vi.fn(),
+      close: vi.fn(),
+      addEventListener: (type: string, fn: (m: { data: string }) => void) => {
+        if (type === "message") onMessage = fn;
+      },
+    };
+    class FakePC {
+      ontrack: unknown = null;
+      connectionState = "connected";
+      close = vi.fn();
+      addTrack(): void {}
+      addEventListener(): void {}
+      createDataChannel(): unknown {
+        return channel;
+      }
+      async createOffer(): Promise<{ type: string; sdp: string }> {
+        return { type: "offer", sdp: "v=0\r\n" };
+      }
+      async setLocalDescription(): Promise<void> {}
+      async setRemoteDescription(): Promise<void> {}
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePC);
+    vi.stubGlobal("Audio", class {});
+    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: async () => mic } });
+    vi.mocked(startVoiceCall).mockResolvedValue("v=0\r\n");
+    await startCall();
+    const event = (e: Record<string, unknown>): void => onMessage({ data: JSON.stringify(e) });
+    let n = 0;
+    return {
+      tool: async (name, args) => {
+        const delegation = `del-${++n}`;
+        event({ type: "session.delegation.created", delegation: { id: delegation } });
+        event({
+          type: "response.event",
+          delegation_id: delegation,
+          event: {
+            type: "response.output_item.done",
+            item: {
+              type: "function_call",
+              call_id: `call-${n}`,
+              name,
+              arguments: JSON.stringify(args),
+            },
+          },
+        });
+        event({
+          type: "response.event",
+          delegation_id: delegation,
+          event: { type: "response.completed" },
+        });
+        await vi.waitFor(() =>
+          expect(channel.send.mock.calls.map(([raw]) => String(raw)).join()).toContain(
+            `"call_id":"call-${n}"`,
+          ),
+        );
+      },
+      said: (text) => {
+        event({ type: "session.input_transcript.delta", delta: text });
+      },
+      sent: () => channel.send.mock.calls.map(([raw]) => JSON.parse(String(raw))),
+    };
+  }
+
+  it("puts up what she shows and takes it down on hide, while the call keeps going", async () => {
+    vi.mocked(listAgentFiles).mockResolvedValue({
+      files: [
+        {
+          path: "notes.md",
+          name: "notes.md",
+          kind: "text",
+          size: 20,
+          modified: "2026-10-07T09:00:00.000Z",
+          readable: true,
+        },
+      ],
+    });
+    vi.mocked(createFileShow).mockResolvedValue(NOTES);
+    const call = await talking();
+    await call.tool("show", { from: "kleio", file: "notes" });
+    expect(callState().shown).toMatchObject({ key: 1, title: "notes.md", show: NOTES });
+    expect(callState().phase).not.toBe("ended");
+
+    await call.tool("hide", {});
+    expect(callState().shown).toBeNull();
+    expect(callState().phase).not.toBe("ended");
+    // Her backend heard both results.
+    const outputs = call
+      .sent()
+      .filter((e) => (e.item as { type?: string } | undefined)?.type === "function_call_output")
+      .map((e) => JSON.parse(String((e.item as { output: string }).output)));
+    expect(outputs).toEqual([expect.objectContaining({ shown: true }), { hidden: true }]);
+  });
+
+  it("asks the host for a page at this screen's width, and lands it when it's drawn", async () => {
+    const page: ShowInfo = {
+      id: `sh_${"d".repeat(32)}`,
+      kind: "web",
+      name: "example.com",
+      host: "example.com",
+      state: "capturing",
+    };
+    vi.mocked(createLinkShow).mockResolvedValue(page);
+    vi.mocked(getShow).mockResolvedValue({ ...page, state: "ready" });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const call = await talking();
+      call.said("Show me example.com.");
+      const done = call.tool("show", { url: "https://example.com/" });
+      await vi.waitFor(() => expect(callState().shown?.show?.state).toBe("capturing"));
+      await vi.advanceTimersByTimeAsync(700);
+      await done;
+      expect(createLinkShow).toHaveBeenCalledWith("https://example.com/", "desktop");
+      expect(callState().shown).toMatchObject({
+        url: "https://example.com/",
+        show: { state: "ready" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
