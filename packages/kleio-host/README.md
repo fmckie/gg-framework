@@ -44,11 +44,14 @@ is already built. Both scripts take `--dry-run` and `--help`.
 
 A deploy, in order:
 
-1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle and
-   the host, as the steps below do. The bundle is made from those packages' `dist` folders, so
-   building them first keeps an older build from shipping.
+1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle, the
+   host and its page and PDF capture helper (`build-capture.sh`, which needs Xcode), as the steps
+   below do. The bundle is made from those packages' `dist` folders, so building them first keeps
+   an older build from shipping.
 2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
-   there, and the disk has room for a full copy of them plus 1 GB.
+   there, and the disk has room for a full copy of them plus 1 GB. It prints the mini's macOS
+   version and warns below macOS 14, where the capture helper can't run (see
+   [Page and PDF capture](#page-and-pdf-capture-kleio-capture)).
 3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
    the two `com.kleio.host.*` plists. It is built as `.prev.new` and then renamed, so a dropped
    connection never leaves half a `.prev`. The last deploy's `.prev` becomes `.prev-<UTC time>`.
@@ -107,6 +110,7 @@ curl -s http://127.0.0.1:8443/kleio/health
 pnpm --filter '@kleio/coder...' build   # the packages the sidecar bundle is made from
 node gg-app/scripts/bundle-sidecar.mjs
 pnpm --filter @kleio/host build
+sh packages/kleio-host/scripts/build-capture.sh   # dist/bin/kleio-capture; after the host build
 rsync -az --delete packages/kleio-host/dist/   mini:kleio-host/dist/
 rsync -az          packages/kleio-host/scripts/install-mini.sh mini:kleio-host/
 rsync -az --delete gg-app/src-tauri/sidecar/    mini:kleio-host/sidecar/
@@ -619,6 +623,40 @@ the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, b
 - **Errors:** 400 `not_a_site` (not HTML), 400 `bad_request`, plus the file errors above; 404
   when the host runs without a preview port.
 - **Logs:** never include the link's token.
+
+### Page and PDF capture (`kleio-capture`)
+
+When Kleio shows a web page or a PDF in a voice call, the mini draws it and the device gets a
+picture. `dist/bin/kleio-capture` (`native/capture/main.swift`, built by `build-capture.sh`) does
+the drawing with the system's WebKit and PDFKit; nothing is downloaded. It needs macOS 14 or later
+and runs as a child of `com.kleio.host.serve`, in the logged-in session WebKit draws in.
+
+- **Pages** load at 1024 CSS px wide (390 for a phone) and are drawn at 2×, a screen at a time
+  down the page, into one picture: a full-screen banner stays one screen tall, and a pinned header
+  or cookie banner shows once, on the first screen. They stop at 4,000 CSS px with a note that the
+  page goes on. 15 s to load, 20 s in all.
+- **What a page can reach:** only public addresses. The host's own fetches (`guarded-fetch.ts`,
+  which tells a PDF from a page) and every connection the page makes (through a SOCKS5 proxy on
+  127.0.0.1 made for that one capture, `capture-proxy.ts`) go through `net-guard.ts`: private,
+  loopback, link-local, Tailscale (100.64.0.0/10, `fd7a:115c:a1e0::/48`) and local names are
+  refused, a name is resolved once and the connection goes to the address that was checked, and
+  every redirect is judged again. Content rules in the helper block private hosts too, the data
+  store keeps nothing, and the page can't open windows, download, pick files or use WebRTC.
+- **Signed-in pages** show what a visitor without your accounts sees; the helper flags sign-in and
+  paywall pages.
+- **Other hosts:** capture needs macOS 14 or later and the helper. On any other host, or when
+  `dist/bin/kleio-capture` is missing, the host logs why, and a voice show of a web page or PDF
+  answers that Kleio can't show them on this host, without fetching anything. Text, markdown and
+  pictures still show. (`capture.ts` keeps the helper behind one `CaptureBackend` interface, so
+  another platform's backend can be added.)
+
+Run it by hand with the mode as its argument and a JSON job on stdin, e.g.
+`echo '{"file":"/tmp/a.pdf"}' | dist/bin/kleio-capture pdf-info`.
+
+`node dist/cli.js capture-check` checks it on this Mac: an attack page tries every way it can to
+reach a canary on loopback (the canary must count 0 hits), then real pages, a phone view, a
+sign-in wall, an arXiv PDF and a 404 are captured and checked (`--no-sites` skips those). It
+prints where the pictures are, and fails if capture is unavailable here.
 
 ### Push nudges (APNs)
 

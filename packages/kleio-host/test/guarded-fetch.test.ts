@@ -30,6 +30,8 @@ const DNS: Readonly<Record<string, readonly string[]>> = {
   "private.test": ["192.168.1.10"],
   "mixed.test": ["93.184.215.14", "10.0.0.5"],
   "tailnet.test": ["100.101.102.103"],
+  "metadata.test": ["169.254.169.254"],
+  "metadata6.test": ["fd00:ec2::254"],
 };
 
 const PDF = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(200_000, 0x61)]);
@@ -309,6 +311,45 @@ describe("preflight: every hop judged and pinned", () => {
     });
     expect(named.lookups).toEqual(["private.test"]);
     expect(named.connects).toEqual([]);
+  });
+});
+
+describe("preflight: cloud metadata", () => {
+  // 169.254.169.254 (AWS, GCP, Azure and others) and fd00:ec2::254 (AWS over
+  // IPv6) hand out instance credentials: never reached directly, through a
+  // name or by a redirect.
+  const targets = [
+    "http://169.254.169.254/latest/meta-data/",
+    "https://169.254.169.254/latest/meta-data/iam/security-credentials/",
+    "http://[fd00:ec2::254]/latest/meta-data/",
+    "https://[fd00:ec2::254]/latest/api/token",
+    "http://2852039166/latest/meta-data/",
+    "http://[::ffff:a9fe:a9fe]/latest/meta-data/",
+    "http://metadata.test/latest/meta-data/",
+    "http://metadata6.test/latest/meta-data/",
+  ];
+  const refused = {
+    ok: false,
+    error: { kind: "refused", refusal: "private_address", host: expect.any(String) },
+  };
+
+  it.each(targets)("refuses %s without connecting", async (target) => {
+    const h = harness();
+    expect(await preflight(target, h.options)).toEqual(refused);
+    expect(h.connects).toEqual([]);
+  });
+
+  it.each(targets)("refuses a redirect to %s without connecting to it", async (target) => {
+    const h = harness();
+    expect(await preflight(to(target), h.options)).toEqual(refused);
+    expect(h.connects).toEqual(["93.184.215.14 80"]);
+  });
+
+  it("refuses a redirect to it two hops in, having connected only to the public hops", async () => {
+    const h = harness();
+    const chain = to(`http://other.test/to?u=${encodeURIComponent("http://[fd00:ec2::254]/")}`);
+    expect(await preflight(chain, h.options)).toEqual(refused);
+    expect(h.connects).toEqual(["93.184.215.14 80", "151.101.0.81 80"]);
   });
 });
 

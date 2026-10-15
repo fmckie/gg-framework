@@ -239,6 +239,61 @@ describe("checkUrl", () => {
   });
 });
 
+describe("cloud metadata", () => {
+  // Cloud hosts hand out instance credentials at 169.254.169.254 (AWS, GCP,
+  // Azure and others) and fd00:ec2::254 (AWS over IPv6).
+  it("refuses both metadata addresses, however they are written", () => {
+    for (const ip of [
+      "169.254.169.254",
+      "fd00:ec2::254",
+      "fd00:ec2:0:0:0:0:0:254",
+      "FD00:EC2::254",
+      "::ffff:169.254.169.254",
+      "::ffff:a9fe:a9fe",
+      "64:ff9b::a9fe:a9fe",
+      "2002:a9fe:a9fe::1",
+    ]) {
+      expect(isRefusedAddress(ip), ip).toBe(true);
+    }
+  });
+
+  it("refuses metadata URLs, and the spellings that hide them", () => {
+    for (const u of [
+      "http://169.254.169.254/latest/meta-data/",
+      "https://169.254.169.254/latest/meta-data/iam/security-credentials/",
+      "http://[fd00:ec2::254]/latest/meta-data/",
+      "http://[fd00:ec2:0:0:0:0:0:254]/latest/api/token",
+      "http://2852039166/latest/meta-data/",
+      "http://0xa9fea9fe/latest/meta-data/",
+      "http://0251.0376.0251.0376/latest/meta-data/",
+      "http://169.254.43518/latest/meta-data/",
+      "http://[::ffff:169.254.169.254]/latest/meta-data/",
+    ]) {
+      expect(checkUrl(u), u).toEqual({ ok: false, error: "private_address" });
+    }
+  });
+
+  it("refuses a name that resolves to either", async () => {
+    const answers: Readonly<Record<string, { address: string; family: number }>> = {
+      "imds.example": { address: "169.254.169.254", family: 4 },
+      "imds6.example": { address: "fd00:ec2::254", family: 6 },
+    };
+    const lookup: LookupAll = async (n) => {
+      const found = answers[n];
+      if (!found) throw new Error("ENOTFOUND");
+      return [found];
+    };
+    for (const n of Object.keys(answers)) {
+      const target = checkHostname(n);
+      if (!target.ok) throw new Error(target.error);
+      expect(await resolvePublic(target.value, lookup), n).toEqual({
+        ok: false,
+        error: "private_address",
+      });
+    }
+  });
+});
+
 describe("resolvePublic", () => {
   /** A fake resolver that counts its lookups. */
   function fakeLookup(answers: Record<string, string[]>): { lookup: LookupAll; calls: string[] } {

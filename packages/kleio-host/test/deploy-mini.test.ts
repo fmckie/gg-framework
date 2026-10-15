@@ -56,6 +56,8 @@ interface World {
   readonly laptopHome: string;
   readonly log: string;
   health(state: "up" | "down"): void;
+  /** The macOS version the mini's sw_vers reports. */
+  macos(version: string): void;
   calls(): string[];
   clearCalls(): void;
 }
@@ -85,6 +87,7 @@ function world(): World {
   write(join(repo, "packages/kleio-host/package.json"), "{}\n");
   write(join(repo, "packages/kleio-host/dist/cli.js"), "new cli\n");
   write(join(repo, "packages/kleio-host/dist/chunk-new.js"), "new chunk\n");
+  write(join(repo, "packages/kleio-host/dist/bin/kleio-capture"), "new capture helper\n", 0o755);
   write(join(repo, "gg-app/src-tauri/sidecar/app-sidecar.mjs"), "new sidecar\n");
   write(join(repo, "gg-app/src-tauri/sidecar/node_modules/dep/index.js"), "new dep\n");
   // Stands in for install-mini.sh: new plists, then both jobs restarted.
@@ -168,6 +171,7 @@ printf '{"ok":true,"sidecar":"up","devices":1,"offer":false,"sessions":[]}'
 `,
   );
   shim("sleep", "exit 0\n");
+  shim("sw_vers", `[ "$1" = -productVersion ] && cat '${state}/macos'\n`);
 
   const w: World = {
     repo,
@@ -175,10 +179,12 @@ printf '{"ok":true,"sidecar":"up","devices":1,"offer":false,"sessions":[]}'
     laptopHome,
     log,
     health: (s) => writeFileSync(join(state, "health"), s),
+    macos: (v) => writeFileSync(join(state, "macos"), `${v}\n`),
     calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []),
     clearCalls: () => rmSync(log, { force: true }),
   };
   w.health("up");
+  w.macos("26.6.2");
   return w;
 }
 
@@ -271,7 +277,10 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     expect(r.out).toContain(`state snapshot ${snap}`);
     // The new code is in place, installed, and the in-progress mark is gone.
     expect(read(w, "kleio-host/dist/cli.js")).toBe("new cli\n");
+    expect(read(w, "kleio-host/dist/bin/kleio-capture")).toBe("new capture helper\n");
     expect(existsSync(join(w.mini, "kleio-host/dist/old-only.js"))).toBe(false);
+    expect(r.out).toContain("\nmacOS 26.6.2\n");
+    expect(r.out).not.toContain("needs macOS 14");
     expect(read(w, "kleio-host/sidecar/app-sidecar.mjs")).toBe("new sidecar\n");
     expect(read(w, "Library/LaunchAgents/com.kleio.host.serve.plist")).toBe(
       plist("com.kleio.host.serve", "new"),
@@ -284,6 +293,32 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     ]);
     expect(w.calls()).toContain("ssh mac-mini-1 sh kleio-host/install-mini.sh");
     expect(w.calls()).toContain("curl -s -m 2 http://127.0.0.1:8443/kleio/health");
+  });
+
+  it("warns when the mini's macOS can't run the capture helper, and deploys the rest", () => {
+    const w = world();
+    w.macos("13.6.1");
+
+    const r = run(w, "deploy-mini.sh", "--no-build");
+
+    expect(r.status, r.out).toBe(0);
+    expect(r.out).toContain(
+      "The mini runs macOS 13.6.1: showing web pages and PDFs in a voice call needs macOS 14 or later.",
+    );
+    expect(read(w, "kleio-host/dist/cli.js")).toBe("new cli\n");
+  });
+
+  it("with --no-build, refuses to deploy without the capture helper, and changes nothing", () => {
+    const w = world();
+    rmSync(join(w.repo, "packages/kleio-host/dist/bin"), { recursive: true });
+    const before = tree(w.mini);
+
+    const r = run(w, "deploy-mini.sh", "--no-build");
+
+    expect(r.status).toBe(1);
+    expect(r.out).toContain("missing packages/kleio-host/dist/bin/kleio-capture; build first");
+    expect(tree(w.mini)).toEqual(before);
+    expect(w.calls()).toEqual([]);
   });
 
   it("refuses to deploy over an unfinished deploy, and changes nothing", () => {
@@ -400,10 +435,12 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     // The bundle is made from the dist folders of @kleio/coder and the
     // workspace packages it uses, so those are built first, or an older
     // build would ship.
+    // The capture helper comes after the host, whose build empties dist/.
     const builds = [
       "+ pnpm --filter @kleio/coder... build",
       "+ node gg-app/scripts/bundle-sidecar.mjs",
       "+ pnpm --filter @kleio/host build",
+      "+ sh packages/kleio-host/scripts/build-capture.sh",
     ].map((line) => deploy.out.indexOf(`\n${line}\n`));
     expect(builds, deploy.out).not.toContain(-1);
     expect([...builds].sort((a, b) => a - b)).toEqual(builds);

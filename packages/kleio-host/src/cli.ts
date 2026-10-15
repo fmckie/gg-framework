@@ -8,6 +8,7 @@
 //   kleio-host devices                   list devices
 //   kleio-host revoke <deviceId>         revoke a device
 //   kleio-host status                    health
+//   kleio-host capture-check [--no-sites] check page capture can't reach this Mac's network
 //
 // `pair`/`devices`/`revoke`/`status` are thin HTTP clients against the local
 // host using the admin token from `secure/admin.token` (written by `init`).
@@ -20,6 +21,7 @@ import { createDeviceRegistry } from "./device-registry.js";
 import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER } from "./host.js";
 import { apnsConfigFromEnv, createApnsPusher } from "./apns.js";
+import { runCaptureCheck } from "./capture-check.js";
 import { createPairOfferStore } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
@@ -284,8 +286,18 @@ async function main(): Promise<void> {
       process.stdout.write(`${r}\n`);
       return;
     }
+    case "capture-check": {
+      const passed = await runCaptureCheck({
+        sites: !flag("--no-sites"),
+        out: (line) => process.stdout.write(`${line}\n`),
+      });
+      process.exit(passed ? 0 : 1);
+      return;
+    }
     default:
-      process.stderr.write("usage: kleio-host <init|sidecar|serve|pair|devices|revoke|status>\n");
+      process.stderr.write(
+        "usage: kleio-host <init|sidecar|serve|pair|devices|revoke|status|capture-check>\n",
+      );
       process.exit(2);
   }
 }
