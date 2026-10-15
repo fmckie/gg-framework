@@ -180,7 +180,11 @@ import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { talkToKleio } from "./kleio/VoiceMode";
-import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
+import {
+  useOpenFromHost,
+  WorkspaceFileCards,
+  WorkspaceFilesProvider,
+} from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -3831,6 +3835,7 @@ function TranscriptRowBody({
   /** Answer this question by typing in the composer instead of clicking. */
   onAskType?: (itemId: number, promptId: string, questionId: string, seed?: string) => void;
 }): React.ReactElement | null {
+  const openFromHost = useOpenFromHost();
   switch (item.kind) {
     case "user":
       if (item.kenSent) {
@@ -4035,8 +4040,10 @@ function TranscriptRowBody({
       return (
         <div className="img-grid">
           {item.images.map((img, i) => {
+            // Connected to a host, the path is on the host: open it from there.
             const openImage = (): void => {
-              if (img.path) void openProjectPath(img.path);
+              if (!img.path || openFromHost(img.path)) return;
+              void openProjectPath(img.path);
             };
             return (
               <figure

@@ -4,6 +4,7 @@ import path from "node:path";
 import { mkdtemp, rm, readFile, writeFile, mkdir } from "node:fs/promises";
 import type { StructuredToolResult, ToolContext } from "@kleio/agent";
 import type { GenerateImageAuth } from "./generate-image.js";
+import { getModel } from "../core/model-registry.js";
 
 // A real, decodable 1×1 PNG so sharp (shrinkToFit / downscaleForPreview) works.
 const TINY_PNG = Buffer.from(
@@ -150,7 +151,11 @@ describe("generate_image — generation (no image input)", () => {
 
     // The body should have image_generation tool with action: "generate"
     const body = JSON.parse(init?.body as string);
-    expect(body.model).toBe("gpt-5.5");
+    expect(body.model).toBe("gpt-6-luna");
+    // Regression (Mac mini, 14 Oct 2026): the backend refused every request,
+    // because the model calling the tool (gpt-5.5) was retired. It must be one
+    // the registry still lists for OpenAI.
+    expect(getModel(body.model)?.provider).toBe("openai");
     expect(body.stream).toBe(true);
     expect(body.tools[0].type).toBe("image_generation");
     expect(body.tools[0].model).toBe("gpt-image-2.5-flare");
@@ -185,7 +190,7 @@ describe("generate_image — generation (no image input)", () => {
 
       expect(fetchMock).toHaveBeenCalledOnce();
       const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
-      expect(body.model).toBe("gpt-5.5");
+      expect(body.model).toBe("gpt-6-luna");
       expect(body.tools[0]).toMatchObject({
         model,
         action: "generate",

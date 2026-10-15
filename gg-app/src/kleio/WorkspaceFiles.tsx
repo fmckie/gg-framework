@@ -3,8 +3,9 @@
 // (`cwd`, a path on the mini) becomes a file owner: replies that link to a
 // report, a spreadsheet, an image or a web page get the same cards as a
 // Specialist's, and clicking such a link opens it from the mini instead of
-// looking for the path on this device. Source files a Code agent mentions
-// (`src/App.tsx`) stay plain links.
+// looking for the path on this device. A picture a tool made (generate_image,
+// a screenshot) opens from the mini the same way (`useOpenFromHost`). Source
+// files a Code agent mentions (`src/App.tsx`) stay plain links.
 //
 // Only the path rules load with the app: whether a click is an output is
 // decided synchronously. The cards and the file actions load on first use.
@@ -81,4 +82,43 @@ export function WorkspaceFileCards({ text }: { text: string }): React.ReactEleme
       <OutputCards owner={owner} text={text} />
     </Suspense>
   );
+}
+
+/**
+ * Opens a picture a tool made (generate_image, a screenshot) from the path it
+ * was saved at. While connected to a Kleio host that path is on the host, so
+ * the picture opens from there, through the session folder's file route, and
+ * is never looked for on this device, where it isn't (the iPhone, or a Mac
+ * paired to the mini). Returns false when not connected, so the caller opens
+ * it on this device as before.
+ */
+export function useOpenFromHost(): (path: string) => boolean {
+  const owner = useContext(WorkspaceFilesContext);
+  return useCallback(
+    (path: string): boolean => {
+      if (!owner) return false;
+      const inFolder = workspaceFilePath(path, owner.cwd);
+      if (inFolder) void openOutput(owner, inFolder);
+      else toast(unservedText(path, owner.cwd), "error");
+      return true;
+    },
+    [owner],
+  );
+}
+
+/**
+ * Why the host won't serve this picture: its file route serves only what is
+ * in the session's folder and outside hidden folders, and generate_image saves
+ * to .gg/generated unless it is given a path.
+ */
+function unservedText(path: string, cwd: string): string {
+  const base = cwd.replace(/\/+$/, "");
+  const inside = !path.startsWith("/")
+    ? path
+    : path.startsWith(`${base}/`)
+      ? path.slice(base.length + 1)
+      : null;
+  return inside?.split("/").some((s) => s.startsWith("."))
+    ? "Kleio can't open this image here: it's in a hidden folder on your host. Ask for images to be saved in the project folder instead."
+    : "Kleio can't open this image here: it isn't in this session's folder on your host.";
 }
