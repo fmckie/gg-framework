@@ -7,8 +7,9 @@
 // Markdown has no raw HTML, a web page is a picture of the page, and a link
 // opens only as a web page in the browser, through safeExternalUrl.
 
-import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowSquareOutIcon, WarningCircleIcon, XIcon } from "@phosphor-icons/react";
+import { LinkHandlerProvider, Markdown } from "../Markdown";
 import { getShowPart, KleioApiError, type ShowInfo, type ShowPart } from "./kleioApi";
 import { openExternal, safeExternalUrl } from "./safeUrl";
 import type { Shown } from "./voiceTools";
@@ -29,18 +30,18 @@ function stayPut(e: React.MouseEvent): void {
   if (e.target instanceof Element && e.target.closest("a")) e.preventDefault();
 }
 
-/** Markdown and its highlighter load with the first document she shows, not with the app. */
-const ShowMarkdown = lazy(() =>
-  import("../Markdown").then(({ LinkHandlerProvider, Markdown }) => ({
-    default: function ShowMarkdown({ text }: { readonly text: string }): React.ReactElement {
-      return (
-        <LinkHandlerProvider value={openLink}>
-          <Markdown>{text}</Markdown>
-        </LinkHandlerProvider>
-      );
-    },
-  })),
-);
+/**
+ * A shown document's Markdown, drawn as soon as its text arrives: Markdown is
+ * already in the app's first load (App.tsx and the chats use it), so there is
+ * no module left to wait for.
+ */
+function ShowMarkdown({ text }: { readonly text: string }): React.ReactElement {
+  return (
+    <LinkHandlerProvider value={openLink}>
+      <Markdown>{text}</Markdown>
+    </LinkHandlerProvider>
+  );
+}
 
 /** The host's words for a host that can't draw pages or PDFs (capture.ts). */
 const CANT_DRAW = "Kleio can't show web pages or PDFs on this host.";
@@ -251,9 +252,7 @@ function TextView({ show }: { readonly show: ShowInfo }): React.ReactElement {
   return (
     <div className="voice-show-doc" onClickCapture={stayPut}>
       {show.format === "markdown" ? (
-        <Suspense fallback={<Waiting text="Loading…" />}>
-          <ShowMarkdown text={text.value} />
-        </Suspense>
+        <ShowMarkdown text={text.value} />
       ) : (
         <pre className="voice-show-pre">{text.value}</pre>
       )}

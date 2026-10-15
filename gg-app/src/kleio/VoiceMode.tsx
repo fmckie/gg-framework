@@ -53,8 +53,7 @@ import type { Shown } from "./voiceTools";
 
 // three.js loads with the first conversation, not with the app.
 const VoiceOrb = lazy(() => import("./VoiceOrb").then((m) => ({ default: m.VoiceOrb })));
-// The guide loads when first opened, keeping the app's first load small (so
-// does the Markdown a shown document brings, in ShowPanel).
+// The guide loads when first opened, keeping the app's first load small.
 const VoiceGuide = lazy(() => import("./VoiceGuide").then((m) => ({ default: m.VoiceGuide })));
 
 // ── Whether her voice is set up (cached; Settings refreshes it) ────────────

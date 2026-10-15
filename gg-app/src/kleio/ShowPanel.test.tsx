@@ -108,7 +108,10 @@ describe("ShowPanel, a document", () => {
       ),
     );
     panel(file({ kind: "text", format: "markdown" }));
-    expect(await screen.findByRole("heading", { name: "The plan" })).toBeTruthy();
+    // Drawn as soon as its text arrives, with no module left to load (a lazy
+    // Markdown kept a cold test runner on "Loading…" past findBy's wait).
+    await act(async () => {});
+    expect(screen.getByRole("heading", { name: "The plan" })).toBeTruthy();
     expect(api.getShowPart).toHaveBeenCalledWith(ID, "text");
     fireEvent.click(screen.getByRole("link", { name: "the site" }));
     expect(vi.mocked(openUrl).mock.calls).toEqual([["https://example.com/a"]]);
