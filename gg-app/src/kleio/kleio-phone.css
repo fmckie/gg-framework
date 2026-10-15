@@ -710,5 +710,5 @@ html.platform-ios .voice-corner {
   right: calc(var(--safe-right) + 14px);
 }
 html.platform-ios .voice-stage {
-  width: min(42vh, 78vw);
+  width: min(calc(42vh / var(--zoom, 1)), calc(78vw / var(--zoom, 1)));
 }

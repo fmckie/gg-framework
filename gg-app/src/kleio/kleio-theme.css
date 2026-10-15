@@ -461,9 +461,12 @@
   display: flex;
   gap: 8px;
 }
+/* A share of the window at any zoom: vh and vw scale with the app's CSS zoom,
+   so they are divided back out (ZoomController.tsx), else zooming in grew the
+   orb past its row. */
 .voice-stage {
   align-self: center;
-  width: min(46vh, 72vw, 380px);
+  width: min(calc(46vh / var(--zoom, 1)), calc(72vw / var(--zoom, 1)), 380px);
   max-height: 100%;
   aspect-ratio: 1;
 }

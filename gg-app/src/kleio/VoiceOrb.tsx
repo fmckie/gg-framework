@@ -54,7 +54,11 @@ export function VoiceOrb({
   return (
     <div className={className} aria-hidden="true">
       <Canvas
-        resize={{ debounce: 100 }}
+        // Measure layout size, not the on-screen box: the app applies CSS
+        // `zoom`, and a zoomed box drawn back inside the zoomed page grows
+        // twice (at 120% the orb overflowed its area and was cut off at the
+        // right and bottom). Dither.tsx does the same.
+        resize={{ debounce: 100, offsetSize: true }}
         dpr={[1, 2]}
         gl={{ alpha: true, antialias: true, premultipliedAlpha: true }}
       >
