@@ -520,6 +520,31 @@ describe("capture: hosts that can't draw pages or PDFs", () => {
     createCapturer({ backend: idle({ available: false, reason: "no_helper" }), cacheDir: dir });
     expect(existsSync(old)).toBe(false);
   });
+
+  it("says so, without throwing, when its cache folder can't be made", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kleio-capture-nocache-"));
+    onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+    // A file where a folder of the path should be: no folder can be made in it.
+    const file = join(dir, "a-file");
+    writeFileSync(file, "not a folder");
+    const lines: string[] = [];
+    const capturer = createCapturer({
+      backend: idle({ available: true }),
+      cacheDir: join(file, "captures"),
+      log: (line) => lines.push(line),
+    });
+    expect(capturer.support).toEqual({ available: false, reason: "no_cache" });
+    expect(lines).toEqual([
+      "[capture] web pages and PDFs can't be shown: the folder captures are kept in (KLEIO_CAPTURE_CACHE) can't be made",
+    ]);
+    expect(await capturer.url("http://site.test/ok", "desktop")).toEqual(unavailable("site.test"));
+    expect(await capturer.pdf(Buffer.from("%PDF-fake pages=3"))).toEqual(unavailable(""));
+    // A private address is still refused as one.
+    expect(await capturer.url("http://10.0.0.1/", "desktop")).toMatchObject({
+      ok: false,
+      error: { kind: "refused", refusal: "private_address" },
+    });
+  });
 });
 
 describe("macHelperSupport", () => {

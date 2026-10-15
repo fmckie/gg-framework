@@ -250,7 +250,7 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 const MAX_HELPER_OUTPUT = 64 * 1024;
 
 /** Why this host can't draw web pages and PDFs. */
-export type UnsupportedReason = "not_macos" | "old_macos" | "no_helper";
+export type UnsupportedReason = "not_macos" | "old_macos" | "no_helper" | "no_cache";
 
 /**
  * Whether this host can draw web pages and PDFs for a voice show. Text,
@@ -268,6 +268,8 @@ export function supportText(reason: UnsupportedReason): string {
       return "this Mac runs a macOS older than 14, which the capture helper needs";
     case "no_helper":
       return "the capture helper (dist/bin/kleio-capture) isn't there; build it with scripts/build-capture.sh";
+    case "no_cache":
+      return "the folder captures are kept in (KLEIO_CAPTURE_CACHE) can't be made";
   }
 }
 
@@ -507,24 +509,35 @@ function serial(): <T>(task: () => Promise<T>) => Promise<T> {
 
 /**
  * The capturer. Clears the capture files an earlier run left in the cache
- * folder, and creates it (0700) when the backend can draw on this host.
+ * folder, and creates it (0700) when the backend can draw on this host. Never
+ * throws: a cache folder it can't make leaves it unable to draw (`no_cache`),
+ * so the host still starts, and shows everything else.
  */
 export function createCapturer(options: CapturerOptions): Capturer {
   const limits: CaptureLimits = { ...CAPTURE_LIMITS, ...options.limits };
   const now = options.now ?? Date.now;
   const log = options.log ?? (() => undefined);
   const { cacheDir, backend } = options;
-  const { support } = backend;
+  let support: CaptureSupport = backend.support;
   if (support.available) {
-    mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
-    chmodSync(cacheDir, 0o700);
-  } else {
+    try {
+      mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+      chmodSync(cacheDir, 0o700);
+    } catch {
+      support = { available: false, reason: "no_cache" };
+    }
+  }
+  if (!support.available) {
     log(`[capture] web pages and PDFs can't be shown: ${supportText(support.reason)}`);
   }
-  if (existsSync(cacheDir)) {
-    for (const name of readdirSync(cacheDir)) {
-      if (CACHE_FILE.test(name)) remove(join(cacheDir, name));
+  try {
+    if (existsSync(cacheDir)) {
+      for (const name of readdirSync(cacheDir)) {
+        if (CACHE_FILE.test(name)) remove(join(cacheDir, name));
+      }
     }
+  } catch {
+    // A cache folder that can't be read has nothing of ours to clear.
   }
 
   const cache = new Map<string, Entry>();

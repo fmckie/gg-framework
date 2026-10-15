@@ -22,6 +22,7 @@ import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER } from "./host.js";
 import { apnsConfigFromEnv, createApnsPusher } from "./apns.js";
 import { runCaptureCheck } from "./capture-check.js";
+import { createCapturer, defaultCacheDir, defaultHelperPath, macHelperBackend } from "./capture.js";
 import { createPairOfferStore } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
 import { createRingStore } from "./sse-ring.js";
@@ -141,8 +142,16 @@ async function serve(p: HostPaths): Promise<void> {
       ? "[apns] configured"
       : "[apns] not configured (KLEIO_APNS_* unset); nudges off",
   );
+  // Her voice's shows of web pages and PDFs: the macOS helper draws them. On
+  // a host that can't, the capturer says why once, and those shows say so.
+  const capture = createCapturer({
+    backend: macHelperBackend({ path: defaultHelperPath() }),
+    cacheDir: defaultCacheDir(),
+    log,
+  });
   const host = createHost({
     apns,
+    capture,
     diagnosticsDir: p.logs,
     homeCwd: process.env.KLEIO_HOME_CWD || join(homedir(), "Kleio"),
     // The same projects folders the sidecar runs Chat and Code sessions in.
