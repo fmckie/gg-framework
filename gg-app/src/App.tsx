@@ -211,7 +211,13 @@ import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
 import { toast } from "./toast";
-import { fileToPending, toWire, attachmentToPending, type PendingAttachment } from "./attachments";
+import {
+  fileToPending,
+  toWire,
+  attachmentToPending,
+  oversizedAttachmentsMessage,
+  type PendingAttachment,
+} from "./attachments";
 import { basename } from "./tool-format";
 import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
@@ -2435,6 +2441,17 @@ function App(): React.ReactElement {
     setEnhanceHintVisible(true);
   }, [input, enhancing, hydrated, slashOpen, mentionOpen, scheduleDraft, enhancement]);
 
+  // A prompt the agent refused or never got (too large, mid-cancel, the daemon
+  // restarting) must not pass for sent: its bubble stays, with the reason.
+  function reportUnsent(e: unknown): void {
+    pushItem({
+      kind: "error",
+      id: nextId(),
+      headline: "Your message wasn't sent",
+      message: String(e).replace(/^Error:\s*/, ""),
+    });
+  }
+
   // Submit the current input together with any staged attachments. Images are
   // echoed inline in the user's bubble; all media is sent to the agent.
   function submit(): void {
@@ -2508,6 +2525,14 @@ function App(): React.ReactElement {
       return;
     }
 
+    // The agent refuses a request over its size cap, so attachments that big
+    // could never arrive: say so and leave the draft as it is.
+    const tooLarge = oversizedAttachmentsMessage(attachments);
+    if (tooLarge) {
+      toast(tooLarge, "error");
+      return;
+    }
+
     recordHistory(trimmed);
     // Read BEFORE the dismissal clears the band: a prompt that supersedes a
     // question is consumed as soon as it lands, so it must neither flash the
@@ -2553,7 +2578,7 @@ function App(): React.ReactElement {
         prompt,
         queuedWire,
         sentEnhancements ? { enhancements: sentEnhancements } : undefined,
-      );
+      ).catch(reportUnsent);
       return;
     }
     const wire = attachments.map(toWire);
@@ -2588,7 +2613,7 @@ function App(): React.ReactElement {
       prompt,
       wire,
       sentEnhancements ? { enhancements: sentEnhancements } : undefined,
-    );
+    ).catch(reportUnsent);
   }
 
   // ── Attachment intake (paste / attach button / whole-window drag-drop) ──

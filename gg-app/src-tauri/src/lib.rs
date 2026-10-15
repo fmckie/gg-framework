@@ -1086,7 +1086,7 @@ async fn agent_prompt(
 ) -> Result<(), String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
-    client
+    let res = client
         .post(format!("{}/prompt", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
         .json(&serde_json::json!({
@@ -1097,6 +1097,13 @@ async fn agent_prompt(
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    // A refusal (413 too large, 409 mid-cancel) means the agent never got the
+    // message: report it rather than pass it off as sent.
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(sidecar_error_message("send", status.as_u16(), &body));
+    }
     // kleio (iPhone): show what the agent is doing on the lock screen.
     if kleio::remote().is_some() {
         let (chat, cwd) = {
@@ -6395,6 +6402,15 @@ mod tests {
         assert_eq!(
             sidecar_error_message("delete", 502, "<html>"),
             "delete failed: HTTP 502"
+        );
+        // A prompt over the sidecar's body cap is refused, not sent.
+        assert_eq!(
+            sidecar_error_message("send", 413, r#"{"error":"request body too large"}"#),
+            "request body too large"
+        );
+        assert_eq!(
+            sidecar_error_message("send", 413, ""),
+            "send failed: HTTP 413"
         );
     }
 
