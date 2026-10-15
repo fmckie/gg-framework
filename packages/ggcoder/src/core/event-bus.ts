@@ -109,8 +109,8 @@ type EventHandler<K extends EventKey> = (payload: BusEventMap[K]) => void;
 // ── EventBus ───────────────────────────────────────────────
 
 export class EventBus {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private listeners = new Map<string, Set<(...args: any[]) => void>>();
+  /** Each event's handlers. `on` and `emit` keep each set to its event's payload. */
+  private listeners = new Map<string, Set<(payload: never) => void>>();
 
   on<K extends EventKey>(event: K, handler: EventHandler<K>): () => void {
     if (!this.listeners.has(event)) {
@@ -128,7 +128,7 @@ export class EventBus {
     const handlers = this.listeners.get(event);
     if (!handlers) return;
     for (const handler of handlers) {
-      handler(payload);
+      (handler as EventHandler<K>)(payload);
     }
   }
 
