@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -112,11 +113,16 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(value), "utf-8");
 }
 
-/** Collect everything written to a stream without letting it reach the real one. */
-function captureWrites(stream: NodeJS.WriteStream): string[] {
+/**
+ * Collect everything written to a stream without letting it reach the real
+ * one; `onWrite` sees each write as it happens.
+ */
+function captureWrites(stream: NodeJS.WriteStream, onWrite?: (text: string) => void): string[] {
   const chunks: string[] = [];
   vi.spyOn(stream, "write").mockImplementation((chunk: string | Uint8Array) => {
-    chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+    const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+    chunks.push(text);
+    onWrite?.(text);
     return true;
   });
   return chunks;
@@ -207,10 +213,17 @@ describe("spawn_agent worker", () => {
 
   async function runWorkerTurn(
     extraOptions: Frame = {},
-  ): Promise<{ done: Frame; childSessionPath: string }> {
+  ): Promise<{ done: Frame; childSessionPath: string; recordedFirst: boolean[] }> {
     const stdin = new PassThrough();
     vi.spyOn(process, "stdin", "get").mockReturnValue(stdin as unknown as typeof process.stdin);
-    const stdout = captureWrites(process.stdout);
+    let childSessionPath = "";
+    // Whether the turn record was already on disk as each turn_complete went out.
+    const recordedFirst: boolean[] = [];
+    const stdout = captureWrites(process.stdout, (text) => {
+      if (text.includes('"type":"turn_complete"')) {
+        recordedFirst.push(existsSync(`${childSessionPath}.turn.json`));
+      }
+    });
     const frames = (): Frame[] =>
       stdout
         .join("")
@@ -245,6 +258,7 @@ describe("spawn_agent worker", () => {
       { timeout: 10_000 },
     );
     expect(initialized.ok).toBe(true);
+    childSessionPath = String(initialized.child_session_path);
 
     send({ request_id: "start", command: "start", task: "review the agent loop" });
     const done = await vi.waitFor(
@@ -258,24 +272,34 @@ describe("spawn_agent worker", () => {
 
     stdin.end();
     await worker;
-    return { done, childSessionPath: String(initialized.child_session_path) };
+    return { done, childSessionPath, recordedFirst };
   }
 
   it("fails the turn the loop stopped on and keeps the reason for the parent", async () => {
     agentLoopMock.mockImplementation(stopsOnInvalidToolArguments);
 
-    const { done, childSessionPath } = await runWorkerTurn();
+    const { done, childSessionPath, recordedFirst } = await runWorkerTurn();
 
     expect(done).toMatchObject({ status: "failed", error: FATAL });
     expect(String(done.output)).toContain(NARRATION);
     // What a parent that restarted mid-run adopts — it said "completed" before.
+    expect(recordedFirst).toEqual([true]);
     const { readTurnRecord } = await import("../core/subagent-turn-record.js");
-    const record = await vi.waitFor(async () => {
-      const found = await readTurnRecord(childSessionPath);
-      if (!found) throw new Error("turn record not written yet");
-      return found;
+    expect(await readTurnRecord(childSessionPath)).toMatchObject({
+      status: "failed",
+      error: FATAL,
     });
-    expect(record).toMatchObject({ status: "failed", error: FATAL });
+  });
+
+  it("writes the turn record before it announces the turn", async () => {
+    // A parent that restarts adopts the record, so it is on disk before
+    // turn_complete goes out; and the worker isn't done, nor its folder free
+    // to clean up, while the record is still being written.
+    agentLoopMock.mockImplementation(answersCleanly);
+
+    const { recordedFirst } = await runWorkerTurn();
+
+    expect(recordedFirst).toEqual([true]);
   });
 
   it("still completes a turn that finished cleanly", async () => {
@@ -293,10 +317,11 @@ describe("spawn_agent worker", () => {
     // verdict — which is how every large review used to end.
     agentLoopMock.mockImplementation(worksUntilStopped);
 
-    const { done } = await runWorkerTurn({ turnTimeoutMs: 50 });
+    const { done, recordedFirst } = await runWorkerTurn({ turnTimeoutMs: 50 });
 
     expect(done).toMatchObject({ status: "completed", recovered_after_timeout: true });
     expect(String(done.output)).toContain(`[Timeout recovery summary]\n${SALVAGED}`);
+    expect(recordedFirst).toEqual([true]);
   });
 
   it("gives its time-limit answer at reduced thinking effort", async () => {
