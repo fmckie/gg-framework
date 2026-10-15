@@ -201,9 +201,17 @@ describe("VoiceMode", () => {
     fireEvent.click(screen.getByRole("button", { name: "What Kleio Voice can do" }));
     // The guide loads when first opened.
     const guide = await screen.findByRole("dialog", { name: "What Kleio Voice can do" });
-    expect(guide.textContent).toContain("Read and show your files");
+    expect(guide.textContent).toContain("Show you things while you talk");
+    expect(guide.textContent).toContain("tap it to open the page in your browser");
+    expect(guide.textContent).toContain("Say “close it”, or tap ×, to take it down.");
+    expect(guide.textContent).toContain("Web pages and PDFs need a Mac host on macOS 14 or later.");
     expect(guide.textContent).toContain("Run a job on her own");
+    expect(guide.textContent).toContain("she asks before opening a web page");
+    expect(guide.textContent).toContain("Sign in to websites as you");
+    expect(guide.textContent).toContain("shows its sign-in or paywall page");
     expect(guide.textContent).toContain("Runs on OpenAI");
+    // She has no mail tools, so the guide never offers mail.
+    expect(guide.textContent).not.toMatch(/e-?mail|inbox/i);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "What Kleio Voice can do" })).toBeNull();
     expect(call.resetCall).not.toHaveBeenCalled();
