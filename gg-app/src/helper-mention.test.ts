@@ -88,4 +88,16 @@ describe("composerButtonAction", () => {
   it.each(cases)("running=%s, question=%j: %s", (running, question, expected) => {
     expect(composerButtonAction(running, question)).toBe(expected);
   });
+
+  // The iPhone had no way to queue mid-run: the button stopped the build and
+  // Return added a line. A draft now queues; an empty box still stops.
+  const phone: [boolean, boolean, ComposerButtonAction][] = [
+    [true, true, "send"],
+    [true, false, "stop"],
+    [false, true, "send"],
+    [false, false, "send"],
+  ];
+  it.each(phone)("on the iPhone, running=%s, draft=%s: %s", (running, draft, expected) => {
+    expect(composerButtonAction(running, null, draft)).toBe(expected);
+  });
 });

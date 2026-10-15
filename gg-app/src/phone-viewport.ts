@@ -10,7 +10,8 @@
 // Two classes on <html> describe what covers the bottom of the screen:
 //   - `bottom-covered`: anything does (even the slim bar shown above a
 //     hardware keyboard), so the home-indicator gap is not needed;
-//   - `keyboard-open`: the on-screen keyboard is up, where Return adds a line.
+//   - `keyboard-open`: the on-screen keyboard is up, where Return adds a line
+//     (except during a run, see `returnSends`).
 
 /** Taller than rounding noise, shorter than the bar above a hardware keyboard. */
 const COVERED_MIN_PX = 30;
@@ -30,6 +31,15 @@ export function keyboardOpen(layoutHeight: number, visibleHeight: number): boole
 /** Whether the iPhone's on-screen keyboard is up right now. */
 export function onScreenKeyboardUp(doc: Document = document): boolean {
   return doc.documentElement.classList.contains("keyboard-open");
+}
+
+/**
+ * Whether Return sends the draft. On the iPhone's own keyboard it adds a line,
+ * as in Messages, except during a run: then it queues the draft for the agent,
+ * as the send button does. A hardware keyboard's Return always sends.
+ */
+export function returnSends(running: boolean, doc: Document = document): boolean {
+  return running || !onScreenKeyboardUp(doc);
 }
 
 /** Start tracking the visible area. Returns a function that stops it. */
