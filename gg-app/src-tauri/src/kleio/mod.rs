@@ -28,6 +28,7 @@ pub mod parked;
 pub mod phone;
 pub mod push;
 pub mod radio;
+pub mod show;
 pub mod store;
 pub mod tailscale;
 

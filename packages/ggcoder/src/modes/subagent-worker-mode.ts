@@ -319,19 +319,17 @@ export async function runSubagentWorkerMode(): Promise<void> {
         loopError: loopError?.message,
         timeLimitMs,
       });
-      setState(outcome.status === "interrupted" ? "interrupted" : "idle");
-      completeTurn({
+      await completeTurn(outcome.status === "interrupted" ? "interrupted" : "idle", {
         ...outcome,
         output: boundSubAgentOutput(output),
         model: initializeOptions?.model,
       });
     })()
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         clearTimeout(turnTimer);
         const interrupted = controller.signal.aborted;
         const timedOut = abortReason === "timeout";
-        setState(interrupted && !timedOut ? "interrupted" : "idle");
-        completeTurn({
+        await completeTurn(interrupted && !timedOut ? "interrupted" : "idle", {
           status: timedOut ? "failed" : interrupted ? "interrupted" : "failed",
           output: boundSubAgentOutput(output),
           error: timedOut
@@ -348,9 +346,12 @@ export async function runSubagentWorkerMode(): Promise<void> {
   };
 
   /** Durably record the turn, then announce it. Record FIRST: an adopting
-   * parent must never observe a terminal frame with no record behind it. */
-  const completeTurn = (frame: Record<string, unknown>): void => {
-    void writeTurnRecord(initializeOptions?.childSessionPath, {
+   * parent must never observe a terminal frame with no record behind it. The
+   * turn stays running until the record is written, so a shutdown, or stdin
+   * closing, waits for it too. writeTurnRecord never rejects: a failed write
+   * is logged, and the turn is still announced. */
+  const completeTurn = async (next: WorkerState, frame: Record<string, unknown>): Promise<void> => {
+    await writeTurnRecord(initializeOptions?.childSessionPath, {
       status: (frame.status as "completed" | "interrupted" | "failed") ?? "failed",
       output: typeof frame.output === "string" ? frame.output : undefined,
       error: typeof frame.error === "string" ? frame.error : undefined,
@@ -359,6 +360,7 @@ export async function runSubagentWorkerMode(): Promise<void> {
       token_usage: { input: tokenUsage.input, output: tokenUsage.output },
       completed_at: Date.now(),
     });
+    setState(next);
     emit({ type: "turn_complete", ...frame });
   };
 

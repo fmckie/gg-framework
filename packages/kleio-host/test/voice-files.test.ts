@@ -298,11 +298,20 @@ describe("GET /kleio/voice/files", () => {
     put(kleioDir(), "blobs/b_00000000/x.txt");
     put(kleioDir(), "groups/g_00000000/b_00000000/y.txt");
     put(kleioDir(), ".gg/uploads/z.txt");
+    // The pictures she generated are listed; nothing else hidden is.
+    put(kleioDir(), ".gg/generated/made.png", "png", 30);
+    put(kleioDir(), ".gg/plans/plan.md", "a plan");
     const r = await list("source=kleio&id=ignored");
     expect(r.status).toBe(200);
-    expect(files(r).map((f) => f.path)).toEqual(["reports/new.pdf", "pic.png", "old.md"]);
+    expect(files(r).map((f) => f.path)).toEqual([
+      "reports/new.pdf",
+      ".gg/generated/made.png",
+      "pic.png",
+      "old.md",
+    ]);
     expect(files(r)[0]).toMatchObject({ name: "new.pdf", kind: "pdf", size: 4, readable: true });
-    expect(files(r)[1]).toMatchObject({ kind: "image", readable: false });
+    expect(files(r)[1]).toMatchObject({ name: "made.png", kind: "image", readable: false });
+    expect(files(r)[2]).toMatchObject({ kind: "image", readable: false });
     expect(files(r)[0]?.modified).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
     expect(files(r)[0]).not.toHaveProperty("member");
     const line = await logged("[voice] Phone: files kleio list ");
@@ -326,6 +335,66 @@ describe("GET /kleio/voice/files", () => {
     );
     expect(shown.status).toBe(200);
     expect(shown.raw.toString("utf8")).toBe("%PDF-1.7");
+  });
+
+  it("lists the pictures generate_image made: one level deep, pictures only, never through a symlink", async () => {
+    const gen = (dir: string, rel: string, content = "png"): string =>
+      put(dir, `.gg/generated/${rel}`, content);
+    gen(kleioDir(), "a.png");
+    gen(kleioDir(), "b.JPG");
+    gen(kleioDir(), "c.webp");
+    gen(kleioDir(), "d.gif");
+    gen(kleioDir(), "e.jpeg");
+    // Not pictures a show draws, hidden, deeper, or a folder.
+    gen(kleioDir(), "notes.md", "words");
+    gen(kleioDir(), "logo.svg", "<svg/>");
+    gen(kleioDir(), "photo.heic");
+    gen(kleioDir(), ".hidden.png");
+    gen(kleioDir(), "sub/deep.png");
+    mkdirSync(join(kleioDir(), ".gg", "generated", "folder.png"));
+    put(home, "elsewhere/secret.png", "png");
+    link(join(home, "elsewhere", "secret.png"), join(kleioDir(), ".gg", "generated", "link.png"));
+    const kleio = files(await list("source=kleio")).map((f) => f.path);
+    expect(kleio.sort()).toEqual([
+      ".gg/generated/a.png",
+      ".gg/generated/b.JPG",
+      ".gg/generated/c.webp",
+      ".gg/generated/d.gif",
+      ".gg/generated/e.jpeg",
+    ]);
+    // A specialist's, a group member's and a project's own .gg/generated.
+    const b = await newBlob("Scout");
+    gen(blobDir(b.id), "scout.png");
+    expect(files(await list(`source=specialist&id=${b.id}`)).map((f) => f.path)).toEqual([
+      ".gg/generated/scout.png",
+    ]);
+    const g = await newGroup([b.id]);
+    gen(join(kleioDir(), "groups", g.id, b.id), "team.png");
+    expect(files(await list(`source=group&id=${g.id}`))).toEqual([
+      expect.objectContaining({ path: ".gg/generated/team.png", member: b.id, by: "Scout" }),
+    ]);
+    const app = join(projectsDir(), "app");
+    put(app, "README.md", "# App");
+    put(app, "public/icon.png", "png");
+    gen(app, "mock.png");
+    // A project lists its documents and generated pictures, not every picture in it.
+    expect(
+      files(await list("source=project&id=app"))
+        .map((f) => f.path)
+        .sort(),
+    ).toEqual([".gg/generated/mock.png", "README.md"]);
+  });
+
+  it("never lists a symlinked .gg or .gg/generated", async () => {
+    if (process.platform === "win32") return;
+    put(home, "elsewhere/secret.png", "png");
+    mkdirSync(join(kleioDir(), ".gg"), { recursive: true });
+    link(join(home, "elsewhere"), join(kleioDir(), ".gg", "generated"));
+    expect(files(await list("source=kleio"))).toEqual([]);
+    const b = await newBlob("Scout");
+    mkdirSync(blobDir(b.id), { recursive: true });
+    link(join(home, "elsewhere"), join(blobDir(b.id), ".gg"));
+    expect(files(await list(`source=specialist&id=${b.id}`))).toEqual([]);
   });
 
   it("answers at most 40", async () => {
@@ -534,6 +603,10 @@ describe("voice files: chats and coding sessions", () => {
     const dir = join(projectsDir(), "demo");
     const made = put(dir, "out/report.md", "# Report", 5);
     const csv = put(dir, "data.csv", "a,b", 1);
+    // A picture it generated is its own file; its other hidden files are not listed.
+    const pic = put(dir, ".gg/generated/pic.png", "png", 3);
+    const plan = put(dir, ".gg/plans/plan.md", "a plan", 2);
+    const deep = put(dir, ".gg/generated/sub/deep.png", "png");
     put(dir, "secret.ts", "not made by the session");
     put(dir, ".env", "TOKEN=1");
     const outside = put(home, "elsewhere/x.txt", "outside");
@@ -541,6 +614,9 @@ describe("voice files: chats and coding sessions", () => {
     session("s1", dir, [
       made,
       csv,
+      pic,
+      plan,
+      deep,
       join(dir, ".env"),
       outside,
       join(dir, "link.txt"),
@@ -553,6 +629,7 @@ describe("voice files: chats and coding sessions", () => {
     expect(r.status).toBe(200);
     expect(files(r).map((f) => [f.path, f.kind])).toEqual([
       ["data.csv", "data"],
+      [".gg/generated/pic.png", "image"],
       ["out/report.md", "text"],
     ]);
     // Its folder, which the phone fetches a file from to show it.

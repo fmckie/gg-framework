@@ -245,7 +245,7 @@ pub(crate) fn host_error(status: u16, body: &str) -> String {
 
 /// `text/plain` of `text/plain; charset=utf-8`, lowercase; octet-stream when
 /// the header is absent or unreadable.
-fn mime_of(content_type: Option<&str>) -> String {
+pub(super) fn mime_of(content_type: Option<&str>) -> String {
     content_type
         .and_then(|s| s.split(';').next())
         .map(|s| s.trim().to_ascii_lowercase())

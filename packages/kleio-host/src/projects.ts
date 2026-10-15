@@ -12,7 +12,7 @@
 
 import { lstat, mkdir, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, parse, resolve, sep } from "node:path";
-import { fileKind, listFolder, type FileKind, type FoundFile } from "./agent-files.js";
+import { fileKind, ggFolder, listFolder, type FileKind, type FoundFile } from "./agent-files.js";
 import { err, ok, type Result } from "./result.js";
 import type { SavedRow } from "./saved-sessions.js";
 import { checkPrompt, jsonObject } from "./started-chats.js";
@@ -49,7 +49,7 @@ const NOT_PROJECTS: ReadonlySet<string> = new Set([
 ]);
 
 /** Build output and vendored code inside a project: never its documentation. */
-const BUILD_FOLDERS: ReadonlySet<string> = new Set([
+export const BUILD_FOLDERS: ReadonlySet<string> = new Set([
   "dist",
   "build",
   "out",
@@ -62,7 +62,7 @@ const BUILD_FOLDERS: ReadonlySet<string> = new Set([
 const CONSENT_FOLDERS = ["Desktop", "Documents", "Downloads"];
 
 /** What a project's documentation can be: words to read, not code, data or media. */
-const DOC_KINDS: ReadonlySet<FileKind> = new Set([
+export const DOC_KINDS: ReadonlySet<FileKind> = new Set([
   "pdf",
   "document",
   "spreadsheet",
@@ -285,13 +285,8 @@ export function isProjectDoc(path: string): boolean {
 }
 
 /** A project's plans folder's real path, or null when it is missing or reached through a symlink. */
-async function plansFolder(base: string): Promise<string | null> {
-  try {
-    const want = join(await realpath(base), ...PLANS_PATH.split("/"));
-    return (await realpath(want)) === want && (await lstat(want)).isDirectory() ? want : null;
-  } catch {
-    return null;
-  }
+function plansFolder(base: string): Promise<string | null> {
+  return ggFolder(base, "plans");
 }
 
 /** A project's documents (README, docs, reports, its coding agents' plans), by its real path. */

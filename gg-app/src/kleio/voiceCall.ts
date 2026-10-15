@@ -10,7 +10,7 @@ import { useSyncExternalStore } from "react";
 import { isPhone } from "../platform";
 import { holdAwake, type AwakeHold } from "./keepAwake";
 import { KleioApiError, startVoiceCall } from "./kleioApi";
-import type { ShownFile, ToolOutput, VoiceTools } from "./voiceTools";
+import type { Shown, ToolOutput, VoiceTools } from "./voiceTools";
 import { meterStream, type LevelMeter } from "./voiceLevels";
 
 export type CallPhase = "idle" | "connecting" | "listening" | "thinking" | "speaking" | "ended";
@@ -27,8 +27,8 @@ export interface CallState {
   readonly muted: boolean;
   /** Why the call couldn't start or stopped, in words for the screen. */
   readonly error: string | null;
-  /** The file she put on the screen (show_file), over the call; null when none. */
-  readonly shown: ShownFile | null;
+  /** What she put on the screen beside her (show); null when nothing is up. */
+  readonly shown: Shown | null;
 }
 
 const IDLE: CallState = { phase: "idle", lines: [], muted: false, error: null, shown: null };
@@ -396,9 +396,20 @@ export async function startCall(): Promise<void> {
       },
       onSent: (to) => addLine("kleio", `(Sent to ${to}.)`),
       onMade: (what) => addLine("kleio", `(Made ${what}.)`),
-      onShow: (file) => {
-        if (live?.pc === pc) set({ shown: file });
+      onShow: (shown) => {
+        if (live?.pc === pc) set({ shown });
       },
+      // A page being drawn: only while that show is the one up, even after
+      // hanging up, so a page still arriving then lands rather than spins.
+      onUpdate: (was, now) => {
+        if (state.shown !== was) return false;
+        if (now !== was) set({ shown: now });
+        return true;
+      },
+      onHide: () => {
+        if (live?.pc === pc) set({ shown: null });
+      },
+      view: isPhone() ? "phone" : "desktop",
       log: (l) => console.info(l),
     });
     // The page closing or reloading ends the call (and lets the Mac sleep again).
@@ -496,8 +507,8 @@ export function resetCall(): void {
   set(IDLE);
 }
 
-/** Close the file she's showing; the call carries on. */
-export function closeShownFile(): void {
+/** Take down what she's showing (× or Esc); the call carries on. */
+export function closeShown(): void {
   set({ shown: null });
 }
 

@@ -99,7 +99,7 @@ import {
 import { isPhone, supportsDictation } from "./platform";
 import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
 import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
-import { onScreenKeyboardUp } from "./phone-viewport";
+import { returnSends } from "./phone-viewport";
 import { useNotificationTaps, type TapDestination } from "./notification-tap";
 import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
@@ -180,7 +180,11 @@ import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { talkToKleio } from "./kleio/VoiceMode";
-import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
+import {
+  useOpenFromHost,
+  WorkspaceFileCards,
+  WorkspaceFilesProvider,
+} from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -1930,9 +1934,10 @@ function App(): React.ReactElement {
   // lead+rest render in the normal input color.
   const kenInputParts = helperTokenParts(input);
   // The question a helper-addressed draft asks (null for a draft to the coder).
-  // submit() routes on it, and mid-run it keeps the round button on Send.
+  // submit() routes on it, and mid-run it keeps the round button on Send. So
+  // does any draft on the iPhone, where the button is how a message queues.
   const helperAsk = workspaceMode === "code" ? helperQuestion(input) : null;
-  const composerAction = composerButtonAction(running, helperAsk);
+  const composerAction = composerButtonAction(running, helperAsk, isPhone() && !sendDisabled);
   // `@`-mention picker: open whenever a mention token is active and the search
   // returned at least one file. Clamp the highlighted row to the result count.
   // Never open while the helper token leads the draft: it addresses Ken, not a file.
@@ -3427,10 +3432,11 @@ function App(): React.ReactElement {
                   if (navigateHistory(e.key === "ArrowUp" ? -1 : 1, e.currentTarget)) {
                     e.preventDefault();
                   }
-                } else if (e.key === "Enter" && !e.shiftKey && !onScreenKeyboardUp()) {
+                } else if (e.key === "Enter" && !e.shiftKey && returnSends(running)) {
                   // Enter sends; Shift+Enter inserts a newline (textarea default).
-                  // iPhone: the on-screen Return key adds a line, as in Messages;
-                  // the send button sends (a hardware keyboard's Enter still sends).
+                  // iPhone: the on-screen Return key adds a line, as in Messages,
+                  // except during a run, where it queues the draft like the send
+                  // button (a hardware keyboard's Enter always sends).
                   e.preventDefault();
                   submit();
                 } else if (e.key === "Escape") {
@@ -3446,8 +3452,8 @@ function App(): React.ReactElement {
           </div>
           {/* Send doubles as the stop control mid-run, so the primary action
               never moves. Mid-run it stays Send for a question to the helper,
-              which runs alongside the build (on the iPhone, where Return adds a
-              line, that is the only way to send one). It stays on the text's
+              which runs alongside the build, and on the iPhone for any draft,
+              which queues; with nothing typed it stops. It stays on the text's
               line while the draft fits one line, and drops below with the field
               once the text wraps. */}
           <div className="inputactions-trailing">
@@ -3831,6 +3837,7 @@ function TranscriptRowBody({
   /** Answer this question by typing in the composer instead of clicking. */
   onAskType?: (itemId: number, promptId: string, questionId: string, seed?: string) => void;
 }): React.ReactElement | null {
+  const openFromHost = useOpenFromHost();
   switch (item.kind) {
     case "user":
       if (item.kenSent) {
@@ -4035,8 +4042,10 @@ function TranscriptRowBody({
       return (
         <div className="img-grid">
           {item.images.map((img, i) => {
+            // Connected to a host, the path is on the host: open it from there.
             const openImage = (): void => {
-              if (img.path) void openProjectPath(img.path);
+              if (!img.path || openFromHost(img.path)) return;
+              void openProjectPath(img.path);
             };
             return (
               <figure

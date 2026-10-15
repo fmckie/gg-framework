@@ -9,6 +9,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { GroupsPage } from "./GroupsPage";
 import type * as KleioApi from "./kleioApi";
 import {
+  getShowPart,
   listBlobs,
   listGroupMessages,
   listGroups,
@@ -23,7 +24,10 @@ import pagesCss from "./kleio-pages.css?raw";
 import phoneCss from "./kleio-phone.css?raw";
 import themeCss from "./kleio-theme.css?raw";
 import { ThreadChat } from "./ThreadChat";
+import type { CallState } from "./voiceCall";
 import { VoiceMode } from "./VoiceMode";
+
+const voice = vi.hoisted(() => ({ shown: null as CallState["shown"] }));
 
 vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
@@ -32,13 +36,14 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   listBlobs: vi.fn(),
   listGroups: vi.fn(),
   listGroupMessages: vi.fn(),
+  getShowPart: vi.fn(),
   getVoiceStatus: vi.fn(async () => ({ ready: true })),
 }));
 vi.mock("./voiceCall", () => ({
-  useCall: () => ({ phase: "speaking", lines: [], muted: false, error: null, shown: null }),
+  useCall: () => ({ phase: "speaking", lines: [], muted: false, error: null, shown: voice.shown }),
   callLevels: () => ({ out: null, in: null }),
   partialLines: () => [{ who: "kleio", text: "Chef finished the dinner plan." }],
-  closeShownFile: vi.fn(),
+  closeShown: vi.fn(),
   endCall: vi.fn(),
   resetCall: vi.fn(),
   setMuted: vi.fn(),
@@ -166,6 +171,7 @@ const DESK: Group = {
 };
 
 beforeEach(() => {
+  voice.shown = null;
   document.documentElement.classList.add("platform-ios");
   vi.stubGlobal("matchMedia", (media: string) => ({
     matches: false,
@@ -244,6 +250,30 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
         ".voice-corner button",
         ".voice-corner [aria-label=Close]",
       ],
+    );
+  });
+
+  it("in a document she shows on a call", async () => {
+    vi.mocked(getShowPart).mockResolvedValue(new TextEncoder().encode(REPLY));
+    voice.shown = {
+      key: 1,
+      title: "plan.md",
+      whose: "Chef",
+      show: {
+        id: "sh_0123456789abcdef0123456789abcdef",
+        kind: "text",
+        name: "plan.md",
+        state: "ready",
+        format: "markdown",
+      },
+      url: null,
+      problem: null,
+    };
+    render(<VoiceMode />);
+    await screen.findByText(/three courses/);
+    expectSelects(
+      [".voice-show-doc .markdown p", ".voice-show-doc .markdown pre code"],
+      [".voice-show-title", ".voice-show-whose", ".voice-show-close", ".voice-show-doc .code-copy"],
     );
   });
 });

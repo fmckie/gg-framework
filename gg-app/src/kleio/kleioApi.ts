@@ -719,6 +719,178 @@ export const readAgentFile = (req: {
   readonly part?: number;
 }): Promise<AgentFileText> => call("POST", "/kleio/voice/files/read", req);
 
+// ─── shows: what her voice puts on the screen beside her ────────────────────
+// kleio-host show.ts. A show is a file her agents made, or a web page or PDF
+// at a link that the host draws. The device names a file by its owner and
+// path, as read_file does, and a part only by the show's id and the part's
+// name; the Rust side (show.rs) passes on only plain text and pictures.
+
+/** How a show is drawn: a document's text, a picture, a PDF's pages, a picture of a web page. */
+export type ShowKind = "text" | "image" | "pdf" | "web";
+/** A web page is drawn on the host while the device waits; a file is ready at once. */
+export type ShowState = "capturing" | "ready" | "failed";
+/** The width the host draws a web page at. */
+export type ShowView = "desktop" | "phone";
+
+/** A show as the host describes it (`{ show }` from POST /kleio/voice/show and GET …/<id>). */
+export interface ShowInfo {
+  /** `sh_` and 32 hex digits. */
+  readonly id: string;
+  readonly kind: ShowKind;
+  /** A file's name, or a link's site. */
+  readonly name: string;
+  readonly state: ShowState;
+  /** text: Markdown or plain text. */
+  readonly format?: "markdown" | "plain";
+  /** text: only its first MB is drawn; web: the page goes on below the picture. */
+  readonly cut?: boolean;
+  /** pdf: the pages that can be shown (from 1), and how many it has. */
+  readonly pages?: number;
+  readonly totalPages?: number;
+  /** A link's site. */
+  readonly host?: string;
+  /** web: a sign-in, account or paywall page, as a visitor without their accounts sees it. */
+  readonly signIn?: boolean;
+  /** The page's or PDF's own title. */
+  readonly title?: string;
+  /** failed: why (a capture failure's kind), and in plain words. */
+  readonly reason?: string;
+  readonly detail?: string;
+}
+
+/** The most pages a show asks for (the Rust side's limit; the host draws at most 100). */
+export const SHOW_PAGES_MAX = 500;
+const SHOW_KINDS: readonly string[] = ["text", "image", "pdf", "web"];
+const SHOW_STATES: readonly string[] = ["capturing", "ready", "failed"];
+/** Longest name, site, title or detail kept from the host (they are labels and sentences). */
+const SHOW_WORDS_MAX = 500;
+
+export function isShowId(id: unknown): id is string {
+  return typeof id === "string" && /^sh_[0-9a-f]{32}$/.test(id);
+}
+
+/** A string from the host as a label: trimmed, cut to a sentence's length; null when empty. */
+function words(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t ? t.slice(0, SHOW_WORDS_MAX) : null;
+}
+
+const pageCount = (v: unknown): number | null =>
+  typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
+
+/**
+ * The host's `show`, checked field by field: null when what it must say is
+ * missing or odd, so the panel never draws from a guess (a page count drives
+ * how many pages it asks for). Fields it doesn't know are dropped.
+ */
+export function parseShowInfo(v: unknown): ShowInfo | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  const name = words(o.name);
+  if (!isShowId(o.id) || !SHOW_KINDS.includes(String(o.kind))) return null;
+  if (!SHOW_STATES.includes(String(o.state)) || name === null) return null;
+  const kind = o.kind as ShowKind;
+  const state = o.state as ShowState;
+  const show: { -readonly [K in keyof ShowInfo]: ShowInfo[K] } = { id: o.id, kind, name, state };
+  if (kind === "text") show.format = o.format === "markdown" ? "markdown" : "plain";
+  if (o.cut === true) show.cut = true;
+  if (kind === "pdf" && state === "ready") {
+    const pages = pageCount(o.pages);
+    if (pages === null || pages > SHOW_PAGES_MAX) return null;
+    const total = pageCount(o.totalPages);
+    show.pages = pages;
+    show.totalPages = total !== null && total >= pages ? total : pages;
+  }
+  const host = words(o.host);
+  if (host) show.host = host;
+  if (o.signIn === true) show.signIn = true;
+  const title = words(o.title);
+  if (title) show.title = title;
+  if (state === "failed") {
+    const reason = words(o.reason);
+    if (reason && /^[a-z_]{1,40}$/.test(reason)) show.reason = reason;
+    const detail = words(o.detail);
+    if (detail) show.detail = detail;
+  }
+  return show;
+}
+
+/** A show route's `{ show }`, checked; a reply that isn't one is an error. */
+async function showCall(
+  method: Method,
+  path: string,
+  body?: unknown,
+  timeoutMs?: number,
+): Promise<ShowInfo> {
+  const res = await call<unknown>(method, path, body, undefined, timeoutMs);
+  const show = parseShowInfo(
+    typeof res === "object" && res !== null ? (res as { show?: unknown }).show : undefined,
+  );
+  if (!show)
+    throw new KleioApiError(502, "bad_answer", "Your host sent a show Kleio couldn't read.");
+  return show;
+}
+
+/** Shows a file from list_files: named by its owner and relative path, as read_file names it. */
+export const createFileShow = (req: {
+  readonly source: FileSource;
+  readonly id?: string;
+  readonly member?: string;
+  readonly path: string;
+}): Promise<ShowInfo> => showCall("POST", "/kleio/voice/show", req);
+
+/** Shows a web page or PDF at `url`: the host checks the address, then draws it. */
+export const createLinkShow = (url: string, view: ShowView): Promise<ShowInfo> =>
+  showCall("POST", "/kleio/voice/show", { url, view });
+
+/** How a show is now (a page being drawn is `capturing` until it's `ready` or `failed`). */
+export async function getShow(id: string): Promise<ShowInfo> {
+  if (!isShowId(id)) throw new KleioApiError(0, "bad_request");
+  return showCall("GET", `/kleio/voice/show/${id}`, undefined, 15_000);
+}
+
+/** A show's part: its text, its picture, or one of its pages (from 1). */
+export type ShowPart = "text" | "image" | `page-${number}`;
+
+/** The bytes Tauri hands back for a raw reply: an ArrayBuffer, or numbers when it can't. */
+function bytesOf(v: unknown): Uint8Array | null {
+  if (v instanceof ArrayBuffer) return new Uint8Array(v);
+  if (ArrayBuffer.isView(v)) return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  if (Array.isArray(v) && v.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    return Uint8Array.from(v as number[]);
+  }
+  return null;
+}
+
+/**
+ * One part of one of this device's shows, as bytes. Plain text for `text`;
+ * a picture for `image` and each page (the Rust side checks the type).
+ * Fails with the host's reason, e.g. `expired`, or `changed` for a file
+ * changed since it was shown.
+ */
+export async function getShowPart(id: string, part: ShowPart): Promise<Uint8Array> {
+  let out: unknown;
+  try {
+    out = await invoke<unknown>("kleio_show_part", { id, part });
+  } catch (e) {
+    const o = typeof e === "object" && e !== null ? (e as Record<string, unknown>) : null;
+    if (o && typeof o.status === "number" && typeof o.error === "string") {
+      throw new KleioApiError(
+        o.status,
+        o.error,
+        typeof o.detail === "string" ? o.detail : undefined,
+        undefined,
+        o,
+      );
+    }
+    throw new KleioApiError(0, e instanceof Error ? e.message : String(e));
+  }
+  const bytes = bytesOf(out);
+  if (!bytes) throw new KleioApiError(502, "bad_answer");
+  return bytes;
+}
+
 /**
  * Sends this device's WebRTC offer; the Mac mini returns OpenAI's answer.
  * `mic`: near (a phone or headset) or far (a laptop or desk microphone).

@@ -11,7 +11,8 @@ vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
 
 const { Markdown } = await import("../Markdown");
-const { WorkspaceFileCards, WorkspaceFilesProvider } = await import("./WorkspaceFiles");
+const { WorkspaceFileCards, WorkspaceFilesProvider, useOpenFromHost } =
+  await import("./WorkspaceFiles");
 
 const CWD = "/Users/k/kleio-projects/demo";
 const OWNER = { kind: "workspace", cwd: CWD } as const;
@@ -147,6 +148,78 @@ describe("Chat/Code outputs when paired to a Mac mini", () => {
     expect(document.querySelector(".kleio-file")).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Quarterly report" }));
     expect(openProjectPath).toHaveBeenCalledWith("report.pdf");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+/** A picture card wired as the transcript's (App.tsx): from the host when
+ *  paired to one, else on this device. */
+function ImageCard({ path }: { path: string }): React.ReactElement {
+  const openFromHost = useOpenFromHost();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!openFromHost(path)) void openProjectPath(path);
+      }}
+    >
+      Open image
+    </button>
+  );
+}
+
+async function clickImage(cwd: string | null, path: string): Promise<void> {
+  await act(async () => {
+    render(
+      <WorkspaceFilesProvider cwd={cwd}>
+        <ImageCard path={path} />
+      </WorkspaceFilesProvider>,
+    );
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Open image" }));
+}
+
+describe("a picture a tool made, opened from the transcript", () => {
+  // Regression: on 14 Oct 2026 a recipe photo generate_image made on the Mac
+  // mini didn't open from a Mac paired to it ("file not found", six clicks):
+  // the click looked for the mini's path on the Mac.
+  it("opens from the mini, by its path inside the session's folder", async () => {
+    const cwd = "/Users/willmckie/kleio-projects/cookbook";
+    const photo = "finn-cookbook/photos/lemon-garlic-chicken-with-white-beans-spinach.jpg";
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    await clickImage(cwd, `${cwd}/${photo}`);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_file_open", {
+        owner: { kind: "workspace", cwd },
+        path: photo,
+      }),
+    );
+    expect(openProjectPath).not.toHaveBeenCalled();
+  });
+
+  it("says why one in a hidden folder can't open, and never looks on this device", async () => {
+    await clickImage(CWD, `${CWD}/.gg/generated/2026-10-15T14-00-00-000Z.png`);
+    expect(toast).toHaveBeenCalledWith(
+      "Kleio can't open this image here: it's in a hidden folder on your host. Ask for images to be saved in the project folder instead.",
+      "error",
+    );
+    expect(invoke).not.toHaveBeenCalled();
+    expect(openProjectPath).not.toHaveBeenCalled();
+  });
+
+  it("says why one outside the session's folder can't open", async () => {
+    await clickImage(CWD, "/Users/k/Desktop/logo.png");
+    expect(toast).toHaveBeenCalledWith(
+      "Kleio can't open this image here: it isn't in this session's folder on your host.",
+      "error",
+    );
+    expect(invoke).not.toHaveBeenCalled();
+    expect(openProjectPath).not.toHaveBeenCalled();
+  });
+
+  it("opens on this device when not paired", async () => {
+    await clickImage(null, `${CWD}/out/logo.png`);
+    expect(openProjectPath).toHaveBeenCalledWith(`${CWD}/out/logo.png`);
     expect(invoke).not.toHaveBeenCalled();
   });
 });
