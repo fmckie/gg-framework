@@ -12,6 +12,8 @@
  * sidecar (it recovers `/name` from the expanded body); this registry only
  * covers app buttons that build free-text prompts with a webview label.
  */
+import { INTRODUCE_LABEL, INTRODUCE_PREFIX } from "./kleio/introduce";
+
 interface AppPromptLabel {
   /** Stable opening of the prompt body (dynamic args follow it). */
   prefix: string;
@@ -24,6 +26,8 @@ const APP_PROMPT_LABELS: readonly AppPromptLabel[] = [
     prefix: "Initialize git for this project and publish it to GitHub.",
     label: "Initializing Git\u2026",
   },
+  // kleio: Setup's Brain card starts a chat with this (kleio/introduce.ts).
+  { prefix: INTRODUCE_PREFIX, label: INTRODUCE_LABEL },
 ];
 
 /**

@@ -7342,6 +7342,15 @@ select {
 .memory-modal {
   width: min(780px, 92vw);
   padding: 20px;
+  /* Pinned near the top, not centred, so it grows downward: the add/edit form
+     is taller than the list, and a centred dialog moved its own header each
+     time the form opened or closed, or a longer tab was picked. A short
+     window scrolls it rather than cutting off Save. */
+  align-self: flex-start;
+  margin-top: min(12vh, 120px);
+  max-height: calc(100vh - min(12vh, 120px) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .memory-modal .modal-head {
   margin-bottom: 6px;
@@ -7442,11 +7451,27 @@ select {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.memory-delete-cell {
-  width: 30px;
+/* Category and importance under the text, for the iPhone, which hides those
+   columns (kleio-phone.css). Hidden here, so screen readers don't hear them
+   twice. */
+.memory-meta {
+  display: none;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+/* Shrinks to Edit and Delete side by side. */
+.memory-actions-cell {
+  width: 1%;
+  white-space: nowrap;
   text-align: right;
 }
-.memory-delete {
+/* Less padding than the text cells, so the 26px buttons centre on the
+   entry's first line rather than sitting below it. */
+.memory-table td.memory-actions-cell {
+  padding-block: 6px;
+}
+.memory-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7463,14 +7488,96 @@ select {
     background-color var(--t-fast),
     border-color var(--t-fast);
 }
-.memory-delete:hover:not(:disabled) {
+.memory-action + .memory-action {
+  margin-left: 4px;
+}
+.memory-action:hover:not(:disabled) {
   border-color: var(--border);
   background: var(--surface-1);
+  color: var(--text);
+}
+.memory-delete:hover:not(:disabled) {
   color: var(--error);
 }
-.memory-delete:disabled {
+.memory-action:disabled {
   cursor: wait;
   opacity: 0.35;
+}
+/* Add sits at the inline end; a full tab says so just before it. */
+.brain-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.brain-full-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+/* The add/edit form stands in for the tab's list, built from the modal form
+   parts (.modal-label, .modal-input, .modal-radio-group, .modal-actions). */
+.brain-editor-title {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.brain-editor .modal-label {
+  color: var(--text-muted);
+}
+.brain-editor-title + .modal-label {
+  margin-top: 14px;
+}
+.brain-editor-text {
+  display: block;
+  min-height: 84px;
+  resize: vertical;
+  background: var(--surface-1);
+  color: var(--text);
+  line-height: 1.45;
+}
+.brain-editor-text::placeholder {
+  color: var(--text-muted);
+}
+.brain-editor-count {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.brain-editor-field {
+  min-width: 0;
+  margin: 22px 0 0;
+  padding: 0;
+  border: 0;
+}
+/* The fieldset carries the gap above, so its legend doesn't add another. */
+.brain-editor-field > .modal-label {
+  margin-top: 0;
+  padding: 0;
+}
+.brain-editor .modal-radio-group {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.brain-editor .modal-radio {
+  color: var(--text-muted);
+}
+.brain-editor .modal-radio:has(input:checked) {
+  color: var(--text);
+}
+.brain-editor .modal-hint {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+}
+/* Start-aligned, like every .modal-error: a refusal can quote a long entry. */
+.brain-editor-error {
+  margin: 10px 0 0;
+  color: var(--error);
 }
 .memory-modal-state {
   padding: 44px 20px;

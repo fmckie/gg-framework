@@ -3,12 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ToolContext } from "@kleio/agent";
+import { BrainEntryNotFoundError, BrainFullError } from "./brain-errors.js";
 import {
   buildMemoryTools,
   MEMORY_HARD_LIMIT,
   MEMORY_SOFT_LIMIT,
   MEMORY_TEXT_LIMIT,
   MemoryStore,
+  type MemoryCategory,
 } from "./memory.js";
 
 let tempDir: string;
@@ -25,6 +27,26 @@ afterEach(async () => {
 
 function context(): ToolContext {
   return { signal: new AbortController().signal, toolCallId: "test-call" };
+}
+
+/** A memory file holding `count` distinct entries of one category and importance. */
+async function seedFull(count: number, category: MemoryCategory, importance: number) {
+  const at = "2026-01-01T00:00:00.000Z";
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      memories: Array.from({ length: count }, (_, index) => ({
+        id: `seed-${index}`,
+        text: `Seeded durable fact number ${index}.`,
+        category,
+        importance,
+        createdAt: at,
+        updatedAt: at,
+      })),
+    }),
+  );
 }
 
 describe("MemoryStore", () => {
@@ -184,6 +206,31 @@ describe("MemoryStore", () => {
     await Promise.all([fs.writeFile(filePath, "bad"), fs.writeFile(`${filePath}.bak`, "also bad")]);
     expect(await new MemoryStore({ filePath }).list()).toEqual([]);
   });
+
+  it("refuses an update to a missing memory as BrainEntryNotFoundError, in the same words", async () => {
+    const store = new MemoryStore({ filePath });
+    const refused = store.update("m-gone", "Anything at all.");
+    await expect(refused).rejects.toBeInstanceOf(BrainEntryNotFoundError);
+    await expect(refused).rejects.toThrow("Memory not found: m-gone");
+  });
+
+  it("refuses a memory a full store would drop at once as BrainFullError", async () => {
+    const full =
+      "Memory limit is full of protected identity memories; forget one before adding another.";
+    // Every slot holds a protected identity memory.
+    await seedFull(MEMORY_HARD_LIMIT, "identity", 3);
+    const store = new MemoryStore({ filePath });
+    const identities = store.remember("A brand new preference.", "preference", 5);
+    await expect(identities).rejects.toBeInstanceOf(BrainFullError);
+    await expect(identities).rejects.toThrow(full);
+
+    // Every other memory matters more, so the new one would be the one dropped.
+    await seedFull(MEMORY_HARD_LIMIT, "project", 4);
+    const lowest = store.remember("A passing thought.", "other", 1);
+    await expect(lowest).rejects.toBeInstanceOf(BrainFullError);
+    await expect(lowest).rejects.toThrow(full);
+    expect(await store.list()).toHaveLength(MEMORY_HARD_LIMIT);
+  });
 });
 
 describe("memory tools", () => {
@@ -216,6 +263,21 @@ describe("memory tools", () => {
       `Forgot memory ${id}. 0 memories remain.`,
     );
     expect(await store.list()).toEqual([]);
+  });
+
+  it("keep their words for a missing memory and a full store", async () => {
+    const store = new MemoryStore({ filePath });
+    const tools = buildMemoryTools(store);
+    await expect(
+      tools[1]!.execute({ id: "m-gone", content: "Anything at all." }, context()),
+    ).rejects.toThrow("Memory not found: m-gone");
+
+    await seedFull(MEMORY_HARD_LIMIT, "identity", 3);
+    await expect(
+      tools[0]!.execute({ content: "A brand new preference.", category: "preference" }, context()),
+    ).rejects.toThrow(
+      "Memory limit is full of protected identity memories; forget one before adding another.",
+    );
   });
 
   it("rejects over-limit content as an ordinary tool error, not a schema failure", async () => {

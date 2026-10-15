@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ToolContext } from "@kleio/agent";
-import { buildJiwaTools, JiwaStore } from "./jiwa.js";
+import { BrainEntryNotFoundError, BrainFullError } from "./brain-errors.js";
+import { buildJiwaTools, JIWA_HARD_LIMIT, JiwaStore, type JiwaCategory } from "./jiwa.js";
 
 let tempDir: string;
 let filePath: string;
@@ -20,6 +21,29 @@ afterEach(async () => {
 function context(): ToolContext {
   return { signal: new AbortController().signal, toolCallId: "test-call" };
 }
+
+/** A Jiwa file holding `count` distinct instructions of one category and importance. */
+async function seedFull(count: number, category: JiwaCategory, importance: number) {
+  const at = "2026-01-01T00:00:00.000Z";
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(
+    filePath,
+    JSON.stringify({
+      version: 1,
+      jiwa: Array.from({ length: count }, (_, index) => ({
+        id: `seed-${index}`,
+        text: `Seeded standing instruction number ${index}.`,
+        category,
+        importance,
+        createdAt: at,
+        updatedAt: at,
+      })),
+    }),
+  );
+}
+
+const FULL =
+  "Jiwa limit is full of protected identity instructions; forget one before adding another.";
 
 describe("JiwaStore", () => {
   it("persists behavior instructions separately across store instances", async () => {
@@ -59,6 +83,27 @@ describe("JiwaStore", () => {
     expect(duplicate.duplicateOf?.id).toBe(original.entry?.id);
     expect(await store.list()).toHaveLength(1);
   });
+
+  it("refuses an update to a missing entry as BrainEntryNotFoundError, in the same words", async () => {
+    const store = new JiwaStore({ filePath });
+    const refused = store.update("j-gone", "Anything at all.");
+    await expect(refused).rejects.toBeInstanceOf(BrainEntryNotFoundError);
+    await expect(refused).rejects.toThrow("Jiwa entry not found: j-gone");
+  });
+
+  it("refuses an instruction a full store would drop at once as BrainFullError", async () => {
+    await seedFull(JIWA_HARD_LIMIT, "identity", 3);
+    const store = new JiwaStore({ filePath });
+    const identities = store.set("Answer in French.", "voice", 5);
+    await expect(identities).rejects.toBeInstanceOf(BrainFullError);
+    await expect(identities).rejects.toThrow(FULL);
+
+    await seedFull(JIWA_HARD_LIMIT, "workflow", 4);
+    const lowest = store.set("Mention the weather sometimes.", "other", 1);
+    await expect(lowest).rejects.toBeInstanceOf(BrainFullError);
+    await expect(lowest).rejects.toThrow(FULL);
+    expect(await store.list()).toHaveLength(JIWA_HARD_LIMIT);
+  });
 });
 
 describe("Jiwa tools", () => {
@@ -85,5 +130,18 @@ describe("Jiwa tools", () => {
     expect(await tools[2]!.execute({ id }, context())).toBe(
       `Forgot Jiwa entry ${id}. 0 Jiwa entries remain.`,
     );
+  });
+
+  it("keep their words for a missing entry and a full store", async () => {
+    const store = new JiwaStore({ filePath });
+    const tools = buildJiwaTools(store);
+    await expect(
+      tools[1]!.execute({ id: "j-gone", content: "Anything at all." }, context()),
+    ).rejects.toThrow("Jiwa entry not found: j-gone");
+
+    await seedFull(JIWA_HARD_LIMIT, "identity", 3);
+    await expect(
+      tools[0]!.execute({ content: "Answer in French.", category: "voice" }, context()),
+    ).rejects.toThrow(FULL);
   });
 });

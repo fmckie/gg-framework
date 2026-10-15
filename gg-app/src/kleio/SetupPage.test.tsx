@@ -14,12 +14,15 @@ import {
   type SetupStatus,
 } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
+import { BrainCard } from "./BrainCard";
 import { SetupPage } from "./SetupPage";
 import { useKleioRemote } from "./useKleioRemote";
 import { VoiceCard } from "./VoiceCard";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefined) }));
 vi.mock("./VoiceCard", () => ({ VoiceCard: vi.fn() }));
+// Covered by its own tests; here it only has to be in the right place.
+vi.mock("./BrainCard", () => ({ BrainCard: vi.fn() }));
 vi.mock("./hostReach", () => ({ useHostReach: vi.fn() }));
 vi.mock("./useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
 vi.mock("../agent", () => ({ authStatusWithError: vi.fn() }));
@@ -64,8 +67,14 @@ function voiceCard(ready: boolean | null) {
   };
 }
 
+/** The Brain card, standing in: a region where the real one goes. */
+function StubBrainCard(): React.ReactElement {
+  return <section aria-label="Brain">brain card</section>;
+}
+
 beforeEach(() => {
   localStorage.clear();
+  vi.mocked(BrainCard).mockImplementation(StubBrainCard);
   vi.mocked(getSetupStatus).mockResolvedValue(status());
   vi.mocked(getDictationSetup).mockResolvedValue({ state: "absent", bytes: 138_853_314 });
   vi.mocked(authStatusWithError).mockResolvedValue({ providers: [PROVIDER], error: null });
@@ -90,9 +99,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function renderPage(onOpenTab = vi.fn()): Promise<typeof onOpenTab> {
+async function renderPage(
+  onOpenTab = vi.fn(),
+  onIntroduce = vi.fn(async () => {}),
+): Promise<typeof onOpenTab> {
   await act(async () => {
-    render(<SetupPage onOpenTab={onOpenTab} />);
+    render(<SetupPage onOpenTab={onOpenTab} onIntroduce={onIntroduce} />);
   });
   return onOpenTab;
 }
@@ -165,6 +177,19 @@ describe("SetupPage", () => {
     vi.mocked(getDictationSetup).mockResolvedValue({ state: "ready", bytes: 138_853_314 });
     await renderPage();
     expect(within(card("Dictation")).getByText("Done")).toBeTruthy();
+    expect(screen.getByText("2 of 4 done")).toBeTruthy();
+    expect(progress().getAttribute("aria-valuemax")).toBe("4");
+  });
+
+  it("shows Brain last under Optional, with both callbacks, without counting it", async () => {
+    const onOpenTab = vi.fn();
+    const onIntroduce = vi.fn(async () => {});
+    await renderPage(onOpenTab, onIntroduce);
+
+    const brain = card("Brain");
+    expect(card("Dictation").nextElementSibling).toBe(brain);
+    expect(brain.nextElementSibling).toBeNull();
+    expect(vi.mocked(BrainCard).mock.lastCall?.[0]).toEqual({ onIntroduce, onOpenTab });
     expect(screen.getByText("2 of 4 done")).toBeTruthy();
     expect(progress().getAttribute("aria-valuemax")).toBe("4");
   });

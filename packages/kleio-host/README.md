@@ -585,6 +585,45 @@ runs): the sidecar went from 170 MB to 640–690 MB once Whisper was loaded, and
 after a chat session opened and the first clip was transcribed. Plan for about 1.5 GB free for
 the sidecar on a host that dictates.
 
+### Brain (memories and Jiwa)
+
+What Kleio remembers about the user (memories) and how they like her to work (Jiwa): two stores in
+the sidecar's `~/.gg` (`chat-memories.json` and `chat-jiwa.json`, each with a `.bak`), shared by
+every device. Kleio writes them with her `remember` and `set_jiwa` tools. The Brain window (Kleio
+Chat's header, and Settings → Setup → Brain) lists, adds, edits and deletes entries. Setup's
+"Introduce yourself" only starts a chat in which Kleio asks a few questions and saves the answers
+with those tools, so it has no route of its own.
+
+The routes are the sidecar's, reached through the host with a paired device's token (any device,
+as chatting already is) and an `x-gg-session` header naming one of the sidecar's chat sessions
+(404 without one):
+
+- `GET /memories` and `GET /jiwa` → `{memories | jiwa, softLimit, hardLimit}`.
+- `DELETE /memories/:id` and `DELETE /jiwa/:id` → the same snapshot.
+- `POST /memories` and `POST /jiwa` add; `PATCH /memories/:id` and `PATCH /jiwa/:id` edit. The
+  body is JSON `{text, category, importance}` and nothing else: `text` is trimmed, 1–600
+  characters; `category` is one of the store's (memories: `identity`, `preference`, `project`,
+  `relationship`, `health`, `other`; Jiwa: `identity`, `voice`, `interaction`, `boundaries`,
+  `workflow`, `other`); `importance` is a whole number from 1 to 5. They answer:
+  - `200` with the snapshot and the saved entry (`memory` or `entry`);
+  - `400 {error}`: `Invalid Brain entry: <field>: <issue>`, or `That isn't a valid memory id.`
+    (or `Jiwa instruction id`) for an id that is empty, over 200 characters or badly encoded;
+  - `404 {error}`: `That memory isn't in Brain any more.` (or `That Jiwa instruction…`);
+  - `409 {error, duplicateOf}` when Brain already has one like it (the tools' duplicate check),
+    or `409 {error}` `Brain is full. Delete one first, or give this one a higher importance.`;
+  - `413 {error:"request body too large"}` for a body over 16 KiB;
+  - `500 {error}`: `Couldn't save to Brain: <reason>`. Nothing is saved.
+
+Every change goes to every window as a `memory_change` or `jiwa_change` event.
+
+The limits are the tools': from 60 entries in a store, Kleio is told to consolidate, and an add
+past 90 removes the least important entries that aren't Identity (the least recently updated
+first among equals). An add is refused (the 409 above) when the new entry would be the one
+removed, or every entry is Identity. The window says "Full" at 90.
+
+An older host's sidecar answers add and edit with its catch-all `404 {error:"not found"}`, and
+the window tells the user to update Kleio on the host. Viewing and deleting work on any host.
+
 ### Files and site previews
 
 Paired devices open what agents write on the mini: PDFs, spreadsheets, images, reports and

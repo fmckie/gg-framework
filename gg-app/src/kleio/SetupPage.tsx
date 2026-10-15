@@ -20,6 +20,7 @@ import {
   type SetupKeyName,
   type SetupStatus,
 } from "./kleioApi";
+import { BrainCard } from "./BrainCard";
 import { DictationCard } from "./DictationCard";
 import { KeyForm, setupKeyError } from "./KeyForm";
 import { StepBadge, type StepMark } from "./StepBadge";
@@ -240,8 +241,11 @@ function KeyCard({
 
 export function SetupPage({
   onOpenTab,
+  onIntroduce,
 }: {
   onOpenTab: (tab: SettingsTabId) => void;
+  /** Starts the Introduce-yourself chat (the Brain card). */
+  onIntroduce: () => Promise<void>;
 }): React.ReactElement {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [auth, setAuth] = useState<AuthStatusResult | null>(null);
@@ -274,7 +278,7 @@ export function SetupPage({
 
   const onStatus = (status: SetupStatus): void => setLoad({ kind: "ready", status });
   const apps = load.kind === "ready" ? load.status.keys.composio : null;
-  // The needed steps; Group chats and Dictation are optional and don't count.
+  // The needed steps; Group chats, Dictation and Brain are optional and don't count.
   const steps = [
     reach === "connected",
     Boolean(auth?.providers.some((p) => p.connected)),
@@ -340,6 +344,8 @@ export function SetupPage({
       />
       {/* Any paired device: dictating starts the same download, and no key is involved. */}
       <DictationCard />
+      {/* Any paired device, too: each can already chat with Kleio and open the Brain. */}
+      <BrainCard onIntroduce={onIntroduce} onOpenTab={onOpenTab} />
     </div>
   );
 }

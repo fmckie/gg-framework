@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { AgentTool } from "@kleio/agent";
 import { withFileLock } from "@kleio/core";
+import { BrainEntryNotFoundError, BrainFullError } from "./brain-errors.js";
 
 export const JIWA_SOFT_LIMIT = 60;
 export const JIWA_HARD_LIMIT = 90;
@@ -185,7 +186,7 @@ export class JiwaStore {
       };
       const next = enforceHardLimit([...entries, entry]);
       if (next.length > JIWA_HARD_LIMIT || !next.some((item) => item.id === entry.id)) {
-        throw new Error(
+        throw new BrainFullError(
           "Jiwa limit is full of protected identity instructions; forget one before adding another.",
         );
       }
@@ -202,7 +203,7 @@ export class JiwaStore {
   ): Promise<JiwaMutationResult> {
     return this.mutate((entries) => {
       const index = entries.findIndex((entry) => entry.id === id);
-      if (index < 0) throw new Error(`Jiwa entry not found: ${id}`);
+      if (index < 0) throw new BrainEntryNotFoundError(`Jiwa entry not found: ${id}`);
       const text = this.normalizeText(content);
       const forgetSet = new Set(forgetIds.filter((forgetId) => forgetId !== id));
       const remaining = entries.filter((entry) => !forgetSet.has(entry.id));

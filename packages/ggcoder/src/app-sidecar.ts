@@ -47,6 +47,13 @@ import {
   type ChatPersona,
 } from "./chat-agents/index.js";
 import { createMotionAgentSession } from "./motion-agent/motion-agent.js";
+import {
+  BRAIN_EDIT_BODY_MAX,
+  type BrainEditResult,
+  brainIdFromPath,
+  editJiwa,
+  editMemory,
+} from "./chat-agents/brain-edit.js";
 import { buildJiwaTools, JiwaStore } from "./chat-agents/jiwa.js";
 import { buildMemoryTools, MemoryStore } from "./chat-agents/memory.js";
 import { buildKenSystemPrompt, buildKenAutopilotSystemPrompt } from "./core/ken-prompt.js";
@@ -4078,6 +4085,29 @@ async function createSession(
     return readCappedBody(req, res);
   }
 
+  /**
+   * Add or edit a Brain entry from the Brain window: read a small body (an
+   * oversized one gets a 413 here), save it with `save`, and answer with its
+   * status. The store's onChange then tells every window, as after a delete.
+   */
+  function saveBrainEntry<T>(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+    save: (raw: string) => Promise<BrainEditResult<T>>,
+  ): void {
+    void readCappedBody(req, res, BRAIN_EDIT_BODY_MAX)
+      .then(async (raw) => {
+        if (raw === null) return;
+        const result = await save(raw);
+        json(res, result.status, result.body);
+      })
+      .catch((error: unknown) => {
+        if (res.headersSent) return;
+        const reason = error instanceof Error ? error.message : String(error);
+        json(res, 500, { error: `Couldn't save to Brain: ${reason}` });
+      });
+  }
+
   function json(res: http.ServerResponse, status: number, body: unknown): void {
     const payload = JSON.stringify(redactValue(body, { secrets: environmentSecrets(process.env) }));
     res.writeHead(status, {
@@ -4146,6 +4176,23 @@ async function createSession(
       return;
     }
 
+    // Add and edit from the Brain window, through the same store methods,
+    // limits and lock as the remember tool (chat-agents/brain-edit.ts).
+    if (method === "POST" && url === "/memories") {
+      saveBrainEntry(req, res, (raw) => editMemory(memoryStore, null, raw));
+      return;
+    }
+
+    if (method === "PATCH" && url.startsWith("/memories/")) {
+      const id = brainIdFromPath(url, "/memories/");
+      if (id === null) {
+        json(res, 400, { error: "That isn't a valid memory id." });
+        return;
+      }
+      saveBrainEntry(req, res, (raw) => editMemory(memoryStore, id, raw));
+      return;
+    }
+
     if (method === "GET" && url === "/jiwa") {
       void jiwaStore
         .snapshot()
@@ -4169,6 +4216,22 @@ async function createSession(
         .catch((error) => {
           json(res, 500, { error: error instanceof Error ? error.message : String(error) });
         });
+      return;
+    }
+
+    // Add and edit a Jiwa instruction, as set_jiwa does.
+    if (method === "POST" && url === "/jiwa") {
+      saveBrainEntry(req, res, (raw) => editJiwa(jiwaStore, null, raw));
+      return;
+    }
+
+    if (method === "PATCH" && url.startsWith("/jiwa/")) {
+      const id = brainIdFromPath(url, "/jiwa/");
+      if (id === null) {
+        json(res, 400, { error: "That isn't a valid Jiwa instruction id." });
+        return;
+      }
+      saveBrainEntry(req, res, (raw) => editJiwa(jiwaStore, id, raw));
       return;
     }
     if (method === "GET" && (url === "/events" || url.startsWith("/events?"))) {

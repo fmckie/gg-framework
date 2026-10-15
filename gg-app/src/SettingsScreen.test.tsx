@@ -25,10 +25,21 @@ vi.mock("./kleio/LazyConnectionPage", async () => {
 });
 vi.mock("./kleio/LazyAppsPage", () => ({ AppsPage: () => <p>apps page</p> }));
 vi.mock("./kleio/SetupPage", () => ({
-  SetupPage: ({ onOpenTab }: { onOpenTab: (tab: string) => void }) => (
-    <button type="button" onClick={() => onOpenTab("connection")}>
-      setup page
-    </button>
+  SetupPage: ({
+    onOpenTab,
+    onIntroduce,
+  }: {
+    onOpenTab: (tab: string) => void;
+    onIntroduce: () => Promise<void>;
+  }) => (
+    <>
+      <button type="button" onClick={() => onOpenTab("connection")}>
+        setup page
+      </button>
+      <button type="button" onClick={() => void onIntroduce()}>
+        introduce yourself
+      </button>
+    </>
   ),
 }));
 vi.mock("./kleio/AboutPage", () => ({ AboutPage: () => <p>about page</p> }));
@@ -59,7 +70,7 @@ afterEach(() => {
 
 async function renderScreen(props: Partial<Parameters<typeof SettingsScreen>[0]> = {}) {
   const onClose = vi.fn();
-  render(<SettingsScreen onClose={onClose} {...props} />);
+  render(<SettingsScreen onClose={onClose} onIntroduce={vi.fn(async () => {})} {...props} />);
   // Let the status loads settle.
   await act(async () => {
     await Promise.resolve();
@@ -95,6 +106,15 @@ describe("SettingsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "setup page" }));
     expect(heading()).toBe("Connection");
     expect(screen.getByText("connection page")).toBeTruthy();
+  });
+
+  it("hands Setup's Introduce yourself to the app", async () => {
+    const onIntroduce = vi.fn(async () => {});
+    await renderScreen({ initialTab: "setup", onIntroduce });
+
+    fireEvent.click(screen.getByRole("button", { name: "introduce yourself" }));
+
+    expect(onIntroduce).toHaveBeenCalledOnce();
   });
 
   it("opens on the requested tab", async () => {

@@ -951,6 +951,76 @@ async fn agent_delete_jiwa(
     Ok(body)
 }
 
+// kleio: the Brain window's add and edit. A new entry is a POST to the list and
+// an edit is a PATCH to the entry. The id is one path segment, so `/` is encoded
+// too (`urlencoding` keeps it for paths).
+fn brain_save_route(kind: &str, id: Option<&str>) -> (reqwest::Method, String) {
+    match id {
+        None => (reqwest::Method::POST, format!("/{kind}")),
+        Some(id) => (
+            reqwest::Method::PATCH,
+            format!("/{kind}/{}", urlencoding(id).replace('/', "%2F")),
+        ),
+    }
+}
+
+// kleio: sends one Brain entry under this window's session. The sidecar checks
+// it (text, category, importance) with the tools' limits; this only carries it.
+async fn brain_save(
+    webview: &WebviewWindow,
+    client: &reqwest::Client,
+    kind: &str,
+    id: Option<&str>,
+    entry: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(webview).ok_or("session not ready")?;
+    let (method, path) = brain_save_route(kind, id);
+    let res = client
+        .request(method, format!("{}{}", sidecar_base(port), path))
+        .header("x-gg-session", &gg_sid)
+        .json(&entry)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(sidecar_error_message("save", status.as_u16(), &body));
+    }
+    res.json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Proxy: add a shared memory (no `id`) or edit one, from the Brain window.
+#[tauri::command]
+async fn agent_save_memory(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    id: Option<String>,
+    text: String,
+    category: String,
+    importance: u8,
+) -> Result<serde_json::Value, String> {
+    let entry = serde_json::json!({ "text": text, "category": category, "importance": importance });
+    brain_save(&webview, &client, "memories", id.as_deref(), entry).await
+}
+
+/// Proxy: add a shared Jiwa instruction (no `id`) or edit one, from the Brain window.
+#[tauri::command]
+async fn agent_save_jiwa(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    id: Option<String>,
+    text: String,
+    category: String,
+    importance: u8,
+) -> Result<serde_json::Value, String> {
+    let entry = serde_json::json!({ "text": text, "category": category, "importance": importance });
+    brain_save(&webview, &client, "jiwa", id.as_deref(), entry).await
+}
+
 /// Proxy: current XP/rank progress snapshot (Ranks system).
 #[tauri::command]
 async fn agent_progress(
@@ -3626,13 +3696,13 @@ async fn agent_sessions(
 }
 
 /// Pull the sidecar's `{ "error": ".." }` message out of a failed response
-/// body, falling back to the HTTP status.
-fn sidecar_error_message(status: u16, body: &str) -> String {
+/// body, falling back to "<action> failed: HTTP <status>".
+fn sidecar_error_message(action: &str, status: u16, body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
         .filter(|m| !m.trim().is_empty())
-        .unwrap_or_else(|| format!("delete failed: HTTP {status}"))
+        .unwrap_or_else(|| format!("{action} failed: HTTP {status}"))
 }
 
 /// Proxy: permanently delete a saved chat (all generations) by its path.
@@ -3654,7 +3724,7 @@ async fn agent_delete_chat(
     let status = res.status();
     if !status.is_success() {
         let body = res.text().await.unwrap_or_default();
-        return Err(sidecar_error_message(status.as_u16(), &body));
+        return Err(sidecar_error_message("delete", status.as_u16(), &body));
     }
     res.json::<serde_json::Value>()
         .await
@@ -5945,6 +6015,8 @@ pub fn run() {
             agent_delete_memory,
             agent_jiwa,
             agent_delete_jiwa,
+            agent_save_memory,
+            agent_save_jiwa,
             agent_progress,
             agent_usage,
             agent_prompt,
@@ -6313,10 +6385,17 @@ mod tests {
     #[test]
     fn sidecar_error_message_prefers_the_sidecar_error() {
         assert_eq!(
-            sidecar_error_message(409, r#"{"error":"This chat is open in a window."}"#),
+            sidecar_error_message(
+                "delete",
+                409,
+                r#"{"error":"This chat is open in a window."}"#
+            ),
             "This chat is open in a window."
         );
-        assert_eq!(sidecar_error_message(502, "<html>"), "delete failed: HTTP 502");
+        assert_eq!(
+            sidecar_error_message("delete", 502, "<html>"),
+            "delete failed: HTTP 502"
+        );
     }
 
     #[test]
@@ -6343,6 +6422,31 @@ mod tests {
         for body in ["not json", "{}", r#"{"folders":7}"#] {
             assert!(project_folders(200, body).is_err(), "{body}");
         }
+    }
+
+    #[test]
+    fn brain_save_route_posts_a_new_entry_and_patches_an_edit() {
+        use reqwest::Method;
+        assert_eq!(
+            brain_save_route("memories", None),
+            (Method::POST, "/memories".to_string())
+        );
+        assert_eq!(
+            brain_save_route("jiwa", None),
+            (Method::POST, "/jiwa".to_string())
+        );
+        assert_eq!(
+            brain_save_route("memories", Some("cfadf2e0-60bd-4049-9711-21e464f6df46")),
+            (
+                Method::PATCH,
+                "/memories/cfadf2e0-60bd-4049-9711-21e464f6df46".to_string()
+            )
+        );
+        // Whatever the id holds, it stays one path segment.
+        assert_eq!(
+            brain_save_route("jiwa", Some("a/b c%?#é")),
+            (Method::PATCH, "/jiwa/a%2Fb%20c%25%3F%23%C3%A9".to_string())
+        );
     }
 
     /// Guards the startup crash from the reqwest 0.13 bump: the shared client is

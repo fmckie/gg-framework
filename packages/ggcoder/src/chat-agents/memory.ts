@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { AgentTool } from "@kleio/agent";
 import { withFileLock } from "@kleio/core";
+import { BrainEntryNotFoundError, BrainFullError } from "./brain-errors.js";
 
 export const MEMORY_SOFT_LIMIT = 60;
 export const MEMORY_HARD_LIMIT = 90;
@@ -183,7 +184,7 @@ export class MemoryStore {
       };
       const next = enforceHardLimit([...memories, memory]);
       if (next.length > MEMORY_HARD_LIMIT || !next.some((item) => item.id === memory.id)) {
-        throw new Error(
+        throw new BrainFullError(
           "Memory limit is full of protected identity memories; forget one before adding another.",
         );
       }
@@ -200,7 +201,7 @@ export class MemoryStore {
   ): Promise<MemoryMutationResult> {
     return this.mutate((memories) => {
       const index = memories.findIndex((memory) => memory.id === id);
-      if (index < 0) throw new Error(`Memory not found: ${id}`);
+      if (index < 0) throw new BrainEntryNotFoundError(`Memory not found: ${id}`);
       const text = this.normalizeText(content);
       const forgetSet = new Set(forgetIds.filter((forgetId) => forgetId !== id));
       // Consolidation intentionally expands one memory with details from related

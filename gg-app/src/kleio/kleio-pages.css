@@ -2398,6 +2398,14 @@
   justify-content: space-between;
   gap: 10px 16px;
 }
+/* A step with two things to do (Brain: Introduce yourself, Open Brain): side
+   by side, under its state. */
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
 /* The optional steps sit apart, under their own label. */
 .setup-group-label {
   margin: 4px 0 -16px;

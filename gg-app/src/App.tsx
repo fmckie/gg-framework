@@ -77,6 +77,7 @@ import {
   answerAskUser,
   notifyAskUser,
   selectWorkspace,
+  getSettings,
 } from "./agent";
 import {
   appendPendingAsks,
@@ -128,7 +129,7 @@ import { ContextMeter } from "./ContextMeter";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { TasksModal } from "./TasksModal";
 import { NotesModal } from "./NotesModal";
-import { MemoryModal } from "./MemoryModal";
+import { MemoryModal } from "./LazyMemoryModal";
 import { ShimmerText } from "./ShimmerText";
 import { WakeScreen } from "./WakeScreen";
 import { MotionStarters } from "./MotionStarters";
@@ -193,6 +194,7 @@ import { FooterSkeleton, TranscriptSkeleton, Skeleton } from "./Skeleton";
 import { useAppUpdate } from "./update";
 import { UpdateBanner } from "./UpdateBanner";
 import { recoverPromptLabel } from "./prompt-labels";
+import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
 import {
@@ -2738,6 +2740,36 @@ function App(): React.ReactElement {
     setHydrateNonce((n) => n + 1);
   }
 
+  // kleio: "Introduce yourself" on Setup's Brain card. It opens a new chat with
+  // the general agent, as "+ New chat" does (ChatPicker), and the effect below
+  // sends the prompt once that chat has hydrated.
+  const [introPending, setIntroPending] = useState(false);
+  async function introduceYourself(): Promise<void> {
+    const settings = await getSettings();
+    if (!settings) throw new Error("Couldn't read your settings. Try again.");
+    const root = settings.projectsRoot.trim();
+    if (!root) throw new Error("Choose a projects folder in Settings first.");
+    await selectWorkspace("chat", root, undefined, "general");
+    withViewTransition(() => {
+      setWorkspaceMode("chat");
+      resetForChosenProject();
+      setIntroPending(true);
+    });
+  }
+  // Through the normal send path, once, into the new chat. Leaving before it
+  // opens (Back to the chat list or Home) drops it, so it can't land in a chat
+  // picked instead.
+  useEffect(() => {
+    if (!introPending) return;
+    if (needsProject || showPicker) {
+      setIntroPending(false);
+      return;
+    }
+    if (!hydrated) return;
+    setIntroPending(false);
+    if (readyRef.current) submitTextRef.current(INTRODUCE_PROMPT, INTRODUCE_LABEL);
+  }, [introPending, needsProject, showPicker, hydrated]);
+
   // kleio (iPhone): a tapped notification opens what it is about, from any
   // screen. An agent or group opens on its Kleio page; a chat or project is
   // reopened exactly as picking it from the chat list would. The ref keeps the
@@ -2839,6 +2871,7 @@ function App(): React.ReactElement {
         ) : entryView === "settings" ? (
           <SettingsScreen
             initialTab={settingsTab}
+            onIntroduce={introduceYourself}
             onClose={() =>
               withViewTransition(() => {
                 setEntryView("home");
