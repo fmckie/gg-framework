@@ -100,6 +100,7 @@ function attackPage(port: number): string {
 @import url(http://127.0.0.1:${p}/import.css);
 body { font: 20px -apple-system, sans-serif; margin: 40px; }
 .bg { background: url(http://localhost:${p}/css-bg); }
+.overflow { width: 1300px; height: 2000px; }
 </style></head><body>
 <h1>Kleio capture check</h1>
 <p>This page tries to reach a canary on this Mac's loopback, port ${p}. Every attempt must fail.</p>
@@ -119,6 +120,8 @@ body { font: 20px -apple-system, sans-serif; margin: 40px; }
 <iframe src="http://localtest.me:${p}/iframe-name" width="50" height="50"></iframe>
 <iframe name="sink" width="10" height="10"></iframe>
 <form id="f" action="http://127.0.0.1:${p}/form" method="post" target="sink"><input name="a" value="b"></form>
+<div class="overflow"></div>
+<script>document.documentElement.offsetHeight; // laid out mid-load, as a long page is</script>
 <script>
 const P = ${p};
 const targets = ["http://127.0.0.1:" + P, "http://localhost:" + P, "http://[::1]:" + P,
@@ -158,6 +161,13 @@ const again = setInterval(() => {
   if (++n >= 6) clearInterval(again);
 }, 500);
 report({ control: "ran" });
+// The page is wider and taller than a screen and laid out before it finished
+// loading, so the window has both scrollbars before any style could hide
+// them: overlay ones leave the page all of the window.
+addEventListener("load", () => {
+  const d = document.documentElement;
+  report({ room: d.clientWidth + "x" + d.clientHeight + " of " + innerWidth + "x" + innerHeight });
+});
 </script></body></html>`;
 }
 
@@ -284,6 +294,18 @@ export async function runCaptureCheck(options: CaptureCheckOptions): Promise<boo
   if (!site.reports.includes("control=ran")) {
     passed = false;
     out("  FAIL: the page's script never reported back, so the probes may not have run");
+  }
+  // Scrollbars that take room leave a band over the page every screen down.
+  const room = site.reports.find((r) => r.startsWith("room="))?.slice("room=".length);
+  const [usable, whole] = room?.split(" of ") ?? [];
+  if (!room) {
+    passed = false;
+    out("  FAIL: the page never said how much of the window it had");
+  } else if (usable !== whole) {
+    passed = false;
+    out(`  FAIL: scrollbars took room from the page (${room}): its picture would show them`);
+  } else {
+    out(`  page room: ${room}, no scrollbars in the way`);
   }
   if (canary.hits.length === 0) {
     out("  canary: 0 hits");

@@ -281,7 +281,9 @@ let removeWebRTC = """
   })();
   """
 
-/// Scrollbars would take a strip of the picture.
+/// Hides the scrollbars of scrolling boxes in the page, where WebKit lets it.
+/// The window's own are overlay scrollbars (web()): a style added once the
+/// page has laid out doesn't take those away.
 let hideScrollbars = """
   (() => {
     const style = document.createElement("style");
@@ -699,6 +701,15 @@ func web(_ job: WebJob) -> Never {
     (1...255).contains(job.proxy.username.utf8.count) && (1...255).contains(job.proxy.password.utf8.count),
     "proxy credentials")
   _ = checkedPath(job.out, suffix: ".png")
+
+  // Overlay scrollbars, whatever this Mac shows ("Always", or "Automatic" with
+  // no trackpad, as on a Mac mini): they take no room, so the page lays out at
+  // its full width and every screen is drawn to its bottom edge. Legacy ones
+  // took a strip off each screen, which the stitched picture showed as a band
+  // over a line of text every screen down. Set before AppKit or WebKit reads it.
+  var argumentDefaults = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+  argumentDefaults["AppleShowScrollBars"] = "WhenScrolling"
+  UserDefaults.standard.setVolatileDomain(argumentDefaults, forName: UserDefaults.argumentDomain)
 
   let app = NSApplication.shared
   app.setActivationPolicy(.prohibited)
