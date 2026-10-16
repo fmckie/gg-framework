@@ -54,10 +54,24 @@ function renderSelector() {
   return { ...result, onSelect, output: () => stripAnsi(output) };
 }
 
-/** Send a key to the most recently rendered list and let Ink re-render. */
+/**
+ * Send a key to the most recently rendered list and wait for the re-render it
+ * causes. Each render registers a fresh `useInput` handler carrying that
+ * render's state, so the next key must wait for it: a fixed `setTimeout(0)`
+ * raced React's scheduler, and on a slow CI runner the following key reached
+ * the stale handler (Enter then picked the old row, macOS CI 2026-10-17).
+ */
 async function press(key: Record<string, boolean>): Promise<void> {
+  const rendered = inputHandlers.length;
   inputHandlers.at(-1)?.("", key);
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await vi.waitFor(() => expect(inputHandlers.length).toBeGreaterThan(rendered), {
+    interval: 5,
+  });
+}
+
+/** Send a final key that changes no state here (it only calls a prop). */
+function send(key: Record<string, boolean>): void {
+  inputHandlers.at(-1)?.("", key);
 }
 
 describe("ModelSelector — a model that spends real money", () => {
@@ -80,7 +94,7 @@ describe("ModelSelector — a model that spends real money", () => {
       await press({ downArrow: true });
       await press({ return: true });
       await press({ downArrow: true });
-      await press({ return: true });
+      send({ return: true });
       expect(view.onSelect).toHaveBeenCalledWith("anthropic:claude-opus-5-5-fast");
     } finally {
       view.unmount();
