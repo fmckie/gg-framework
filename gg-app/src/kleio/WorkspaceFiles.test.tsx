@@ -197,15 +197,24 @@ describe("a picture a tool made, opened from the transcript", () => {
     expect(openProjectPath).not.toHaveBeenCalled();
   });
 
-  it("says why one in a hidden folder can't open, and never looks on this device", async () => {
-    await clickImage(CWD, `${CWD}/.gg/generated/2026-10-15T14-00-00-000Z.png`);
-    expect(toast).toHaveBeenCalledWith(
-      "Kleio can't open this image here: it's in a hidden folder on your host. Ask for images to be saved in the project folder instead.",
-      "error",
-    );
-    expect(invoke).not.toHaveBeenCalled();
-    expect(openProjectPath).not.toHaveBeenCalled();
-  });
+  // Of the hidden folders, the host serves only pictures saved straight into
+  // .gg/generated or .gg/screenshots.
+  it.each([
+    ".gg/plans/diagram.png",
+    ".gg/generated/old/2026-10-15T14-00-00-000Z.png",
+    ".git/x.png",
+  ])(
+    "says why one in a hidden folder (%s) can't open, and never looks on this device",
+    async (inside) => {
+      await clickImage(CWD, `${CWD}/${inside}`);
+      expect(toast).toHaveBeenCalledWith(
+        "Kleio can't open this image here: it's in a hidden folder on your host. Ask for images to be saved in the project folder instead.",
+        "error",
+      );
+      expect(invoke).not.toHaveBeenCalled();
+      expect(openProjectPath).not.toHaveBeenCalled();
+    },
+  );
 
   it("says why one outside the session's folder can't open", async () => {
     await clickImage(CWD, "/Users/k/Desktop/logo.png");

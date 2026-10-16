@@ -993,3 +993,159 @@
     animation: none;
   }
 }
+
+/* The file viewer (FileViewer.tsx): a file at full size over everything, the
+   voice screen included, on the show panel's glass with its header and its
+   views. A centred panel up to 1,100 px wide that fills the window less
+   32 px: the backdrop is the window itself, so it fits at any zoom. */
+.file-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 32px;
+  background: rgb(0 0 0 / 0.55);
+  animation: fade-in var(--dur-enter) linear backwards;
+}
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(1100px, 100%);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 18px 48px rgb(0 0 0 / 0.45);
+  animation: surface-in var(--dur-enter) var(--ease-out) backwards;
+  /* Closing glides out like a modal's (App.css, Exits). */
+  view-transition-name: kleio-file-viewer;
+}
+/* The dialog only takes focus as a fallback; its body and buttons carry the ring. */
+.file-viewer:focus {
+  outline: none;
+}
+.file-viewer-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* How Open in app or Save a copy went; takes no room until it says something. */
+.file-viewer-note {
+  margin: 0;
+  padding: 0 18px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.file-viewer-note:not(:empty) {
+  padding-block: 8px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+/* Text at a reading measure; a PDF's sheets at most 900 px wide (the host
+   draws them 1,600 px wide). Pictures are never enlarged past their size. */
+.file-viewer .voice-show-doc > :is(.markdown, .voice-show-pre, .voice-show-note) {
+  max-width: 80ch;
+  margin-inline: auto;
+}
+.file-viewer .voice-show-pages {
+  max-width: 900px;
+  margin-inline: auto;
+}
+/* A picture shorter than the viewer sits in its middle, as in Quick Look; a
+   taller one starts at the top and scrolls (auto margins take no room then). */
+.file-viewer .voice-show-body:has(> .voice-show-picture) {
+  display: flex;
+  flex-direction: column;
+}
+.file-viewer .voice-show-picture {
+  margin-block: auto;
+}
+/* A small CSV as a table (CsvTable.tsx), scrolling sideways when it's wide. */
+.file-viewer-table {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+.file-viewer-table:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 2px;
+}
+.file-viewer-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+/* A row is one line, as in a spreadsheet: the table is as wide as its cells
+   (max-content above) and scrolls sideways in its own frame when that's wider
+   than the viewer. Only a cell longer than 40 characters wraps, at spaces
+   (whole words, as in a reply's tables in App.css). */
+.file-viewer-cell {
+  max-width: 40ch;
+}
+.file-viewer-table :is(th, td) {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+  text-align: start;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.file-viewer-table th {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--text);
+  font-weight: 650;
+}
+.file-viewer-table tbody tr:nth-child(even) {
+  background: rgb(255 255 255 / 0.025);
+}
+.file-viewer-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.file-viewer-csv-note {
+  margin: 0 auto 12px;
+}
+::view-transition-old(kleio-file-viewer) {
+  animation: surface-out var(--dur-exit) var(--ease-in) both;
+}
+::view-transition-new(kleio-file-viewer) {
+  animation: none;
+}
+::view-transition-group(kleio-file-viewer) {
+  animation-duration: var(--dur-exit);
+}
+/* A narrow window: less margin, and the actions keep only their icons. */
+@media (max-width: 759px) {
+  .file-viewer-backdrop {
+    padding: 12px;
+  }
+  .file-viewer-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+/* Reduced motion: it opens and closes in place (withViewTransition skips its glide too). */
+@media (prefers-reduced-motion: reduce) {
+  .file-viewer-backdrop,
+  .file-viewer {
+    animation: none;
+  }
+}

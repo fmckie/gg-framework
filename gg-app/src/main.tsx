@@ -5,6 +5,7 @@ import App from "./App";
 import { BriefPanel } from "./kleio/BriefPanel";
 import { VoiceMode } from "./kleio/VoiceMode";
 import { KleioGate } from "./kleio/KleioGate";
+import { FileViewerProvider } from "./kleio/FileViewerProvider";
 import { HostReachProvider } from "./kleio/hostReach";
 // After App (App.css, glass.css): Kleio's crimson and white override Ken's tokens.
 import "./kleio/kleio-theme.css";
@@ -78,10 +79,13 @@ if (new URLSearchParams(window.location.search).get("whatsnew") === "1") {
         {/* Keeps checking the Mac mini after the gate's launch check, so the
             home screen says Disconnected when Tailscale drops. */}
         <HostReachProvider>
-          <App />
-          {/* "Brief me" and "Talk to Kleio": over any screen, once connected to the Mac mini. */}
-          <BriefPanel />
-          <VoiceMode />
+          {/* Opens a file at full size over any of them (FileViewer.tsx). */}
+          <FileViewerProvider>
+            <App />
+            {/* "Brief me" and "Talk to Kleio": over any screen, once connected to the Mac mini. */}
+            <BriefPanel />
+            <VoiceMode />
+          </FileViewerProvider>
         </HostReachProvider>
       </KleioGate>
       <ZoomController />
