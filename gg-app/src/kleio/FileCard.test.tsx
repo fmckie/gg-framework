@@ -3,8 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { FileCard } from "./FileCard";
+import { FileViewerProvider } from "./FileViewerProvider";
+import type { FileOwner } from "./kleioFiles";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+// The viewer draws documents through Markdown, which reaches the Tauri bridge on import.
+vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 const OWNER = { kind: "blob", blobId: "b_0000aaaa" } as const;
 const PATH = "Morning-AI-Research-2026-10-01.pdf";
@@ -154,5 +159,75 @@ describe("FileCard for a website", () => {
     expect((screen.getByRole("button", { name: "Open site" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
+  });
+});
+
+describe("FileCard in the app, beside its file viewer", () => {
+  const MEMBER = { kind: "group", groupId: "g_00ff00ff", blobId: "b_0000aaaa" } as const;
+
+  function respond(): void {
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === "kleio_file_fetch")
+        return { name: PATH, size: 10, mime: "application/octet-stream", thumbnail: null };
+      // The host is still readying the show: the viewer says it's opening.
+      if (cmd === "kleio_api") return new Promise(() => {});
+      return undefined;
+    });
+  }
+
+  async function renderInApp(owner: FileOwner, path: string, label: string): Promise<void> {
+    await act(async () => {
+      render(
+        <FileViewerProvider>
+          <FileCard owner={owner} path={path} label={label} />
+        </FileViewerProvider>,
+      );
+    });
+  }
+
+  it.each([
+    { owner: OWNER, body: { source: "specialist", id: "b_0000aaaa", path: PATH } },
+    {
+      owner: MEMBER,
+      body: { source: "group", id: "g_00ff00ff", member: "b_0000aaaa", path: PATH },
+    },
+  ])("opens a PDF in the viewer, asked of the host as $body.source's", async ({ owner, body }) => {
+    respond();
+    await renderInApp(owner, PATH, "Your AI research report");
+    fireEvent.click(screen.getByRole("button", { name: `Open ${PATH}` }));
+    expect(await screen.findByRole("dialog", { name: "Your AI research report" })).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("kleio_api", {
+      method: "POST",
+      path: "/kleio/voice/show",
+      body,
+      session: null,
+    });
+    expect(invoke).not.toHaveBeenCalledWith("kleio_file_open", expect.anything());
+  });
+
+  it("still opens a kind the viewer doesn't draw in its app", async () => {
+    respond();
+    await renderInApp(OWNER, "Q3 plan.docx", "The plan");
+    fireEvent.click(screen.getByRole("button", { name: "Open Q3 plan.docx" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_file_open", {
+        owner: OWNER,
+        path: "Q3 plan.docx",
+      }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("still opens a web page as a site", async () => {
+    respond();
+    await renderInApp(OWNER, "site/index.html", "The menu site");
+    fireEvent.click(screen.getByRole("button", { name: "Open site index.html" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_site_open", {
+        owner: OWNER,
+        path: "site/index.html",
+      }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

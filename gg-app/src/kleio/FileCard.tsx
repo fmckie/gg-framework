@@ -1,7 +1,9 @@
 // A file an agent linked in chat, shown as a card under its message: the
 // first page as a softly blurred preview (Quick Look on this Mac renders it),
 // the file's name, kind and size, and Open / Save. The blur lifts on hover or
-// focus; clicking the preview opens the file in its usual app. A card only
+// focus; clicking the preview opens the file: in Kleio's file viewer when it
+// draws the kind (Markdown, text, CSV, PDFs, pictures), else in its usual app
+// (viewerContext.ts). A card only
 // fetches its file once it scrolls into view, so a long history of reports
 // doesn't download them all at once.
 //
@@ -26,12 +28,12 @@ import {
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { fileExtension, isSitePath } from "./filePaths";
+import { useOpenFile } from "./viewerContext";
 import {
   fetchFile,
   fileErrorText,
   fileKind,
   formatBytes,
-  openFile,
   openSite,
   ownerKey,
   saveFile,
@@ -193,6 +195,7 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
   const cardRef = useRef<HTMLDivElement>(null);
   const seen = useSeen(cardRef);
   const stableOwner = useStableOwner(owner);
+  const openAt = useOpenFile();
 
   useEffect(() => {
     if (!seen) return;
@@ -211,7 +214,7 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
     setBusy(kind);
     setNote(null);
     try {
-      if (kind === "open") await openFile(owner, path);
+      if (kind === "open") await openAt(owner, path, label);
       else if (await saveFile(owner, path)) setNote("Saved.");
     } catch (e) {
       setNote(fileErrorText(e));

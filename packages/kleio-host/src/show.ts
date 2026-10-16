@@ -1,14 +1,16 @@
 // A voice show (POST /kleio/voice/show, routes in host.ts): something Kleio
 // puts on the user's screen, beside her, while she talks about it. A file one
 // of her agents made, or a web page or PDF at a link (capture.ts draws those).
+// The app's file viewer draws a file the same way, as a show.
 //
 // A file is named only by its owner and a path relative to the owner's folder,
 // never an absolute path, and is checked in four steps, again on every part
 // request:
 //   1. checkShowPath: the path's spelling. No empty, ".", ".." or "~" segment,
 //      no backslash or control character, no percent escape that spells one,
-//      and nothing hidden but an owner's `.gg/plans/<file>` and
-//      `.gg/generated/<file>`, one level deep.
+//      and nothing hidden but the place's own hidden folders, one level deep:
+//      for her voice an owner's `.gg/plans/<file>` and `.gg/generated/<file>`
+//      (VOICE_PLACES).
 //   2. allowedAt: the place's allow-list. A plan must be a document and a
 //      generated file a picture; nothing under tooling folders; in a project,
 //      only its documents and pictures, outside build output.
@@ -18,6 +20,14 @@
 //      so no symlink anywhere below the owner's folder.
 // The owner's own checks (a specialist that exists, a current group member, a
 // file the session made) are host.ts's.
+//
+// The viewer also opens a Chat or Code session's files by its folder (the
+// `workspace` source, never one her voice can name): the same steps, with
+// WORKSPACE_PLACES for step 1 (the pictures generate_image and screenshot
+// made, `.gg/generated/<file>` and `.gg/screenshots/<file>`, never its plans),
+// allowedInWorkspace for step 2 (nothing under tooling folders; a hidden
+// folder's file a picture) and VIEWER_EXTENSIONS before step 3. host.ts checks
+// the folder is in Kleio's projects folders, as the workspace file route does.
 //
 // Shows live in memory, bound to the device that made them, for SHOW_TTL_MS.
 // Nothing here logs: host.ts logs hosts, never names, paths or addresses.
@@ -79,8 +89,28 @@ export function parseShowPart(raw: string): ShowPart | null {
 
 // ---------------------------------------------------------------- paths
 
-/** Where on the allow-list a file is: its owner's folder, or one of the two hidden folders in it. */
-export type Place = "folder" | "plans" | "generated";
+/** Where on the allow-list a file is: its owner's folder, or one of the hidden folders in it. */
+export type Place = "folder" | "plans" | "generated" | "screenshots";
+/** The hidden folders, each `.gg/<place>` at the top of the owner's folder. */
+export type HiddenPlace = Exclude<Place, "folder">;
+
+/** The hidden folders her voice shows from: an owner's plans, and what generate_image made. */
+export const VOICE_PLACES: ReadonlySet<HiddenPlace> = new Set(["plans", "generated"]);
+/**
+ * The hidden folders the viewer opens a Chat or Code session's files from:
+ * the pictures generate_image and screenshot made. Never its plans.
+ */
+export const WORKSPACE_PLACES: ReadonlySet<HiddenPlace> = new Set(["generated", "screenshots"]);
+
+const HIDDEN_PLACES: ReadonlySet<string> = new Set<HiddenPlace>([
+  "plans",
+  "generated",
+  "screenshots",
+]);
+
+function isHiddenPlace(s: string | undefined): s is HiddenPlace {
+  return s !== undefined && HIDDEN_PLACES.has(s);
+}
 
 export interface ShowPath {
   readonly segments: readonly string[];
@@ -120,10 +150,14 @@ function plainSegment(s: string): boolean {
 
 /**
  * A show's path, judged by its spelling alone, or null. Relative and
- * "/"-separated; the only hidden segments allowed are `.gg/plans/<file>` and
- * `.gg/generated/<file>` at the top of the owner's folder.
+ * "/"-separated; the only hidden segments allowed are `.gg/<place>/<file>` at
+ * the top of the owner's folder, for one of `places` (her voice's by default:
+ * `.gg/plans` and `.gg/generated`).
  */
-export function checkShowPath(path: string): ShowPath | null {
+export function checkShowPath(
+  path: string,
+  places: ReadonlySet<HiddenPlace> = VOICE_PLACES,
+): ShowPath | null {
   // A drive letter ("C:x") makes a Windows path absolute or drive-relative.
   if (path.length === 0 || path.length > SHOW_PATH_MAX || /^[A-Za-z]:/.test(path)) return null;
   const segments = path.split("/");
@@ -132,7 +166,8 @@ export function checkShowPath(path: string): ShowPath | null {
   const [gg, folder, name, ...rest] = segments;
   if (
     gg === ".gg" &&
-    (folder === "plans" || folder === "generated") &&
+    isHiddenPlace(folder) &&
+    places.has(folder) &&
     name !== undefined &&
     !name.startsWith(".") &&
     rest.length === 0
@@ -152,13 +187,39 @@ export function allowedAt(path: ShowPath, project: boolean): boolean {
   const kind = fileKind(name);
   if (path.place === "plans") return DOC_KINDS.has(kind);
   if (path.place === "generated") return kind === "image";
+  // Screenshots are the viewer's (allowedInWorkspace), never her voice's.
+  if (path.place === "screenshots") return false;
   const folders = path.segments.slice(0, -1);
   if (folders.some((s) => SKIPPED_FOLDERS.has(s))) return false;
   if (!project) return true;
   return (DOC_KINDS.has(kind) || kind === "image") && !folders.some((s) => BUILD_FOLDERS.has(s));
 }
 
+/**
+ * Whether a path checked with WORKSPACE_PLACES is on the viewer's allow-list
+ * in a Chat or Code session's folder: nothing under a tooling folder
+ * (node_modules and the like; build output such as `out/` is fine, coding
+ * outputs land there), and in `.gg/generated` or `.gg/screenshots` only a
+ * picture, one level deep. Never its plans.
+ */
+export function allowedInWorkspace(path: ShowPath): boolean {
+  const name = path.segments[path.segments.length - 1] ?? "";
+  switch (path.place) {
+    case "generated":
+    case "screenshots":
+      return path.segments.length === 3 && SHOWN_IMAGES.has(extensionOf(name));
+    case "plans":
+      return false;
+    case "folder":
+      return !path.segments.slice(0, -1).some((s) => SKIPPED_FOLDERS.has(s));
+  }
+}
+
 // ---------------------------------------------------------------- kinds
+
+function extensionOf(name: string): string {
+  return extname(name).slice(1).toLowerCase();
+}
 
 /** How a show draws a file. */
 export type ShowKind =
@@ -188,13 +249,37 @@ const EXTRACTED: ReadonlySet<string> = new Set(["docx", "xlsx", "pptx", "html", 
 
 /** How a show draws a file by its name, or null when it can't (SVG, HEIC, code, audio, video...). */
 export function showKind(name: string): ShowKind | null {
-  const ext = extname(name).slice(1).toLowerCase();
+  const ext = extensionOf(name);
   if (MARKDOWN.has(ext)) return { draws: "text", format: "markdown", extracted: false };
   if (PLAIN.has(ext)) return { draws: "text", format: "plain", extracted: false };
   if (EXTRACTED.has(ext)) return { draws: "text", format: "plain", extracted: true };
   if (SHOWN_IMAGES.has(ext)) return { draws: "image" };
   if (ext === "pdf") return { draws: "pdf" };
   return null;
+}
+
+/**
+ * The kinds the viewer draws a Chat or Code session's file as, by lowercase
+ * extension: Markdown, plain text, CSV, PDFs and pictures. Anything else
+ * (Office files, JSON, HEIC, audio, video, web pages) opens in its own app.
+ */
+export const VIEWER_EXTENSIONS: ReadonlySet<string> = new Set([
+  "md",
+  "markdown",
+  "txt",
+  "text",
+  "csv",
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+]);
+
+/** How the viewer draws a session's file by its name, or null for a kind outside VIEWER_EXTENSIONS. */
+export function viewerKind(name: string): ShowKind | null {
+  return VIEWER_EXTENSIONS.has(extensionOf(name)) ? showKind(name) : null;
 }
 
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -313,13 +398,23 @@ export async function readHead(file: ShowFile, max: number): Promise<Buffer | nu
 
 // ---------------------------------------------------------------- shows
 
-/** A file to show, as the request named it: found and checked again on every request. */
-export interface ShowFileTarget {
+/** A file of an owner's, named as read_file names one (her voice's sources). */
+export interface OwnerFileTarget {
   readonly source: FilesSource;
   readonly id: string | null;
   readonly member: string | null;
   readonly path: string;
 }
+
+/** A file in a Chat or Code session's folder, named by the folder (`cwd`, on the host): the viewer's. */
+export interface WorkspaceFileTarget {
+  readonly source: "workspace";
+  readonly cwd: string;
+  readonly path: string;
+}
+
+/** A file to show, as the request named it: found and checked again on every request. */
+export type ShowFileTarget = OwnerFileTarget | WorkspaceFileTarget;
 
 interface FileShowBase {
   readonly kind: "file";

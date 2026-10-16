@@ -7,8 +7,13 @@
 // smuggled in through an escape. Then the real path must sit strictly inside
 // the folder's real path, so a symlink never leads out of it, and it must be
 // a regular file under the size cap.
+//
+// One exception, for a Chat or Code session's folder only: the pictures
+// generate_image and screenshot made, `.gg/generated/<name>` and
+// `.gg/screenshots/<name>` (resolveWorkspacePicture), walked with no symlink
+// anywhere.
 
-import { realpath, stat } from "node:fs/promises";
+import { lstat, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, sep } from "node:path";
 import { err, ok, type Result } from "./result.js";
 
@@ -98,6 +103,55 @@ export async function resolveAgentFile(
   if (!st.isFile()) return err({ kind: "not_found" });
   if (st.size > maxBytes) return err({ kind: "too_large" });
   return ok({ path: target, size: st.size, mtimeMs: st.mtimeMs, name });
+}
+
+/** The hidden folders a session's pictures are read from: what generate_image and screenshot made. */
+const PICTURE_FOLDERS: readonly (readonly [".gg", string])[] = [
+  [".gg", "generated"],
+  [".gg", "screenshots"],
+];
+/** The pictures read from them, by lowercase extension. */
+const PICTURE_EXTENSIONS: ReadonlySet<string> = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+
+/**
+ * Resolve `rawPath` (still percent-encoded) to a picture generate_image or
+ * screenshot made in a Chat or Code session's folder `root`:
+ * `.gg/generated/<name>` or `.gg/screenshots/<name>`, those two parts spelled
+ * literally, then one plain name (the segment rules above) with a picture's
+ * extension. Each part is walked with lstat from the folder's real path: two
+ * real folders, then a regular file, never a symlink; and the real path must
+ * be the path walked.
+ */
+export async function resolveWorkspacePicture(
+  root: string,
+  rawPath: string,
+  maxBytes = MAX_FILE_BYTES,
+): Promise<Result<AgentFile, AgentFileError>> {
+  if (rawPath.length > MAX_RAW_PATH) return err({ kind: "bad_path" });
+  const folder = PICTURE_FOLDERS.find((f) => rawPath.startsWith(`${f.join("/")}/`));
+  if (folder === undefined) return err({ kind: "bad_path" });
+  const rest = segmentsOf(rawPath.slice(folder.join("/").length + 1));
+  const name = rest?.length === 1 ? rest[0] : undefined;
+  if (name === undefined || !PICTURE_EXTENSIONS.has(extname(name).toLowerCase()))
+    return err({ kind: "bad_path" });
+  try {
+    let at = await realpath(root);
+    for (const part of folder) {
+      at = join(at, part);
+      // lstat: a symlink is not a folder.
+      if (!(await lstat(at)).isDirectory()) return err({ kind: "not_found" });
+    }
+    at = join(at, name);
+    const st = await lstat(at);
+    if (!st.isFile()) return err({ kind: "not_found" });
+    // Nothing on the way is a link, and on a disk that ignores case, the name is spelled as it is.
+    if ((await realpath(at)) !== at) return err({ kind: "not_found" });
+    if (st.size > maxBytes) return err({ kind: "too_large" });
+    return ok({ path: at, size: st.size, mtimeMs: st.mtimeMs, name });
+  } catch (e) {
+    if (absent(e)) return err({ kind: "not_found" });
+    throw e;
+  }
 }
 
 /** Longest Chat/Code cwd a device may name. */

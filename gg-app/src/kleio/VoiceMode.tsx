@@ -8,8 +8,9 @@
 // set up (Settings → Kleio's voice). Esc or the close button leaves; the call
 // ends with it. What she shows (her `show` tool: a document, a picture, a PDF
 // or a web page) opens in a panel beside her: the orb glides aside (to the
-// left, or to the top on a phone) and the call keeps going. The "What Kleio
-// Voice can do" guide opens over the call. Esc closes those first.
+// left, or to the top on a phone) and the call keeps going. Full size opens it
+// in the file viewer over the call. The "What Kleio Voice can do" guide opens
+// over the call too. Esc closes those first.
 
 import {
   Component,
@@ -34,8 +35,10 @@ import { useHomeBackgroundEnabled } from "../home-background";
 import { getVoiceStatus } from "./kleioApi";
 import { KLEIO_BACKGROUND, KLEIO_WAVES } from "./kleioWaves";
 import { briefMe } from "./BriefPanel";
+import { useFileViewer } from "./viewerContext";
 import { boxWithin, flipTransform, pageZoom, type Box } from "./flip";
 import { ShowPanel, showHeadline } from "./ShowPanel";
+import type { Enlarge } from "./ShowViews";
 import {
   callLevels,
   closeShown,
@@ -435,6 +438,47 @@ function useFocusBack(
   };
 }
 
+/**
+ * Full size: what she's showing, opened in the app's file viewer
+ * (FileViewer.tsx) over the call, at a PDF's page. The viewer goes with her
+ * show: when she hides it or shows something else, or this screen closes, it
+ * closes too, and focus lost with it comes back to the screen. Undefined
+ * outside the viewer's provider: then nothing opens full size.
+ */
+function useFullSize(
+  shown: Shown | null,
+  screen: React.RefObject<HTMLElement | null>,
+): Enlarge | undefined {
+  const viewer = useFileViewer();
+  const view = viewer?.view;
+  const close = viewer?.close;
+  const request = viewer?.request ?? null;
+  const fromCall = request?.kind === "shown" ? request : null;
+  const key = shown?.key ?? null;
+  useEffect(() => {
+    if (!fromCall || !close) return;
+    // Opened from a show she has since hidden or replaced.
+    if (fromCall.shown.key !== key) {
+      close(fromCall);
+      return;
+    }
+    return () => close(fromCall);
+  }, [fromCall, key, close]);
+  // Closed, the viewer gives focus back to its opener; if that went with her
+  // show, focus comes back to the screen (as useFocusBack does for the
+  // panel), never left on the page beneath.
+  const viewing = request !== null;
+  useEffect(() => {
+    const room = screen.current;
+    if (viewing || !room) return;
+    const at = document.activeElement;
+    if (at instanceof HTMLElement && room.contains(at) && !at.closest("[inert]")) return;
+    room.querySelector<HTMLElement>("[data-modal-initial-focus]")?.focus();
+  }, [viewing, screen]);
+  if (!view || !shown) return undefined;
+  return (page) => view({ kind: "shown", shown, file: shown.file, page });
+}
+
 function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement {
   const screen = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -457,6 +501,7 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
     else resetCall();
   });
   const noteFocus = useFocusBack(screen, call.shown?.key ?? null);
+  const enlarge = useFullSize(call.shown, screen);
 
   const mood: OrbMood =
     call.muted && inCall && call.phase !== "connecting" ? "muted" : MOOD[call.phase];
@@ -585,6 +630,7 @@ function VoiceScreen({ call }: { readonly call: CallState }): React.ReactElement
           shown={panel}
           leaving={!open}
           onClose={closeShown}
+          onEnlarge={open ? enlarge : undefined}
         />
       )}
       <p className="sr-only" aria-live="polite">

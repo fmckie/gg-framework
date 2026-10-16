@@ -13,6 +13,10 @@
 //! 200 = raw bytes; errors are JSON `{"error": "..."}` (400 bad path, 404 no
 //! such agent/group/workspace/file, 413 over the host's 50 MiB cap).
 //!
+//! Paths are plain names only, never hidden ones, with one exception for a
+//! Chat/Code session: the pictures its tools made, `.gg/generated/<picture>`
+//! and `.gg/screenshots/<picture>` (`owner_path_segments`).
+//!
 //! Web pages are never downloaded or opened here: `kleio_site_open` asks the
 //! host for a short-lived link on its separate, sandboxed preview origin
 //! (`POST {base}/kleio/previews`) and hands that to the browser.
@@ -179,6 +183,38 @@ fn path_segments(path: &str) -> Result<Vec<&str>, String> {
         return Err(bad_path("segment"));
     }
     Ok(segs)
+}
+
+/// The hidden folders a Chat or Code session's pictures come from: what its
+/// `generate_image` and `screenshot` tools made (the host serves only these).
+const PICTURE_FOLDERS: &[&str] = &["generated", "screenshots"];
+/// The pictures read from them, by lowercase extension.
+const PICTURE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+
+fn is_picture(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| PICTURE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+}
+
+/// The path's segments for this owner, or why it is refused. A Chat or Code
+/// session may also name the pictures its tools made, `.gg/generated/<picture>`
+/// and `.gg/screenshots/<picture>`, one level deep; every other path goes
+/// through `path_segments`, which refuses any hidden name.
+fn owner_path_segments<'a>(owner: &FileOwner, path: &'a str) -> Result<Vec<&'a str>, String> {
+    if matches!(owner, FileOwner::Workspace { .. }) && path.len() <= MAX_PATH_BYTES {
+        let segs: Vec<&str> = path.split('/').collect();
+        let picture = matches!(
+            segs.as_slice(),
+            [".gg", folder, name]
+                if PICTURE_FOLDERS.contains(folder) && plain_segment(name) && is_picture(name)
+        );
+        if picture {
+            return Ok(segs);
+        }
+    }
+    path_segments(path)
 }
 
 /// One plain file or folder name. A leading '.' also rules out "." and ".."
@@ -499,7 +535,7 @@ pub async fn kleio_file_fetch(
     path: String,
 ) -> Result<FileInfo, String> {
     owner.validate()?;
-    let segs = path_segments(&path)?;
+    let segs = owner_path_segments(&owner, &path)?;
     let name = segs.last().copied().unwrap_or_default().to_string();
     let (file, size, mime) = download(&app, &owner, &segs).await?;
     let root = cache_root(&app)?;
@@ -537,7 +573,7 @@ fn openable(name: &str) -> bool {
 #[tauri::command]
 pub async fn kleio_file_open(app: AppHandle, owner: FileOwner, path: String) -> Result<(), String> {
     owner.validate()?;
-    let segs = path_segments(&path)?;
+    let segs = owner_path_segments(&owner, &path)?;
     if !segs.last().is_some_and(|name| openable(name)) {
         log::warn!(
             "kleio: file open ({}) refused: type not openable",
@@ -577,7 +613,7 @@ pub async fn kleio_file_save(
     path: String,
 ) -> Result<bool, String> {
     owner.validate()?;
-    let segs = path_segments(&path)?;
+    let segs = owner_path_segments(&owner, &path)?;
     let name = segs.last().copied().unwrap_or_default().to_string();
     let cached = cached_or_fetch(&app, &owner, &segs).await?;
     // The dialog posts to the main thread; block a worker, not the runtime.
@@ -988,6 +1024,70 @@ mod tests {
             path_segments("out/summary 2026.pdf").unwrap(),
             ["out", "summary 2026.pdf"]
         );
+    }
+
+    #[test]
+    fn a_session_may_name_the_pictures_its_tools_made() {
+        let ws = workspace("/Users/me/kleio-projects/app");
+        for ok in [
+            ".gg/generated/x.png",
+            ".gg/screenshots/x.jpeg",
+            ".gg/screenshots/Shot 1.WEBP",
+            ".gg/generated/a.gif",
+            ".gg/generated/b.jpg",
+        ] {
+            assert_eq!(
+                owner_path_segments(&ws, ok).map(|s| s.join("/")),
+                Ok(ok.to_string()),
+                "{ok}"
+            );
+        }
+        let too_long = format!(".gg/generated/{}.png", "a".repeat(1020));
+        for refused in [
+            ".gg/plans/x.md",
+            ".gg/plans/x.png",
+            ".gg/generated/x.md",
+            ".gg/generated/x.svg",
+            ".gg/generated/x",
+            ".gg/generated/sub/x.png",
+            ".gg/generated/.x.png",
+            ".gg/generated/..",
+            ".gg/x.png",
+            ".gg/generated",
+            ".gg/generated/",
+            ".gg",
+            ".gg/Generated/x.png",
+            ".gg/generated/x\\y.png",
+            ".gg/generated/x\u{0}.png",
+            "a/.gg/generated/x.png",
+            ".git/generated/x.png",
+            &too_long,
+        ] {
+            assert!(owner_path_segments(&ws, refused).is_err(), "{refused:?}");
+        }
+        // Every other path as before.
+        assert_eq!(
+            owner_path_segments(&ws, "out/r.md").unwrap(),
+            ["out", "r.md"]
+        );
+        assert!(owner_path_segments(&ws, ".env").is_err());
+        // An agent's or a group member's hidden folders stay closed, pictures included.
+        for owner in [blob(), group()] {
+            for p in [".gg/generated/x.png", ".gg/screenshots/x.jpeg"] {
+                assert!(owner_path_segments(&owner, p).is_err(), "{p}");
+            }
+        }
+        // The host gets the two folders spelled out, and the cache stays in its folder.
+        let segs = owner_path_segments(&ws, ".gg/screenshots/Shot 1.png").unwrap();
+        assert_eq!(
+            file_url("https://host:8443", &ws, &segs),
+            "https://host:8443/kleio/workspace/files/.gg/screenshots/Shot%201.png\
+             ?cwd=%2FUsers%2Fme%2Fkleio-projects%2Fapp"
+        );
+        let root = Path::new("cache");
+        let p = cache_file(root, &ws, &segs);
+        assert!(p.starts_with(root.join(CACHE_DIR).join("ws")));
+        assert!(p.components().all(|c| matches!(c, Component::Normal(_))));
     }
 
     #[test]

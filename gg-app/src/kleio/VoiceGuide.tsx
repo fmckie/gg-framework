@@ -46,7 +46,7 @@ export const VOICE_GUIDE: readonly GuideSection[] = [
         id: "show",
         icon: EyeIcon,
         title: "Show you things while you talk",
-        body: "She can read out the reports and documents your chats, coding sessions, specialists, groups and projects made, and put them up beside her while the call goes on: documents, PDFs and pictures, including your projects' plans and images they made. She can show a web page she found as a picture of the page; tap it to open the page in your browser. Say “close it”, or tap ×, to take it down. Web pages and PDFs need a Mac host on macOS 14 or later.",
+        body: "She can read out the reports and documents your chats, coding sessions, specialists, groups and projects made, and put them up beside her while the call goes on: documents, PDFs and pictures, including your projects' plans and images they made. She can show a web page she found as a picture of the page, with Open in browser for the page itself. Tap what she shows to see it full size. Say “close it”, or tap ×, to take it down. Web pages and PDFs need a Mac host on macOS 14 or later.",
       },
       {
         id: "send",

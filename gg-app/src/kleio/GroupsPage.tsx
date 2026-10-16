@@ -42,7 +42,9 @@ import {
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
-import { fileErrorText, fileLinks, fileOwner, openFile, ownerFilePath } from "./kleioFiles";
+import { isSitePath } from "./filePaths";
+import { useOpenFile } from "./viewerContext";
+import { fileErrorText, fileLinks, fileOwner, ownerFilePath, siteErrorText } from "./kleioFiles";
 import { startLiveActivity } from "./liveActivity";
 import { LiveToolFeed, ToolCallRow } from "./LiveToolFeed";
 import { relTime } from "./relTime";
@@ -751,18 +753,22 @@ function GroupChat({
   const byId = useMemo(() => new Map(blobs.map((b) => [b.id, b])), [blobs]);
   const members = groupMembers(group, byId);
 
-  // A click on a link to a member's file opens it on this Mac. Links in a
-  // message point into its author's own folder inside the group.
+  // A click on a link to a member's file opens it: in the file viewer when
+  // Kleio draws its kind, as a site for a web page, else in its app. Links in
+  // a message point into its author's own folder inside the group.
+  const openAt = useOpenFile();
   const linkHandler = useCallback(
     (authorId: string) =>
       (href: string): boolean => {
         const owner = fileOwner(authorId, group.id);
         const path = ownerFilePath(href, owner);
         if (!path) return false;
-        openFile(owner, path).catch((e: unknown) => setError(fileErrorText(e)));
+        openAt(owner, path).catch((e: unknown) =>
+          setError(isSitePath(path) ? siteErrorText(e) : fileErrorText(e)),
+        );
         return true;
       },
-    [group.id],
+    [group.id, openAt],
   );
 
   useEffect(() => {

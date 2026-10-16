@@ -14,7 +14,8 @@
 //     projects.ts). /kleio/blobs/* and
 //     GET /kleio/models, the Blobs (see blobs.ts). An agent's files:
 //     GET /kleio/blobs/:id/files/*, /kleio/groups/:gid/members/:bid/files/*
-//     and /kleio/workspace/files/*?cwd= (Chat/Code, see files.ts), always as
+//     and /kleio/workspace/files/*?cwd= (Chat/Code, with the pictures its
+//     tools made in .gg/generated and .gg/screenshots; see files.ts), always as
 //     downloads; POST /kleio/previews mints a link to an agent-written web
 //     page on the preview origin.
 //
@@ -61,6 +62,7 @@ import {
   realRoots,
   resolveAgentFile,
   resolveWorkspaceDir,
+  resolveWorkspacePicture,
   type AgentFile,
   type AgentFileError,
 } from "./files.js";
@@ -92,6 +94,7 @@ import {
 import { checkUrl, refusalText } from "./net-guard.js";
 import {
   allowedAt,
+  allowedInWorkspace,
   checkShowPath,
   createShows,
   imageType,
@@ -106,6 +109,8 @@ import {
   SHOW_IMAGE_MAX,
   SHOW_PDF_MAX,
   SHOW_TEXT_MAX,
+  viewerKind,
+  WORKSPACE_PLACES,
   type FileShow,
   type LinkShow,
   type Show,
@@ -113,6 +118,7 @@ import {
   type ShowFileTarget,
   type ShowKind,
   type ShowPart,
+  type WorkspaceFileTarget,
 } from "./show.js";
 import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
@@ -408,7 +414,10 @@ function parseFileRead(v: unknown): FileReadRequest | null {
 const SHOW_ROUTE = "/kleio/voice/show";
 const SHOW_BODY_MAX = 4 * 1024;
 
-/** A validated POST /kleio/voice/show body: a file, named as read_file names one, or a web address. */
+/**
+ * A validated POST /kleio/voice/show body: a file, named as read_file names
+ * one or (the viewer's) by a Chat or Code session's folder, or a web address.
+ */
 type ShowRequest =
   | ({ readonly kind: "file" } & ShowFileTarget)
   | { readonly kind: "url"; readonly url: string; readonly view: View };
@@ -417,11 +426,24 @@ function parseShowRequest(v: unknown): ShowRequest | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
   if (o.url !== undefined) {
-    if (typeof o.url !== "string" || o.source !== undefined || o.path !== undefined) return null;
+    if (
+      typeof o.url !== "string" ||
+      o.source !== undefined ||
+      o.path !== undefined ||
+      o.cwd !== undefined
+    )
+      return null;
     const view = o.view ?? "desktop";
     if (view !== "desktop" && view !== "phone") return null;
     return { kind: "url", url: o.url, view };
   }
+  // A session's folder, by its cwd on this host: only a cwd and a path.
+  if (o.source === "workspace") {
+    if (typeof o.cwd !== "string" || typeof o.path !== "string") return null;
+    if (o.id !== undefined || o.member !== undefined) return null;
+    return { kind: "file", source: "workspace", cwd: o.cwd, path: o.path };
+  }
+  if (o.cwd !== undefined) return null;
   if (!isFilesSource(o.source) || typeof o.path !== "string") return null;
   if (o.id !== undefined && typeof o.id !== "string") return null;
   if (o.member !== undefined && typeof o.member !== "string") return null;
@@ -1982,6 +2004,27 @@ export function createHost(options: HostOptions): Host {
   const shows = createShows(() => now().getTime());
 
   /**
+   * The viewer's file in a Chat or Code session's folder, checked as when it
+   * was shown: its path's spelling (with the viewer's hidden folders), the
+   * folder inside Kleio's projects folders with no hidden folder on the way
+   * (as the workspace file route checks it), its place on the viewer's
+   * allow-list, its kind, and on disk no symlink anywhere below the folder.
+   */
+  async function findWorkspaceFile(
+    q: WorkspaceFileTarget,
+  ): Promise<Result<{ file: ShowFile; as: ShowKind }, ShowFailure>> {
+    const path = checkShowPath(q.path, WORKSPACE_PLACES);
+    if (path === null) return showFail(400, "bad_request");
+    if (!options.workspaceRoots) return showFail(404, "not_found");
+    const ws = await resolveWorkspaceDir(await options.workspaceRoots(), q.cwd);
+    if (!ws.ok || !allowedInWorkspace(path)) return showFail(404, "not_found");
+    const as = viewerKind(path.segments[path.segments.length - 1] ?? "");
+    if (as === null) return showFail(415, "unsupported", { detail: CANT_SHOW_KIND });
+    const file = await resolveShowFile(ws.value.dir, path.segments);
+    return file ? ok({ file, as }) : showFail(404, "not_found");
+  }
+
+  /**
    * A show's file, checked as when it was shown: its path's spelling, its
    * owner, its place on the allow-list, its kind, and on disk no symlink
    * anywhere below the owner's folder (show.ts).
@@ -1989,6 +2032,7 @@ export function createHost(options: HostOptions): Host {
   async function findShowFile(
     q: ShowFileTarget,
   ): Promise<Result<{ file: ShowFile; as: ShowKind }, ShowFailure>> {
+    if (q.source === "workspace") return findWorkspaceFile(q);
     const path = checkShowPath(q.path);
     if (path === null) return showFail(400, "bad_request");
     const owner = await ownerFolder(q.source, q.id, q.member);
@@ -2577,9 +2621,12 @@ export function createHost(options: HostOptions): Host {
           what = `page ${hostOf(q.url) || "-"}`;
           outcome = startLinkShow(q.url, q.view, auth.device);
         } else {
+          // Its source only: never a cwd, an id or a path.
           what = q.source;
           outcome = await createFileShow(
-            { source: q.source, id: q.id, member: q.member, path: q.path },
+            q.source === "workspace"
+              ? { source: "workspace", cwd: q.cwd, path: q.path }
+              : { source: q.source, id: q.id, member: q.member, path: q.path },
             auth.device.deviceId,
           );
         }
@@ -3036,7 +3083,12 @@ export function createHost(options: HostOptions): Host {
             json(res, root.error[0], { error: root.error[1] });
             return [root.error[0], 0];
           }
-          const r = await resolveAgentFile(root.value.root, owner.rest);
+          // In a session's hidden folder, only the pictures its tools made
+          // (files.ts); an agent's or group member's hidden names stay refused.
+          const r =
+            owner.owner.kind === "workspace" && owner.rest.startsWith(".gg/")
+              ? await resolveWorkspacePicture(root.value.root, owner.rest)
+              : await resolveAgentFile(root.value.root, owner.rest);
           if (!r.ok) {
             const [status, error] = fileErrorStatus(r.error);
             json(res, status, { error });

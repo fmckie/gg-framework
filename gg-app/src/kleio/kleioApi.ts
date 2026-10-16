@@ -832,13 +832,23 @@ async function showCall(
   return show;
 }
 
-/** Shows a file from list_files: named by its owner and relative path, as read_file names it. */
-export const createFileShow = (req: {
-  readonly source: FileSource;
-  readonly id?: string;
-  readonly member?: string;
-  readonly path: string;
-}): Promise<ShowInfo> => showCall("POST", "/kleio/voice/show", req);
+/**
+ * A file to show: one from list_files, named by its owner and relative path as
+ * read_file names it; or (the file viewer's, never her voice's) one in a Chat
+ * or Code session's folder, named by that folder (`cwd`, on the host).
+ */
+export type FileShowRequest =
+  | {
+      readonly source: FileSource;
+      readonly id?: string;
+      readonly member?: string;
+      readonly path: string;
+    }
+  | { readonly source: "workspace"; readonly cwd: string; readonly path: string };
+
+/** Shows a file; the host checks it again on every part. */
+export const createFileShow = (req: FileShowRequest): Promise<ShowInfo> =>
+  showCall("POST", "/kleio/voice/show", req);
 
 /** Shows a web page or PDF at `url`: the host checks the address, then draws it. */
 export const createLinkShow = (url: string, view: ShowView): Promise<ShowInfo> =>

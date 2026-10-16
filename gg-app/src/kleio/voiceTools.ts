@@ -48,6 +48,7 @@ import {
   type ShowInfo,
   type ShowView,
 } from "./kleioApi";
+import type { ViewFile } from "./viewerContext";
 import { safeExternalUrl } from "./safeUrl";
 
 /** The Brain's tools (durable memory + Jiwa), run on the Mac mini like text chat's. */
@@ -594,6 +595,23 @@ export interface Shown {
   readonly url: string | null;
   /** Why it isn't there, when the host said no or the page never came. */
   readonly problem: ShowProblem | null;
+  /**
+   * Where its file is, for a specialist's or a group member's file: opened
+   * full size (FileViewer.tsx), it can also be opened in its app or saved.
+   * Null for anything else: Kleio's own files, a chat's, a coding session's
+   * and a project's have no file route in the app, and a page has its link.
+   */
+  readonly file: ViewFile | null;
+}
+
+/** Where the app's file routes find a file she shows (Shown.file), or null. */
+function appFile(source: FileSource, id: string | undefined, f: AgentFileEntry): ViewFile | null {
+  if (!id) return null;
+  if (source === "specialist") return { owner: { kind: "blob", blobId: id }, path: f.path };
+  if (source === "group" && f.member) {
+    return { owner: { kind: "group", groupId: id, blobId: f.member }, path: f.path };
+  }
+  return null;
 }
 
 /** What she hears once something is up. */
@@ -848,6 +866,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
       };
     }
     const f = m.value;
+    const file = appFile(source, id, f);
     const cantShow = (why: string, next?: string): ToolOutput => ({
       shown: false,
       file: label(f),
@@ -872,7 +891,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
     } catch (e) {
       const failure = showFailure(e);
       if (failure.problem)
-        put({ title: f.name, whose, show: null, url: null, problem: failure.problem });
+        put({ title: f.name, whose, show: null, url: null, problem: failure.problem, file });
       return cantShow(
         failure.error,
         failure.problem?.kind === "unavailable" && f.readable
@@ -880,7 +899,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
           : undefined,
       );
     }
-    put({ title: f.name, whose, show: info, url: null, problem: null });
+    put({ title: f.name, whose, show: info, url: null, problem: null, file });
     return {
       shown: true,
       file: label(f),
@@ -933,7 +952,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
     } catch (e) {
       const failure = showFailure(e);
       if (failure.problem)
-        put({ title: host, whose: host, show: null, url, problem: failure.problem });
+        put({ title: host, whose: host, show: null, url, problem: failure.problem, file: null });
       const offerLink =
         failure.problem?.kind === "unavailable" || failure.problem?.kind === "outdated";
       return {
@@ -948,7 +967,7 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
       };
     }
     const end = await settle(
-      put({ title: host, whose: host, show: info, url, problem: null }),
+      put({ title: host, whose: host, show: info, url, problem: null, file: null }),
       host,
     );
     if (!end) return { shown: false, site: host, note: "They closed it before it was ready." };

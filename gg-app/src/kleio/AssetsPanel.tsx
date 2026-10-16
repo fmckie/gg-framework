@@ -1,21 +1,15 @@
 // The files a conversation's specialists linked, gathered in one sidebar list
 // so a report from forty messages back is one tap away. Newest first; a file
 // linked twice is listed once, at its latest mention. A row opens the file
-// (a web page opens as a site), the same as clicking its link or its card.
+// the same as clicking its link or its card: in the file viewer when Kleio
+// draws its kind, as a site for a web page, else in its app.
 
 import { useState } from "react";
 import { GlobeIcon } from "@phosphor-icons/react";
 import { KindIcon } from "./FileCard";
 import { fileExtension, isSitePath } from "./filePaths";
-import {
-  fileErrorText,
-  fileLinks,
-  openFile,
-  openSite,
-  ownerKey,
-  siteErrorText,
-  type FileOwner,
-} from "./kleioFiles";
+import { useOpenFile } from "./viewerContext";
+import { fileErrorText, fileLinks, ownerKey, siteErrorText, type FileOwner } from "./kleioFiles";
 import { KleioPanel } from "./KleioChrome";
 
 /** At most this many: the list is for reaching recent work fast, not an archive. */
@@ -69,13 +63,14 @@ function AssetRow({
   onError: (message: string) => void;
 }): React.ReactElement {
   const [opening, setOpening] = useState(false);
+  const openAt = useOpenFile();
   const site = isSitePath(asset.path);
   const name = fileName(asset.path);
   const kind = site ? "Site" : fileExtension(name).toUpperCase() || "File";
   async function open(): Promise<void> {
     setOpening(true);
     try {
-      await (site ? openSite(asset.owner, asset.path) : openFile(asset.owner, asset.path));
+      await openAt(asset.owner, asset.path, asset.label);
     } catch (e) {
       onError(site ? siteErrorText(e) : fileErrorText(e));
     } finally {

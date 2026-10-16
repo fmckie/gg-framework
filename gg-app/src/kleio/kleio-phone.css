@@ -731,3 +731,36 @@ html.platform-ios .voice-show-head .icon-circle {
   width: 44px;
   height: 44px;
 }
+
+/* The file viewer (FileViewer.tsx): the whole screen, clear of the notch and
+   the home indicator. Its header shares the panel's 44 pt targets above, and
+   Open in app and Save a copy keep only their icons (their names stay for
+   VoiceOver). No pinch-zoom (the app turns it off): Open in app is Quick Look. */
+html.platform-ios .file-viewer-backdrop {
+  padding: 0;
+  background: var(--bg);
+}
+html.platform-ios .file-viewer {
+  width: 100%;
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+}
+html.platform-ios .file-viewer .voice-show-body {
+  padding-bottom: var(--safe-bottom);
+}
+html.platform-ios .file-viewer-action {
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+html.platform-ios .file-viewer-action-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}

@@ -460,6 +460,17 @@ lasts 15 minutes.
   is drawn; pictures up to 20 MB, PDFs up to 50 MB and documents to extract up to 20 MB
   (`413 too_large`). A file changed since it was shown answers `409 changed`.
 
+- **The app's file viewer** draws a Chat or Code session's files as shows too, named by the
+  session's folder: `{ source: "workspace", cwd, path }`, with no `id`, `member` or `url` beside it
+  (`400`). Her voice can't name this source: `list_files`, `read_file` and her `show` take only the
+  ones above. `cwd` must be in Kleio's projects folders with no hidden folder on the way, as for the
+  workspace file route, and is checked again on every part (`404`). In it, Markdown, text, CSV,
+  PDFs and pictures show anywhere but tooling folders (build output such as `out/` is fine); in
+  `.gg/generated/<file>` and `.gg/screenshots/<file>`, one level deep, only pictures. A session's
+  `.gg/plans` never shows here, and `.gg/screenshots` only here. Any other kind is
+  `415 unsupported`, and the app opens it in its own app instead. Logged as `show workspace`, never
+  with the folder or the path.
+
 - **Hosts that can't draw.** Web pages and PDFs need the capturer: without it, `501 unavailable`
   ("Kleio can't show web pages or PDFs on this host."), before anything is fetched; text, Markdown
   and pictures still show. A refused address answers `422 refused` (with `refusal`) even then.
@@ -654,6 +665,9 @@ small web sites. Any paired device may call these; they are not admin-only.
 request. Any other `cwd` is a 404 `no such workspace`.
 
 - **Paths:** relative, with no `.`/`..`, hidden names or links out of the folder. Max 50 MB.
+  One exception, in a Chat or Code session's folder only: the pictures its tools made,
+  `.gg/generated/<picture>` and `.gg/screenshots/<picture>` (PNG, JPEG, GIF or WebP), with those
+  two folders spelled out (never escaped), one level deep and no link anywhere on the way.
 - **Responses:** always a download (`content-disposition: attachment`, `nosniff`). HTML, SVG
   and scripts come back as `application/octet-stream`, so nothing an agent writes runs on the
   API origin.

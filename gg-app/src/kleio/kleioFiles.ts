@@ -13,6 +13,7 @@ import {
   fileExtension,
   isOutputPath,
   isSitePath,
+  isToolPicturePath,
   specialistFilePath,
   workspaceFilePath,
 } from "./filePaths";
@@ -35,16 +36,12 @@ export interface FileInfo {
 export const fetchFile = (owner: FileOwner, path: string): Promise<FileInfo> =>
   invoke<FileInfo>("kleio_file_fetch", { owner, path });
 
-export const openFile = (owner: FileOwner, path: string): Promise<void> =>
-  invoke<void>("kleio_file_open", { owner, path });
+// Opening a file in its app and a web page in the browser load with the app.
+export { openFile, openSite } from "./fileOpen";
 
 /** True when saved, false when the save dialog was cancelled. */
 export const saveFile = (owner: FileOwner, path: string): Promise<boolean> =>
   invoke<boolean>("kleio_file_save", { owner, path });
-
-/** Opens an agent-written web page (`.html`/`.htm`) in the browser. */
-export const openSite = (owner: FileOwner, path: string): Promise<void> =>
-  invoke<void>("kleio_site_open", { owner, path });
 
 export function fileOwner(blobId: string, groupId?: string): FileOwner {
   return groupId ? { kind: "group", groupId, blobId } : { kind: "blob", blobId };
@@ -97,11 +94,12 @@ export function ownerFilePath(href: string, owner?: FileOwner): string | null {
 
 /** The outputs (see `isOutputPath`) a Chat/Code reply links to or names inside
  *  its session folder `cwd`, in order, each once. Source files the agent
- *  mentions (`src/App.tsx`) stay plain links. */
+ *  mentions (`src/App.tsx`) stay plain links, and a picture its tools made
+ *  gets no card here: the tool's own card shows it. */
 export function workspaceFileLinks(markdown: string, cwd: string): FileLink[] {
   return filesBy(markdown, (href) => {
     const path = workspaceFilePath(href, cwd);
-    return path && isOutputPath(path) ? path : null;
+    return path && isOutputPath(path) && !isToolPicturePath(path) ? path : null;
   });
 }
 
