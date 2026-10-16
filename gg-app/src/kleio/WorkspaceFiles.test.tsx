@@ -11,6 +11,7 @@ vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
 
 const { Markdown } = await import("../Markdown");
+const { FileViewerProvider } = await import("./FileViewerProvider");
 const { WorkspaceFileCards, WorkspaceFilesProvider, useOpenFromHost } =
   await import("./WorkspaceFiles");
 
@@ -198,7 +199,7 @@ describe("a picture a tool made, opened from the transcript", () => {
   });
 
   // Of the hidden folders, the host serves only pictures saved straight into
-  // .gg/generated or .gg/screenshots.
+  // .gg/generated or .gg/screenshots (see the viewer's tests below).
   it.each([
     ".gg/plans/diagram.png",
     ".gg/generated/old/2026-10-15T14-00-00-000Z.png",
@@ -229,6 +230,126 @@ describe("a picture a tool made, opened from the transcript", () => {
   it("opens on this device when not paired", async () => {
     await clickImage(null, `${CWD}/out/logo.png`);
     expect(openProjectPath).toHaveBeenCalledWith(`${CWD}/out/logo.png`);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("a session's files in the app, beside its file viewer", () => {
+  /** The host is still readying a show, so the viewer stays open saying so. */
+  function hostShowing(): void {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      cmd === "kleio_api" ? new Promise(() => {}) : Promise.resolve(undefined),
+    );
+  }
+
+  /** The app's shape (main.tsx, App.tsx): the viewer around a reply and its cards. */
+  async function renderInApp(content: React.ReactElement): Promise<void> {
+    await act(async () => {
+      render(
+        <FileViewerProvider>
+          <WorkspaceFilesProvider cwd={CWD}>{content}</WorkspaceFilesProvider>
+        </FileViewerProvider>,
+      );
+    });
+  }
+
+  async function expectViewed(path: string): Promise<void> {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    expect(await screen.findByRole("dialog", { name })).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("kleio_api", {
+      method: "POST",
+      path: "/kleio/voice/show",
+      body: { source: "workspace", cwd: CWD, path },
+      session: null,
+    });
+    expect(invoke).not.toHaveBeenCalledWith("kleio_file_open", expect.anything());
+    expect(openProjectPath).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalled();
+  }
+
+  // Notes didn't open at all before: they weren't outputs, so they went to
+  // the project opener, which looked for the mini's path on this device.
+  it.each([
+    ["notes", "notes/review.md"],
+    ["a log", `${CWD}/out/run.txt`],
+    ["a report", "report.pdf"],
+    ["a spreadsheet", "~/kleio-projects/demo/data/sales.csv"],
+    ["a picture a tool made", ".gg/screenshots/home.png"],
+  ])("opens a link to %s in the viewer, from the session's folder", async (_, href) => {
+    hostShowing();
+    await renderInApp(<Markdown>{`See [the file](${href}).`}</Markdown>);
+    fireEvent.click(screen.getByRole("link", { name: "the file" }));
+    const path = href.replace(`${CWD}/`, "").replace("~/kleio-projects/demo/", "");
+    await expectViewed(path);
+  });
+
+  it("opens a kind the viewer doesn't draw in its app, and leaves source files alone", async () => {
+    hostShowing();
+    await renderInApp(
+      <Markdown>{`The [plan](Q3%20plan.docx) and [App.tsx](${CWD}/src/App.tsx).`}</Markdown>,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "plan" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("kleio_file_open", {
+        owner: OWNER,
+        path: "Q3 plan.docx",
+      }),
+    );
+    fireEvent.click(screen.getByRole("link", { name: "App.tsx" }));
+    expect(openProjectPath).toHaveBeenCalledWith(`${CWD}/src/App.tsx`);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens a card's report in the viewer", async () => {
+    vi.mocked(invoke).mockImplementation((cmd) =>
+      cmd === "kleio_file_fetch"
+        ? Promise.resolve({
+            name: "report.pdf",
+            size: 2048,
+            mime: "application/pdf",
+            thumbnail: null,
+          })
+        : cmd === "kleio_api"
+          ? new Promise(() => {})
+          : Promise.resolve(undefined),
+    );
+    await renderInApp(<WorkspaceFileCards text="The [Quarterly report](report.pdf)." />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open report.pdf" }));
+    expect(await screen.findByRole("dialog", { name: "Quarterly report" })).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith("kleio_api", {
+      method: "POST",
+      path: "/kleio/voice/show",
+      body: { source: "workspace", cwd: CWD, path: "report.pdf" },
+      session: null,
+    });
+  });
+
+  // Before, these showed the "hidden folder" toast: the host served no hidden folder.
+  it.each([".gg/generated/2026-10-15T14-00-00-000Z.png", ".gg/screenshots/home.jpeg"])(
+    "opens a picture a tool saved at %s in the viewer",
+    async (inside) => {
+      hostShowing();
+      await renderInApp(<ImageCard path={`${CWD}/${inside}`} />);
+      fireEvent.click(screen.getByRole("button", { name: "Open image" }));
+      await expectViewed(inside);
+    },
+  );
+
+  it("opens a picture the session saved in its folder in the viewer", async () => {
+    hostShowing();
+    await renderInApp(<ImageCard path={`${CWD}/out/logo.png`} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open image" }));
+    await expectViewed("out/logo.png");
+  });
+
+  it("still says why a picture outside the session's folder can't open", async () => {
+    await renderInApp(<ImageCard path="/Users/k/Desktop/logo.png" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open image" }));
+    expect(toast).toHaveBeenCalledWith(
+      "Kleio can't open this image here: it isn't in this session's folder on your host.",
+      "error",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(invoke).not.toHaveBeenCalled();
   });
 });
