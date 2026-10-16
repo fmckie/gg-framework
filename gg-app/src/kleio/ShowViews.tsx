@@ -5,7 +5,8 @@
 // show.rs, which passes on nothing but plain text and pictures) and draws
 // pictures from blob: URLs. Nothing in a show runs: Markdown has no raw HTML,
 // a web page is a picture of the page, and a link opens only as a web page in
-// the browser, through safeExternalUrl. The viewer gets these through SHOW_KIT.
+// the browser, through safeExternalUrl. In the panel, a click on the show
+// opens it full size (onEnlarge). The viewer gets these through SHOW_KIT.
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowSquareOutIcon, WarningCircleIcon } from "@phosphor-icons/react";
@@ -263,20 +264,46 @@ function Trouble({
 /** Draws a document's text another way (the file viewer's CSV table), or null to leave it plain. */
 export type RenderTable = (text: string, name: string) => React.ReactNode;
 
+/** Opens a show full size (the file viewer), at a PDF's `page`. */
+export type Enlarge = (page?: number) => void;
+
+/** What does its own thing when clicked inside a show: never a click to enlarge it. */
+const CONTROLS = "a, button, input, select, textarea, summary, label";
+
+/**
+ * Whether a click is on the show itself, to open it full size: not on a link
+ * or a control inside it, and not the end of selecting its text.
+ */
+function onTheShow(e: React.MouseEvent): boolean {
+  if (e.target instanceof Element && e.target.closest(CONTROLS)) return false;
+  const selection = window.getSelection();
+  return selection === null || selection.isCollapsed;
+}
+
+/** The click handler that opens a show full size, when it can be. */
+function enlargeOn(onEnlarge: Enlarge | undefined): React.MouseEventHandler | undefined {
+  if (!onEnlarge) return undefined;
+  return (e) => {
+    if (onTheShow(e)) onEnlarge();
+  };
+}
+
 /** A document: Markdown drawn, other text through `renderTable` when it draws it, else as plain text. */
 function TextView({
   show,
   renderTable,
+  onEnlarge,
 }: {
   readonly show: ShowInfo;
   readonly renderTable?: RenderTable;
+  readonly onEnlarge?: Enlarge;
 }): React.ReactElement {
   const text = useShowText(show.id);
   if (text.state === "failed") return <Trouble text={text.text} link={null} />;
   if (text.state === "loading") return <Waiting text="Loading…" />;
   if (!text.value.trim()) return <Trouble text="This file is empty." link={null} />;
   return (
-    <div className="voice-show-doc" onClickCapture={stayPut}>
+    <div className="voice-show-doc" onClickCapture={stayPut} onClick={enlargeOn(onEnlarge)}>
       {show.format === "markdown" ? (
         <ShowMarkdown text={text.value} />
       ) : (
@@ -290,16 +317,24 @@ function TextView({
 function PictureView({
   show,
   title,
+  onEnlarge,
 }: {
   readonly show: ShowInfo;
   readonly title: string;
+  readonly onEnlarge?: Enlarge;
 }): React.ReactElement {
   const pic = useShowPicture(show.id, "image");
   if (pic.state === "failed") return <Trouble text={pic.text} link={null} />;
   if (pic.state === "loading") return <Waiting text="Loading…" />;
   return (
     <div className="voice-show-picture">
-      <img src={pic.value} alt={title} draggable={false} />
+      <img
+        src={pic.value}
+        alt={title}
+        draggable={false}
+        data-enlarge={onEnlarge ? "" : undefined}
+        onClick={enlargeOn(onEnlarge)}
+      />
     </div>
   );
 }
@@ -342,14 +377,26 @@ function PdfPage({
 function PdfView({
   show,
   root,
+  onEnlarge,
 }: {
   readonly show: ShowInfo;
   readonly root: HTMLElement | null;
+  readonly onEnlarge?: Enlarge;
 }): React.ReactElement {
   const pages = show.pages ?? 0;
   const total = show.totalPages ?? pages;
+  // A page clicked opens full size at that page.
+  const onClick = (e: React.MouseEvent): void => {
+    const slot = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-page]") : null;
+    const n = Number(slot?.dataset.page);
+    if (onEnlarge && n > 0 && onTheShow(e)) onEnlarge(n);
+  };
   return (
-    <div className="voice-show-pages">
+    <div
+      className="voice-show-pages"
+      data-enlarge={onEnlarge ? "" : undefined}
+      onClick={onEnlarge ? onClick : undefined}
+    >
       {Array.from({ length: pages }, (_, i) => (
         <PdfPage key={i + 1} id={show.id} n={i + 1} total={total} root={root} />
       ))}
@@ -362,15 +409,20 @@ function PdfView({
   );
 }
 
-/** A picture of a web page, drawn on the host; tapping it opens the page itself. */
+/**
+ * A picture of a web page, drawn on the host. Tapping it opens it full size
+ * when it can be (the panel), else the page itself in the browser.
+ */
 function WebView({
   show,
   host,
   link,
+  onEnlarge,
 }: {
   readonly show: ShowInfo;
   readonly host: string;
   readonly link: string | null;
+  readonly onEnlarge?: Enlarge;
 }): React.ReactElement {
   const pic = useShowPicture(show.id, "image");
   if (pic.state === "failed") return <Trouble text={pic.text} link={link} />;
@@ -378,7 +430,7 @@ function WebView({
   return (
     <div className="voice-show-web">
       {show.signIn && <p className="voice-show-note is-sign-in">{SIGN_IN}</p>}
-      {link ? (
+      {link && !onEnlarge ? (
         <button
           type="button"
           className="voice-show-shot"
@@ -388,7 +440,14 @@ function WebView({
           <img src={pic.value} alt="" draggable={false} />
         </button>
       ) : (
-        <img className="voice-show-shot" src={pic.value} alt={`The page at ${host}`} />
+        <img
+          className="voice-show-shot"
+          src={pic.value}
+          alt={`The page at ${host}`}
+          draggable={false}
+          data-enlarge={onEnlarge ? "" : undefined}
+          onClick={enlargeOn(onEnlarge)}
+        />
       )}
       {show.cut && (
         <p className="voice-show-note">
@@ -402,16 +461,20 @@ function WebView({
 /**
  * The show itself, as a panel's body: what stands in its place when it can't
  * be drawn, a wait while a page is drawn, or its view. `root` is the scroller
- * it sits in, which a PDF's pages watch to load as they come near.
+ * it sits in, which a PDF's pages watch to load as they come near. Given
+ * `onEnlarge`, a click on its picture, a page or its text (not on a link)
+ * opens it full size.
  */
 export function ShowBody({
   shown,
   root,
   renderTable,
+  onEnlarge,
 }: {
   readonly shown: Shown;
   readonly root: HTMLElement | null;
   readonly renderTable?: RenderTable;
+  readonly onEnlarge?: Enlarge;
 }): React.ReactElement {
   const { title } = showHeadline(shown);
   const link = openableLink(shown);
@@ -420,10 +483,12 @@ export function ShowBody({
   const host = show?.host ?? shown.whose;
   if (trouble !== null || !show) return <Trouble text={trouble ?? GONE} link={link} />;
   if (show.state === "capturing") return <Waiting text={`Loading ${host}…`} />;
-  if (show.kind === "text") return <TextView show={show} renderTable={renderTable} />;
-  if (show.kind === "image") return <PictureView show={show} title={title} />;
-  if (show.kind === "pdf") return <PdfView show={show} root={root} />;
-  return <WebView show={show} host={host} link={link} />;
+  if (show.kind === "text") {
+    return <TextView show={show} renderTable={renderTable} onEnlarge={onEnlarge} />;
+  }
+  if (show.kind === "image") return <PictureView show={show} title={title} onEnlarge={onEnlarge} />;
+  if (show.kind === "pdf") return <PdfView show={show} root={root} onEnlarge={onEnlarge} />;
+  return <WebView show={show} host={host} link={link} onEnlarge={onEnlarge} />;
 }
 
 /**

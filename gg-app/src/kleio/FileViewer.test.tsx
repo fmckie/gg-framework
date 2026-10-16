@@ -341,6 +341,7 @@ describe("FileViewer, its actions", () => {
       show: info({ kind: "pdf", name: "slides.pdf", pages: 3, totalPages: 9 }),
       url: null,
       problem: null,
+      file: null,
     };
     render(
       <FileViewer
@@ -367,6 +368,7 @@ describe("FileViewer, its actions", () => {
       show: info({ kind: "web", name: "example.com", host: "example.com" }),
       url: "https://example.com/news",
       problem: null,
+      file: null,
     };
     render(
       <FileViewer

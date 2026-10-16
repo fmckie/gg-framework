@@ -268,6 +268,7 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
       },
       url: null,
       problem: null,
+      file: null,
     };
     render(<VoiceMode />);
     await screen.findByText(/three courses/);

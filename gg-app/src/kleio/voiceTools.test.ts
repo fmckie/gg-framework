@@ -770,6 +770,7 @@ describe("agents' files", () => {
           show: READY,
           url: null,
           problem: null,
+          file: null,
         },
       ]);
     });
@@ -799,6 +800,45 @@ describe("agents' files", () => {
         [4, "app"],
         [5, "Launch"],
       ]);
+    });
+
+    it("says where a specialist's or a group member's file is, for full size's Open in app", async () => {
+      const { tools, shown } = showing([file({})]);
+      await tools.run("show", { from: "specialist", name: "Chef", file: "report" });
+      // Kleio's own files, a chat's, a session's and a project's have no file route in the app.
+      await tools.run("show", { from: "kleio", file: "report" });
+      await tools.run("show", { from: "chat", name: "heat pumps", file: "report" });
+      await tools.run("show", { from: "code", name: "dark mode", file: "report" });
+      await tools.run("show", { from: "project", name: "app", file: "report" });
+      vi.mocked(api.listAgentFiles).mockResolvedValue({
+        files: [file({ member: "b2", by: "Scout" })],
+      });
+      await tools.run("show", { from: "group", name: "Launch", file: "report" });
+      expect(shown.map((s) => s.file)).toEqual([
+        { owner: { kind: "blob", blobId: "b1" }, path: "report.pdf" },
+        null,
+        null,
+        null,
+        null,
+        { owner: { kind: "group", groupId: "g1", blobId: "b2" }, path: "report.pdf" },
+      ]);
+    });
+
+    // The viewer's own source (a coding session's folder) is never hers.
+    it("never shows from a coding session's folder", async () => {
+      const { tools, shown } = showing();
+      const out = await tools.run("show", {
+        from: "workspace",
+        cwd: "/Users/me/kleio-projects/app",
+        file: "notes.md",
+      });
+      expect(out).toEqual({
+        shown: false,
+        error: "Say whose files: one of kleio, specialist, group, chat, code, project.",
+      });
+      expect(api.listAgentFiles).not.toHaveBeenCalled();
+      expect(api.createFileShow).not.toHaveBeenCalled();
+      expect(shown).toEqual([]);
     });
 
     it("shows a project's plans and the pictures they generated", async () => {
@@ -907,6 +947,7 @@ describe("agents' files", () => {
                   show: null,
                   url: null,
                   problem,
+                  file: null,
                 },
               ]
             : [],
@@ -1016,6 +1057,7 @@ describe("show, for a web page", () => {
         show: CAPTURING,
         url: WIKI,
         problem: null,
+        file: null,
       },
     ]);
     // The panel moved on to the drawn page: the same show, now ready.
@@ -1355,6 +1397,7 @@ describe("show, for a web page", () => {
                 show: null,
                 url: "http://192.168.1.10/admin",
                 problem,
+                file: null,
               },
             ]
           : [],

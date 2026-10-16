@@ -791,6 +791,15 @@
   gap: 6px;
   white-space: nowrap;
 }
+/* Full size's arrows (ShowPanel.tsx), as heavy as the bold icons beside them. */
+.voice-show-full {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .voice-show-close {
   flex: none;
 }
@@ -863,7 +872,7 @@
   font-size: 13px;
   text-align: center;
 }
-/* A picture of a web page: tap it to open the page itself. */
+/* A picture of a web page: in the viewer, tap it to open the page itself. */
 .voice-show-shot {
   display: block;
   width: 100%;
@@ -880,6 +889,13 @@
 .voice-show-shot:focus-visible {
   outline: 2px solid var(--kleio-crimson-hi);
   outline-offset: -2px;
+}
+/* On a call, a picture, a PDF's sheet or a page's picture opens full size
+   when clicked (ShowViews.tsx, onEnlarge); its text does too, keeping the
+   text cursor. */
+img[data-enlarge],
+[data-enlarge] > .voice-show-page {
+  cursor: zoom-in;
 }
 .voice-show-note {
   margin: 12px;

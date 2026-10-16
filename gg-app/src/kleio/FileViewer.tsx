@@ -86,6 +86,7 @@ function useShown(request: ViewRequest): Shown | null {
       title: request.label?.trim() || name,
       whose: name,
       url: null,
+      file: { owner: request.owner, path: request.path },
     };
     createFileShow(showRequest(request.owner, request.path)).then(
       (show) => {

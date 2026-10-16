@@ -1,17 +1,20 @@
 // What Kleio is showing, beside her on the voice screen (VoiceMode.tsx), in a
-// glass panel with its title, whose it is and ×. ShowViews.tsx draws the show
-// itself: a document's text, a picture, a PDF's pages or a picture of a web
-// page, asked of the host by id and never run.
+// glass panel with its title, whose it is, Full size and ×. ShowViews.tsx
+// draws the show itself: a document's text, a picture, a PDF's pages or a
+// picture of a web page, asked of the host by id and never run. Full size, or
+// a click on the show, opens it in the file viewer over the call.
 
 import { useId, useState } from "react";
 import { XIcon } from "@phosphor-icons/react";
 import {
+  HeadButton,
   OpenInBrowser,
   openableLink,
   pageInView,
   ShowBody,
   showHeadline,
   troubleOf,
+  type Enlarge,
 } from "./ShowViews";
 import type { Shown } from "./voiceTools";
 
@@ -22,6 +25,11 @@ export interface ShowPanelProps {
   /** Closed, and gliding out as the room rearranges: still drawn, no longer usable. */
   readonly leaving?: boolean;
   readonly onClose: () => void;
+  /**
+   * Opens it full size (the file viewer), at a PDF's page: from Full size in
+   * the header, or a click on the show once it's drawn. Without it, it can't be.
+   */
+  readonly onEnlarge?: Enlarge;
   readonly ref?: React.Ref<HTMLElement>;
 }
 
@@ -33,6 +41,7 @@ export function ShowPanel({
   shown,
   leaving = false,
   onClose,
+  onEnlarge,
   ref,
 }: ShowPanelProps): React.ReactElement {
   const titleId = useId();
@@ -43,6 +52,8 @@ export function ShowPanel({
   const trouble = troubleOf(shown);
   const show = trouble === null ? shown.show : null;
   const pdf = show?.kind === "pdf" && show.state === "ready" ? show : null;
+  // Only once it's drawn: a page still being drawn would stay a wait.
+  const enlarge = show?.state === "ready" ? onEnlarge : undefined;
 
   return (
     <section
@@ -70,6 +81,22 @@ export function ShowPanel({
           </span>
         )}
         {link && trouble === null && <OpenInBrowser url={link} />}
+        {enlarge && (
+          <HeadButton label="Full size" onClick={() => (pdf ? enlarge(page) : enlarge())}>
+            {/* Two arrows out to the corners, drawn here (kleio-theme.css): an
+                icon's module carries all six of its weights into the app's
+                first load. */}
+            <svg
+              className="voice-show-full"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path d="M14.5 4.5h5v5M19.5 4.5l-6 6M9.5 19.5h-5v-5M4.5 19.5l6-6" />
+            </svg>
+          </HeadButton>
+        )}
         <button
           type="button"
           className="icon-circle voice-show-close"
@@ -87,7 +114,7 @@ export function ShowPanel({
         tabIndex={0}
         onScroll={pdf ? (e) => setPage(pageInView(e.currentTarget)) : undefined}
       >
-        <ShowBody shown={shown} root={scroller} />
+        <ShowBody shown={shown} root={scroller} onEnlarge={enlarge} />
       </div>
     </section>
   );

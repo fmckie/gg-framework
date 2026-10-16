@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { setHomeBackgroundEnabled } from "../home-background";
 import type { Box } from "./flip";
 import type * as KleioApi from "./kleioApi";
@@ -16,7 +17,7 @@ const call = vi.hoisted(() => ({
   startCall: vi.fn(),
   closeShown: vi.fn(),
 }));
-const api = vi.hoisted(() => ({ getShowPart: vi.fn() }));
+const api = vi.hoisted(() => ({ getShowPart: vi.fn(), createFileShow: vi.fn() }));
 
 vi.mock("./voiceCall", () => ({
   useCall: () => call.state,
@@ -39,12 +40,14 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioApi>()),
   getVoiceStatus: vi.fn(),
   getShowPart: api.getShowPart,
+  createFileShow: api.createFileShow,
 }));
 vi.mock("./BriefPanel", () => ({ briefMe: vi.fn() }));
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => {}) }));
 
 const { VoiceMode, latestCaption, CAPTION_HOLD_MS } = await import("./VoiceMode");
+const { FileViewerProvider } = await import("./FileViewerProvider");
 
 function set(state: Partial<CallState>): void {
   call.state = { ...call.state, ...state };
@@ -64,6 +67,7 @@ const REPORT: Shown = {
   },
   url: null,
   problem: null,
+  file: null,
 };
 
 beforeEach(() => {
@@ -202,7 +206,8 @@ describe("VoiceMode", () => {
     // The guide loads when first opened.
     const guide = await screen.findByRole("dialog", { name: "What Kleio Voice can do" });
     expect(guide.textContent).toContain("Show you things while you talk");
-    expect(guide.textContent).toContain("tap it to open the page in your browser");
+    expect(guide.textContent).toContain("with Open in browser for the page itself");
+    expect(guide.textContent).toContain("Tap what she shows to see it full size.");
     expect(guide.textContent).toContain("Say “close it”, or tap ×, to take it down.");
     expect(guide.textContent).toContain("Web pages and PDFs need a Mac host on macOS 14 or later.");
     expect(guide.textContent).toContain("Run a job on her own");
@@ -398,5 +403,173 @@ describe("latestCaption", () => {
     expect(shown?.text.endsWith("the end.")).toBe(true);
     expect(shown?.text.startsWith("word")).toBe(true);
     expect(shown?.text.length).toBeLessThanOrEqual(360);
+  });
+});
+
+describe("what she shows, full size", () => {
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+  const DECK_ID = "sh_fedcba9876543210fedcba9876543210";
+  const PAGE = "https://en.wikipedia.org/wiki/Clio";
+  /** A specialist's PDF: one the app can also open in its app or save. */
+  const DECK: Shown = {
+    key: 2,
+    title: "deck.pdf",
+    whose: "Chef",
+    show: { id: DECK_ID, kind: "pdf", name: "deck.pdf", state: "ready", pages: 3, totalPages: 3 },
+    url: null,
+    problem: null,
+    file: { owner: { kind: "blob", blobId: "b1" }, path: "out/deck.pdf" },
+  };
+  const WIKI: Shown = {
+    key: 3,
+    title: "en.wikipedia.org",
+    whose: "en.wikipedia.org",
+    show: {
+      id: "sh_00112233445566778899aabbccddeeff",
+      kind: "web",
+      name: "en.wikipedia.org",
+      host: "en.wikipedia.org",
+      state: "ready",
+      title: "Clio - Wikipedia",
+    },
+    url: PAGE,
+    problem: null,
+    file: null,
+  };
+
+  beforeEach(() => {
+    // jsdom has no blob: URLs.
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: () => "blob:k/1" });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: () => {} });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(URL, "createObjectURL");
+    Reflect.deleteProperty(URL, "revokeObjectURL");
+  });
+
+  /** The voice screen in the app, under the file viewer's provider (main.tsx). */
+  const inApp = (): React.ReactElement => (
+    <FileViewerProvider>
+      <VoiceMode />
+    </FileViewerProvider>
+  );
+  const viewer = (name: string): Promise<HTMLElement> => screen.findByRole("dialog", { name });
+  const fullSize = (): HTMLElement => screen.getByRole("button", { name: "Full size" });
+
+  it("opens it over the call as the same show, never made again, and the call goes on", async () => {
+    api.getShowPart.mockResolvedValue(new TextEncoder().encode("# Q3\n\nSales rose by a tenth."));
+    set({ phase: "speaking", shown: REPORT });
+    render(inApp());
+    expect(await screen.findByRole("heading", { name: "Q3" })).toBeTruthy();
+    fireEvent.click(fullSize());
+    const dialog = await viewer("Q3 report.md");
+    expect(await within(dialog).findByRole("heading", { name: "Q3" })).toBeTruthy();
+    expect(api.getShowPart.mock.calls).toEqual([
+      [REPORT.show?.id, "text"],
+      [REPORT.show?.id, "text"],
+    ]);
+    expect(api.createFileShow).not.toHaveBeenCalled();
+    // Kleio's own file: nothing to open in an app or save from here.
+    expect(within(dialog).queryByRole("button", { name: "Open in app" })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Talking to Kleio" })).toBeTruthy();
+    expect(call.closeShown).not.toHaveBeenCalled();
+    expect(call.endCall).not.toHaveBeenCalled();
+  });
+
+  it("opens from a click on her document, but not from a link in it", async () => {
+    api.getShowPart.mockResolvedValue(
+      new TextEncoder().encode("# Q3\n\nSee [the figures](https://example.com/q3)."),
+    );
+    set({ phase: "listening", shown: REPORT });
+    render(inApp());
+    fireEvent.click(await screen.findByRole("link", { name: "the figures" }));
+    expect(openUrl).toHaveBeenCalledWith("https://example.com/q3");
+    await act(async () => {});
+    expect(screen.queryByRole("dialog", { name: "Q3 report.md" })).toBeNull();
+    fireEvent.click(screen.getByRole("heading", { name: "Q3" }));
+    expect(await viewer("Q3 report.md")).toBeTruthy();
+  });
+
+  it("opens a PDF at the page tapped, scrolled to it, with Open in app for a specialist's", async () => {
+    api.getShowPart.mockResolvedValue(PNG);
+    vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.dataset.page ? (Number(this.dataset.page) - 1) * 1_100 : 0;
+    });
+    set({ phase: "listening", shown: DECK });
+    render(inApp());
+    const panel = screen.getByRole("region", { name: "deck.pdf" });
+    fireEvent.click(await within(panel).findByRole("img", { name: "Page 2 of 3" }));
+    const dialog = await viewer("deck.pdf");
+    expect(dialog.querySelector(".voice-show-at")?.textContent).toBe("Page 2 of 3");
+    expect(dialog.querySelector(".file-viewer-body")?.scrollTop).toBe(1_100 - 16);
+    expect(within(dialog).getByRole("button", { name: "Open in app" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Save a copy" })).toBeTruthy();
+    expect(api.createFileShow).not.toHaveBeenCalled();
+  });
+
+  it("opens a web page's picture, the page itself a click away in the browser", async () => {
+    api.getShowPart.mockResolvedValue(PNG);
+    set({ phase: "listening", shown: WIKI });
+    render(inApp());
+    fireEvent.click(await screen.findByRole("img", { name: "The page at en.wikipedia.org" }));
+    const dialog = await viewer("Clio - Wikipedia");
+    expect(openUrl).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Open in browser" }));
+    expect(openUrl).toHaveBeenCalledWith(PAGE);
+  });
+
+  it("closes on Esc, leaving what she's showing and the call", async () => {
+    set({ phase: "listening", shown: REPORT });
+    render(inApp());
+    const opener = fullSize();
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await viewer("Q3 report.md");
+    fireEvent.keyDown(document.activeElement ?? dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Q3 report.md" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Q3 report.md" })).toBeTruthy();
+    expect(call.closeShown).not.toHaveBeenCalled();
+    expect(call.resetCall).not.toHaveBeenCalled();
+    expect(call.endCall).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(opener);
+    // The next Esc closes what she's showing, as ever.
+    fireEvent.keyDown(opener, { key: "Escape" });
+    expect(call.closeShown).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes when she takes it down or shows something else, focus back in the room", async () => {
+    set({ phase: "listening", shown: REPORT });
+    const { rerender } = render(inApp());
+    const hangUp = screen.getByRole("button", { name: "Hang up" });
+    fullSize().focus();
+    fireEvent.click(fullSize());
+    expect(await viewer("Q3 report.md")).toBeTruthy();
+    set({ shown: null });
+    rerender(inApp());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Q3 report.md" })).toBeNull());
+    expect(document.activeElement).toBe(hangUp);
+
+    set({ shown: REPORT });
+    rerender(inApp());
+    fullSize().focus();
+    fireEvent.click(fullSize());
+    expect(await viewer("Q3 report.md")).toBeTruthy();
+    set({ shown: DECK });
+    rerender(inApp());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Q3 report.md" })).toBeNull());
+    expect(screen.getByRole("region", { name: "deck.pdf" })).toBeTruthy();
+    expect(document.activeElement).toBe(hangUp);
+  });
+
+  it("closes when the voice screen does", async () => {
+    set({ phase: "listening", shown: REPORT });
+    const { rerender } = render(inApp());
+    fireEvent.click(fullSize());
+    expect(await viewer("Q3 report.md")).toBeTruthy();
+    set({ phase: "idle", shown: null });
+    rerender(inApp());
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

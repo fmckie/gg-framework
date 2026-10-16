@@ -33,6 +33,7 @@ function file(show: Partial<ShowInfo> & Pick<ShowInfo, "kind">, title = "plan.md
     show: { id: ID, name: title, state: "ready", ...show },
     url: null,
     problem: null,
+    file: null,
   };
 }
 
@@ -52,6 +53,7 @@ function page(show: Partial<ShowInfo>): Shown {
     },
     url: PAGE,
     problem: null,
+    file: null,
   };
 }
 
@@ -64,6 +66,7 @@ function trouble(problem: NonNullable<Shown["problem"]>, url: string | null): Sh
     show: null,
     url,
     problem,
+    file: null,
   };
 }
 
@@ -362,5 +365,98 @@ describe("ShowPanel, its header", () => {
     const region = screen.getByRole("region", { hidden: true });
     expect(region.hasAttribute("inert")).toBe(true);
     expect(region.hasAttribute("data-leaving")).toBe(true);
+  });
+});
+
+describe("ShowPanel, full size", () => {
+  /** The panel on a call, where it opens full size in the viewer. */
+  function onCall(shown: Shown): ReturnType<typeof vi.fn> {
+    const onEnlarge = vi.fn();
+    render(<ShowPanel shown={shown} onClose={vi.fn()} onEnlarge={onEnlarge} />);
+    return onEnlarge;
+  }
+  const fullSize = (): HTMLElement | null => screen.queryByRole("button", { name: "Full size" });
+  function one(selector: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (!el) throw new Error(`no ${selector}`);
+    return el;
+  }
+
+  it("opens a picture from Full size or a tap on it", async () => {
+    api.getShowPart.mockResolvedValue(PNG);
+    const onEnlarge = onCall(file({ kind: "image" }, "logo.png"));
+    fireEvent.click(await screen.findByRole("img", { name: "logo.png" }));
+    fireEvent.click(screen.getByRole("button", { name: "Full size" }));
+    expect(onEnlarge.mock.calls).toEqual([[], []]);
+  });
+
+  it("opens a PDF at the page tapped, and from Full size at the page being read", async () => {
+    api.getShowPart.mockResolvedValue(PNG);
+    const onEnlarge = onCall(file({ kind: "pdf", pages: 3, totalPages: 3 }, "deck.pdf"));
+    fireEvent.click(await screen.findByRole("img", { name: "Page 3 of 3" }));
+    // Between the pages is no page.
+    fireEvent.click(one(".voice-show-pages"));
+    const body = one(".voice-show-body");
+    for (const slot of document.querySelectorAll<HTMLElement>("[data-page]")) {
+      const top = (Number(slot.dataset.page) - 1) * 1_100;
+      Object.defineProperty(slot, "offsetTop", { configurable: true, value: top });
+    }
+    Object.defineProperty(body, "clientHeight", { configurable: true, value: 800 });
+    body.scrollTop = 900;
+    fireEvent.scroll(body);
+    fireEvent.click(screen.getByRole("button", { name: "Full size" }));
+    expect(onEnlarge.mock.calls).toEqual([[3], [2]]);
+  });
+
+  it("opens a web page's picture, the page itself still in the browser from the header", async () => {
+    api.getShowPart.mockResolvedValue(PNG);
+    const onEnlarge = onCall(page({ title: "Clio - Wikipedia" }));
+    fireEvent.click(await screen.findByRole("img", { name: "The page at en.wikipedia.org" }));
+    expect(onEnlarge.mock.calls).toEqual([[]]);
+    expect(openUrl).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /in your browser/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open in browser" }));
+    expect(vi.mocked(openUrl).mock.calls).toEqual([[PAGE]]);
+  });
+
+  it("opens a document from a click on it, not on a link or a button in it, nor on selecting", async () => {
+    api.getShowPart.mockResolvedValue(
+      text("# The plan\n\nSee [the site](https://example.com/a).\n\n```sh\nmake\n```"),
+    );
+    const onEnlarge = onCall(file({ kind: "text", format: "markdown" }));
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("link", { name: "the site" }));
+    expect(vi.mocked(openUrl).mock.calls).toEqual([["https://example.com/a"]]);
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+      });
+      expect(writeText).toHaveBeenCalledWith("make");
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
+    const heading = screen.getByRole("heading", { name: "The plan" });
+    window.getSelection()?.selectAllChildren(heading);
+    fireEvent.click(heading);
+    expect(onEnlarge).not.toHaveBeenCalled();
+    window.getSelection()?.removeAllRanges();
+    fireEvent.click(heading);
+    expect(onEnlarge.mock.calls).toEqual([[]]);
+  });
+
+  it("isn't offered until it's drawn, when it can't be shown, or off a call", async () => {
+    onCall(page({ state: "capturing" }));
+    expect(fullSize()).toBeNull();
+    cleanup();
+    onCall(trouble({ kind: "unavailable" }, PAGE));
+    expect(fullSize()).toBeNull();
+    cleanup();
+    api.getShowPart.mockResolvedValue(PNG);
+    panel(file({ kind: "image" }, "logo.png"));
+    const img = await screen.findByRole("img", { name: "logo.png" });
+    expect(fullSize()).toBeNull();
+    expect(img.hasAttribute("data-enlarge")).toBe(false);
   });
 });
