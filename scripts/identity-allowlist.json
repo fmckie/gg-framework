@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1477,
+        "tracked": 1480,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -704,7 +704,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 13,
+        "tracked": 14,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -7417,6 +7417,25 @@
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-974e64b40ee6",
+      "path": "packages/gg-ai/src/providers/xai.test.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:expect\\(requestOptions\\.headers\\?\\.\\[\"x-grok-conv-id\"\\]\\)\\.toBe\\(\"ggcoder:session-1\"\\);|promptCacheKey: \"ggcoder:session-1\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "The xAI conversation-id test uses the retained ggcoder:<session> prompt-cache key (LEGACY_CODER_PROMPT_CACHE_PREFIX), which routes requests and keeps cache continuity. Imported by the 2026-10-29 selective upstream sync (507281c5).",
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
