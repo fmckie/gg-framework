@@ -8,6 +8,7 @@ import {
   MAX_FILE_BYTES,
   resolveAgentFile,
   resolveWorkspaceDir,
+  resolveWorkspacePicture,
 } from "../src/files.js";
 
 let dir: string;
@@ -202,6 +203,110 @@ describe("resolveWorkspaceDir", () => {
       expect(alias.ok && alias.value.dir).toBe(join(realpathSync.native(projects), "app"));
     },
   );
+});
+
+describe("resolveWorkspacePicture", () => {
+  // `root` stands for a Chat or Code session's folder here.
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const gg = (...parts: string[]): string => join(root, ".gg", ...parts);
+  const pic = async (raw: string, r = root, max?: number): Promise<string> => {
+    const res = await resolveWorkspacePicture(r, raw, max);
+    return res.ok ? "ok" : res.error.kind;
+  };
+  beforeEach(() => {
+    for (const folder of ["generated", "screenshots", "plans"])
+      mkdirSync(gg(folder), { recursive: true });
+  });
+
+  it("resolves the pictures generate_image and screenshot made", async () => {
+    writeFileSync(gg("generated", "x.png"), PNG);
+    writeFileSync(gg("screenshots", "shot 1.jpeg"), "jpeg");
+    const r = await resolveWorkspacePicture(root, ".gg/generated/x.png");
+    expect(r.ok && r.value).toEqual({
+      path: join(realpathSync.native(root), ".gg", "generated", "x.png"),
+      name: "x.png",
+      size: PNG.length,
+      mtimeMs: expect.any(Number),
+    });
+    const s = await resolveWorkspacePicture(root, ".gg/screenshots/shot%201.jpeg");
+    expect(s.ok && s.value.name).toBe("shot 1.jpeg");
+    expect(s.ok && s.value.path).toBe(
+      join(realpathSync.native(root), ".gg", "screenshots", "shot 1.jpeg"),
+    );
+  });
+
+  it("refuses anything else hidden, deeper, escaped or not a picture, before the disk", async () => {
+    writeFileSync(gg("plans", "x.md"), "a plan");
+    writeFileSync(gg("plans", "x.png"), PNG);
+    writeFileSync(gg("generated", "x.md"), "notes");
+    writeFileSync(gg("generated", ".x.png"), PNG);
+    writeFileSync(gg("x.png"), PNG);
+    mkdirSync(gg("generated", "sub"));
+    writeFileSync(gg("generated", "sub", "x.png"), PNG);
+    writeFileSync(gg("generated", "x.png"), PNG);
+    for (const raw of [
+      ".gg/plans/x.md",
+      ".gg/plans/x.png",
+      ".gg/generated/x.md",
+      ".gg/generated/x.svg",
+      ".gg/generated/sub/x.png",
+      ".gg/generated/.x.png",
+      ".gg/generated/%2Ex.png",
+      ".gg/x.png",
+      ".gg/generated",
+      ".gg/generated/",
+      ".gg/generated/x.png/",
+      "%2Egg/generated/x.png",
+      ".gg%2Fgenerated%2Fx.png",
+      ".gg/gener%61ted/x.png",
+      ".gg/Generated/x.png",
+      ".gg/generated/sub%2Fx.png",
+      ".gg/generated/..%2Fx.png",
+      ".gg/generated/x%5C.png",
+      ".gg/generated/x.png%00",
+      ".gg/generated/%E0%A4%A.png",
+      "x.png",
+      `.gg/generated/${"a".repeat(1100)}.png`,
+    ])
+      expect(await pic(raw), raw).toBe("bad_path");
+    expect(await pic(".gg/generated/x.png")).toBe("ok");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a symlink anywhere: the picture, either folder or .gg",
+    async () => {
+      mkdirSync(join(dir, "outside", "generated"), { recursive: true });
+      writeFileSync(join(dir, "outside", "x.png"), PNG);
+      writeFileSync(join(dir, "outside", "generated", "x.png"), PNG);
+      // The picture a link out, or to a picture inside the folder.
+      symlinkSync(join(dir, "outside", "x.png"), gg("screenshots", "out.png"));
+      writeFileSync(join(root, "real.png"), PNG);
+      symlinkSync(join(root, "real.png"), gg("screenshots", "in.png"));
+      expect(await pic(".gg/screenshots/out.png")).toBe("not_found");
+      expect(await pic(".gg/screenshots/in.png")).toBe("not_found");
+      // .gg/generated a link out.
+      rmSync(gg("generated"), { recursive: true });
+      symlinkSync(join(dir, "outside"), gg("generated"));
+      expect(await pic(".gg/generated/x.png")).toBe("not_found");
+      // .gg itself a link out.
+      rmSync(gg(), { recursive: true });
+      symlinkSync(join(dir, "outside"), gg());
+      expect(await pic(".gg/generated/x.png")).toBe("not_found");
+    },
+  );
+
+  it("is not_found when missing or a folder, too_large past maxBytes", async () => {
+    mkdirSync(gg("generated", "dir.png"));
+    writeFileSync(gg("generated", "big.png"), Buffer.alloc(11));
+    writeFileSync(gg("generated", "fits.png"), Buffer.alloc(10));
+    expect(await pic(".gg/generated/missing.png")).toBe("not_found");
+    expect(await pic(".gg/generated/dir.png")).toBe("not_found");
+    expect(await pic(".gg/screenshots/x.png", join(dir, "nope"))).toBe("not_found");
+    expect(await pic(".gg/generated/big.png", root, 10)).toBe("too_large");
+    expect(await pic(".gg/generated/fits.png", root, 10)).toBe("ok");
+    // Under MAX_FILE_BYTES by default.
+    expect(await pic(".gg/generated/big.png")).toBe("ok");
+  });
 });
 
 describe("fileContentType", () => {

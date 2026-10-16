@@ -30,7 +30,9 @@ import {
   SHOW_PDF_MAX,
   SHOW_TEXT_MAX,
   SHOW_TTL_MS,
+  VOICE_PLACES,
   wholeUtf8,
+  WORKSPACE_PLACES,
   type ShowInfo,
 } from "../src/show.js";
 import { createRingStore } from "../src/sse-ring.js";
@@ -315,6 +317,16 @@ describe("show.ts", () => {
     expect(checkShowPath("50%25 off.md")?.place).toBe("folder");
   });
 
+  it("opens .gg/screenshots to the viewer only, and a session's plans never to it", () => {
+    // Her voice's hidden folders by default: screenshots are never hers.
+    expect(checkShowPath(".gg/screenshots/x.png")).toBeNull();
+    expect(checkShowPath(".gg/plans/plan.md", VOICE_PLACES)?.place).toBe("plans");
+    expect(checkShowPath(".gg/screenshots/x.png", WORKSPACE_PLACES)?.place).toBe("screenshots");
+    expect(checkShowPath(".gg/generated/x.png", WORKSPACE_PLACES)?.place).toBe("generated");
+    expect(checkShowPath(".gg/plans/plan.md", WORKSPACE_PLACES)).toBeNull();
+    expect(checkShowPath("out/report.md", WORKSPACE_PLACES)?.place).toBe("folder");
+  });
+
   it("never cuts a character in half", () => {
     const text = Buffer.from("ab€", "utf8"); // € is 3 bytes
     expect(wholeUtf8(text.subarray(0, 4)).toString("utf8")).toBe("ab");
@@ -506,6 +518,46 @@ describe("POST /kleio/voice/show: files on the allow-list", () => {
   });
 });
 
+/** Paths refused by their spelling alone (400), for her voice's sources and the viewer's. */
+const REFUSED_SPELLINGS: readonly string[] = [
+  "../outside.txt",
+  "a/../../outside.txt",
+  "./report.md",
+  "%2e%2e/outside.txt",
+  "%2E%2E/outside.txt",
+  "%252e%252e/outside.txt",
+  "reports%2f..%2f..%2foutside.txt",
+  "%2eenv",
+  "/etc/passwd",
+  "C:/Windows/win.ini",
+  "C:report.md",
+  "~/report.md",
+  "~",
+  "~root/report.md",
+  "..\\outside.txt",
+  "reports\\report.md",
+  "report\u0000.md",
+  "report\n.md",
+  ".env",
+  "reports/.env",
+  ".git/config",
+  ".ssh/id_ed25519",
+  ".gg/sessions/x.md",
+  ".gg/settings.json",
+  ".gg/plans/../../.env",
+  ".gg/plans/sub/plan.md",
+  ".gg/generated/sub/x.png",
+  "sub/.gg/plans/plan.md",
+  ".gg/plans/.hidden.md",
+  ".gg/generated/.x.png",
+  ".gg",
+  ".gg/plans",
+  "report.md/",
+  "a//report.md",
+  "",
+  "a".repeat(1025),
+];
+
 describe("POST /kleio/voice/show: refusals", () => {
   it("refuses paths that leave the folder, hide, or smuggle a separator", async () => {
     put(home, "outside.txt", "OUTSIDE");
@@ -514,44 +566,7 @@ describe("POST /kleio/voice/show: refusals", () => {
     put(kleioDir(), ".gg/plans/sub/plan.md", "deep");
     put(kleioDir(), "sub/.gg/plans/plan.md", "not at the top");
     put(kleioDir(), "report.md", "ok");
-    for (const path of [
-      "../outside.txt",
-      "a/../../outside.txt",
-      "./report.md",
-      "%2e%2e/outside.txt",
-      "%2E%2E/outside.txt",
-      "%252e%252e/outside.txt",
-      "reports%2f..%2f..%2foutside.txt",
-      "%2eenv",
-      "/etc/passwd",
-      "C:/Windows/win.ini",
-      "C:report.md",
-      "~/report.md",
-      "~",
-      "~root/report.md",
-      "..\\outside.txt",
-      "reports\\report.md",
-      "report\u0000.md",
-      "report\n.md",
-      ".env",
-      "reports/.env",
-      ".git/config",
-      ".ssh/id_ed25519",
-      ".gg/sessions/x.md",
-      ".gg/settings.json",
-      ".gg/plans/../../.env",
-      ".gg/plans/sub/plan.md",
-      ".gg/generated/sub/x.png",
-      "sub/.gg/plans/plan.md",
-      ".gg/plans/.hidden.md",
-      ".gg/generated/.x.png",
-      ".gg",
-      ".gg/plans",
-      "report.md/",
-      "a//report.md",
-      "",
-      "a".repeat(1025),
-    ]) {
+    for (const path of REFUSED_SPELLINGS) {
       const r = await show({ source: "kleio", path });
       expect(r.status, JSON.stringify(path)).toBe(400);
       expect(r.body).toEqual({ error: "bad_request" });
@@ -741,6 +756,363 @@ describe("POST /kleio/voice/show: refusals", () => {
     }
     const big = await show({ source: "kleio", path: "a".repeat(5000) });
     expect(big.status).toBe(413);
+  });
+});
+
+// ---------------------------------------------------------------- the viewer's: a session's folder
+
+/** A Chat or Code session's folder, in Kleio's projects folders. */
+const demoDir = (): string => join(projectsDir(), "demo");
+/** The viewer's request for a file in a session's folder. */
+const inFolder = (path: string, cwd = demoDir()): Record<string, string> => ({
+  source: "workspace",
+  cwd,
+  path,
+});
+
+describe("POST /kleio/voice/show: a session's folder, for the file viewer", () => {
+  it("shows its Markdown, text and CSV as text, and never logs the folder or a name", async () => {
+    put(demoDir(), "README.md", "# Demo\n\nHello.");
+    put(demoDir(), "notes.txt", "plain notes");
+    put(demoDir(), "data/team.csv", "a,b\n1,2");
+    const md = await show(inFolder("README.md"));
+    expect(md.status).toBe(200);
+    const s = info(md);
+    expect(s).toEqual({
+      id: s.id,
+      kind: "text",
+      name: "README.md",
+      state: "ready",
+      format: "markdown",
+    });
+    const text = await part(s.id, "text");
+    expectSafeHeaders(text, "text/plain; charset=utf-8");
+    expect(text.raw.toString("utf8")).toBe("# Demo\n\nHello.");
+    const txt = await show(inFolder("notes.txt"));
+    expect(info(txt)).toMatchObject({ kind: "text", format: "plain", name: "notes.txt" });
+    expect((await part(info(txt).id, "text")).raw.toString("utf8")).toBe("plain notes");
+    const csv = await show(inFolder("data/team.csv"));
+    expect(info(csv)).toMatchObject({ kind: "text", format: "plain", name: "team.csv" });
+    expect((await part(info(csv).id, "text")).raw.toString("utf8")).toBe("a,b\n1,2");
+    expect(logs.some((l) => /^\[voice\] Phone: show workspace 200 in \d+ ms$/.test(l))).toBe(true);
+    const logged = logs.join("\n");
+    for (const secret of [demoDir(), "README", "notes.txt", "team.csv"])
+      expect(logged).not.toContain(secret);
+  });
+
+  it("shows its PDF page by page, a picture as what its bytes are, and a report in out/", async () => {
+    put(demoDir(), "paper.pdf", "%PDF-1.7 two pages");
+    put(demoDir(), "out/report.md", "# Built");
+    // Named .jpg but a PNG: drawn as a PNG.
+    put(demoDir(), "docs/chart.jpg", PNG);
+    const pdf = await show(inFolder("paper.pdf"));
+    expect(pdf.status).toBe(200);
+    expect(info(pdf)).toMatchObject({ kind: "pdf", name: "paper.pdf", state: "ready", pages: 2 });
+    const page = await part(info(pdf).id, "page-2");
+    expect(page.status).toBe(200);
+    expectSafeHeaders(page, "image/png");
+    expect(page.raw.equals(PNG)).toBe(true);
+    expect((await part(info(pdf).id, "page-3")).status).toBe(416);
+    const report = await show(inFolder("out/report.md"));
+    expect(report.status).toBe(200);
+    expect((await part(info(report).id, "text")).raw.toString("utf8")).toBe("# Built");
+    const chart = await show(inFolder("docs/chart.jpg"));
+    expect(info(chart)).toMatchObject({ kind: "image", name: "chart.jpg", state: "ready" });
+    const img = await part(info(chart).id, "image");
+    expectSafeHeaders(img, "image/png");
+    expect(img.raw.equals(PNG)).toBe(true);
+  });
+
+  it("shows the pictures generate_image and screenshot made, one level deep", async () => {
+    put(demoDir(), ".gg/generated/x.png", PNG);
+    put(demoDir(), ".gg/screenshots/y.png", PNG);
+    put(demoDir(), ".gg/screenshots/z.jpeg", JPEG);
+    const cases: [string, string][] = [
+      [".gg/generated/x.png", "image/png"],
+      [".gg/screenshots/y.png", "image/png"],
+      [".gg/screenshots/z.jpeg", "image/jpeg"],
+    ];
+    for (const [path, type] of cases) {
+      const r = await show(inFolder(path));
+      expect(r.status, path).toBe(200);
+      expect(info(r)).toMatchObject({ kind: "image", state: "ready" });
+      expectSafeHeaders(await part(info(r).id, "image"), type);
+    }
+  });
+
+  it("is only ever the device's that made it", async () => {
+    put(demoDir(), "notes.md", "mine");
+    const id = info(await show(inFolder("notes.md"))).id;
+    for (const r of [
+      await call("GET", `/kleio/voice/show/${id}`, undefined, LAPTOP),
+      await part(id, "text", LAPTOP),
+    ]) {
+      expect(r.status).toBe(404);
+      expect(r.body).toEqual({ error: "not_found" });
+    }
+    expect((await part(id, "text")).status).toBe(200);
+  });
+
+  it("ends the show when the file changes, or the folder leaves Kleio's projects folders", async () => {
+    // Kleio's projects folders, as settings would change them.
+    let roots = [projectsDir()];
+    await host.stop();
+    host = await startHost(true, { workspaceRoots: () => Promise.resolve(roots) });
+    put(demoDir(), "report.md", "v1", 60);
+    put(demoDir(), ".gg/screenshots/y.png", PNG, 60);
+    const r = await show(inFolder("report.md"));
+    put(demoDir(), "report.md", "version two");
+    const changed = await part(info(r).id, "text");
+    expect(changed.status).toBe(409);
+    expect(changed.body).toMatchObject({ error: "changed" });
+    const pic = await show(inFolder(".gg/screenshots/y.png"));
+    expect((await part(info(pic).id, "image")).status).toBe(200);
+    roots = [kleioDir()];
+    const gone = await part(info(pic).id, "image");
+    expect(gone.status).toBe(404);
+    expect(gone.body).toEqual({ error: "not_found" });
+  });
+
+  posixIt("ends the show when the file, or the folder, is swapped for a symlink", async () => {
+    put(home, "outside/report.md", "OUTSIDE");
+    put(home, "outside/notes.md", "OUTSIDE");
+    const full = put(demoDir(), "report.md", "mine");
+    const r = await show(inFolder("report.md"));
+    rmSync(full);
+    symlinkSync(join(home, "outside", "report.md"), full);
+    const swapped = await part(info(r).id, "text");
+    expect(swapped.status).toBe(404);
+    expect(swapped.raw.toString("utf8")).not.toContain("OUTSIDE");
+    // The session's folder itself swapped for a link out of the projects folders.
+    const web = join(projectsDir(), "web");
+    put(web, "notes.md", "web notes");
+    const w = await show(inFolder("notes.md", web));
+    expect(w.status).toBe(200);
+    rmSync(web, { recursive: true, force: true });
+    symlinkSync(join(home, "outside"), web);
+    const moved = await part(info(w).id, "text");
+    expect(moved.status).toBe(404);
+    expect(moved.raw.toString("utf8")).not.toContain("OUTSIDE");
+  });
+});
+
+describe("POST /kleio/voice/show: a session's folder, refused", () => {
+  it("refuses the same spellings, its plans and anything but a picture one level into screenshots", async () => {
+    put(home, "outside.txt", "OUTSIDE");
+    put(demoDir(), ".env", "TOKEN=1");
+    put(demoDir(), "report.md", "ok");
+    put(demoDir(), ".gg/plans/p.md", "a plan");
+    put(demoDir(), ".gg/screenshots/sub/x.png", PNG);
+    put(demoDir(), ".gg/screenshots/.x.png", PNG);
+    for (const path of [
+      ...REFUSED_SPELLINGS,
+      ".gg/plans/p.md",
+      ".gg/screenshots/sub/x.png",
+      ".gg/screenshots/.x.png",
+      ".gg/screenshots",
+    ]) {
+      const r = await show(inFolder(path));
+      expect(r.status, JSON.stringify(path)).toBe(400);
+      expect(r.body).toEqual({ error: "bad_request" });
+    }
+  });
+
+  it("keeps .gg/screenshots closed to her voice's sources", async () => {
+    put(kleioDir(), ".gg/screenshots/x.png", PNG);
+    put(appDir(), ".gg/screenshots/x.png", PNG);
+    for (const body of [
+      { source: "kleio", path: ".gg/screenshots/x.png" },
+      { source: "project", id: "app", path: ".gg/screenshots/x.png" },
+    ]) {
+      const r = await show(body);
+      expect(r.status, body.source).toBe(400);
+      expect(r.body).toEqual({ error: "bad_request" });
+    }
+  });
+
+  posixIt(
+    "refuses a symlink anywhere: out, in, a folder, .gg or either picture folder",
+    async () => {
+      put(home, "outside/secret.md", "OUTSIDE");
+      put(home, "outside/secret.png", PNG);
+      put(home, "outside/generated/secret.png", PNG);
+      put(home, "outside/screenshots/secret.png", PNG);
+      const demo = demoDir();
+      put(demo, "report.md", "ok");
+      symlinkSync(join(home, "outside", "secret.md"), join(demo, "out.md"));
+      symlinkSync(join(demo, "report.md"), join(demo, "same.md"));
+      symlinkSync(join(home, "outside"), join(demo, "linked"));
+      // .gg/generated a symlink out, and a picture in .gg/screenshots that is one.
+      mkdirSync(join(demo, ".gg", "screenshots"), { recursive: true });
+      symlinkSync(join(home, "outside"), join(demo, ".gg", "generated"));
+      symlinkSync(join(home, "outside", "secret.png"), join(demo, ".gg", "screenshots", "x.png"));
+      // The other way round in a second folder.
+      const web = join(projectsDir(), "web");
+      mkdirSync(join(web, ".gg", "generated"), { recursive: true });
+      symlinkSync(join(home, "outside"), join(web, ".gg", "screenshots"));
+      symlinkSync(join(home, "outside", "secret.png"), join(web, ".gg", "generated", "x.png"));
+      // .gg itself a symlink out.
+      const site = join(projectsDir(), "site");
+      mkdirSync(site, { recursive: true });
+      symlinkSync(join(home, "outside"), join(site, ".gg"));
+      const refused: [string, string][] = [
+        [demo, "out.md"],
+        [demo, "same.md"],
+        [demo, "linked/secret.md"],
+        [demo, ".gg/generated/secret.png"],
+        [demo, ".gg/screenshots/x.png"],
+        [web, ".gg/screenshots/secret.png"],
+        [web, ".gg/generated/x.png"],
+        [site, ".gg/generated/secret.png"],
+        [site, ".gg/screenshots/secret.png"],
+      ];
+      for (const [cwd, path] of refused) {
+        const r = await show(inFolder(path, cwd));
+        expect(r.status, `${cwd} ${path}`).toBe(404);
+        expect(r.body).toEqual({ error: "not_found" });
+      }
+    },
+  );
+
+  it("refuses tooling folders and a picture folder's other files, 404 like a missing one", async () => {
+    put(demoDir(), "node_modules/pkg/README.md", "dep");
+    put(demoDir(), "lib/__pycache__/notes.txt", "cache");
+    put(demoDir(), ".gg/generated/notes.md", "not a picture");
+    put(demoDir(), ".gg/screenshots/notes.md", "not a picture");
+    // A folder with a document's name.
+    put(demoDir(), "x.md/inner.md", "inside");
+    for (const path of [
+      "node_modules/pkg/README.md",
+      // Another spelling of a refused folder: its real path's spelling differs.
+      "Node_Modules/pkg/README.md",
+      "lib/__pycache__/notes.txt",
+      ".gg/generated/notes.md",
+      ".gg/screenshots/notes.md",
+      "missing.md",
+      "x.md",
+    ]) {
+      const r = await show(inFolder(path));
+      expect(r.status, path).toBe(404);
+      expect(r.body).toEqual({ error: "not_found" });
+    }
+  });
+
+  it("refuses kinds the viewer doesn't draw, and never extracts a document's text", async () => {
+    put(demoDir(), "fake.png", '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+    put(demoDir(), "empty.gif", "");
+    for (const path of [
+      "src/index.ts",
+      "logo.svg",
+      "photo.heic",
+      "report.docx",
+      "page.html",
+      "data.json",
+      "Makefile",
+      "fake.png",
+      "empty.gif",
+    ]) {
+      if (path !== "fake.png" && path !== "empty.gif") put(demoDir(), path, "x");
+      const r = await show(inFolder(path));
+      expect(r.status, path).toBe(415);
+      expect(r.body).toEqual({
+        error: "unsupported",
+        detail: "Kleio can't show this kind of file yet.",
+      });
+    }
+    expect(sidecar.fileTextCalls).toHaveLength(0);
+    expect(fake.pdfs).toBe(0);
+  });
+
+  it("refuses a folder outside Kleio's projects folders, hidden, relative, missing or a file", async () => {
+    put(demoDir(), "notes.md", "ok");
+    put(demoDir(), ".gg/plans/notes.md", "a plan");
+    put(projectsDir(), ".hidden/notes.md", "hidden");
+    put(kleioDir(), "notes.md", "Kleio's own");
+    put(home, "notes.md", "home");
+    for (const cwd of [
+      "projects/demo",
+      "/etc",
+      home,
+      kleioDir(),
+      // The plans, reached as a folder of their own: still hidden.
+      join(demoDir(), ".gg", "plans"),
+      join(projectsDir(), ".hidden"),
+      join(projectsDir(), "missing"),
+      join(demoDir(), "notes.md"),
+      `${demoDir()}\n`,
+      `${demoDir()}\u0000`,
+      `/${"a".repeat(1024)}`,
+    ]) {
+      const r = await show(inFolder("notes.md", cwd));
+      expect(r.status, JSON.stringify(cwd.slice(0, 80))).toBe(404);
+      expect(r.body).toEqual({ error: "not_found" });
+    }
+    expect((await show(inFolder("notes.md"))).status).toBe(200);
+  });
+
+  posixIt("refuses a folder linked out of the projects folders", async () => {
+    put(home, "outside/notes.md", "OUTSIDE");
+    mkdirSync(projectsDir(), { recursive: true });
+    symlinkSync(join(home, "outside"), join(projectsDir(), "linked"));
+    const r = await show(inFolder("notes.md", join(projectsDir(), "linked")));
+    expect(r.status).toBe(404);
+    expect(r.body).toEqual({ error: "not_found" });
+  });
+
+  it("shows nothing on a host with no projects folders", async () => {
+    put(demoDir(), "notes.md", "ok");
+    await host.stop();
+    host = await startHost(true, { workspaceRoots: undefined });
+    const r = await show(inFolder("notes.md"));
+    expect(r.status).toBe(404);
+    expect(r.body).toEqual({ error: "not_found" });
+  });
+
+  it("answers 413 over the size caps, before reading", async () => {
+    truncateSync(put(demoDir(), "huge.png", PNG), SHOW_IMAGE_MAX + 1);
+    truncateSync(put(demoDir(), ".gg/screenshots/huge.png", PNG), SHOW_IMAGE_MAX + 1);
+    truncateSync(put(demoDir(), "huge.pdf", "%PDF-"), SHOW_PDF_MAX + 1);
+    for (const path of ["huge.png", ".gg/screenshots/huge.png", "huge.pdf"]) {
+      const r = await show(inFolder(path));
+      expect(r.status, path).toBe(413);
+      expect(r.body).toMatchObject({ error: "too_large" });
+    }
+    expect(fake.pdfs).toBe(0);
+  });
+
+  it("refuses bad bodies: a cwd that isn't a string, or beside an id, a member or an address", async () => {
+    put(demoDir(), "notes.md", "ok");
+    const cwd = demoDir();
+    for (const body of [
+      { source: "workspace", path: "notes.md" },
+      { source: "workspace", cwd: 5, path: "notes.md" },
+      { source: "workspace", cwd: null, path: "notes.md" },
+      { source: "workspace", cwd: [cwd], path: "notes.md" },
+      { source: "workspace", cwd },
+      { source: "workspace", cwd, path: 5 },
+      { source: "workspace", cwd, path: "notes.md", id: "s1" },
+      { source: "workspace", cwd, path: "notes.md", member: "b_00000000" },
+      { source: "workspace", cwd, path: "notes.md", url: "https://example.com/" },
+      { url: "https://example.com/", cwd },
+      { source: "specialist", id: "b_00000000", cwd, path: "notes.md" },
+      { source: "kleio", cwd, path: "notes.md" },
+    ]) {
+      const r = await show(body);
+      expect(r.status, JSON.stringify(body)).toBe(400);
+      expect(r.body).toEqual({ error: "bad_request" });
+    }
+    expect(fake.urls).toEqual([]);
+    expect((await show(inFolder("notes.md"))).status).toBe(200);
+  });
+
+  it("is never her voice's: list_files and read_file can't name a session's folder", async () => {
+    put(demoDir(), "notes.md", "ok");
+    const list = await call("GET", "/kleio/voice/files?source=workspace");
+    expect(list.status).toBe(400);
+    expect(list.body).toEqual({ error: "bad_request" });
+    const read = await call("POST", "/kleio/voice/files/read", inFolder("notes.md"));
+    expect(read.status).toBe(400);
+    expect(read.body).toEqual({ error: "bad_request" });
   });
 });
 
