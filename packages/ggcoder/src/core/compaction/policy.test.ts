@@ -133,6 +133,14 @@ describe("resolveCompactionPolicy", () => {
         contextWindow: 1_050_000,
       }).targetTokens,
     ).toBe(231_200);
+    // Gemini 3.1 Pro's own price line (200K) wins over the provider's 616K cap.
+    expect(
+      resolveCompactionPolicy({
+        provider: "gemini",
+        model: "gemini-3.1-pro-preview",
+        contextWindow: 1_048_576,
+      }).targetTokens,
+    ).toBe(170_000);
     // MiMo: measured healthy caching — the 1M window is used, not 34% of it.
     expect(
       resolveCompactionPolicy({

@@ -27,7 +27,6 @@ export const DEFAULT_COMPACTION_THRESHOLD = 0.85;
 const PROVIDER_WINDOW_CAPS: Partial<Record<Provider, number | "uncapped">> = {
   // Measured: TTFT 1.1s <50K → 3.6s at 700K–1M, ~100% cache reads over
   // 26,000+ turns (session logs, 2026-10). No long-context price tier. Claude
-  // Code itself compacts 1M-window models at ~967K.
   anthropic: "uncapped",
   // Price line: once input passes 272K, OpenAI bills the WHOLE request at 2×
   // input/cache and 1.5× output (OpenAI model pages, via CodeWhale pricing.rs
@@ -45,8 +44,8 @@ const PROVIDER_WINDOW_CAPS: Partial<Record<Provider, number | "uncapped">> = {
   // cacheRead 0.006 vs input 0.30), no long-context surcharge.
   deepseek: "uncapped",
   // Kimi K3: automatic caching, hit $0.30 vs miss $3.00, no long-context tier
-  // (platform.kimi.ai pricing, via CodeWhale pricing.rs); Kimi CLI compacts at
-  // 85%. Kimi For Coding (K2.8 Preview) serves up to 1M (kimi.com/code/docs).
+  // (platform.kimi.ai pricing, via CodeWhale pricing.rs). Kimi For Coding
+  // (K2.8 Preview) serves up to 1M (kimi.com/code/docs).
   moonshot: "uncapped",
   // Measured: mimo-v2.6-pro ~1,600 turns, TTFT 4–7s, 95–100% of input read
   // from cache up to 250K (session logs). Cache hit $0.0036 vs miss $0.435
@@ -61,12 +60,13 @@ const PROVIDER_WINDOW_CAPS: Partial<Record<Provider, number | "uncapped">> = {
   // Code Assist route (packages/cli/src/ui/constants.ts
   // DEFAULT_COMPRESSION_THRESHOLD = 0.5; tokenLimit 1_048_576 for every
   // Gemini model), and implicit caching on Code Assist is unverified. 616K ×
-  // 0.85 = 524K ≈ 50% of 1,048,576.
+  // 0.85 = 524K ≈ 50% of 1,048,576. Flash and Flash Lite are flat-priced at any
+  // prompt size; 3.1 Pro has its own price-line cap in MODEL_WINDOW_CAPS.
   gemini: 616_000,
   // Price line: xAI bills the WHOLE request at 2× ($4 / $1 cached / $12) once a
-  // grok-4.7 prompt reaches 200K tokens (docs.x.ai/developers/pricing). Its
-  // cache also needs an x-grok-conv-id header we don't send, so large turns
-  // likely re-prefill at full price. Trigger 170K stays under the line.
+  // grok-4.7 prompt reaches 200K tokens (docs.x.ai/developers/pricing;
+  // CodeWhale pricing.rs GROK_4_6_LONG_CONTEXT_THRESHOLD = 200_000). Trigger
+  // 170K stays under the line.
   xai: 200_000,
   // Qwen's own agent (qwen-code) runs qwen3.8-max at a 1M window and compacts
   // at 85% (chatCompressionService DEFAULT_PCT). OpenRouter lists cache reads
@@ -74,13 +74,27 @@ const PROVIDER_WINDOW_CAPS: Partial<Record<Provider, number | "uncapped">> = {
   openrouter: "uncapped",
 };
 
+/**
+ * Per-model caps, checked before the provider's rule: a model whose pricing
+ * differs from the rest of its provider.
+ */
+const MODEL_WINDOW_CAPS: Readonly<Record<string, number>> = {
+  // Price line: Gemini 3.1 Pro bills the WHOLE request at $4 / $18 instead of
+  // $2 / $12 once the prompt passes 200K tokens (Gemini API pricing); the
+  // Flash models stay flat. On a Code Assist licence this compacts earlier than
+  // Gemini CLI's 50%, which keeps API-key users off the higher rate.
+  "gemini-3.1-pro-preview": 200_000,
+};
+
 /** Conservative ceiling for providers with NO evidence either way (Sakana, the
  *  Hugging Face router — whose served window and caching vary by backend).
  *  Only bites windows above ~470K; 200–272K windows are unaffected. */
 const DEFAULT_LATENCY_WINDOW_CAP = 400_000;
 
-/** The effective trigger window cap for a provider, if one applies. */
-export function resolveLatencyWindowCap(provider: Provider): number | undefined {
+/** The effective trigger window cap for a provider (and model), if one applies. */
+export function resolveLatencyWindowCap(provider: Provider, model?: string): number | undefined {
+  const modelCap = model === undefined ? undefined : MODEL_WINDOW_CAPS[model];
+  if (modelCap !== undefined) return modelCap;
   const rule = PROVIDER_WINDOW_CAPS[provider];
   if (rule === "uncapped") return undefined;
   return rule ?? DEFAULT_LATENCY_WINDOW_CAP;
@@ -105,7 +119,7 @@ export function resolveCompactionPolicy(options: {
     Number.isFinite(options.threshold) && options.threshold! > 0 && options.threshold! < 1
       ? options.threshold!
       : DEFAULT_COMPACTION_THRESHOLD;
-  const latencyCap = resolveLatencyWindowCap(options.provider);
+  const latencyCap = resolveLatencyWindowCap(options.provider, options.model);
   // The trigger fires against the latency-capped window when one applies —
   // min() keeps a provider-declared window smaller than the cap authoritative.
   const effectiveWindow = latencyCap
