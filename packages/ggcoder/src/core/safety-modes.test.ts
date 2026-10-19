@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useFakeHome } from "../test-support/fake-home.js";
+import { removeWhenReleased } from "./lsp/test-support.js";
 import type { AgentSessionOptions } from "./agent-session.js";
 
 vi.mock("./logger.js", () => ({ log: vi.fn() }));
@@ -21,7 +22,9 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   restoreHome();
-  await fs.rm(dir, { recursive: true, force: true });
+  // Windows holds files a just-finished background write touched (EBUSY /
+  // ENOTEMPTY); retry the cleanup instead of failing teardown.
+  await removeWhenReleased(dir);
 });
 
 const BLOCK = {
@@ -144,12 +147,12 @@ describe("safety features per mode", () => {
 describe("security rows under spam", () => {
   it("the same blocked install retried 30 times leaves one row", async () => {
     const same = Array.from({ length: 30 }, () => "npm install chalk@5.6.1");
-    expect((await blockIn({}, same)).chatRows).toBe(1);
+    expect((await blockIn({ blockedPackagesFile: false }, same)).chatRows).toBe(1);
   }, 30_000);
 
   it("40 different blocks in one run leave at most 20 rows", async () => {
     const many = Array.from({ length: 40 }, (_, i) => `npm install pkg-${i}`);
-    expect((await blockIn({}, many)).chatRows).toBe(20);
+    expect((await blockIn({ blockedPackagesFile: false }, many)).chatRows).toBe(20);
   }, 30_000);
 });
 
