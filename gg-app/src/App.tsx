@@ -134,6 +134,8 @@ import { WakeScreen } from "./WakeScreen";
 import { MotionStarters } from "./MotionStarters";
 import { ConfirmModal } from "./ConfirmModal";
 import { InitGitModal } from "./InitGitModal";
+import { HostFoldersModal } from "./HostFoldersModal";
+import { NO_FOLDERS_TO_REMOVE, RemoveDirModal } from "./RemoveDirModal";
 import { PlanModeLogo } from "./PlanModeLogo";
 import { KenPowerBanner } from "./KenPowerBanner";
 import { ExportChatButton } from "./ExportChatButton";
@@ -899,6 +901,8 @@ function App(): React.ReactElement {
   }, []);
   // Initialize-git modal (shown via the top-right button when not yet a repo).
   const [showInitGit, setShowInitGit] = useState(false);
+  // kleio: the folder list /add-dir (paired with a Kleio host) or /remove-dir opened.
+  const [dirPicker, setDirPicker] = useState<"add-dir" | "remove-dir" | null>(null);
   // True once the initial hydrate (state + models + commands + history) has
   // settled for the current project/session. Gates the footer + chrome so they
   // reveal fully-formed in one pass instead of popping in piecemeal (cwd, git,
@@ -2018,16 +2022,30 @@ function App(): React.ReactElement {
   }
 
   async function pickWorkspaceDirectory(command: "add-dir" | "remove-dir"): Promise<void> {
+    // kleio: /remove-dir can only drop a folder this session added, so it picks
+    // from those, here or on a Kleio host alike, instead of opening a dialog.
+    if (command === "remove-dir") {
+      if ((state?.additionalRoots ?? []).length === 0) {
+        pushItem({ kind: "info", id: nextId(), text: NO_FOLDERS_TO_REMOVE });
+        return;
+      }
+      setDirPicker("remove-dir");
+      return;
+    }
+    // kleio: paired with a Kleio host, the session runs on the host's disk,
+    // which this device's folder dialog can't see. List the host's folders
+    // instead, as ProjectPicker's Open existing does.
+    if (kleioRemote.status?.active?.host) {
+      setDirPicker("add-dir");
+      return;
+    }
     const selected = await open({
       directory: true,
       multiple: false,
-      title:
-        command === "add-dir"
-          ? "Add project folder to workspace"
-          : "Remove project folder from workspace",
+      title: "Add project folder to workspace",
     });
     if (typeof selected !== "string") return;
-    submitText(`/${command} ${selected}`, command === "add-dir" ? "/add-dir" : "/remove-dir");
+    submitText(`/add-dir ${selected}`, "/add-dir");
   }
 
   // Detect an active `@`-mention token at the caret: a `@` that starts at a word
@@ -3679,6 +3697,27 @@ function App(): React.ReactElement {
           busy={newSessionBusy}
           onConfirm={() => void startNewSession()}
           onClose={() => setConfirmNewSession(false)}
+        />
+      )}
+
+      {dirPicker === "add-dir" && activeRemote && (
+        <HostFoldersModal
+          host={activeRemote.host}
+          onClose={() => setDirPicker(null)}
+          onPick={(folder) => {
+            setDirPicker(null);
+            submitText(`/add-dir ${folder.path}`, "/add-dir");
+          }}
+        />
+      )}
+      {dirPicker === "remove-dir" && (
+        <RemoveDirModal
+          roots={state?.additionalRoots ?? []}
+          onClose={() => setDirPicker(null)}
+          onPick={(root) => {
+            setDirPicker(null);
+            submitText(`/remove-dir ${root}`, "/remove-dir");
+          }}
         />
       )}
 
