@@ -54,6 +54,8 @@ interface Outcome {
 async function blockIn(
   extra: Partial<AgentSessionOptions>,
   commands: string[] = ["npm install chalk@5.6.1"],
+  /** This mode should write the list: wait up to 3 s for it (slow runners). */
+  expectList = false,
 ): Promise<Outcome> {
   const { AgentSession } = await import("./agent-session.js");
   const cwd = path.join(dir, "project");
@@ -96,12 +98,21 @@ async function blockIn(
         ...BLOCK,
       });
     }
-    // The list write is fire-and-forget; give it a moment.
-    await new Promise((r) => setTimeout(r, 150));
-    const listWritten = await fs
-      .readFile(path.join(cwd, "CLAUDE.md"), "utf8")
-      .then((t) => t.includes("chalk@5.6.1"))
-      .catch(() => false);
+    // The list write is fire-and-forget (lock file + atomic rename), and slow
+    // Windows runners can take well over 150 ms: poll for it instead of
+    // guessing one fixed wait. Modes that never write it just time out false.
+    const hasList = (): Promise<boolean> =>
+      fs
+        .readFile(path.join(cwd, "CLAUDE.md"), "utf8")
+        .then((t) => t.includes("chalk@5.6.1"))
+        .catch(() => false);
+    let listWritten = false;
+    // A mode that must NOT write gets a short settle time, then is read once.
+    const budget = expectList ? 3_000 : 250;
+    for (let waited = 0; waited < budget && !listWritten; waited += 50) {
+      listWritten = await hasList();
+      if (!listWritten) await new Promise((r) => setTimeout(r, 50));
+    }
     return { chatRows, listWritten, watching: internal.installedWatchStop !== undefined };
   } finally {
     await session.dispose();
@@ -110,11 +121,15 @@ async function blockIn(
 
 describe("safety features per mode", () => {
   it("code mode: chat row, project list, background check", async () => {
-    expect(await blockIn({})).toEqual({ chatRows: 1, listWritten: true, watching: true });
+    expect(await blockIn({}, undefined, true)).toEqual({
+      chatRows: 1,
+      listWritten: true,
+      watching: true,
+    });
   });
 
   it("worker inside a project (GG Goals team, sub-agents): row + list, parent watches", async () => {
-    expect(await blockIn({ subagentWorker: true })).toEqual({
+    expect(await blockIn({ subagentWorker: true }, undefined, true)).toEqual({
       chatRows: 1,
       listWritten: true,
       watching: false,
