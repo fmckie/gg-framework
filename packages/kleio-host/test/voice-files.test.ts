@@ -17,6 +17,7 @@ import {
   fileKind,
   isReadable,
   listFolder,
+  MAX_VISITED,
   PART_CHARS,
   partOf,
 } from "../src/agent-files.js";
@@ -216,12 +217,15 @@ describe("agent-files: listFolder", () => {
     expect(await listFolder(join(home, "missing"))).toEqual([]);
   });
 
-  it("stops after 3,000 entries", async () => {
+  it("stops after MAX_VISITED (3,000) entries", async () => {
+    // The bound is passed in, so a dozen files test the walk: making 3,100
+    // real ones took 2 to 17 s on the Windows runner, and once timed out.
+    expect(MAX_VISITED).toBe(3_000);
     const root = join(home, "many");
     mkdirSync(root);
-    for (let i = 0; i < 3_100; i++) writeFileSync(join(root, `f${i}.txt`), "");
-    expect((await listFolder(root)).length).toBe(3_000);
-  }, 15_000);
+    for (let i = 0; i < 12; i++) writeFileSync(join(root, `f${i}.txt`), "");
+    expect((await listFolder(root, new Set(), 10)).length).toBe(10);
+  });
 
   it("knows kinds and what can be read", () => {
     expect(fileKind("R.PDF")).toBe("pdf");

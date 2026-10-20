@@ -60,9 +60,16 @@ const liveItems: CompletedItem[][] = [];
 beforeEach(async () => {
   vi.clearAllMocks();
   preparePixelFix.mockReset();
+  run.mockReset(); // drops a nextRun() that a failed test never reached
   liveItems.length = 0;
   originalCwd = process.cwd();
   root = await fs.mkdtemp(path.join(os.homedir(), "pixel-flow-test-"));
+  // The runtime's sub-agent manager keeps its records under ~/.gg. Give it an
+  // empty home, so the switch neither reads every record in the real
+  // ~/.gg/subagents (each run added more) nor prunes ~/.gg/subagent-sessions.
+  const home = path.join(root, "home");
+  await fs.mkdir(home);
+  vi.spyOn(os, "homedir").mockReturnValue(home);
   const oldRoot = path.join(root, "old");
   const newRoot = path.join(root, "new");
   await fs.mkdir(oldRoot);
@@ -161,11 +168,42 @@ async function mount() {
   });
 }
 
+/**
+ * Resolves when the flow next starts the agent run, which then does `work`.
+ * The switch before it does real work (sessions, the project runtime), so the
+ * tests await the run itself rather than poll for it against vi.waitFor's 1 s
+ * deadline, which a loaded machine overran.
+ */
+function nextRun(work: () => Promise<void> = async () => {}): Promise<void> {
+  return new Promise((resolve) => {
+    run.mockImplementationOnce(() => {
+      resolve();
+      return work();
+    });
+  });
+}
+
+/**
+ * Resolves when the flow next sets the live items. Call it before mount():
+ * the flow keeps the setter from its first render.
+ */
+function nextLiveItems(): Promise<void> {
+  const setLiveItems = options.setLiveItems;
+  return new Promise((resolve) => {
+    options.setLiveItems = (value) => {
+      setLiveItems(value);
+      resolve();
+    };
+  });
+}
+
 describe("Pixel project switch integration", () => {
   it("flushes the previous conversation and opens the new rewind checkpoint before running", async () => {
+    const ran = nextRun();
     await mount();
     flow.startPixelFix("error-1");
-    await vi.waitFor(() => expect(run).toHaveBeenCalledWith("fix new project"));
+    await ran;
+    expect(run).toHaveBeenCalledWith("fix new project");
     expect(await fs.readFile(oldSessionPath, "utf8")).toContain("unsaved old message");
     expect(options.sessionPathRef.current).not.toBe(oldSessionPath);
     expect(options.cwdRef.current).toBe(runtime.current.cwd);
@@ -193,7 +231,7 @@ describe("Pixel project switch integration", () => {
       events.push("prepare runtime");
       return prepareRuntime(...args);
     });
-    run.mockImplementationOnce(async () => {
+    const ran = nextRun(async () => {
       events.push("run");
     });
     await mount();
@@ -205,7 +243,8 @@ describe("Pixel project switch integration", () => {
     const runsWhileSaving = run.mock.calls.length;
     finishSave();
     await pendingSave;
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await ran;
+    expect(run).toHaveBeenCalledOnce();
     expect(preparationsWhileSaving).toBe(0);
     expect(runsWhileSaving).toBe(0);
     expect(events).toEqual(["saved", "prepare runtime", "run"]);
@@ -224,6 +263,7 @@ describe("Pixel project switch integration", () => {
     const abort = vi.fn();
     options.agentLoop.suspendForProjectSwitch = () => completion.suspend(abort);
     const prepare = vi.spyOn(options, "prepareProjectRuntime");
+    const ran = nextRun();
     await mount();
     flow.startPixelFix("error-1");
     flow.startPixelFix("duplicate");
@@ -233,7 +273,8 @@ describe("Pixel project switch integration", () => {
     expect(reset).not.toHaveBeenCalled();
     finish();
     await active;
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await ran;
+    expect(run).toHaveBeenCalledOnce();
     expect(preparePixelFix).toHaveBeenCalledOnce();
     expect(branchPreparationsBeforeIdle).toBe(0);
   });
@@ -243,10 +284,11 @@ describe("Pixel project switch integration", () => {
     const gate = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    run.mockImplementationOnce(() => gate);
+    const ran = nextRun(() => gate);
     await mount();
     flow.startPixelFix("error-1");
-    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+    await ran;
+    expect(run).toHaveBeenCalledOnce();
     preparePixelFix.mockRejectedValueOnce(new Error("second preparation must not run"));
     flow.startPixelFix("duplicate");
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -257,13 +299,14 @@ describe("Pixel project switch integration", () => {
 
   it("keeps old messages and resources when writing the old conversation fails", async () => {
     const originalRuntime = runtime.current;
+    const failed = nextLiveItems();
     await mount();
     vi.spyOn(options.sessionManagerRef.current!, "appendEntry").mockRejectedValue(
       new Error("disk full"),
     );
     await expect(persistence.persistNewMessages()).rejects.toThrow("disk full");
     flow.startPixelFix("error-1");
-    await vi.waitFor(() => expect(liveItems.length).toBeGreaterThan(0));
+    await failed;
     expect(preparePixelFix).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
     expect(reset).not.toHaveBeenCalled();
@@ -282,9 +325,10 @@ describe("Pixel project switch integration", () => {
     options.rebuildSystemPrompt = buildPrompt;
     const prepare = vi.spyOn(options, "prepareProjectRuntime");
     const oldCwd = process.cwd();
+    const failed = nextLiveItems();
     await mount();
     flow.startPixelFix("error-1");
-    await vi.waitFor(() => expect(liveItems.length).toBeGreaterThan(0));
+    await failed;
     expect(run).not.toHaveBeenCalled();
     expect(reset).not.toHaveBeenCalled();
     expect(runtime.current).toBe(originalRuntime);

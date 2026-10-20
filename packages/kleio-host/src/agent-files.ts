@@ -255,10 +255,12 @@ export async function generatedImages(base: string): Promise<FoundFile[]> {
  * Every regular file under `root`, breadth first, by lstat: a symlink is
  * neither listed nor followed. Hidden names and SKIPPED_FOLDERS are left out;
  * `skipTop` names are left out at the top level only. A missing folder is empty.
+ * The walk stops after `maxVisited` directory entries: MAX_VISITED, or fewer in tests.
  */
 export async function listFolder(
   root: string,
   skipTop: ReadonlySet<string> = new Set(),
+  maxVisited = MAX_VISITED,
 ): Promise<FoundFile[]> {
   let base: string;
   try {
@@ -280,7 +282,7 @@ export async function listFolder(
         continue;
       }
       for (const name of names) {
-        if (++visited > MAX_VISITED) return out;
+        if (++visited > maxVisited) return out;
         if (name.startsWith(".")) continue;
         if (depth === 0 && skipTop.has(name)) continue;
         const full = dir + sep + name;
