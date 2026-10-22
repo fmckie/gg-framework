@@ -92,7 +92,7 @@ function previewBase(port: number): string {
 async function init(p: HostPaths): Promise<void> {
   ensureSecure(p);
   const registry = await openRegistry(p);
-  const adminTokenPath = join(p.secureDir, "admin.token");
+  const adminTokenPath = p.adminToken;
   if (existsSync(adminTokenPath) && registry.list().some((d) => d.admin && !d.revoked)) {
     log(`[init] already initialised at ${p.home}`);
     return;
@@ -190,7 +190,7 @@ function adminCall(
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: unknown }> {
-  const token = readFileSync(join(p.secureDir, "admin.token"), "utf8").trim();
+  const token = readFileSync(p.adminToken, "utf8").trim();
   return new Promise((resolve, reject) => {
     const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const req = request(
