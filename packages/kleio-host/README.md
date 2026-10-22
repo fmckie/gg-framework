@@ -862,6 +862,11 @@ the user the host runs as (its SID, from `whoami /user`), with full access.
 - **What:** `secure/` and every file in it, `composio.key`, `typesafe.key`, `openai.key` and
   `sidecar.json` (the list at the top). `secure/` is locked as a folder (`(OI)(CI)F`), so a file
   made in it later inherits its one entry.
+- **Checked:** cutting inheritance off keeps any entry given to the file or folder itself, such
+  as the SYSTEM and Administrators entries Windows writes when the folder above passes nothing
+  down. So each lock reads the ACL back (`icacls /save`, into a new temporary folder), removes
+  every other account's entries (`icacls /remove`), and reads it again. Unless it's then the
+  user's alone, with inheritance cut off, the lock fails, as it does when the ACL can't be read.
 - **When:** `init` locks `secure/` before it writes a key there, then locks each key and
   `admin.token`. `serve` and `sidecar` lock all of these that exist each time they start, which
   repairs an ACL that has drifted and covers files from before the lock. A key saved from
@@ -876,7 +881,8 @@ the user the host runs as (its SID, from `whoami /user`), with full access.
 - **Not covered:** an Administrator can still take ownership of the files and read them. No ACL
   stops that.
 
-CI's Windows leg runs the real `icacls` and checks the ACL it leaves (`test/acl.test.ts`).
+CI's Windows leg runs the real `icacls` and checks the ACL it leaves, including on a folder and a
+key given other entries first (`test/acl.test.ts`).
 
 **Stopping the sidecar.** On Windows, Node's `kill()` ends a process at once
 (TerminateProcess), so the sidecar's own SIGTERM teardown would never run. There the supervisor
