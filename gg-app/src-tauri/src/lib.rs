@@ -6009,6 +6009,7 @@ pub fn run() {
             kleio::files::kleio_file_open,
             kleio::files::kleio_file_save,
             kleio::files::kleio_site_open,
+            kleio::show::kleio_show_part,
             kleio::tailscale::kleio_tailscale_status,
             sidecar_port,
             dropped_path_info,

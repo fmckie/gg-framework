@@ -4,6 +4,8 @@ import {
   agentFilePath,
   isOutputPath,
   isSitePath,
+  isToolPicturePath,
+  isViewablePath,
   specialistFilePath,
   workspaceFilePath,
 } from "./filePaths";
@@ -292,6 +294,81 @@ describe("workspaceFilePath", () => {
     expect(workspaceFilePath("~/a/b.pdf", "a")).toBeNull();
     expect(workspaceFilePath("b.pdf", "a")).toBe("b.pdf");
   });
+
+  it.each([
+    [".gg/generated/x.png", ".gg/generated/x.png"],
+    ["./.gg/screenshots/shot%201.jpeg", ".gg/screenshots/shot 1.jpeg"],
+    ["/Users/me/kleio-projects/app/.gg/generated/x.png", ".gg/generated/x.png"],
+    ["file:///Users/me/kleio-projects/app/.gg/screenshots/y.webp", ".gg/screenshots/y.webp"],
+    ["~/kleio-projects/app/.gg/generated/Logo.PNG", ".gg/generated/Logo.PNG"],
+    ["/~/kleio-projects/app/.gg/screenshots/z.gif", ".gg/screenshots/z.gif"],
+  ])("accepts a picture the session's tools made: %s", (href, path) => {
+    expect(workspaceFilePath(href, cwd)).toBe(path);
+    expect(isToolPicturePath(path)).toBe(true);
+  });
+
+  it.each([
+    ".gg/plans/plan.md",
+    ".gg/plans/x.png",
+    ".gg/generated/notes.md",
+    ".gg/generated/art.svg",
+    ".gg/generated/sub/x.png",
+    ".gg/generated/.x.png",
+    ".gg/generated/a%2Fb.png",
+    ".gg/x.png",
+    ".gg/generated",
+    ".gg/settings.json",
+    ".git/generated/x.png",
+    "sub/.gg/generated/x.png",
+    "/Users/me/kleio-projects/app/.gg/plans/plan.md",
+    "/Users/me/kleio-projects/app/.gg/generated/sub/x.png",
+    "/Users/me/kleio-projects/other/.gg/generated/x.png",
+    "~/kleio-projects/app/.gg/sessions/s.png",
+  ])("still rejects any other hidden path: %s", (href) => {
+    expect(workspaceFilePath(href, cwd)).toBeNull();
+  });
+
+  it("leaves specialists' hidden folders closed", () => {
+    expect(agentFilePath(".gg/generated/x.png")).toBeNull();
+    expect(specialistFilePath(".gg/screenshots/x.png", { blobId: "b_1234abcd" })).toBeNull();
+    expect(isToolPicturePath("out/x.png")).toBe(false);
+    expect(isToolPicturePath(".gg/plans/x.png")).toBe(false);
+  });
+});
+
+describe("isViewablePath", () => {
+  it("is Markdown, text, CSV, PDFs and pictures, and nothing else", () => {
+    for (const p of [
+      "notes.md",
+      "README.markdown",
+      "log.txt",
+      "a.text",
+      "data.csv",
+      "out/Report.PDF",
+      "x.png",
+      "y.JPG",
+      "z.jpeg",
+      "a.gif",
+      "b.webp",
+      ".gg/generated/x.png",
+    ])
+      expect(isViewablePath(p), p).toBe(true);
+    for (const p of [
+      "report.docx",
+      "sheet.xlsx",
+      "slides.pptx",
+      "data.json",
+      "photo.heic",
+      "index.html",
+      "art.svg",
+      "song.mp3",
+      "clip.mov",
+      "src/App.tsx",
+      "Makefile",
+      "notes",
+    ])
+      expect(isViewablePath(p), p).toBe(false);
+  });
 });
 
 describe("workspaceFileLinks", () => {
@@ -306,6 +383,15 @@ describe("workspaceFileLinks", () => {
       { path: "out/report.pdf", label: "Quarterly report" },
       { path: "site/index.html", label: "Demo site" },
     ]);
+  });
+
+  it("gives a picture the session's tools made no card: the tool's own card shows it", () => {
+    const cwd = "/Users/me/kleio-projects/app";
+    const md = [
+      "Made [the logo](.gg/generated/logo.png) and took `" + cwd + "/.gg/screenshots/home.png`.",
+      "Saved [the chart](out/chart.png).",
+    ].join("\n");
+    expect(workspaceFileLinks(md, cwd)).toEqual([{ path: "out/chart.png", label: "the chart" }]);
   });
 
   it("sorts outputs from sites", () => {

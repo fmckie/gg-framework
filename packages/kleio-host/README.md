@@ -57,11 +57,14 @@ is already built. Both scripts take `--dry-run` and `--help`.
 
 A deploy, in order:
 
-1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle and
-   the host, as the steps below do. The bundle is made from those packages' `dist` folders, so
-   building them first keeps an older build from shipping.
+1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle, the
+   host and its page and PDF capture helper (`build-capture.sh`, which needs Xcode), as the steps
+   below do. The bundle is made from those packages' `dist` folders, so building them first keeps
+   an older build from shipping.
 2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
-   there, and the disk has room for a full copy of them plus 1 GB.
+   there, and the disk has room for a full copy of them plus 1 GB. It prints the mini's macOS
+   version and warns below macOS 14, where the capture helper can't run (see
+   [Page and PDF capture](#page-and-pdf-capture-kleio-capture)).
 3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
    the two `com.kleio.host.*` plists. It is built as `.prev.new` and then renamed, so a dropped
    connection never leaves half a `.prev`. The last deploy's `.prev` becomes `.prev-<UTC time>`.
@@ -120,6 +123,7 @@ curl -s http://127.0.0.1:8443/kleio/health
 pnpm --filter '@kleio/coder...' build   # the packages the sidecar bundle is made from
 node gg-app/scripts/bundle-sidecar.mjs
 pnpm --filter @kleio/host build
+sh packages/kleio-host/scripts/build-capture.sh   # dist/bin/kleio-capture; after the host build
 rsync -az --delete packages/kleio-host/dist/   mini:kleio-host/dist/
 rsync -az          packages/kleio-host/scripts/install-mini.sh mini:kleio-host/
 rsync -az --delete gg-app/src-tauri/sidecar/    mini:kleio-host/sidecar/
@@ -415,10 +419,12 @@ group id: every current member's folder), `chat` / `code` (`id` = saved session 
 
 - `GET /kleio/voice/files?source=&id=` answers `200 { files: [{ path, name, kind, size, modified,
 readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `lstat` (no
-  symlinks), skipping hidden names and tooling folders, 5 levels and 3,000 entries at most. A chat or
+  symlinks), skipping hidden names and tooling folders, 5 levels and 3,000 entries at most. The one
+  hidden folder listed is the owner's own `.gg/generated`: the pictures `generate_image` made
+  (PNG, JPEG, GIF, WebP), one level deep, when neither `.gg` nor the folder is a symlink. A chat or
   coding session lists only files it wrote (`write`, `generate_image`, `screenshot`) or linked in a
   reply (the sidecar's `GET /stored-sessions/:id?files=1`) that are still regular files inside its
-  folder, which must be in Kleio's projects folders (†).
+  folder, which must be in Kleio's projects folders (†); of its hidden files, only those pictures.
 - `POST /kleio/voice/files/read { source, id?, member?, path, part? }` (path in the body, 4 KB at
   most) answers `200 { name, kind, part, parts, text, pages? }`, 12,000 characters a part. The path
   goes through the file route's checks, must be one the list could show, and for a chat or coding
@@ -428,6 +434,65 @@ readable, member?, by? }] }`, newest first (at most 40). Folders are walked by `
 - `400 bad_request`, `404 not_found`, `413 too_large`, `415 unsupported`,
   `416 { error: "no_such_part", parts }`, `422 unreadable`, `503 files_unavailable`. Logs carry the
   device, source, status and time, never names, paths or text.
+
+### Shows (`/kleio/voice/show`)
+
+The voice's `show`: a file her agents made, or a web page or PDF, on the user's screen beside her
+while the call goes on (`show.ts`). Any paired device; a show is only ever its own device's, and
+lasts 15 minutes.
+
+- `POST /kleio/voice/show { source, id?, member?, path }` (a file, named as `read_file` names one)
+  or `{ url, view? }` (`view`: `desktop`, the default, or `phone`); 4 KB at most. Answers
+  `200 { show: { id, kind, name, state, … } }`. `kind` is `text` (`format`: `markdown` or `plain`;
+  `cut` past 1 MB), `image`, `pdf` (`pages`, `totalPages`, `title?`) or `web` (`host`; when ready,
+  `width`, `height`, `cut`, `signIn`, `title?`). A file is ready at once: a document's text is
+  extracted, a picture's type read and a PDF counted before the answer. A web address answers
+  `state: "capturing"` and is captured in the background (capture.ts); a PDF link turns into `pdf`.
+- `GET /kleio/voice/show/<id>` answers `{ show }` again: `state` is `capturing`, `ready` or
+  `failed` (`reason`, `detail` in plain words, and the site's `status` for `http_status`).
+- `GET /kleio/voice/show/<id>/text | image | page-<n>` draws it: text as
+  `text/plain; charset=utf-8` (Markdown and a document's or web page's extracted text alike, never
+  HTML), a picture as the type its bytes say it is (PNG, JPEG, GIF or WebP), a PDF's page as a PNG
+  (n ≤ 500, and at most its `pages`). Every part has `x-content-type-options: nosniff`,
+  `content-security-policy: sandbox; default-src 'none'` and `cache-control: private, no-store`.
+- **What can be shown.** A file is named by its owner and a relative path, never an absolute
+  path, and checked again on every request, each segment by `lstat` so that a symlink anywhere below
+  the owner's folder is not followed:
+
+  | Owner's folder                                                                 | Shown                                                                                  |
+  | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+  | Kleio's (`kleio`, not `blobs/` or `groups/`), a specialist's, a group member's | text, Markdown and data files; docx, xlsx, pptx and HTML as their text; pictures; PDFs |
+  | A project's (`project`)                                                        | its documents and pictures, outside build output; never code, data or secrets          |
+  | A chat's or coding session's (`chat`, `code`)                                  | only files it made                                                                     |
+  | `.gg/plans/<file>` in any of them but a session's                              | documents (a coding session's plans show from its project)                             |
+  | `.gg/generated/<file>` in any of them                                          | pictures (for a session, those it made)                                                |
+
+  Those two are the only hidden names allowed, one level deep. Never: `..`, `~`, an absolute path,
+  a backslash or control character, a percent escape that spells any of those, tooling folders
+  (`node_modules` …), SVG, HEIC, code, audio or video (`415 unsupported`). The first 1 MB of text
+  is drawn; pictures up to 20 MB, PDFs up to 50 MB and documents to extract up to 20 MB
+  (`413 too_large`). A file changed since it was shown answers `409 changed`.
+
+- **The app's file viewer** draws a Chat or Code session's files as shows too, named by the
+  session's folder: `{ source: "workspace", cwd, path }`, with no `id`, `member` or `url` beside it
+  (`400`). Her voice can't name this source: `list_files`, `read_file` and her `show` take only the
+  ones above. `cwd` must be in Kleio's projects folders with no hidden folder on the way, as for the
+  workspace file route, and is checked again on every part (`404`). In it, Markdown, text, CSV,
+  PDFs and pictures show anywhere but tooling folders (build output such as `out/` is fine); in
+  `.gg/generated/<file>` and `.gg/screenshots/<file>`, one level deep, only pictures. A session's
+  `.gg/plans` never shows here, and `.gg/screenshots` only here. Any other kind is
+  `415 unsupported`, and the app opens it in its own app instead. Logged as `show workspace`, never
+  with the folder or the path.
+
+- **Hosts that can't draw.** Web pages and PDFs need the capturer: without it, `501 unavailable`
+  ("Kleio can't show web pages or PDFs on this host."), before anything is fetched; text, Markdown
+  and pictures still show. A refused address answers `422 refused` (with `refusal`) even then.
+- A new show from a device stops that device's capture still running. `400 bad_request`,
+  `404 not_found` (another device's show and an expired one too), `405`,
+  `409 not_ready | failed | changed`, `410 expired`, `413`, `415`, `416 { error: "no_page", pages }`,
+  `422 refused | unreadable | locked`, `429 busy`, `501 unavailable`, `502` for a capture that
+  broke, `503 files_unavailable`. Logs carry the device, the source or a link's host, the status
+  and the time; never names, paths or addresses.
 
 ### Blobs (`/kleio/blobs`)
 
@@ -705,6 +770,9 @@ small web sites. Any paired device may call these; they are not admin-only.
 request. Any other `cwd` is a 404 `no such workspace`.
 
 - **Paths:** relative, with no `.`/`..`, hidden names or links out of the folder. Max 50 MB.
+  One exception, in a Chat or Code session's folder only: the pictures its tools made,
+  `.gg/generated/<picture>` and `.gg/screenshots/<picture>` (PNG, JPEG, GIF or WebP), with those
+  two folders spelled out (never escaped), one level deep and no link anywhere on the way.
 - **Responses:** always a download (`content-disposition: attachment`, `nosniff`). HTML, SVG
   and scripts come back as `application/octet-stream`, so nothing an agent writes runs on the
   API origin.
@@ -724,6 +792,41 @@ the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, b
 - **Errors:** 400 `not_a_site` (not HTML), 400 `bad_request`, plus the file errors above; 404
   when the host runs without a preview port.
 - **Logs:** never include the link's token.
+
+### Page and PDF capture (`kleio-capture`)
+
+When Kleio shows a web page or a PDF in a voice call, the mini draws it and the device gets a
+picture. `dist/bin/kleio-capture` (`native/capture/main.swift`, built by `build-capture.sh`) does
+the drawing with the system's WebKit and PDFKit; nothing is downloaded. It needs macOS 14 or later
+and runs as a child of `com.kleio.host.serve`, in the logged-in session WebKit draws in.
+
+- **Pages** load at 1024 CSS px wide (390 for a phone) and are drawn at 2×, a screen at a time
+  down the page, into one picture: a full-screen banner stays one screen tall, and a pinned header
+  or cookie banner shows once, on the first screen. They stop at 4,000 CSS px with a note that the
+  page goes on. 15 s to load, 20 s in all.
+- **What a page can reach:** only public addresses. The host's own fetches (`guarded-fetch.ts`,
+  which tells a PDF from a page) and every connection the page makes (through a SOCKS5 proxy on
+  127.0.0.1 made for that one capture, `capture-proxy.ts`) go through `net-guard.ts`: private,
+  loopback, link-local, Tailscale (100.64.0.0/10, `fd7a:115c:a1e0::/48`) and local names are
+  refused, a name is resolved once and the connection goes to the address that was checked, and
+  every redirect is judged again. Content rules in the helper block private hosts too, the data
+  store keeps nothing, and the page can't open windows, download, pick files or use WebRTC.
+- **Signed-in pages** show what a visitor without your accounts sees; the helper flags sign-in and
+  paywall pages.
+- **Other hosts:** capture needs macOS 14 or later and the helper. On any other host, when
+  `dist/bin/kleio-capture` is missing, or when the cache folder can't be made, the host logs why
+  (and still starts), and a voice show of a web page or PDF answers that Kleio can't show them on
+  this host, without fetching anything. Text, markdown and
+  pictures still show. (`capture.ts` keeps the helper behind one `CaptureBackend` interface, so
+  another platform's backend can be added.)
+
+Run it by hand with the mode as its argument and a JSON job on stdin, e.g.
+`echo '{"file":"/tmp/a.pdf"}' | dist/bin/kleio-capture pdf-info`.
+
+`node dist/cli.js capture-check` checks it on this Mac: an attack page tries every way it can to
+reach a canary on loopback (the canary must count 0 hits), then real pages, a phone view, a
+sign-in wall, an arXiv PDF and a 404 are captured and checked (`--no-sites` skips those). It
+prints where the pictures are, and fails if capture is unavailable here.
 
 ### Push nudges (APNs)
 

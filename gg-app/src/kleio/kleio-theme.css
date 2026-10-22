@@ -461,9 +461,12 @@
   display: flex;
   gap: 8px;
 }
+/* A share of the window at any zoom: vh and vw scale with the app's CSS zoom,
+   so they are divided back out (ZoomController.tsx), else zooming in grew the
+   orb past its row. */
 .voice-stage {
   align-self: center;
-  width: min(46vh, 72vw, 380px);
+  width: min(calc(46vh / var(--zoom, 1)), calc(72vw / var(--zoom, 1)), 380px);
   max-height: 100%;
   aspect-ratio: 1;
 }
@@ -689,5 +692,476 @@
   }
   .voice-controls {
     gap: 28px;
+  }
+}
+
+/* What she's showing (ShowPanel.tsx), beside her. The room becomes two
+   columns: her orb (smaller), words and buttons on the left, the panel on the
+   right, clear of the corner's buttons. VoiceMode.tsx glides them between the
+   layouts. Sizes stay a share of the window at any zoom, as above. */
+.voice-mode[data-panel="open"] {
+  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  column-gap: clamp(18px, 2.4vw, 32px);
+  padding-top: 60px;
+}
+.voice-mode[data-panel="open"] > :is(.voice-stage, .voice-words, .voice-controls) {
+  grid-column: 1;
+}
+.voice-mode[data-panel="open"] > .voice-stage {
+  grid-row: 1;
+  width: min(calc(34vh / var(--zoom, 1)), 100%, 260px);
+}
+.voice-mode[data-panel="open"] > .voice-words {
+  grid-row: 2;
+}
+.voice-mode[data-panel="open"] > .voice-controls {
+  grid-row: 3;
+}
+/* A glass card the height of the room, scrolling inside. */
+.voice-show {
+  position: relative;
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: stretch;
+  justify-self: stretch;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 18px 48px rgb(0 0 0 / 0.45);
+  animation: voice-show-in 0.32s cubic-bezier(0.2, 0, 0, 1) both;
+}
+/* Closed: it keeps its place, out of the layout, while it slides away
+   (VoiceMode.tsx sets where). */
+.voice-show[data-leaving] {
+  position: absolute;
+  grid-area: auto;
+  margin: 0;
+  pointer-events: none;
+}
+.voice-show-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+.voice-show-titles {
+  flex: 1;
+  min-width: 0;
+}
+.voice-show-title,
+.voice-show-whose {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.voice-show-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.voice-show-whose {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.voice-show-at {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.voice-show-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* Full size's arrows (ShowPanel.tsx), as heavy as the bold icons beside them. */
+.voice-show-full {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.voice-show-close {
+  flex: none;
+}
+.voice-show-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+.voice-show-body:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--kleio-crimson-hi);
+}
+/* A document: Markdown, or plain text as it is. */
+.voice-show-doc {
+  padding: 18px 22px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+.voice-show-pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A picture: fit to the width, never stretched past its own. */
+.voice-show-picture {
+  padding: 16px;
+}
+.voice-show-picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+/* A PDF's pages, white sheets one under another; a sheet waiting for its
+   picture holds a letter page's shape. */
+.voice-show-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+.voice-show-page {
+  overflow: hidden;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.4);
+}
+.voice-show-page.is-waiting {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 8.5 / 11;
+  background: rgb(255 255 255 / 0.06);
+}
+.voice-show-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.voice-show-page-trouble {
+  margin: 0;
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+/* A picture of a web page: in the viewer, tap it to open the page itself. */
+.voice-show-shot {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  cursor: pointer;
+}
+.voice-show-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.voice-show-shot:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: -2px;
+}
+/* On a call, a picture, a PDF's sheet or a page's picture opens full size
+   when clicked (ShowViews.tsx, onEnlarge); its text does too, keeping the
+   text cursor. */
+img[data-enlarge],
+[data-enlarge] > .voice-show-page {
+  cursor: zoom-in;
+}
+.voice-show-note {
+  margin: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.voice-show-note.is-sign-in {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kleio-crimson-hi) 40%, transparent);
+}
+/* Loading, or why it can't be shown, in the middle of the panel. */
+.voice-show-state {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 100%;
+  padding: 32px 28px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.voice-show-state p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: balance;
+}
+.voice-show-state.is-trouble p {
+  color: var(--text);
+}
+.voice-show-spin {
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border: 2.5px solid rgb(255 255 255 / 0.14);
+  border-top-color: var(--kleio-crimson-hi);
+  border-radius: 50%;
+  animation: voice-show-spin 0.9s linear infinite;
+}
+@keyframes voice-show-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes voice-show-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes voice-show-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@keyframes voice-show-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* A phone or a narrow window: her orb rises to the top with two lines of
+   words under it, the panel fills the middle and rises from below, and the
+   buttons stay at the bottom. "Open in browser" keeps only its icon. */
+@media (max-width: 759px) {
+  .voice-mode[data-panel="open"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    --voice-lines: 2;
+  }
+  .voice-mode[data-panel="open"] > .voice-stage {
+    grid-row: 1;
+    width: min(calc(14vh / var(--zoom, 1)), 112px);
+  }
+  .voice-mode[data-panel="open"] > .voice-words {
+    grid-row: 2;
+  }
+  .voice-mode[data-panel="open"] > .voice-show {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .voice-mode[data-panel="open"] > .voice-controls {
+    grid-row: 4;
+  }
+  .voice-show {
+    animation-name: voice-show-rise;
+  }
+  .voice-show-open-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+/* Reduced motion: nothing moves (VoiceMode.tsx skips the glide too); the
+   panel only fades in. */
+@media (prefers-reduced-motion: reduce) {
+  .voice-show {
+    animation: voice-show-fade 0.15s linear both;
+  }
+  .voice-show-spin {
+    animation: none;
+  }
+}
+
+/* The file viewer (FileViewer.tsx): a file at full size over everything, the
+   voice screen included, on the show panel's glass with its header and its
+   views. A centred panel up to 1,100 px wide that fills the window less
+   32 px: the backdrop is the window itself, so it fits at any zoom. */
+.file-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 32px;
+  background: rgb(0 0 0 / 0.55);
+  animation: fade-in var(--dur-enter) linear backwards;
+}
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(1100px, 100%);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 18px 48px rgb(0 0 0 / 0.45);
+  animation: surface-in var(--dur-enter) var(--ease-out) backwards;
+  /* Closing glides out like a modal's (App.css, Exits). */
+  view-transition-name: kleio-file-viewer;
+}
+/* The dialog only takes focus as a fallback; its body and buttons carry the ring. */
+.file-viewer:focus {
+  outline: none;
+}
+.file-viewer-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* How Open in app or Save a copy went; takes no room until it says something. */
+.file-viewer-note {
+  margin: 0;
+  padding: 0 18px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.file-viewer-note:not(:empty) {
+  padding-block: 8px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+/* Text at a reading measure; a PDF's sheets at most 900 px wide (the host
+   draws them 1,600 px wide). Pictures are never enlarged past their size. */
+.file-viewer .voice-show-doc > :is(.markdown, .voice-show-pre, .voice-show-note) {
+  max-width: 80ch;
+  margin-inline: auto;
+}
+.file-viewer .voice-show-pages {
+  max-width: 900px;
+  margin-inline: auto;
+}
+/* A picture shorter than the viewer sits in its middle, as in Quick Look; a
+   taller one starts at the top and scrolls (auto margins take no room then). */
+.file-viewer .voice-show-body:has(> .voice-show-picture) {
+  display: flex;
+  flex-direction: column;
+}
+.file-viewer .voice-show-picture {
+  margin-block: auto;
+}
+/* A small CSV as a table (CsvTable.tsx), scrolling sideways when it's wide. */
+.file-viewer-table {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+.file-viewer-table:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 2px;
+}
+.file-viewer-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+/* A row is one line, as in a spreadsheet: the table is as wide as its cells
+   (max-content above) and scrolls sideways in its own frame when that's wider
+   than the viewer. Only a cell longer than 40 characters wraps, at spaces
+   (whole words, as in a reply's tables in App.css). */
+.file-viewer-cell {
+  max-width: 40ch;
+}
+.file-viewer-table :is(th, td) {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+  text-align: start;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.file-viewer-table th {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--text);
+  font-weight: 650;
+}
+.file-viewer-table tbody tr:nth-child(even) {
+  background: rgb(255 255 255 / 0.025);
+}
+.file-viewer-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.file-viewer-csv-note {
+  margin: 0 auto 12px;
+}
+::view-transition-old(kleio-file-viewer) {
+  animation: surface-out var(--dur-exit) var(--ease-in) both;
+}
+::view-transition-new(kleio-file-viewer) {
+  animation: none;
+}
+::view-transition-group(kleio-file-viewer) {
+  animation-duration: var(--dur-exit);
+}
+/* A narrow window: less margin, and the actions keep only their icons. */
+@media (max-width: 759px) {
+  .file-viewer-backdrop {
+    padding: 12px;
+  }
+  .file-viewer-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+/* Reduced motion: it opens and closes in place (withViewTransition skips its glide too). */
+@media (prefers-reduced-motion: reduce) {
+  .file-viewer-backdrop,
+  .file-viewer {
+    animation: none;
   }
 }

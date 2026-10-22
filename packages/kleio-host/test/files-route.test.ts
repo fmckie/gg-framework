@@ -337,6 +337,62 @@ describe("GET /kleio/workspace/files/*?cwd=", () => {
     expect(e.body).toBe("extra");
   });
 
+  it("serves the pictures its tools made, from .gg/generated and .gg/screenshots only", async () => {
+    const png = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from("a picture"),
+    ]);
+    for (const folder of ["generated", "screenshots", "plans"])
+      mkdirSync(join(project(), ".gg", folder), { recursive: true });
+    writeFileSync(join(project(), ".gg", "generated", "x.png"), png);
+    writeFileSync(join(project(), ".gg", "screenshots", "shot 1.jpg"), "jpeg bytes");
+    writeFileSync(join(project(), ".gg", "generated", "notes.md"), "NOTES");
+    writeFileSync(join(project(), ".gg", "plans", "plan.png"), "PLAN");
+    const gen = await call("GET", ws(project(), ".gg/generated/x.png"));
+    expect(gen.status).toBe(200);
+    expect(gen.raw.equals(png)).toBe(true);
+    expect(gen.headers["content-type"]).toBe("image/png");
+    expect(gen.headers["content-disposition"]).toBe("attachment; filename*=UTF-8''x.png");
+    expect(gen.headers["x-content-type-options"]).toBe("nosniff");
+    expect(gen.headers["content-security-policy"]).toBe("sandbox; default-src 'none'");
+    const shot = await call("GET", ws(project(), ".gg/screenshots/shot%201.jpg"));
+    expect(shot.status).toBe(200);
+    expect(shot.body).toBe("jpeg bytes");
+    expect(shot.headers["content-type"]).toBe("image/jpeg");
+    expect(shot.headers["content-disposition"]).toBe("attachment; filename*=UTF-8''shot%201.jpg");
+    for (const p of [
+      ".gg/plans/plan.png",
+      ".gg/generated/notes.md",
+      ".gg/generated/sub/x.png",
+      ".gg/x.png",
+      "%2Egg/generated/x.png",
+      ".gg%2Fgenerated%2Fx.png",
+    ]) {
+      const r = await call("GET", ws(project(), p));
+      expect(r.status, p).toBe(400);
+      expect(r.body).toEqual({ error: "bad path" });
+    }
+  });
+
+  it("still refuses an agent's or a group member's hidden folders, pictures included", async () => {
+    const a = await newBlob("Ada");
+    const g = await newGroup([a.id]);
+    for (const dir of [blobDir(a.id), join(home, "Kleio", "groups", g.id, a.id)])
+      for (const folder of ["generated", "screenshots"]) {
+        mkdirSync(join(dir, ".gg", folder), { recursive: true });
+        writeFileSync(join(dir, ".gg", folder, "x.png"), "PNG");
+      }
+    for (const folder of ["generated", "screenshots"])
+      for (const url of [
+        `/kleio/blobs/${a.id}/files/.gg/${folder}/x.png`,
+        `/kleio/groups/${g.id}/members/${a.id}/files/.gg/${folder}/x.png`,
+      ]) {
+        const r = await call("GET", url);
+        expect(r.status, url).toBe(400);
+        expect(r.body).toEqual({ error: "bad path" });
+      }
+  });
+
   it("keeps html a download, never a page", async () => {
     writeFileSync(join(project(), "index.html"), "<script>1</script>");
     const r = await call("GET", ws(project(), "index.html"));

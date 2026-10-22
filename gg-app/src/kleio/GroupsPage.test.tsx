@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type * as Platform from "../platform";
 import { isPhone } from "../platform";
+import { FileViewerProvider } from "./FileViewerProvider";
 import { GroupsPage } from "./GroupsPage";
 import {
+  createFileShow,
   createGroup,
   deleteGroup,
   listBlobs,
@@ -43,6 +45,7 @@ vi.mock("./kleioApi", async (importOriginal) => {
     deleteGroup: vi.fn(),
     newGroupSession: vi.fn(),
     answerGroupAsk: vi.fn(),
+    createFileShow: vi.fn(),
   };
 });
 
@@ -522,5 +525,42 @@ describe("GroupsPage", () => {
     expect(
       (screen.getByRole("button", { name: "+ New group" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe("a member's file link in a group", () => {
+  it("opens the file in the viewer, asked of the host as that member's in the group", async () => {
+    vi.mocked(listGroupMessages).mockResolvedValue({
+      messages: [
+        {
+          seq: 1,
+          id: "m1",
+          author: "b1",
+          authorName: "Agent 1",
+          emoji: "🫧",
+          text: "Drafted [the plan](out/plan.md).",
+          at: "2026-09-01T08:00:00Z",
+        },
+      ],
+      typing: [],
+      lastSeq: 1,
+    });
+    vi.mocked(createFileShow).mockReturnValue(new Promise(() => {}));
+    await act(async () => {
+      render(
+        <FileViewerProvider>
+          <GroupsPage onClose={() => undefined} />
+        </FileViewerProvider>,
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    fireEvent.click(await screen.findByRole("link", { name: "the plan" }));
+    expect(await screen.findByRole("dialog", { name: "plan.md" })).toBeTruthy();
+    expect(createFileShow).toHaveBeenCalledWith({
+      source: "group",
+      id: "g1",
+      member: "b1",
+      path: "out/plan.md",
+    });
   });
 });

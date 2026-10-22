@@ -15,7 +15,8 @@
 //     projects.ts). /kleio/blobs/* and
 //     GET /kleio/models, the Blobs (see blobs.ts). An agent's files:
 //     GET /kleio/blobs/:id/files/*, /kleio/groups/:gid/members/:bid/files/*
-//     and /kleio/workspace/files/*?cwd= (Chat/Code, see files.ts), always as
+//     and /kleio/workspace/files/*?cwd= (Chat/Code, with the pictures its
+//     tools made in .gg/generated and .gg/screenshots; see files.ts), always as
 //     downloads; POST /kleio/previews mints a link to an agent-written web
 //     page on the preview origin.
 //
@@ -45,7 +46,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { appendFile, mkdir, readFile, realpath, rm } from "node:fs/promises";
+import { appendFile, lstat, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { createSecretLock, type SecretLock } from "./acl.js";
@@ -63,11 +64,14 @@ import {
   realRoots,
   resolveAgentFile,
   resolveWorkspaceDir,
+  resolveWorkspacePicture,
   type AgentFile,
   type AgentFileError,
 } from "./files.js";
 import {
   createTextCache,
+  generatedImages,
+  isFilesSource,
   isReadable,
   listFolder,
   MAX_READ_BYTES,
@@ -77,8 +81,47 @@ import {
   toEntry,
   walkable,
   type AgentFileEntry,
+  type ExtractedText,
+  type FilesSource,
   type FoundFile,
 } from "./agent-files.js";
+import {
+  failureText,
+  type CaptureFailure,
+  type Capturer,
+  type PdfDoc,
+  type Png,
+  type View,
+} from "./capture.js";
+import { checkUrl, refusalText } from "./net-guard.js";
+import {
+  allowedAt,
+  allowedInWorkspace,
+  checkShowPath,
+  createShows,
+  imageType,
+  IMAGE_SNIFF_BYTES,
+  isShowId,
+  parseShowPart,
+  readHead,
+  resolveShowFile,
+  shownText,
+  showInfo,
+  showKind,
+  SHOW_IMAGE_MAX,
+  SHOW_PDF_MAX,
+  SHOW_TEXT_MAX,
+  viewerKind,
+  WORKSPACE_PLACES,
+  type FileShow,
+  type LinkShow,
+  type Show,
+  type ShowFile,
+  type ShowFileTarget,
+  type ShowKind,
+  type ShowPart,
+  type WorkspaceFileTarget,
+} from "./show.js";
 import { jevRouter } from "./group-router.js";
 import { createGroups, type GroupRouter, type Groups } from "./groups.js";
 import { checkTypesafeKey, createJev, readKeyFile } from "./jev.js";
@@ -262,6 +305,12 @@ export interface HostOptions {
   readonly secretLock?: SecretLock;
   /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner… */
   readonly hostInfo?: HostInfoSeams;
+  /**
+   * Draws web pages and PDFs for a voice show (capture.ts); the CLI passes
+   * the macOS helper's. Unset, or unable to draw on this host: a show of a
+   * web page or PDF answers `unavailable`, and other files still show.
+   */
+  readonly capture?: Capturer;
 }
 
 export interface Host {
@@ -316,26 +365,12 @@ function holds(dir: string, root: string): boolean {
   return root === dir || root.startsWith(dir.endsWith(sep) ? dir : dir + sep);
 }
 
-/** Whose files list_files / read_file look at. */
-type FilesSource = "kleio" | "specialist" | "group" | "chat" | "code" | "project";
-const FILES_SOURCES: ReadonlySet<string> = new Set([
-  "kleio",
-  "specialist",
-  "group",
-  "chat",
-  "code",
-  "project",
-]);
 /** Kleio's top-level folders that belong to other owners (her Blobs and groups). */
 const KLEIO_OTHERS: ReadonlySet<string> = new Set(["blobs", "groups"]);
 /** Longest relative path read_file accepts. */
 const MAX_READ_PATH = 1024;
 /** Highest part read_file accepts (20 MB of text is well under this many parts). */
 const MAX_PART = 100_000;
-
-function isFilesSource(v: unknown): v is FilesSource {
-  return typeof v === "string" && FILES_SOURCES.has(v);
-}
 
 /** A voice files route's failure: the status and body to answer with. */
 interface FilesFailure {
@@ -383,6 +418,130 @@ function parseFileRead(v: unknown): FileReadRequest | null {
     path: o.path,
     part,
   };
+}
+
+/** POST /kleio/voice/show: its route, and the most its body may be. */
+const SHOW_ROUTE = "/kleio/voice/show";
+const SHOW_BODY_MAX = 4 * 1024;
+
+/**
+ * A validated POST /kleio/voice/show body: a file, named as read_file names
+ * one or (the viewer's) by a Chat or Code session's folder, or a web address.
+ */
+type ShowRequest =
+  | ({ readonly kind: "file" } & ShowFileTarget)
+  | { readonly kind: "url"; readonly url: string; readonly view: View };
+
+function parseShowRequest(v: unknown): ShowRequest | null {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  if (o.url !== undefined) {
+    if (
+      typeof o.url !== "string" ||
+      o.source !== undefined ||
+      o.path !== undefined ||
+      o.cwd !== undefined
+    )
+      return null;
+    const view = o.view ?? "desktop";
+    if (view !== "desktop" && view !== "phone") return null;
+    return { kind: "url", url: o.url, view };
+  }
+  // A session's folder, by its cwd on this host: only a cwd and a path.
+  if (o.source === "workspace") {
+    if (typeof o.cwd !== "string" || typeof o.path !== "string") return null;
+    if (o.id !== undefined || o.member !== undefined) return null;
+    return { kind: "file", source: "workspace", cwd: o.cwd, path: o.path };
+  }
+  if (o.cwd !== undefined) return null;
+  if (!isFilesSource(o.source) || typeof o.path !== "string") return null;
+  if (o.id !== undefined && typeof o.id !== "string") return null;
+  if (o.member !== undefined && typeof o.member !== "string") return null;
+  return {
+    kind: "file",
+    source: o.source,
+    id: typeof o.id === "string" ? o.id : null,
+    member: typeof o.member === "string" ? o.member : null,
+    path: o.path,
+  };
+}
+
+/** A show route's failure: the status and body to answer with (detail: plain words for her to say). */
+interface ShowFailure {
+  readonly status: number;
+  readonly error: string;
+  readonly detail?: string;
+  readonly refusal?: string;
+  readonly pages?: number;
+}
+
+function showFail(
+  status: number,
+  error: string,
+  more: Omit<ShowFailure, "status" | "error"> = {},
+): Result<never, ShowFailure> {
+  return err({ status, error, ...more });
+}
+
+/** What she can say about a file a show can't draw (the panel says it too). */
+const CANT_SHOW_KIND = "Kleio can't show this kind of file yet.";
+const CHANGED =
+  "That file has changed since Kleio showed it. Ask her to show it again to see the new version.";
+
+/** A capture failure as a show route's answer. */
+function captureFailure(f: CaptureFailure, pages?: number): ShowFailure {
+  const detail = failureText(f);
+  switch (f.kind) {
+    case "unavailable":
+      return { status: 501, error: f.kind, detail };
+    case "unreadable":
+    case "locked":
+      return { status: 422, error: f.kind, detail };
+    case "too_large":
+      return { status: 413, error: f.kind, detail };
+    case "no_page":
+      return { status: 416, error: f.kind, detail, ...(pages !== undefined ? { pages } : {}) };
+    case "expired":
+      return { status: 410, error: f.kind, detail };
+    case "busy":
+      return { status: 429, error: f.kind, detail };
+    default:
+      return { status: 502, error: f.kind, detail };
+  }
+}
+
+/** A failure to get a document's text as a show route's answer. */
+function textFailure(f: FilesFailure): ShowFailure {
+  switch (f.error) {
+    case "unsupported":
+      return { status: f.status, error: f.error, detail: CANT_SHOW_KIND };
+    case "unreadable":
+      return {
+        status: f.status,
+        error: f.error,
+        detail: "That file couldn't be read: it may be damaged or protected.",
+      };
+    case "too_large":
+      return { status: f.status, error: f.error, detail: "That's too big to show." };
+    default:
+      return { status: f.status, error: f.error };
+  }
+}
+
+/** The headers every part of a show carries: nothing in it runs, sniffs or is kept. */
+const SHOW_PART_HEADERS: Readonly<Record<string, string>> = {
+  "x-content-type-options": "nosniff",
+  "content-security-policy": "sandbox; default-src 'none'",
+  "cache-control": "private, no-store",
+};
+
+/** The host in a web address, for the log; "" when it has none. */
+function hostOf(raw: string): string {
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return "";
+  }
 }
 
 /** Whose files: a Blob, a Blob in a group, or a Chat/Code session's folder. */
@@ -1620,6 +1779,11 @@ export function createHost(options: HostOptions): Host {
     return (await blobs?.find(blobId))?.name;
   }
 
+  /** The files in an owner's folder, and the pictures in its own `.gg/generated`. */
+  async function ownFiles(dir: string, skipTop?: ReadonlySet<string>): Promise<FoundFile[]> {
+    return [...(await listFolder(dir, skipTop)), ...(await generatedImages(dir))];
+  }
+
   /** GET /kleio/voice/files: an owner's files, newest first. */
   async function listAgentFiles(
     source: FilesSource,
@@ -1629,7 +1793,7 @@ export function createHost(options: HostOptions): Host {
     switch (source) {
       case "kleio": {
         if (homeCwd === undefined) return filesFail(404, "not_found");
-        const files = newestFirst((await listFolder(homeCwd, KLEIO_OTHERS)).map((f) => toEntry(f)));
+        const files = newestFirst((await ownFiles(homeCwd, KLEIO_OTHERS)).map((f) => toEntry(f)));
         // Its folder only when the workspace file route serves it (inside a
         // projects folder); otherwise the phone can't fetch these to show them.
         const served = options.workspaceRoots
@@ -1642,7 +1806,7 @@ export function createHost(options: HostOptions): Host {
         if (homeCwd === undefined || !blobs || !(await blobs.find(id)))
           return filesFail(404, "not_found");
         return ok({
-          files: newestFirst((await listFolder(join(homeCwd, "blobs", id))).map((f) => toEntry(f))),
+          files: newestFirst((await ownFiles(join(homeCwd, "blobs", id))).map((f) => toEntry(f))),
         });
       case "group": {
         if (id === null || !GROUP_ID_RE.test(id)) return filesFail(400, "bad_request");
@@ -1652,7 +1816,7 @@ export function createHost(options: HostOptions): Host {
         for (const member of members) {
           if (!BLOB_ID_RE.test(member)) continue;
           const by = await blobName(member);
-          const found = await listFolder(join(homeCwd, "groups", id, member));
+          const found = await ownFiles(join(homeCwd, "groups", id, member));
           for (const f of found) all.push(toEntry(f, { member, ...(by ? { by } : {}) }));
         }
         return ok({ files: newestFirst(all) });
@@ -1669,10 +1833,59 @@ export function createHost(options: HostOptions): Host {
       case "project": {
         const project = await projectFor(id);
         if (!project.ok) return project;
-        return ok({
-          files: newestFirst((await projectDocs(project.value.real)).map((f) => toEntry(f))),
-          cwd: project.value.real,
-        });
+        // Its documents and plans, and the pictures its coding agents generated
+        // (not every picture in it: an app's icons would crowd out its documents).
+        const found = [
+          ...(await projectDocs(project.value.real)),
+          ...(await generatedImages(project.value.real)),
+        ];
+        return ok({ files: newestFirst(found.map((f) => toEntry(f))), cwd: project.value.real });
+      }
+    }
+  }
+
+  /**
+   * The folder an owner's files are in, after the owner's checks (read_file
+   * and a show both use them): a specialist that exists, a current member of
+   * a group, a saved session inside the projects folders, a project by name.
+   * A chat or coding session also lists the files it made, the only ones it
+   * may read or show.
+   */
+  async function ownerFolder(
+    source: FilesSource,
+    id: string | null,
+    member: string | null,
+  ): Promise<Result<{ root: string; made: readonly FoundFile[] | null }, FilesFailure>> {
+    const homeCwd = options.homeCwd;
+    const at = (root: string): Result<{ root: string; made: null }, never> =>
+      ok({ root, made: null });
+    switch (source) {
+      case "kleio":
+        if (homeCwd === undefined) return filesFail(404, "not_found");
+        return at(homeCwd);
+      case "specialist":
+        if (id === null || !BLOB_ID_RE.test(id)) return filesFail(400, "bad_request");
+        if (homeCwd === undefined || !blobs || !(await blobs.find(id)))
+          return filesFail(404, "not_found");
+        return at(join(homeCwd, "blobs", id));
+      case "group": {
+        if (id === null || !GROUP_ID_RE.test(id)) return filesFail(400, "bad_request");
+        if (member === null || !BLOB_ID_RE.test(member)) return filesFail(400, "bad_request");
+        const members = homeCwd !== undefined && groups ? await groups.members(id) : null;
+        if (homeCwd === undefined || members === null || !members.includes(member))
+          return filesFail(404, "not_found");
+        return at(join(homeCwd, "groups", id, member));
+      }
+      case "chat":
+      case "code": {
+        const folder = await sessionFolder(source, id);
+        if (!folder.ok) return folder;
+        return ok({ root: folder.value.dir, made: folder.value.files });
+      }
+      case "project": {
+        const project = await projectFor(id);
+        if (!project.ok) return project;
+        return at(project.value.real);
       }
     }
   }
@@ -1685,44 +1898,66 @@ export function createHost(options: HostOptions): Host {
   async function readRoot(
     q: FileReadRequest,
   ): Promise<Result<{ root: string; path: string }, FilesFailure>> {
-    const homeCwd = options.homeCwd;
-    const segments = q.path.split("/");
-    const at = (root: string): Result<{ root: string; path: string }, never> =>
-      ok({ root, path: q.path });
+    const owner = await ownerFolder(q.source, q.id, q.member);
+    if (!owner.ok) return owner;
+    const { root, made } = owner.value;
     switch (q.source) {
       case "kleio":
-        if (homeCwd === undefined) return filesFail(404, "not_found");
-        if (KLEIO_OTHERS.has(segments[0] ?? "")) return filesFail(404, "not_found");
-        return at(homeCwd);
+        if (KLEIO_OTHERS.has(q.path.split("/")[0] ?? "")) return filesFail(404, "not_found");
+        break;
       case "specialist":
-        if (q.id === null || !BLOB_ID_RE.test(q.id)) return filesFail(400, "bad_request");
-        if (homeCwd === undefined || !blobs || !(await blobs.find(q.id)))
-          return filesFail(404, "not_found");
-        return at(join(homeCwd, "blobs", q.id));
-      case "group": {
-        if (q.id === null || !GROUP_ID_RE.test(q.id)) return filesFail(400, "bad_request");
-        if (q.member === null || !BLOB_ID_RE.test(q.member)) return filesFail(400, "bad_request");
-        const members = homeCwd !== undefined && groups ? await groups.members(q.id) : null;
-        if (homeCwd === undefined || members === null || !members.includes(q.member))
-          return filesFail(404, "not_found");
-        return at(join(homeCwd, "groups", q.id, q.member));
-      }
+      case "group":
+        break;
       case "chat":
-      case "code": {
-        const folder = await sessionFolder(q.source, q.id);
-        if (!folder.ok) return folder;
+      case "code":
         // Least privilege: only a file the session itself made or linked.
-        if (!folder.value.files.some((f) => f.path === q.path)) return filesFail(404, "not_found");
-        return at(folder.value.dir);
-      }
+        if (!made?.some((f) => f.path === q.path)) return filesFail(404, "not_found");
+        break;
       case "project": {
-        const project = await projectFor(q.id);
-        if (!project.ok) return project;
         // Least privilege: only one of its documents, never its code or secrets.
-        const doc = await projectDocAt(project.value.real, q.path);
+        const doc = await projectDocAt(root, q.path);
         return doc ? ok(doc) : filesFail(404, "not_found");
       }
     }
+    return ok({ root, path: q.path });
+  }
+
+  /**
+   * A file's text as the sidecar's POST /file-text extracts it, cached by the
+   * file's real path, size and mtime. `load` reads its bytes (null: the file
+   * changed or went since it was resolved).
+   */
+  async function extractText(
+    file: {
+      readonly path: string;
+      readonly name: string;
+      readonly size: number;
+      readonly mtimeMs: number;
+    },
+    load: () => Promise<Buffer | null>,
+  ): Promise<Result<ExtractedText, FilesFailure>> {
+    const key = `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
+    const cached = fileTexts.get(key);
+    if (cached) return ok(cached);
+    const bytes = await load();
+    if (bytes === null) return filesFail(404, "not_found");
+    if (bytes.length > MAX_READ_BYTES) return filesFail(413, "too_large");
+    const r = await sidecarBytes(`/file-text?name=${encodeURIComponent(file.name)}`, bytes, 60_000);
+    if (!r || r.status >= 500) return filesFail(503, "files_unavailable");
+    if (r.status === 413) return filesFail(413, "too_large");
+    if (r.status === 415) return filesFail(415, "unsupported");
+    if (r.status === 422) return filesFail(422, "unreadable");
+    const body = (r.body ?? {}) as { text?: unknown; pages?: unknown };
+    if (r.status !== 200 || typeof body.text !== "string")
+      return filesFail(503, "files_unavailable");
+    const extracted: ExtractedText = {
+      text: body.text,
+      ...(typeof body.pages === "number" && Number.isInteger(body.pages) && body.pages >= 0
+        ? { pages: body.pages }
+        : {}),
+    };
+    fileTexts.set(key, extracted);
+    return ok(extracted);
   }
 
   /** POST /kleio/voice/files/read: one part of a file's text. */
@@ -1763,31 +1998,9 @@ export function createHost(options: HostOptions): Host {
     if (!walkable(segments) || file.path !== join(realRoot, ...segments))
       return filesFail(404, "not_found");
     if (!isReadable(file.name)) return filesFail(415, "unsupported");
-    const key = `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
-    let extracted = fileTexts.get(key);
-    if (!extracted) {
-      const bytes = await readFile(file.path);
-      if (bytes.length > MAX_READ_BYTES) return filesFail(413, "too_large");
-      const r = await sidecarBytes(
-        `/file-text?name=${encodeURIComponent(file.name)}`,
-        bytes,
-        60_000,
-      );
-      if (!r || r.status >= 500) return filesFail(503, "files_unavailable");
-      if (r.status === 413) return filesFail(413, "too_large");
-      if (r.status === 415) return filesFail(415, "unsupported");
-      if (r.status === 422) return filesFail(422, "unreadable");
-      const body = (r.body ?? {}) as { text?: unknown; pages?: unknown };
-      if (r.status !== 200 || typeof body.text !== "string")
-        return filesFail(503, "files_unavailable");
-      extracted = {
-        text: body.text,
-        ...(typeof body.pages === "number" && Number.isInteger(body.pages) && body.pages >= 0
-          ? { pages: body.pages }
-          : {}),
-      };
-      fileTexts.set(key, extracted);
-    }
+    const text = await extractText(file, () => readFile(file.path));
+    if (!text.ok) return text;
+    const extracted = text.value;
     const slice = partOf(extracted.text, q.part);
     if (!slice.ok) return err({ status: 416, error: "no_such_part", parts: slice.error.parts });
     return ok({
@@ -1798,6 +2011,259 @@ export function createHost(options: HostOptions): Host {
       text: slice.value.text,
       ...(extracted.pages !== undefined ? { pages: extracted.pages } : {}),
     });
+  }
+
+  // ------------------------------------------------- voice: shows
+
+  /** The shows each device made (show.ts), on the host's clock. */
+  const shows = createShows(() => now().getTime());
+
+  /**
+   * The viewer's file in a Chat or Code session's folder, checked as when it
+   * was shown: its path's spelling (with the viewer's hidden folders), the
+   * folder inside Kleio's projects folders with no hidden folder on the way
+   * (as the workspace file route checks it), its place on the viewer's
+   * allow-list, its kind, and on disk no symlink anywhere below the folder.
+   */
+  async function findWorkspaceFile(
+    q: WorkspaceFileTarget,
+  ): Promise<Result<{ file: ShowFile; as: ShowKind }, ShowFailure>> {
+    const path = checkShowPath(q.path, WORKSPACE_PLACES);
+    if (path === null) return showFail(400, "bad_request");
+    if (!options.workspaceRoots) return showFail(404, "not_found");
+    const ws = await resolveWorkspaceDir(await options.workspaceRoots(), q.cwd);
+    if (!ws.ok || !allowedInWorkspace(path)) return showFail(404, "not_found");
+    const as = viewerKind(path.segments[path.segments.length - 1] ?? "");
+    if (as === null) return showFail(415, "unsupported", { detail: CANT_SHOW_KIND });
+    const file = await resolveShowFile(ws.value.dir, path.segments);
+    return file ? ok({ file, as }) : showFail(404, "not_found");
+  }
+
+  /**
+   * A show's file, checked as when it was shown: its path's spelling, its
+   * owner, its place on the allow-list, its kind, and on disk no symlink
+   * anywhere below the owner's folder (show.ts).
+   */
+  async function findShowFile(
+    q: ShowFileTarget,
+  ): Promise<Result<{ file: ShowFile; as: ShowKind }, ShowFailure>> {
+    if (q.source === "workspace") return findWorkspaceFile(q);
+    const path = checkShowPath(q.path);
+    if (path === null) return showFail(400, "bad_request");
+    const owner = await ownerFolder(q.source, q.id, q.member);
+    if (!owner.ok) return showFail(owner.error.status, owner.error.error);
+    const { root, made } = owner.value;
+    if (
+      (q.source === "kleio" && KLEIO_OTHERS.has(path.segments[0] ?? "")) ||
+      !allowedAt(path, q.source === "project") ||
+      // Least privilege: a chat or coding session shows only a file it made.
+      (made !== null && !made.some((f) => f.path === q.path))
+    )
+      return showFail(404, "not_found");
+    const as = showKind(path.segments[path.segments.length - 1] ?? "");
+    if (as === null) return showFail(415, "unsupported", { detail: CANT_SHOW_KIND });
+    const file = await resolveShowFile(root, path.segments);
+    return file ? ok({ file, as }) : showFail(404, "not_found");
+  }
+
+  /**
+   * POST /kleio/voice/show for a file. Readied here (a document's text
+   * extracted, a picture's type read, a PDF counted), so `show` says it's up
+   * only once it can be drawn.
+   */
+  async function createFileShow(
+    target: ShowFileTarget,
+    deviceId: string,
+  ): Promise<Result<Show, ShowFailure>> {
+    const found = await findShowFile(target);
+    if (!found.ok) return found;
+    const { file, as } = found.value;
+    const base = { kind: "file", target, size: file.size, mtimeMs: file.mtimeMs } as const;
+    const tooBig = (): Result<never, ShowFailure> =>
+      err(captureFailure({ kind: "too_large", host: "" }));
+    let what: FileShow;
+    switch (as.draws) {
+      case "text": {
+        let whole = file.size;
+        if (as.extracted) {
+          if (file.size > MAX_READ_BYTES) return tooBig();
+          const text = await extractText(file, () => readHead(file, MAX_READ_BYTES));
+          if (!text.ok) return err(textFailure(text.error));
+          whole = Buffer.byteLength(text.value.text);
+        }
+        what = { ...base, ...as, cut: whole > SHOW_TEXT_MAX };
+        break;
+      }
+      case "image": {
+        if (file.size > SHOW_IMAGE_MAX) return tooBig();
+        // Drawn as what its bytes are, and only if they are a picture a show draws.
+        const head = await readHead(file, IMAGE_SNIFF_BYTES);
+        const type = head === null ? null : imageType(head);
+        if (type === null) return showFail(415, "unsupported", { detail: CANT_SHOW_KIND });
+        what = { ...base, draws: "image", type };
+        break;
+      }
+      case "pdf": {
+        // The capturer draws PDFs, and this host may not be able to.
+        const capture = options.capture;
+        if (!capture?.support.available)
+          return err(captureFailure({ kind: "unavailable", host: "" }));
+        if (file.size > SHOW_PDF_MAX) return tooBig();
+        const bytes = await readHead(file, SHOW_PDF_MAX);
+        if (bytes === null) return showFail(404, "not_found");
+        const doc = await capture.pdf(bytes);
+        if (!doc.ok) return err(captureFailure(doc.error));
+        what = { ...base, draws: "pdf", doc: doc.value };
+        break;
+      }
+    }
+    return ok(shows.add(deviceId, file.name, what));
+  }
+
+  /**
+   * POST /kleio/voice/show for a web address: checked here, then captured in
+   * the background (capture.ts) while the device asks GET …/<id> how it went.
+   */
+  function startLinkShow(raw: string, view: View, device: PairedDevice): Result<Show, ShowFailure> {
+    const checked = checkUrl(raw);
+    // Refused even where nothing can be drawn, so its link is never offered instead.
+    if (!checked.ok)
+      return showFail(422, "refused", {
+        refusal: checked.error,
+        detail: refusalText(checked.error),
+      });
+    const url = checked.value;
+    const host = url.hostname;
+    const capture = options.capture;
+    if (!capture?.support.available) return err(captureFailure({ kind: "unavailable", host }));
+    const what: LinkShow = {
+      kind: "link",
+      host,
+      view,
+      outcome: { state: "capturing" },
+      controller: new AbortController(),
+    };
+    const show = shows.add(device.deviceId, host, what);
+    void background(
+      capture
+        .url(url.href, view, what.controller.signal)
+        .then(
+          (r) => {
+            what.outcome = r.ok
+              ? { state: "ready", shot: r.value }
+              : { state: "failed", failure: r.error };
+          },
+          () => {
+            what.outcome = { state: "failed", failure: { kind: "broken", host } };
+          },
+        )
+        .then(() => {
+          const o = what.outcome;
+          const said = o.state === "failed" ? `failed (${o.failure.kind})` : o.state;
+          log(`[voice] ${device.label}: page ${host} ${said}`);
+        }),
+    );
+    return ok(show);
+  }
+
+  /** Answers a show route's failure; returns its status, for the log. */
+  function failWith(res: ServerResponse, f: ShowFailure): number {
+    json(res, f.status, {
+      error: f.error,
+      ...(f.detail !== undefined ? { detail: f.detail } : {}),
+      ...(f.refusal !== undefined ? { refusal: f.refusal } : {}),
+      ...(f.pages !== undefined ? { pages: f.pages } : {}),
+    });
+    return f.status;
+  }
+
+  /** A picture the capturer made, from its cache, as a show's part. */
+  async function sendCapture(res: ServerResponse, png: Png): Promise<number> {
+    const gone = captureFailure({ kind: "expired", host: "" });
+    let st;
+    try {
+      st = await lstat(png.file);
+    } catch {
+      return failWith(res, gone);
+    }
+    if (!st.isFile() || st.size !== png.bytes) return failWith(res, gone);
+    const [status] = await sendFile(
+      res,
+      { path: png.file, name: basename(png.file), size: st.size, mtimeMs: st.mtimeMs },
+      {
+        headers: { ...SHOW_PART_HEADERS, "content-type": "image/png" },
+        missing: (r) => void failWith(r, gone),
+      },
+    );
+    return status;
+  }
+
+  /** One page of a show's PDF, drawn by the capturer. */
+  async function sendPage(res: ServerResponse, doc: PdfDoc, page: number): Promise<number> {
+    const capture = options.capture;
+    if (!capture) return failWith(res, captureFailure({ kind: "unavailable", host: "" }));
+    const png = await capture.pdfPage(doc, page);
+    if (!png.ok) return failWith(res, captureFailure(png.error, doc.pages));
+    return sendCapture(res, png.value);
+  }
+
+  /** GET /kleio/voice/show/<id>/<part>; returns the status, for the log. */
+  async function sendShowPart(res: ServerResponse, show: Show, part: ShowPart): Promise<number> {
+    const noSuchPart = (): number => failWith(res, { status: 404, error: "no_such_part" });
+    const what = show.what;
+    if (what.kind === "link") {
+      const o = what.outcome;
+      if (o.state !== "ready")
+        return failWith(res, {
+          status: 409,
+          error: o.state === "capturing" ? "not_ready" : "failed",
+        });
+      if (o.shot.kind === "web")
+        return part.kind === "image" ? sendCapture(res, o.shot.png) : noSuchPart();
+      return part.kind === "page" ? sendPage(res, o.shot.doc, part.page) : noSuchPart();
+    }
+    // A file: found and checked again, and still the version that was shown.
+    const found = await findShowFile(what.target);
+    if (!found.ok) return failWith(res, found.error);
+    const { file } = found.value;
+    if (file.size !== what.size || file.mtimeMs !== what.mtimeMs)
+      return failWith(res, { status: 409, error: "changed", detail: CHANGED });
+    switch (what.draws) {
+      case "text": {
+        if (part.kind !== "text") return noSuchPart();
+        let bytes: Buffer | null;
+        let whole: number;
+        if (what.extracted) {
+          const text = await extractText(file, () => readHead(file, MAX_READ_BYTES));
+          if (!text.ok) return failWith(res, textFailure(text.error));
+          bytes = Buffer.from(text.value.text, "utf8");
+          whole = bytes.length;
+        } else {
+          bytes = await readHead(file, SHOW_TEXT_MAX);
+          whole = file.size;
+        }
+        if (bytes === null) return failWith(res, { status: 404, error: "not_found" });
+        // Never the file's own type: Markdown and HTML's text are plain text here.
+        const body = shownText(bytes, whole);
+        res.writeHead(200, {
+          ...SHOW_PART_HEADERS,
+          "content-type": "text/plain; charset=utf-8",
+          "content-length": body.length,
+        });
+        res.end(body);
+        return 200;
+      }
+      case "image": {
+        if (part.kind !== "image") return noSuchPart();
+        const [status] = await sendFile(res, file, {
+          headers: { ...SHOW_PART_HEADERS, "content-type": what.type },
+          missing: (r) => void failWith(r, { status: 404, error: "not_found" }),
+        });
+        return status;
+      }
+      case "pdf":
+        return part.kind === "page" ? sendPage(res, what.doc, part.page) : noSuchPart();
+    }
   }
 
   // ------------------------------------------------------------------ routes
@@ -2139,6 +2605,69 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, {
         error: typeof answer.error === "string" ? answer.error : "The Brain didn't accept that.",
       });
+    }
+    // Her voice's shows (show.ts): a file her agents made, or a web page or
+    // PDF, on the user's screen beside her. POST makes one; GET …/<id> says
+    // how it is; GET …/<id>/text|image|page-<n> draws it. Any paired device,
+    // but a show is only ever its own device's. Every argument came from the
+    // voice model, so each is checked here; names, paths and addresses are
+    // never logged, a link's host is.
+    if (path === SHOW_ROUTE || path.startsWith(`${SHOW_ROUTE}/`)) {
+      const started = Date.now();
+      if (path === SHOW_ROUTE) {
+        if (req.method !== "POST") {
+          res.setHeader("allow", "POST");
+          return json(res, 405, { error: "method not allowed" });
+        }
+        const body = await readBody(req, SHOW_BODY_MAX);
+        let q: ShowRequest | null = null;
+        if (body !== null) {
+          try {
+            q = parseShowRequest(JSON.parse(body.toString("utf8")));
+          } catch {
+            q = null;
+          }
+        }
+        let what = "unknown";
+        let outcome: Result<Show, ShowFailure>;
+        if (body === null) outcome = showFail(413, "too_large");
+        else if (q === null) outcome = showFail(400, "bad_request");
+        else if (q.kind === "url") {
+          what = `page ${hostOf(q.url) || "-"}`;
+          outcome = startLinkShow(q.url, q.view, auth.device);
+        } else {
+          // Its source only: never a cwd, an id or a path.
+          what = q.source;
+          outcome = await createFileShow(
+            q.source === "workspace"
+              ? { source: "workspace", cwd: q.cwd, path: q.path }
+              : { source: q.source, id: q.id, member: q.member, path: q.path },
+            auth.device.deviceId,
+          );
+        }
+        const status = outcome.ok ? 200 : outcome.error.status;
+        log(`[voice] ${auth.device.label}: show ${what} ${status} in ${Date.now() - started} ms`);
+        if (outcome.ok) return json(res, 200, { show: showInfo(outcome.value) });
+        failWith(res, outcome.error);
+        return;
+      }
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const [id = "", partName, ...rest] = path.slice(SHOW_ROUTE.length + 1).split("/");
+      const part = partName === undefined ? null : parseShowPart(partName);
+      if (!isShowId(id) || rest.length > 0 || (partName !== undefined && part === null))
+        return json(res, 400, { error: "bad_request" });
+      // Another device's show is not there for this one.
+      const show = shows.get(id, auth.device.deviceId);
+      if (!show) return json(res, 404, { error: "not_found" });
+      if (part === null) return json(res, 200, { show: showInfo(show) });
+      const status = await sendShowPart(res, show, part);
+      log(
+        `[voice] ${auth.device.label}: show ${partName ?? ""} ${status} in ${Date.now() - started} ms`,
+      );
+      return;
     }
     // The files agents made, for her voice (list_files, read_file): any
     // paired device, as with /kleio/sessions. Every argument came from the
@@ -2578,7 +3107,12 @@ export function createHost(options: HostOptions): Host {
             json(res, root.error[0], { error: root.error[1] });
             return [root.error[0], 0];
           }
-          const r = await resolveAgentFile(root.value.root, owner.rest);
+          // In a session's hidden folder, only the pictures its tools made
+          // (files.ts); an agent's or group member's hidden names stay refused.
+          const r =
+            owner.owner.kind === "workspace" && owner.rest.startsWith(".gg/")
+              ? await resolveWorkspacePicture(root.value.root, owner.rest)
+              : await resolveAgentFile(root.value.root, owner.rest);
           if (!r.ok) {
             const [status, error] = fileErrorStatus(r.error);
             json(res, status, { error });
@@ -2769,6 +3303,8 @@ export function createHost(options: HostOptions): Host {
     stop: () =>
       new Promise((resolve) => {
         stopped = true;
+        // Page and PDF captures still running stop (their helpers are killed).
+        shows.stop();
         liveActivities.stop();
         askNotifier.stop();
         started.stop();

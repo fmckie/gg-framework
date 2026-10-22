@@ -2,7 +2,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type * as KleioApi from "./kleioApi";
-import { threadAnswerAsk, threadHistory, threadPrompt, threadState } from "./kleioApi";
+import {
+  createFileShow,
+  threadAnswerAsk,
+  threadHistory,
+  threadPrompt,
+  threadState,
+} from "./kleioApi";
+import { FileViewerProvider } from "./FileViewerProvider";
 import { ThreadChat } from "./ThreadChat";
 
 vi.mock("./kleioApi", async (importOriginal) => ({
@@ -12,6 +19,7 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   threadPrompt: vi.fn(),
   threadCancel: vi.fn(),
   threadAnswerAsk: vi.fn(),
+  createFileShow: vi.fn(),
 }));
 vi.mock("./liveActivity", () => ({ startLiveActivity: vi.fn(async () => {}) }));
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
@@ -160,5 +168,40 @@ describe("a specialist's tool calls in its chat", () => {
     await screen.findByRole("log", { name: "Conversation with Chef" });
     expect(screen.queryByRole("list", { name: "What Chef is doing" })).toBeNull();
     expect(activity).not.toHaveBeenCalled();
+  });
+});
+
+describe("a specialist's file link in its chat", () => {
+  it("opens the file in the viewer, asked of the host as the specialist's", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    vi.mocked(threadHistory).mockResolvedValue([
+      { role: "user", text: "Write it up" },
+      { role: "assistant", text: "Here's [the findings](out/findings.pdf)." },
+    ]);
+    vi.mocked(threadState).mockResolvedValue({ running: false, pendingAsks: [] });
+    // The host is still readying it: the viewer says it's opening.
+    vi.mocked(createFileShow).mockReturnValue(new Promise(() => {}));
+    render(
+      <FileViewerProvider>
+        <ThreadChat
+          label="Chef"
+          owner={{ kind: "blob", blobId: "b_1234abcd" }}
+          resolve={async () => ({ sessionId: "s1", sessionPath: null, created: false })}
+        />
+      </FileViewerProvider>,
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "the findings" }));
+    const viewer = await screen.findByRole("dialog", { name: "findings.pdf" });
+    expect(within(viewer).getByText("Opening…")).toBeTruthy();
+    expect(createFileShow).toHaveBeenCalledWith({
+      source: "specialist",
+      id: "b_1234abcd",
+      path: "out/findings.pdf",
+    });
   });
 });

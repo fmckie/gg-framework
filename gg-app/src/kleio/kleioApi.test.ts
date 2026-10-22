@@ -92,6 +92,143 @@ describe("kleioApi transport", () => {
   });
 });
 
+describe("shows", () => {
+  const ID = "sh_0123456789abcdef0123456789abcdef";
+
+  it("makes a file show and a page show, as the host's routes take them", async () => {
+    const file = reply({ show: { id: ID, kind: "text", name: "plan.md", state: "ready" } });
+    expect(
+      await api.createFileShow({ source: "project", id: "app", path: ".gg/plans/plan.md" }),
+    ).toEqual({ id: ID, kind: "text", name: "plan.md", state: "ready", format: "plain" });
+    const page = { id: ID, kind: "web", name: "bbc.co.uk", host: "bbc.co.uk", state: "capturing" };
+    const link = reply({ show: page });
+    expect(await api.createLinkShow("https://bbc.co.uk/news", "phone")).toEqual(page);
+    const asked = reply({ show: { ...page, state: "ready", signIn: true, cut: true } });
+    expect(await api.getShow(ID)).toMatchObject({ state: "ready", signIn: true, cut: true });
+    expect([...file, ...link, ...asked]).toEqual([
+      {
+        method: "POST",
+        path: "/kleio/voice/show",
+        body: { source: "project", id: "app", path: ".gg/plans/plan.md" },
+        session: null,
+      },
+      {
+        method: "POST",
+        path: "/kleio/voice/show",
+        body: { url: "https://bbc.co.uk/news", view: "phone" },
+        session: null,
+      },
+      {
+        method: "GET",
+        path: `/kleio/voice/show/${ID}`,
+        body: null,
+        session: null,
+        timeoutMs: 15_000,
+      },
+    ]);
+  });
+
+  it("asks after a show only by an id the host could have made", async () => {
+    for (const bad of ["", "sh_123", "../devices", `${ID}/image`, `${ID}?x=1`]) {
+      await expect(api.getShow(bad)).rejects.toMatchObject({ status: 0, message: "bad_request" });
+    }
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps what it knows from the host's show and refuses one it can't read", () => {
+    const pdf = {
+      id: ID,
+      kind: "pdf",
+      name: "report.pdf",
+      state: "ready",
+      pages: 100,
+      totalPages: 340,
+      title: "  Annual report  ",
+      extra: "dropped",
+    };
+    expect(api.parseShowInfo(pdf)).toEqual({
+      id: ID,
+      kind: "pdf",
+      name: "report.pdf",
+      state: "ready",
+      pages: 100,
+      totalPages: 340,
+      title: "Annual report",
+    });
+    // A page count drives how many pages are asked for: never a guess.
+    for (const bad of [
+      { ...pdf, pages: 0 },
+      { ...pdf, pages: 501 },
+      { ...pdf, pages: 2.5 },
+      { ...pdf, pages: "12" },
+      { ...pdf, id: "sh_nothex" },
+      { ...pdf, kind: "html" },
+      { ...pdf, state: "done" },
+      { ...pdf, name: "   " },
+      null,
+      [],
+      "show",
+    ]) {
+      expect(api.parseShowInfo(bad), JSON.stringify(bad)).toBeNull();
+    }
+    // A total under what's shown is the count shown; reasons are words, details clipped.
+    expect(api.parseShowInfo({ ...pdf, totalPages: 3 })).toMatchObject({
+      pages: 100,
+      totalPages: 100,
+    });
+    const failed = api.parseShowInfo({
+      id: ID,
+      kind: "web",
+      name: "example.com",
+      state: "failed",
+      reason: "<b>x</b>",
+      detail: "x".repeat(900),
+    });
+    expect(failed).not.toHaveProperty("reason");
+    expect(failed?.detail).toHaveLength(500);
+  });
+
+  it("calls an answer that isn't a show an error, never a show", async () => {
+    reply({ show: { id: ID, kind: "web", state: "ready" } });
+    await expect(api.getShow(ID)).rejects.toMatchObject({ status: 502, message: "bad_answer" });
+    reply(
+      { error: "refused", detail: "That page is on a private network, so it can't be shown." },
+      422,
+    );
+    await expect(api.createLinkShow("http://10.0.0.1/", "desktop")).rejects.toMatchObject({
+      status: 422,
+      message: "refused",
+      detail: "That page is on a private network, so it can't be shown.",
+    });
+  });
+
+  it("fetches a part as bytes, and passes on the host's reason when it can't", async () => {
+    invokeMock.mockResolvedValueOnce(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer);
+    expect([...(await api.getShowPart(ID, "page-3"))]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(invokeMock).toHaveBeenLastCalledWith("kleio_show_part", { id: ID, part: "page-3" });
+    // Tauri's fallback channel hands back numbers.
+    invokeMock.mockResolvedValueOnce([104, 105]);
+    expect(new TextDecoder().decode(await api.getShowPart(ID, "text"))).toBe("hi");
+    invokeMock.mockResolvedValueOnce([300]);
+    await expect(api.getShowPart(ID, "text")).rejects.toMatchObject({ status: 502 });
+    invokeMock.mockRejectedValueOnce({
+      status: 409,
+      error: "changed",
+      detail: "That file has changed since Kleio showed it.",
+    });
+    await expect(api.getShowPart(ID, "text")).rejects.toMatchObject({
+      status: 409,
+      message: "changed",
+      detail: "That file has changed since Kleio showed it.",
+    });
+    invokeMock.mockRejectedValueOnce("IPC failed");
+    await expect(api.getShowPart(ID, "image")).rejects.toMatchObject({
+      status: 0,
+      message: "IPC failed",
+    });
+  });
+});
+
 describe("dictation setup", () => {
   const BYTES = 138_853_314;
 

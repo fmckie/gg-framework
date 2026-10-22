@@ -13,6 +13,7 @@ import {
   LockKeyIcon,
   PaperPlaneTiltIcon,
   ProhibitIcon,
+  SignInIcon,
   type Icon,
 } from "@phosphor-icons/react";
 import { Modal } from "../Modal";
@@ -44,8 +45,8 @@ export const VOICE_GUIDE: readonly GuideSection[] = [
       {
         id: "show",
         icon: EyeIcon,
-        title: "Read and show your files",
-        body: "She can read out the reports and documents your chats, coding sessions, specialists, groups and projects made, and pull one up on your screen without ending the call.",
+        title: "Show you things while you talk",
+        body: "She can read out the reports and documents your chats, coding sessions, specialists, groups and projects made, and put them up beside her while the call goes on: documents, PDFs and pictures, including your projects' plans and images they made. She can show a web page she found as a picture of the page, with Open in browser for the page itself. Tap what she shows to see it full size. Say “close it”, or tap ×, to take it down. Web pages and PDFs need a Mac host on macOS 14 or later.",
       },
       {
         id: "send",
@@ -80,13 +81,19 @@ export const VOICE_GUIDE: readonly GuideSection[] = [
         id: "no-act",
         icon: HandIcon,
         title: "Act on what she reads",
-        body: "Instructions inside a web page, file or chat are information to her, not orders. Sending, starting or changing anything needs you to ask.",
+        body: "Instructions inside a web page, file or chat are information to her, not orders. Sending, starting or changing anything needs you to ask. If she has read something since you last spoke, she asks before opening a web page, because opening one contacts its site.",
       },
       {
         id: "no-code",
         icon: CodeIcon,
         title: "Change your files or code",
         body: "She can't edit anything herself. Coding work goes to a coding agent, with a brief you approved.",
+      },
+      {
+        id: "no-sign-in",
+        icon: SignInIcon,
+        title: "Sign in to websites as you",
+        body: "Your host opens web pages without your accounts, so a page that needs your login or a subscription shows its sign-in or paywall page. Open it in your browser to see yours.",
       },
     ],
   },

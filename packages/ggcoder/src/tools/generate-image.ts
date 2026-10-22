@@ -26,8 +26,14 @@ export type GenerateImageAuth = {
  * built-in `image_generation` tool, with the image model selected on that tool.
  */
 const CODEX_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
-/** Model that supports the image_generation Responses API tool. */
-const IMAGE_GEN_MODEL = "gpt-5.5";
+/**
+ * The model that calls the image_generation tool (the image model itself is
+ * set on the tool). It must be one the ChatGPT backend still lists for Codex:
+ * a retired one is refused with "The 'gpt-5.5' model is not supported when
+ * using Codex with a ChatGPT account". Luna is the fastest and cheapest, and
+ * all it has to do is call the tool.
+ */
+const IMAGE_GEN_MODEL = "gpt-6-luna";
 
 const GenerateImageParams = z.object({
   prompt: z.string().describe("Text description of the image to generate or the edit to apply"),

@@ -7,9 +7,13 @@
 # MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
 # step 6 waits (1 to 600, default 60). In order:
 #   1. Builds @kleio/coder and the packages it bundles from this checkout, then
-#      the sidecar bundle from them, then the host, as the README does.
+#      the sidecar bundle from them, then the host and its page and PDF capture
+#      helper (build-capture.sh, needs Xcode), as the README does.
 #   2. Checks the mini, read-only: the code, state and launchd files are there,
 #      there is room for a backup, and no earlier deploy was left unfinished.
+#      It says which macOS the mini runs, and warns below macOS 14, where the
+#      capture helper can't run (voice shows of web pages and PDFs fail; the
+#      rest works).
 #   3. Marks a deploy in progress (~/kleio-host/.deploy-in-progress) and keeps
 #      the code that runs now in ~/kleio-host/.prev (dist, sidecar,
 #      install-mini.sh and the two launchd plists) for rollback-mini.sh.
@@ -150,6 +154,18 @@ if [ "$problems" = 0 ]; then
     problems=1
   fi
 fi
+# The page and PDF capture helper needs macOS 14 (WebKit's proxy settings).
+macos=$(sw_vers -productVersion 2>/dev/null || true)
+major=${macos%%.*}
+case "$major" in
+  '' | *[!0-9]*) echo "Couldn't tell which macOS the mini runs; showing web pages and PDFs needs macOS 14 or later." >&2 ;;
+  *)
+    echo "macOS $macos"
+    if [ "$major" -lt 14 ]; then
+      echo "The mini runs macOS $macos: showing web pages and PDFs in a voice call needs macOS 14 or later. The rest of the host works." >&2
+    fi
+    ;;
+esac
 exit "$problems"
 EOF
 }
@@ -336,11 +352,13 @@ if [ "$BUILD" = 1 ]; then
   run pnpm --filter '@kleio/coder...' build
   run node gg-app/scripts/bundle-sidecar.mjs
   run pnpm --filter @kleio/host build
+  # After the host: its build empties dist/, where the helper goes.
+  run sh packages/kleio-host/scripts/build-capture.sh
 else
   echo "skipped (--no-build)"
 fi
 if [ "$DRY" = 0 ]; then
-  for f in packages/kleio-host/dist/cli.js gg-app/src-tauri/sidecar/app-sidecar.mjs packages/kleio-host/scripts/install-mini.sh; do
+  for f in packages/kleio-host/dist/cli.js packages/kleio-host/dist/bin/kleio-capture gg-app/src-tauri/sidecar/app-sidecar.mjs packages/kleio-host/scripts/install-mini.sh; do
     [ -f "$f" ] || { echo "deploy-mini: missing $f; build first (or drop --no-build)" >&2; exit 1; }
   done
 fi

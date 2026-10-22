@@ -55,13 +55,15 @@ export function withHelperMention(draft: string): string {
 export type ComposerButtonAction = "send" | "stop";
 
 /**
- * Mid-run the round button stops the build, except for a question to the
- * helper: the helper runs alongside the build, so that draft can go now. On
- * the iPhone this is the only way to send mid-run, because Return adds a line.
+ * Mid-run the round button stops the build, except when the draft can go now:
+ * a question to the helper, which runs alongside the build, or on the iPhone
+ * any draft (`queueable`), which queues for the agent to take mid-run, as
+ * Enter does on the desktop. With nothing to send it stops.
  */
 export function composerButtonAction(
   running: boolean,
   question: string | null,
+  queueable = false,
 ): ComposerButtonAction {
-  return running && !question ? "stop" : "send";
+  return running && !question && !queueable ? "stop" : "send";
 }

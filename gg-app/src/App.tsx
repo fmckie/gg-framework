@@ -100,7 +100,7 @@ import {
 import { isPhone, supportsDictation } from "./platform";
 import { focusesComposerOnOpen, refocusesComposer } from "./composer-refocus";
 import { needsRehydrate, type RehydrateMemory } from "./phone-lifecycle";
-import { onScreenKeyboardUp } from "./phone-viewport";
+import { returnSends } from "./phone-viewport";
 import { useNotificationTaps, type TapDestination } from "./notification-tap";
 import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
@@ -135,6 +135,8 @@ import { WakeScreen } from "./WakeScreen";
 import { MotionStarters } from "./MotionStarters";
 import { ConfirmModal } from "./ConfirmModal";
 import { InitGitModal } from "./InitGitModal";
+import { HostFoldersModal } from "./HostFoldersModal";
+import { NO_FOLDERS_TO_REMOVE, RemoveDirModal } from "./RemoveDirModal";
 import { PlanModeLogo } from "./PlanModeLogo";
 import { KenPowerBanner } from "./KenPowerBanner";
 import { ExportChatButton } from "./ExportChatButton";
@@ -181,7 +183,11 @@ import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
 import { talkToKleio } from "./kleio/VoiceMode";
-import { WorkspaceFileCards, WorkspaceFilesProvider } from "./kleio/WorkspaceFiles";
+import {
+  useOpenFromHost,
+  WorkspaceFileCards,
+  WorkspaceFilesProvider,
+} from "./kleio/WorkspaceFiles";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -907,6 +913,8 @@ function App(): React.ReactElement {
   }, []);
   // Initialize-git modal (shown via the top-right button when not yet a repo).
   const [showInitGit, setShowInitGit] = useState(false);
+  // kleio: the folder list /add-dir (paired with a Kleio host) or /remove-dir opened.
+  const [dirPicker, setDirPicker] = useState<"add-dir" | "remove-dir" | null>(null);
   // True once the initial hydrate (state + models + commands + history) has
   // settled for the current project/session. Gates the footer + chrome so they
   // reveal fully-formed in one pass instead of popping in piecemeal (cwd, git,
@@ -1938,9 +1946,10 @@ function App(): React.ReactElement {
   // lead+rest render in the normal input color.
   const kenInputParts = helperTokenParts(input);
   // The question a helper-addressed draft asks (null for a draft to the coder).
-  // submit() routes on it, and mid-run it keeps the round button on Send.
+  // submit() routes on it, and mid-run it keeps the round button on Send. So
+  // does any draft on the iPhone, where the button is how a message queues.
   const helperAsk = workspaceMode === "code" ? helperQuestion(input) : null;
-  const composerAction = composerButtonAction(running, helperAsk);
+  const composerAction = composerButtonAction(running, helperAsk, isPhone() && !sendDisabled);
   // `@`-mention picker: open whenever a mention token is active and the search
   // returned at least one file. Clamp the highlighted row to the result count.
   // Never open while the helper token leads the draft: it addresses Ken, not a file.
@@ -2026,16 +2035,30 @@ function App(): React.ReactElement {
   }
 
   async function pickWorkspaceDirectory(command: "add-dir" | "remove-dir"): Promise<void> {
+    // kleio: /remove-dir can only drop a folder this session added, so it picks
+    // from those, here or on a Kleio host alike, instead of opening a dialog.
+    if (command === "remove-dir") {
+      if ((state?.additionalRoots ?? []).length === 0) {
+        pushItem({ kind: "info", id: nextId(), text: NO_FOLDERS_TO_REMOVE });
+        return;
+      }
+      setDirPicker("remove-dir");
+      return;
+    }
+    // kleio: paired with a Kleio host, the session runs on the host's disk,
+    // which this device's folder dialog can't see. List the host's folders
+    // instead, as ProjectPicker's Open existing does.
+    if (kleioRemote.status?.active?.host) {
+      setDirPicker("add-dir");
+      return;
+    }
     const selected = await open({
       directory: true,
       multiple: false,
-      title:
-        command === "add-dir"
-          ? "Add project folder to workspace"
-          : "Remove project folder from workspace",
+      title: "Add project folder to workspace",
     });
     if (typeof selected !== "string") return;
-    submitText(`/${command} ${selected}`, command === "add-dir" ? "/add-dir" : "/remove-dir");
+    submitText(`/add-dir ${selected}`, "/add-dir");
   }
 
   // Detect an active `@`-mention token at the caret: a `@` that starts at a word
@@ -3485,10 +3508,11 @@ function App(): React.ReactElement {
                   if (navigateHistory(e.key === "ArrowUp" ? -1 : 1, e.currentTarget)) {
                     e.preventDefault();
                   }
-                } else if (e.key === "Enter" && !e.shiftKey && !onScreenKeyboardUp()) {
+                } else if (e.key === "Enter" && !e.shiftKey && returnSends(running)) {
                   // Enter sends; Shift+Enter inserts a newline (textarea default).
-                  // iPhone: the on-screen Return key adds a line, as in Messages;
-                  // the send button sends (a hardware keyboard's Enter still sends).
+                  // iPhone: the on-screen Return key adds a line, as in Messages,
+                  // except during a run, where it queues the draft like the send
+                  // button (a hardware keyboard's Enter always sends).
                   e.preventDefault();
                   submit();
                 } else if (e.key === "Escape") {
@@ -3504,8 +3528,8 @@ function App(): React.ReactElement {
           </div>
           {/* Send doubles as the stop control mid-run, so the primary action
               never moves. Mid-run it stays Send for a question to the helper,
-              which runs alongside the build (on the iPhone, where Return adds a
-              line, that is the only way to send one). It stays on the text's
+              which runs alongside the build, and on the iPhone for any draft,
+              which queues; with nothing typed it stops. It stays on the text's
               line while the draft fits one line, and drops below with the field
               once the text wraps. */}
           <div className="inputactions-trailing">
@@ -3740,6 +3764,27 @@ function App(): React.ReactElement {
         />
       )}
 
+      {dirPicker === "add-dir" && activeRemote && (
+        <HostFoldersModal
+          host={activeRemote.host}
+          onClose={() => setDirPicker(null)}
+          onPick={(folder) => {
+            setDirPicker(null);
+            submitText(`/add-dir ${folder.path}`, "/add-dir");
+          }}
+        />
+      )}
+      {dirPicker === "remove-dir" && (
+        <RemoveDirModal
+          roots={state?.additionalRoots ?? []}
+          onClose={() => setDirPicker(null)}
+          onPick={(root) => {
+            setDirPicker(null);
+            submitText(`/remove-dir ${root}`, "/remove-dir");
+          }}
+        />
+      )}
+
       {/* Always mounted: an MCP server can ask for input at any moment, in any
           workspace mode, and its tool call stays blocked until we answer. */}
       <McpElicitModal />
@@ -3889,6 +3934,7 @@ function TranscriptRowBody({
   /** Answer this question by typing in the composer instead of clicking. */
   onAskType?: (itemId: number, promptId: string, questionId: string, seed?: string) => void;
 }): React.ReactElement | null {
+  const openFromHost = useOpenFromHost();
   switch (item.kind) {
     case "user":
       if (item.kenSent) {
@@ -4093,8 +4139,10 @@ function TranscriptRowBody({
       return (
         <div className="img-grid">
           {item.images.map((img, i) => {
+            // Connected to a host, the path is on the host: open it from there.
             const openImage = (): void => {
-              if (img.path) void openProjectPath(img.path);
+              if (!img.path || openFromHost(img.path)) return;
+              void openProjectPath(img.path);
             };
             return (
               <figure

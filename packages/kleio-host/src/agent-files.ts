@@ -4,10 +4,29 @@
 // a session's files come from the sidecar and are kept only when their real
 // path sits strictly inside the session's folder. Reading goes through
 // files.ts's resolveAgentFile, so every rule of the file route applies.
+//
+// Hidden folders are never walked, with one exception for listing: the
+// pictures generate_image made, in an owner's own `.gg/generated` folder, one
+// level deep and never through a symlink, so she can show "the picture you made".
 
 import { lstat, readdir, realpath } from "node:fs/promises";
-import { extname, isAbsolute, relative, sep } from "node:path";
+import { extname, isAbsolute, join, relative, sep } from "node:path";
 import { err, ok, type Result } from "./result.js";
+
+/** Whose files list_files, read_file and a show look at. */
+export type FilesSource = "kleio" | "specialist" | "group" | "chat" | "code" | "project";
+const FILES_SOURCES: ReadonlySet<string> = new Set([
+  "kleio",
+  "specialist",
+  "group",
+  "chat",
+  "code",
+  "project",
+]);
+
+export function isFilesSource(v: unknown): v is FilesSource {
+  return typeof v === "string" && FILES_SOURCES.has(v);
+}
 
 export type FileKind =
   | "pdf"
@@ -162,14 +181,86 @@ export function walkable(segments: readonly string[]): boolean {
   );
 }
 
+/** Pictures a voice show can draw, by lowercase extension: their content types. */
+export const SHOWN_IMAGES: ReadonlyMap<string, string> = new Map([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["webp", "image/webp"],
+]);
+
+/** The hidden folders of an owner's a show may look in: its plans, and what generate_image made. */
+export type GgFolder = "plans" | "generated";
+/** Where generate_image puts its pictures, relative to the folder it ran in. */
+export const GENERATED_PATH = ".gg/generated";
+
+/**
+ * `<base>/.gg/<name>`'s real path, or null when it is missing, not a folder,
+ * or reached through a symlink (`.gg` or the folder itself).
+ */
+export async function ggFolder(base: string, name: GgFolder): Promise<string | null> {
+  try {
+    const want = join(await realpath(base), ".gg", name);
+    return (await realpath(want)) === want && (await lstat(want)).isDirectory() ? want : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a "/"-split relative path is a picture directly inside the owner's `.gg/generated`. */
+export function isGeneratedImage(segments: readonly string[]): boolean {
+  const [gg, folder, name, ...rest] = segments;
+  return (
+    gg === ".gg" &&
+    folder === "generated" &&
+    name !== undefined &&
+    name.length > 0 &&
+    !name.startsWith(".") &&
+    rest.length === 0 &&
+    SHOWN_IMAGES.has(extensionOf(name))
+  );
+}
+
+/**
+ * The pictures generate_image made for an owner: regular files directly
+ * inside `<base>/.gg/generated` (by lstat, so no symlink), with a picture's
+ * extension a show can draw. Their paths start `.gg/generated/`.
+ */
+export async function generatedImages(base: string): Promise<FoundFile[]> {
+  const dir = await ggFolder(base, "generated");
+  if (dir === null) return [];
+  let names: string[];
+  try {
+    names = (await readdir(dir)).sort().slice(0, MAX_VISITED);
+  } catch {
+    return [];
+  }
+  const out: FoundFile[] = [];
+  for (const name of names) {
+    if (!isGeneratedImage([".gg", "generated", name])) continue;
+    let st;
+    try {
+      st = await lstat(join(dir, name));
+    } catch {
+      continue;
+    }
+    if (st.isFile())
+      out.push({ path: `${GENERATED_PATH}/${name}`, name, size: st.size, mtimeMs: st.mtimeMs });
+  }
+  return out;
+}
+
 /**
  * Every regular file under `root`, breadth first, by lstat: a symlink is
  * neither listed nor followed. Hidden names and SKIPPED_FOLDERS are left out;
  * `skipTop` names are left out at the top level only. A missing folder is empty.
+ * The walk stops after `maxVisited` directory entries: MAX_VISITED, or fewer in tests.
  */
 export async function listFolder(
   root: string,
   skipTop: ReadonlySet<string> = new Set(),
+  maxVisited = MAX_VISITED,
 ): Promise<FoundFile[]> {
   let base: string;
   try {
@@ -191,7 +282,7 @@ export async function listFolder(
         continue;
       }
       for (const name of names) {
-        if (++visited > MAX_VISITED) return out;
+        if (++visited > maxVisited) return out;
         if (name.startsWith(".")) continue;
         if (depth === 0 && skipTop.has(name)) continue;
         const full = dir + sep + name;
@@ -228,7 +319,9 @@ const MAX_PATH = 4096;
 /**
  * The files a chat or coding session reported (absolute, unvalidated) that
  * are regular files whose real path is strictly inside `dir` (a real path),
- * with no hidden segment on the way. Paths are relative to `dir`.
+ * with no hidden segment on the way, but for the pictures it generated
+ * (`.gg/generated/<picture>`, see isGeneratedImage). Real paths both, so such
+ * a path has no symlink on the way. Paths are relative to `dir`.
  */
 export async function sessionFiles(dir: string, reported: unknown): Promise<FoundFile[]> {
   if (!Array.isArray(reported)) return [];
@@ -249,7 +342,7 @@ export async function sessionFiles(dir: string, reported: unknown): Promise<Foun
     const rel = relative(dir, real);
     if (rel.length === 0 || isAbsolute(rel)) continue;
     const segments = rel.split(sep);
-    if (segments.includes("..") || !walkable(segments)) continue;
+    if (segments.includes("..") || !(walkable(segments) || isGeneratedImage(segments))) continue;
     const path = segments.join("/");
     if (seen.has(path)) continue;
     seen.add(path);

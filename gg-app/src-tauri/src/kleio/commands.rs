@@ -572,6 +572,16 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
         || under(&segs, &["kleio", "groups"])
         || (under(&segs, &["kleio", "connections"])
             && !under(&segs, &["kleio", "connections", "callback"]));
+    // Her voice's shows (kleio-host show.ts): POST makes one, GET …/<id>
+    // says how it is, each with its own method and no query. A show's parts
+    // (its text, picture or pages) come through `kleio_show_part` (show.rs).
+    let show = q.is_none()
+        && match segs.as_slice() {
+            ["kleio", "voice", "show"] => method == "POST",
+            ["kleio", "voice", "show", id] => method == "GET" && super::show::valid_show_id(id),
+            _ => false,
+        };
+    let product = product || show;
     // Answering an `ask_user` band: POST /ask/ask-<n>, nothing else under /ask.
     let ask = method == "POST"
         && q.is_none()
@@ -932,6 +942,53 @@ mod tests {
             assert!(check_route("POST", p, None).is_err(), "{p}");
         }
         assert!(check_route("GET", "/kleio/setup", Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_makes_a_show_and_asks_how_it_is_and_nothing_else() {
+        let id = "sh_0123456789abcdef0123456789abcdef";
+        assert_eq!(check_route("POST", "/kleio/voice/show", None), Ok(false));
+        assert_eq!(
+            check_route("GET", &format!("/kleio/voice/show/{id}"), None),
+            Ok(false)
+        );
+        for (m, p) in [
+            // Each route with its own method only.
+            ("GET", "/kleio/voice/show".to_string()),
+            ("PUT", "/kleio/voice/show".to_string()),
+            ("DELETE", "/kleio/voice/show".to_string()),
+            ("POST", format!("/kleio/voice/show/{id}")),
+            ("DELETE", format!("/kleio/voice/show/{id}")),
+            ("PATCH", format!("/kleio/voice/show/{id}")),
+            // No query: a web address goes in the body.
+            (
+                "POST",
+                "/kleio/voice/show?url=https%3A%2F%2Fexample.com".to_string(),
+            ),
+            ("GET", format!("/kleio/voice/show/{id}?x=1")),
+            // Parts come through kleio_show_part, never as JSON.
+            ("GET", format!("/kleio/voice/show/{id}/image")),
+            ("GET", format!("/kleio/voice/show/{id}/text")),
+            ("GET", format!("/kleio/voice/show/{id}/page-1")),
+            // Only an id as the host makes them.
+            ("GET", "/kleio/voice/show/sh_0123".to_string()),
+            (
+                "GET",
+                "/kleio/voice/show/SH_0123456789ABCDEF0123456789ABCDEF".to_string(),
+            ),
+            (
+                "GET",
+                "/kleio/voice/show/sh_0123456789abcdef0123456789abcdeg".to_string(),
+            ),
+            ("GET", "/kleio/voice/show/..".to_string()),
+            ("GET", "/kleio/voice/show/".to_string()),
+            ("GET", "/kleio/voice/shows".to_string()),
+            ("POST", "/kleio/voice/show/".to_string()),
+        ] {
+            assert!(check_route(m, &p, None).is_err(), "{m} {p}");
+        }
+        assert!(check_route("POST", "/kleio/voice/show", Some("sess-1")).is_err());
+        assert!(check_route("GET", &format!("/kleio/voice/show/{id}"), Some("sess-1")).is_err());
     }
 
     #[test]

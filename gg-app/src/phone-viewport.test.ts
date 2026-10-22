@@ -4,6 +4,7 @@ import {
   bottomCovered,
   keyboardOpen,
   onScreenKeyboardUp,
+  returnSends,
   trackVisualViewport,
 } from "./phone-viewport";
 
@@ -98,5 +99,22 @@ describe("onScreenKeyboardUp", () => {
     doc.documentElement.classList.add("keyboard-open");
 
     expect(onScreenKeyboardUp(doc)).toBe(true);
+  });
+});
+
+describe("returnSends", () => {
+  it("adds a line from the on-screen keyboard, but queues the draft during a run", () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.documentElement.classList.add("keyboard-open");
+
+    expect(returnSends(false, doc)).toBe(false);
+    expect(returnSends(true, doc)).toBe(true);
+  });
+
+  it("always sends from a hardware keyboard", () => {
+    const doc = document.implementation.createHTMLDocument();
+
+    expect(returnSends(false, doc)).toBe(true);
+    expect(returnSends(true, doc)).toBe(true);
   });
 });

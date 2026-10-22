@@ -26,7 +26,15 @@ import { WorkingBeam } from "../WorkingBeam";
 import { scheduledPrompt } from "./blobFormat";
 import { ChatAsk, typedAnswer } from "./ChatAsk";
 import { FileCards } from "./FileCard";
-import { fileErrorText, fileLinks, openFile, ownerFilePath, type FileOwner } from "./kleioFiles";
+import { isSitePath } from "./filePaths";
+import { useOpenFile } from "./viewerContext";
+import {
+  fileErrorText,
+  fileLinks,
+  ownerFilePath,
+  siteErrorText,
+  type FileOwner,
+} from "./kleioFiles";
 import { startLiveActivity } from "./liveActivity";
 import { LiveToolFeed } from "./LiveToolFeed";
 import {
@@ -238,17 +246,19 @@ export function ThreadChat({
     autosizeComposer(inputRef.current, logRef.current, following());
   }, [draft, following]);
 
-  // A click on a link to one of the agent's files opens it on this Mac.
+  // A click on a link to one of the agent's files opens it: in the file
+  // viewer when Kleio draws its kind, as a site for a web page, else in its app.
+  const openAt = useOpenFile();
   const handleLink = useCallback(
     (href: string): boolean => {
       const path = owner ? ownerFilePath(href, owner) : null;
       if (!owner || !path) return false;
-      openFile(owner, path).catch((e: unknown) => {
-        if (alive.current) setError(fileErrorText(e));
+      openAt(owner, path).catch((e: unknown) => {
+        if (alive.current) setError(isSitePath(path) ? siteErrorText(e) : fileErrorText(e));
       });
       return true;
     },
-    [owner],
+    [owner, openAt],
   );
 
   async function send(): Promise<void> {

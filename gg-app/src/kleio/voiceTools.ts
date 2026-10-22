@@ -5,8 +5,10 @@
 // to send (a draft first, then a send that names the draft), which for coding
 // work starts a coding agent in a project; changing the Brain; and starting a
 // new chat or making a new project on their Mac (a few per turn, never
-// straight after reading outside content). show_file puts a file on this
-// screen, over the call; it changes nothing.
+// straight after reading outside content). show puts a file, or a web page
+// the host draws, on this screen beside her, and hide takes it down; they
+// change nothing. A page contacts its site, so it too waits for the user to
+// speak after a read, and a few per turn at most.
 
 import {
   getBrief,
@@ -29,9 +31,11 @@ import {
   newProject,
   startCodeWork,
   listSpecialistMessages,
+  createFileShow,
+  createLinkShow,
+  getShow,
   KleioApiError,
   type AgentFileEntry,
-  type AgentFileList,
   type AgentFileText,
   type Blob,
   type FileKind,
@@ -41,8 +45,11 @@ import {
   type ProjectSummary,
   type SavedSession,
   type SavedSessionKind,
+  type ShowInfo,
+  type ShowView,
 } from "./kleioApi";
-import { fetchFile, fileErrorText, type FileInfo, type FileOwner as FileFrom } from "./kleioFiles";
+import type { ViewFile } from "./viewerContext";
+import { safeExternalUrl } from "./safeUrl";
 
 /** The Brain's tools (durable memory + Jiwa), run on the Mac mini like text chat's. */
 const BRAIN_TOOLS = new Set([
@@ -563,95 +570,103 @@ async function listFiles(args: Record<string, unknown>): Promise<ToolOutput> {
   };
 }
 
-/** A file show_file put on the screen, fetched already (FileCard shows it). */
-export interface ShownFile {
-  readonly owner: FileFrom;
-  readonly path: string;
-  readonly name: string;
-  /** Whose it is, as the model was told ("Kleio", a chat's title). */
+/** Why a show isn't on the screen, when the host said no: the panel says so. */
+export type ShowProblem =
+  /** This host can't draw web pages or PDFs (it isn't a Mac on macOS 14, or lacks the helper). */
+  | { readonly kind: "unavailable" }
+  /** The host has no show routes yet: it needs updating. */
+  | { readonly kind: "outdated" }
+  /** A private or local address: never offered to open. */
+  | { readonly kind: "refused"; readonly text: string }
+  /** Anything else, in plain words. */
+  | { readonly kind: "failed"; readonly text: string };
+
+/** What she put on the screen beside her (show), as the panel draws it. */
+export interface Shown {
+  /** Numbers the shows in a call: the panel starts afresh for each. */
+  readonly key: number;
+  /** A file's name, or a page's site (its own title once the host has drawn it). */
+  readonly title: string;
+  /** Whose it is, as the model was told ("Kleio", a chat's title), or the page's site. */
   readonly whose: string;
-  readonly info: FileInfo;
+  /** The host's show; null when it said no. */
+  readonly show: ShowInfo | null;
+  /** A page's address as checked here (safeExternalUrl), for "Open in browser". */
+  readonly url: string | null;
+  /** Why it isn't there, when the host said no or the page never came. */
+  readonly problem: ShowProblem | null;
+  /**
+   * Where its file is, for a specialist's or a group member's file: opened
+   * full size (FileViewer.tsx), it can also be opened in its app or saved.
+   * Null for anything else: Kleio's own files, a chat's, a coding session's
+   * and a project's have no file route in the app, and a page has its link.
+   */
+  readonly file: ViewFile | null;
 }
 
-/** Where a listed file is fetched from to show it, or null if it can't be. */
-function shownOwner(
-  source: FileSource,
-  id: string | undefined,
-  file: AgentFileEntry,
-  cwd: string | undefined,
-): FileFrom | null {
-  // The device's fetch refuses hidden folders (a project's .gg/plans).
-  if (file.path.split("/").some((s) => s.startsWith("."))) return null;
-  switch (source) {
-    case "specialist":
-      return id ? { kind: "blob", blobId: id } : null;
-    case "group":
-      return id && file.member ? { kind: "group", groupId: id, blobId: file.member } : null;
-    case "kleio":
-    case "chat":
-    case "code":
-    case "project":
-      return cwd ? { kind: "workspace", cwd } : null;
+/** Where the app's file routes find a file she shows (Shown.file), or null. */
+function appFile(source: FileSource, id: string | undefined, f: AgentFileEntry): ViewFile | null {
+  if (!id) return null;
+  if (source === "specialist") return { owner: { kind: "blob", blobId: id }, path: f.path };
+  if (source === "group" && f.member) {
+    return { owner: { kind: "group", groupId: id, blobId: f.member }, path: f.path };
   }
+  return null;
 }
 
-async function showFile(
-  args: Record<string, unknown>,
-  onShow: ((file: ShownFile) => void) | undefined,
-): Promise<ToolOutput> {
-  const o = await fileOwner(args.from, clip(str(args.name), NAME_MAX));
-  if (!o.ok) return { shown: false, error: o.error };
-  const { source, id, whose } = o.value;
-  let listing: AgentFileList;
-  try {
-    listing = await listAgentFiles(source, id);
-  } catch (e) {
-    return { shown: false, error: fileError(e, whose, false) };
-  }
-  const { files } = listing;
-  if (files.length === 0) return { shown: false, error: `${whose} has no files yet.` };
-  const label = (f: AgentFileEntry): string => (f.by ? `${f.path} (by ${f.by})` : f.path);
-  const said = clip(str(args.file), FILE_MAX);
-  const m = matchFile(files, said, label);
-  if (!m.ok) {
-    if (m.reason === "many") {
-      return { shown: false, error: m.error, next: "Ask which one they mean, then show that one." };
-    }
-    const near = closestFile(files, said, label);
-    const newest = files[0];
+/** What she hears once something is up. */
+const SHOWN_NOTE =
+  "It's on their screen beside you now, and the call keeps going. Say so in a few words; don't read it out unless they ask.";
+/** The host's own words for a host that can't draw pages or PDFs (capture.ts). */
+const CANT_DRAW = "Kleio can't show web pages or PDFs on this host.";
+/** The most web pages shown in one user turn: each one contacts its site. */
+const PAGES_PER_TURN = 3;
+/** How often, and how many times, a page being drawn is asked after: about 30 s (the host stops at 25). */
+const CAPTURE_POLL_MS = 600;
+const CAPTURE_POLLS = 50;
+
+/** A host from before shows: an admin device hears "not found", any other "forbidden". */
+function hostOutdated(e: KleioApiError): boolean {
+  return (
+    (e.status === 404 && e.message === "not found") ||
+    (e.status === 403 && e.message === "forbidden")
+  );
+}
+
+/**
+ * Why the host wouldn't make a show: what the panel shows (null for nothing:
+ * she just says it, as for a file that has gone) and what she's told.
+ */
+function showFailure(e: unknown): { problem: ShowProblem | null; error: string } {
+  if (!(e instanceof KleioApiError)) {
     return {
-      shown: false,
-      error: said ? `No file matches "${said}".` : "Say which file to show.",
-      ...(near
-        ? { closest: label(near), next: "Ask whether they mean the closest match." }
-        : newest
-          ? { newest: label(newest), next: "Ask whether they mean the newest file." }
-          : {}),
+      problem: null,
+      error: `That didn't work: ${e instanceof Error ? e.message : String(e)}`,
     };
   }
-  const f = m.value;
-  const owner = shownOwner(source, id, f, listing.cwd);
-  const cantShow = (why: string): ToolOutput => ({
-    shown: false,
-    file: label(f),
-    error: why,
-    ...(f.readable ? { next: "Offer to read it out instead (read_file)." } : {}),
-  });
-  if (!owner || !onShow) return cantShow("That file can't be shown on this screen.");
-  // Fetched here, so she only says it's up once it is (the viewer reuses this).
-  let info: FileInfo;
-  try {
-    info = await fetchFile(owner, f.path);
-  } catch (e) {
-    return cantShow(fileErrorText(e));
+  if (hostOutdated(e)) {
+    return {
+      problem: { kind: "outdated" },
+      error: "Their host needs an update before Kleio can show things on their screen.",
+    };
   }
-  onShow({ owner, path: f.path, name: f.name, whose, info });
-  return {
-    shown: true,
-    file: label(f),
-    type: kindLabel(f.kind),
-    note: "It's open on their screen now, over this call, which keeps going. Say so in a few words; don't read it out unless they ask.",
-  };
+  switch (e.status) {
+    case 0:
+    case 503:
+      return { problem: null, error: "Couldn't reach their host just now." };
+    case 400:
+      return { problem: null, error: "The host didn't accept that request." };
+    case 401:
+      return { problem: null, error: "Their host didn't accept this device." };
+    case 404:
+      return { problem: null, error: "That file isn't there any more." };
+    case 501:
+      return { problem: { kind: "unavailable" }, error: e.detail ?? CANT_DRAW };
+  }
+  const text = e.detail ?? "It couldn't be shown.";
+  return e.message === "refused"
+    ? { problem: { kind: "refused", text }, error: text }
+    : { problem: { kind: "failed", text }, error: text };
 }
 
 async function readFile(args: Record<string, unknown>): Promise<ToolOutput> {
@@ -738,8 +753,20 @@ export interface VoiceToolsDeps {
   readonly onSent?: (to: string) => void;
   /** Something new was made on their Mac, e.g. "project recipe-app" (shown on screen too). */
   readonly onMade?: (what: string) => void;
-  /** show_file: put a file on the screen, over the call. Without it nothing can be shown. */
-  readonly onShow?: (file: ShownFile) => void;
+  /** show: put this on the screen beside her, replacing what's there. Without it nothing can be shown. */
+  readonly onShow?: (shown: Shown) => void;
+  /**
+   * A page being drawn moved on (`now`), or is just being checked on
+   * (`now === was`): applied only if `was` is still what's showing. Returns
+   * whether it is, so a page they closed stops being waited for.
+   */
+  readonly onUpdate?: (was: Shown, now: Shown) => boolean;
+  /** hide: take down what's showing; the call carries on. */
+  readonly onHide?: () => void;
+  /** The width the host draws pages at: this screen's. */
+  readonly view?: ShowView;
+  /** Waits between asks while the host draws a page (injectable for tests). */
+  readonly wait?: (ms: number) => Promise<void>;
   readonly log?: (line: string) => void;
 }
 
@@ -756,7 +783,232 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
   // Projects made in the current user turn.
   let projectsTurn = -1;
   let projectsMade = 0;
+  // Web pages shown in the current user turn, and the shows put up this call.
+  let pagesTurn = -1;
+  let pagesShown = 0;
+  let shows = 0;
   const log = deps.log ?? (() => {});
+  const wait = deps.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  /** Puts something on the screen beside her, numbered; returns it as shown. */
+  function put(what: Omit<Shown, "key">): Shown {
+    const shown: Shown = { key: ++shows, ...what };
+    deps.onShow?.(shown);
+    return shown;
+  }
+
+  /** Whether `was` is still what's showing, moving it on to `now` if so. */
+  function update(was: Shown, now: Shown): boolean {
+    return deps.onUpdate ? deps.onUpdate(was, now) : true;
+  }
+
+  /**
+   * Waits while the host draws a page, keeping the panel in step: the show as
+   * it ended (ready, failed, or given up on here), or null once they closed it.
+   */
+  async function settle(first: Shown, host: string): Promise<Shown | null> {
+    let now = first;
+    for (let i = 0; i < CAPTURE_POLLS && now.show?.state === "capturing"; i++) {
+      await wait(CAPTURE_POLL_MS);
+      let next: Shown;
+      try {
+        const info = await getShow(now.show.id);
+        next = info.state === now.show.state ? now : { ...now, show: info };
+      } catch (e) {
+        const gone = e instanceof KleioApiError && (e.status === 404 || e.status === 410);
+        const text = gone
+          ? "That has expired. Ask Kleio to show it again."
+          : "Couldn't reach their host just now.";
+        next = { ...now, problem: { kind: "failed", text } };
+      }
+      if (!update(now, next)) return null;
+      now = next;
+      if (now.problem) return now;
+    }
+    if (now.show?.state !== "capturing") return now;
+    const late: Shown = { ...now, problem: { kind: "failed", text: `${host} took too long.` } };
+    return update(now, late) ? late : null;
+  }
+
+  /** show for a file from list_files: the host readies it, then it's put up. */
+  async function showFile(args: Record<string, unknown>): Promise<ToolOutput> {
+    const o = await fileOwner(args.from, clip(str(args.name), NAME_MAX));
+    if (!o.ok) return { shown: false, error: o.error };
+    const { source, id, whose } = o.value;
+    let files: AgentFileEntry[];
+    try {
+      files = (await listAgentFiles(source, id)).files;
+    } catch (e) {
+      return { shown: false, error: fileError(e, whose, false) };
+    }
+    if (files.length === 0) return { shown: false, error: `${whose} has no files yet.` };
+    const label = (f: AgentFileEntry): string => (f.by ? `${f.path} (by ${f.by})` : f.path);
+    const said = clip(str(args.file), FILE_MAX);
+    const m = matchFile(files, said, label);
+    if (!m.ok) {
+      if (m.reason === "many") {
+        return {
+          shown: false,
+          error: m.error,
+          next: "Ask which one they mean, then show that one.",
+        };
+      }
+      const near = closestFile(files, said, label);
+      const newest = files[0];
+      return {
+        shown: false,
+        error: said ? `No file matches "${said}".` : "Say which file to show.",
+        ...(near
+          ? { closest: label(near), next: "Ask whether they mean the closest match." }
+          : newest
+            ? { newest: label(newest), next: "Ask whether they mean the newest file." }
+            : {}),
+      };
+    }
+    const f = m.value;
+    const file = appFile(source, id, f);
+    const cantShow = (why: string, next?: string): ToolOutput => ({
+      shown: false,
+      file: label(f),
+      error: why,
+      ...(next
+        ? { next }
+        : f.readable
+          ? { next: "Offer to read it out instead (read_file)." }
+          : {}),
+    });
+    if (!deps.onShow) return cantShow("Nothing can be shown on this screen.");
+    let info: ShowInfo;
+    try {
+      // Readied on the host (a document's text drawn out, a PDF counted), so
+      // she says it's up only once it can be drawn.
+      info = await createFileShow({
+        source,
+        ...(id ? { id } : {}),
+        ...(f.member ? { member: f.member } : {}),
+        path: f.path,
+      });
+    } catch (e) {
+      const failure = showFailure(e);
+      if (failure.problem)
+        put({ title: f.name, whose, show: null, url: null, problem: failure.problem, file });
+      return cantShow(
+        failure.error,
+        failure.problem?.kind === "unavailable" && f.readable
+          ? "Say so plainly, and offer to read it out instead (read_file)."
+          : undefined,
+      );
+    }
+    put({ title: f.name, whose, show: info, url: null, problem: null, file });
+    return {
+      shown: true,
+      file: label(f),
+      type: kindLabel(f.kind),
+      ...(info.kind === "pdf" && info.totalPages ? { pages: info.totalPages } : {}),
+      note: SHOWN_NOTE,
+    };
+  }
+
+  /**
+   * show for a web page or PDF online. Opening one contacts its site, and an
+   * address can carry what she has read, so after a read it waits for the
+   * user to speak (their yes), as starting a chat does; a few per turn.
+   */
+  async function showPage(raw: unknown): Promise<ToolOutput> {
+    const url = safeExternalUrl(typeof raw === "string" ? raw.trim() : raw);
+    if (!url) {
+      log("[voice] refused show: not a web address Kleio opens");
+      return {
+        shown: false,
+        error:
+          "That isn't a web address Kleio can show: only http and https pages, without a user name or password in them.",
+      };
+    }
+    const host = new URL(url).hostname;
+    if (userTurns <= lastRead) {
+      log("[voice] held show of a page: the user hasn't spoken since a read");
+      return {
+        shown: false,
+        ask_first: host,
+        error: `Not shown yet: you've read outside content since they last spoke, and opening a page contacts its site. Ask whether to open ${host}, and show it only after they say yes.`,
+      };
+    }
+    if (pagesTurn !== userTurns) {
+      pagesTurn = userTurns;
+      pagesShown = 0;
+    }
+    if (pagesShown >= PAGES_PER_TURN) {
+      log("[voice] held show of a page: too many this turn");
+      return {
+        shown: false,
+        error: `Not shown: you've already shown ${PAGES_PER_TURN} pages since they last spoke. Ask them before showing more.`,
+      };
+    }
+    if (!deps.onShow) return { shown: false, error: "Nothing can be shown on this screen." };
+    pagesShown++;
+    let info: ShowInfo;
+    try {
+      info = await createLinkShow(url, deps.view ?? "desktop");
+    } catch (e) {
+      const failure = showFailure(e);
+      if (failure.problem)
+        put({ title: host, whose: host, show: null, url, problem: failure.problem, file: null });
+      const offerLink =
+        failure.problem?.kind === "unavailable" || failure.problem?.kind === "outdated";
+      return {
+        shown: false,
+        site: host,
+        error: failure.error,
+        ...(offerLink
+          ? {
+              next: "Say so plainly, and offer the link instead: name the site, so they can open it themselves.",
+            }
+          : {}),
+      };
+    }
+    const end = await settle(
+      put({ title: host, whose: host, show: info, url, problem: null, file: null }),
+      host,
+    );
+    if (!end) return { shown: false, site: host, note: "They closed it before it was ready." };
+    const done = end.show;
+    if (end.problem || done?.state !== "ready") {
+      const p = end.problem;
+      return {
+        shown: false,
+        site: host,
+        error:
+          p && p.kind !== "unavailable" && p.kind !== "outdated"
+            ? p.text
+            : (done?.detail ?? "It couldn't be shown."),
+      };
+    }
+    if (done.kind === "pdf") {
+      return { shown: true, site: host, type: "PDF", pages: done.totalPages, note: SHOWN_NOTE };
+    }
+    return {
+      shown: true,
+      site: host,
+      type: "web page",
+      ...(done.signIn
+        ? {
+            sign_in: true,
+            note: "It's up, but it shows the site's sign-in or subscription page: what a visitor without their accounts sees. Say so in a few words, and that they can open it in their browser to see theirs.",
+          }
+        : { note: SHOWN_NOTE }),
+      ...(done.cut
+        ? {
+            cut: "Only the top of a long page is shown: they can open it in their browser for the rest.",
+          }
+        : {}),
+    };
+  }
+
+  /** show: a web page when it gives a url, else a file from list_files. */
+  function show(args: Record<string, unknown>): Promise<ToolOutput> {
+    const url = args.url;
+    return url === undefined || url === null || url === "" ? showFile(args) : showPage(url);
+  }
 
   async function target(
     to: string,
@@ -1020,7 +1272,14 @@ export function createVoiceTools(deps: VoiceToolsDeps): VoiceTools {
 
     list_files: listFiles,
     read_file: readFile,
-    show_file: (args) => showFile(args, deps.onShow),
+    show,
+    // An older host's name for show (files only): its voice still calls it.
+    show_file: show,
+
+    async hide() {
+      deps.onHide?.();
+      return { hidden: true };
+    },
 
     async draft_plan(args) {
       const plan = str(args.plan);
