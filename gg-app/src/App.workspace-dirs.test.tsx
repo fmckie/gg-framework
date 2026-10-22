@@ -68,7 +68,9 @@ function openSession(session: Session): { calls: string[]; prompts: string[] } {
             ],
           };
         case "agent_models":
-          return { models: [] };
+          // The session's model: an empty list makes ModelSelect retry for
+          // about 4 s, past the end of this file, into a torn-down window.
+          return { models: [{ id: "claude-sonnet-4-6", provider: "anthropic" }] };
         case "agent_tasks":
           return { tasks: [] };
         case "agent_history":
