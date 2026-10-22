@@ -122,6 +122,7 @@ async function sidecar(p: HostPaths, lock: SecretLock): Promise<void> {
     cwd: process.env.KLEIO_SIDECAR_CWD ?? p.work,
     env,
     endpointPath: p.sidecarEndpoint,
+    secretLock: lock,
     log,
   });
   const stop = (): void => {
