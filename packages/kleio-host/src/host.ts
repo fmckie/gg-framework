@@ -47,6 +47,7 @@ import {
 import { appendFile, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
+import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -252,6 +253,11 @@ export interface HostOptions {
   };
   /** Test seam: replaces the Jev router. */
   readonly groupRouter?: GroupRouter;
+  /**
+   * Locks the API key files to this user before a key goes in (acl.ts; a
+   * no-op off Windows). A failed lock fails the save. Default: for this OS.
+   */
+  readonly secretLock?: SecretLock;
 }
 
 export interface Host {
@@ -479,6 +485,8 @@ export function createHost(options: HostOptions): Host {
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());
   const { registry, offers, rings } = options;
+  const secretLock =
+    options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
   // The static-site preview origin (preview.ts): tokens minted here, served there.
   const previews: PreviewStore | null =
     options.previewPort === undefined
@@ -800,6 +808,7 @@ export function createHost(options: HostOptions): Host {
     ...(options.voice?.model ? { model: options.voice.model } : {}),
     ...(options.voice?.baseUrl ? { baseUrl: options.voice.baseUrl } : {}),
     ...(options.voice?.fetch ? { fetch: options.voice.fetch } : {}),
+    secretLock,
     log,
   });
   // Group names as the groups last said them, for the briefing.
@@ -1091,6 +1100,7 @@ export function createHost(options: HostOptions): Host {
         ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
         publicBaseUrl: options.publicBaseUrl,
         ggHome: options.composio?.ggHome ?? join(homedir(), ".gg"),
+        secretLock,
         // New tools: idle conversations are retired so their next turn loads them.
         onToolsChanged: async () => {
           await home.retireIdle();
@@ -2393,7 +2403,7 @@ export function createHost(options: HostOptions): Host {
               ...(options.jev?.fetch ? { fetch: options.jev.fetch } : {}),
             })
           : { kind: "bad_key" };
-        if (k && !failed) await saveKeyFile(typesafeKeyPath, k);
+        if (k && !failed) await saveKeyFile(typesafeKeyPath, k, secretLock);
       }
       if (failed) {
         log(`[setup] ${auth.device.label}: ${label} key not saved (${failed.kind})`);

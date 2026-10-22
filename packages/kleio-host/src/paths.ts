@@ -1,21 +1,24 @@
 // On-disk layout for the host. Everything lives under one state directory so
-// uninstall is one rm and permissions are one chmod.
+// uninstall is one rm and permissions are set in one place.
 //
 //   $KLEIO_HOST_HOME, else the OS default (resolveHostHome):
 //     macOS    ~/Library/Application Support/Kleio/host
 //     Windows  %LOCALAPPDATA%\Kleio\host
 //     Linux    $XDG_STATE_HOME/kleio/host (default ~/.local/state/kleio/host)
-//   ├── secure/                    0700
-//   │   ├── headless-master.key    0600, 32 random bytes
-//   │   ├── control-root.key       0600, macaroon root
-//   │   ├── admin.token            0600, from `init`
-//   │   └── device-registry.json   0600
+//   ├── secure/                    0700; locked on Windows
+//   │   ├── headless-master.key    0600, 32 random bytes; locked on Windows
+//   │   ├── control-root.key       0600, macaroon root; locked on Windows
+//   │   ├── admin.token            0600, from `init`; locked on Windows
+//   │   └── device-registry.json   0600; locked on Windows
 //   ├── composio.key, typesafe.key, openai.key
-//   │                              0600 API keys set from Settings
+//   │                              0600 API keys set from Settings; locked on Windows
 //   ├── rings/                     per-session SSE replay files
-//   ├── sidecar.json               0600, { port, token, pid } from the supervisor
+//   ├── sidecar.json               0600, { port, token, pid } from the supervisor; locked on Windows
 //   ├── work/                      default cwd for the sidecar
 //   └── logs/
+//
+// POSIX modes do nothing on Windows, so there "locked" means an ACL that
+// leaves only the current user any access (acl.ts, secure-dir.ts).
 import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 

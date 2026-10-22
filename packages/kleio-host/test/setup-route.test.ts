@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,10 +13,12 @@ import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SecretLock } from "../src/acl.js";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER, type Host, type HostOptions } from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
+import { err } from "../src/result.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
@@ -114,6 +117,7 @@ async function startHost(extra: Partial<HostOptions> = {}): Promise<void> {
     },
     jev: { baseUrl: "https://typesafe.test", fetch: typesafe.fetch, ...(extra.jev ?? {}) },
     ...(extra.voice ? { voice: extra.voice } : {}),
+    ...(extra.secretLock ? { secretLock: extra.secretLock } : {}),
     log: (m) => logs.push(m),
   });
   await host.start();
@@ -576,4 +580,29 @@ describe("GET/POST /kleio/setup/dictation", () => {
     });
     for (const b of bodies) expect(b).not.toMatch(/ENOTFOUND|\/Users|onnxruntime/);
   });
+});
+
+describe("a key save whose lock fails", () => {
+  for (const name of ["composio", "typesafe"] as const) {
+    it(`${name}: is 500 and leaves no key file`, async () => {
+      const locked: string[] = [];
+      const secretLock: SecretLock = {
+        lock: async (path) => {
+          locked.push(path);
+          return err({ kind: "icacls_failed", message: "icacls exited with 5" });
+        },
+      };
+      await startHost({ secretLock });
+      expect(await call("POST", `/kleio/setup/keys/${name}`, A, { key: KEY })).toEqual({
+        status: 500,
+        body: { error: "internal" },
+      });
+      // The key's own file was to be locked, while still empty.
+      expect(locked).toHaveLength(1);
+      expect(locked[0]?.startsWith(`${keyFile(name)}.tmp-`)).toBe(true);
+      expect(existsSync(keyFile(name))).toBe(false);
+      expect(readdirSync(home).filter((f) => f.includes(".tmp"))).toEqual([]);
+      expect((await call("GET", "/kleio/setup", A)).body.keys[name]).toBe("missing");
+    });
+  }
 });

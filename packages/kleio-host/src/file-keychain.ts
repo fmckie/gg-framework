@@ -56,9 +56,9 @@ function mode(stat: Stats): number {
 /**
  * POSIX mode and uid checks are the point of this keychain: the key is only as
  * private as its file. Windows has neither (chmod is a no-op, stat reports
- * 0666/0777, uid is 0), so on win32 the ownership/mode checks are skipped and
- * the caller must rely on NTFS ACLs. The host itself only ships for macOS;
- * this keeps the package's tests meaningful on every CI runner.
+ * 0666/0777, uid is 0), so on win32 the ownership/mode checks are skipped; the
+ * host locks `secure/` and the key to the current user with an ACL instead
+ * (acl.ts, applied by secure-dir.ts before the keychain is opened).
  */
 const POSIX_MODES = process.platform !== "win32";
 
