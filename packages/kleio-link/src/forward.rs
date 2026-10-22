@@ -24,6 +24,7 @@ use crate::link::Link;
 const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 /// How long [`Forward::listening`] waits for loopback to answer. It answers
 /// at once either way unless the listener's backlog is full.
+#[cfg(unix)]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// The loopback listener, and the link it forwards to.
@@ -53,6 +54,11 @@ impl Forward {
     /// never says so: connecting to it is just refused. This connects and
     /// closes at once without sending anything, which [`run`](Self::run)
     /// passes on as nothing at all. It blocks for at most 100 ms.
+    ///
+    /// Unix only. Windows retries a refused loopback connection for about a
+    /// second before it says so, so a 100 ms check there can't tell a port
+    /// nothing listens on from a slow listener.
+    #[cfg(unix)]
     pub fn listening(port: u16) -> bool {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
         match std::net::TcpStream::connect_timeout(&addr, PROBE_TIMEOUT) {
@@ -477,7 +483,7 @@ mod tests {
 
     /// A connection that closes without sending a byte, as `listening`'s
     /// check does, dials nothing and opens no stream; and once nothing
-    /// listens, the check says so.
+    /// listens, the check says so (on Unix, the only place it's checked).
     #[tokio::test]
     async fn a_connection_that_sends_nothing_dials_nothing() {
         within_30_s(async {
@@ -491,13 +497,17 @@ mod tests {
                 .expect("listens");
             let port = listener.local_addr().expect("has an address").port();
 
+            #[cfg(unix)]
             assert!(Forward::listening(port), "it's listening");
+            #[cfg(not(unix))]
+            drop(std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)).expect("connects"));
             let (tcp, _) = listener.accept().await.expect("the check's connection");
             forward(tcp, link.clone()).await;
             assert!(!link.status().connected, "dialled for nothing");
             assert!(accepted.try_recv().is_err(), "the host was dialled");
 
             drop(listener);
+            #[cfg(unix)]
             assert!(!Forward::listening(port), "nothing listens once it's gone");
         })
         .await;
