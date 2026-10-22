@@ -1,4 +1,5 @@
 import { defineConfig } from "tsup";
+import { kleioVersionDefine } from "./kleio-version.ts";
 
 export default defineConfig({
   entry: ["src/index.ts", "src/cli.ts"],
@@ -7,4 +8,5 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: "node22",
+  define: kleioVersionDefine(),
 });

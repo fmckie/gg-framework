@@ -49,7 +49,9 @@ const isCount = (v: unknown): v is number =>
 const isFailure = (v: unknown): v is DictationFailure =>
   typeof v === "string" && (DICTATION_FAILURES as readonly string[]).includes(v);
 
-const isPlatformWord = (v: unknown): v is string => typeof v === "string" && PLATFORM_WORD.test(v);
+/** A process.platform or process.arch value (also GET /kleio/host's `os`). */
+export const isPlatformWord = (v: unknown): v is string =>
+  typeof v === "string" && PLATFORM_WORD.test(v);
 
 /** The sidecar's answer, checked: a known state with only its known fields, else null. */
 export function parseDictationSetup(body: unknown): DictationSetup | null {

@@ -11,14 +11,15 @@ import {
 } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { SecretLock } from "../src/acl.js";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER, type Host, type HostOptions } from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
-import { err } from "../src/result.js";
+import { err, ok } from "../src/result.js";
+import type { RunFile } from "../src/run-file.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
@@ -117,6 +118,7 @@ async function startHost(extra: Partial<HostOptions> = {}): Promise<void> {
     },
     jev: { baseUrl: "https://typesafe.test", fetch: typesafe.fetch, ...(extra.jev ?? {}) },
     ...(extra.voice ? { voice: extra.voice } : {}),
+    ...(extra.hostInfo ? { hostInfo: extra.hostInfo } : {}),
     ...(extra.secretLock ? { secretLock: extra.secretLock } : {}),
     log: (m) => logs.push(m),
   });
@@ -217,6 +219,22 @@ const until = async (cond: () => boolean): Promise<void> => {
   for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 10));
   expect(cond()).toBe(true);
 };
+
+/** A request whose answer we only need the status and Allow header of. */
+function allowOf(
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; allow: string | undefined }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port: hostPort, method, path, headers }, (res) => {
+      res.resume();
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, allow: res.headers.allow }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 // ---------------------------------------------------------------- tests
 
@@ -455,24 +473,6 @@ describe("GET/POST /kleio/setup/dictation", () => {
   const ABSENT = { state: "absent", bytes: 138_853_314 };
   const UNAVAILABLE = { status: 503, body: { error: "engine_unavailable" } };
 
-  /** A request whose answer we only need the status and Allow header of. */
-  function allowOf(
-    method: string,
-    headers: Record<string, string>,
-  ): Promise<{ status: number; allow: string | undefined }> {
-    return new Promise((resolve, reject) => {
-      const req = httpRequest(
-        { host: "127.0.0.1", port: hostPort, method, path: PATH, headers },
-        (res) => {
-          res.resume();
-          res.on("end", () => resolve({ status: res.statusCode ?? 0, allow: res.headers.allow }));
-        },
-      );
-      req.on("error", reject);
-      req.end();
-    });
-  }
-
   it("needs a device token", async () => {
     expect((await call("GET", PATH)).status).toBe(401);
     expect((await call("POST", PATH)).status).toBe(401);
@@ -505,7 +505,7 @@ describe("GET/POST /kleio/setup/dictation", () => {
 
   it("is 405 with allow: GET, POST for any other method", async () => {
     for (const method of ["PUT", "DELETE", "PATCH"]) {
-      expect(await allowOf(method, P)).toEqual({ status: 405, allow: "GET, POST" });
+      expect(await allowOf(method, PATH, P)).toEqual({ status: 405, allow: "GET, POST" });
     }
     expect(sidecar.dictationCalls).toEqual([]);
   });
@@ -579,6 +579,74 @@ describe("GET/POST /kleio/setup/dictation", () => {
       body: { dictation: { state: "unsupported", os: "darwin", arch: "x64", bytes: 5 } },
     });
     for (const b of bodies) expect(b).not.toMatch(/ENOTFOUND|\/Users|onnxruntime/);
+  });
+});
+
+describe("GET /kleio/host", () => {
+  const PATH = "/kleio/host";
+  /** A desktop Mac's pmset that stays on; it records each program run. */
+  function fakePmset(): { run: RunFile; runs: string[] } {
+    const runs: string[] = [];
+    const run: RunFile = async (file, args) => {
+      runs.push([file, ...args].join(" "));
+      const stdout =
+        args[1] === "batt"
+          ? "Now drawing from 'AC Power'\nRAW-PMSET-7f3a\n"
+          : "AC Power:\n sleep 0\n autorestart 1\n womp 1\n";
+      return ok({ exitCode: 0, stdout, stderr: "" });
+    };
+    return { run, runs };
+  }
+
+  it("needs a device token", async () => {
+    const pmset = fakePmset();
+    await startHost({ hostInfo: { platform: "darwin", run: pmset.run } });
+    expect((await call("GET", PATH)).status).toBe(401);
+    expect(pmset.runs).toEqual([]);
+  });
+
+  it("tells any paired device the host's OS, version and whether it stays on", async () => {
+    const pmset = fakePmset();
+    await startHost({ hostInfo: { platform: "darwin", version: "9.8.7", run: pmset.run } });
+    expect(await call("GET", PATH, P)).toEqual({
+      status: 200,
+      body: { os: "darwin", version: "9.8.7", alwaysOn: { state: "yes", reasons: [] } },
+    });
+    expect(pmset.runs).toEqual(["/usr/bin/pmset -g batt", "/usr/bin/pmset -g custom"]);
+    // What pmset printed is in the host log, never in an answer.
+    expect(logs.some((l) => l.includes("RAW-PMSET-7f3a"))).toBe(true);
+    expect(logs).toContain("[host] alwaysOn yes []");
+    for (const b of bodies) expect(b).not.toContain("RAW-PMSET");
+  });
+
+  it("runs the check once for calls close together", async () => {
+    const pmset = fakePmset();
+    await startHost({ hostInfo: { platform: "darwin", version: "9.8.7", run: pmset.run } });
+    const [phone, admin] = await Promise.all([call("GET", PATH, P), call("GET", PATH, A)]);
+    expect(admin).toEqual(phone);
+    expect(await call("GET", PATH, P)).toEqual(phone);
+    expect(pmset.runs).toEqual(["/usr/bin/pmset -g batt", "/usr/bin/pmset -g custom"]);
+  });
+
+  it("is Kleio's release version unless a test says otherwise", async () => {
+    await startHost({ hostInfo: { platform: "darwin", run: fakePmset().run } });
+    const app = JSON.parse(
+      readFileSync(resolve(__dirname, "../../../gg-app/package.json"), "utf8"),
+    );
+    expect((await call("GET", PATH, P)).body.version).toBe(app.version);
+  });
+
+  it("is 405 with allow: GET for any other method", async () => {
+    for (const method of ["POST", "PUT", "DELETE"]) {
+      expect(await allowOf(method, PATH, P)).toEqual({ status: 405, allow: "GET" });
+    }
+  });
+
+  it("adds nothing to /kleio/health", async () => {
+    const health = await call("GET", "/kleio/health");
+    expect(health.status).toBe(200);
+    for (const field of ["os", "version", "alwaysOn"])
+      expect(health.body).not.toHaveProperty(field);
   });
 });
 

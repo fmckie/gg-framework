@@ -1,0 +1,2 @@
+Now drawing from 'AC Power'
+ -Back-UPS ES 550 (id=10551296)	100%; AC attached; not charging present: true

@@ -7,6 +7,7 @@
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
+//     GET /kleio/host, its OS, version and always-on check (host-info.ts);
 //     POST /kleio/home/new starts a fresh one. POST /kleio/chats starts a
 //     chat that works on its own in Kleio's projects folder (voice's
 //     start_chat, see started-chats.ts). /kleio/projects lists, tells,
@@ -90,6 +91,7 @@ import {
   type KeyState,
 } from "./setup-keys.js";
 import { createDictationSetup, DICTATION_SETUP_MAX_BODY } from "./dictation-setup.js";
+import { createHostInfo, type HostInfoSeams } from "./host-info.js";
 import { createStartedChats, parseStartChat } from "./started-chats.js";
 import {
   isSavedSessionKind,
@@ -258,6 +260,8 @@ export interface HostOptions {
    * no-op off Windows). A failed lock fails the save. Default: for this OS.
    */
   readonly secretLock?: SecretLock;
+  /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner… */
+  readonly hostInfo?: HostInfoSeams;
 }
 
 export interface Host {
@@ -487,6 +491,7 @@ export function createHost(options: HostOptions): Host {
   const { registry, offers, rings } = options;
   const secretLock =
     options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
+  const hostInfo = createHostInfo({ ...options.hostInfo, log });
   // The static-site preview origin (preview.ts): tokens minted here, served there.
   const previews: PreviewStore | null =
     options.previewPort === undefined
@@ -2334,6 +2339,15 @@ export function createHost(options: HostOptions): Host {
       return r.ok
         ? json(res, 200, r.value ?? { messages: [] })
         : json(res, 503, { error: "sessions_unavailable" });
+    }
+    // The host itself (host-info.ts), for any paired device: its OS, Kleio's
+    // version, and whether it stays on. Codes only; programs' output is logged.
+    if (path === "/kleio/host") {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      return json(res, 200, await hostInfo.read());
     }
     // Setup: which third-party keys are present (any paired device; never a
     // key or a fragment of one), and an admin sets or removes the Composio and
