@@ -7,6 +7,12 @@
 // update is applied — so the pane offers the same Restart button. The iPhone
 // cannot relaunch itself, so there a first pairing switches on in place and
 // the pane just closes into the app.
+//
+// Connection prototype (Rust feature `kleio-link-proto`): the iPhone scans the
+// pairing QR code, and a v3 ticket pairs over the Kleio link instead, after a
+// confirm step that shows the host's key, its relay and the code. Debug builds
+// also take a pasted ticket, as the simulator has no camera. A build without
+// the feature shows none of it.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -15,6 +21,9 @@ import { Badge } from "../Badge";
 import { Modal } from "../Modal";
 import { isPhone } from "../platform";
 import { theme } from "../theme";
+import { kleioLink, useKleioLink, type TicketCheck } from "./kleioLink";
+import { LinkConfirm, TicketPaste, TicketScan } from "./LinkPairing";
+import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import {
   explainError,
@@ -113,6 +122,35 @@ function PairPanel({
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The Kleio link, when this build has it (connection prototype).
+  const { link } = useKleioLink();
+  const [linkTicket, setLinkTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
+
+  // A scanned or pasted ticket: v2 fills the form, v3 asks to confirm the host.
+  const openTicket = useCallback(
+    async (text: string) => {
+      setError(null);
+      const route = readTicket(text);
+      if (route.kind === "invalid") {
+        setError(route.error);
+      } else if (route.kind === "v2") {
+        setBaseUrl(route.baseUrl);
+        setCode(route.code);
+      } else if (!link) {
+        setError("This build of Kleio can't pair over the Kleio link.");
+      } else {
+        setBusy(true);
+        try {
+          setLinkTicket({ ticket: route.ticket, check: await kleioLink.checkTicket(route.ticket) });
+        } catch (e) {
+          setError(explainError(e));
+        } finally {
+          setBusy(false);
+        }
+      }
+    },
+    [link],
+  );
 
   const submit = useCallback(async () => {
     setBusy(true);
@@ -130,6 +168,21 @@ function PairPanel({
   }, [baseUrl, code, label, onPaired, onActive]);
 
   if (pending) return <RestartNotice what="You just forgot the host." />;
+  if (linkTicket) {
+    return (
+      <LinkConfirm
+        ticket={linkTicket.ticket}
+        check={linkTicket.check}
+        label={label}
+        onLabel={setLabel}
+        onBack={() => setLinkTicket(null)}
+        onPaired={async (now) => {
+          await onPaired();
+          if (now?.active) onActive();
+        }}
+      />
+    );
+  }
 
   return (
     <form
@@ -192,6 +245,8 @@ function PairPanel({
           />
         </div>
       </div>
+      {link && isPhone() && <TicketScan busy={busy} onTicket={(text) => void openTicket(text)} />}
+      {link?.debugBuild && <TicketPaste busy={busy} onTicket={(text) => void openTicket(text)} />}
       {error && (
         <p className="modal-error" role="alert">
           {error}

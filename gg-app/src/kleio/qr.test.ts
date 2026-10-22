@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pairTicket } from "./pairTicket";
+import { NOT_A_TICKET, pairTicket, readTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrCode } from "./qr";
 
 function encode(text: string): QrCode {
@@ -104,5 +104,53 @@ describe("pairTicket", () => {
 
   it("refuses a code that isn't six characters", () => {
     expect(pairTicket("https://mini.tail0000.ts.net", "ABC-DE").ok).toBe(false);
+  });
+});
+
+describe("readTicket", () => {
+  const BASE = "https://mac-mini-1.tail0000.ts.net:8443";
+  /** A v2 ticket's JSON, with `over` replacing or adding fields. */
+  const v2 = (over: Record<string, unknown> = {}): string =>
+    JSON.stringify({ v: 2, type: "kleio-pair", baseUrl: BASE, code: "ABC-DEF", ...over });
+  const V3 = JSON.stringify({
+    v: 3,
+    type: "kleio-pair",
+    key: "ab12cd34".padEnd(64, "0"),
+    relay: "https://euc1-1.relay.n0.iroh.link./",
+    code: "ABC-DEF",
+  });
+
+  it("reads the v2 ticket pairTicket writes, to fill the pairing form", () => {
+    const written = pairTicket(`${BASE}/`, "abc def");
+    expect(written.ok && readTicket(written.value)).toEqual({
+      kind: "v2",
+      baseUrl: BASE,
+      code: "ABC-DEF",
+    });
+  });
+
+  it("sends a v3 ticket, whole and trimmed, to the link's confirm step", () => {
+    expect(readTicket(`  ${V3}\n`)).toEqual({ kind: "v3", ticket: V3 });
+  });
+
+  it.each([
+    ["nothing", ""],
+    ["text that isn't JSON", "kleio://pair?code=ABC-DEF"],
+    ["a JSON string", JSON.stringify("kleio-pair")],
+    ["a JSON array", JSON.stringify([2, "kleio-pair"])],
+    ["another type", v2({ type: "wifi" })],
+    ["another version", v2({ v: 4 })],
+    ["a version written as text", v2({ v: "3" })],
+    ["an extra field", v2({ token: "secret" })],
+    ["a missing code", JSON.stringify({ v: 2, type: "kleio-pair", baseUrl: BASE })],
+    ["a code outside the pair alphabet", v2({ code: "ABI-DEF" })],
+    ["a code without its dash", v2({ code: "ABCDEF" })],
+    ["a lowercase code", v2({ code: "abc-def" })],
+    ["an address off the tailnet", v2({ baseUrl: "https://example.com" })],
+    ["an http address", v2({ baseUrl: "http://mac-mini-1.tail0000.ts.net:8443" })],
+    ["an address with a path", v2({ baseUrl: `${BASE}/kleio` })],
+    ["a v3 ticket over 1 KiB", JSON.stringify({ v: 3, type: "kleio-pair", pad: "x".repeat(1100) })],
+  ])("refuses %s, so nothing is filled", (_label, text) => {
+    expect(readTicket(text)).toEqual({ kind: "invalid", error: NOT_A_TICKET });
   });
 });
