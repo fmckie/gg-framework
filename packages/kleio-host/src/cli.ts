@@ -17,14 +17,16 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { request } from "node:http";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { createSecretLock, type SecretLock } from "./acl.js";
 import { createDeviceRegistry } from "./device-registry.js";
-import { createFileKeychain, generateMasterKey } from "./file-keychain.js";
+import { createFileKeychain } from "./file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER } from "./host.js";
 import { apnsConfigFromEnv, createApnsPusher } from "./apns.js";
 import { runCaptureCheck } from "./capture-check.js";
 import { createCapturer, defaultCacheDir, defaultHelperPath, macHelperBackend } from "./capture.js";
 import { createPairOfferStore } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
+import { ensureSecure, lockFailureMessage, lockSecrets } from "./secure-dir.js";
 import { createRingStore } from "./sse-ring.js";
 import { createSidecarSupervisor } from "./sidecar.js";
 import { sidecarAppEnv } from "./sidecar-env.js";
@@ -36,16 +38,10 @@ const log = (msg: string): void => {
 
 const flag = (name: string): boolean => process.argv.includes(name);
 
-function ensureSecure(p: HostPaths): void {
-  mkdirSync(p.secureDir, { recursive: true, mode: 0o700 });
-  chmodSync(p.secureDir, 0o700);
-  for (const key of [p.masterKey, p.controlRootKey]) {
-    if (!existsSync(key)) {
-      writeFileSync(key, generateMasterKey(), { mode: 0o600 });
-      chmodSync(key, 0o600);
-    }
-  }
-  for (const d of [p.rings, p.work, p.logs]) mkdirSync(d, { recursive: true });
+/** Lock the state folder's secrets to this user, or stop the command (exit 1). */
+async function mustLockSecrets(p: HostPaths, lock: SecretLock): Promise<void> {
+  const locked = await lockSecrets(p, lock);
+  if (!locked.ok) throw new Error(lockFailureMessage(locked.error));
 }
 
 function readControlRoot(p: HostPaths): string {
@@ -92,24 +88,31 @@ function previewBase(port: number): string {
 
 // ------------------------------------------------------------------ commands
 
-async function init(p: HostPaths): Promise<void> {
-  ensureSecure(p);
+async function init(p: HostPaths, lock: SecretLock): Promise<void> {
+  const secured = await ensureSecure(p, lock);
+  if (!secured.ok) throw new Error(lockFailureMessage(secured.error));
   const registry = await openRegistry(p);
-  const adminTokenPath = join(p.secureDir, "admin.token");
+  const adminTokenPath = p.adminToken;
   if (existsSync(adminTokenPath) && registry.list().some((d) => d.admin && !d.revoked)) {
     log(`[init] already initialised at ${p.home}`);
     return;
   }
   const minted = await registry.mint(`${hostname()} admin`, { admin: true });
   if (!minted.ok) throw new Error(minted.error.message);
+  // Written inside the locked secure/, so it inherits the lock; then locked itself.
   writeFileSync(adminTokenPath, minted.value.token, { mode: 0o600 });
   chmodSync(adminTokenPath, 0o600);
+  const locked = await lock.lock(adminTokenPath, "file");
+  if (!locked.ok) {
+    throw new Error(lockFailureMessage({ path: adminTokenPath, error: locked.error }));
+  }
   log(
     `[init] state at ${p.home}; local admin device ${minted.value.device.deviceId} (token in secure/admin.token)`,
   );
 }
 
-async function sidecar(p: HostPaths): Promise<void> {
+async function sidecar(p: HostPaths, lock: SecretLock): Promise<void> {
+  await mustLockSecrets(p, lock);
   const sidecarPath = process.env.KLEIO_SIDECAR_PATH;
   if (!sidecarPath) throw new Error("KLEIO_SIDECAR_PATH must point at app-sidecar.mjs");
   // Kleio's own settings file and projects folder, apart from the upstream app's.
@@ -122,6 +125,7 @@ async function sidecar(p: HostPaths): Promise<void> {
     cwd: process.env.KLEIO_SIDECAR_CWD ?? p.work,
     env,
     endpointPath: p.sidecarEndpoint,
+    secretLock: lock,
     log,
   });
   const stop = (): void => {
@@ -134,7 +138,8 @@ async function sidecar(p: HostPaths): Promise<void> {
   await sup.ready();
 }
 
-async function serve(p: HostPaths): Promise<void> {
+async function serve(p: HostPaths, lock: SecretLock): Promise<void> {
+  await mustLockSecrets(p, lock);
   const registry = await openRegistry(p);
   const apns = createApnsPusher({ config: apnsConfigFromEnv(), log });
   log(
@@ -184,6 +189,7 @@ async function serve(p: HostPaths): Promise<void> {
     rings: createRingStore({ directory: p.rings, log }),
     sidecarEndpointPath: p.sidecarEndpoint,
     controlRootKey: readControlRoot(p),
+    secretLock: lock,
     log,
   });
   const stop = (): void => {
@@ -201,7 +207,7 @@ function adminCall(
   path: string,
   body?: unknown,
 ): Promise<{ status: number; body: unknown }> {
-  const token = readFileSync(join(p.secureDir, "admin.token"), "utf8").trim();
+  const token = readFileSync(p.adminToken, "utf8").trim();
   return new Promise((resolve, reject) => {
     const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     const req = request(
@@ -237,13 +243,14 @@ function adminCall(
 async function main(): Promise<void> {
   const cmd = process.argv[2];
   const p = hostPaths();
+  const lock = createSecretLock({ platform: process.platform, env: process.env, log });
   switch (cmd) {
     case "init":
-      return init(p);
+      return init(p, lock);
     case "sidecar":
-      return sidecar(p);
+      return sidecar(p, lock);
     case "serve":
-      return serve(p);
+      return serve(p, lock);
     case "pair": {
       const r = await adminCall(p, "POST", "/kleio/pair/offer", { admin: flag("--admin") });
       if (r.status !== 200) throw new Error(`pair failed: ${r.status} ${JSON.stringify(r.body)}`);

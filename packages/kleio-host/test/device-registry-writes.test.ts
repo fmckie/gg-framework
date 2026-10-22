@@ -1,15 +1,19 @@
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { SecretLock } from "../src/acl.js";
+import { err, ok } from "../src/result.js";
 
 // Disk writes with a delay chosen per call, so a test can make an early write
 // finish after a later one — what a Windows runner (Defender scanning each new
@@ -27,7 +31,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const { createDeviceRegistry } = await import("../src/device-registry.js");
+const { atomicWrite, createDeviceRegistry } = await import("../src/device-registry.js");
 const { createFileKeychain, generateMasterKey } = await import("../src/file-keychain.js");
 
 let home: string;
@@ -85,5 +89,51 @@ describe("device registry disk writes", () => {
     await Promise.all([reg.touch(m.value.device.deviceId), reg.mint("B"), reg.mint("C")]);
     expect(readdirSync(join(home, "secure")).filter((f) => f.includes(".tmp"))).toEqual([]);
     expect(JSON.parse(readFileSync(storePath, "utf8")).devices).toHaveLength(3);
+  });
+});
+
+describe("atomicWrite with a lock (a secret)", () => {
+  const temps = (): string[] => readdirSync(home).filter((f) => f.includes(".tmp"));
+
+  it("locks the temp file while it is still empty, then fills it and renames it", async () => {
+    const target = join(home, "typesafe.key");
+    const seen: { path: string; kind: string; content: string }[] = [];
+    const lock: SecretLock = {
+      lock: async (path, kind) => {
+        seen.push({ path, kind, content: readFileSync(path, "utf8") });
+        return ok(undefined);
+      },
+    };
+    await atomicWrite(target, "SECRET-ONE\n", 0o600, lock);
+    await atomicWrite(target, "SECRET-TWO\n", 0o600, lock);
+    expect(seen.map((s) => [s.kind, s.content])).toEqual([
+      ["file", ""],
+      ["file", ""],
+    ]);
+    for (const s of seen) expect(s.path).toMatch(/typesafe\.key\.tmp-[0-9a-f]{12}$/);
+    expect(readFileSync(target, "utf8")).toBe("SECRET-TWO\n");
+    if (process.platform !== "win32") expect(statSync(target).mode & 0o777).toBe(0o600);
+    expect(temps()).toEqual([]);
+  });
+
+  it("a failed lock throws in its own words and writes nothing", async () => {
+    const lock: SecretLock = {
+      lock: async () => err({ kind: "icacls_failed", message: "icacls exited with 5" }),
+    };
+    const fresh = join(home, "composio.key");
+    const kept = join(home, "openai.key");
+    writeFileSync(kept, "OLD\n");
+    for (const target of [fresh, kept]) {
+      const failure: unknown = await atomicWrite(target, "SECRET-KEY\n", 0o600, lock).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(failure).toBeInstanceOf(Error);
+      expect(String(failure)).toMatch(/could not lock .*\(icacls_failed\): icacls exited with 5/);
+      expect(String(failure)).not.toContain("SECRET-KEY");
+    }
+    expect(existsSync(fresh)).toBe(false);
+    expect(readFileSync(kept, "utf8")).toBe("OLD\n");
+    expect(temps()).toEqual([]);
   });
 });

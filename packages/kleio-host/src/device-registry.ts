@@ -11,6 +11,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
+import type { SecretLock } from "./acl.js";
 import type { Keychain } from "./file-keychain.js";
 import { err, ok, type Result } from "./result.js";
 
@@ -142,12 +143,32 @@ function toPaired(record: DeviceRecord): PairedDevice {
  * renamed into place (or is briefly held by an indexer/AV scan) fails with
  * EPERM/EBUSY for a few milliseconds; POSIX never does. Retry briefly on those
  * two codes only, and clean the temp file up on any failure.
+ *
+ * With a `lock` (a secret), the temp file is created empty and locked before
+ * the data goes in, so the secret is never on disk unlocked; a rename on the
+ * same volume keeps the file's ACL. A failed lock throws, and nothing is
+ * written.
  */
-export async function atomicWrite(path: string, data: string, mode: number): Promise<void> {
+export async function atomicWrite(
+  path: string,
+  data: string,
+  mode: number,
+  lock?: SecretLock,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
   try {
-    await writeFile(tmp, data, { encoding: "utf8", mode });
+    if (lock) {
+      await writeFile(tmp, "", { encoding: "utf8", mode, flag: "wx" });
+      const locked = await lock.lock(tmp, "file");
+      if (!locked.ok) {
+        throw new Error(`could not lock ${tmp} (${locked.error.kind}): ${locked.error.message}`);
+      }
+      // "r+" opens the locked file as it is; it never makes a new one.
+      await writeFile(tmp, data, { encoding: "utf8", flag: "r+" });
+    } else {
+      await writeFile(tmp, data, { encoding: "utf8", mode });
+    }
     await chmod(tmp, mode);
     for (let attempt = 0; ; attempt += 1) {
       try {

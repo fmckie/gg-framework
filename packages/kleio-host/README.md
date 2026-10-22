@@ -23,8 +23,21 @@ Two ports, both Tailscale Serve (tailnet only, never Funnel):
 `KLEIO_PREVIEW_URL` defaults to `KLEIO_PUBLIC_URL` with the preview port.
 
 Two launchd jobs (`com.kleio.host.sidecar`, `com.kleio.host.serve`) so the proxy can
-be redeployed without killing a run. State lives under
-`~/Library/Application Support/Kleio/host` (see `src/paths.ts`).
+be redeployed without killing a run.
+
+State lives in one folder (`src/paths.ts` has the layout). `KLEIO_HOST_HOME` overrides it;
+otherwise it is the OS's own place:
+
+| OS                 | State folder                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| macOS              | `~/Library/Application Support/Kleio/host`                                                        |
+| Windows            | `%LOCALAPPDATA%\Kleio\host`; `<home>\AppData\Local\Kleio\host` when `LOCALAPPDATA` isn't absolute |
+| Linux and the rest | `$XDG_STATE_HOME/kleio/host`; `~/.local/state/kleio/host` when that is unset or not absolute      |
+
+The secrets in it are `secure/` (the master key, control root key, `admin.token` and device
+registry), the API key files beside it (`composio.key`, `typesafe.key`, `openai.key`) and
+`sidecar.json`. On macOS and Linux they are 0700 and 0600; on Windows they are locked to the
+host's user instead (see [Windows: secrets and stopping](#windows-secrets-and-stopping)).
 
 ## Install on the mini
 
@@ -650,6 +663,98 @@ runs): the sidecar went from 170 MB to 640–690 MB once Whisper was loaded, and
 after a chat session opened and the first clip was transcribed. Plan for about 1.5 GB free for
 the sidecar on a host that dictates.
 
+### Host info (`/kleio/host`)
+
+What the apps need to know about the host itself. `GET /kleio/host` takes a paired device's
+token (any device; `401` without one) and answers:
+
+```json
+{ "os": "darwin", "version": "2.1.3", "alwaysOn": { "state": "yes", "reasons": [] } }
+```
+
+- `os`: the host's `process.platform` (`darwin`, `win32`, `linux`, …).
+- `version`: Kleio's release version, from `gg-app/package.json`, built into `dist`. The build
+  fails unless it is `x.y.z`.
+- `alwaysOn.state`: `yes` (set never to sleep on AC power), `may_sleep` (set to sleep, or not to
+  come back by itself), `laptop` (it has a battery, so it sleeps when the lid closes) or
+  `unknown`.
+- `alwaysOn.reasons`: codes only, from `sleeps_on_ac`, `no_autorestart`, `no_wake_for_network`,
+  `sleep_not_masked`, `check_failed` and `unsupported_os`. `may_sleep` has at least one;
+  `unknown` has `check_failed` or `unsupported_os`; `yes` and `laptop` have none.
+
+Other methods get `405` with `Allow: GET`. `/kleio/health` carries none of this.
+
+The check only reads (`src/always-on.ts`); it never changes a setting. It runs each OS's own
+power tool by absolute path, with an argument array, no shell, a 5 s timeout and 256 KiB of
+output at most:
+
+- **macOS:** `/usr/bin/pmset -g batt`. An `-InternalBattery-N` line is a laptop (a UPS's line
+  isn't). Otherwise `pmset -g custom`, its `AC Power:` section only: `sleep` other than 0 is
+  `sleeps_on_ac`, `autorestart 0` is `no_autorestart` and `womp 0` is `no_wake_for_network`. A
+  Mac without `autorestart` or `womp` doesn't have that setting, so it isn't flagged for it.
+  `autorestartatconnect` isn't read.
+- **Windows:** from `%SystemRoot%\System32` (`C:\Windows` unless `SystemRoot` is a plain drive
+  path), `reg.exe query HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\PNP0C0A`: found (exit 0) is an
+  ACPI battery, so a laptop. Otherwise
+  `powercfg.exe /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE`: an AC "sleep after" other than 0
+  is `sleeps_on_ac`. Windows translates powercfg's labels; without the English one, the AC value
+  is taken by its place among the five numbers.
+- **Linux:** a power supply in `/sys/class/power_supply` of type `Battery` whose `scope` isn't
+  `Device` (a mouse's or a UPS's) is a laptop; this is read from files. Then
+  `systemctl get-default` (`/usr/bin/systemctl`, else `/bin/systemctl`): anything but
+  `graphical.target` is a server with no desktop to suspend it, so `yes`. Otherwise
+  `systemctl is-enabled sleep.target`: `masked` is `yes`, any other state `sleep_not_masked`.
+- **Any other OS:** nothing runs: `unknown` with `unsupported_os`.
+
+A program that won't start, times out, fails or prints something unexpected gives `unknown`
+with `check_failed`. An answer is kept for 60 s, and calls that come while a check runs share
+it, so a device can't make the host start programs in a loop. A fresh check logs each program's
+path, arguments, exit code and output (JSON-escaped, the first 2,048 characters of each stream),
+then `[host] alwaysOn <state> [<reasons>]`. That goes to the host log only, never to a device.
+
+The macOS parsing is tested against `pmset` output captured from a MacBook and the mini, and the
+live check has run on the MacBook (`laptop`). The Windows and Linux checks are built from those
+programs' documented output and haven't yet run on a real Windows PC or Linux desktop.
+
+### Brain (memories and Jiwa)
+
+What Kleio remembers about the user (memories) and how they like her to work (Jiwa): two stores in
+the sidecar's `~/.gg` (`chat-memories.json` and `chat-jiwa.json`, each with a `.bak`), shared by
+every device. Kleio writes them with her `remember` and `set_jiwa` tools. The Brain window (Kleio
+Chat's header, and Settings → Setup → Brain) lists, adds, edits and deletes entries. Setup's
+"Introduce yourself" only starts a chat in which Kleio asks a few questions and saves the answers
+with those tools, so it has no route of its own.
+
+The routes are the sidecar's, reached through the host with a paired device's token (any device,
+as chatting already is) and an `x-gg-session` header naming one of the sidecar's chat sessions
+(404 without one):
+
+- `GET /memories` and `GET /jiwa` → `{memories | jiwa, softLimit, hardLimit}`.
+- `DELETE /memories/:id` and `DELETE /jiwa/:id` → the same snapshot.
+- `POST /memories` and `POST /jiwa` add; `PATCH /memories/:id` and `PATCH /jiwa/:id` edit. The
+  body is JSON `{text, category, importance}` and nothing else: `text` is trimmed, 1–600
+  characters; `category` is one of the store's (memories: `identity`, `preference`, `project`,
+  `relationship`, `health`, `other`; Jiwa: `identity`, `voice`, `interaction`, `boundaries`,
+  `workflow`, `other`); `importance` is a whole number from 1 to 5. They answer:
+  - `200` with the snapshot and the saved entry (`memory` or `entry`);
+  - `400 {error}`: `Invalid Brain entry: <field>: <issue>`, or `That isn't a valid memory id.`
+    (or `Jiwa instruction id`) for an id that is empty, over 200 characters or badly encoded;
+  - `404 {error}`: `That memory isn't in Brain any more.` (or `That Jiwa instruction…`);
+  - `409 {error, duplicateOf}` when Brain already has one like it (the tools' duplicate check),
+    or `409 {error}` `Brain is full. Delete one first, or give this one a higher importance.`;
+  - `413 {error:"request body too large"}` for a body over 16 KiB;
+  - `500 {error}`: `Couldn't save to Brain: <reason>`. Nothing is saved.
+
+Every change goes to every window as a `memory_change` or `jiwa_change` event.
+
+The limits are the tools': from 60 entries in a store, Kleio is told to consolidate, and an add
+past 90 removes the least important entries that aren't Identity (the least recently updated
+first among equals). An add is refused (the 409 above) when the new entry would be the one
+removed, or every entry is Identity. The window says "Full" at 90.
+
+An older host's sidecar answers add and edit with its catch-all `404 {error:"not found"}`, and
+the window tells the user to update Kleio on the host. Viewing and deleting work on any host.
+
 ### Files and site previews
 
 Paired devices open what agents write on the mini: PDFs, spreadsheets, images, reports and
@@ -746,6 +851,46 @@ blocks on a "would like to access" dialog nobody at a headless Mac can answer, a
 each blocked call pins a libuv thread. With the flag, project discovery never touches
 those folders; keep the mini's projects under its projects root (default
 `~/gg-projects`) instead.
+
+### Windows: secrets and stopping
+
+**Secrets.** Windows ignores POSIX modes: a file gets the ACL its folder passes down, which under
+`%LOCALAPPDATA%` lets SYSTEM and the Administrators group in as well as the user. So on Windows
+the host locks each secret with `icacls` (`src/acl.ts`): inheritance removed, and one entry left,
+the user the host runs as (its SID, from `whoami /user`), with full access.
+
+- **What:** `secure/` and every file in it, `composio.key`, `typesafe.key`, `openai.key` and
+  `sidecar.json` (the list at the top). `secure/` is locked as a folder (`(OI)(CI)F`), so a file
+  made in it later inherits its one entry.
+- **Checked:** cutting inheritance off keeps any entry given to the file or folder itself, such
+  as the SYSTEM and Administrators entries Windows writes when the folder above passes nothing
+  down. So each lock reads the ACL back (`icacls /save`, into a new temporary folder), removes
+  every other account's entries (`icacls /remove`), and reads it again. Unless it's then the
+  user's alone, with inheritance cut off, the lock fails, as it does when the ACL can't be read.
+- **When:** `init` locks `secure/` before it writes a key there, then locks each key and
+  `admin.token`. `serve` and `sidecar` lock all of these that exist each time they start, which
+  repairs an ACL that has drifted and covers files from before the lock. A key saved from
+  Settings, and `sidecar.json`, are created empty, locked, then written and renamed into place,
+  so a secret is never on disk unlocked.
+- **Fails closed:** a lock that fails stops `init`, `serve` or `sidecar` (exit 1), and a key
+  save answers `500 internal` without writing the key. If `sidecar.json` can't be locked, the
+  new endpoint isn't published, so `serve` can't reach that sidecar. The log says which file and
+  why, with `icacls`'s own output; the key itself is never logged.
+- **How:** `whoami.exe` and `icacls.exe` from `%SystemRoot%\System32` (`C:\Windows` unless
+  `SystemRoot` is a plain drive path), with an argument array, no shell and a 10 s timeout.
+- **Not covered:** an Administrator can still take ownership of the files and read them. No ACL
+  stops that.
+
+CI's Windows leg runs the real `icacls` and checks the ACL it leaves, including on a folder and a
+key given other entries first (`test/acl.test.ts`).
+
+**Stopping the sidecar.** On Windows, Node's `kill()` ends a process at once
+(TerminateProcess), so the sidecar's own SIGTERM teardown would never run. There the supervisor
+starts the sidecar with an IPC channel and a small preloaded shim (`src/sidecar.ts`). To stop
+it, the supervisor closes the channel; the shim runs the sidecar's SIGTERM teardown, and the
+supervisor kills it only if it is still running 5 s later. If the supervisor itself dies, the
+channel closes too, so the sidecar shuts down instead of outliving it. macOS and Linux are
+unchanged: SIGTERM, then SIGKILL after 5 s.
 
 ## Known limits
 

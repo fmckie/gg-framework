@@ -77,6 +77,7 @@ import {
   answerAskUser,
   notifyAskUser,
   selectWorkspace,
+  getSettings,
 } from "./agent";
 import {
   appendPendingAsks,
@@ -128,7 +129,7 @@ import { ContextMeter } from "./ContextMeter";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { TasksModal } from "./TasksModal";
 import { NotesModal } from "./NotesModal";
-import { MemoryModal } from "./MemoryModal";
+import { MemoryModal } from "./LazyMemoryModal";
 import { ShimmerText } from "./ShimmerText";
 import { WakeScreen } from "./WakeScreen";
 import { MotionStarters } from "./MotionStarters";
@@ -199,6 +200,7 @@ import { FooterSkeleton, TranscriptSkeleton, Skeleton } from "./Skeleton";
 import { useAppUpdate } from "./update";
 import { UpdateBanner } from "./UpdateBanner";
 import { recoverPromptLabel } from "./prompt-labels";
+import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 import { playSound } from "./sounds";
 import { segmentDoneMarkers, hasDoneMarker, countPlanSteps } from "./plan-steps";
 import {
@@ -215,7 +217,13 @@ import { AttachmentBar } from "./AttachmentBar";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { EnhanceDissolve } from "./EnhanceDissolve";
 import { toast } from "./toast";
-import { fileToPending, toWire, attachmentToPending, type PendingAttachment } from "./attachments";
+import {
+  fileToPending,
+  toWire,
+  attachmentToPending,
+  oversizedAttachmentsMessage,
+  type PendingAttachment,
+} from "./attachments";
 import { basename } from "./tool-format";
 import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
@@ -2456,6 +2464,17 @@ function App(): React.ReactElement {
     setEnhanceHintVisible(true);
   }, [input, enhancing, hydrated, slashOpen, mentionOpen, scheduleDraft, enhancement]);
 
+  // A prompt the agent refused or never got (too large, mid-cancel, the daemon
+  // restarting) must not pass for sent: its bubble stays, with the reason.
+  function reportUnsent(e: unknown): void {
+    pushItem({
+      kind: "error",
+      id: nextId(),
+      headline: "Your message wasn't sent",
+      message: String(e).replace(/^Error:\s*/, ""),
+    });
+  }
+
   // Submit the current input together with any staged attachments. Images are
   // echoed inline in the user's bubble; all media is sent to the agent.
   function submit(): void {
@@ -2529,6 +2548,14 @@ function App(): React.ReactElement {
       return;
     }
 
+    // The agent refuses a request over its size cap, so attachments that big
+    // could never arrive: say so and leave the draft as it is.
+    const tooLarge = oversizedAttachmentsMessage(attachments);
+    if (tooLarge) {
+      toast(tooLarge, "error");
+      return;
+    }
+
     recordHistory(trimmed);
     // Read BEFORE the dismissal clears the band: a prompt that supersedes a
     // question is consumed as soon as it lands, so it must neither flash the
@@ -2574,7 +2601,7 @@ function App(): React.ReactElement {
         prompt,
         queuedWire,
         sentEnhancements ? { enhancements: sentEnhancements } : undefined,
-      );
+      ).catch(reportUnsent);
       return;
     }
     const wire = attachments.map(toWire);
@@ -2609,7 +2636,7 @@ function App(): React.ReactElement {
       prompt,
       wire,
       sentEnhancements ? { enhancements: sentEnhancements } : undefined,
-    );
+    ).catch(reportUnsent);
   }
 
   // ── Attachment intake (paste / attach button / whole-window drag-drop) ──
@@ -2761,6 +2788,36 @@ function App(): React.ReactElement {
     setHydrateNonce((n) => n + 1);
   }
 
+  // kleio: "Introduce yourself" on Setup's Brain card. It opens a new chat with
+  // the general agent, as "+ New chat" does (ChatPicker), and the effect below
+  // sends the prompt once that chat has hydrated.
+  const [introPending, setIntroPending] = useState(false);
+  async function introduceYourself(): Promise<void> {
+    const settings = await getSettings();
+    if (!settings) throw new Error("Couldn't read your settings. Try again.");
+    const root = settings.projectsRoot.trim();
+    if (!root) throw new Error("Choose a projects folder in Settings first.");
+    await selectWorkspace("chat", root, undefined, "general");
+    withViewTransition(() => {
+      setWorkspaceMode("chat");
+      resetForChosenProject();
+      setIntroPending(true);
+    });
+  }
+  // Through the normal send path, once, into the new chat. Leaving before it
+  // opens (Back to the chat list or Home) drops it, so it can't land in a chat
+  // picked instead.
+  useEffect(() => {
+    if (!introPending) return;
+    if (needsProject || showPicker) {
+      setIntroPending(false);
+      return;
+    }
+    if (!hydrated) return;
+    setIntroPending(false);
+    if (readyRef.current) submitTextRef.current(INTRODUCE_PROMPT, INTRODUCE_LABEL);
+  }, [introPending, needsProject, showPicker, hydrated]);
+
   // kleio (iPhone): a tapped notification opens what it is about, from any
   // screen. An agent or group opens on its Kleio page; a chat or project is
   // reopened exactly as picking it from the chat list would. The ref keeps the
@@ -2862,6 +2919,7 @@ function App(): React.ReactElement {
         ) : entryView === "settings" ? (
           <SettingsScreen
             initialTab={settingsTab}
+            onIntroduce={introduceYourself}
             onClose={() =>
               withViewTransition(() => {
                 setEntryView("home");

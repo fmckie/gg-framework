@@ -258,6 +258,52 @@ export async function deleteJiwa(id: string): Promise<JiwaSnapshot> {
   return invoke<JiwaSnapshot>("agent_delete_jiwa", { id });
 }
 
+/** A memory as the Brain window adds or edits it. */
+export interface MemoryInput {
+  text: string;
+  category: MemoryCategory;
+  importance: number;
+}
+
+/** A Jiwa instruction as the Brain window adds or edits it. */
+export interface JiwaInput {
+  text: string;
+  category: JiwaCategory;
+  importance: number;
+}
+
+/**
+ * Add a memory (`id` null) or edit one. The sidecar checks it with the same
+ * limits as Kleio's `remember` tool and answers with the snapshot and the saved
+ * entry. A refusal rejects with the sidecar's own words.
+ */
+export async function saveMemory(
+  id: string | null,
+  input: MemoryInput,
+): Promise<MemorySnapshot & { memory: Memory }> {
+  await waitForReady();
+  return invoke<MemorySnapshot & { memory: Memory }>("agent_save_memory", {
+    id,
+    text: input.text,
+    category: input.category,
+    importance: input.importance,
+  });
+}
+
+/** Add a Jiwa instruction (`id` null) or edit one; see `saveMemory`. */
+export async function saveJiwa(
+  id: string | null,
+  input: JiwaInput,
+): Promise<JiwaSnapshot & { entry: JiwaEntry }> {
+  await waitForReady();
+  return invoke<JiwaSnapshot & { entry: JiwaEntry }>("agent_save_jiwa", {
+    id,
+    text: input.text,
+    category: input.category,
+    importance: input.importance,
+  });
+}
+
 export interface ThinkingState {
   thinkingLevel: string | null;
   supportedThinkingLevels: string[];

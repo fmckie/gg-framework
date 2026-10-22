@@ -7,6 +7,7 @@
  * text is redacted of it before it is kept.
  */
 import { readFile } from "node:fs/promises";
+import type { SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 
 /** "env": set by the environment/options (a key file would do nothing). */
@@ -65,7 +66,11 @@ export async function checkKey(
   return { kind: "rejected", status: res.status, detail: redactKey(body, key) };
 }
 
-/** Write the key file atomically, owner-only, with a trailing newline. */
-export function saveKeyFile(path: string, key: string): Promise<void> {
-  return atomicWrite(path, `${key}\n`, 0o600);
+/**
+ * Write the key file atomically, owner-only, with a trailing newline. `lock`
+ * locks it to this user before the key goes in (acl.ts); if that fails it
+ * throws and no key file is written.
+ */
+export function saveKeyFile(path: string, key: string, lock: SecretLock): Promise<void> {
+  return atomicWrite(path, `${key}\n`, 0o600, lock);
 }

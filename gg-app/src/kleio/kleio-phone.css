@@ -651,6 +651,36 @@ html.platform-ios .modal {
   max-width: calc(100vw - 24px);
   max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
 }
+/* Brain: the text and its Edit and Delete fit the sheet, so nothing starts
+   off-screen. Category and importance move to a line under the text; the
+   date is left out. The sheet sits just under the status bar and grows down
+   (App.css), so the form's text field stays above the keyboard; it scrolls
+   when taller, and every button and radio gets the full 44pt. */
+html.platform-ios .memory-modal {
+  margin-top: calc(var(--safe-top) + 12px);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+}
+html.platform-ios .memory-col-detail {
+  display: none;
+}
+html.platform-ios .memory-meta {
+  display: block;
+}
+html.platform-ios .memory-table-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+html.platform-ios .memory-action {
+  width: 44px;
+  height: 44px;
+}
+html.platform-ios :is(.brain-toolbar .btn, .brain-editor .modal-btn, .brain-editor .modal-radio) {
+  min-height: 44px;
+}
+html.platform-ios .brain-editor .modal-radio-group {
+  row-gap: 0;
+}
+
 /* Open existing (HostFoldersModal): native-height rows and 16px names. The
    separators move with the bigger tile: 14px inset + 30px tile + 14px gap. */
 html.platform-ios .host-folder {

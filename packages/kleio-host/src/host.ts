@@ -7,6 +7,7 @@
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
+//     GET /kleio/host, its OS, version and always-on check (host-info.ts);
 //     POST /kleio/home/new starts a fresh one. POST /kleio/chats starts a
 //     chat that works on its own in Kleio's projects folder (voice's
 //     start_chat, see started-chats.ts). /kleio/projects lists, tells,
@@ -48,6 +49,7 @@ import {
 import { appendFile, lstat, mkdir, readFile, realpath, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
+import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
 import type { PairOfferStore } from "./pair-offer.js";
@@ -132,6 +134,7 @@ import {
   type KeyState,
 } from "./setup-keys.js";
 import { createDictationSetup, DICTATION_SETUP_MAX_BODY } from "./dictation-setup.js";
+import { createHostInfo, type HostInfoSeams } from "./host-info.js";
 import { createStartedChats, parseStartChat } from "./started-chats.js";
 import {
   isSavedSessionKind,
@@ -295,6 +298,13 @@ export interface HostOptions {
   };
   /** Test seam: replaces the Jev router. */
   readonly groupRouter?: GroupRouter;
+  /**
+   * Locks the API key files to this user before a key goes in (acl.ts; a
+   * no-op off Windows). A failed lock fails the save. Default: for this OS.
+   */
+  readonly secretLock?: SecretLock;
+  /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner… */
+  readonly hostInfo?: HostInfoSeams;
   /**
    * Draws web pages and PDFs for a voice show (capture.ts); the CLI passes
    * the macOS helper's. Unset, or unable to draw on this host: a show of a
@@ -638,6 +648,9 @@ export function createHost(options: HostOptions): Host {
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());
   const { registry, offers, rings } = options;
+  const secretLock =
+    options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
+  const hostInfo = createHostInfo({ ...options.hostInfo, log });
   // The static-site preview origin (preview.ts): tokens minted here, served there.
   const previews: PreviewStore | null =
     options.previewPort === undefined
@@ -959,6 +972,7 @@ export function createHost(options: HostOptions): Host {
     ...(options.voice?.model ? { model: options.voice.model } : {}),
     ...(options.voice?.baseUrl ? { baseUrl: options.voice.baseUrl } : {}),
     ...(options.voice?.fetch ? { fetch: options.voice.fetch } : {}),
+    secretLock,
     log,
   });
   // Group names as the groups last said them, for the briefing.
@@ -1250,6 +1264,7 @@ export function createHost(options: HostOptions): Host {
         ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
         publicBaseUrl: options.publicBaseUrl,
         ggHome: options.composio?.ggHome ?? join(homedir(), ".gg"),
+        secretLock,
         // New tools: idle conversations are retired so their next turn loads them.
         onToolsChanged: async () => {
           await home.retireIdle();
@@ -2854,6 +2869,15 @@ export function createHost(options: HostOptions): Host {
         ? json(res, 200, r.value ?? { messages: [] })
         : json(res, 503, { error: "sessions_unavailable" });
     }
+    // The host itself (host-info.ts), for any paired device: its OS, Kleio's
+    // version, and whether it stays on. Codes only; programs' output is logged.
+    if (path === "/kleio/host") {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      return json(res, 200, await hostInfo.read());
+    }
     // Setup: which third-party keys are present (any paired device; never a
     // key or a fragment of one), and an admin sets or removes the Composio and
     // Typesafe keys. A key is checked with its provider before it is saved.
@@ -2922,7 +2946,7 @@ export function createHost(options: HostOptions): Host {
               ...(options.jev?.fetch ? { fetch: options.jev.fetch } : {}),
             })
           : { kind: "bad_key" };
-        if (k && !failed) await saveKeyFile(typesafeKeyPath, k);
+        if (k && !failed) await saveKeyFile(typesafeKeyPath, k, secretLock);
       }
       if (failed) {
         log(`[setup] ${auth.device.label}: ${label} key not saved (${failed.kind})`);

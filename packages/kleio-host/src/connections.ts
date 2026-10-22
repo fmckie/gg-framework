@@ -21,6 +21,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 import {
   checkKey,
@@ -48,6 +49,8 @@ export interface ConnectionsOptions {
   readonly fetch?: typeof fetch;
   readonly log?: (msg: string) => void;
   readonly now?: () => Date;
+  /** Locks the key file to this user on Windows (acl.ts). Default: for this OS. */
+  readonly secretLock?: SecretLock;
 }
 
 export interface Reply {
@@ -187,6 +190,8 @@ export function createConnections(options: ConnectionsOptions): Connections {
   const log = options.log ?? ((msg: string) => console.error(msg));
   const now = options.now ?? (() => new Date());
   const doFetch = options.fetch ?? fetch;
+  const secretLock =
+    options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
   const base = (options.baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
   const callbackUrl = `${options.publicBaseUrl.replace(/\/+$/, "")}/kleio/connections/callback`;
   const mcpPath = join(options.ggHome, "mcp.json");
@@ -579,7 +584,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
       );
       if (failed) return failed;
       if ((await fileKey()) === k) return null;
-      await saveKeyFile(options.keyPath, k);
+      await saveKeyFile(options.keyPath, k, secretLock);
       await resetSession();
       void ensure();
       return null;

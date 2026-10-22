@@ -42,6 +42,37 @@ export function fileToPending(file: File): Promise<PendingAttachment> {
   });
 }
 
+/** Most attachment data one message can carry, in file bytes (decimal MB, as
+ *  Finder shows sizes). Attachments travel as base64, a third larger than the
+ *  file, inside a request body that is refused over 10 MiB by the sidecar
+ *  (`MAX_HTTP_BODY_BYTES` in @kleio/coder's src/utils/http-body.ts) and over
+ *  8 MiB by a paired Kleio host's proxy (`PROXY_BODY_MAX`,
+ *  packages/kleio-host/src/host.ts). 6 MB of files encodes to 8 MB, which fits
+ *  both with room left for the message text. */
+const MAX_ATTACHMENT_BYTES = 6_000_000;
+
+/** Size of the file behind an attachment's base64 `data`. */
+function attachmentBytes(a: Attachment): number {
+  const padding = a.data.endsWith("==") ? 2 : a.data.endsWith("=") ? 1 : 0;
+  return Math.floor((a.data.length * 3) / 4) - padding;
+}
+
+/** Why these attachments can't go in one message, or null when they fit. The
+ *  composer checks before sending, since an oversized message never arrives. */
+export function oversizedAttachmentsMessage(attachments: readonly Attachment[]): string | null {
+  const total = attachments.reduce((sum, a) => sum + attachmentBytes(a), 0);
+  if (total <= MAX_ATTACHMENT_BYTES) return null;
+  const sizes =
+    `(${(total / 1_000_000).toFixed(1)} MB; ` +
+    `a message can carry up to ${MAX_ATTACHMENT_BYTES / 1_000_000} MB)`;
+  const [only] = attachments;
+  return attachments.length === 1 && only
+    ? `${only.name} is too large to send ${sizes}. ` +
+        "Remove it and mention the file's path in your message instead."
+    : `These attachments are too large to send together ${sizes}. ` +
+        "Remove some and mention their file paths in your message instead.";
+}
+
 /** Strip the preview/id fields before sending over IPC. */
 export function toWire(a: PendingAttachment): Attachment {
   return { kind: a.kind, name: a.name, mediaType: a.mediaType, data: a.data };

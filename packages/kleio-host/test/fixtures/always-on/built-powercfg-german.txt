@@ -1,0 +1,13 @@
+GUID des Energieschemas: 381b4222-f694-41f0-9685-ff5bb260df2e  (Ausbalanciert)
+  GUID-Alias: SCHEME_BALANCED
+  GUID der Untergruppe: 238c9fa8-0aad-41ed-83f4-97be242c8f20  (Energie sparen)
+    GUID-Alias: SUB_SLEEP
+    GUID der Energieeinstellung: 29f6c1db-86da-48c5-9fdb-f2b67b1f44da  (Standbymodus nach)
+      GUID-Alias: STANDBYIDLE
+      Minimal mögliche Einstellung: 0x00000000
+      Maximal mögliche Einstellung: 0xffffffff
+      Mögliche Einstellungen (Inkrement): 0x00000001
+      Mögliche Einstellungen (Einheiten): Sekunden
+    Index der aktuellen Wechselstromeinstellung: 0x00000e10
+    Index der aktuellen Gleichstromeinstellung: 0x00000384
+

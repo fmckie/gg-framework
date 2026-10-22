@@ -11,6 +11,7 @@
  * the Brain (durable memory and Jiwa, shared with text chat; see `parseBrain`).
  */
 import { readFile, rm } from "node:fs/promises";
+import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 
 /**
@@ -604,10 +605,14 @@ export function createVoice(opts: {
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   readonly log?: (line: string) => void;
+  /** Locks the key file to this user on Windows (acl.ts). Default: for this OS. */
+  readonly secretLock?: SecretLock;
 }): Voice {
   const doFetch = opts.fetch ?? fetch;
   const base = (opts.baseUrl ?? OPENAI_BASE).replace(/\/+$/, "");
   const log = opts.log ?? ((l: string) => console.error(l));
+  const secretLock =
+    opts.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
 
   async function key(): Promise<string | null> {
     if (opts.apiKey?.trim()) return opts.apiKey.trim();
@@ -665,7 +670,7 @@ export function createVoice(opts: {
       const body = await res.text().catch(() => "");
       log(`[voice] key check: ${res.status} in ${Date.now() - started} ms`);
       if (!res.ok) return { ok: false, error: failure(res.status, body, k) };
-      await atomicWrite(opts.keyPath, `${k}\n`, 0o600);
+      await atomicWrite(opts.keyPath, `${k}\n`, 0o600, secretLock);
       return { ok: true, value: null };
     },
 

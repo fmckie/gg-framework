@@ -31,6 +31,8 @@ interface Props {
   onClose: () => void;
   /** The tab to open on, e.g. AI Providers when Code needs a provider. */
   initialTab?: SettingsTabId;
+  /** kleio: Setup's Brain card starts the Introduce-yourself chat with this. */
+  onIntroduce: () => Promise<void>;
 }
 
 const PANEL_ID = "settings-panel";
@@ -41,7 +43,11 @@ const PANEL_ID = "settings-panel";
  * bottom. Each page is the same panel the app still opens as a dialog from the
  * tray and the chat view, drawn here in page form (see modal-embed.tsx).
  */
-export function SettingsScreen({ onClose, initialTab = "general" }: Props): React.ReactElement {
+export function SettingsScreen({
+  onClose,
+  initialTab = "general",
+  onIntroduce,
+}: Props): React.ReactElement {
   const [tab, setTab] = useState<SettingsTabId>(initialTab);
   const [steroids, setSteroids] = useState<SteroidsStatus | null>(null);
   // The header elements pages portal their status and buttons into
@@ -113,7 +119,7 @@ export function SettingsScreen({ onClose, initialTab = "general" }: Props): Reac
       >
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: actionsSlot }}>
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
-            {tab === "setup" && <SetupPage onOpenTab={selectTab} />}
+            {tab === "setup" && <SetupPage onOpenTab={selectTab} onIntroduce={onIntroduce} />}
             {tab === "general" && (
               <EmbeddedModal>
                 <SettingsModal
