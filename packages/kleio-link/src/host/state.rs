@@ -1,9 +1,19 @@
 //! The forwarder's folder, `~/Library/Application Support/Kleio/link-proto/`
 //! (0700): the host's secret key, the allow-list and the relay it's reached
 //! through. Every file in it is 0600 and written atomically.
+//!
+//! Only where there are POSIX modes. Elsewhere (Windows) the folder and its
+//! files are refused rather than left open to more than this user, until the
+//! host's key moves to kleio-host's locked `secure/` folder
+//! (docs/adr/0002-kleio-link-replaces-tailscale.md).
 
-use std::fs::{self, DirBuilder, File, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+#[cfg(unix)]
+use std::fs::{DirBuilder, File, OpenOptions};
+use std::io;
+#[cfg(unix)]
+use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -47,16 +57,7 @@ impl StateDir {
     /// The folder at `dir`: made if it's missing, and 0700 either way.
     pub fn open(dir: impl Into<PathBuf>) -> Result<Self, HostError> {
         let dir = dir.into();
-        if let Some(parent) = dir.parent() {
-            fs::create_dir_all(parent).map_err(|err| file_error(parent, err))?;
-        }
-        match DirBuilder::new().mode(0o700).create(&dir) {
-            Ok(()) => {}
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(err) => return Err(file_error(&dir, err)),
-        }
-        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
-            .map_err(|err| file_error(&dir, err))?;
+        make_private_dir(&dir)?;
         Ok(Self { dir })
     }
 
@@ -124,9 +125,34 @@ impl StateDir {
     }
 }
 
+/// Makes `dir` if it's missing, and 0700 either way.
+#[cfg(unix)]
+fn make_private_dir(dir: &Path) -> Result<(), HostError> {
+    if let Some(parent) = dir.parent() {
+        fs::create_dir_all(parent).map_err(|err| file_error(parent, err))?;
+    }
+    match DirBuilder::new().mode(0o700).create(dir) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(err) => return Err(file_error(dir, err)),
+    }
+    fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).map_err(|err| file_error(dir, err))
+}
+
+/// Without POSIX modes the folder can't be made this user's alone, so it's
+/// refused (see the top of this file).
+#[cfg(not(unix))]
+fn make_private_dir(dir: &Path) -> Result<(), HostError> {
+    Err(HostError::new(format!(
+        "{}: kleio-link-host can't keep its key on this OS yet, because it can't make the folder this user's alone",
+        dir.display()
+    )))
+}
+
 /// Writes `bytes` to `path` as a 0600 file, atomically: a new file in the
 /// same folder, flushed to disk, then renamed over `path`. Callers never
 /// write one file from two places at once.
+#[cfg(unix)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
         return Err(io::Error::new(
@@ -154,6 +180,20 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     written
 }
 
+/// Without POSIX modes a file can't be made 0600, so nothing is written
+/// (see the top of this file).
+#[cfg(not(unix))]
+pub(crate) fn write_private(path: &Path, _bytes: &[u8]) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!(
+            "{}: can't make a file this user's alone on this OS",
+            path.display()
+        ),
+    ))
+}
+
+#[cfg(unix)]
 fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -164,7 +204,8 @@ fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
-#[cfg(test)]
+// Every test here opens the folder, which only POSIX modes allow.
+#[cfg(all(test, unix))]
 mod tests {
     use serde_json::json;
 

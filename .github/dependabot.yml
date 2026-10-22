@@ -20,8 +20,26 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # Tauri desktop app (gg-app).
+  # Tauri desktop app (gg-app). Its link, packages/kleio-link, pins iroh, so
+  # iroh, its sub-crates and noq move together, in this group and the same
+  # group on the link's own entry below. One iroh release can still open a
+  # pull request per directory: scripts/check-link-locks.mjs fails CI until
+  # both lockfiles name the same iroh and noq versions (run `cargo update -p
+  # iroh` in the other directory on the same branch).
   - package-ecosystem: cargo
     directory: /gg-app/src-tauri
     schedule:
       interval: weekly
+    groups:
+      iroh:
+        patterns: ["iroh", "iroh-*", "noq", "noq-*"]
+
+  # Kleio's link and kleio-link-host (packages/kleio-link), with its own
+  # lockfile.
+  - package-ecosystem: cargo
+    directory: /packages/kleio-link
+    schedule:
+      interval: weekly
+    groups:
+      iroh:
+        patterns: ["iroh", "iroh-*", "noq", "noq-*"]

@@ -215,7 +215,9 @@ async fn connect_upstream(upstream: SocketAddr) -> io::Result<TcpStream> {
 
 /// The host with loopback endpoints, a stand-in for kleio-host and the
 /// phone's loopback forward: the gate, the 502 and pairing, end to end.
-#[cfg(test)]
+// Every test here runs the forwarder in a state folder, which only POSIX
+// modes allow (state.rs).
+#[cfg(all(test, unix))]
 mod tests {
     use std::fs;
 

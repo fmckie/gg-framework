@@ -1,4 +1,4 @@
-//! The connection prototype's link (feature `kleio-link-proto`; see
+//! The connection prototype's link (feature `kleio-link`; see
 //! `.gg/plans/kleio-connection-prototype.md`): this app reaching its host over
 //! iroh instead of Tailscale. The kleio-link library does the dialling, the
 //! forwarding, the pairing call and the path log. Prototype only.

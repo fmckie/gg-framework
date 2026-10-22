@@ -1,6 +1,6 @@
 // The connection prototype's Kleio link, from the webview: pairing with a v3
 // ticket, and the Link card's status and switch (Rust: kleio/link.rs, behind
-// the `kleio-link-proto` feature). A build without the feature has none of
+// the `kleio-link` feature). A build without the feature has none of
 // these commands, so its first status call fails: then none of the link's UI
 // shows, and the pairing form is exactly what it was.
 

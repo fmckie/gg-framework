@@ -80,6 +80,8 @@ function workflowInvariants(source) {
     ],
     [
       "node scripts/verify-ci-candidate.mjs materialize",
+      "node --test scripts/check-link-locks.test.mjs\nnode scripts/check-link-locks.mjs",
+      "cargo fmt --check\ncargo clippy --locked --all-targets --features host -- -D warnings\ncargo test --locked --features host",
       "sudo apt-get update\nsudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev",
       "pnpm install --frozen-lockfile",
       "pnpm --filter @kleio/coder... build",
@@ -131,7 +133,13 @@ function workflowInvariants(source) {
       [...section.matchAll(/working-directory: (.+)/g)].map((m) => m[1]),
       index === 0
         ? ["subject", "control"]
-        : ["subject", "control", "subject/gg-app/src-tauri", "subject/gg-app"],
+        : [
+            "subject",
+            "control",
+            "subject/packages/kleio-link",
+            "subject/gg-app/src-tauri",
+            "subject/gg-app",
+          ],
       "subject-working-directories",
     );
     assert.deepEqual(
@@ -166,7 +174,7 @@ function workflowInvariants(source) {
   assert.ok(sections[1].includes("name: app · ${{ matrix.os }}"));
   assert.ok(
     sections[1].includes(
-      "workspaces: subject/gg-app/src-tauri\n          save-if: ${{ steps.candidate.outputs.mode == 'ordinary' }}",
+      "workspaces: |\n            subject/gg-app/src-tauri\n            subject/packages/kleio-link\n          save-if: ${{ steps.candidate.outputs.mode == 'ordinary' }}",
     ),
     "candidate-rust-restore-only",
   );

@@ -8,7 +8,7 @@
 // - Tailscale (Mac only): the private network's details.
 // - iPhone: a one-time pairing QR the Kleio iPhone app scans (admin).
 // - Devices: every paired device, with revoke (admin).
-// - Kleio link (connection prototype, Rust feature `kleio-link-proto`): the
+// - Kleio link (connection prototype, Rust feature `kleio-link`): the
 //   link's path, speed and recent path events, with its Auto / Relay only
 //   switch. A build without the feature doesn't show it.
 //

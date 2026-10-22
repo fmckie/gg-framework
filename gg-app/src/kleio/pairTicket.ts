@@ -10,7 +10,7 @@
 // `readTicket` is the reading side, for a scanned or pasted ticket. A v2
 // ticket fills the pairing form; a v3 ticket (the connection prototype's
 // Kleio link: the host's key, its relay and the code) goes to the link's
-// confirm step, where Rust's check of it (prototypes/kleio-link) decides.
+// confirm step, where Rust's check of it (packages/kleio-link) decides.
 
 export type TicketResult = { ok: true; value: string } | { ok: false; error: string };
 

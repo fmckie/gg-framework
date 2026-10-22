@@ -8,7 +8,7 @@
 // cannot relaunch itself, so there a first pairing switches on in place and
 // the pane just closes into the app.
 //
-// Connection prototype (Rust feature `kleio-link-proto`): the iPhone scans the
+// Connection prototype (Rust feature `kleio-link`): the iPhone scans the
 // pairing QR code, and a v3 ticket pairs over the Kleio link instead, after a
 // confirm step that shows the host's key, its relay and the code. Debug builds
 // also take a pasted ticket, as the simulator has no camera. A build without

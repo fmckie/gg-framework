@@ -144,7 +144,7 @@ describe("RemoteHostModal — not paired", () => {
 
 describe("RemoteHostModal — pairing over the Kleio link (connection prototype)", () => {
   // `routes` turns away a command it doesn't list, as a build without the
-  // `kleio-link-proto` feature turns away the link's commands.
+  // `kleio-link` feature turns away the link's commands.
   const NO_LINK: LinkStatus = {
     paired: false,
     active: false,

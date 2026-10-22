@@ -215,7 +215,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{mode, TempDir};
+    #[cfg(unix)]
+    use crate::testing::mode;
+    use crate::testing::TempDir;
 
     fn key(seed: u8) -> EndpointId {
         SecretKey::from_bytes(&[seed; 32]).public()
@@ -228,6 +230,8 @@ mod tests {
         }
     }
 
+    // Adding a key saves the list, which only POSIX modes allow (state.rs).
+    #[cfg(unix)]
     #[test]
     fn lets_only_paired_keys_use_http() {
         let tmp = TempDir::new("gate-verdict");
@@ -255,6 +259,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn saves_the_list_0600_sorted_and_reads_it_back() {
         let tmp = TempDir::new("gate-save");

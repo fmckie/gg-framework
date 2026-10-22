@@ -95,6 +95,8 @@ experiments/prompt-bench/.bench-sandbox-*
 !/scripts/consumer-fixture/consumer.mjs
 !/scripts/consumer-fixture/consumer.ts
 !/scripts/identity-audit.test.mjs
+!/scripts/check-link-locks.mjs
+!/scripts/check-link-locks.test.mjs
 CLAUDE.md
 packages/*/.bench-*.mjs
 

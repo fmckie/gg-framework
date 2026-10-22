@@ -14,7 +14,7 @@ describe("Tauri binding versions", () => {
   it.each([
     ["api", "tauri"],
     // kleio (connection prototype): the iPhone's pairing QR scanner, which
-    // only builds with the `kleio-link-proto` feature.
+    // only builds with the `kleio-link` feature.
     ["plugin-barcode-scanner", "tauri-plugin-barcode-scanner"],
     ["plugin-dialog", "tauri-plugin-dialog"],
     ["plugin-log", "tauri-plugin-log"],

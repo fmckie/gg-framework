@@ -11,7 +11,7 @@
 //!      app (`commands.rs`) and takes effect on the next launch — except on
 //!      the iPhone, which cannot relaunch itself: there a first pairing
 //!      switches on in place (`activate_paired`), once, never host-to-host.
-//!      With feature `kleio-link-proto`, a link pairing (`link.rs`) is read
+//!      With feature `kleio-link`, a link pairing (`link.rs`) is read
 //!      first, and wins over `remote.json`.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
 //!
@@ -25,7 +25,7 @@ pub mod commands;
 pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
-#[cfg(feature = "kleio-link-proto")]
+#[cfg(feature = "kleio-link")]
 pub mod link;
 pub mod live;
 pub mod parked;
@@ -51,8 +51,8 @@ pub struct Remote {
     pub control_credential: Option<String>,
     pub admin: bool,
     /// What the link needs, when this pairing is the link's (feature
-    /// `kleio-link-proto`, `link.rs`).
-    #[cfg(feature = "kleio-link-proto")]
+    /// `kleio-link`, `link.rs`).
+    #[cfg(feature = "kleio-link")]
     pub link: Option<link::LinkBoot>,
 }
 
@@ -112,7 +112,7 @@ fn from_env() -> Option<Remote> {
         device_token,
         control_credential: std::env::var("KLEIO_CONTROL_CREDENTIAL").ok(),
         admin: false,
-        #[cfg(feature = "kleio-link-proto")]
+        #[cfg(feature = "kleio-link")]
         link: None,
     })
 }
@@ -125,10 +125,10 @@ pub fn remote_now() -> Option<Remote> {
     from_env().or_else(from_paired)
 }
 
-/// The pairing on disk. With feature `kleio-link-proto`, a link pairing wins
+/// The pairing on disk. With feature `kleio-link`, a link pairing wins
 /// over `remote.json`.
 fn from_paired() -> Option<Remote> {
-    #[cfg(feature = "kleio-link-proto")]
+    #[cfg(feature = "kleio-link")]
     {
         if let Some(r) = link::from_link() {
             return Some(r);
@@ -169,7 +169,7 @@ fn from_store() -> Option<Remote> {
         device_token,
         admin: rec.admin,
         control_credential,
-        #[cfg(feature = "kleio-link-proto")]
+        #[cfg(feature = "kleio-link")]
         link: None,
     })
 }
@@ -211,7 +211,7 @@ pub fn kleio_remote_status() -> RemoteStatus {
 /// The pairing on disk that the next launch uses: the link's first when the
 /// link prototype is built in (`from_paired`'s order), else `remote.json`.
 fn paired_now(home: &std::path::Path) -> Option<store::HostRecord> {
-    #[cfg(feature = "kleio-link-proto")]
+    #[cfg(feature = "kleio-link")]
     if let Some(record) = link::paired_record(home) {
         return Some(record);
     }
@@ -246,7 +246,7 @@ pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
 /// Hosts Kleio pairs with: https (Tailscale Serve terminates TLS) and, in a
 /// debug build only, exactly `http://127.0.0.1:<port>`, a host on this Mac
 /// (`gg-app/scripts/dev-host.mjs`). Mirrors `checked_preview_url` in `files.rs`.
-/// With feature `kleio-link-proto`, also exactly [`LINK_BASE`], in any build.
+/// With feature `kleio-link`, also exactly [`LINK_BASE`], in any build.
 fn host_url_allowed(url: &str) -> bool {
     host_url_allowed_in(url, cfg!(debug_assertions), LINK_BUILD)
 }
@@ -261,8 +261,8 @@ fn host_url_allowed_in(url: &str, debug_build: bool, link_build: bool) -> bool {
 /// carries the app's requests to the host over iroh (`link.rs`).
 pub const LINK_BASE: &str = "http://127.0.0.1:47821";
 
-/// Whether this build has the link (feature `kleio-link-proto`).
-const LINK_BUILD: bool = cfg!(feature = "kleio-link-proto");
+/// Whether this build has the link (feature `kleio-link`).
+const LINK_BUILD: bool = cfg!(feature = "kleio-link");
 
 /// Exactly `http://127.0.0.1:<1-65535>`, the port written plainly: no user,
 /// path, query, fragment or other host.
@@ -705,7 +705,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "kleio-link-proto")]
+    #[cfg(feature = "kleio-link")]
     #[test]
     fn with_the_link_feature_any_build_allows_the_links_url() {
         assert!(host_url_allowed(LINK_BASE));
@@ -717,7 +717,7 @@ mod tests {
         ));
     }
 
-    #[cfg(not(feature = "kleio-link-proto"))]
+    #[cfg(not(feature = "kleio-link"))]
     #[test]
     fn without_the_link_feature_its_url_is_any_loopback_port() {
         assert_eq!(host_url_allowed(LINK_BASE), cfg!(debug_assertions));

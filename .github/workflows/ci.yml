@@ -206,15 +206,36 @@ jobs:
           package-manager-cache: ${{ steps.candidate.outputs.mode == 'ordinary' }}
           cache-dependency-path: subject/pnpm-lock.yaml
 
+      # Kleio's link (packages/kleio-link) pins iroh, and gg-app builds it, so
+      # both lockfiles must name the same iroh and noq versions. Dependabot can
+      # open one pull request per directory for one iroh release.
+      - name: Link lockfiles agree on iroh and noq
+        run: |
+          node --test scripts/check-link-locks.test.mjs
+          node scripts/check-link-locks.mjs
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       # Both `cargo test` and the Windows packaged build compile the same large
       # Tauri dependency tree; without a cache the packaged smoke would rebuild
-      # it from scratch on every run.
+      # it from scratch on every run. Kleio's link (packages/kleio-link) has its
+      # own lockfile and target folder, so it's a second workspace.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: subject/gg-app/src-tauri
+          workspaces: |
+            subject/gg-app/src-tauri
+            subject/packages/kleio-link
           save-if: ${{ steps.candidate.outputs.mode == 'ordinary' }}
+
+      # Kleio's link and kleio-link-host, on every OS the host runs on.
+      - name: Kleio link (format, clippy and tests)
+        working-directory: subject/packages/kleio-link
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets --features host -- -D warnings
+          cargo test --locked --features host
 
       - name: Linux system deps (tauri)
         if: runner.os == 'Linux'

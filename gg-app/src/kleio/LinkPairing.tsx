@@ -1,4 +1,4 @@
-// The connection prototype's pairing steps (Rust feature `kleio-link-proto`),
+// The connection prototype's pairing steps (Rust feature `kleio-link`),
 // shared by the pairing form (RemoteHostModal) and the Link card on the
 // Connection page: scanning the pairing QR code on the iPhone, a pasted ticket
 // in debug builds, and a v3 ticket's confirm step, which pairs over the Kleio

@@ -74,7 +74,7 @@ async function renderPage(): Promise<void> {
 }
 
 /** Answers the link's commands from `map`; any other is turned away, as a
- *  build without the `kleio-link-proto` feature turns away all of them. */
+ *  build without the `kleio-link` feature turns away all of them. */
 function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unknown>): void {
   vi.mocked(invoke).mockImplementation(async (cmd, args) => {
     const fn = map[cmd];

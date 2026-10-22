@@ -161,7 +161,7 @@ pub(crate) mod testing {
     }
 
     /// A file's or folder's permission bits.
-    #[cfg(feature = "host")]
+    #[cfg(all(feature = "host", unix))]
     pub(crate) fn mode(path: &std::path::Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
         std::fs::metadata(path)

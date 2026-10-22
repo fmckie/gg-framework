@@ -1,5 +1,5 @@
 // The iPhone's pairing QR scanner (4e, "Pairing a device", flow 1), with the
-// connection prototype's link (Rust feature `kleio-link-proto`): Tauri's
+// connection prototype's link (Rust feature `kleio-link`): Tauri's
 // barcode-scanner plugin, QR only. A scan only reads the code: what it holds
 // goes through `readTicket` like a pasted ticket, and nothing pairs until the
 // user presses Pair.

@@ -240,7 +240,7 @@ pub fn kleio_forget() -> Result<(), String> {
     let home = crate::home_dir();
     // kleio (connection prototype): the link pairing, while there's one, is
     // the pairing shown and the next launch uses, so it's the one forgotten.
-    #[cfg(feature = "kleio-link-proto")]
+    #[cfg(feature = "kleio-link")]
     if super::link::forget(&home)? {
         return Ok(());
     }

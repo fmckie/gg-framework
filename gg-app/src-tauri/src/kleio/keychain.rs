@@ -11,8 +11,8 @@ pub enum Secret {
     DeviceToken,
     ControlCredential,
     /// This device's own iroh key, for the connection prototype's link
-    /// (feature `kleio-link-proto`, `link.rs`).
-    #[cfg(feature = "kleio-link-proto")]
+    /// (feature `kleio-link`, `link.rs`).
+    #[cfg(feature = "kleio-link")]
     IrohKey,
 }
 
@@ -21,7 +21,7 @@ impl Secret {
         match self {
             Secret::DeviceToken => format!("device-token:{host}"),
             Secret::ControlCredential => format!("control-credential:{host}"),
-            #[cfg(feature = "kleio-link-proto")]
+            #[cfg(feature = "kleio-link")]
             Secret::IrohKey => format!("iroh-key:{host}"),
         }
     }
