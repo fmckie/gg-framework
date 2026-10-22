@@ -22,6 +22,7 @@
 		6EBF770A0BC4CA901C766366 /* KleioWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6430C6C797EEC923FF06AB94 /* KleioWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		777574AA1DE674B5369BC98A /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 92D95BB79E800D945052D01B /* WebKit.framework */; };
 		7F45602DFE6D669037813738 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EECB4B13CD7E0B960681E5DE /* Assets.xcassets */; };
+		83F3257FB09712D97BC0A16A /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0B06FB4A16488C48C6293E64 /* SystemConfiguration.framework */; };
 		87AAAABF0B135F2B85D5E555 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8E5BDEECE2B1B8A644933E7B /* SwiftUI.framework */; };
 		89938A1C5199BAF3C986302A /* KleioActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B0B23F7588CFDD24BD223D /* KleioActivityAttributes.swift */; };
 		90D1FF48E8E873F763BDB72B /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 610D93D92438438066AC1725 /* libapp.a */; };
@@ -64,6 +65,7 @@
 		0274E7954E8D9AE5C07B42BA /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		09D3104FCC44D36513909505 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		09D9688B360317BD5C21E154 /* commands.rs */ = {isa = PBXFileReference; path = commands.rs; sourceTree = "<group>"; };
+		0B06FB4A16488C48C6293E64 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		10036C03C5FBF1E4252E8C0E /* KleioLiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KleioLiveActivities.swift; sourceTree = "<group>"; };
 		18FFA65858813F7702C1BB91 /* brief.rs */ = {isa = PBXFileReference; path = brief.rs; sourceTree = "<group>"; };
 		211D036161DBC980CD996565 /* live.rs */ = {isa = PBXFileReference; path = live.rs; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 				C0E90C9F35762599AAA46BBA /* MetalKit.framework in Frameworks */,
 				E728931F31C5285CE6ABBFFA /* QuartzCore.framework in Frameworks */,
 				DBC1A55E52F49A1875E35E5F /* Security.framework in Frameworks */,
+				83F3257FB09712D97BC0A16A /* SystemConfiguration.framework in Frameworks */,
 				94E0049F25606189062F3A9D /* UIKit.framework in Frameworks */,
 				777574AA1DE674B5369BC98A /* WebKit.framework in Frameworks */,
 			);
@@ -167,6 +170,7 @@
 				889A5B788BF34E3CA802D11C /* QuartzCore.framework */,
 				A1CE434C6A82C1DA9EA8E5A8 /* Security.framework */,
 				8E5BDEECE2B1B8A644933E7B /* SwiftUI.framework */,
+				0B06FB4A16488C48C6293E64 /* SystemConfiguration.framework */,
 				A6BC59FA4E75131FD7013C48 /* UIKit.framework */,
 				92D95BB79E800D945052D01B /* WebKit.framework */,
 				77CBBCC5CD7BD8E095A08967 /* WidgetKit.framework */,

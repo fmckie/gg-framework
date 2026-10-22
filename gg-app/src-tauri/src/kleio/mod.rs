@@ -11,7 +11,10 @@
 //!      app (`commands.rs`) and takes effect on the next launch — except on
 //!      the iPhone, which cannot relaunch itself: there a first pairing
 //!      switches on in place (`activate_paired`), once, never host-to-host.
+//!      With feature `kleio-link-proto`, a link pairing (`link.rs`) is read
+//!      first, and wins over `remote.json`.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
+//!
 //! When remote, no local sidecar is spawned; every sidecar call goes to the
 //! host, authenticated with `x-kleio-device-token` (and `x-kleio-control` for
 //! admin devices); the SSE bridge resumes with `Last-Event-ID`.
@@ -22,6 +25,8 @@ pub mod commands;
 pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
+#[cfg(feature = "kleio-link-proto")]
+pub mod link;
 pub mod live;
 pub mod parked;
 #[cfg(target_os = "ios")]
@@ -44,6 +49,10 @@ pub struct Remote {
     /// Control macaroon, present only for admin devices.
     pub control_credential: Option<String>,
     pub admin: bool,
+    /// What the link needs, when this pairing is the link's (feature
+    /// `kleio-link-proto`, `link.rs`).
+    #[cfg(feature = "kleio-link-proto")]
+    pub link: Option<link::LinkBoot>,
 }
 
 static REMOTE: OnceLock<Remote> = OnceLock::new();
@@ -53,7 +62,7 @@ static BOOT: Once = Once::new();
 /// connect screen). Once `Some`, it never changes for the life of the process.
 pub fn remote() -> Option<&'static Remote> {
     BOOT.call_once(|| {
-        if let Some(r) = from_env().or_else(from_store) {
+        if let Some(r) = from_env().or_else(from_paired) {
             let _ = REMOTE.set(r);
         }
     });
@@ -68,7 +77,7 @@ pub fn activate_paired() -> Option<&'static Remote> {
     if let Some(r) = remote() {
         return Some(r);
     }
-    let r = from_store()?;
+    let r = from_paired()?;
     let _ = REMOTE.set(r);
     REMOTE.get()
 }
@@ -102,6 +111,8 @@ fn from_env() -> Option<Remote> {
         device_token,
         control_credential: std::env::var("KLEIO_CONTROL_CREDENTIAL").ok(),
         admin: false,
+        #[cfg(feature = "kleio-link-proto")]
+        link: None,
     })
 }
 
@@ -110,7 +121,19 @@ fn from_env() -> Option<Remote> {
 /// that began while the phone was locked.
 #[cfg(target_os = "ios")]
 pub fn remote_now() -> Option<Remote> {
-    from_env().or_else(from_store)
+    from_env().or_else(from_paired)
+}
+
+/// The pairing on disk. With feature `kleio-link-proto`, a link pairing wins
+/// over `remote.json`.
+fn from_paired() -> Option<Remote> {
+    #[cfg(feature = "kleio-link-proto")]
+    {
+        if let Some(r) = link::from_link() {
+            return Some(r);
+        }
+    }
+    from_store()
 }
 
 fn from_store() -> Option<Remote> {
@@ -145,6 +168,8 @@ fn from_store() -> Option<Remote> {
         device_token,
         admin: rec.admin,
         control_credential,
+        #[cfg(feature = "kleio-link-proto")]
+        link: None,
     })
 }
 
@@ -178,8 +203,18 @@ pub fn kleio_remote_status() -> RemoteStatus {
             label: r.label.clone(),
             admin: r.admin,
         }),
-        paired: store::load(&crate::home_dir()),
+        paired: paired_now(&crate::home_dir()),
     }
+}
+
+/// The pairing on disk that the next launch uses: the link's first when the
+/// link prototype is built in (`from_paired`'s order), else `remote.json`.
+fn paired_now(home: &std::path::Path) -> Option<store::HostRecord> {
+    #[cfg(feature = "kleio-link-proto")]
+    if let Some(record) = link::paired_record(home) {
+        return Some(record);
+    }
+    store::load(home)
 }
 
 /// Header the Kleio host checks instead of the sidecar's `x-gg-token`.
@@ -210,13 +245,23 @@ pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
 /// Hosts Kleio pairs with: https (Tailscale Serve terminates TLS) and, in a
 /// debug build only, exactly `http://127.0.0.1:<port>`, a host on this Mac
 /// (`gg-app/scripts/dev-host.mjs`). Mirrors `checked_preview_url` in `files.rs`.
+/// With feature `kleio-link-proto`, also exactly [`LINK_BASE`], in any build.
 fn host_url_allowed(url: &str) -> bool {
-    host_url_allowed_in(url, cfg!(debug_assertions))
+    host_url_allowed_in(url, cfg!(debug_assertions), LINK_BUILD)
 }
 
-fn host_url_allowed_in(url: &str, debug_build: bool) -> bool {
-    url.starts_with("https://") || (debug_build && is_loopback_http(url))
+fn host_url_allowed_in(url: &str, debug_build: bool, link_build: bool) -> bool {
+    url.starts_with("https://")
+        || (debug_build && is_loopback_http(url))
+        || (link_build && url == LINK_BASE)
 }
+
+/// The connection prototype's link on this device: a loopback listener that
+/// carries the app's requests to the host over iroh (`link.rs`).
+pub const LINK_BASE: &str = "http://127.0.0.1:47821";
+
+/// Whether this build has the link (feature `kleio-link-proto`).
+const LINK_BUILD: bool = cfg!(feature = "kleio-link-proto");
 
 /// Exactly `http://127.0.0.1:<1-65535>`, the port written plainly: no user,
 /// path, query, fragment or other host.
@@ -373,6 +418,91 @@ where
     }
 }
 
+// ── Host-owned settings ─────────────────────────────────────────────────────
+// The sidecar's /settings is the HOST's `~/.gg/gg-app.json`. Session-scoped
+// like every other sidecar route; the managed client carries the device token.
+
+/// Marker cwd for "let the host's sidecar pick": never sent on the wire.
+pub const HOST_DEFAULT_CWD: &str = "kleio://host-default";
+
+pub async fn host_settings(
+    client: &reqwest::Client,
+    base: &str,
+    gg_sid: &str,
+) -> Result<serde_json::Value, String> {
+    let res = client
+        .get(format!("{base}/settings"))
+        .header("x-gg-session", gg_sid)
+        .send()
+        .await
+        .map_err(|e| format!("host settings: {e}"))?;
+    if !res.status().is_success() {
+        return Err(format!("host settings: HTTP {}", res.status()));
+    }
+    res.json().await.map_err(|e| format!("host settings: {e}"))
+}
+
+pub async fn host_settings_save(
+    client: &reqwest::Client,
+    base: &str,
+    gg_sid: &str,
+    projects_root: &str,
+) -> Result<serde_json::Value, String> {
+    let res = client
+        .post(format!("{base}/settings"))
+        .header("x-gg-session", gg_sid)
+        .json(&serde_json::json!({ "projectsRoot": projects_root }))
+        .send()
+        .await
+        .map_err(|e| format!("host settings: {e}"))?;
+    if !res.status().is_success() {
+        return Err(format!("host settings: HTTP {}", res.status()));
+    }
+    res.json().await.map_err(|e| format!("host settings: {e}"))
+}
+
+/// Make a project folder in the HOST's projects root. The sidecar's
+/// `/create-project` validates the name and refuses an existing folder, and
+/// its `/projects` scan then lists the new one. Returns `{ path }`.
+pub async fn host_create_project(
+    client: &reqwest::Client,
+    base: &str,
+    gg_sid: &str,
+    name: &str,
+) -> Result<serde_json::Value, String> {
+    let cant_reach =
+        |e: reqwest::Error| format!("Couldn't reach your host: {}", commands::root_cause(&e));
+    let res = client
+        .post(format!("{base}/create-project"))
+        .header("x-gg-session", gg_sid)
+        .json(&serde_json::json!({ "name": name }))
+        .send()
+        .await
+        .map_err(cant_reach)?;
+    let status = res.status().as_u16();
+    let text = res.text().await.map_err(cant_reach)?;
+    created_project(status, &text)
+}
+
+/// The sidecar's answer: `{ path }`, or its own message (bad name, folder
+/// exists), else the status, as every host call reports it.
+fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String> {
+    // 409 is the sidecar's "that folder already exists".
+    if status == 409 {
+        let reason = files::host_error(status, body);
+        return Err(format!("{}{reason}", crate::PROJECT_EXISTS));
+    }
+    if !(200..300).contains(&status) {
+        return Err(files::host_error(status, body));
+    }
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("path")?.as_str().map(str::to_string))
+        .filter(|p| !p.trim().is_empty())
+        .map(|path| serde_json::json!({ "path": path }))
+        .ok_or_else(|| "Your host didn't say where it made the project.".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,7 +609,7 @@ mod tests {
     fn kleio_state_is_never_gg_coders() {
         let dir = state_dir(std::path::Path::new("/Users/someone"));
         assert_eq!(dir, std::path::PathBuf::from("/Users/someone/.kleio"));
-        assert!(REMOTE_ONLY);
+        const { assert!(REMOTE_ONLY) };
     }
 
     #[test]
@@ -487,7 +617,8 @@ mod tests {
         for debug_build in [false, true] {
             assert!(host_url_allowed_in(
                 "https://mac-mini-1.x.ts.net:8443",
-                debug_build
+                debug_build,
+                false
             ));
             for local in [
                 "http://127.0.0.1:52714",
@@ -495,7 +626,7 @@ mod tests {
                 "http://127.0.0.1:65535",
             ] {
                 assert_eq!(
-                    host_url_allowed_in(local, debug_build),
+                    host_url_allowed_in(local, debug_build, false),
                     debug_build,
                     "{local}"
                 );
@@ -524,7 +655,7 @@ mod tests {
                 "",
             ] {
                 assert!(
-                    !host_url_allowed_in(refused, debug_build),
+                    !host_url_allowed_in(refused, debug_build, false),
                     "{refused:?} (debug build {debug_build})"
                 );
             }
@@ -534,6 +665,62 @@ mod tests {
             cfg!(debug_assertions)
         );
         assert!(host_url_allowed("https://mac-mini-1.x.ts.net:8443"));
+    }
+
+    #[test]
+    fn the_link_feature_also_allows_exactly_the_links_url() {
+        for debug_build in [false, true] {
+            // Without the feature the link's URL is one more loopback port.
+            assert_eq!(
+                host_url_allowed_in(LINK_BASE, debug_build, false),
+                debug_build
+            );
+            // With it, that URL is allowed in any build, and nothing else is.
+            assert!(host_url_allowed_in(LINK_BASE, debug_build, true));
+            for url in [
+                "https://mac-mini-1.x.ts.net:8443",
+                "http://127.0.0.1:52714",
+                "http://127.0.0.1:47822",
+                "http://127.0.0.1:4782",
+                "http://127.0.0.1:478210",
+                "http://127.0.0.1:047821",
+                "http://127.0.0.1:47821/",
+                "http://127.0.0.1:47821/kleio",
+                "http://127.0.0.1:47821?x=1",
+                "http://user@127.0.0.1:47821",
+                "http://localhost:47821",
+                "http://[::1]:47821",
+                "HTTP://127.0.0.1:47821",
+                " http://127.0.0.1:47821",
+                "http://127.0.0.1:47821 ",
+                "",
+            ] {
+                assert_eq!(
+                    host_url_allowed_in(url, debug_build, true),
+                    host_url_allowed_in(url, debug_build, false),
+                    "{url:?} (debug build {debug_build})"
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "kleio-link-proto")]
+    #[test]
+    fn with_the_link_feature_any_build_allows_the_links_url() {
+        assert!(host_url_allowed(LINK_BASE));
+        assert!(host_url_allowed_in(LINK_BASE, false, LINK_BUILD));
+        assert!(!host_url_allowed_in(
+            "http://127.0.0.1:47822",
+            false,
+            LINK_BUILD
+        ));
+    }
+
+    #[cfg(not(feature = "kleio-link-proto"))]
+    #[test]
+    fn without_the_link_feature_its_url_is_any_loopback_port() {
+        assert_eq!(host_url_allowed(LINK_BASE), cfg!(debug_assertions));
+        assert!(!host_url_allowed_in(LINK_BASE, false, LINK_BUILD));
     }
 
     #[test]
@@ -577,89 +764,4 @@ mod tests {
             assert!(created_project(200, body).is_err(), "{body}");
         }
     }
-}
-
-// ── Host-owned settings ─────────────────────────────────────────────────────
-// The sidecar's /settings is the HOST's `~/.gg/gg-app.json`. Session-scoped
-// like every other sidecar route; the managed client carries the device token.
-
-/// Marker cwd for "let the host's sidecar pick": never sent on the wire.
-pub const HOST_DEFAULT_CWD: &str = "kleio://host-default";
-
-pub async fn host_settings(
-    client: &reqwest::Client,
-    base: &str,
-    gg_sid: &str,
-) -> Result<serde_json::Value, String> {
-    let res = client
-        .get(format!("{base}/settings"))
-        .header("x-gg-session", gg_sid)
-        .send()
-        .await
-        .map_err(|e| format!("host settings: {e}"))?;
-    if !res.status().is_success() {
-        return Err(format!("host settings: HTTP {}", res.status()));
-    }
-    res.json().await.map_err(|e| format!("host settings: {e}"))
-}
-
-pub async fn host_settings_save(
-    client: &reqwest::Client,
-    base: &str,
-    gg_sid: &str,
-    projects_root: &str,
-) -> Result<serde_json::Value, String> {
-    let res = client
-        .post(format!("{base}/settings"))
-        .header("x-gg-session", gg_sid)
-        .json(&serde_json::json!({ "projectsRoot": projects_root }))
-        .send()
-        .await
-        .map_err(|e| format!("host settings: {e}"))?;
-    if !res.status().is_success() {
-        return Err(format!("host settings: HTTP {}", res.status()));
-    }
-    res.json().await.map_err(|e| format!("host settings: {e}"))
-}
-
-/// Make a project folder in the HOST's projects root. The sidecar's
-/// `/create-project` validates the name and refuses an existing folder, and
-/// its `/projects` scan then lists the new one. Returns `{ path }`.
-pub async fn host_create_project(
-    client: &reqwest::Client,
-    base: &str,
-    gg_sid: &str,
-    name: &str,
-) -> Result<serde_json::Value, String> {
-    let cant_reach =
-        |e: reqwest::Error| format!("Couldn't reach your host: {}", commands::root_cause(&e));
-    let res = client
-        .post(format!("{base}/create-project"))
-        .header("x-gg-session", gg_sid)
-        .json(&serde_json::json!({ "name": name }))
-        .send()
-        .await
-        .map_err(cant_reach)?;
-    let status = res.status().as_u16();
-    let text = res.text().await.map_err(cant_reach)?;
-    created_project(status, &text)
-}
-
-/// The sidecar's answer: `{ path }`, or its own message (bad name, folder
-/// exists), else the status, as every host call reports it.
-fn created_project(status: u16, body: &str) -> Result<serde_json::Value, String> {
-    // 409 is the sidecar's "that folder already exists".
-    if status == 409 {
-        let reason = files::host_error(status, body);
-        return Err(format!("{}{reason}", crate::PROJECT_EXISTS));
-    }
-    if !(200..300).contains(&status) {
-        return Err(files::host_error(status, body));
-    }
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("path")?.as_str().map(str::to_string))
-        .filter(|p| !p.trim().is_empty())
-        .map(|path| serde_json::json!({ "path": path }))
-        .ok_or_else(|| "Your host didn't say where it made the project.".to_string())
 }

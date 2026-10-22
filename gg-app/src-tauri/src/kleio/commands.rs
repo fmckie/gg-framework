@@ -22,14 +22,14 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 /// (mirrors `isPairingPayload`). The host is untrusted input.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PairingPayload {
-    base_url: String,
-    host: String,
-    token: String,
-    label: String,
-    device_id: String,
+pub(super) struct PairingPayload {
+    pub(super) base_url: String,
+    pub(super) host: String,
+    pub(super) token: String,
+    pub(super) label: String,
+    pub(super) device_id: String,
     #[serde(default)]
-    control_credential: Option<String>,
+    pub(super) control_credential: Option<String>,
 }
 
 fn validate_payload(p: &PairingPayload) -> Result<(), String> {
@@ -59,6 +59,27 @@ fn validate_payload(p: &PairingPayload) -> Result<(), String> {
         return Err("host returned a malformed device id".into());
     }
     Ok(())
+}
+
+/// The payload of a redeem answer that said `ok: true`, checked as
+/// `kleio_pair` checks it. The link's pairing (`link.rs`) reads its answer
+/// with this too, so both give the same errors.
+pub(super) fn checked_payload(payload: serde_json::Value) -> Result<PairingPayload, String> {
+    let payload: PairingPayload = serde_json::from_value(payload)
+        .map_err(|_| "Host sent a malformed pairing ticket".to_string())?;
+    validate_payload(&payload)?;
+    Ok(payload)
+}
+
+/// Puts a pairing's secrets in the Keychain under `host`: the device token,
+/// and the control credential if one came, or else drops an old one.
+pub(super) fn keep_secrets(host: &str, payload: &PairingPayload) -> Result<(), String> {
+    keychain::put(host, keychain::Secret::DeviceToken, &payload.token)?;
+    if let Some(c) = payload.control_credential.as_deref() {
+        keychain::put(host, keychain::Secret::ControlCredential, c)
+    } else {
+        keychain::delete(host, keychain::Secret::ControlCredential)
+    }
 }
 
 /// The user types the code; the host normalises confusables and case itself
@@ -98,7 +119,7 @@ fn random_hex(bytes: usize) -> String {
     out
 }
 
-fn now_iso() -> String {
+pub(super) fn now_iso() -> String {
     // No chrono in the tree; seconds-since-epoch rendered as a fixed-format
     // ISO date is enough for a display-only field.
     let secs = std::time::SystemTime::now()
@@ -140,12 +161,7 @@ pub async fn kleio_pair(
 ) -> Result<store::HostRecord, String> {
     let base = normalize_base(&base_url)?;
     let code = compact_code(&code)?;
-    let label = label.trim().to_string();
-    let label = if label.is_empty() {
-        default_label()
-    } else {
-        label
-    };
+    let label = label_or_default(&label);
 
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
@@ -188,10 +204,7 @@ pub async fn kleio_pair(
             None => format!("Host refused the code (HTTP {status})."),
         });
     }
-    let payload: PairingPayload =
-        serde_json::from_value(body.get("payload").cloned().unwrap_or_default())
-            .map_err(|_| "Host sent a malformed pairing ticket".to_string())?;
-    validate_payload(&payload)?;
+    let payload = checked_payload(body.get("payload").cloned().unwrap_or_default())?;
     if payload.base_url != base {
         // Not fatal — Serve may advertise a canonical name — but the record
         // must carry the URL the host wants us to use from now on.
@@ -202,12 +215,7 @@ pub async fn kleio_pair(
     }
 
     let admin = payload.control_credential.is_some();
-    keychain::put(&payload.host, keychain::Secret::DeviceToken, &payload.token)?;
-    if let Some(c) = payload.control_credential.as_deref() {
-        keychain::put(&payload.host, keychain::Secret::ControlCredential, c)?;
-    } else {
-        keychain::delete(&payload.host, keychain::Secret::ControlCredential)?;
-    }
+    keep_secrets(&payload.host, &payload)?;
     let rec = store::HostRecord {
         base_url: payload.base_url,
         host: payload.host,
@@ -230,11 +238,27 @@ pub async fn kleio_pair(
 #[tauri::command]
 pub fn kleio_forget() -> Result<(), String> {
     let home = crate::home_dir();
+    // kleio (connection prototype): the link pairing, while there's one, is
+    // the pairing shown and the next launch uses, so it's the one forgotten.
+    #[cfg(feature = "kleio-link-proto")]
+    if super::link::forget(&home)? {
+        return Ok(());
+    }
     if let Some(rec) = store::load(&home) {
         keychain::delete(&rec.host, keychain::Secret::DeviceToken)?;
         keychain::delete(&rec.host, keychain::Secret::ControlCredential)?;
     }
     store::clear(&home)
+}
+
+/// The device name the user typed, or else this device's own.
+pub(super) fn label_or_default(raw: &str) -> String {
+    let label = raw.trim();
+    if label.is_empty() {
+        default_label()
+    } else {
+        label.to_string()
+    }
 }
 
 fn default_label() -> String {

@@ -5861,6 +5861,19 @@ fn with_desktop_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
     builder
 }
 
+/// kleio (connection prototype, iPhone): the barcode scanner, for the pairing
+/// QR code. Its permission is granted in `kleio::link::setup`, which needs the
+/// app first.
+#[cfg(all(feature = "kleio-link-proto", target_os = "ios"))]
+fn with_link_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder.plugin(tauri_plugin_barcode_scanner::init())
+}
+
+#[cfg(not(all(feature = "kleio-link-proto", target_os = "ios")))]
+fn with_link_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
+}
+
 /// kleio: what a just-saved pairing needs before it is in use.
 #[derive(serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -5950,7 +5963,8 @@ pub fn run() {
     let daemon_token = uuid::Uuid::new_v4().to_string();
     let http_client = build_http_client(&daemon_token);
 
-    with_http_client(with_desktop_plugins(tauri::Builder::default()), http_client)
+    let builder = with_link_plugins(with_desktop_plugins(tauri::Builder::default()));
+    with_http_client(builder, http_client)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(
@@ -5993,6 +6007,14 @@ pub fn run() {
             kleio::commands::kleio_pair,
             kleio::commands::kleio_forget,
             kleio_activate_pairing,
+            #[cfg(feature = "kleio-link-proto")]
+            kleio::link::kleio_link_check_ticket,
+            #[cfg(feature = "kleio-link-proto")]
+            kleio::link::kleio_link_pair,
+            #[cfg(feature = "kleio-link-proto")]
+            kleio::link::kleio_link_status,
+            #[cfg(feature = "kleio-link-proto")]
+            kleio::link::kleio_link_set_mode,
             kleio_chat_for_session,
             kleio::push::kleio_take_notification_tap,
             kleio::live::kleio_live_start,
@@ -6143,6 +6165,11 @@ pub fn run() {
             if let Err(e) = init_tray(&app.handle().clone()) {
                 log::warn!("tray init failed: {e}");
             }
+            // kleio (connection prototype): the link's state and log and, when
+            // this launch reaches the host over the link, its loopback
+            // listener, up before the first request below.
+            #[cfg(feature = "kleio-link-proto")]
+            kleio::link::setup(app.handle());
             // Spawn the ONE shared Node daemon before any window asks for a
             // session. Window session creation (in restore/setup) awaits its
             // `GG_APP_LISTENING` port via `await_daemon_port`.
@@ -6252,6 +6279,10 @@ pub fn run() {
             tauri::WindowEvent::Resumed => {
                 log::info!("kleio: app resumed; reconnecting event streams");
                 let app = window.app_handle().clone();
+                // iOS may have taken the link's listener away while the app
+                // was suspended: it listens again before anything is told.
+                #[cfg(feature = "kleio-link-proto")]
+                kleio::link::listen_again(&app);
                 app.state::<kleio::Presence>().foreground();
                 // A push-token registration that failed earlier gets another go.
                 tauri::async_runtime::spawn(async move {

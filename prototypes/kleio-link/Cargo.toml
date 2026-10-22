@@ -1,0 +1,43 @@
+[package]
+name = "kleio-link"
+version = "0.0.0"
+description = "Prototype only: Kleio's link over iroh instead of Tailscale (.gg/plans/kleio-connection-prototype.md). Never merged as is."
+edition = "2021"
+# iroh 1.3.0 needs 1.91.
+rust-version = "1.91"
+publish = false
+
+[features]
+# The `kleio-link-host` binary: the forwarder that runs next to kleio-host,
+# with its `qr`, `id` and `client` commands. The phone's build leaves it out.
+host = ["dep:qrcode", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+
+[[bin]]
+name = "kleio-link-host"
+path = "src/bin/kleio-link-host.rs"
+required-features = ["host"]
+
+[dependencies]
+# Pinned. No default features: `fast-apple-datapath` uses private Apple APIs
+# (the iPhone build can't have them), and without `portmapper` nothing asks the
+# router to open a port. `tls-ring` is the ring backend gg-app already installs
+# for rustls.
+iroh = { version = "=1.3.0", default-features = false, features = ["tls-ring"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The rest are already in iroh's tree at these versions, so they add no
+# crates. tokio: the loopback listener and the copying; futures-util: reading
+# path events; getrandom: the pairing nonce; tracing: the path log.
+futures-util = { version = "0.3.34", default-features = false }
+getrandom = "0.4"
+tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tracing = "0.1.44"
+# Feature `host` only. qrcode draws the terminal QR, so it needs none of its
+# default image, SVG and PIC renderers; tracing-subscriber writes the
+# forwarder's log to stderr, with timestamps.
+qrcode = { version = "=0.14.1", default-features = false, optional = true }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"], optional = true }
+
+[dev-dependencies]
+# A paused clock, for the 10 s dial limit.
+tokio = { version = "1.53", features = ["test-util"] }

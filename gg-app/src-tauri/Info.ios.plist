@@ -9,7 +9,7 @@
       them in step with gen/apple/project.yml.
     -->
     <key>NSCameraUsageDescription</key>
-    <string>Kleio uses your camera locally to track which window you're looking at and focus it. Video never leaves your machine.</string>
+    <string>Kleio uses the camera to scan the pairing QR code from your host or computer.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Kleio uses your microphone when you talk to Kleio, or tap the mic to dictate a message.</string>
 </dict>

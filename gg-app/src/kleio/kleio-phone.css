@@ -742,3 +742,65 @@ html.platform-ios .voice-corner {
 html.platform-ios .voice-stage {
   width: min(42vh, 78vw);
 }
+
+/* Connection prototype: scanning the pairing QR code (LinkPairing.tsx). Scan
+   QR code sits under the typed form, full width so a thumb finds it. */
+html.platform-ios .kleio-ticket-scan {
+  margin-top: 18px;
+}
+html.platform-ios .kleio-scan-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+/* While the camera runs behind the webview, the page is see-through and only
+   the scan overlay draws. These outrank the page colour set above. */
+html.platform-ios.kleio-scanning,
+html.platform-ios.kleio-scanning body,
+html.platform-ios.kleio-scanning #root {
+  background: transparent;
+}
+html.platform-ios.kleio-scanning body > *:not(.kleio-scan-overlay) {
+  visibility: hidden;
+}
+html.platform-ios .kleio-scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-system);
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
+  justify-items: center;
+  align-items: center;
+  padding: calc(24px + var(--safe-top)) 24px calc(24px + var(--safe-bottom));
+  color: #fff;
+}
+/* Above the frame's dimming, which a later grid item would paint over it. */
+html.platform-ios .kleio-scan-title {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  margin: 0 0 20px;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.7);
+}
+/* The frame to aim at; the dimming around it is its own shadow. */
+html.platform-ios .kleio-scan-frame {
+  width: min(70vw, 280px);
+  aspect-ratio: 1;
+  border: 2px solid #fff;
+  border-radius: var(--radius-card);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45);
+}
+html.platform-ios .kleio-scan-cancel {
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 28px;
+  min-height: 44px;
+  padding-inline: 20px;
+}
