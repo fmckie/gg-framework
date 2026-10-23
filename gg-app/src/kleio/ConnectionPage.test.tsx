@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
 import { ConnectionPage, formatLatency } from "./ConnectionPage";
 import { RESTART_HOST } from "./connectionDiagnosis";
 import { hostHealth } from "./kleioApi";
+import type { LinkStatus } from "./kleioLink";
 import { kleio, type TailscaleNode, type TailscaleStatus } from "./useKleioRemote";
 import type * as KleioRemote from "./useKleioRemote";
 
+// Only the Kleio link's commands go through invoke here; everything else the
+// page reads is mocked below.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
 vi.mock("./kleioApi", () => ({ hostHealth: vi.fn() }));
 vi.mock("./useKleioRemote", async (importOriginal) => {
@@ -68,9 +73,20 @@ async function renderPage(): Promise<void> {
   });
 }
 
+/** Answers the link's commands from `map`; any other is turned away, as a
+ *  build without the `kleio-link` feature turns away all of them. */
+function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unknown>): void {
+  vi.mocked(invoke).mockImplementation(async (cmd, args) => {
+    const fn = map[cmd];
+    if (!fn) throw new Error(`Command ${cmd} not found`);
+    return fn(args as Record<string, unknown> | undefined);
+  });
+}
+
 beforeEach(() => {
   vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
   vi.mocked(kleio.tailscale).mockResolvedValue(net());
+  linkRoutes({});
 });
 afterEach(() => {
   cleanup();
@@ -226,6 +242,191 @@ describe("ConnectionPage", () => {
     expect(kleio.revoke).not.toHaveBeenCalled();
     fireEvent.click(within(devices).getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(kleio.revoke).toHaveBeenCalledWith("p1"));
+  });
+});
+
+describe("ConnectionPage — Kleio link (connection prototype)", () => {
+  const EVENT_AT = Date.UTC(2026, 9, 17, 13, 6, 21);
+  /** A link in use, through the relay; `over` replaces fields. */
+  function link(over: Partial<LinkStatus> = {}): LinkStatus {
+    return {
+      paired: true,
+      active: true,
+      running: true,
+      error: null,
+      mode: "auto",
+      host: "mac-mini-1.tail0000.ts.net",
+      hostKey: "ab12cd34".padEnd(64, "0"),
+      relay: "https://euc1-1.relay.n0.iroh.link./",
+      connected: true,
+      path: "relay",
+      pathAddr: "https://euc1-1.relay.n0.iroh.link./",
+      tailscale: false,
+      rttMs: 55,
+      connectedSinceMs: EVENT_AT,
+      redials: 0,
+      lastResumeMs: null,
+      events: [{ atMs: EVENT_AT, text: "6ef5181507 +0.0s connected: relay (selected)" }],
+      debugBuild: false,
+      ...over,
+    };
+  }
+
+  /** The card, once the page has read the link. */
+  async function card(): Promise<HTMLElement> {
+    await renderPage();
+    return screen.findByRole("region", { name: "Kleio link (prototype)" });
+  }
+
+  /** A fact's value, by its label. */
+  function fact(box: HTMLElement, label: string): string {
+    const dt = within(box).getByText(label, { selector: "dt" });
+    return dt.nextElementSibling?.textContent ?? "";
+  }
+
+  it("isn't there in a build without the link", async () => {
+    await renderPage();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("kleio_link_status"));
+    await act(async () => {});
+    expect(screen.queryByRole("region", { name: "Kleio link (prototype)" })).toBeNull();
+    // The rest of the page is today's.
+    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
+  });
+
+  it("shows the path, round trip, relay, redials, last resume and path events", async () => {
+    linkRoutes({
+      kleio_link_status: () =>
+        link({
+          path: "direct",
+          pathAddr: "192.168.4.68:52617",
+          rttMs: 2,
+          redials: 3,
+          lastResumeMs: 340,
+          events: [
+            { atMs: EVENT_AT, text: "6ef5181507 +0.0s connected: relay (selected)" },
+            {
+              atMs: EVENT_AT + 17_400,
+              text: "6ef5181507 +17.4s path selected: direct 192.168.4.68:52617",
+            },
+          ],
+        }),
+    });
+    const box = await card();
+    expect(within(box).getByText("Direct", { selector: ".badge" })).toBeTruthy();
+    expect(fact(box, "Path")).toBe("Direct 192.168.4.68:52617");
+    expect(fact(box, "Round trip")).toBe("2 ms");
+    expect(fact(box, "Relay")).toBe("https://euc1-1.relay.n0.iroh.link./");
+    expect(fact(box, "Connected")).toMatch(/^Since /);
+    expect(fact(box, "Redials")).toBe("3");
+    expect(fact(box, "Last resume")).toBe("340 ms");
+    const events = within(box).getByRole("list", { name: "Path events" });
+    expect(
+      within(events)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("span")?.textContent),
+    ).toEqual([
+      "6ef5181507 +0.0s connected: relay (selected)",
+      "6ef5181507 +17.4s path selected: direct 192.168.4.68:52617",
+    ]);
+    expect(within(box).queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps the last 20 path events, in a box of their own that scrolls", async () => {
+    const events = Array.from({ length: 25 }, (_, i) => ({
+      atMs: EVENT_AT + i * 1_000,
+      text: `6ef5181507 +${i}.0s path event ${i + 1}`,
+    }));
+    linkRoutes({ kleio_link_status: () => link({ events }) });
+    const box = await card();
+    const scroll = within(box).getByRole("region", { name: "Path events" });
+    expect(scroll.getAttribute("tabindex")).toBe("0");
+    const shown = within(scroll)
+      .getAllByRole("listitem")
+      .map((li) => li.querySelector("span")?.textContent);
+    expect(shown).toEqual(events.slice(5).map((event) => event.text));
+  });
+
+  it("has the events box before the first event, so it moves nothing", async () => {
+    linkRoutes({ kleio_link_status: () => link({ events: [] }) });
+    const box = await card();
+    const scroll = within(box).getByRole("region", { name: "Path events" });
+    expect(within(scroll).getByText("None yet.")).toBeTruthy();
+  });
+
+  it("says plainly when the direct path is to a Tailscale address", async () => {
+    const text =
+      "6ef5181507 +17.4s path opened: direct 100.73.82.118:49382 (a Tailscale address: this run is invalid)";
+    linkRoutes({
+      kleio_link_status: () =>
+        link({
+          path: "direct",
+          pathAddr: "100.73.82.118:49382",
+          tailscale: true,
+          events: [{ atMs: EVENT_AT, text }],
+        }),
+    });
+    const box = await card();
+    expect(within(box).getByText("Tailscale path", { selector: ".badge" })).toBeTruthy();
+    const alert = within(box).getByRole("alert");
+    expect(alert.textContent).toMatch(/direct path is to a Tailscale address/);
+    expect(alert.textContent).toMatch(/100\.73\.82\.118:49382/);
+    expect(alert.textContent).toMatch(/doesn't count/);
+    expect(within(box).getByText(text).closest("li")?.className).toBe("is-warn");
+  });
+
+  it("switches between Auto and Relay only", async () => {
+    let mode: LinkStatus["mode"] = "auto";
+    linkRoutes({
+      kleio_link_status: () => link({ mode }),
+      kleio_link_set_mode: (args) => {
+        expect(args).toEqual({ mode: "relayOnly" });
+        mode = "relayOnly";
+        return link({ mode });
+      },
+    });
+    const box = await card();
+    const switcher = within(box).getByRole("radiogroup", { name: "Link mode" });
+    const relayOnly = within(switcher).getByRole("radio", { name: "Relay only" });
+    expect(relayOnly.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(relayOnly);
+    await waitFor(() => expect(relayOnly.getAttribute("aria-checked")).toBe("true"));
+    expect(within(switcher).getByRole("radio", { name: "Auto" }).getAttribute("aria-checked")).toBe(
+      "false",
+    );
+  });
+
+  it("a device paired over Tailscale pairs over the link from the card", async () => {
+    const V3 = JSON.stringify({
+      v: 3,
+      type: "kleio-pair",
+      key: "ab12cd34".padEnd(64, "0"),
+      relay: "https://euc1-1.relay.n0.iroh.link./",
+      code: "ABC-DEF",
+    });
+    let paired = false;
+    linkRoutes({
+      kleio_link_status: () =>
+        paired
+          ? link({ active: false, running: false, connected: false })
+          : link({ paired: false, active: false, running: false, debugBuild: true }),
+      kleio_link_check_ticket: () => ({
+        keyPrefix: "ab12cd34",
+        relayHost: "euc1-1.relay.n0.iroh.link.",
+        code: "ABC-DEF",
+      }),
+      kleio_link_pair: (args) => {
+        expect(args).toEqual({ ticket: V3, label: "" });
+        paired = true;
+        return {};
+      },
+    });
+    const box = await card();
+    expect(within(box).getByText("Not paired over the link.")).toBeTruthy();
+    fireEvent.change(within(box).getByLabelText(/Pairing ticket/), { target: { value: V3 } });
+    fireEvent.click(within(box).getByRole("button", { name: "Use ticket" }));
+    await within(box).findByText("ab12cd34…");
+    fireEvent.click(within(box).getByRole("button", { name: "Pair" }));
+    await within(box).findByText(/Restart Kleio to use it/);
   });
 });
 

@@ -1,14 +1,24 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
+import * as scanner from "@tauri-apps/plugin-barcode-scanner";
 import { RemoteHostModal } from "./RemoteHostModal";
 import { relTime } from "./relTime";
 import { KleioBadge } from "./KleioBadge";
+import type { LinkStatus } from "./kleioLink";
+import { NOT_A_TICKET } from "./pairTicket";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn(async () => undefined) }));
+vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
+  Format: { QRCode: "QR_CODE" },
+  scan: vi.fn(),
+  cancel: vi.fn(async () => undefined),
+  checkPermissions: vi.fn(async () => "granted"),
+  requestPermissions: vi.fn(async () => "granted"),
+}));
 
 const invokeMock = vi.mocked(invoke);
 
@@ -129,6 +139,329 @@ describe("RemoteHostModal — not paired", () => {
     expect((screen.getByRole("button", { name: "Pair" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
+  });
+});
+
+describe("RemoteHostModal — pairing over the Kleio link (connection prototype)", () => {
+  // `routes` turns away a command it doesn't list, as a build without the
+  // `kleio-link` feature turns away the link's commands.
+  const NO_LINK: LinkStatus = {
+    paired: false,
+    active: false,
+    running: false,
+    error: null,
+    mode: null,
+    host: null,
+    hostKey: null,
+    relay: null,
+    connected: false,
+    path: null,
+    pathAddr: null,
+    tailscale: false,
+    rttMs: null,
+    connectedSinceMs: null,
+    redials: 0,
+    lastResumeMs: null,
+    events: [],
+    debugBuild: true,
+  };
+  const LINK_REC = { ...REC, baseUrl: "http://127.0.0.1:47821" };
+  const V3 = JSON.stringify({
+    v: 3,
+    type: "kleio-pair",
+    key: "ab12cd34".padEnd(64, "0"),
+    relay: "https://euc1-1.relay.n0.iroh.link./",
+    code: "ABC-DEF",
+  });
+  const CHECKED = {
+    keyPrefix: "ab12cd34",
+    relayHost: "euc1-1.relay.n0.iroh.link.",
+    code: "ABC-DEF",
+  };
+
+  /** Opens the not-paired pane and waits for its question about the link. */
+  async function openPane(onClose: () => void = () => {}): Promise<void> {
+    render(<RemoteHostModal onClose={onClose} />);
+    await screen.findByLabelText("Host URL");
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("kleio_link_status"));
+    await act(async () => {});
+  }
+
+  function paste(text: string): void {
+    fireEvent.change(screen.getByLabelText(/Pairing ticket/), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "Use ticket" }));
+  }
+
+  it("without the link, the form is today's: no ticket field", async () => {
+    routes({ kleio_remote_status: () => ({ active: null, paired: null }) });
+    await openPane();
+    expect(screen.queryByLabelText(/Pairing ticket/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use ticket" })).toBeNull();
+  });
+
+  it("with the link, a release build has no ticket field either", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: null }),
+      kleio_link_status: () => ({ ...NO_LINK, debugBuild: false }),
+    });
+    await openPane();
+    expect(screen.queryByLabelText(/Pairing ticket/)).toBeNull();
+  });
+
+  it("a pasted v2 ticket fills today's form, and pairs nothing by itself", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: null }),
+      kleio_link_status: () => NO_LINK,
+    });
+    await openPane();
+    paste(
+      JSON.stringify({
+        v: 2,
+        type: "kleio-pair",
+        baseUrl: "https://mac-mini-1.example.ts.net:8443",
+        code: "ABC-DEF",
+      }),
+    );
+    expect((screen.getByLabelText("Host URL") as HTMLInputElement).value).toBe(
+      "https://mac-mini-1.example.ts.net:8443",
+    );
+    expect((screen.getByLabelText("Pair code") as HTMLInputElement).value).toBe("ABC-DEF");
+    expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_check_ticket", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith("kleio_pair", expect.anything());
+  });
+
+  it("text that isn't a ticket says so and fills nothing", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: null }),
+      kleio_link_status: () => NO_LINK,
+    });
+    await openPane();
+    paste("https://mac-mini-1.example.ts.net:8443 ABC-DEF");
+    expect((await screen.findByRole("alert")).textContent).toBe(NOT_A_TICKET);
+    expect((screen.getByLabelText("Host URL") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Pair code") as HTMLInputElement).value).toBe("");
+  });
+
+  it("a pasted v3 ticket shows the host to confirm, then pairs over the link", async () => {
+    let paired = false;
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: paired ? LINK_REC : null }),
+      kleio_link_status: () => ({ ...NO_LINK, paired }),
+      kleio_link_check_ticket: (args) => {
+        expect(args).toEqual({ ticket: V3 });
+        return CHECKED;
+      },
+      kleio_link_pair: (args) => {
+        expect(args).toEqual({ ticket: V3, label: "Laptop" });
+        paired = true;
+        return LINK_REC;
+      },
+    });
+    await openPane();
+    paste(V3);
+    await screen.findByText("ab12cd34…");
+    expect(screen.getByText("euc1-1.relay.n0.iroh.link.")).toBeTruthy();
+    expect(screen.getByText("ABC-DEF")).toBeTruthy();
+    // Nothing pairs until Pair is pressed, and the safe choice has focus.
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
+    expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_pair", expect.anything());
+    fireEvent.change(screen.getByLabelText("This device's name"), { target: { value: "Laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair" }));
+    // On a computer it applies at the next launch, as a Tailscale pairing does.
+    expect((await screen.findByRole("status")).textContent).toMatch(/Restart Kleio to apply/);
+    // kleio_link_pair switches the pairing on itself.
+    expect(invokeMock).not.toHaveBeenCalledWith("kleio_activate_pairing");
+    expect(invokeMock).not.toHaveBeenCalledWith("kleio_pair", expect.anything());
+  });
+
+  it("on the iPhone, a link pairing that switches on in place closes into the app", async () => {
+    let paired = false;
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: paired ? LINK_REC : null }),
+      kleio_link_status: () => ({ ...NO_LINK, paired, active: paired }),
+      kleio_link_check_ticket: () => CHECKED,
+      kleio_link_pair: () => {
+        paired = true;
+        return LINK_REC;
+      },
+    });
+    const onClose = vi.fn();
+    await openPane(onClose);
+    paste(V3);
+    fireEvent.click(await screen.findByRole("button", { name: "Pair" }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(relaunch).not.toHaveBeenCalled();
+  });
+
+  it("a v3 ticket the link refuses shows why and stays on the form", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: null }),
+      kleio_link_status: () => NO_LINK,
+      kleio_link_check_ticket: () => {
+        throw new Error("This QR code's relay address isn't valid.");
+      },
+    });
+    await openPane();
+    paste(V3);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "This QR code's relay address isn't valid.",
+    );
+    expect(screen.getByLabelText("Host URL")).toBeTruthy();
+  });
+
+  describe("on the iPhone, Scan QR code", () => {
+    beforeEach(() => {
+      document.documentElement.classList.add("platform-ios");
+      vi.mocked(scanner.checkPermissions).mockResolvedValue("granted");
+      vi.mocked(scanner.requestPermissions).mockResolvedValue("granted");
+    });
+    afterEach(() => {
+      document.documentElement.classList.remove("platform-ios", "kleio-scanning");
+      vi.mocked(scanner.scan).mockReset();
+    });
+
+    it("isn't there without the link", async () => {
+      routes({ kleio_remote_status: () => ({ active: null, paired: null }) });
+      await openPane();
+      expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
+    });
+
+    it("isn't there on a computer", async () => {
+      document.documentElement.classList.remove("platform-ios");
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => NO_LINK,
+      });
+      await openPane();
+      expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
+    });
+
+    it("scans QR codes only, then a v3 ticket goes to the confirm step", async () => {
+      vi.mocked(scanner.scan).mockResolvedValue({
+        content: V3,
+        format: "QR_CODE" as scanner.Format,
+        bounds: null,
+      });
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => ({ ...NO_LINK, debugBuild: false }),
+        kleio_link_check_ticket: (args) => {
+          expect(args).toEqual({ ticket: V3 });
+          return CHECKED;
+        },
+      });
+      await openPane();
+      fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+      await screen.findByText("ab12cd34…");
+      expect(scanner.scan).toHaveBeenCalledWith({ formats: ["QR_CODE"], windowed: true });
+      // A scan only reads the code: nothing pairs until Pair is pressed.
+      expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_pair", expect.anything());
+      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false);
+    });
+
+    it("a scanned v2 ticket fills the form", async () => {
+      vi.mocked(scanner.scan).mockResolvedValue({
+        content: JSON.stringify({
+          v: 2,
+          type: "kleio-pair",
+          baseUrl: "https://mac-mini-1.example.ts.net:8443",
+          code: "ABC-DEF",
+        }),
+        format: "QR_CODE" as scanner.Format,
+        bounds: null,
+      });
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => NO_LINK,
+      });
+      await openPane();
+      fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+      await waitFor(() =>
+        expect((screen.getByLabelText("Pair code") as HTMLInputElement).value).toBe("ABC-DEF"),
+      );
+      expect((screen.getByLabelText("Host URL") as HTMLInputElement).value).toBe(
+        "https://mac-mini-1.example.ts.net:8443",
+      );
+    });
+
+    it("a QR code that isn't a ticket says so and fills nothing", async () => {
+      vi.mocked(scanner.scan).mockResolvedValue({
+        content: "WIFI:S:home;T:WPA;P:secret;;",
+        format: "QR_CODE" as scanner.Format,
+        bounds: null,
+      });
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => NO_LINK,
+      });
+      await openPane();
+      fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+      expect((await screen.findByRole("alert")).textContent).toBe(NOT_A_TICKET);
+      expect((screen.getByLabelText("Host URL") as HTMLInputElement).value).toBe("");
+    });
+
+    it("camera denied: says how to turn it on, scans nothing, keeps the form", async () => {
+      vi.mocked(scanner.checkPermissions).mockResolvedValue("prompt");
+      vi.mocked(scanner.requestPermissions).mockResolvedValue("denied");
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => NO_LINK,
+      });
+      await openPane();
+      fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+      expect((await screen.findByRole("alert")).textContent).toMatch(
+        /turn on Camera for Kleio in Settings, or type the details instead/,
+      );
+      expect(scanner.requestPermissions).toHaveBeenCalledOnce();
+      expect(scanner.scan).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Host URL")).toBeTruthy();
+    });
+
+    it("Cancel closes the camera and leaves the form as it was", async () => {
+      let reject: (e: unknown) => void = () => {};
+      vi.mocked(scanner.scan).mockImplementation(
+        () =>
+          new Promise((_, no) => {
+            reject = no;
+          }),
+      );
+      vi.mocked(scanner.cancel).mockImplementation(async () => reject("cancelled"));
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => NO_LINK,
+      });
+      await openPane();
+      fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
+      const overlay = await screen.findByRole("dialog", { name: "Scan QR code" });
+      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(true);
+      fireEvent.click(within(overlay).getByRole("button", { name: "Cancel" }));
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Scan QR code" })).toBeNull(),
+      );
+      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("button", { name: "Scan QR code" })).toBeTruthy();
+    });
+  });
+
+  it("the host turning the code away shows on the confirm step, and Back returns", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: null, paired: null }),
+      kleio_link_status: () => NO_LINK,
+      kleio_link_check_ticket: () => CHECKED,
+      kleio_link_pair: () => {
+        throw new Error("Code not recognised, or it expired. Mint a fresh one on the host.");
+      },
+    });
+    await openPane();
+    paste(V3);
+    fireEvent.click(await screen.findByRole("button", { name: "Pair" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Code not recognised/);
+    expect((screen.getByRole("button", { name: "Pair" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByLabelText("Host URL")).toBeTruthy();
   });
 });
 

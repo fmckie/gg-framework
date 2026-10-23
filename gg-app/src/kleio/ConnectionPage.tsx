@@ -8,6 +8,9 @@
 // - Tailscale (Mac only): the private network's details.
 // - iPhone: a one-time pairing QR the Kleio iPhone app scans (admin).
 // - Devices: every paired device, with revoke (admin).
+// - Kleio link (connection prototype, Rust feature `kleio-link`): the
+//   link's path, speed and recent path events, with its Auto / Relay only
+//   switch. A build without the feature doesn't show it.
 //
 // Replaces upstream's Telegram "Remote" page: the iPhone app is Kleio's remote.
 
@@ -44,9 +47,18 @@ import {
 } from "./connectionDiagnosis";
 import { REACH_TIMEOUT_MS } from "./hostReach";
 import { hostHealth } from "./kleioApi";
-import { pairTicket } from "./pairTicket";
+import {
+  kleioLink,
+  useKleioLink,
+  type LinkMode,
+  type LinkStatus,
+  type TicketCheck,
+} from "./kleioLink";
+import { LinkConfirm, TicketPaste, TicketScan } from "./LinkPairing";
+import { pairTicket, readTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrResult } from "./qr";
 import { relTime } from "./relTime";
+import { useFollowLatest } from "./useFollowLatest";
 import {
   explainError,
   kleio,
@@ -58,6 +70,11 @@ import {
 
 const REFRESH_MS = 15_000;
 const QR_QUIET_ZONE = 4;
+/** The Link card reads the link this often. Reading never dials. */
+const LINK_REFRESH_MS = 3_000;
+/** Path events the Link card shows: the latest, as many as the link keeps
+ *  (`KEPT_EVENTS` in `link.rs`). */
+const LINK_EVENTS_SHOWN = 20;
 
 type Device = "Mac" | "iPhone";
 
@@ -200,6 +217,8 @@ export function ConnectionPage(): React.ReactElement {
               {paired && <Fact label="Paired">{relTime(paired.pairedAt)}</Fact>}
             </dl>
           </SettingsCard>
+
+          <LinkCard phone={phone} onPaired={() => void refreshRemote()} />
 
           {!phone && (
             <TailscaleCard net={checks === null ? undefined : checks.net} hostLabel={hostLabel} />
@@ -507,6 +526,244 @@ function TailscaleCard({
               <li key={h}>{h}</li>
             ))}
           </ul>
+        </div>
+      )}
+    </SettingsCard>
+  );
+}
+
+// ─── the Kleio link (connection prototype) ──────────────────────────────────
+
+const LINK_MODES: [LinkMode, string][] = [
+  ["auto", "Auto"],
+  ["relayOnly", "Relay only"],
+];
+
+/** `14:06:21`, this device's time. */
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour12: false });
+}
+
+function LinkBadge({ link }: { link: LinkStatus }): React.ReactElement {
+  if (!link.paired) return <Badge>Not paired</Badge>;
+  if (!link.active) return <Badge color={theme.warning}>Not in use</Badge>;
+  if (link.error !== null) return <Badge color={theme.error}>Not running</Badge>;
+  if (link.tailscale) return <Badge color={theme.error}>Tailscale path</Badge>;
+  if (!link.connected) return <Badge color={theme.warning}>Not connected</Badge>;
+  return link.path === "direct" ? (
+    <Badge color={theme.success}>Direct</Badge>
+  ) : (
+    <Badge>Relay</Badge>
+  );
+}
+
+/**
+ * The link's path, speed and recent path events, with its switch. Nothing
+ * without the link. A device not paired over it pairs here too: on a phone
+ * already paired over Tailscale, the pairing form doesn't show.
+ */
+function LinkCard({
+  phone,
+  onPaired,
+}: {
+  phone: boolean;
+  onPaired: () => void;
+}): React.ReactElement | null {
+  const { link, setLink } = useKleioLink(LINK_REFRESH_MS);
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [ticket, setTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
+  const [label, setLabel] = useState("");
+  const eventsRef = useRef<HTMLDivElement>(null);
+  const { catchUp, handlers: followHandlers } = useFollowLatest(eventsRef);
+  // Each refresh replaces the events: a reader at the newest is carried
+  // along, one scrolled up to read isn't.
+  useEffect(() => {
+    catchUp();
+  }, [link?.events, catchUp]);
+  if (!link) return null;
+
+  async function openTicket(text: string): Promise<void> {
+    setError(null);
+    const route = readTicket(text);
+    if (route.kind !== "v3") {
+      setError(
+        route.kind === "v2"
+          ? "That's a Tailscale pairing ticket. This card pairs over the Kleio link."
+          : route.error,
+      );
+      return;
+    }
+    setChecking(true);
+    try {
+      setTicket({ ticket: route.ticket, check: await kleioLink.checkTicket(route.ticket) });
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function choose(mode: LinkMode): Promise<void> {
+    if (switching || link?.mode === mode) return;
+    setSwitching(true);
+    setError(null);
+    try {
+      setLink(await kleioLink.setMode(mode));
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  const inUse = link.paired && link.active && link.error === null;
+  const events = link.events.slice(-LINK_EVENTS_SHOWN);
+  return (
+    <SettingsCard
+      title="Kleio link (prototype)"
+      badge={<LinkBadge link={link} />}
+      description="This device reaching the host by its key, through a relay or directly, without Tailscale."
+    >
+      {!link.paired ? (
+        ticket ? (
+          <LinkConfirm
+            ticket={ticket.ticket}
+            check={ticket.check}
+            label={label}
+            onLabel={setLabel}
+            onBack={() => setTicket(null)}
+            onPaired={(now) => {
+              if (now) setLink(now);
+              setTicket(null);
+              onPaired();
+            }}
+          />
+        ) : (
+          <>
+            <p className="settings-desc">Not paired over the link.</p>
+            {phone && <TicketScan busy={checking} onTicket={(text) => void openTicket(text)} />}
+            {link.debugBuild && (
+              <TicketPaste busy={checking} onTicket={(text) => void openTicket(text)} />
+            )}
+          </>
+        )
+      ) : !link.active ? (
+        <p className="settings-desc">
+          Paired over the link with {link.host ? shortName(link.host) : "the host"}.{" "}
+          {phone ? "Close Kleio and open it again to use it." : "Restart Kleio to use it."}
+        </p>
+      ) : null}
+      {link.error !== null && (
+        <p className="conn-bad" role="alert">
+          {link.error}
+        </p>
+      )}
+      {link.tailscale && (
+        <div className="conn-link-alert" role="alert">
+          <WarningCircleIcon size={18} weight="fill" aria-hidden="true" />
+          <p>
+            <strong>The direct path is to a Tailscale address</strong>
+            {link.pathAddr && (
+              <>
+                {" "}
+                (<code className="conn-code">{link.pathAddr}</code>)
+              </>
+            )}
+            . Turn Tailscale off on this {phone ? "iPhone" : "Mac"}: a field run on this path
+            doesn&apos;t count.
+          </p>
+        </div>
+      )}
+      {link.paired && (
+        <dl className="conn-facts">
+          {inUse && (
+            <>
+              <Fact label="Path">
+                {!link.connected ? (
+                  "No connection open. The next request dials."
+                ) : link.path === "direct" ? (
+                  <>
+                    Direct <code className="conn-code">{link.pathAddr}</code>
+                  </>
+                ) : (
+                  "Through the relay"
+                )}
+              </Fact>
+              <Fact label="Round trip">
+                {link.connected && link.rttMs !== null ? formatLatency(link.rttMs) : "—"}
+              </Fact>
+            </>
+          )}
+          <Fact label="Relay">
+            <code className="conn-code">{link.relay ?? "—"}</code>
+          </Fact>
+          {inUse && (
+            <>
+              <Fact label="Connected">
+                {link.connected && link.connectedSinceMs !== null
+                  ? `Since ${clock(link.connectedSinceMs)}, ${relTime(new Date(link.connectedSinceMs).toISOString())}`
+                  : "—"}
+              </Fact>
+              <Fact label="Redials">{String(link.redials)}</Fact>
+              <Fact label="Last resume">
+                {link.lastResumeMs !== null ? formatLatency(link.lastResumeMs) : "None yet"}
+              </Fact>
+            </>
+          )}
+          <Fact label="Mode">
+            <span className="kleio-seg" role="radiogroup" aria-label="Link mode">
+              {LINK_MODES.map(([mode, name]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={link.mode === mode}
+                  disabled={switching}
+                  onClick={() => void choose(mode)}
+                >
+                  {name}
+                </button>
+              ))}
+            </span>
+          </Fact>
+        </dl>
+      )}
+      {error && (
+        <p className="conn-bad" role="alert">
+          {error}
+        </p>
+      )}
+      {inUse && (
+        <div className="conn-health-box">
+          <p className="conn-fix-title" id="conn-link-events">
+            Path events
+          </p>
+          <div
+            ref={eventsRef}
+            className="conn-link-events-box"
+            role="region"
+            aria-labelledby="conn-link-events"
+            tabIndex={0}
+            {...followHandlers}
+          >
+            {events.length === 0 ? (
+              <p className="settings-desc">None yet.</p>
+            ) : (
+              <ol className="conn-link-events" aria-labelledby="conn-link-events">
+                {events.map((event, i) => (
+                  <li
+                    key={`${event.atMs}:${i}`}
+                    className={event.text.includes("Tailscale address") ? "is-warn" : undefined}
+                  >
+                    <time dateTime={new Date(event.atMs).toISOString()}>{clock(event.atMs)}</time>
+                    <span>{event.text}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
         </div>
       )}
     </SettingsCard>

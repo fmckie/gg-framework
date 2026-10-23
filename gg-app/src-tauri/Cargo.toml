@@ -17,6 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Kleio's link (docs/adr/0002-kleio-link-replaces-tailscale.md): reach the
+# host over an iroh link instead of Tailscale (src/kleio/link.rs). Off by
+# default until the app connects over the link by default; without it the
+# build is today's.
+kleio-link = ["dep:kleio-link", "dep:tracing", "dep:tauri-plugin-barcode-scanner"]
+
 [dependencies]
 # `tray-icon` + `image-png` are NOT default tauri features: the first adds the
 # macOS menu-bar status item, the second lets `Image::from_bytes` decode the PNG
@@ -47,6 +54,10 @@ futures-util = "0.3"
 tokio = { version = "1", features = ["time", "sync"] }
 base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
+# Feature `kleio-link` only: the link (packages/kleio-link, which pins iroh),
+# and `tracing`, to pass the link's log lines to this app's log.
+kleio-link = { path = "../../packages/kleio-link", optional = true }
+tracing = { version = "0.1.44", optional = true }
 
 # Updater + process (relaunch) are desktop-only — the updater plugin doesn't
 # build for mobile targets.
@@ -77,6 +88,12 @@ objc2-quick-look-thumbnailing = { version = "0.3.2", default-features = false, f
 objc2-ui-kit = { version = "0.3.2", default-features = false, features = ["std", "UIImage"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFCGTypes"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSURL", "NSString", "NSError"] }
+# kleio (connection prototype): scanning a pairing QR code, with feature
+# `kleio-link` only. 2.4.6, not 2.5.x: every 2.5 release needs tauri 2.12,
+# and the prototype stays on tauri 2.11.5 to compare with baseline A. 2.5's iOS
+# change (a `public` entry point for Xcode 27 release links) doesn't affect
+# Xcode 26 builds. Keep the npm package at the same version.
+tauri-plugin-barcode-scanner = { version = "=2.4.6", optional = true }
 
 # kleio (iPhone): asking permission for "agent finished" notifications. The
 # crate is already in the iOS build via tao's objc2-ui-kit; this only turns on
