@@ -38,9 +38,16 @@ export const PAIR_REDEEM_MAX_BODY_BYTES = 4 * 1024;
 
 /** What a successful redemption hands the device. */
 export interface PairingPayload {
-  /** `https://<host>:<port>` — the base every subsequent request targets. */
-  readonly baseUrl: string;
-  /** Tailnet host name, for display and node binding. */
+  /**
+   * `https://<host>:<port>`: the base every later request targets over the
+   * device's own network (Tailscale). Absent when the host has no public URL
+   * and is reached over the link only.
+   */
+  readonly baseUrl?: string;
+  /**
+   * The host's node ID, for display and node binding: its public URL's host
+   * name if it had one when the ID was settled, else a name from its link key.
+   */
   readonly host: string;
   /** Per-device bearer, presented as `x-kleio-device-token`. */
   readonly token: string;
@@ -65,10 +72,19 @@ export interface PairRedeemRequest {
 }
 
 /**
- * The uniform failure vocabulary. `unauthorized` covers wrong AND expired AND
- * exhausted deliberately — the body must not tell an attacker which it was.
+ * Why a code that was live is no longer: it paired a device, ran out of time,
+ * was replaced by a newer one, or met too many wrong tries. The host says so
+ * only to a code exactly as it retired it (pair-offer.ts), so only someone
+ * who has the code learns it, and only once the code is no use.
  */
-export type PairRedeemErrorCode = "not_found" | "unauthorized" | "bad_request";
+export type PairRetiredCode = "used" | "expired" | "replaced" | "locked";
+
+/**
+ * The failure vocabulary. `unauthorized` is the uniform answer to any code
+ * that isn't the live one or a retired one, and to a correct one that loses
+ * a race, so the body never tells a guesser anything.
+ */
+export type PairRedeemErrorCode = "not_found" | "unauthorized" | "bad_request" | PairRetiredCode;
 
 export type PairRedeemResponse =
   | { readonly ok: true; readonly payload: PairingPayload }
@@ -130,8 +146,12 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
   if (typeof value !== "object" || value === null) return false;
   const p = value as Record<string, unknown>;
   if (
-    !isNonEmptyString(p.baseUrl) ||
-    !p.baseUrl.startsWith("https://") ||
+    p.baseUrl !== undefined &&
+    !(isNonEmptyString(p.baseUrl) && p.baseUrl.startsWith("https://"))
+  ) {
+    return false;
+  }
+  if (
     !isNonEmptyString(p.host) ||
     !isNonEmptyString(p.token) ||
     !isNonEmptyString(p.label) ||
@@ -143,7 +163,15 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
   return true;
 }
 
-const ERROR_CODES: readonly string[] = ["not_found", "unauthorized", "bad_request"];
+const ERROR_CODES: readonly string[] = [
+  "not_found",
+  "unauthorized",
+  "bad_request",
+  "used",
+  "expired",
+  "replaced",
+  "locked",
+];
 
 /** Type guard for a redeem response arriving over the network. */
 export function isPairRedeemResponse(value: unknown): value is PairRedeemResponse {

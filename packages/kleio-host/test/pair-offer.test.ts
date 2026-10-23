@@ -9,7 +9,14 @@ import {
   PAIR_RETRY_WINDOW_MS,
   type PairingPayload,
 } from "../src/pair-code.js";
-import { createPairOfferStore, mintCode, type PairOfferStore } from "../src/pair-offer.js";
+import {
+  createPairOfferStore,
+  MAX_RETIRED_CODES,
+  mintCode,
+  RETIRED_CODE_TTL_MS,
+  type PairOfferStore,
+  type RedeemVia,
+} from "../src/pair-offer.js";
 
 const NONCE = "a".repeat(32);
 const OTHER_NONCE = "b".repeat(32);
@@ -69,21 +76,19 @@ describe("createPairOfferStore — redemption table", () => {
     expect(f.mints()).toBe(1);
   });
 
-  it("correct code, different nonce, inside the window: replay refused", async () => {
+  it("correct code, different nonce, inside the window: used, and no replay", async () => {
     const f = fixture();
     await f.store.redeem(f.code, NONCE);
-    expect(await f.store.redeem(f.code, OTHER_NONCE)).toEqual({
-      ok: false,
-      reason: "unauthorized",
-    });
+    expect(await f.store.redeem(f.code, OTHER_NONCE)).toEqual({ ok: false, reason: "used" });
     expect(f.mints()).toBe(1);
   });
 
-  it("correct code, same nonce, past the window: the record is gone (404)", async () => {
+  it("correct code, same nonce, past the window: used, and the payload isn't replayed", async () => {
     const f = fixture();
     await f.store.redeem(f.code, NONCE);
     f.advance(PAIR_RETRY_WINDOW_MS);
-    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "not_found" });
+    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "used" });
+    expect(f.mints()).toBe(1);
   });
 
   it("correct code after revoke(): the offer is gone (404), nothing minted", async () => {
@@ -93,11 +98,12 @@ describe("createPairOfferStore — redemption table", () => {
     expect(f.mints()).toBe(0);
   });
 
-  it("a new offer invalidates the old code", async () => {
+  it("a new offer replaces the old code, which says so at no cost to the new one", async () => {
     const f = fixture();
     const second = f.store.offer(async () => payloadFor("Second", 99));
     expect(second.code).not.toBe(f.code);
-    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "replaced" });
+    expect(f.store.peek().attemptsRemaining).toBe(PAIR_MAX_ATTEMPTS);
     expect(await f.store.redeem(second.code, NONCE)).toEqual({
       ok: true,
       payload: payloadFor("Second", 99),
@@ -112,21 +118,30 @@ describe("createPairOfferStore — redemption table", () => {
     expect(f.mints()).toBe(0);
   });
 
-  it("the fifth wrong code destroys the offer", async () => {
+  it("the fifth wrong code destroys the offer, and its own code then says locked", async () => {
     const f = fixture();
     for (let i = 0; i < PAIR_MAX_ATTEMPTS; i += 1) {
       expect(await f.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "unauthorized" });
     }
     expect(f.store.peek().active).toBe(false);
-    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "not_found" });
+    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "locked" });
+    expect(await f.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "not_found" });
+    expect(f.mints()).toBe(0);
   });
 
-  it("an expired offer answers unauthorized once, then 404", async () => {
+  it("an expired offer's own code says expired", async () => {
     const f = fixture();
     f.advance(PAIR_OFFER_TTL_MS);
-    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "unauthorized" });
-    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "not_found" });
+    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "expired" });
+    expect(await f.store.redeem(f.code, NONCE)).toEqual({ ok: false, reason: "expired" });
     expect(f.mints()).toBe(0);
+  });
+
+  it("any other code after expiry answers unauthorized once, then 404, as it always did", async () => {
+    const f = fixture();
+    f.advance(PAIR_OFFER_TTL_MS);
+    expect(await f.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await f.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "not_found" });
   });
 
   it("any request with no offer: 404", async () => {
@@ -283,5 +298,129 @@ describe("createPairOfferStore — invariants", () => {
     const store = createPairOfferStore({ now: c.now });
     const offer = store.offer(async () => payloadFor("x", 1));
     expect(offer.expiresAt).toBe(5000 + PAIR_OFFER_TTL_MS);
+  });
+});
+
+describe("createPairOfferStore: redeeming over the link", () => {
+  const KEY_A = "a".repeat(64);
+  const KEY_B = "b".repeat(64);
+
+  it("hands the minter where the redemption came from", async () => {
+    const vias: RedeemVia[] = [];
+    const store = createPairOfferStore();
+    const offer = store.offer(async (label, via) => {
+      vias.push(via);
+      return payloadFor(label, 1);
+    });
+    expect(await store.redeem(offer.code, NONCE, "Phone", { linkKey: KEY_A })).toMatchObject({
+      ok: true,
+    });
+    expect(vias).toEqual([{ linkKey: KEY_A }]);
+
+    const other = createPairOfferStore();
+    const second = other.offer(async (label, via) => {
+      vias.push(via);
+      return payloadFor(label, 2);
+    });
+    await other.redeem(second.code, NONCE, "Laptop");
+    expect(vias).toEqual([{ linkKey: KEY_A }, { linkKey: null }]);
+  });
+
+  it("replays a retry only from where the first redemption came", async () => {
+    const store = createPairOfferStore();
+    let mints = 0;
+    const offer = store.offer(async (label) => payloadFor(label, (mints += 1)));
+    const first = await store.redeem(offer.code, NONCE, "Phone", { linkKey: KEY_A });
+    expect(first).toMatchObject({ ok: true });
+    expect(await store.redeem(offer.code, NONCE, "Phone", { linkKey: KEY_A })).toEqual(first);
+    // From anywhere else, even with the nonce, the code has paired its device.
+    for (const via of [{ linkKey: KEY_B }, { linkKey: null }]) {
+      expect(await store.redeem(offer.code, NONCE, "Phone", via)).toEqual({
+        ok: false,
+        reason: "used",
+      });
+    }
+    expect(await store.redeem(offer.code, NONCE)).toEqual({ ok: false, reason: "used" });
+    expect(mints).toBe(1);
+  });
+});
+
+describe("createPairOfferStore: retired codes", () => {
+  /** A store whose codes are `codes`, one per offer, on a clock the test moves. */
+  function store(codes: string[]): {
+    store: PairOfferStore;
+    advance: (ms: number) => void;
+    offer: () => string;
+  } {
+    const c = clock();
+    let i = 0;
+    const s = createPairOfferStore({ now: c.now, mintCode: () => codes[i++] ?? "ZZZZZZ" });
+    return {
+      store: s,
+      advance: c.advance,
+      offer: () => s.offer(async (label) => payloadFor(label, i)).code,
+    };
+  }
+
+  it("gives a code that isn't one it retired today's answer, after each kind of retirement", async () => {
+    // used, replaced, locked and expired, one after another.
+    const s = store(["AAA111", "BBB222", "CCC333", "DDD444", "EEE555"]);
+    await s.store.redeem(s.offer(), NONCE);
+    s.offer(); // used
+    s.offer(); // replaced
+    for (let i = 0; i < PAIR_MAX_ATTEMPTS; i += 1) await s.store.redeem("ZZZZZZ", NONCE); // locked
+    expect(await s.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "not_found" });
+    s.offer();
+    s.advance(PAIR_OFFER_TTL_MS); // expired
+    expect(await s.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await s.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "not_found" });
+    s.offer(); // live
+    expect(await s.store.redeem("ZZZZZZ", NONCE)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(s.store.peek().attemptsRemaining).toBe(PAIR_MAX_ATTEMPTS - 1);
+
+    // Each retired code, shown exactly (as typed, too), says why.
+    expect(await s.store.redeem("aaa111", NONCE)).toEqual({ ok: false, reason: "used" });
+    expect(await s.store.redeem("BBB-222", NONCE)).toEqual({ ok: false, reason: "replaced" });
+    expect(await s.store.redeem("CCC333", NONCE)).toEqual({ ok: false, reason: "locked" });
+    expect(await s.store.redeem("DDD444", NONCE)).toEqual({ ok: false, reason: "expired" });
+    // ...at no cost to the live offer.
+    expect(s.store.peek().attemptsRemaining).toBe(PAIR_MAX_ATTEMPTS - 1);
+    expect(await s.store.redeem("EEE555", NONCE)).toMatchObject({ ok: true });
+  });
+
+  it("revoking a redeemed offer retires its code as used, and an unredeemed one as nothing", async () => {
+    const s = store(["AAA111", "FFF666"]);
+    await s.store.redeem(s.offer(), NONCE);
+    s.store.revoke();
+    expect(await s.store.redeem("AAA111", OTHER_NONCE)).toEqual({ ok: false, reason: "used" });
+    s.offer();
+    s.store.revoke();
+    expect(await s.store.redeem("FFF666", NONCE)).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("forgets a retired code after an hour", async () => {
+    const s = store(["EXPR00"]);
+    s.offer();
+    s.advance(PAIR_OFFER_TTL_MS);
+    expect(await s.store.redeem("EXPR00", NONCE)).toEqual({ ok: false, reason: "expired" });
+    s.advance(RETIRED_CODE_TTL_MS - 1);
+    expect(await s.store.redeem("EXPR00", NONCE)).toEqual({ ok: false, reason: "expired" });
+    s.advance(1);
+    expect(await s.store.redeem("EXPR00", NONCE)).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  it("keeps only the latest retired codes", async () => {
+    const codes = Array.from({ length: MAX_RETIRED_CODES + 2 }, (_, i) =>
+      `R${String(i).padStart(2, "0")}000`.slice(0, PAIR_CODE_LENGTH),
+    );
+    const s = store(codes);
+    for (let i = 0; i < codes.length; i += 1) s.offer();
+    // The last code is live; each before it was replaced, and the first one is forgotten.
+    expect(await s.store.redeem(codes[0], NONCE)).toEqual({ ok: false, reason: "unauthorized" });
+    expect(await s.store.redeem(codes[1], NONCE)).toEqual({ ok: false, reason: "replaced" });
+    expect(await s.store.redeem(codes[codes.length - 2], NONCE)).toEqual({
+      ok: false,
+      reason: "replaced",
+    });
   });
 });

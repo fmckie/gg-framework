@@ -4,14 +4,26 @@
 //!   reaches the host through the relay its ticket names.
 //! - No port mapping, so nothing asks the router to open a port. (The crate
 //!   also leaves out iroh's `portmapper` feature.)
-//! - The phone uses n0's default relays for its own home relay. The host
-//!   (`kleio-link-host`) starts from the same [`builder`] with its relay
-//!   pinned, and adds its ALPNs and gate hook.
+//! - Each end has one relay in its relay map, which is its home relay: the
+//!   host the one it's pinned to (host/relays.rs), the phone the one it last
+//!   reached the host through ([`switch_relay`]). So neither asks any other
+//!   relay anything, not even its latency, and a host whose list leaves out
+//!   n0's relays has nothing to do with n0. The host starts from the same
+//!   [`builder`], and adds its ALPNs and gate hook.
+//! - A relay's certificate must chain to the roots iroh has built in, or to
+//!   one [`RelayTrust`] adds.
+//!
+//! [`EndpointOptions`] carries both settings an end can have: its [`Mode`]
+//! and its [`RelayTrust`]. The app's are the defaults.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use iroh::endpoint::{presets, BindError, Builder, PortmapperConfig};
-use iroh::{Endpoint, RelayMode, SecretKey};
+use iroh::tls::CaTlsConfig;
+use iroh::{Endpoint, RelayConfig, RelayMap, RelayMode, RelayUrl, SecretKey};
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::CertificateDer;
 
 /// How long an end waits on a connection it hears nothing on before it drops
 /// it: QUIC's idle timeout. Neither end sets a transport config, so both take
@@ -22,14 +34,16 @@ use iroh::{Endpoint, RelayMode, SecretKey};
 /// default.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The Link card's switch.
+/// Whether an end may take a direct path: for tests and the `client` dev
+/// tool, and `kleio-link-host serve --relay-only`. The app always takes
+/// [`Mode::Auto`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     /// Through the relay at first, then direct once iroh finds a path.
     #[default]
     Auto,
     /// Through the relay only. The endpoint has no IP transports, so no
-    /// direct path can open.
+    /// direct path can open, and it binds no UDP socket.
     RelayOnly,
 }
 
@@ -44,26 +58,111 @@ impl Mode {
     }
 }
 
+/// The most of a file of relay certificates read.
+pub const MAX_RELAY_CA_BYTES: usize = 64 * 1024;
+
+/// What a relay's certificate may chain to: the Mozilla roots iroh has built
+/// in (webpki-roots), which n0's relays and any relay with a Let's Encrypt
+/// certificate chain to, and any certificate added here. A relay whose
+/// certificate comes from an authority of its own, such as a test's relay,
+/// needs that authority's certificate added (`kleio-link-host serve
+/// --relay-ca`). It's only about reaching the relay: a relay can't read the
+/// link either way.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RelayTrust {
+    extra: Vec<CertificateDer<'static>>,
+}
+
+impl RelayTrust {
+    /// The built-in roots, and `roots` too.
+    pub fn with_roots(roots: impl IntoIterator<Item = CertificateDer<'static>>) -> Self {
+        Self {
+            extra: roots.into_iter().collect(),
+        }
+    }
+
+    /// The built-in roots, and each certificate in `pem`, of which there
+    /// must be at least one. Anything else in it, such as a key, is left out.
+    pub fn from_pem(pem: &[u8]) -> Result<Self, String> {
+        if pem.len() > MAX_RELAY_CA_BYTES {
+            return Err(format!(
+                "too long for a few certificates (over {} KiB)",
+                MAX_RELAY_CA_BYTES / 1024
+            ));
+        }
+        let roots = CertificateDer::pem_slice_iter(pem)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("not PEM: {err}"))?;
+        if roots.is_empty() {
+            return Err("no certificate in it (-----BEGIN CERTIFICATE-----)".into());
+        }
+        Ok(Self::with_roots(roots))
+    }
+
+    /// Whether it adds nothing to the built-in roots.
+    pub fn is_built_in(&self) -> bool {
+        self.extra.is_empty()
+    }
+
+    /// iroh's certificate settings for relays: the built-in roots and these.
+    pub fn ca_tls_config(&self) -> CaTlsConfig {
+        CaTlsConfig::embedded().with_extra_roots(self.extra.iter().cloned())
+    }
+}
+
+/// What an end's endpoint is built with, beyond its key and relays. The
+/// default is the app's: [`Mode::Auto`], and the built-in roots.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EndpointOptions {
+    pub mode: Mode,
+    pub trust: RelayTrust,
+}
+
 /// The builder both ends start from: `presets::Minimal` with `secret_key` and
-/// `relay_mode`, no address lookup, no port mapping and, in
-/// [`Mode::RelayOnly`], no IP transports.
-pub fn builder(secret_key: SecretKey, relay_mode: RelayMode, mode: Mode) -> Builder {
-    let builder = Endpoint::builder(presets::Minimal)
+/// `relay_mode`, no address lookup, no port mapping, the relay certificates
+/// `options` trusts and, in [`Mode::RelayOnly`], no IP transports.
+pub fn builder(secret_key: SecretKey, relay_mode: RelayMode, options: &EndpointOptions) -> Builder {
+    let mut builder = Endpoint::builder(presets::Minimal)
         .secret_key(secret_key)
         .relay_mode(relay_mode)
         .clear_address_lookup()
         .portmapper_config(PortmapperConfig::Disabled);
-    if mode.keeps_ip_transports() {
+    // Left as iroh has it unless there's something to add.
+    if !options.trust.is_built_in() {
+        builder = builder.ca_tls_config(options.trust.ca_tls_config());
+    }
+    if options.mode.keeps_ip_transports() {
         builder
     } else {
         builder.clear_ip_transports()
     }
 }
 
-/// The phone's endpoint (and the laptop test client's): n0's default relays,
-/// and no ALPN, so it dials out and accepts no connection.
-pub async fn bind_client(secret_key: SecretKey, mode: Mode) -> Result<Endpoint, BindError> {
-    builder(secret_key, RelayMode::Default, mode).bind().await
+/// The phone's endpoint (and the test client's), with `relays` as its relay
+/// map, and no ALPN, so it dials out and accepts no connection. It can still
+/// dial a host through any relay: a relay map is only where the home relay
+/// comes from.
+pub async fn bind_client(
+    secret_key: SecretKey,
+    relays: &[RelayUrl],
+    options: &EndpointOptions,
+) -> Result<Endpoint, BindError> {
+    let map: RelayMap = relays.iter().cloned().collect();
+    builder(secret_key, RelayMode::Custom(map), options)
+        .bind()
+        .await
+}
+
+/// Moves the endpoint from relay `from` to relay `to`, which becomes its
+/// home relay: added first, then `from` taken out, so it's never without
+/// one. iroh doesn't say which relays an endpoint has, so the caller keeps
+/// track: one bound with a single relay keeps a single relay this way.
+pub async fn switch_relay(endpoint: &Endpoint, to: &RelayUrl, from: Option<&RelayUrl>) {
+    let config = Arc::new(RelayConfig::from(to.clone()));
+    endpoint.insert_relay(to.clone(), config).await;
+    if let Some(from) = from.filter(|from| *from != to) {
+        endpoint.remove_relay(from).await;
+    }
 }
 
 #[cfg(test)]
@@ -89,6 +188,13 @@ mod tests {
         assert!(!Mode::RelayOnly.keeps_ip_transports());
     }
 
+    fn relay_only() -> EndpointOptions {
+        EndpointOptions {
+            mode: Mode::RelayOnly,
+            ..EndpointOptions::default()
+        }
+    }
+
     /// Relay only binds no IP socket at all, so no direct path can open. iroh
     /// won't bind with no transport at all, so the relay here is a closed port
     /// on loopback: the test needs no network.
@@ -98,12 +204,103 @@ mod tests {
         let endpoint = builder(
             SecretKey::from_bytes(&[3; 32]),
             RelayMode::custom([nowhere]),
-            Mode::RelayOnly,
+            &relay_only(),
         )
         .bind()
         .await
         .expect("binds");
         assert_eq!(endpoint.bound_sockets(), vec![]);
+        endpoint.close().await;
+    }
+
+    /// No address lookup: nothing publishes or asks where an end is.
+    #[tokio::test]
+    async fn an_end_has_no_address_lookup() {
+        let endpoint = bind_client(
+            SecretKey::from_bytes(&[5; 32]),
+            &[nowhere(1)],
+            &relay_only(),
+        )
+        .await
+        .expect("binds");
+        let lookup = endpoint.address_lookup().expect("open");
+        assert!(lookup.is_empty(), "no address lookup");
+        endpoint.close().await;
+    }
+
+    /// A self-signed certificate (openssl, P-256), as a test's relay has.
+    const CERT: &str = "-----BEGIN CERTIFICATE-----
+MIIBjDCCATOgAwIBAgIUG6AK7/BFmmXni65lK6R6jiB48rwwCgYIKoZIzj0EAwIw
+GzEZMBcGA1UEAwwQa2xlaW8tdGVzdC1yZWxheTAgFw0yNjEwMjMwMjAxMzlaGA8y
+MTI2MDkyOTAyMDEzOVowGzEZMBcGA1UEAwwQa2xlaW8tdGVzdC1yZWxheTBZMBMG
+ByqGSM49AgEGCCqGSM49AwEHA0IABKmEg7aJ0Da0OY3moyWj8C3r5EG+NFJJQLVN
+QVlbjUojrb4lra55Tk4jxvOVg4LjhOmgrtPtaU7DZWtSQZ4C5VajUzBRMB0GA1Ud
+DgQWBBQHBkFC1XUVSjgLjaA9KfH/SOaI4jAfBgNVHSMEGDAWgBQHBkFC1XUVSjgL
+jaA9KfH/SOaI4jAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0cAMEQCIHrB
+bM5RCxppRQVmKfFE+DxHBGzbfE1Can/ka6ZgWChOAiBf+c9amTS0NPFQJZdLlvtz
+NbRlbqCM+1/uLioxXi0HIA==
+-----END CERTIFICATE-----
+";
+
+    #[test]
+    fn adds_each_certificate_in_a_pem_file_to_the_built_in_roots() {
+        assert!(RelayTrust::default().is_built_in());
+        let one = RelayTrust::from_pem(CERT.as_bytes()).expect("a certificate");
+        assert!(!one.is_built_in());
+        assert_eq!(one.extra.len(), 1);
+        // A key beside it is left out, and a second certificate is taken.
+        let key =
+            "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n";
+        let two = RelayTrust::from_pem(format!("{CERT}{key}{CERT}").as_bytes()).expect("read");
+        assert_eq!(two.extra.len(), 2);
+    }
+
+    #[test]
+    fn refuses_a_file_with_no_certificate_or_too_much() {
+        for (pem, why) in [
+            (String::new(), "no certificate"),
+            ("hello".to_string(), "no certificate"),
+            (
+                "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIA==\n-----END PRIVATE KEY-----\n"
+                    .to_string(),
+                "no certificate",
+            ),
+            (
+                "-----BEGIN CERTIFICATE-----\n!!!!\n-----END CERTIFICATE-----\n".to_string(),
+                "not PEM",
+            ),
+            (CERT.repeat(MAX_RELAY_CA_BYTES / CERT.len() + 1), "too long"),
+        ] {
+            let err = RelayTrust::from_pem(pem.as_bytes()).expect_err("refused");
+            assert!(err.starts_with(why), "{why}: {err}");
+        }
+    }
+
+    /// Relays on closed loopback ports: nothing is asked, so no network.
+    fn nowhere(port: u16) -> RelayUrl {
+        format!("https://127.0.0.1:{port}/")
+            .parse()
+            .expect("a relay URL")
+    }
+
+    #[tokio::test]
+    async fn switching_relay_leaves_the_endpoint_with_the_new_one_only() {
+        let (a, b) = (nowhere(1), nowhere(2));
+        let endpoint = bind_client(
+            SecretKey::from_bytes(&[4; 32]),
+            std::slice::from_ref(&a),
+            &relay_only(),
+        )
+        .await
+        .expect("binds");
+        switch_relay(&endpoint, &b, Some(&a)).await;
+        // `remove_relay` gives back what it took out: only `b` is left.
+        assert!(endpoint.remove_relay(&a).await.is_none(), "a is gone");
+        assert!(endpoint.remove_relay(&b).await.is_some(), "b is in");
+        // Switching to the relay it's on takes nothing out.
+        switch_relay(&endpoint, &a, None).await;
+        switch_relay(&endpoint, &a, Some(&a)).await;
+        assert!(endpoint.remove_relay(&a).await.is_some(), "a is in");
         endpoint.close().await;
     }
 }

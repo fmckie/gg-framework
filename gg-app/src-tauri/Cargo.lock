@@ -2690,10 +2690,13 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.2",
  "iroh",
+ "reqwest",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

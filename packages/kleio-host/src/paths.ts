@@ -8,8 +8,13 @@
 //   ├── secure/                    0700; locked on Windows
 //   │   ├── headless-master.key    0600, 32 random bytes; locked on Windows
 //   │   ├── control-root.key       0600, macaroon root; locked on Windows
+//   │   ├── link.key               0600, the link's secret key (link-secrets.ts); locked on Windows
+//   │   ├── link-upstream.token    0600, kleio-link-host's secret for the link listener; locked on Windows
+//   │   ├── link-allow.json        0600, the paired devices' link keys; locked on Windows
 //   │   ├── admin.token            0600, from `init`; locked on Windows
 //   │   └── device-registry.json   0600; locked on Windows
+//   ├── node-id                    this host's node ID, settled once (node-id.ts)
+//   ├── link/                      the relay list (config.json) and kleio-link-host's state.json (link.ts)
 //   ├── composio.key, typesafe.key, openai.key
 //   │                              0600 API keys set from Settings; locked on Windows
 //   ├── rings/                     per-session SSE replay files
@@ -29,6 +34,16 @@ export interface HostPaths {
   readonly controlRootKey: string;
   readonly adminToken: string;
   readonly registry: string;
+  /** The link's secret key (link-secrets.ts). */
+  readonly linkKey: string;
+  /** The secret kleio-link-host shows on the link listener (link-secrets.ts). */
+  readonly linkUpstreamToken: string;
+  /** The link's allow-list: each paired device's link key. */
+  readonly linkAllow: string;
+  /** This host's node ID, settled once (node-id.ts). */
+  readonly nodeId: string;
+  /** The link's files (link.ts): the relay list, config.json, and kleio-link-host's state.json. */
+  readonly linkDir: string;
   /** API key files an admin device sets from Settings (host.ts names them the same). */
   readonly composioKey: string;
   readonly typesafeKey: string;
@@ -79,6 +94,11 @@ export function hostPaths(
     controlRootKey: join(secureDir, "control-root.key"),
     adminToken: join(secureDir, "admin.token"),
     registry: join(secureDir, "device-registry.json"),
+    linkKey: join(secureDir, "link.key"),
+    linkUpstreamToken: join(secureDir, "link-upstream.token"),
+    linkAllow: join(secureDir, "link-allow.json"),
+    nodeId: join(home, "node-id"),
+    linkDir: join(home, "link"),
     composioKey: join(home, "composio.key"),
     typesafeKey: join(home, "typesafe.key"),
     openaiKey: join(home, "openai.key"),

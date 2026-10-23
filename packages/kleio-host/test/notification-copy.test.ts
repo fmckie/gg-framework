@@ -5,6 +5,7 @@ import {
   COLLAPSE_ID_MAX_BYTES,
   createReplyTracker,
   noticeFor,
+  pairingNotice,
   plainText,
 } from "../src/notification-copy.js";
 
@@ -117,5 +118,28 @@ describe("createReplyTracker", () => {
       text: "Rate limited",
     });
     expect(t.onFrame("s", frame("run_end", { cancelled: true }))).toEqual({ kind: "stopped" });
+  });
+});
+
+describe("pairingNotice", () => {
+  it("names the new device, says how it paired, and what to do if it wasn't you", () => {
+    expect(pairingNotice({ label: "Will's iPhone", admin: false, host: "mac-mini-1" })).toEqual({
+      title: "Will's iPhone",
+      subtitle: "Paired",
+      body: "It can now use Kleio on mac-mini-1. If you didn't pair it, revoke it.",
+      interruptionLevel: "active",
+      relevanceScore: 1,
+    });
+    expect(pairingNotice({ label: "iPad", admin: true, host: "mac-mini-1" }).subtitle).toBe(
+      "Paired as an admin",
+    );
+  });
+
+  it("keeps a name plain and short, and has words for one that's empty", () => {
+    const long = pairingNotice({ label: `📱 ${"word ".repeat(30)}`, admin: false, host: "" });
+    expect(long.title.length).toBeLessThanOrEqual(60);
+    expect(long.title).not.toContain("📱");
+    expect(long.body).toBe("It can now use Kleio on this host. If you didn't pair it, revoke it.");
+    expect(pairingNotice({ label: "  ", admin: false, host: "h" }).title).toBe("A new device");
   });
 });

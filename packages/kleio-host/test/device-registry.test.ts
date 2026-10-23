@@ -10,7 +10,14 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { atomicWrite, createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
+import type { SecretLock } from "../src/acl.js";
+import {
+  atomicWrite,
+  createDeviceRegistry,
+  linkAllowDocument,
+  type DeviceRegistry,
+  type PairedDevice,
+} from "../src/device-registry.js";
 import {
   createFileKeychain,
   generateMasterKey,
@@ -195,6 +202,8 @@ describe("device registry", () => {
         // Laptops, and records from before push existed, read as unregistered.
         push: null,
         liveStart: null,
+        // ...and records from before the link have no link key.
+        linkKey: null,
       },
     ]);
     expect(reg.authenticate("legacy-raw-token")?.label).toBe("W's mac");
@@ -250,5 +259,178 @@ describe("device registry", () => {
     await reg.touch(minted.value.device.deviceId);
     expect(reg.get(minted.value.device.deviceId)?.lastSeen).toBe("2026-09-22T11:00:00.000Z");
     expect(reg.authenticate(minted.value.token)).not.toBeNull();
+  });
+});
+
+const KEY_A = "a".repeat(64);
+const KEY_B = "b".repeat(64);
+
+describe("device registry: link keys", () => {
+  it("binds a device's link key at minting, and keeps it across a reload", async () => {
+    const reg = registry();
+    await reg.init();
+    const minted = await reg.mint("iPhone", { linkKey: KEY_A });
+    if (!minted.ok) throw new Error("mint failed");
+    expect(minted.value.device.linkKey).toBe(KEY_A);
+    expect(minted.value.superseded).toEqual([]);
+    const plain = await reg.mint("Laptop");
+    if (!plain.ok) throw new Error("mint failed");
+    expect(plain.value.device.linkKey).toBeNull();
+
+    const again = registry();
+    await again.init();
+    expect(again.get(minted.value.device.deviceId)?.linkKey).toBe(KEY_A);
+    expect(again.get(plain.value.device.deviceId)?.linkKey).toBeNull();
+  });
+
+  it("refuses a link key that isn't 64 lowercase hex characters, and mints nothing", async () => {
+    const reg = registry();
+    await reg.init();
+    for (const bad of ["", "A".repeat(64), "a".repeat(63), "a".repeat(65), "g".repeat(64)]) {
+      const r = await reg.mint("iPhone", { linkKey: bad });
+      expect(r.ok ? null : r.error.kind).toBe("invalid");
+    }
+    expect(reg.list()).toEqual([]);
+  });
+
+  it("a new pairing with the same link key replaces the older one, so a key never has two live devices", async () => {
+    const reg = registry();
+    await reg.init();
+    const first = await reg.mint("iPhone", { linkKey: KEY_A, admin: true });
+    if (!first.ok) throw new Error("mint failed");
+    await reg.setLiveStart(first.value.device.deviceId, {
+      token: "ab",
+      env: "sandbox",
+      registeredAt: "2026-10-23T00:00:00Z",
+    });
+    const other = await reg.mint("iPad", { linkKey: KEY_B });
+    const second = await reg.mint("iPhone", { linkKey: KEY_A });
+    if (!second.ok || !other.ok) throw new Error("mint failed");
+    expect(second.value.superseded).toEqual([first.value.device.deviceId]);
+    const old = reg.get(first.value.device.deviceId);
+    expect(old).toMatchObject({ revoked: true, liveStart: null });
+    expect(reg.authenticate(first.value.token)).toBeNull();
+    expect(reg.authenticate(second.value.token)?.deviceId).toBe(second.value.device.deviceId);
+    expect(reg.get(other.value.device.deviceId)?.revoked).toBe(false);
+    expect(reg.list().filter((d) => d.linkKey === KEY_A && !d.revoked)).toHaveLength(1);
+  });
+});
+
+describe("device registry: the link's allow-list", () => {
+  const allowPath = (): string => join(home, "secure", "link-allow.json");
+  const allow = (): unknown => JSON.parse(readFileSync(allowPath(), "utf8"));
+
+  /** A lock that records each path, and fails while `failing` says so. */
+  function countingLock(failing: () => boolean = () => false): {
+    lock: SecretLock;
+    locked: string[];
+  } {
+    const locked: string[] = [];
+    return {
+      locked,
+      lock: {
+        lock: async (path) => {
+          locked.push(path);
+          return failing()
+            ? { ok: false, error: { kind: "icacls_failed", message: "icacls exited with 5" } }
+            : { ok: true, value: undefined };
+        },
+      },
+    };
+  }
+
+  it("is written at init, then on each pairing and revoke that changes it, 0600 and locked", async () => {
+    const { lock, locked } = countingLock();
+    const reg = registry({ linkAllowPath: allowPath(), secretLock: lock });
+    await reg.init();
+    expect(allow()).toEqual({ version: 1, devices: [], revoked: [] });
+    if (process.platform !== "win32") expect(statSync(allowPath()).mode & 0o777).toBe(0o600);
+
+    const phone = await reg.mint("iPhone", { linkKey: KEY_B });
+    const pad = await reg.mint("iPad", { linkKey: KEY_A });
+    if (!phone.ok || !pad.ok) throw new Error("mint failed");
+    expect(allow()).toEqual({
+      version: 1,
+      devices: [
+        { key: KEY_A, deviceId: pad.value.device.deviceId, label: "iPad" },
+        { key: KEY_B, deviceId: phone.value.device.deviceId, label: "iPhone" },
+      ],
+      revoked: [],
+    });
+    expect(JSON.stringify(allow())).not.toContain(phone.value.token);
+
+    await reg.revoke(phone.value.device.deviceId);
+    expect(allow()).toEqual({
+      version: 1,
+      devices: [{ key: KEY_A, deviceId: pad.value.device.deviceId, label: "iPad" }],
+      revoked: [KEY_B],
+    });
+
+    // A write that doesn't change it (lastSeen, a device without a key) leaves it alone.
+    const writes = locked.length;
+    await reg.touch(pad.value.device.deviceId);
+    await reg.mint("Laptop");
+    expect(locked).toHaveLength(writes);
+    expect(locked.every((path) => path.startsWith(`${allowPath()}.tmp-`))).toBe(true);
+  });
+
+  it("a failed write is logged and tried again at the next one, and never undoes the pairing", async () => {
+    let failing = true;
+    const logs: string[] = [];
+    const { lock } = countingLock(() => failing);
+    const reg = registry({
+      linkAllowPath: allowPath(),
+      secretLock: lock,
+      log: (m) => logs.push(m),
+    });
+    await reg.init();
+    const phone = await reg.mint("iPhone", { linkKey: KEY_A });
+    expect(phone.ok).toBe(true);
+    expect(logs.some((l) => l.includes("couldn't write the link's allow-list"))).toBe(true);
+    expect(() => readFileSync(allowPath())).toThrow();
+
+    failing = false;
+    if (!phone.ok) throw new Error("mint failed");
+    await reg.touch(phone.value.device.deviceId);
+    expect(allow()).toMatchObject({ devices: [{ key: KEY_A, label: "iPhone" }] });
+  });
+
+  it("init rewrites a file that's missing or behind", async () => {
+    const first = registry({ linkAllowPath: allowPath() });
+    await first.init();
+    const phone = await first.mint("iPhone", { linkKey: KEY_A });
+    if (!phone.ok) throw new Error("mint failed");
+    writeFileSync(allowPath(), "{}");
+    const again = registry({ linkAllowPath: allowPath() });
+    await again.init();
+    expect(allow()).toMatchObject({ devices: [{ key: KEY_A }], revoked: [] });
+  });
+
+  it("lists a key as revoked only while no live device has it", () => {
+    const device = (over: Partial<PairedDevice>): PairedDevice => ({
+      deviceId: "d",
+      label: "x",
+      created: "2026-10-23T00:00:00Z",
+      lastSeen: null,
+      revoked: false,
+      admin: false,
+      push: null,
+      liveStart: null,
+      linkKey: null,
+      ...over,
+    });
+    expect(
+      linkAllowDocument([
+        device({ deviceId: "old", linkKey: KEY_A, revoked: true }),
+        device({ deviceId: "new", linkKey: KEY_A }),
+        device({ deviceId: "gone", linkKey: KEY_B, revoked: true }),
+        device({ deviceId: "gone-again", linkKey: KEY_B, revoked: true }),
+        device({ deviceId: "laptop" }),
+      ]),
+    ).toEqual({
+      version: 1,
+      devices: [{ key: KEY_A, deviceId: "new", label: "x" }],
+      revoked: [KEY_B],
+    });
   });
 });

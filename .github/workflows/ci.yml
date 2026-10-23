@@ -253,6 +253,14 @@ jobs:
         run: |
           pnpm --filter @kleio/coder... build
 
+      # Kleio's link end to end, on every OS the host runs on: the real
+      # kleio-host and kleio-link-host, with a relay and a phone in the test
+      # process (packages/kleio-link/tests/end_to_end.rs).
+      - name: Kleio link end to end (kleio-host and kleio-link-host)
+        run: |
+          pnpm --filter @kleio/host build
+          cargo test --locked --features host --manifest-path packages/kleio-link/Cargo.toml --test end_to_end -- --ignored
+
       - name: Stage node runtime + bundle sidecar
         run: |
           pnpm --filter gg-app stage:node

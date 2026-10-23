@@ -154,6 +154,7 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     host: null,
     hostKey: null,
     relay: null,
+    refused: null,
     connected: false,
     path: null,
     pathAddr: null,
@@ -166,15 +167,18 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     debugBuild: true,
   };
   const LINK_REC = { ...REC, baseUrl: "http://127.0.0.1:47821" };
-  const V3 = JSON.stringify({
-    v: 3,
+  const TICKET = JSON.stringify({
+    v: 4,
     type: "kleio-pair",
-    key: "ab12cd34".padEnd(64, "0"),
-    relay: "https://euc1-1.relay.n0.iroh.link./",
+    name: "mac-mini-1",
+    key: "ab12cd34ef".padEnd(64, "0"),
+    relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
+    addrs: ["192.168.1.20:52043"],
     code: "ABC-DEF",
   });
   const CHECKED = {
-    keyPrefix: "ab12cd34",
+    name: "mac-mini-1",
+    keyPrefix: "ab12cd34ef",
     relayHost: "euc1-1.relay.n0.iroh.link.",
     code: "ABC-DEF",
   };
@@ -242,24 +246,25 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     expect((screen.getByLabelText("Pair code") as HTMLInputElement).value).toBe("");
   });
 
-  it("a pasted v3 ticket shows the host to confirm, then pairs over the link", async () => {
+  it("a pasted link ticket shows the host to confirm, then pairs over the link", async () => {
     let paired = false;
     routes({
       kleio_remote_status: () => ({ active: null, paired: paired ? LINK_REC : null }),
       kleio_link_status: () => ({ ...NO_LINK, paired }),
       kleio_link_check_ticket: (args) => {
-        expect(args).toEqual({ ticket: V3 });
+        expect(args).toEqual({ ticket: TICKET });
         return CHECKED;
       },
       kleio_link_pair: (args) => {
-        expect(args).toEqual({ ticket: V3, label: "Laptop" });
+        expect(args).toEqual({ ticket: TICKET, label: "Laptop" });
         paired = true;
         return LINK_REC;
       },
     });
     await openPane();
-    paste(V3);
-    await screen.findByText("ab12cd34…");
+    paste(TICKET);
+    await screen.findByText("ab12cd34ef…");
+    expect(screen.getByText("mac-mini-1")).toBeTruthy();
     expect(screen.getByText("euc1-1.relay.n0.iroh.link.")).toBeTruthy();
     expect(screen.getByText("ABC-DEF")).toBeTruthy();
     // Nothing pairs until Pair is pressed, and the safe choice has focus.
@@ -287,13 +292,13 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     });
     const onClose = vi.fn();
     await openPane(onClose);
-    paste(V3);
+    paste(TICKET);
     fireEvent.click(await screen.findByRole("button", { name: "Pair" }));
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
     expect(relaunch).not.toHaveBeenCalled();
   });
 
-  it("a v3 ticket the link refuses shows why and stays on the form", async () => {
+  it("a link ticket the link refuses shows why and stays on the form", async () => {
     routes({
       kleio_remote_status: () => ({ active: null, paired: null }),
       kleio_link_status: () => NO_LINK,
@@ -302,7 +307,7 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       },
     });
     await openPane();
-    paste(V3);
+    paste(TICKET);
     expect((await screen.findByRole("alert")).textContent).toBe(
       "This QR code's relay address isn't valid.",
     );
@@ -336,9 +341,9 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
     });
 
-    it("scans QR codes only, then a v3 ticket goes to the confirm step", async () => {
+    it("scans QR codes only, then a link ticket goes to the confirm step", async () => {
       vi.mocked(scanner.scan).mockResolvedValue({
-        content: V3,
+        content: TICKET,
         format: "QR_CODE" as scanner.Format,
         bounds: null,
       });
@@ -346,13 +351,13 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
         kleio_remote_status: () => ({ active: null, paired: null }),
         kleio_link_status: () => ({ ...NO_LINK, debugBuild: false }),
         kleio_link_check_ticket: (args) => {
-          expect(args).toEqual({ ticket: V3 });
+          expect(args).toEqual({ ticket: TICKET });
           return CHECKED;
         },
       });
       await openPane();
       fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
-      await screen.findByText("ab12cd34…");
+      await screen.findByText("ab12cd34ef…");
       expect(scanner.scan).toHaveBeenCalledWith({ formats: ["QR_CODE"], windowed: true });
       // A scan only reads the code: nothing pairs until Pair is pressed.
       expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_pair", expect.anything());
@@ -454,7 +459,7 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       },
     });
     await openPane();
-    paste(V3);
+    paste(TICKET);
     fireEvent.click(await screen.findByRole("button", { name: "Pair" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/Code not recognised/);
     expect((screen.getByRole("button", { name: "Pair" }) as HTMLButtonElement).disabled).toBe(

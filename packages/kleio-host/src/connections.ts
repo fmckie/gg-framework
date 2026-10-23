@@ -40,8 +40,12 @@ export interface ConnectionsOptions {
   readonly keyPath: string;
   readonly apiKey?: string;
   readonly baseUrl?: string;
-  /** e.g. https://mini.tailnet.ts.net:8443, for the OAuth callback. */
-  readonly publicBaseUrl: string;
+  /**
+   * e.g. https://mini.tailnet.ts.net:8443, for the OAuth callback. Unset on a
+   * host reached over the link only: no callback is sent, so Composio ends
+   * the sign-in on its own page.
+   */
+  readonly publicBaseUrl?: string;
   /** Where ~/.gg lives (tests use a temp dir). */
   readonly ggHome: string;
   /** Called when the mcp.json entry was added or changed. */
@@ -193,7 +197,12 @@ export function createConnections(options: ConnectionsOptions): Connections {
   const secretLock =
     options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
   const base = (options.baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
-  const callbackUrl = `${options.publicBaseUrl.replace(/\/+$/, "")}/kleio/connections/callback`;
+  const callback =
+    options.publicBaseUrl !== undefined
+      ? {
+          callback_url: `${options.publicBaseUrl.replace(/\/+$/, "")}/kleio/connections/callback`,
+        }
+      : {};
   const mcpPath = join(options.ggHome, "mcp.json");
 
   let state: State | null = null;
@@ -374,7 +383,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
           user_id: s.userId,
           manage_connections: {
             enable: true,
-            callback_url: callbackUrl,
+            ...callback,
             enable_connection_removal: false,
           },
         }),
@@ -510,7 +519,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
           `/api/v3.1/tool_router/session/${encodeURIComponent(s.sessionId!)}/link`,
           {
             toolkit,
-            callback_url: callbackUrl,
+            ...callback,
           },
         ),
       );

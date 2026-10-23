@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime};
 
 use futures_util::StreamExt;
 use iroh::endpoint::{Closed, Connection, Path, PathEvent, PathStats};
-use iroh::TransportAddr;
+use iroh::{RelayUrl, TransportAddr};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior};
 use tracing::{info, warn};
@@ -111,6 +111,25 @@ pub fn selected(conn: &Connection) -> Option<SelectedPath> {
         tailscale,
         rtt: path.rtt(),
     })
+}
+
+/// The relay `conn` came through: its selected path's if that's a relay,
+/// else its first open relay path's. `None` for a connection that's direct
+/// only.
+pub(crate) fn relay_used(conn: &Connection) -> Option<RelayUrl> {
+    let list = conn.paths();
+    let relays: Vec<(bool, RelayUrl)> = list
+        .iter()
+        .filter_map(|path| match path.remote_addr() {
+            TransportAddr::Relay(url) => Some((path.is_selected(), url.clone())),
+            _ => None,
+        })
+        .collect();
+    relays
+        .iter()
+        .find(|(selected, _)| *selected)
+        .or_else(|| relays.first())
+        .map(|(_, url)| url.clone())
 }
 
 /// Logs `conn`'s open paths now, then each path event and, every
@@ -309,7 +328,7 @@ impl fmt::Display for Paths<'_> {
 }
 
 /// Tailscale's address ranges: `100.64.0.0/10` and `fd7a:115c:a1e0::/48`.
-fn is_tailscale(ip: IpAddr) -> bool {
+pub(crate) fn is_tailscale(ip: IpAddr) -> bool {
     match ip.to_canonical() {
         IpAddr::V4(v4) => {
             let [first, second, ..] = v4.octets();

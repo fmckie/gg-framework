@@ -8,6 +8,7 @@ import { chmod, lstat, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AclError, LockKind, SecretLock } from "./acl.js";
 import { generateMasterKey } from "./file-keychain.js";
+import { newLinkKey, newUpstreamToken } from "./link-secrets.js";
 import type { HostPaths } from "./paths.js";
 import { err, ok, type Result } from "./result.js";
 
@@ -31,6 +32,35 @@ async function lockAll(
   return ok(undefined);
 }
 
+/** Write a secret (0600) unless the file is there already; never replace one. */
+async function writeMissing(path: string, make: () => Buffer | string): Promise<void> {
+  try {
+    await writeFile(path, make(), { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+  }
+  await chmod(path, 0o600);
+}
+
+/** Write each missing secret in the locked `secure/`, then lock each one. */
+async function ensureSecrets(
+  lock: SecretLock,
+  secrets: readonly (readonly [string, () => Buffer | string])[],
+): Promise<Result<void, SecretLockFailure>> {
+  for (const [path, make] of secrets) await writeMissing(path, make);
+  return lockAll(
+    lock,
+    secrets.map(([path]) => [path, "file"] as const),
+  );
+}
+
+function linkSecrets(p: HostPaths): readonly (readonly [string, () => Buffer | string])[] {
+  return [
+    [p.linkKey, newLinkKey],
+    [p.linkUpstreamToken, newUpstreamToken],
+  ];
+}
+
 /**
  * Create `secure/` (0700) and lock it, then write any missing key (0600) inside
  * it, so a new key is never on disk unlocked, and lock each key file too. Also
@@ -44,21 +74,26 @@ export async function ensureSecure(
   await chmod(p.secureDir, 0o700);
   const dir = await lockAll(lock, [[p.secureDir, "dir"]]);
   if (!dir.ok) return dir;
-  for (const key of [p.masterKey, p.controlRootKey]) {
-    try {
-      await writeFile(key, generateMasterKey(), { mode: 0o600, flag: "wx" });
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-    }
-    await chmod(key, 0o600);
-  }
-  const keys = await lockAll(lock, [
-    [p.masterKey, "file"],
-    [p.controlRootKey, "file"],
+  const keys = await ensureSecrets(lock, [
+    [p.masterKey, generateMasterKey],
+    [p.controlRootKey, generateMasterKey],
+    ...linkSecrets(p),
   ]);
   if (!keys.ok) return keys;
   for (const d of [p.rings, p.work, p.logs]) await mkdir(d, { recursive: true });
   return ok(undefined);
+}
+
+/**
+ * The link's key and upstream token (link-secrets.ts), for `serve`: a host
+ * set up before the link has a locked `secure/` without them. Each missing
+ * one is written inside it, then locked.
+ */
+export async function ensureLinkSecrets(
+  p: HostPaths,
+  lock: SecretLock,
+): Promise<Result<void, SecretLockFailure>> {
+  return ensureSecrets(lock, linkSecrets(p));
 }
 
 async function entryKind(path: string): Promise<"dir" | "file" | "other" | null> {

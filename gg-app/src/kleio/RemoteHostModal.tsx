@@ -8,9 +8,9 @@
 // cannot relaunch itself, so there a first pairing switches on in place and
 // the pane just closes into the app.
 //
-// Connection prototype (Rust feature `kleio-link`): the iPhone scans the
-// pairing QR code, and a v3 ticket pairs over the Kleio link instead, after a
-// confirm step that shows the host's key, its relay and the code. Debug builds
+// Kleio's link (Rust feature `kleio-link`): the iPhone scans the pairing QR
+// code, and a link ticket pairs over the Kleio link instead, after a confirm
+// step that shows the host's name, key, relay and the code. Debug builds
 // also take a pasted ticket, as the simulator has no camera. A build without
 // the feature shows none of it.
 
@@ -126,7 +126,8 @@ function PairPanel({
   const { link } = useKleioLink();
   const [linkTicket, setLinkTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
 
-  // A scanned or pasted ticket: v2 fills the form, v3 asks to confirm the host.
+  // A scanned or pasted ticket: v2 fills the form, a link ticket asks to
+  // confirm the host.
   const openTicket = useCallback(
     async (text: string) => {
       setError(null);
