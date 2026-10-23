@@ -32,6 +32,7 @@ import {
   appEnvProblems,
   fingerprint,
   fingerprintChanges,
+  freePorts,
   keychainPathProblems,
   sandboxEnv,
   sandboxProblems,
@@ -64,6 +65,7 @@ function envFor(sandbox, baseEnv = { PATH: "/usr/bin:/bin" }) {
     baseEnv,
     apiPort: 41000,
     previewPort: 41001,
+    linkPort: 41002,
     sidecarPath: "/repo/gg-app/src-tauri/sidecar/app-sidecar.mjs",
     nodeBin: "/repo/gg-app/src-tauri/binaries/ggnode",
   });
@@ -182,6 +184,35 @@ describe("the sandbox guard", () => {
     expect(problemsFor(sandbox, realHome, { KLEIO_PUBLIC_URL: url })).toContain(
       `KLEIO_PUBLIC_URL=${url} is not http://127.0.0.1:41000`,
     );
+  });
+
+  it("gives the link listener its own port, never the shell's or the fixed 8445", () => {
+    const realHome = fakeRealHome();
+    const sandbox = temp("kleio-dev-host-");
+    const env = envFor(sandbox, { PATH: "/usr/bin:/bin", KLEIO_LINK_PORT: "8445" });
+
+    expect(env.KLEIO_LINK_PORT).toBe("41002");
+    expect(sandboxProblems({ sandbox, env, realHome })).toEqual([]);
+    for (const [value, shown] of [
+      [undefined, "undefined"],
+      ["", ""],
+      ["link", "link"],
+      ["41000", "41000"],
+      ["41001", "41001"],
+    ]) {
+      expect(problemsFor(sandbox, realHome, { KLEIO_LINK_PORT: value })).toEqual([
+        `KLEIO_LINK_PORT=${shown} is not a third port`,
+      ]);
+    }
+  });
+
+  it("finds three different spare loopback ports", async () => {
+    const { api, preview, link } = await freePorts();
+
+    expect(new Set([api, preview, link]).size).toBe(3);
+    for (const port of [api, preview, link]) {
+      expect(Number.isInteger(port) && port > 0 && port < 65536).toBe(true);
+    }
   });
 
   it("refuses paths outside the sandbox, relative paths and paths with ..", () => {

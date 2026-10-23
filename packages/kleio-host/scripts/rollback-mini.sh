@@ -7,15 +7,20 @@
 # MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
 # step 4 waits (1 to 600, default 60). On the mini it:
 #   1. Refuses unless .prev holds dist/cli.js and sidecar/app-sidecar.mjs.
-#   2. Moves the current dist, sidecar, install-mini.sh and launchd plists aside
-#      to ~/kleio-host/.rolled-back-<UTC time>/ (nothing is deleted), and puts
-#      .prev's copies in their place. .prev itself stays as it is.
-#   3. Restarts both launchd jobs the way install-mini.sh does, sidecar first.
-#   4. Waits up to HEALTH_WAIT seconds for /kleio/health, trying once a
-#      second, then clears the deploy's in-progress mark and says which
-#      snapshot holds the state.
+#   2. Moves the current dist, sidecar, bin, install-mini.sh and launchd
+#      plists aside to ~/kleio-host/.rolled-back-<UTC time>/ (nothing is
+#      deleted), and puts .prev's copies in their place. .prev itself stays as
+#      it is. A .prev from before Kleio's link has no bin/kleio-link-host and
+#      no link job: the link job is stopped, and its plist goes aside too.
+#   3. Restarts the launchd jobs the way install-mini.sh does: the sidecar,
+#      then serve, then the link job if .prev has one.
+#   4. Waits up to HEALTH_WAIT seconds for /kleio/health, and for
+#      kleio-link-host to be on a relay if it's back, trying once a second,
+#      then clears the deploy's in-progress mark and says which snapshot holds
+#      the state.
 #
-# Code only: the host's state and ~/.gg stay as they are. Restoring a snapshot
+# Code only: the host's state and ~/.gg stay as they are, the link's files
+# included. Restoring a snapshot
 # from ~/kleio-backups/ would drop pairings and chats made since, so it is a
 # manual step (README, "Restore a state snapshot"). If the connection drops
 # part-way, run this again: it starts from .prev each time.
@@ -50,8 +55,10 @@ set -eu
 umask 077
 CODE="$HOME/kleio-host"
 PREV="$CODE/.prev"
+STATE="$HOME/Library/Application Support/Kleio/host"
 AGENTS="$HOME/Library/LaunchAgents"
 LABELS="com.kleio.host.sidecar com.kleio.host.serve"
+LINK_LABEL="com.kleio.host.link"
 MARK="$CODE/.deploy-in-progress"
 BACKUPS="$HOME/kleio-backups"
 UID_="$(id -u)"
@@ -69,10 +76,24 @@ probe="$ASIDE/.clone-probe"
 if cp -c "$probe" "$probe.copy" 2>/dev/null; then CP="cp -cRp"; fi
 rm -f "$probe" "$probe.copy"
 
+# bootout returns before the job is gone; a bootstrap racing it fails, so
+# wait for it.
+bootout() {
+  launchctl bootout "gui/$UID_/$1" 2>/dev/null || true
+  i=0
+  while launchctl print "gui/$UID_/$1" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge 100 ]; then echo "warning: $1 did not unload in 10s" >&2; break; fi
+    sleep 0.1
+  done
+}
+
 # 2. .prev's copies go next to the live folders first, so the swap is renames.
-for d in dist sidecar; do
+# bin/ (kleio-link-host) only if .prev has one: from before Kleio's link it
+# has none, and the live one goes aside with nothing in its place.
+for d in dist sidecar bin; do
   [ ! -e "$CODE/.rollback-$d" ] || rm -rf "$CODE/.rollback-$d"
-  $CP "$PREV/$d" "$CODE/.rollback-$d"
+  [ ! -d "$PREV/$d" ] || $CP "$PREV/$d" "$CODE/.rollback-$d"
 done
 swapped=""
 part_way() {
@@ -82,9 +103,9 @@ part_way() {
   echo ".prev is untouched, so running it again is safe." >&2
 }
 trap part_way EXIT
-for d in dist sidecar; do
+for d in dist sidecar bin; do
   [ ! -e "$CODE/$d" ] || mv "$CODE/$d" "$ASIDE/$d"
-  mv "$CODE/.rollback-$d" "$CODE/$d"
+  [ ! -e "$CODE/.rollback-$d" ] || mv "$CODE/.rollback-$d" "$CODE/$d"
   swapped="$swapped $d"
 done
 if [ -f "$PREV/install-mini.sh" ]; then
@@ -99,55 +120,87 @@ for label in $LABELS; do
   mv -f "$AGENTS/.$label.plist.rollback" "$AGENTS/$label.plist"
   swapped="$swapped $label.plist"
 done
+# The link job: .prev's, or stopped when .prev is from before Kleio's link.
+LINK=0
+if [ -f "$PREV/LaunchAgents/$LINK_LABEL.plist" ] && [ -x "$CODE/bin/kleio-link-host" ]; then
+  [ ! -f "$AGENTS/$LINK_LABEL.plist" ] || cp -p "$AGENTS/$LINK_LABEL.plist" "$ASIDE/LaunchAgents/$LINK_LABEL.plist"
+  cp -p "$PREV/LaunchAgents/$LINK_LABEL.plist" "$AGENTS/.$LINK_LABEL.plist.rollback"
+  mv -f "$AGENTS/.$LINK_LABEL.plist.rollback" "$AGENTS/$LINK_LABEL.plist"
+  swapped="$swapped $LINK_LABEL.plist"
+  LINK=1
+else
+  bootout "$LINK_LABEL"
+  if [ -f "$AGENTS/$LINK_LABEL.plist" ]; then
+    mv -f "$AGENTS/$LINK_LABEL.plist" "$ASIDE/LaunchAgents/$LINK_LABEL.plist"
+    swapped="$swapped $LINK_LABEL.plist"
+    echo "$LINK_LABEL: stopped, as .prev is from before Kleio's link; its plist is in $ASIDE"
+  fi
+fi
+# install-mini.sh restarts the link job next time, whatever runs now.
+rm -f "$CODE/.link-job"
 echo "code: back to .prev; what it replaced is in $ASIDE"
 
-# 3. Restart both jobs as install-mini.sh does: the sidecar first, so the
-# endpoint file exists before serve reads it. bootout returns before the job
-# is gone; a bootstrap racing it fails, so wait for it.
-bootout() {
-  launchctl bootout "gui/$UID_/$1" 2>/dev/null || true
-  i=0
-  while launchctl print "gui/$UID_/$1" >/dev/null 2>&1; do
-    i=$((i + 1))
-    if [ "$i" -ge 100 ]; then echo "warning: $1 did not unload in 10s" >&2; break; fi
-    sleep 0.1
-  done
+# 3. Restart the jobs as install-mini.sh does: the sidecar first, so the
+# endpoint file exists before serve reads it, then serve, then the link.
+restart() {
+  bootout "$1"
+  launchctl bootstrap "gui/$UID_" "$AGENTS/$1.plist"
+  launchctl kickstart -k "gui/$UID_/$1"
+  launchctl print "gui/$UID_/$1" >/dev/null 2>&1 || { echo "failed to start $1" >&2; exit 1; }
+  echo "restarted $1"
 }
-for label in $LABELS; do
-  bootout "$label"
-  launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist"
-  launchctl kickstart -k "gui/$UID_/$label"
-  launchctl print "gui/$UID_/$label" >/dev/null 2>&1 || { echo "failed to start $label" >&2; exit 1; }
-  echo "restarted $label"
-done
+for label in $LABELS; do restart "$label"; done
+if [ "$LINK" = 1 ]; then restart "$LINK_LABEL"; fi
 trap - EXIT
 
-# 4. Healthy on the serve job's own port?
+# 4. Healthy on the serve job's own port, and the link up if it's back?
 PORT=8443
 PLIST="$AGENTS/com.kleio.host.serve.plist"
 if [ -f "$PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
   p=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KLEIO_HOST_PORT' "$PLIST" 2>/dev/null || true)
   case "$p" in '' | *[!0-9]*) ;; *) PORT=$p ;; esac
 fi
+LINK_STATE="$STATE/link/state.json"
+# Up when the link job's own process is writing its state file (pretty JSON,
+# a key a line), and that names the relay it's on.
+link_up() {
+  pid=$(launchctl print "gui/$UID_/$LINK_LABEL" 2>/dev/null | sed -n 's/^[[:blank:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
+  if [ -z "$pid" ]; then link="isn't running"; return 1; fi
+  wrote=$(sed -n 's/^[[:blank:]]*"pid":[[:blank:]]*\([0-9][0-9]*\).*/\1/p' "$LINK_STATE" 2>/dev/null | head -n 1)
+  if [ "$wrote" != "$pid" ]; then link="is running (pid $pid), but hasn't written its state yet"; return 1; fi
+  relay=$(sed -n 's/^[[:blank:]]*"relay":[[:blank:]]*"\([^"]*\)".*/\1/p' "$LINK_STATE" | head -n 1)
+  if [ -z "$relay" ]; then link="is running (pid $pid), but on no relay yet"; return 1; fi
+  link="up (pid $pid), on $relay"
+}
 # At most WAIT tries, a second apart, and never past WAIT seconds.
 end=$(( $(date +%s) + WAIT ))
 tries=0
-healthy=0
+host=0
+link_ok=1
+link="not checked"
 while :; do
   body=$(curl -s -m 2 "http://127.0.0.1:$PORT/kleio/health" 2>/dev/null || true)
+  host=0
   case "$body" in *'"ok":true'*)
-    case "$body" in *'"sidecar":"up"'*) healthy=1; break ;; esac ;;
+    case "$body" in *'"sidecar":"up"'*) host=1 ;; esac ;;
   esac
+  if [ "$LINK" = 1 ]; then
+    link_ok=0
+    if link_up; then link_ok=1; fi
+  fi
+  if [ "$host" = 1 ] && [ "$link_ok" = 1 ]; then break; fi
   tries=$(( tries + 1 ))
   if [ "$tries" -ge "$WAIT" ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
   sleep 1
 done
-if [ "$healthy" != 1 ]; then
-  echo "The host isn't healthy $WAIT s after the rollback (port $PORT). The in-progress mark stays." >&2
-  echo "Logs: ~/Library/Application Support/Kleio/host/logs/" >&2
+if [ "$host" != 1 ] || [ "$link_ok" != 1 ]; then
+  if [ "$host" != 1 ]; then echo "The host isn't healthy $WAIT s after the rollback (port $PORT)." >&2; fi
+  if [ "$link_ok" != 1 ]; then echo "$WAIT s after the rollback, kleio-link-host $link." >&2; fi
+  echo "The in-progress mark stays. Logs: ~/Library/Application Support/Kleio/host/logs/" >&2
   exit 1
 fi
 echo "healthy: ok, sidecar up (port $PORT)"
+if [ "$LINK" = 1 ]; then echo "link: $link"; fi
 
 backup=""
 if [ -f "$MARK" ]; then

@@ -882,6 +882,7 @@ async function main() {
     baseEnv: process.env,
     apiPort: ports.api,
     previewPort: ports.preview,
+    linkPort: ports.link,
     sidecarPath: SIDECAR_BUNDLE,
     nodeBin,
   });

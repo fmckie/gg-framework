@@ -647,4 +647,41 @@ mod tests {
             assert!(parse_line(line).is_err(), "{line:?}");
         }
     }
+
+    /// contrib/kleio-link.service, the Linux user unit, runs a `serve` this
+    /// takes: by default with kleio-host's state folder and link listener, and
+    /// from where `kleio-host pair` looks for kleio-link-host.
+    #[test]
+    fn the_systemd_unit_runs_a_serve_it_takes() {
+        let unit = include_str!("../../contrib/kleio-link.service");
+        let home = "/home/kleio";
+        let mut env = std::collections::BTreeMap::new();
+        let mut exec = None;
+        for line in unit.lines() {
+            let line = line.replace("%h", home);
+            if let Some(setting) = line.strip_prefix("Environment=") {
+                let (name, value) = setting.split_once('=').expect("NAME=value");
+                env.insert(name.to_string(), value.to_string());
+            } else if let Some(command) = line.strip_prefix("ExecStart=") {
+                assert!(exec.replace(command.to_string()).is_none(), "one ExecStart");
+            }
+        }
+        let mut command = exec.expect("an ExecStart");
+        for (name, value) in &env {
+            command = command.replace(&format!("${{{name}}}"), value);
+        }
+        assert!(!command.contains('$'), "{command}");
+        let (program, args) = command
+            .split_once(' ')
+            .expect("a program and its arguments");
+        assert_eq!(program, "/home/kleio/kleio-host/bin/kleio-link-host");
+        assert_eq!(
+            parse_line(args),
+            Ok(serve(
+                Some("/home/kleio/.local/state/kleio/host"),
+                "127.0.0.1:8445",
+                None
+            ))
+        );
+    }
 }
