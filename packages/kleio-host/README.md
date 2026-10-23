@@ -1,11 +1,15 @@
 # @kleio/host
 
-Runs the fork's gg-app sidecar on a headless Mac and fronts it over Tailscale
-for paired devices. Private workspace package; not published. The sidecar
-carries two engine changes Kleio relies on (persisted routines and
-`GG_APP_HEADLESS`); see the header of `src/host.ts`.
+Runs the fork's gg-app sidecar on a headless Mac and serves it to paired devices: over Kleio's
+link, through `kleio-link-host` ([packages/kleio-link](../kleio-link/README.md)), and over
+Tailscale for devices paired that way. Private workspace package; not published. The sidecar
+carries two engine changes Kleio relies on (persisted routines and `GG_APP_HEADLESS`); see the
+header of `src/host.ts`.
 
 ```
+phone ──QUIC, end-to-end (iroh: a relay, or direct)──▶ kleio-link-host
+                                                        │ paired keys only; TCP loopback :8445,
+                                                        ▼ opening KLEIO-LINK/1 <device key> <secret>
 laptop / phone ──HTTPS (tailscale serve :8443)──▶ kleio-host serve ──HTTP loopback──▶ app-sidecar.mjs
                                                    │ device tokens, pairing,            ▲
                                                    │ SSE id + replay ring               │ supervised by
@@ -13,17 +17,26 @@ laptop / phone ──HTTPS (tailscale serve :8443)──▶ kleio-host serve ─
 browser on the device ──HTTPS (tailscale serve :8444)──▶ kleio-host serve, preview origin only
 ```
 
-Two ports, both Tailscale Serve (tailnet only, never Funnel):
+Three listeners, all on 127.0.0.1: kleio-host refuses any other address. On a host with
+Tailscale, Tailscale Serve fronts the first two (tailnet only, never Funnel). The third takes only
+kleio-link-host:
 
 | Port   | Env                                       | Serves                                                                                 |
 | ------ | ----------------------------------------- | -------------------------------------------------------------------------------------- |
 | `8443` | `KLEIO_HOST_PORT`, `KLEIO_PUBLIC_URL`     | The API. A paired device's token on all but health, pairing and the Composio callback. |
 | `8444` | `KLEIO_PREVIEW_PORT`, `KLEIO_PREVIEW_URL` | Agent-written web pages, by short-lived link only. No API routes.                      |
+| `8445` | `KLEIO_LINK_PORT`                         | The same API, for devices paired over the link (see [Kleio's link](#kleios-link)).     |
 
-`KLEIO_PREVIEW_URL` defaults to `KLEIO_PUBLIC_URL` with the preview port.
+`KLEIO_PREVIEW_URL` defaults to `KLEIO_PUBLIC_URL` with the preview port. Both are optional. A host
+without `KLEIO_PUBLIC_URL` is reached over the link only. It has no site previews, which need
+Tailscale for now, and its Apps sign-in ends on Composio's own page.
 
-Two launchd jobs (`com.kleio.host.sidecar`, `com.kleio.host.serve`) so the proxy can
-be redeployed without killing a run.
+A request whose `Host` header its listener doesn't expect is logged once, as a guard against DNS
+rebinding. It isn't refused yet.
+
+Three launchd jobs: `com.kleio.host.sidecar`, `com.kleio.host.serve`, and `com.kleio.host.link`,
+which runs kleio-link-host. So the proxy can be redeployed without killing a run, and a deploy that
+leaves kleio-link-host as it was leaves phones connected over the link.
 
 State lives in one folder (`src/paths.ts` has the layout). `KLEIO_HOST_HOME` overrides it;
 otherwise it is the OS's own place:
@@ -34,10 +47,39 @@ otherwise it is the OS's own place:
 | Windows            | `%LOCALAPPDATA%\Kleio\host`; `<home>\AppData\Local\Kleio\host` when `LOCALAPPDATA` isn't absolute |
 | Linux and the rest | `$XDG_STATE_HOME/kleio/host`; `~/.local/state/kleio/host` when that is unset or not absolute      |
 
-The secrets in it are `secure/` (the master key, control root key, `admin.token` and device
-registry), the API key files beside it (`composio.key`, `typesafe.key`, `openai.key`) and
-`sidecar.json`. On macOS and Linux they are 0700 and 0600; on Windows they are locked to the
-host's user instead (see [Windows: secrets and stopping](#windows-secrets-and-stopping)).
+The secrets in it are `secure/` (the master key, control root key, `admin.token`, device registry,
+and the link's `link.key`, `link-upstream.token` and `link-allow.json`), the API key files beside
+it (`composio.key`, `typesafe.key`, `openai.key`) and `sidecar.json`. On macOS and Linux they are
+0700 and 0600. On Windows they are locked to the host's user instead (see
+[Windows: secrets and stopping](#windows-secrets-and-stopping)). Two more sit beside them, and
+aren't secret:
+
+- **`node-id`** is the name admin credentials are bound to, settled once. It's `KLEIO_PUBLIC_URL`'s
+  host name if there was one, so credentials minted over Tailscale keep working without it.
+  Otherwise it's a name made from the link's key.
+- **`link/`** holds the relay list (`config.json`) and where kleio-link-host is (`state.json`).
+
+## Kleio's link
+
+kleio-link-host serves the link from this machine. Its [README](../kleio-link/README.md) covers the
+security model, the relays, and what a relay sees.
+
+- **Only paired keys get in.** kleio-link-host lets in the keys in `secure/link-allow.json`, which
+  the device registry writes on every pairing and revoke. Pairing is open to any key, within a
+  budget: 10 a minute, one at a time.
+- **The link listener takes only kleio-link-host.** Each connection opens with
+  `KLEIO-LINK/1 <device key> <secret>`. The secret is `secure/link-upstream.token`, compared in
+  constant time. The connection is closed before anything else is read if that line is garbled,
+  over 256 bytes, unfinished after 5 s, or has the wrong secret.
+- **Tokens are bound to keys.** On the link, a device's token is good only from the key it paired
+  with. A device paired over the link is refused on 8443, and one paired over Tailscale is refused
+  on the link.
+- **It keeps running while kleio-host restarts.** It reads the secret and the allow-list again
+  when they change. While kleio-host is down, phones get a 502, `{"error":"kleio_down"}`.
+- **`init` makes the link's key and secret.** `serve` makes any that are missing on a host set up
+  before the link. kleio-link-host only reads them.
+- **It reports where it is** in `link/state.json`: its relay, its direct addresses, each relay's
+  health, and each device's last path. `kleio-host status`, `devices` and `pair` read it.
 
 ## Install on the mini
 
@@ -60,14 +102,21 @@ A deploy, in order:
 1. **Builds** `@kleio/coder` and the workspace packages it bundles, then the sidecar bundle, the
    host and its page and PDF capture helper (`build-capture.sh`, which needs Xcode), as the steps
    below do. The bundle is made from those packages' `dist` folders, so building them first keeps
-   an older build from shipping.
-2. **Checks the mini, read-only:** the code, the state folder, `~/.gg` and both launchd plists are
-   there, and the disk has room for a full copy of them plus 1 GB. It prints the mini's macOS
-   version and warns below macOS 14, where the capture helper can't run (see
-   [Page and PDF capture](#page-and-pdf-capture-kleio-capture)).
-3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `install-mini.sh` and
-   the two `com.kleio.host.*` plists. It is built as `.prev.new` and then renamed, so a dropped
-   connection never leaves half a `.prev`. The last deploy's `.prev` becomes `.prev-<UTC time>`.
+   an older build from shipping. Then it builds kleio-link-host for Apple silicon with cargo
+   (`--release --target aarch64-apple-darwin`, into `CARGO_TARGET_DIR` if that's set). An Intel
+   Mac needs `rustup target add aarch64-apple-darwin` first.
+2. **Checks the mini, read-only:**
+   - the code, the state folder, `~/.gg`, and the sidecar and serve plists are there;
+   - the disk has room for a full copy of them plus 1 GB;
+   - the mini has Apple silicon (`uname -m` is `arm64`), which kleio-link-host is built for.
+
+   It prints the mini's macOS version, and warns below macOS 14, where the capture helper can't
+   run (see [Page and PDF capture](#page-and-pdf-capture-kleio-capture)).
+
+3. **Keeps the running code** in `~/kleio-host/.prev`: `dist`, `sidecar`, `bin` (once a deploy has
+   brought kleio-link-host), `install-mini.sh`, and the `com.kleio.host.*` plists. It is built as
+   `.prev.new` and then renamed, so a dropped connection never leaves half a `.prev`. The last
+   deploy's `.prev` becomes `.prev-<UTC time>`.
 4. **Snapshots the state** into `~/kleio-backups/<UTC time>/` on the mini, with a `manifest.txt`:
    - `state/`: the host's state folder (keys, device registry, rings, Blobs, groups);
    - `gg/`: `~/.gg` (sign-ins, sessions, memory, the dictation model).
@@ -76,9 +125,12 @@ A deploy, in order:
    (seconds, little space), with modes kept and file counts checked. The host keeps running: the
    registry and keys are always written whole, but a ring file may catch an append in progress.
 
-5. **Deploys** with the three `rsync` commands below, then runs `install-mini.sh`.
-6. **Waits up to 60 s** (`HEALTH_WAIT`) for `/kleio/health` on the mini to say `ok`, with the
-   sidecar up, trying once a second.
+5. **Deploys** with the `rsync` commands below, then runs `install-mini.sh`. That restarts the
+   sidecar and serve jobs, and the link job only if kleio-link-host or its plist changed.
+6. **Waits up to 60 s** (`HEALTH_WAIT`), trying once a second, for two things:
+   - `/kleio/health` on the mini says `ok`, with the sidecar up;
+   - kleio-link-host is on a relay. It only counts once the link job's own process has written
+     `link/state.json`, so a file an earlier process left behind doesn't.
 
 **The in-progress mark.** Step 3 writes `~/kleio-host/.deploy-in-progress`, and a healthy deploy
 removes it. A deploy that fails after the code started changing keeps the mark and prints the
@@ -87,9 +139,13 @@ it can never save broken code as `.prev`. `--force` deploys anyway, keeping the 
 the unfinished deploy.
 
 **Rollback** (`rollback-mini.sh`) needs `.prev/dist/cli.js` and `.prev/sidecar/app-sidecar.mjs`.
-It moves the current code and plists aside to `~/kleio-host/.rolled-back-<UTC time>/`, puts
-`.prev`'s in their place, restarts both jobs (sidecar first, as `install-mini.sh` does), waits for
-health and clears the mark. It restores code only, and `.prev` stays, so it can run again.
+It moves the current code and plists aside to `~/kleio-host/.rolled-back-<UTC time>/`, and puts
+`.prev`'s in their place. Then it restarts the jobs in order (the sidecar, serve, then the link if
+`.prev` has one), waits for health (the link's too, once it's back) and clears the mark.
+
+- A `.prev` from before the link has no `bin/`. Then the link job is stopped, and its plist and
+  `bin/` go aside with the rest.
+- It restores code only. `.prev` stays, so it can run again.
 
 **Nothing is deleted** by either script. A deploy ends by listing what is kept, with sizes (clones
 share blocks, so the disk holds less than they add up to). Remove old snapshots, `.prev-*` and
@@ -99,10 +155,13 @@ share blocks, so the disk holds less than they add up to). Remove old snapshots,
 
 By hand, on the mini, and only when the state itself is damaged. Everything since the snapshot
 goes: devices paired since must pair again, and **a device revoked since works again** until you
-revoke it again. Restoring `gg/` too also drops the chats and sign-ins since.
+revoke it again. Restoring `gg/` too also drops the chats and sign-ins since. A snapshot from
+before Kleio's link has no link key, so `serve` makes a new one, and every phone paired over the
+link must pair again.
 
 ```sh
 # mini
+launchctl bootout gui/$(id -u)/com.kleio.host.link
 launchctl bootout gui/$(id -u)/com.kleio.host.serve
 launchctl bootout gui/$(id -u)/com.kleio.host.sidecar
 launchctl list | grep com.kleio.host               # wait until this prints nothing
@@ -113,7 +172,9 @@ cp -cRp "$B/state" "$S"
 # ~/.gg too, only if it needs it: mv ~/.gg ~/.gg.replaced-<time> && cp -cRp "$B/gg" ~/.gg
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.sidecar.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.serve.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kleio.host.link.plist
 curl -s http://127.0.0.1:8443/kleio/health
+kleio-host status                                  # and the link
 ```
 
 ### By hand
@@ -124,9 +185,14 @@ pnpm --filter '@kleio/coder...' build   # the packages the sidecar bundle is mad
 node gg-app/scripts/bundle-sidecar.mjs
 pnpm --filter @kleio/host build
 sh packages/kleio-host/scripts/build-capture.sh   # dist/bin/kleio-capture; after the host build
+cargo build --release --locked --features host --bin kleio-link-host \
+  --target aarch64-apple-darwin --manifest-path packages/kleio-link/Cargo.toml
 rsync -az --delete packages/kleio-host/dist/   mini:kleio-host/dist/
 rsync -az          packages/kleio-host/scripts/install-mini.sh mini:kleio-host/
 rsync -az --delete gg-app/src-tauri/sidecar/    mini:kleio-host/sidecar/
+ssh mini mkdir -p kleio-host/bin
+rsync -az packages/kleio-link/target/aarch64-apple-darwin/release/kleio-link-host \
+  mini:kleio-host/bin/kleio-link-host
 # mini
 sh kleio-host/install-mini.sh          # idempotent; `uninstall` to remove jobs
 sh kleio-host/install-mini.sh cli      # only the `kleio-host` command, no restarts
@@ -137,12 +203,24 @@ that folder to PATH in `~/.zprofile` once, so login and SSH shells can run it. I
 the same node and `dist/cli.js` as the launchd jobs.
 
 The installer retires the earlier `com.kleio.*` / `com.atlas.*` / `com.hermes.*` /
-`com.noledge.*` user agents (plists moved to `LaunchAgents/retired-by-kleio-host/`),
-creates keys and the first admin device, and points `tailscale serve --https=8443` and
-`--https=8444` at the host (`uninstall` turns both off; `tailscale serve status` shows
-them). Root-owned leftovers under `/Library/LaunchDaemons` are unloaded if `sudo -n`
-allows it; otherwise they are listed with the one `sudo mv` to run (they are disabled
-in launchd and cannot start, so this is cleanup, not a blocker).
+`com.noledge.*` user agents (plists moved to `LaunchAgents/retired-by-kleio-host/`; the three
+`com.kleio.host.*` jobs stay). It creates keys (the link's too) and the first admin device, and
+checks kleio-link-host runs here (`kleio-link-host id`). Without `bin/kleio-link-host`, it stops
+before touching the state or the jobs. Root-owned leftovers under `/Library/LaunchDaemons` are
+unloaded if `sudo -n` allows it; otherwise they are listed with the one `sudo mv` to run (they are
+disabled in launchd and cannot start, so this is cleanup, not a blocker).
+
+- **The link job restarts only when it must:** when kleio-link-host or its plist changed, or it
+  isn't running. Their hash is in `~/kleio-host/.link-job`. So phones stay connected through a
+  deploy of kleio-host alone. Its log is `logs/link.err.log` in the state folder.
+- **Tailscale is optional.** When it's installed (`/usr/local/bin/tailscale`, or `TAILSCALE_BIN`),
+  the installer sets `KLEIO_PUBLIC_URL` and `KLEIO_PREVIEW_URL` from the Mac's tailnet name. It
+  also points `tailscale serve --https=8443` and `--https=8444` at the host (`uninstall` turns both
+  off; `tailscale serve status` shows them).
+  - Installed but stopped or signed out, Tailscale stops the install, which says so.
+  - Without Tailscale, phones pair and connect over the link alone, and there are no site
+    previews.
+- **`uninstall`** stops and removes all three jobs. The state stays.
 
 ## Develop against a local host
 
@@ -249,19 +327,65 @@ exit.
 ## Pair a device
 
 ```sh
-kleio-host pair            # prints ABC-DEF, 5 min, single use
+kleio-host pair            # the code (ABC-DEF; 5 min, single use), its QR code and pairing text
 kleio-host pair --admin    # also grants a control macaroon
-kleio-host devices
-kleio-host revoke <deviceId>
+kleio-host devices         # each device, with its link key's prefix and last path
+kleio-host revoke <deviceId | link key prefix>
+kleio-host status          # health, and the link: running, its relay, its key's prefix
 ssh mini 'zsh -lc "kleio-host devices"'   # from the laptop
 ```
 
-The device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem` and
-receives `{ baseUrl, host, token, label, deviceId, controlCredential? }`. Every later
-request carries `x-kleio-device-token` (admin devices add `x-kleio-control`).
-`GET /events?session=…` frames carry `id:`; reconnect with `Last-Event-ID` and the
-host replays what was missed (persisted ring, survives a host restart). Revoking a
-device closes its open streams immediately.
+**The QR code** carries the pairing ticket. That's the host's name, its link key, its relays (the
+one it's on first), up to two direct addresses, and the code, but never a token.
+
+- `pair` draws it with `kleio-link-host qr`. kleio-host finds that in `bin/` beside `dist/`, or at
+  `KLEIO_LINK_HOST_BIN`.
+- `pair` also prints the ticket as text, for "Paste pairing text" on a Mac.
+- While kleio-link-host is down or on no relay, there's no ticket, and `pair` says why.
+- `POST /kleio/pair/offer` gives the same: `ticket`, or `null` with a `ticketError`.
+
+**Redeeming:** the device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem`, and
+receives `{ baseUrl?, host, token, label, deviceId, controlCredential? }`.
+
+- **Over the link,** the request goes through kleio-link-host, and the new device is bound to the
+  phone's link key. There's no `baseUrl`, since the token is good only on the link. A phone that
+  pairs again from the same key replaces its older pairings, which are revoked.
+- **Over Tailscale,** the request goes to 8443, and `baseUrl` is `KLEIO_PUBLIC_URL`.
+
+**Redeem answers:**
+
+| Status | Body `error`                              | When                                                            |
+| ------ | ----------------------------------------- | --------------------------------------------------------------- |
+| 200    | (the payload)                             | The code was right.                                             |
+| 400    | `bad_request`                             | The body isn't a code and a nonce.                              |
+| 401    | `unauthorized`                            | A wrong code. The fifth wrong try locks the code.               |
+| 404    | `not_found`                               | No code is waiting.                                             |
+| 410    | `used`, `expired`, `replaced` or `locked` | That exact code was live and isn't any more. Given for an hour. |
+
+A wrong code always gets the same 401, so a guess learns nothing. The 410s let a phone scanning an
+old QR code say what to do.
+
+**Admins are told.** Each new pairing pushes an alert to every admin device but the new one, such
+as "It can now use Kleio on mac-mini-1. If you didn't pair it, revoke it."
+
+Every later request carries `x-kleio-device-token` (admin devices add `x-kleio-control`).
+`GET /events?session=…` frames carry `id:`; reconnect with `Last-Event-ID` and the host replays
+what was missed (persisted ring, survives a host restart).
+
+**Revoking** a device closes its open streams at once.
+
+- kleio-link-host closes its link connection within about 2 s, with code 5 (`REVOKED`).
+- `revoke` takes a device ID, or at least 8 characters of a link key, as `devices` and
+  kleio-link-host's log show them.
+- A device can remove itself, and only itself, with `DELETE /kleio/devices/self`.
+
+`GET /kleio/link` gives any paired device what it needs to find the host again:
+
+- its key;
+- its relay list, with `listVersion`;
+- the relay it was last on, and its direct addresses;
+- whether a relay is slowing it down;
+- whether kleio-link-host is running.
 
 ### From gg-app (the laptop)
 
@@ -273,6 +397,10 @@ device closes its open streams immediately.
 
 Debug builds also take a host on this Mac, exactly `http://127.0.0.1:<port>` (dev-host `--app`);
 release builds take `https://` only.
+
+An app built with gg-app's `kleio-link` feature pairs over the link instead, with no URL and no
+Tailscale. It scans the QR code `kleio-host pair` shows, or, in a debug build, takes its pairing
+text pasted in. The feature is off by default for now.
 
 The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
 non-secret record to `~/.kleio/remote.json`. Admin actions in the pane's
@@ -576,7 +704,9 @@ createdAt}]}`.
 - `POST /kleio/connections {toolkit}` returns `{redirectUrl, connectionId}`. Open it in a web sheet.
 - `DELETE /kleio/connections/:id`.
 - `GET /kleio/connections/callback?status=` is **unauthenticated**. It serves a fixed page that
-  redirects to `kleio://connections?status=success|failed`.
+  redirects to `kleio://connections?status=success|failed`. A host without `KLEIO_PUBLIC_URL`
+  sends Composio no callback, so the sign-in ends on Composio's own page instead. The app is
+  connected either way.
 
 **Errors:** with no key, the list says `configured:false` and the other routes answer 503. A
 Composio error is a 502 `{error:"composio", status, detail}`.
@@ -790,7 +920,8 @@ the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, b
   API sends no CORS headers, so a preview page can't call it.
 - **Links in pages:** use relative paths (`style.css`, not `/style.css`).
 - **Errors:** 400 `not_a_site` (not HTML), 400 `bad_request`, plus the file errors above; 404
-  when the host runs without a preview port.
+  when the host runs without a preview port. A host with neither `KLEIO_PUBLIC_URL` nor
+  `KLEIO_PREVIEW_URL` has none: previews need Tailscale for now.
 - **Logs:** never include the link's token.
 
 ### Page and PDF capture (`kleio-capture`)
@@ -841,7 +972,12 @@ KLEIO_APNS_ENV        sandbox | production (default sandbox)
 ```
 
 A phone registers its token with `POST /kleio/push {token, env}` (own record only; `token:
-null` clears). Two completions inside 8 s produce one push.
+null` clears). Two completions inside 8 s produce one push. A new pairing also pushes an alert to
+each admin device (see [Pair a device](#pair-a-device)).
+
+**Pushes aren't end-to-end encrypted.** Apple delivers them, and a nudge quotes up to 170
+characters of the reply, question or error (`notification-copy.ts`). Live Activities show
+summaries too. Kleio's link doesn't change that.
 
 ### Headless and macOS privacy prompts
 
@@ -900,3 +1036,6 @@ unchanged: SIGTERM, then SIGKILL after 5 s.
   on the mini.
 - Sessions are tracked from creation _through the proxy_; a session created by some
   other client of the sidecar is not ring-buffered until a proxied client attaches.
+- Over Kleio's link, n0's shared relays slow downloads to about 1 MB/s, and on mobile data most
+  connections go through a relay (see [n0's relays](../kleio-link/README.md#n0s-relays)).
+- Site previews need Tailscale for now.

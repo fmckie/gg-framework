@@ -8,8 +8,9 @@ rust-version = "1.91"
 publish = false
 
 [features]
-# The `kleio-link-host` binary: the forwarder that runs next to kleio-host,
-# with its `qr`, `id` and `client` commands. The phone's build leaves it out.
+# The `kleio-link-host` binary: the link's host side, which runs next to
+# kleio-host, with its `qr`, `id` and `client` commands. The phone's build
+# leaves it out.
 host = ["dep:qrcode", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
 
 [[bin]]
@@ -17,19 +18,37 @@ name = "kleio-link-host"
 path = "src/bin/kleio-link-host.rs"
 required-features = ["host"]
 
+# The link through relays running in the test process, with a stand-in for
+# kleio-host (tests/relayed.rs), and end to end with the real kleio-host and
+# kleio-link-host (tests/end_to_end.rs, which CI runs with --ignored once
+# kleio-host is built).
+[[test]]
+name = "relayed"
+required-features = ["host"]
+
+[[test]]
+name = "end_to_end"
+required-features = ["host"]
+
 [dependencies]
 # Pinned. No default features: `fast-apple-datapath` uses private Apple APIs
 # (the iPhone build can't have them), and without `portmapper` nothing asks the
 # router to open a port. `tls-ring` is the ring backend gg-app already installs
-# for rustls.
-iroh = { version = "=1.4.1", default-features = false, features = ["tls-ring"] }
+# for rustls. `metrics` counts, among others, the relay connections a relay
+# said it's rate-limiting, which both ends show; it adds no crates.
+iroh = { version = "=1.4.1", default-features = false, features = ["metrics", "tls-ring"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The rest are already in iroh's tree at these versions, so they add no
 # crates. tokio: the loopback listener and the copying; futures-util: reading
-# path events; getrandom: the pairing nonce; tracing: the path log.
+# path events; getrandom: the pairing nonce; tracing: the path log; reqwest:
+# asking relays `GET /ping`, iroh's own way, with this feature;
+# rustls-pki-types: the certificates a relay of your own may chain to.
 futures-util = { version = "0.3.34", default-features = false }
 getrandom = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# 1.14: gg-app's tree has it already.
+rustls-pki-types = "1.14"
 tokio = { version = "1.53", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tracing = "0.1.44"
 # Feature `host` only. qrcode draws the terminal QR, so it needs none of its
@@ -38,6 +57,22 @@ tracing = "0.1.44"
 qrcode = { version = "=0.14.1", default-features = false, optional = true }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"], optional = true }
 
+# Windows: reading the ACLs kleio-host locks the host's secrets with
+# (host/state.rs). The version iroh's tree already has.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
+# Relays in the test process (iroh-relay's own test server, with a
+# self-signed certificate), at iroh's version, in the same Dependabot group.
+iroh-relay = { version = "=1.4.1", default-features = false, features = ["server", "test-utils"] }
+# Writing a test relay's certificate as PEM, for kleio-link-host --relay-ca.
+# Already in iroh-relay's tree.
+data-encoding = "2.6"
 # A paused clock, for the 10 s dial limit.
 tokio = { version = "1.53", features = ["test-util"] }

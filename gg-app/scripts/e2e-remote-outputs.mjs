@@ -85,13 +85,15 @@ async function json(res) {
 // ── The real host ────────────────────────────────────────────────────────────
 
 async function startHost(tmp) {
-  const [apiPort, previewPort] = [await freePort(), await freePort()];
+  const [apiPort, previewPort, linkPort] = [await freePort(), await freePort(), await freePort()];
   const env = {
     ...process.env,
     KLEIO_HOST_HOME: join(tmp, "host"),
     KLEIO_HOST_PORT: String(apiPort),
     KLEIO_PUBLIC_URL: `http://127.0.0.1:${apiPort}`,
     KLEIO_PREVIEW_PORT: String(previewPort),
+    // Its own link listener port, not the fixed 8445 a real host on this machine takes.
+    KLEIO_LINK_PORT: String(linkPort),
     KLEIO_HOME_CWD: join(tmp, "Kleio"),
     // Chat and Code sessions' projects folder; no settings file → this default.
     KLEIO_PROJECTS_DIR: join(tmp, "projects"),

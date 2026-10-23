@@ -30,7 +30,7 @@ import {
   type RunFileOptions,
   type RunOutput,
 } from "../src/run-file.js";
-import { ensureSecure, lockSecrets } from "../src/secure-dir.js";
+import { ensureLinkSecrets, ensureSecure, lockSecrets } from "../src/secure-dir.js";
 
 const SID = "S-1-5-21-1004336348-1177238915-682003330-1001";
 const OTHER = "S-1-5-21-1004336348-1177238915-682003330-1002";
@@ -411,20 +411,55 @@ describe("ensureSecure and lockSecrets (fake lock)", () => {
       [p.secureDir, "dir", false],
       [p.masterKey, "file", true],
       [p.controlRootKey, "file", true],
+      [p.linkKey, "file", true],
+      [p.linkUpstreamToken, "file", true],
     ]);
     for (const dir of [p.rings, p.work, p.logs]) expect(statSync(dir).isDirectory()).toBe(true);
+    expect(readFileSync(p.linkKey)).toHaveLength(32);
+    expect(readFileSync(p.linkUpstreamToken, "utf8")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     // Run again, it keeps the keys it made.
-    const key = readFileSync(p.masterKey);
+    const kept = [p.masterKey, p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f));
     expect(await ensureSecure(p, lock)).toEqual(ok(undefined));
-    expect(readFileSync(p.masterKey).equals(key)).toBe(true);
+    expect([p.masterKey, p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f))).toEqual(kept);
+  });
+
+  it("ensureLinkSecrets adds the link's two secrets to a host set up before the link, once", async () => {
+    const p = hostPaths(join(home, "host"));
+    mkdirSync(p.secureDir, { recursive: true });
+    writeFileSync(p.masterKey, "master");
+    const { lock, seen } = recordingLock();
+    expect(await ensureLinkSecrets(p, lock)).toEqual(ok(undefined));
+    expect(seen).toEqual([
+      [p.linkKey, "file"],
+      [p.linkUpstreamToken, "file"],
+    ]);
+    if (process.platform !== "win32") {
+      for (const f of [p.linkKey, p.linkUpstreamToken]) {
+        expect(statSync(f).mode & 0o777).toBe(0o600);
+      }
+    }
+    const kept = [p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f));
+    expect(await ensureLinkSecrets(p, lock)).toEqual(ok(undefined));
+    expect([p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f))).toEqual(kept);
+    expect(readFileSync(p.masterKey, "utf8")).toBe("master");
+  });
+
+  it("ensureLinkSecrets stops at the first secret it can't lock", async () => {
+    const p = hostPaths(join(home, "host"));
+    mkdirSync(p.secureDir, { recursive: true });
+    const failing = recordingLock((path) => path === p.linkKey);
+    const r = await ensureLinkSecrets(p, failing.lock);
+    expect(r.ok ? null : r.error.path).toBe(p.linkKey);
+    expect(failing.seen).toEqual([[p.linkKey, "file"]]);
   });
 
   it("ensureSecure writes no key when secure/ can't be locked", async () => {
     const p = hostPaths(join(home, "host"));
     const r = await ensureSecure(p, recordingLock(() => true).lock);
     expect(r.ok ? null : r.error.path).toBe(p.secureDir);
-    expect(existsSync(p.masterKey)).toBe(false);
-    expect(existsSync(p.controlRootKey)).toBe(false);
+    for (const key of [p.masterKey, p.controlRootKey, p.linkKey, p.linkUpstreamToken]) {
+      expect(existsSync(key)).toBe(false);
+    }
   });
 
   it("lockSecrets locks secure/, each file in it, and the key and endpoint files that exist", async () => {

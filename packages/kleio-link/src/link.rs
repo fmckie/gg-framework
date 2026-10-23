@@ -8,33 +8,170 @@
 //! arrive while one is in flight wait for it and share its outcome, so a burst
 //! of requests during an outage costs one dial, not one each.
 //!
+//! There's no address lookup, and a relay drops what it gets for a key that
+//! isn't connected to it, so the phone finds the host only through the
+//! relays the host names, and the host may have moved relay (it does after
+//! 15 s without its own: host/relays.rs). A dial ([`Route`]) goes in two
+//! stages:
+//!
+//! 1. For up to [`FIRST_STAGE`]: the relay the host was last reached through,
+//!    and its last direct addresses.
+//! 2. Then, alongside the first, until [`DIAL_TIMEOUT`]: every relay in the
+//!    host's list as well.
+//!
+//! The relay that worked becomes the route's, and the endpoint's home relay
+//! ([`switch_relay`]): the phone keeps one relay connection, and it's the
+//! host's. So the endpoint should start with the route's relay as its only
+//! one, as `bind_client(key, &[relay], options)` binds it.
+//!
 //! For a status screen, a link says which path the open connection takes
-//! ([`Link::path`]), can keep each connection's path events
+//! ([`Link::path`]), whether the host turned this device away
+//! ([`Link::refusal`]), can keep each connection's path events
 //! ([`Link::with_path_events`]), and times a resume: from
 //! [`Link::begin_resume`] to the first byte back from the host in reply to a
 //! request sent after it.
 
 use std::fmt;
 use std::future::Future;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use iroh::endpoint::{Connection, VarInt};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl};
+use iroh::endpoint::{ConnectError, ConnectingError, Connection, ConnectionError, VarInt};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, TransportAddr};
 use tokio::time::Instant;
 use tracing::{info, warn};
 
+use crate::endpoint::switch_relay;
 use crate::paths::{PathEvents, SelectedPath};
-use crate::{error_chain, paths, ALPN_HTTP};
+use crate::relays::{every_relay, RelayEntry};
+use crate::ticket::Ticket;
+use crate::{close, error_chain, paths, ALPN_HTTP};
 
 /// How long one dial may take before the requests waiting on it fail.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The host's address as the phone dials it: its key and its relay, with no
-/// IP address and no lookup. iroh finds a direct path from there.
-pub fn host_addr(key: EndpointId, relay: &RelayUrl) -> EndpointAddr {
-    EndpointAddr::from(key).with_relay_url(relay.clone())
+/// How long a dial tries only the relay the host was last reached through,
+/// and its direct addresses, before it tries every relay in its list too.
+pub const FIRST_STAGE: Duration = Duration::from_secs(4);
+
+/// The most direct addresses a route keeps: as many as `GET /kleio/link`
+/// gives (`MAX_INFO_ADDRS` in packages/kleio-host/src/link.ts).
+pub const MAX_ROUTE_ADDRS: usize = 8;
+
+/// Where the phone looks for its host: its key, the relay it was last
+/// reached through, its last direct addresses, and its relay list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Route {
+    key: EndpointId,
+    relay: Option<RelayUrl>,
+    addrs: Vec<SocketAddr>,
+    relays: Vec<RelayEntry>,
+}
+
+impl Route {
+    /// `addrs` best first; past [`MAX_ROUTE_ADDRS`], and repeats, are dropped.
+    pub fn new(
+        key: EndpointId,
+        relay: Option<RelayUrl>,
+        addrs: Vec<SocketAddr>,
+        relays: Vec<RelayEntry>,
+    ) -> Self {
+        Self {
+            key,
+            relay,
+            addrs: first_few(addrs),
+            relays,
+        }
+    }
+
+    /// What a pairing ticket says: the relay the host was on, its addresses
+    /// and its list.
+    pub fn from_ticket(ticket: &Ticket) -> Self {
+        Self::new(
+            ticket.key(),
+            Some(ticket.relay().clone()),
+            ticket.addrs().to_vec(),
+            ticket.relays().to_vec(),
+        )
+    }
+
+    pub fn key(&self) -> EndpointId {
+        self.key
+    }
+
+    /// The relay the host was last reached through.
+    pub fn relay(&self) -> Option<&RelayUrl> {
+        self.relay.as_ref()
+    }
+
+    /// The host's last direct addresses, best first.
+    pub fn addrs(&self) -> &[SocketAddr] {
+        &self.addrs
+    }
+
+    /// The host's relay list.
+    pub fn relays(&self) -> &[RelayEntry] {
+        &self.relays
+    }
+
+    /// Every relay the route names: its relay, then each the list names, in
+    /// order, n0's for its entry.
+    pub fn every_relay(&self) -> Vec<RelayUrl> {
+        let mut all: Vec<RelayUrl> = self.relay.iter().cloned().collect();
+        for url in every_relay(&self.relays) {
+            if !all.contains(&url) {
+                all.push(url);
+            }
+        }
+        all
+    }
+
+    /// The first stage's address: the relay and the direct addresses.
+    pub fn first_stage(&self) -> EndpointAddr {
+        let addr =
+            EndpointAddr::from_parts(self.key, self.addrs.iter().copied().map(TransportAddr::Ip));
+        match &self.relay {
+            Some(relay) => addr.with_relay_url(relay.clone()),
+            None => addr,
+        }
+    }
+
+    /// The second stage's: every relay as well. `None` if that's no more
+    /// than the first stage's.
+    pub fn second_stage(&self) -> Option<EndpointAddr> {
+        let first = self.first_stage();
+        let all = first
+            .clone()
+            .with_addrs(self.every_relay().into_iter().map(TransportAddr::Relay));
+        (all != first).then_some(all)
+    }
+}
+
+/// A route to exactly `addr`: its first relay, its IP addresses, and its
+/// relays as the list. For tests and tools that dial a known address.
+impl From<EndpointAddr> for Route {
+    fn from(addr: EndpointAddr) -> Self {
+        let relays: Vec<RelayUrl> = addr.relay_urls().cloned().collect();
+        Self::new(
+            addr.id,
+            relays.first().cloned(),
+            addr.ip_addrs().copied().collect(),
+            relays.into_iter().map(RelayEntry::Url).collect(),
+        )
+    }
+}
+
+/// `addrs` without repeats, at most [`MAX_ROUTE_ADDRS`].
+fn first_few(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    let mut out: Vec<SocketAddr> = Vec::new();
+    for addr in addrs {
+        if out.len() < MAX_ROUTE_ADDRS && !out.contains(&addr) {
+            out.push(addr);
+        }
+    }
+    out
 }
 
 /// Why the link has no connection to offer.
@@ -44,6 +181,12 @@ pub enum LinkError {
     Dial(String),
     /// No connection within [`DIAL_TIMEOUT`].
     TimedOut,
+    /// The host turned this device's key away: it isn't on its allow-list
+    /// ([`close::NOT_PAIRED`]). The host may have been set up again.
+    NotPaired,
+    /// The host turned this device's key away: the device was revoked
+    /// ([`close::REVOKED`]).
+    Revoked,
 }
 
 impl fmt::Display for LinkError {
@@ -55,6 +198,12 @@ impl fmt::Display for LinkError {
                 "Can't reach the host: no connection within {} s",
                 DIAL_TIMEOUT.as_secs()
             ),
+            Self::NotPaired => f.write_str(
+                "Your host doesn't know this device. It may have been set up again: pair this device again.",
+            ),
+            Self::Revoked => {
+                f.write_str("This device was removed from your host. Pair it again to use it.")
+            }
         }
     }
 }
@@ -80,30 +229,38 @@ pub struct Link {
 
 struct Inner {
     endpoint: Endpoint,
-    host: EndpointAddr,
+    route: Mutex<Route>,
     kept: Option<PathEvents>,
     cache: Cache<Connection>,
     resume: Resume,
 }
 
+impl Inner {
+    fn route(&self) -> MutexGuard<'_, Route> {
+        // Every update is a plain assignment, so the route is whole even if a
+        // holder panicked.
+        self.route.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 impl Link {
-    /// A link to `host` (see [`host_addr`]). Nothing is dialled until the
+    /// A link to the host `route` leads to. Nothing is dialled until the
     /// first [`connection`](Self::connection).
-    pub fn new(endpoint: Endpoint, host: EndpointAddr) -> Self {
-        Self::build(endpoint, host, None)
+    pub fn new(endpoint: Endpoint, route: Route) -> Self {
+        Self::build(endpoint, route, None)
     }
 
     /// [`new`](Self::new), keeping each connection's path events in `events`
     /// as well as logging them.
-    pub fn with_path_events(endpoint: Endpoint, host: EndpointAddr, events: PathEvents) -> Self {
-        Self::build(endpoint, host, Some(events))
+    pub fn with_path_events(endpoint: Endpoint, route: Route, events: PathEvents) -> Self {
+        Self::build(endpoint, route, Some(events))
     }
 
-    fn build(endpoint: Endpoint, host: EndpointAddr, kept: Option<PathEvents>) -> Self {
+    fn build(endpoint: Endpoint, route: Route, kept: Option<PathEvents>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 endpoint,
-                host,
+                route: Mutex::new(route),
                 kept,
                 cache: Cache::new(),
                 resume: Resume::default(),
@@ -116,14 +273,33 @@ impl Link {
         &self.inner.endpoint
     }
 
+    /// The route the next dial takes: the one the link was given, with the
+    /// relay the host was last reached through.
+    pub fn route(&self) -> Route {
+        self.inner.route().clone()
+    }
+
+    /// Takes the host's relay list and direct addresses, as
+    /// `GET /kleio/link` gives them, for the next dial.
+    pub fn refresh(&self, relays: Vec<RelayEntry>, addrs: Vec<SocketAddr>) {
+        let mut route = self.inner.route();
+        route.relays = relays;
+        route.addrs = first_few(addrs);
+    }
+
     /// The open connection, dialling first if there is none or it has closed.
     /// Each new connection gets the path log.
     pub async fn connection(&self) -> Result<Connection, LinkError> {
         let inner = &*self.inner;
-        inner
-            .cache
-            .get(|| dial(&inner.endpoint, inner.host.clone(), inner.kept.clone()))
-            .await
+        inner.cache.get(|| dial(inner)).await
+    }
+
+    /// Whether the host turned this device away on the latest connection:
+    /// [`LinkError::NotPaired`] or [`LinkError::Revoked`]. It does so just
+    /// after the handshake, so a dial succeeds and the connection then closes
+    /// with the reason. Never dials.
+    pub fn refusal(&self) -> Option<LinkError> {
+        self.inner.cache.latest().and_then(|conn| refusal(&conn))
     }
 
     /// What the link is doing now. Never dials.
@@ -183,20 +359,111 @@ impl Link {
     }
 }
 
-async fn dial(
-    endpoint: &Endpoint,
-    host: EndpointAddr,
-    kept: Option<PathEvents>,
-) -> Result<Connection, LinkError> {
-    let conn = endpoint
-        .connect(host, ALPN_HTTP)
-        .await
-        .map_err(|err| LinkError::Dial(error_chain(&err)))?;
-    match kept {
+/// One dial, in two stages, along the route as it is now. The relay that
+/// worked becomes the route's and the endpoint's.
+async fn dial(inner: &Inner) -> Result<Connection, LinkError> {
+    let route = inner.route().clone();
+    let endpoint = &inner.endpoint;
+    let first = connect(endpoint, route.first_stage());
+    let second = route
+        .second_stage()
+        .map(|addr| connect_later(endpoint, addr));
+    let conn = in_two_stages(first, second).await?;
+    if let Some(relay) = paths::relay_used(&conn) {
+        if route.relay() != Some(&relay) {
+            info!("the host is on {relay} now");
+            inner.route().relay = Some(relay.clone());
+            switch_relay(endpoint, &relay, route.relay()).await;
+        }
+    }
+    match inner.kept.clone() {
         Some(events) => paths::spawn_log_keeping(&conn, events),
         None => paths::spawn_log(&conn),
     };
     Ok(conn)
+}
+
+async fn connect(endpoint: &Endpoint, host: EndpointAddr) -> Result<Connection, LinkError> {
+    endpoint.connect(host, ALPN_HTTP).await.map_err(|err| {
+        refused_while_dialling(&err).unwrap_or_else(|| LinkError::Dial(error_chain(&err)))
+    })
+}
+
+/// The host's refusal, if it turned the key away before the dial finished.
+/// It does so just after the handshake, which is usually after this end's
+/// dial has finished too, but not always.
+fn refused_while_dialling(err: &ConnectError) -> Option<LinkError> {
+    match err {
+        ConnectError::Connection { source, .. }
+        | ConnectError::Connecting {
+            source: ConnectingError::ConnectionError { source, .. },
+            ..
+        } => refused_with(source),
+        _ => None,
+    }
+}
+
+/// [`connect`] for the second stage, which says so first.
+async fn connect_later(endpoint: &Endpoint, host: EndpointAddr) -> Result<Connection, LinkError> {
+    let relays = host.relay_urls().count();
+    info!("not found yet: trying all {relays} of the host's relays as well");
+    connect(endpoint, host).await
+}
+
+/// `first` alone for up to [`FIRST_STAGE`], or until it fails; then `second`,
+/// if there is one, alongside it, until one connects. Each keeps going if the
+/// other fails. The caller stops the whole at [`DIAL_TIMEOUT`].
+async fn in_two_stages<C, F1, F2>(first: F1, second: Option<F2>) -> Result<C, LinkError>
+where
+    F1: Future<Output = Result<C, LinkError>>,
+    F2: Future<Output = Result<C, LinkError>>,
+{
+    tokio::pin!(first);
+    let first_failed = match tokio::time::timeout(FIRST_STAGE, &mut first).await {
+        Ok(Ok(conn)) => return Ok(conn),
+        Ok(Err(err)) => Some(err),
+        Err(_) => None,
+    };
+    let Some(second) = second else {
+        return match first_failed {
+            Some(err) => Err(err),
+            None => first.await,
+        };
+    };
+    if first_failed.is_some() {
+        return second.await;
+    }
+    tokio::pin!(second);
+    tokio::select! {
+        outcome = &mut first => match outcome {
+            Ok(conn) => Ok(conn),
+            Err(_) => second.await,
+        },
+        outcome = &mut second => match outcome {
+            Ok(conn) => Ok(conn),
+            Err(_) => first.await,
+        },
+    }
+}
+
+/// How the host turned `conn` away, if it did.
+fn refusal(conn: &Connection) -> Option<LinkError> {
+    refused_with(&conn.close_reason()?)
+}
+
+/// The refusal a connection closed for `reason` means, if it's one.
+fn refused_with(reason: &ConnectionError) -> Option<LinkError> {
+    let ConnectionError::ApplicationClosed(closed) = reason else {
+        return None;
+    };
+    let code = closed.error_code.into_inner();
+    if code == u64::from(close::NOT_PAIRED) {
+        Some(LinkError::NotPaired)
+    } else if code == u64::from(close::REVOKED) {
+        Some(LinkError::Revoked)
+    } else {
+        None
+    }
 }
 
 /// A resume's timing, from [`Link::begin_resume`] to the first byte back in
@@ -387,6 +654,12 @@ impl<C: Closable> Cache<C> {
     /// The open connection, if there is one. Never dials.
     pub(crate) fn current(&self) -> Option<C> {
         self.state().open()
+    }
+
+    /// The latest connection, open or closed, until a dial fails. Never
+    /// dials.
+    pub(crate) fn latest(&self) -> Option<C> {
+        self.state().conn.clone()
     }
 
     pub(crate) fn status(&self) -> LinkStatus {
@@ -614,6 +887,193 @@ mod tests {
             LinkError::TimedOut.to_string(),
             "Can't reach the host: no connection within 10 s"
         );
+        assert!(LinkError::Revoked.to_string().contains("removed"));
+        assert_ne!(
+            LinkError::NotPaired.to_string(),
+            LinkError::Revoked.to_string()
+        );
+    }
+
+    fn relay(name: &str) -> RelayUrl {
+        format!("https://{name}/").parse().expect("a relay")
+    }
+
+    fn key() -> EndpointId {
+        iroh::SecretKey::from_bytes(&[7; 32]).public()
+    }
+
+    fn addr(text: &str) -> SocketAddr {
+        text.parse().expect("an address")
+    }
+
+    fn relays_of(addr: &EndpointAddr) -> Vec<String> {
+        addr.relay_urls().map(ToString::to_string).collect()
+    }
+
+    fn ips_of(addr: &EndpointAddr) -> Vec<SocketAddr> {
+        addr.ip_addrs().copied().collect()
+    }
+
+    #[test]
+    fn dials_the_last_relay_first_then_every_relay_in_the_list() {
+        let route = Route::new(
+            key(),
+            Some(relay("relay.example.com")),
+            vec![addr("192.168.1.20:52043"), addr("[2001:db8::7]:7842")],
+            vec![RelayEntry::Url(relay("relay.example.com")), RelayEntry::N0],
+        );
+        let first = route.first_stage();
+        assert_eq!(first.id, key());
+        assert_eq!(relays_of(&first), ["https://relay.example.com/"]);
+        assert_eq!(
+            ips_of(&first),
+            [addr("192.168.1.20:52043"), addr("[2001:db8::7]:7842")]
+        );
+        let second = route.second_stage().expect("a second stage");
+        let mut expected = vec!["https://relay.example.com/".to_string()];
+        expected.extend(crate::relays::n0_relays().iter().map(ToString::to_string));
+        expected.sort();
+        assert_eq!(relays_of(&second), expected);
+        assert_eq!(ips_of(&second), ips_of(&first));
+        assert_eq!(route.every_relay().len(), 5);
+        assert_eq!(route.every_relay()[0], relay("relay.example.com"));
+    }
+
+    #[test]
+    fn has_no_second_stage_when_the_list_adds_nothing() {
+        let own = relay("relay.example.com");
+        let route = Route::new(key(), Some(own.clone()), vec![], vec![RelayEntry::Url(own)]);
+        assert_eq!(route.second_stage(), None);
+        // With no relay of its own to start from, the list is the second
+        // stage, and the first has only the direct addresses.
+        let route = Route::new(
+            key(),
+            None,
+            vec![addr("10.0.0.2:1")],
+            vec![RelayEntry::Url(relay("relay.example.com"))],
+        );
+        assert_eq!(relays_of(&route.first_stage()), Vec::<String>::new());
+        assert_eq!(
+            relays_of(&route.second_stage().expect("a second stage")),
+            ["https://relay.example.com/"]
+        );
+    }
+
+    #[test]
+    fn keeps_the_first_8_addresses_once_each() {
+        let many: Vec<SocketAddr> = (1..=10)
+            .flat_map(|n| [addr(&format!("10.0.0.{n}:1")); 2])
+            .collect();
+        let route = Route::new(key(), None, many, vec![]);
+        let kept: Vec<String> = route.addrs().iter().map(ToString::to_string).collect();
+        assert_eq!(kept.len(), MAX_ROUTE_ADDRS);
+        assert_eq!(kept[0], "10.0.0.1:1");
+        assert_eq!(kept[7], "10.0.0.8:1");
+    }
+
+    #[test]
+    fn takes_a_tickets_route() {
+        let ticket: crate::ticket::Ticket = format!(
+            r#"{{"v":4,"type":"kleio-pair","name":"mini","key":"{}","relays":["https://euc1-1.relay.n0.iroh.link./","n0"],"addrs":["192.168.1.20:52043"],"code":"ABC-DEF"}}"#,
+            key()
+        )
+        .parse()
+        .expect("a ticket");
+        let route = Route::from_ticket(&ticket);
+        assert_eq!(route.key(), key());
+        assert_eq!(route.relay(), Some(ticket.relay()));
+        assert_eq!(route.addrs(), ticket.addrs());
+        assert_eq!(route.relays(), ticket.relays());
+        // n0's EU relay is the ticket's, and n0's entry names it again.
+        assert_eq!(route.every_relay().len(), 4);
+    }
+
+    /// One stage's dial: connects as `id` after `after`, fails then, or
+    /// never finishes.
+    async fn stage(after: u64, outcome: Option<Result<u32, LinkError>>) -> Result<u32, LinkError> {
+        tokio::time::sleep(Duration::from_secs(after)).await;
+        match outcome {
+            Some(outcome) => outcome,
+            None => pending().await,
+        }
+    }
+
+    /// `in_two_stages`' outcome and when it came.
+    async fn two_stages(
+        first: (u64, Option<Result<u32, LinkError>>),
+        second: Option<(u64, Option<Result<u32, LinkError>>)>,
+    ) -> (Result<u32, LinkError>, Duration) {
+        let started = Instant::now();
+        let second = second.map(|(after, outcome)| stage(after, outcome));
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(60),
+            in_two_stages(stage(first.0, first.1), second),
+        )
+        .await
+        .unwrap_or(Err(LinkError::TimedOut));
+        (outcome, started.elapsed())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_first_stage_alone_when_it_connects_within_4_s() {
+        let secs = Duration::from_secs;
+        assert_eq!(
+            two_stages((1, Some(Ok(1))), Some((0, Some(Ok(2))))).await,
+            (Ok(1), secs(1))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_second_stage_starts_after_4_s_alongside_the_first() {
+        let secs = Duration::from_secs;
+        // The second stage connects 2 s after it starts.
+        assert_eq!(
+            two_stages((0, None), Some((2, Some(Ok(2))))).await,
+            (Ok(2), secs(6))
+        );
+        // The first keeps going, and connects at 5 s.
+        assert_eq!(
+            two_stages((5, Some(Ok(1))), Some((0, None))).await,
+            (Ok(1), secs(5))
+        );
+        // The first fails at 5 s, so the second's outcome counts.
+        assert_eq!(
+            two_stages((5, Some(Err(refused()))), Some((3, Some(Ok(2))))).await,
+            (Ok(2), secs(7))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_first_stage_that_fails_goes_on_to_the_second_at_once() {
+        let secs = Duration::from_secs;
+        assert_eq!(
+            two_stages((1, Some(Err(refused()))), Some((1, Some(Ok(2))))).await,
+            (Ok(2), secs(2))
+        );
+        assert_eq!(
+            two_stages((1, Some(Err(refused()))), None).await,
+            (Err(refused()), secs(1))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn with_no_second_stage_the_first_has_all_the_time() {
+        let secs = Duration::from_secs;
+        assert_eq!(two_stages((9, Some(Ok(1))), None).await, (Ok(1), secs(9)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_second_stage_that_fails_leaves_the_first_going() {
+        let secs = Duration::from_secs;
+        assert_eq!(
+            two_stages((8, Some(Ok(1))), Some((1, Some(Err(refused()))))).await,
+            (Ok(1), secs(8))
+        );
+        // Neither connects: the caller's 10 s ends it.
+        assert_eq!(
+            two_stages((0, None), Some((1, Some(Err(refused()))))).await,
+            (Err(LinkError::TimedOut), secs(60))
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -666,7 +1126,7 @@ mod tests {
                     }
                 }
             });
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
             assert!(!link.close_connection(), "nothing to close before a dial");
             assert_eq!(link.status(), status(false, None, 0));
 

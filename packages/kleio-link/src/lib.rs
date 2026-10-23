@@ -1,24 +1,30 @@
-//! Kleio's link over iroh, for the connection prototype
-//! (`.gg/plans/kleio-connection-prototype.md`). The prototype only decides
-//! pass or fail: nothing here becomes Kleio's real link, and it is never
-//! merged as is.
+//! Kleio's link over iroh: the end-to-end encrypted connection between the
+//! Kleio app and its host, in place of Tailscale
+//! (docs/adr/0002-kleio-link-replaces-tailscale.md).
 //!
-//! The host runs a forwarder (`kleio-link-host`) next to kleio-host; the phone
-//! dials it by key through the relay its pairing ticket names. Both ends share
-//! this crate, so they share one ticket check and one protocol definition.
+//! The host runs `kleio-link-host` next to kleio-host; the phone dials it by
+//! key through the relays the host names, first in its pairing ticket, with
+//! no address lookup. Both ends share this crate, so they share one ticket
+//! check, one relay list and one protocol definition.
 //!
 //! The phone's side:
+//! - [`ticket`]: the v4 pairing ticket a QR code carries.
 //! - [`endpoint`]: the iroh endpoint, with no address lookup and no port
-//!   mapping, in Auto or Relay only mode.
+//!   mapping, whose only relay is the host's.
 //! - [`link`]: one cached connection on [`ALPN_HTTP`], dialled again on the
-//!   first use after it closes.
+//!   first use after it closes, in two stages: the host's last relay, then
+//!   every relay in its list.
 //! - [`forward`]: the loopback listener, which turns each TCP connection into
 //!   a stream on that connection.
-//! - [`pair`]: the pairing call on [`ALPN_PAIR`].
+//! - [`pair`]: pairing on [`ALPN_PAIR`], with a reason of its own for each
+//!   way it can fail.
 //! - [`paths`]: the path log the field tests' path timelines come from.
+//! - [`relays`] and [`probe`]: relay lists, and asking a relay whether it's
+//!   there, which both sides use.
 //!
-//! The host's side is module `host`, behind feature `host`: the forwarder
-//! `kleio-link-host serve` runs, with its gate, pairing and state folder.
+//! The host's side is module `host`, behind feature `host`: what
+//! `kleio-link-host serve` runs, with its gate, pairing, and the files it
+//! shares with kleio-host in kleio-host's state folder.
 
 use std::error::Error;
 
@@ -29,6 +35,8 @@ pub mod host;
 pub mod link;
 pub mod pair;
 pub mod paths;
+pub mod probe;
+pub mod relays;
 pub mod ticket;
 
 /// iroh, at the version this crate pins, for the keys and addresses its API
@@ -46,6 +54,10 @@ pub const ALPN_HTTP: &[u8] = b"kleio/http/0";
 /// forwarder passes to kleio-host's `POST /kleio/pair/redeem`.
 pub const ALPN_PAIR: &[u8] = b"kleio/pair/0";
 
+/// The host requests over the link name: `http://link.kleio.invalid`.
+/// `.invalid` never resolves, so it can't be taken for a real address.
+pub const LINK_HOST: &str = "link.kleio.invalid";
+
 /// The QUIC close codes the host sends, which both ends read.
 pub mod close {
     /// The exchange is over.
@@ -60,6 +72,8 @@ pub mod close {
     pub const PAIR_FAILED: u32 = 3;
     /// A protocol the host doesn't serve.
     pub const UNKNOWN_ALPN: u32 = 4;
+    /// `kleio/http/0` from a key whose device was revoked.
+    pub const REVOKED: u32 = 5;
 }
 
 /// An error and its causes on one line, for logs and messages. A cause whose
@@ -90,7 +104,7 @@ pub(crate) mod testing {
     use iroh::endpoint::Builder;
     use iroh::{Endpoint, EndpointAddr, RelayMode, SecretKey};
 
-    use crate::endpoint::{builder, Mode};
+    use crate::endpoint::{builder, EndpointOptions};
 
     /// `builder` with its sockets on loopback only.
     pub(crate) fn on_loopback(builder: Builder) -> Builder {
@@ -105,7 +119,7 @@ pub(crate) mod testing {
         let configured = builder(
             SecretKey::from_bytes(&[seed; 32]),
             RelayMode::Disabled,
-            Mode::Auto,
+            &EndpointOptions::default(),
         )
         .alpns(alpns.iter().map(|alpn| alpn.to_vec()).collect());
         on_loopback(configured)

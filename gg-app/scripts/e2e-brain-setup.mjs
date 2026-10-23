@@ -744,12 +744,13 @@ async function main() {
 
   const before = realSnapshot();
   const sandbox = realpathSync(mkdtempSync(join(tmpdir(), "kleio-e2e-brain-")));
-  const { api: apiPort, preview: previewPort } = await freePorts();
+  const { api: apiPort, preview: previewPort, link: linkPort } = await freePorts();
   const env = sandboxEnv({
     sandbox,
     baseEnv: process.env,
     apiPort,
     previewPort,
+    linkPort,
     sidecarPath: sidecarBundle,
     nodeBin: stagedNode(),
   });

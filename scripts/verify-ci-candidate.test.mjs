@@ -85,6 +85,7 @@ function workflowInvariants(source) {
       "sudo apt-get update\nsudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev",
       "pnpm install --frozen-lockfile",
       "pnpm --filter @kleio/coder... build",
+      "pnpm --filter @kleio/host build\ncargo test --locked --features host --manifest-path packages/kleio-link/Cargo.toml --test end_to_end -- --ignored",
       "pnpm --filter gg-app stage:node\npnpm --filter gg-app bundle:sidecar",
       "node gg-app/scripts/smoke-sidecar.mjs",
       "node bench/size-gate.mjs --only sidecar",

@@ -594,7 +594,7 @@ async function main() {
   const tmp = realpathSync(mkdtempSync(join(tmpdir(), "kleio-e2e-dictation-")));
   const home = join(tmp, "home");
   mkdirSync(home, { recursive: true });
-  const [apiPort, previewPort] = [await freePort(), await freePort()];
+  const [apiPort, previewPort, linkPort] = [await freePort(), await freePort(), await freePort()];
   // Nothing of this shell's own Kleio or app settings reaches the sandbox.
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(
@@ -609,6 +609,8 @@ async function main() {
     KLEIO_HOST_PORT: String(apiPort),
     KLEIO_PUBLIC_URL: `http://127.0.0.1:${apiPort}`,
     KLEIO_PREVIEW_PORT: String(previewPort),
+    // Its own link listener port, not the fixed 8445 a real host on this machine takes.
+    KLEIO_LINK_PORT: String(linkPort),
     KLEIO_HOME_CWD: join(tmp, "Kleio"),
     KLEIO_PROJECTS_DIR: join(tmp, "projects"),
     KLEIO_SETTINGS_FILE: join(home, ".gg", "kleio-app.json"),

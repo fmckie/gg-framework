@@ -1,8 +1,7 @@
-// The connection prototype's pairing steps (Rust feature `kleio-link`),
-// shared by the pairing form (RemoteHostModal) and the Link card on the
-// Connection page: scanning the pairing QR code on the iPhone, a pasted ticket
-// in debug builds, and a v3 ticket's confirm step, which pairs over the Kleio
-// link.
+// Kleio link pairing (Rust feature `kleio-link`), shared by the pairing form
+// (RemoteHostModal) and the Link card on the Connection page: scanning the
+// pairing QR code on the iPhone, a pasted ticket in debug builds, and a link
+// ticket's confirm step, which pairs over the Kleio link.
 
 import { QrCodeIcon, XIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,7 +12,7 @@ import { cancelScan, usePairingScan } from "./qrScan";
 import { explainError } from "./useKleioRemote";
 
 /**
- * The iPhone: Scan QR code, for the ticket `kleio-link-host qr` shows. The
+ * The iPhone: Scan QR code, for the ticket `kleio-host pair` shows. The
  * scanned text goes to `onTicket`, as a pasted ticket does. A failed or
  * denied scan says why here, and the rest of the form stays as it was.
  */
@@ -102,7 +101,7 @@ export function TicketPaste({
         id="kleio-ticket"
         className="modal-input kleio-ticket"
         rows={3}
-        placeholder='{"v":3,"type":"kleio-pair",…}'
+        placeholder='{"v":4,"type":"kleio-pair",…}'
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoCapitalize="off"
@@ -112,7 +111,7 @@ export function TicketPaste({
       />
       <div className="modal-row">
         <span className="modal-hint kleio-inline-hint">
-          The JSON <code>kleio-link-host qr</code> prints, in place of scanning its QR code.
+          The pairing text <code>kleio-host pair</code> prints, in place of scanning its QR code.
         </span>
         <button
           type="button"
@@ -128,7 +127,7 @@ export function TicketPaste({
 }
 
 /**
- * A v3 ticket's confirm step: the host it names, then Pair over the link.
+ * A link ticket's confirm step: the host it names, then Pair over the link.
  * `onPaired` gets the link's status after pairing (`null` if it couldn't be
  * read): `active` says the pairing switched on in place.
  */
@@ -178,10 +177,12 @@ export function LinkConfirm({
       }}
     >
       <p className="modal-hint">
-        Pair over the Kleio link with this host? Check it matches what{" "}
-        <code>kleio-link-host qr</code> printed there.
+        Pair over the Kleio link with this host? Check the pair code matches the one{" "}
+        <code>kleio-host pair</code> shows there.
       </p>
       <dl className="kleio-facts">
+        <dt>Host</dt>
+        <dd>{check.name}</dd>
         <dt>Host key</dt>
         <dd>
           <code>{check.keyPrefix}…</code>

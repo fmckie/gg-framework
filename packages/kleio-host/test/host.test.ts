@@ -15,7 +15,7 @@ import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registr
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, CONTROL_HEADER, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
 import type { ApnsPusher } from "../src/apns.js";
-import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
+import { isPairingPayload, newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore, type PairOfferStore } from "../src/pair-offer.js";
 import { createRingStore, type RingStore, type SessionRing } from "../src/sse-ring.js";
 import * as macaroon from "../src/macaroon.js";
@@ -41,6 +41,8 @@ function publishEndpoint(sc: FakeSidecar): void {
 
 /** Records nudges instead of calling Apple. */
 const nudges: { sessionId: string; devices: string[] }[] = [];
+/** Each pairing alert: the new device, and the admins it went to. */
+const pairingAlerts: { label: string; admin: boolean; host: string; devices: string[] }[] = [];
 /** Each nudge's title and body, by session. */
 const nudgeText = new Map<string, { kind: string; name?: string; text?: string }>();
 const livePushes: {
@@ -62,6 +64,18 @@ const fakeApns: ApnsPusher = {
       nudgeText.set(nudge.sessionId, { kind: nudge.kind, name: nudge.name, text: nudge.text });
     return targets.length;
   },
+  async pairing(alert, devices) {
+    const targets = devices
+      .filter((d) => d.admin && d.push && !d.revoked && d.deviceId !== alert.deviceId)
+      .map((d) => d.label);
+    pairingAlerts.push({
+      label: alert.label,
+      admin: alert.admin,
+      host: alert.host,
+      devices: targets,
+    });
+    return targets.length;
+  },
   async liveActivity(target, push) {
     livePushes.push({
       token: target.token,
@@ -81,13 +95,15 @@ async function startHost(
     rings?: RingStore;
     create?: typeof createHost;
     workspaceRoots?: () => Promise<string[]>;
+    /** false: a host reached over the link only, with no KLEIO_PUBLIC_URL. */
+    publicUrl?: false;
   } = {},
 ): Promise<Host> {
   const h = (overrides.create ?? createHost)({
     apns: fakeApns,
     diagnosticsDir: join(home, "logs"),
     listenPort: 0,
-    publicBaseUrl: `https://${NODE}:8443`,
+    ...(overrides.publicUrl === false ? {} : { publicBaseUrl: `https://${NODE}:8443` }),
     nodeId: NODE,
     registry,
     offers,
@@ -105,6 +121,7 @@ async function startHost(
 
 beforeEach(async () => {
   nudges.length = 0;
+  pairingAlerts.length = 0;
   nudgeText.clear();
   livePushes.length = 0;
   home = mkdtempSync(join(tmpdir(), "kleio-host-it-"));
@@ -348,6 +365,8 @@ describe("host: pairing", () => {
     });
     expect(offer.status).toBe(200);
     expect(offer.body.display).toMatch(/^[0-9A-Z]{3}-[0-9A-Z]{3}$/);
+    // A host without the link has no QR code to give (link.test.ts has one that does).
+    expect(offer.body).toMatchObject({ ticket: null, ticketError: "no_link" });
     expect(registry.list()).toHaveLength(1); // nothing minted until redeemed
 
     const nonce = newRedemptionNonce();
@@ -373,18 +392,37 @@ describe("host: pairing", () => {
         .status,
     ).toBe(403);
 
-    // Same nonce retry replays; a fresh nonce is refused; wrong code burns an attempt.
+    // Same nonce retry replays; a fresh nonce is told the code was used.
     expect(
       (await call("POST", "/kleio/pair/redeem", { body: { code: typed, redemptionNonce: nonce } }))
         .body.payload.token,
     ).toBe(payload.token);
+    const again = await call("POST", "/kleio/pair/redeem", {
+      body: { code: typed, redemptionNonce: newRedemptionNonce() },
+    });
+    expect(again.status).toBe(410);
+    expect(again.body).toEqual({ ok: false, error: "used" });
+  });
+
+  it("a host with no public URL (the link only) pairs with no baseUrl, and its node ID as host", async () => {
+    await host.stop();
+    host = await startHost({ publicUrl: false });
+    const admin = await pairAdmin();
+    const offer = await call("POST", "/kleio/pair/offer", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+      body: { admin: true },
+    });
+    const redeem = await call("POST", "/kleio/pair/redeem", {
+      body: { code: offer.body.code, redemptionNonce: newRedemptionNonce(), label: "Phone" },
+    });
+    expect(redeem.status).toBe(200);
+    const payload = redeem.body.payload as PairingPayload;
+    expect(payload).not.toHaveProperty("baseUrl");
+    expect(payload).toMatchObject({ host: NODE, label: "Phone" });
+    expect(isPairingPayload(payload)).toBe(true);
     expect(
-      (
-        await call("POST", "/kleio/pair/redeem", {
-          body: { code: typed, redemptionNonce: newRedemptionNonce() },
-        })
-      ).status,
-    ).toBe(401);
+      macaroon.verify(ROOT, payload.controlCredential!, { now: new Date(), nodeId: NODE }),
+    ).toEqual({ ok: true });
   });
 
   it("an admin offer yields a control credential that passes the node/exp caveats", async () => {
@@ -408,6 +446,51 @@ describe("host: pairing", () => {
     ).toBe(200);
   });
 
+  it("tells the admins' phones about each new pairing, naming the device", async () => {
+    const admin = await pairAdmin();
+    await registry.setPush(admin.deviceId, {
+      token: "aa".repeat(16),
+      env: "sandbox",
+      registeredAt: "2026-10-23T00:00:00Z",
+    });
+    const offer = await call("POST", "/kleio/pair/offer", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+    });
+    const redeem = await call("POST", "/kleio/pair/redeem", {
+      body: { code: offer.body.code, redemptionNonce: newRedemptionNonce(), label: "Will's iPad" },
+    });
+    expect(redeem.status).toBe(200);
+    await vi.waitFor(() =>
+      expect(pairingAlerts).toEqual([
+        { label: "Will's iPad", admin: false, host: "mini", devices: ["Bootstrap admin"] },
+      ]),
+    );
+  });
+
+  it("a code that was live answers 410 with why; any other code gets the uniform answer", async () => {
+    const admin = await pairAdmin();
+    const mint = async (): Promise<string> =>
+      (await call("POST", "/kleio/pair/offer", { headers: { [DEVICE_TOKEN_HEADER]: admin.token } }))
+        .body.code as string;
+    const redeem = (code: string): Promise<{ status: number; body: any }> =>
+      call("POST", "/kleio/pair/redeem", {
+        body: { code, redemptionNonce: newRedemptionNonce(), label: "Phone" },
+      });
+    const old = await mint();
+    const live = await mint();
+    expect(await redeem(old)).toMatchObject({
+      status: 410,
+      body: { ok: false, error: "replaced" },
+    });
+    const wrong = live === "ZZZZZZ" ? "YYYYYY" : "ZZZZZZ";
+    expect(await redeem(wrong)).toMatchObject({
+      status: 401,
+      body: { ok: false, error: "unauthorized" },
+    });
+    expect((await redeem(live)).status).toBe(200);
+    expect(await redeem(live)).toMatchObject({ status: 410, body: { ok: false, error: "used" } });
+  });
+
   it("redeem never oracles: wrong/expired/absent all look alike apart from 404 when no offer exists", async () => {
     expect(
       (
@@ -427,6 +510,28 @@ describe("host: pairing", () => {
     expect(
       (await call("POST", "/kleio/pair/redeem", { body: { code: "x".repeat(5000) } })).status,
     ).toBe(413);
+  });
+});
+
+describe("host: listeners", () => {
+  it("listens on loopback only: phones come through Tailscale Serve or the link", () => {
+    const make = (listenHost: string): Host =>
+      createHost({
+        listenHost,
+        listenPort: 0,
+        nodeId: NODE,
+        registry,
+        offers,
+        rings: createRingStore({ directory: join(home, "rings-listen"), maxFrames: 5 }),
+        sidecarEndpointPath: join(home, "sidecar.json"),
+        controlRootKey: ROOT,
+      });
+    for (const bad of ["0.0.0.0", "::", "192.168.1.2", "localhost", NODE]) {
+      expect(() => make(bad), bad).toThrow(/loopback only/);
+    }
+    for (const good of ["127.0.0.1", "127.0.0.2", "::1"]) {
+      expect(() => make(good), good).not.toThrow();
+    }
   });
 });
 

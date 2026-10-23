@@ -301,7 +301,7 @@ mod tests {
             let (accepted_tx, mut accepted) = mpsc::unbounded_channel();
             tokio::spawn(echo_host(host.clone(), accepted_tx));
 
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
             let forward = Forward::bind(0, link.clone()).await.expect("binds");
             let addr = forward.local_addr().expect("has an address");
             assert!(addr.ip().is_loopback());
@@ -338,7 +338,7 @@ mod tests {
             tokio::spawn(echo_host(host.clone(), accepted_tx));
 
             let events = PathEvents::new(20);
-            let link = Link::with_path_events(phone, loopback_addr(&host), events.clone());
+            let link = Link::with_path_events(phone, loopback_addr(&host).into(), events.clone());
             let forward = Forward::bind(0, link.clone()).await.expect("binds");
             let addr = forward.local_addr().expect("has an address");
             tokio::spawn(forward.run());
@@ -384,7 +384,7 @@ mod tests {
             let phone = loopback_endpoint(6, &[]).await;
             let (answered_tx, mut answered) = mpsc::unbounded_channel();
             tokio::spawn(answering_host(host.clone(), answered_tx));
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
             let forward = Forward::bind(0, link.clone()).await.expect("binds");
             let addr = forward.local_addr().expect("has an address");
             tokio::spawn(forward.run());
@@ -423,7 +423,7 @@ mod tests {
             let phone = loopback_endpoint(8, &[]).await;
             let (answered_tx, _answered) = mpsc::unbounded_channel();
             tokio::spawn(answering_host(host.clone(), answered_tx));
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
 
             // A stream from before the resume, kept as the app's HTTP client
             // keeps an idle connection to the forwarder and reuses it.
@@ -464,7 +464,7 @@ mod tests {
             let phone = loopback_endpoint(10, &[]).await;
             let (accepted_tx, mut accepted) = mpsc::unbounded_channel();
             tokio::spawn(echo_host(host.clone(), accepted_tx));
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
             assert!(accepted.try_recv().is_err(), "dialled before forwarding");
             let forward = Forward::from_std(listener, link).expect("forwards on it");
             assert_eq!(forward.local_addr().expect("has an address"), addr);
@@ -491,7 +491,7 @@ mod tests {
             let phone = loopback_endpoint(12, &[]).await;
             let (accepted_tx, mut accepted) = mpsc::unbounded_channel();
             tokio::spawn(echo_host(host.clone(), accepted_tx));
-            let link = Link::new(phone, loopback_addr(&host));
+            let link = Link::new(phone, loopback_addr(&host).into());
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
                 .await
                 .expect("listens");

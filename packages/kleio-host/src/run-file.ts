@@ -35,15 +35,17 @@ export type RunFile = (
   file: string,
   args: readonly string[],
   options: RunFileOptions,
+  /** What the program reads on stdin, if anything. */
+  input?: string,
 ) => Promise<Result<RunOutput, RunFailure>>;
 
 export function runOptions(timeoutMs: number, maxBuffer: number): RunFileOptions {
   return { encoding: "utf8", shell: false, windowsHide: true, timeout: timeoutMs, maxBuffer };
 }
 
-export const runFile: RunFile = (file, args, options) =>
+export const runFile: RunFile = (file, args, options, input) =>
   new Promise((resolve) => {
-    execFile(file, [...args], { ...options }, (error, stdout, stderr) => {
+    const child = execFile(file, [...args], { ...options }, (error, stdout, stderr) => {
       if (!error) return resolve(ok({ exitCode: 0, stdout, stderr }));
       const code = error.code;
       if (typeof code === "number") return resolve(ok({ exitCode: code, stdout, stderr }));
@@ -68,6 +70,11 @@ export const runFile: RunFile = (file, args, options) =>
         }),
       );
     });
+    if (input !== undefined) {
+      // A program that exits without reading it closes the pipe: not an error here.
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(input);
+    }
   });
 
 /** A program's output for the host log: JSON-escaped, so one line, and its first 2 KB at most. */

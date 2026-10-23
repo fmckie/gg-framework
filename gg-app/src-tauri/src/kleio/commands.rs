@@ -4,7 +4,8 @@
 //!
 //! Wire contract is `packages/kleio-host/src/{pair-code,host}.ts`:
 //!   POST /kleio/pair/redeem {code, redemptionNonce, label}
-//!     200 {ok:true, payload:{baseUrl, host, token, label, deviceId, controlCredential?}}
+//!     200 {ok:true, payload:{baseUrl?, host, token, label, deviceId, controlCredential?}}
+//!     (no baseUrl for a device paired over Kleio's link)
 //!     400|401|404 {ok:false, error}
 //!   admin (device token + control macaroon):
 //!     GET  /kleio/devices                → {devices:[...]}
@@ -23,6 +24,9 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PairingPayload {
+    /// Empty for a device paired over Kleio's link: its token is no use off
+    /// the link, so kleio-host gives it no address.
+    #[serde(default)]
     pub(super) base_url: String,
     pub(super) host: String,
     pub(super) token: String,
@@ -33,12 +37,17 @@ pub(super) struct PairingPayload {
 }
 
 fn validate_payload(p: &PairingPayload) -> Result<(), String> {
-    let non_empty = |s: &str| !s.trim().is_empty();
     if !super::host_url_allowed(&p.base_url) {
         return Err("host returned a non-https base URL".into());
     }
-    if !(non_empty(&p.base_url)
-        && non_empty(&p.host)
+    validate_device(p)
+}
+
+/// Everything but the base URL: the host's name, the device's token, label
+/// and id, and the control credential if there is one.
+fn validate_device(p: &PairingPayload) -> Result<(), String> {
+    let non_empty = |s: &str| !s.trim().is_empty();
+    if !(non_empty(&p.host)
         && non_empty(&p.token)
         && non_empty(&p.label)
         && non_empty(&p.device_id))
@@ -63,11 +72,21 @@ fn validate_payload(p: &PairingPayload) -> Result<(), String> {
 
 /// The payload of a redeem answer that said `ok: true`, checked as
 /// `kleio_pair` checks it. The link's pairing (`link.rs`) reads its answer
-/// with this too, so both give the same errors.
+/// with [`checked_link_payload`], which gives the same errors.
 pub(super) fn checked_payload(payload: serde_json::Value) -> Result<PairingPayload, String> {
     let payload: PairingPayload = serde_json::from_value(payload)
         .map_err(|_| "Host sent a malformed pairing ticket".to_string())?;
     validate_payload(&payload)?;
+    Ok(payload)
+}
+
+/// [`checked_payload`] for a pairing over Kleio's link (`link.rs`), whose
+/// payload has no base URL: the link is the way to the host.
+#[cfg(any(feature = "kleio-link", test))]
+pub(super) fn checked_link_payload(payload: serde_json::Value) -> Result<PairingPayload, String> {
+    let payload: PairingPayload = serde_json::from_value(payload)
+        .map_err(|_| "Host sent a malformed pairing ticket".to_string())?;
+    validate_device(&payload)?;
     Ok(payload)
 }
 
@@ -847,6 +866,26 @@ mod tests {
         assert_eq!(validate_payload(&local).is_ok(), cfg!(debug_assertions));
         local.base_url = "http://localhost:52714".into();
         assert!(validate_payload(&local).is_err());
+    }
+
+    /// Paired over Kleio's link, a device gets no base URL; off the link, a
+    /// payload without one is refused as before.
+    #[test]
+    fn a_link_payload_needs_no_base_url() {
+        let link = serde_json::json!({
+            "host": "kleio-0123456789abcdef",
+            "token": "t".repeat(64),
+            "label": "iPhone",
+            "deviceId": "dev-1",
+        });
+        let checked = checked_link_payload(link.clone()).expect("a link payload");
+        assert_eq!(checked.base_url, "");
+        assert_eq!(checked.device_id, "dev-1");
+        assert!(checked_payload(link.clone()).is_err());
+        let mut no_token = link;
+        no_token["token"] = " ".into();
+        assert!(checked_link_payload(no_token).is_err());
+        assert!(checked_link_payload(serde_json::json!({"host": "h"})).is_err());
     }
 
     #[test]

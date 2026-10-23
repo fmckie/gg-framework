@@ -1,0 +1,336 @@
+# kleio-link
+
+Kleio's link: the connection between the Kleio app and its host, in place of Tailscale. It's built
+on [iroh](https://github.com/n0-computer/iroh) from n0, pinned at 1.4.1. The decision, and what the
+prototype measured, are in
+[ADR 0002](../../docs/adr/0002-kleio-link-replaces-tailscale.md). Private; not published.
+
+This crate has both ends:
+
+- **The app's side**, which gg-app builds in with its `kleio-link` feature on macOS and iOS
+  (`gg-app/src-tauri/src/kleio/link.rs`). The feature is off by default for now.
+- **`kleio-link-host`**, feature `host`: the host's side. It's a program of its own, run next to
+  kleio-host as the same user, so it stays up while kleio-host is redeployed.
+
+```
+Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kleio-link-host
+                                                               │ paired keys only
+                                                               │ TCP to 127.0.0.1:8445, opening with
+                                                               ▼ KLEIO-LINK/1 <device key> <secret>
+                                                         kleio-host serve, its link listener
+```
+
+## How it connects
+
+- The app dials the host by its public key. The key, the host's relays and its direct addresses
+  come from the pairing QR code, and later from `GET /kleio/link`.
+- **There's no address lookup.** Nothing asks n0's DNS (`dns.iroh.link`) or pkarr where the host
+  is, and nothing asks the router to open a port (no UPnP, NAT-PMP or PCP). Both ends build from
+  iroh's `presets::Minimal`, with lookup cleared and port mapping off (`src/endpoint.rs`).
+- Connections are QUIC: TLS 1.3 with raw public keys, end-to-end between the app's key and the
+  host's. They start through a relay. Once iroh finds a direct UDP path, the packets go straight
+  between the two.
+- Two protocols:
+  - `kleio/http/0`, HTTP to kleio-host: each connection the app's HTTP client makes to the
+    link's local end becomes one QUIC stream;
+  - `kleio/pair/0`, pairing: one redeem request per connection.
+- kleio-link-host passes each stream to kleio-host's link listener on 127.0.0.1:8445. kleio-host
+  still checks the device token on every request.
+- If kleio-host is stopped, each request gets a 502, `{"error":"kleio_down"}`, so the app can say
+  Kleio isn't running.
+
+## Security
+
+### Who gets in
+
+- **The host's key** is 32 random bytes in `secure/link.key`, which kleio-host makes: 0600 in a
+  0700 folder, or locked to the host's user on Windows. kleio-link-host never makes one. It won't
+  start if the key or the upstream secret is missing, or if anyone else can read or write it or
+  its folder.
+- **`kleio/http/0` takes only keys on kleio-host's allow-list.** That's `secure/link-allow.json`,
+  which kleio-host's device registry writes on every pairing and revoke. Before any stream is
+  opened:
+  - a key that was never paired is closed with code 1, `NOT_PAIRED`;
+  - a revoked device's key is closed with code 5, `REVOKED`.
+- **Revoking takes about 2 s.** kleio-link-host checks the list every second, and closes any open
+  connection whose key has left it.
+- **`kleio/pair/0` takes any key,** since a new phone isn't paired yet, but within a budget:
+  - at most 10 pairings a minute, one at a time (code 2, `PAIR_BUSY`, otherwise);
+  - at most 32 connections open at once that aren't known to be paired;
+  - one redeem request per connection, passed to kleio-host's `POST /kleio/pair/redeem`.
+- **kleio-host binds each new device to the key it paired from.**
+- **The pairing code works as it always has:** single-use, for 5 minutes, with 5 wrong tries.
+  - It travels only inside the encrypted connection to the key the QR code names, so only that
+    host sees it.
+  - The QR code never holds a token.
+  - Anyone with a photo of a live QR code can still pair within its 5 minutes. So kleio-host
+    pushes an alert about every new pairing to each admin device.
+- **A device token is no use without its device's key:**
+  - on the link, a token works only from the key its device paired with;
+  - a device paired over the link isn't let in on kleio-host's API port (8443, Tailscale Serve's);
+  - a device paired over Tailscale isn't let in on the link.
+- **kleio-host's link listener (127.0.0.1:8445) takes only kleio-link-host.**
+  - Each connection opens with one line: `KLEIO-LINK/1 <device key> <secret>`. The secret is
+    `secure/link-upstream.token`, compared in constant time.
+  - A connection is closed before anything else is read if that line is garbled, longer than 256
+    bytes, unfinished after 5 s, or has the wrong secret.
+- **kleio-host listens on loopback only.** It refuses to start on any other address.
+- **No custom crypto.** It's iroh's QUIC, random keys, tokens and codes, and constant-time
+  comparisons.
+- **Not covered:** anything running as the host's user can read the link's secrets, as it can read
+  kleio-host's other keys. So can an administrator.
+
+### What a relay sees
+
+A relay passes encrypted packets between two keys. It sees:
+
+- **Both public keys,** so which app talks to which host. The keys don't change, so it can tell
+  it's the same phone and host each time.
+- **The IP address each end connects from.**
+- **When they talk, and how much.**
+- **Which protocol a connection opens,** pairing or not, which QUIC's first packet names.
+
+It can't read or change what's sent: requests, replies, tokens and pairing codes. It can't pass for
+the host or the phone either, because it doesn't have their secret keys. It can delay, drop or block
+their packets. Once a path is direct, the packets stop going through the relay, though both ends
+stay connected to it.
+
+We haven't yet asked n0 what its relays log. That question, and its terms for a released app, are
+for n0 before Kleio ships on its relays.
+
+Others see a little too:
+
+- **The two networks** see each end talking to a relay, or to the other end on a direct path.
+- **DNS resolvers** see the relays' names looked up. That's the system's resolvers, then iroh's
+  built-in public resolvers if every system resolver fails.
+- **Apple delivers push notifications,** and they aren't end-to-end encrypted. kleio-host quotes up
+  to 170 characters of a reply, question or error in each, and Live Activities show summaries too.
+  The link doesn't change that.
+
+### What still needs Tailscale
+
+- **Site previews** open in Safari over Tailscale for now. A host with no public URL has none.
+- **The Apps (Composio) sign-in** ends on `<public URL>/kleio/connections/callback`. A host without
+  one sends Composio no callback, so the sign-in ends on Composio's own page. The sign-in still
+  works.
+
+## Relays
+
+### The list
+
+kleio-host keeps the relay list in `link/config.json`, in its state folder:
+
+```json
+{ "version": 1, "listVersion": 0, "relays": ["n0"] }
+```
+
+- **Without the file,** it's n0's relays alone.
+- **Up to 4 entries, in order, none twice.** Each is either:
+  - `https://<host>[:<port>]/`, with no path, query or credentials;
+  - `"n0"`, standing for n0's 4 public relays as this crate has them built in (iroh's
+    `defaults::prod`).
+- **`listVersion`** goes up by one each time the list changes. `GET /kleio/link` gives it to phones
+  with the list.
+- **There's no setting for it in the app yet.**
+- **A list that can't be read** stops kleio-link-host from starting, rather than leave it on n0's
+  relays when the list may leave them out. A change that can't be read while it runs is logged, and
+  the last good list stays.
+
+### Which relay the host is on
+
+The host is on exactly one relay at a time, pinned as its home relay. With no address lookup, a
+phone finds the host only on relays it knows. And a relay drops packets for a key that isn't
+connected to it.
+
+- **It starts** on the first relay in the order that answers `GET /ping`. n0's entry counts as its
+  relays, fastest first.
+- **Failover:** after 15 s without its relay, it moves to the next in the order that answers. While
+  none does, it stays put: then it's the host's network that's down.
+- **Failback:** on any relay but the first, it asks those ahead of it every 30 s. It moves back to
+  one once that relay has answered for 5 minutes.
+- **A changed list** is read within 5 s. A relay that's no longer on it is left at once.
+- **`serve --relay <url>`** pins one relay for good, and the list isn't read.
+
+It writes where it is to `link/state.json`. kleio-host reads that for tickets, `GET /kleio/link`
+and `kleio-host status`.
+
+### How the app dials
+
+A dial (`Route`, in `src/link.rs`) has the host's key, its relay list, the relay it was last
+reached through, and its last direct addresses. It goes in two stages:
+
+1. **For up to 4 s:** the host's last relay and its last direct addresses.
+2. **Then, until 10 s:** every relay in the list as well.
+
+The relay that worked becomes the app's only relay. So with a list without `"n0"`, the app never
+contacts n0's relays either.
+
+### n0's relays
+
+n0's public relays are the default. They're free, shared with other apps, and rate-limited. The
+prototype measured, through them:
+
+- **Downloads:** 2.12 MB/s for the first 5 MiB, then 1.06–1.31 MB/s. 45 MiB took 44.5–44.7 s.
+  Chats weren't affected: a 667-message chat opened in under 0.9 s.
+- **Mobile data:** on EE 4G no connection went direct (0 of 11).
+- **Wi-Fi:** every connection the log could see went direct (10 of 10, with Tailscale off).
+- **Overall,** 73% of the test phone's connection time went through the relay.
+
+kleio-link-host notes when a relay says it's rate-limiting the host (`rateLimited` in
+`link/state.json`). A relay of your own avoids the limit: put it first in the list, with `"n0"`
+after it as the fallback.
+
+## The files it shares with kleio-host
+
+They're in kleio-host's state folder, the same one for both programs:
+
+- `$KLEIO_HOST_HOME`, if it's set;
+- otherwise `~/Library/Application Support/Kleio/host` on macOS, `%LOCALAPPDATA%\Kleio\host` on
+  Windows, and `$XDG_STATE_HOME/kleio/host` (or `~/.local/state/kleio/host`) on Linux.
+
+| File                         | Written by                                        | What it holds                                                                   |
+| ---------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `secure/link.key`            | kleio-host (`init`, and `serve` on an older host) | The host's secret key, 32 bytes.                                                |
+| `secure/link-upstream.token` | kleio-host, likewise                              | The secret kleio-link-host opens each connection to the link listener with.     |
+| `secure/link-allow.json`     | kleio-host's device registry                      | Paired devices' keys, and revoked ones.                                         |
+| `link/config.json`           | kleio-host                                        | The relay list (above).                                                         |
+| `link/state.json`            | kleio-link-host                                   | Its key, relay, direct addresses, each relay's health, connections, last paths. |
+
+- kleio-link-host reads the allow-list and the secret again whenever they change.
+- It rewrites `link/state.json` on any change, and at least every 30 s. kleio-host takes a file
+  more than 90 s old to mean kleio-link-host isn't running.
+
+## Running it
+
+```sh
+kleio-link-host serve [--state-dir <dir>] [--upstream 127.0.0.1:8445] [--relay <url>]
+kleio-link-host qr [--color]             # the ticket on stdin as a terminal QR code
+kleio-link-host id [--state-dir <dir>]   # this host's public key
+kleio-link-host client --ticket <file> --listen 127.0.0.1:<port> [--pair]   # a test client
+kleio-link-host help                     # all of it, with the test options
+```
+
+- **Start kleio-host before kleio-link-host.** kleio-host makes the key and the secret, and on
+  Windows it locks them.
+- **Defaults:** `serve` and `id` take kleio-host's default state folder, and `serve` forwards to
+  `127.0.0.1:8445`. If kleio-host runs with `KLEIO_HOST_HOME` or `KLEIO_LINK_PORT` set, give
+  kleio-link-host the same folder (`--state-dir`) and port (`--upstream`).
+- **`kleio-host pair` runs `qr` itself.** It looks for the binary in `bin/` beside its `dist/`, or
+  at `KLEIO_LINK_HOST_BIN`. `qr` reads the ticket on stdin, so the code never shows in a process
+  list.
+- **Logs go to stderr.** `RUST_LOG` takes `target=level` pairs, such as `kleio_link=debug`. Logs
+  name keys by their short form, with each connection's protocol, outcome and path events. They
+  never hold a code, nonce, token or secret.
+- **It needs no root, and no port opened to it.** It listens on no TCP port, and a relay needs
+  nothing incoming. If a firewall asks whether to let it take incoming connections, either answer
+  works: on the mini, a direct path still formed with them blocked.
+
+### On the mini (macOS)
+
+- `install-mini.sh` runs it as the launchd job `com.kleio.host.link`.
+- `deploy-mini.sh` builds it for Apple silicon and copies it to `~/kleio-host/bin/`.
+- [packages/kleio-host/README.md](../kleio-host/README.md#install-on-the-mini) has the details.
+
+### On Linux
+
+kleio-host has no Linux installer yet. These steps are for kleio-link-host only, next to a
+kleio-host that already runs there as your user.
+
+1. **Build it.** You need Rust 1.91 or later and a C compiler (`build-essential` on Debian and
+   Ubuntu):
+
+   ```sh
+   cd packages/kleio-link
+   cargo build --release --locked --features host --bin kleio-link-host
+   install -D -m 0755 target/release/kleio-link-host ~/kleio-host/bin/kleio-link-host
+   ```
+
+   `~/kleio-host/bin/` is where the unit runs it from. `kleio-host pair` finds it there when
+   kleio-host's `dist/` is in `~/kleio-host`, as on the mini. Otherwise, set `KLEIO_LINK_HOST_BIN`
+   to its path wherever you run `kleio-host pair`.
+
+2. **Start kleio-host,** so the key and the secret exist: `kleio-host init` once, then
+   `kleio-host serve`.
+
+3. **Install the systemd user unit** (`contrib/kleio-link.service`) and start it:
+
+   ```sh
+   install -D -m 0644 contrib/kleio-link.service ~/.config/systemd/user/kleio-link.service
+   systemctl --user daemon-reload
+   systemctl --user enable --now kleio-link.service
+   journalctl --user -u kleio-link.service -f   # its log
+   ```
+
+4. **Match kleio-host's settings.** If kleio-host runs with `KLEIO_HOST_HOME`, `XDG_STATE_HOME` or
+   `KLEIO_LINK_PORT` set, give the unit the same folder and port. Run
+   `systemctl --user edit kleio-link.service`, then add:
+
+   ```ini
+   [Service]
+   Environment=KLEIO_HOST_HOME=/srv/kleio/host
+   Environment=KLEIO_LINK_PORT=8445
+   ```
+
+   Here `KLEIO_HOST_HOME` is the state folder itself. With `XDG_STATE_HOME`, that's
+   `$XDG_STATE_HOME/kleio/host`.
+
+5. **On a server nobody logs in to,** run `loginctl enable-linger` once. Then your user's services
+   start at boot and keep running after you log out. Some systems ask for an administrator's
+   password.
+
+`kleio-host status` then shows the link on a relay.
+
+### On Windows
+
+There's no Windows installer for kleio-host or the link yet. For now kleio-link-host runs in a
+terminal of its own.
+
+1. **Build it** with Rust 1.91 or later and the MSVC toolchain:
+
+   ```powershell
+   cd packages\kleio-link
+   cargo build --release --locked --features host --bin kleio-link-host
+   ```
+
+   Copy `target\release\kleio-link-host.exe` into `<install>\bin\`, where `<install>` is the
+   folder that holds kleio-host's `dist\`. That's where `kleio-host pair` looks for it;
+   `KLEIO_LINK_HOST_BIN` overrides it.
+
+2. **Start kleio-host first.** `serve` and `sidecar` lock its secrets to your user each time they
+   start. kleio-link-host refuses a key or secret whose ACL lets anyone else in.
+
+3. **Run it** as the same user, and leave the window open:
+
+   ```powershell
+   & "<install>\bin\kleio-link-host.exe" serve
+   ```
+
+   It takes kleio-host's defaults: the state folder `%LOCALAPPDATA%\Kleio\host` (or
+   `KLEIO_HOST_HOME`), and the link listener `127.0.0.1:8445`. If kleio-host runs with others, pass
+   `--state-dir` and `--upstream`.
+
+Signing out stops it.
+
+Neither the unit nor the Windows steps has run on a real Linux or Windows host yet. CI builds and
+tests the crate on both, and runs it end to end with kleio-host.
+
+## Build and test
+
+```sh
+cd packages/kleio-link
+cargo fmt --check
+cargo clippy --locked --all-targets --features host -- -D warnings
+cargo test --locked --features host
+# End to end with the real kleio-host: build it first (pnpm --filter @kleio/host build).
+cargo test --locked --features host --test end_to_end -- --ignored
+```
+
+- **`tests/relayed.rs`** runs with relays in the test process and a stand-in for kleio-host, so it
+  needs no network. It covers pairing (and a used, wrong or expired code), telling a missing relay
+  from a missing host, the codes a stranger and a revoked device get, a revoke within 2 s, the 502,
+  failover, and a relay's rate limit.
+- **`tests/end_to_end.rs`** runs the real kleio-host and kleio-link-host, with a relay and a phone
+  in the test process. CI runs it on Linux, macOS and Windows.
+- **iroh is pinned** (`=1.4.1`), and gg-app's lockfile and this one must agree on iroh's and noq's
+  versions. `node scripts/check-link-locks.mjs` checks that, and CI runs it. Dependabot updates both
+  lockfiles in one group.
