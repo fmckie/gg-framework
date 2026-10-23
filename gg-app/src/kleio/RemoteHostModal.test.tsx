@@ -267,8 +267,12 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     expect(screen.getByText("mac-mini-1")).toBeTruthy();
     expect(screen.getByText("euc1-1.relay.n0.iroh.link.")).toBeTruthy();
     expect(screen.getByText("ABC-DEF")).toBeTruthy();
-    // Nothing pairs until Pair is pressed, and the safe choice has focus.
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
+    // Nothing pairs until Pair is pressed, and the safe choice has focus. The
+    // confirm step focuses it in an effect, which a busy machine can run a
+    // beat after the step shows, so wait for it rather than assume it ran.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" })),
+    );
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_pair", expect.anything());
     fireEvent.change(screen.getByLabelText("This device's name"), { target: { value: "Laptop" } });
     fireEvent.click(screen.getByRole("button", { name: "Pair" }));
