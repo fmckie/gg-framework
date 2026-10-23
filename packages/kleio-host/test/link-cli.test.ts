@@ -1,3 +1,4 @@
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PairedDevice } from "../src/device-registry.js";
 import type { LinkState } from "../src/link.js";
@@ -30,15 +31,16 @@ function device(over: Partial<PairedDevice>): PairedDevice {
   };
 }
 
+// Paths as this OS writes them: on Windows, `/k` resolves to the current drive.
 describe("kleio-link-host's path", () => {
   it("is bin/ beside this install's dist/, never a PATH lookup", () => {
     expect(linkHostBin({}, "darwin", "/Users/k/kleio-host/dist/cli.js")).toEqual({
       ok: true,
-      value: "/Users/k/kleio-host/bin/kleio-link-host",
+      value: resolve("/Users/k/kleio-host/bin/kleio-link-host"),
     });
     expect(linkHostBin({}, "win32", "/k/kleio-host/dist/cli.js")).toEqual({
       ok: true,
-      value: "/k/kleio-host/bin/kleio-link-host.exe",
+      value: resolve("/k/kleio-host/bin/kleio-link-host.exe"),
     });
   });
 
@@ -51,7 +53,7 @@ describe("kleio-link-host's path", () => {
     expect(linkHostBin({ KLEIO_LINK_HOST_BIN: "kleio-link-host" }, "linux", cli).ok).toBe(false);
     expect(linkHostBin({ KLEIO_LINK_HOST_BIN: "" }, "linux", cli)).toEqual({
       ok: true,
-      value: "/k/bin/kleio-link-host",
+      value: resolve("/k/bin/kleio-link-host"),
     });
   });
 });
@@ -59,7 +61,7 @@ describe("kleio-link-host's path", () => {
 describe("why pair has no QR code", () => {
   it("says what to do for each reason", () => {
     expect(noTicketText("link_down", "/s/link")).toContain("kleio-link-host isn't running");
-    expect(noTicketText("config", "/s/link")).toContain("/s/link/config.json");
+    expect(noTicketText("config", "/s/link")).toContain(join("/s/link", "config.json"));
     expect(noTicketText("no_link", "/s/link")).toContain("doesn't serve Kleio's link");
     expect(noTicketText(null, "/s/link")).toContain("couldn't be made");
   });
