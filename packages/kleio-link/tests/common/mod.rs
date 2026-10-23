@@ -9,6 +9,9 @@
 // Each test file uses some of it.
 #![allow(dead_code)]
 
+#[cfg(windows)]
+mod windows_acl;
+
 use std::fs;
 use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -378,40 +381,7 @@ pub fn lock_to_user(path: &Path, folder: bool) {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set");
     }
     #[cfg(windows)]
-    {
-        let rights = if folder { "(OI)(CI)F" } else { "F" };
-        let grant = format!("*{}:{rights}", windows::user_sid());
-        let out = std::process::Command::new(windows::system32("icacls.exe"))
-            .arg(path)
-            .args(["/inheritance:r", "/grant:r", &grant])
-            .output()
-            .expect("icacls runs");
-        assert!(out.status.success(), "icacls {}: {out:?}", path.display());
-    }
-}
-
-#[cfg(windows)]
-mod windows {
-    use std::path::PathBuf;
-    use std::process::Command;
-
-    pub fn system32(program: &str) -> PathBuf {
-        let root = std::env::var_os("SystemRoot").expect("SystemRoot is set");
-        PathBuf::from(root).join("System32").join(program)
-    }
-
-    /// This user's SID, from `whoami /user /fo csv /nh`.
-    pub fn user_sid() -> String {
-        let out = Command::new(system32("whoami.exe"))
-            .args(["/user", "/fo", "csv", "/nh"])
-            .output()
-            .expect("whoami runs");
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        let sid = text.trim().rsplit(',').next().unwrap_or_default();
-        let sid = sid.trim().trim_matches('"').to_string();
-        assert!(sid.starts_with("S-1-"), "whoami said {text:?}");
-        sid
-    }
+    windows_acl::lock(path, folder);
 }
 
 /// What the stand-in for kleio-host's link listener got on one connection.

@@ -529,13 +529,23 @@ mod tests {
         }
     }
 
+    /// A state folder written as an absolute path on this OS: Windows'
+    /// start with a drive.
+    const STATE_DIR: &str = if cfg!(windows) {
+        r"C:\ProgramData\kleio\host"
+    } else {
+        "/srv/kleio/host"
+    };
+
     #[test]
     fn reads_each_command() {
         let n0 = "https://euc1-1.relay.n0.iroh.link./";
         assert_eq!(parse_line("serve"), Ok(serve(None, "127.0.0.1:8445", None)));
         assert_eq!(
-            parse_line("serve --state-dir /srv/kleio/host --upstream 127.0.0.1:9445"),
-            Ok(serve(Some("/srv/kleio/host"), "127.0.0.1:9445", None))
+            parse_line(&format!(
+                "serve --state-dir {STATE_DIR} --upstream 127.0.0.1:9445"
+            )),
+            Ok(serve(Some(STATE_DIR), "127.0.0.1:9445", None))
         );
         assert_eq!(
             parse_line(&format!("serve --relay={n0} --upstream [::1]:8445")),
@@ -545,9 +555,9 @@ mod tests {
         assert_eq!(parse_line("qr --color"), Ok(Command::Qr { color: true }));
         assert_eq!(parse_line("id"), Ok(Command::Id { state_dir: None }));
         assert_eq!(
-            parse_line("id --state-dir /srv/kleio/host"),
+            parse_line(&format!("id --state-dir {STATE_DIR}")),
             Ok(Command::Id {
-                state_dir: Some("/srv/kleio/host".into())
+                state_dir: Some(STATE_DIR.into())
             })
         );
         assert_eq!(
@@ -650,7 +660,9 @@ mod tests {
 
     /// contrib/kleio-link.service, the Linux user unit, runs a `serve` this
     /// takes: by default with kleio-host's state folder and link listener, and
-    /// from where `kleio-host pair` looks for kleio-link-host.
+    /// from where `kleio-host pair` looks for kleio-link-host. Not on
+    /// Windows, where its paths aren't absolute.
+    #[cfg(unix)]
     #[test]
     fn the_systemd_unit_runs_a_serve_it_takes() {
         let unit = include_str!("../../contrib/kleio-link.service");
