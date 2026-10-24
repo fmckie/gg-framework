@@ -84,6 +84,9 @@ const fakeApns: ApnsPusher = {
     nudges.push({ ...nudge, devices: targets });
     return targets.length;
   },
+  async pairing() {
+    return 0;
+  },
   async liveActivity() {
     return "ok";
   },

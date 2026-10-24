@@ -8,9 +8,10 @@
 // six-character code. A ticket the phone would refuse is never drawn.
 //
 // `readTicket` is the reading side, for a scanned or pasted ticket. A v2
-// ticket fills the pairing form; a v3 ticket (the connection prototype's
-// Kleio link: the host's key, its relay and the code) goes to the link's
-// confirm step, where Rust's check of it (packages/kleio-link) decides.
+// ticket fills the pairing form; a v4 ticket (Kleio's link: the host's name,
+// key, relays, addresses and the code) goes to the link's confirm step, where
+// Rust's check of it (packages/kleio-link, ticket.rs) decides. So do v3 (the
+// connection prototype's) and later versions, which that check names.
 
 export type TicketResult = { ok: true; value: string } | { ok: false; error: string };
 
@@ -18,8 +19,8 @@ export type TicketResult = { ok: true; value: string } | { ok: false; error: str
 export type TicketRoute =
   /** Fill the pairing form with these. */
   | { kind: "v2"; baseUrl: string; code: string }
-  /** Show the link's confirm step for this ticket. */
-  | { kind: "v3"; ticket: string }
+  /** Show the link's confirm step for this ticket, once Rust has checked it. */
+  | { kind: "link"; ticket: string }
   | { kind: "invalid"; error: string };
 
 /** What anything that isn't a ticket gets, and it fills nothing. */
@@ -28,7 +29,9 @@ export const NOT_A_TICKET = "That isn't a Kleio pairing code.";
 const MAX_HOSTNAME = 253;
 const HOSTNAME = /^[A-Za-z0-9.-]+$/;
 /** The link's own cap on a ticket (MAX_TICKET_BYTES in ticket.rs). */
-const MAX_TICKET_BYTES = 1024;
+const MAX_TICKET_BYTES = 512;
+/** The first link ticket version: the connection prototype's. */
+const FIRST_LINK_VERSION = 3;
 /** `ABC-DEF` in the host's pair alphabet, which leaves out I, L, O and U. */
 const PAIR_CODE = /^[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}$/;
 const V2_FIELDS = "baseUrl,code,type,v";
@@ -80,8 +83,9 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 /**
  * Where a scanned or pasted ticket leads. A v2 ticket must be exactly what
  * `pairTicket` writes: its four fields, an https tailnet address with nothing
- * but a port, and `ABC-DEF` in the pair alphabet. A v3 ticket is passed on
- * whole, for Rust to check. Anything else is refused and fills nothing.
+ * but a port, and `ABC-DEF` in the pair alphabet. A link ticket, v3 or later,
+ * is passed on whole, for Rust to check. Anything else is refused and fills
+ * nothing.
  */
 export function readTicket(text: string): TicketRoute {
   const invalid: TicketRoute = { kind: "invalid", error: NOT_A_TICKET };
@@ -94,7 +98,13 @@ export function readTicket(text: string): TicketRoute {
     return invalid;
   }
   if (!isRecord(parsed) || parsed.type !== "kleio-pair") return invalid;
-  if (parsed.v === 3) return { kind: "v3", ticket: raw };
+  if (
+    typeof parsed.v === "number" &&
+    Number.isInteger(parsed.v) &&
+    parsed.v >= FIRST_LINK_VERSION
+  ) {
+    return { kind: "link", ticket: raw };
+  }
   if (parsed.v !== 2 || Object.keys(parsed).sort().join(",") !== V2_FIELDS) return invalid;
   const { baseUrl, code } = parsed;
   if (typeof baseUrl !== "string" || typeof code !== "string" || !PAIR_CODE.test(code)) {

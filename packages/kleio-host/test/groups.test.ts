@@ -52,6 +52,9 @@ const fakeApns: ApnsPusher = {
     nudges.push({ ...nudge, devices: targets });
     return targets.length;
   },
+  async pairing() {
+    return 0;
+  },
   async liveActivity(target, push) {
     lives.push({
       event: push.event,

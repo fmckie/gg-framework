@@ -1,6 +1,6 @@
 /**
  * Sandbox helpers for scripts that run the real Kleio host and sidecar on this
- * machine (dev-host.mjs): a spare loopback port, the environment the host and
+ * machine (dev-host.mjs): spare loopback ports, the environment the host and
  * sidecar run with, the guard that keeps every path they write inside one
  * throwaway folder, and a fingerprint of the real Kleio folders to compare
  * before and after. For `dev-host.mjs --app`, also the desktop app's
@@ -29,6 +29,7 @@ const SANDBOX_KLEIO_KEYS = Object.freeze([
   "KLEIO_HOST_PORT",
   "KLEIO_PUBLIC_URL",
   "KLEIO_PREVIEW_PORT",
+  "KLEIO_LINK_PORT",
   "KLEIO_SIDECAR_PATH",
   "KLEIO_NODE_BIN",
 ]);
@@ -68,14 +69,20 @@ export function freePort() {
   });
 }
 
-/** Two different spare loopback ports: the API's and the site previews'. */
+/**
+ * Three different spare loopback ports: the API's, the site previews' and the
+ * link listener's. Without its own, a sandboxed `serve` takes the link
+ * listener's fixed 8445, as a real host on this machine does.
+ */
 export async function freePorts() {
-  const api = await freePort();
-  for (let tries = 0; tries < 10; tries += 1) {
-    const preview = await freePort();
-    if (preview !== api) return { api, preview };
+  const ports = [];
+  for (let tries = 0; tries < 30 && ports.length < 3; tries += 1) {
+    const port = await freePort();
+    if (!ports.includes(port)) ports.push(port);
   }
-  throw new Error("could not find two spare loopback ports");
+  const [api, preview, link] = ports;
+  if (link === undefined) throw new Error("could not find three spare loopback ports");
+  return { api, preview, link };
 }
 
 /**
@@ -191,6 +198,7 @@ function outsideKeyProblems(env, allowed) {
  *   paths (symlinks resolved), ignoring case.
  * - Each of those paths must be set, absolute, free of "..", and inside the
  *   sandbox.
+ * - The API, preview and link ports must be set, and all different.
  * - The host's public URL must be http://127.0.0.1:<its port>: loopback HTTP.
  * - No KLEIO_* setting beyond the sandbox's own, no GG_*, no NODE_OPTIONS.
  *
@@ -202,6 +210,10 @@ export function sandboxProblems({ sandbox, env, realHome }) {
   if (!isPort(port)) problems.push(`KLEIO_HOST_PORT=${port} is not a port`);
   if (!isPort(env.KLEIO_PREVIEW_PORT) || env.KLEIO_PREVIEW_PORT === port) {
     problems.push(`KLEIO_PREVIEW_PORT=${env.KLEIO_PREVIEW_PORT} is not a second port`);
+  }
+  const link = env.KLEIO_LINK_PORT;
+  if (!isPort(link) || link === port || link === env.KLEIO_PREVIEW_PORT) {
+    problems.push(`KLEIO_LINK_PORT=${link} is not a third port`);
   }
   if (env.KLEIO_PUBLIC_URL !== `http://127.0.0.1:${port}`) {
     problems.push(`KLEIO_PUBLIC_URL=${env.KLEIO_PUBLIC_URL} is not http://127.0.0.1:${port}`);
@@ -266,9 +278,17 @@ export function keychainPathProblems({ path, sandboxHome, realHome }) {
 /**
  * The host's and sidecar's environment: this shell's, minus anything in
  * fromShellOnly, plus a home, state folder, Kleio folder, projects folder,
- * settings file and working folder inside `sandbox`, and two loopback ports.
+ * settings file and working folder inside `sandbox`, and three loopback ports.
  */
-export function sandboxEnv({ sandbox, baseEnv, apiPort, previewPort, sidecarPath, nodeBin }) {
+export function sandboxEnv({
+  sandbox,
+  baseEnv,
+  apiPort,
+  previewPort,
+  linkPort,
+  sidecarPath,
+  nodeBin,
+}) {
   const home = join(sandbox, "home");
   const inherited = Object.fromEntries(
     Object.entries(baseEnv).filter(([key]) => !fromShellOnly(key)),
@@ -281,6 +301,7 @@ export function sandboxEnv({ sandbox, baseEnv, apiPort, previewPort, sidecarPath
     KLEIO_HOST_PORT: String(apiPort),
     KLEIO_PUBLIC_URL: `http://127.0.0.1:${apiPort}`,
     KLEIO_PREVIEW_PORT: String(previewPort),
+    KLEIO_LINK_PORT: String(linkPort),
     KLEIO_HOME_CWD: join(sandbox, "Kleio"),
     KLEIO_PROJECTS_DIR: join(sandbox, "projects"),
     KLEIO_SETTINGS_FILE: join(home, ".gg", "kleio-app.json"),

@@ -1,34 +1,63 @@
-//! The v3 pairing ticket: what the Kleio iPhone app reads from a QR code to
-//! pair over the link.
+//! The v4 pairing ticket: what a pairing QR code carries, as kleio-host's
+//! `buildTicket` writes it (packages/kleio-host/src/link.ts).
 //!
 //! ```text
-//! {"v":3,"type":"kleio-pair","key":"<64 hex>","relay":"https://<relay>/","code":"ABC-DEF"}
+//! {"v":4,"type":"kleio-pair","name":"mac-mini-1","key":"<64 hex>",
+//!  "relays":["https://euc1-1.relay.n0.iroh.link./","n0"],
+//!  "addrs":["192.168.1.20:52043"],"code":"ABC-DEF"}
 //! ```
 //!
+//! - `relays` starts with the relay the host is on now, which pairing goes
+//!   through, and goes on with the host's relay list, where `n0` stands for
+//!   n0's relays (crate::relays): up to [`MAX_RELAYS`] entries.
+//! - `addrs` holds up to [`MAX_TICKET_ADDRS`] of the host's direct addresses.
+//!
 //! Anyone can print a QR code, so a ticket is untrusted input. The check is
-//! offline: nothing is dialled until the person confirms the key, relay and
-//! code it shows. It allows exactly these five fields in a JSON object, and
-//! each only in the one form `kleio-link-host qr` writes, so what the confirm
-//! step shows is what the phone dials. Like v2, a ticket never carries a
-//! token: the code is single-use and expires in five minutes, and kleio-host
-//! still decides by code, expiry and the five tries.
+//! offline: nothing is dialled until the person confirms what it shows. It
+//! takes exactly these seven fields in a JSON object, each only in the one
+//! form kleio-host writes, so what the confirm step shows is what the phone
+//! dials. Like v2, a ticket never carries a token: the code is single-use and
+//! expires in five minutes, and kleio-host still decides by code, expiry and
+//! the five tries. tests/fixtures/tickets.json holds the test vectors
+//! kleio-host's and the app's tests share.
 
+use std::collections::BTreeSet;
 use std::fmt;
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 use iroh::{EndpointId, RelayUrl};
 use serde::{Deserialize, Serialize};
 
-/// The version this module reads. v2 is today's Tailscale ticket, which goes
-/// to today's pairing form instead.
-pub const TICKET_VERSION: u64 = 3;
+use crate::relays::{check_relay_list, RelayEntry, MAX_RELAYS};
 
-/// The `type` of every Kleio pairing ticket, v2 and v3.
+/// The version this module reads.
+pub const TICKET_VERSION: u64 = 4;
+
+/// The Tailscale pairing ticket's version (gg-app/src/kleio/pairTicket.ts),
+/// which the pairing form reads, not this.
+pub const TAILSCALE_TICKET_VERSION: u64 = 2;
+
+/// The version the connection prototype's test build wrote.
+pub const PROTOTYPE_TICKET_VERSION: u64 = 3;
+
+/// The `type` of every Kleio pairing ticket.
 pub const TICKET_TYPE: &str = "kleio-pair";
 
-/// A real ticket is about 165 bytes. Anything longer than this is refused
-/// before it is parsed.
-pub const MAX_TICKET_BYTES: usize = 1024;
+/// kleio-host's `MAX_TICKET_BYTES`. Anything longer is refused before it is
+/// parsed. The default ticket is under 300 bytes, for an 80-column
+/// terminal's QR code.
+pub const MAX_TICKET_BYTES: usize = 512;
+
+/// Direct addresses in a ticket (`MAX_TICKET_ADDRS`).
+pub const MAX_TICKET_ADDRS: usize = 2;
+
+/// The longest host name, in UTF-8 bytes (`MAX_NAME_BYTES`).
+pub const MAX_NAME_BYTES: usize = 32;
+
+/// Hex characters of the host key the confirm step shows: iroh's
+/// `fmt_short`, as `kleio-host status` and kleio-link-host's log write it.
+pub const KEY_PREFIX_LENGTH: usize = 10;
 
 /// The host's pair alphabet, Crockford base32 (`PAIR_CODE_ALPHABET` in
 /// packages/kleio-host/src/pair-code.ts).
@@ -45,62 +74,76 @@ const CODE_HALF: usize = PAIR_CODE_LENGTH / 2;
 pub enum TicketError {
     /// Longer than [`MAX_TICKET_BYTES`].
     TooLong,
-    /// Not a JSON object with a whole-number `v` and the `type` `kleio-pair`.
+    /// Not a JSON object with a whole-number `v` and the `type` `kleio-pair`,
+    /// or a version no Kleio wrote.
     NotKleio,
-    /// A Kleio ticket of another version. v2 is today's Tailscale ticket.
-    Version(u64),
-    /// A v3 ticket with a field missing, added, repeated or of the wrong type.
+    /// A v2 ticket. A whole one goes to the Tailscale pairing form, so one
+    /// here is one the form refused.
+    Tailscale,
+    /// A v3 ticket, from the connection prototype's test build.
+    Prototype,
+    /// A version newer than this build reads.
+    Newer(u64),
+    /// A v4 ticket with a field missing, added, repeated or of the wrong type.
     Fields,
+    /// `name` isn't 1 to 32 bytes of text as kleio-host's `ticketName` leaves
+    /// it.
+    Name,
     /// `key` isn't 64 lowercase hex characters naming an Ed25519 public key.
     Key,
-    /// `relay` isn't `https://<host>/` with nothing else, written as a URL
-    /// parser writes it.
-    Relay,
+    /// `relays` isn't 1 to 4 relay addresses or `n0`, none twice, with the
+    /// relay the host is on first.
+    Relays,
+    /// `addrs` isn't up to two direct addresses, none twice.
+    Addrs,
     /// `code` isn't `ABC-DEF`, from the pair alphabet.
     Code,
 }
 
 impl fmt::Display for TicketError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const AGAIN: &str = "Show a new one on your host and scan that.";
         match self {
             Self::TooLong => f.write_str("This QR code is too long to be a Kleio pairing code."),
-            Self::NotKleio => f.write_str("This QR code isn't a Kleio pairing code."),
-            Self::Version(v) => write!(
-                f,
-                "This QR code is a version {v} Kleio pairing code; this build reads version {TICKET_VERSION}."
+            Self::NotKleio => f.write_str("That isn't a Kleio pairing code."),
+            Self::Tailscale => f.write_str(
+                "This QR code says it's a Tailscale pairing code, but it's incomplete. Show a new one on your host.",
             ),
-            Self::Fields => f.write_str("This QR code has missing or extra fields."),
-            Self::Key => f.write_str("This QR code's host key isn't valid."),
-            Self::Relay => f.write_str("This QR code's relay address isn't valid."),
-            Self::Code => f.write_str("This QR code's pair code isn't valid."),
+            Self::Prototype => f.write_str(
+                "This QR code comes from a test build of Kleio's link. Update Kleio on your host, then show a new QR code and scan that.",
+            ),
+            Self::Newer(_) => f.write_str(
+                "This QR code comes from a newer Kleio. Update Kleio on this device, then scan it again.",
+            ),
+            Self::Fields => write!(f, "This QR code has parts missing or added. {AGAIN}"),
+            Self::Name => write!(f, "This QR code's host name isn't valid. {AGAIN}"),
+            Self::Key => write!(f, "This QR code's host key isn't valid. {AGAIN}"),
+            Self::Relays => write!(f, "This QR code's relays aren't valid. {AGAIN}"),
+            Self::Addrs => write!(f, "This QR code's host addresses aren't valid. {AGAIN}"),
+            Self::Code => write!(f, "This QR code's pair code isn't valid. {AGAIN}"),
         }
     }
 }
 
 impl std::error::Error for TicketError {}
 
-/// A ticket that passed the check: the host's key, the relay it is reached
-/// through, and the pair code in its display form (`ABC-DEF`).
+/// A ticket that passed the check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ticket {
+    name: String,
     key: EndpointId,
+    /// `relays[0]`: the relay the host was on, which pairing goes through.
     relay: RelayUrl,
+    relays: Vec<RelayEntry>,
+    addrs: Vec<SocketAddr>,
     code: String,
 }
 
 impl Ticket {
-    /// The ticket `kleio-link-host qr` prints. `code` is what the person typed
-    /// from `kleio-host pair`, folded as kleio-host folds it. The relay gets
-    /// the same check a scanned ticket does, so no ticket the phone would
-    /// refuse is ever drawn.
-    pub fn new(key: EndpointId, relay: &RelayUrl, code: &str) -> Result<Self, TicketError> {
-        let relay = check_relay(relay.as_str())?;
-        let code = normalize_pair_code(code).ok_or(TicketError::Code)?;
-        Ok(Self {
-            key,
-            relay,
-            code: format!("{}-{}", &code[..CODE_HALF], &code[CODE_HALF..]),
-        })
+    /// What the host calls itself. Anyone can write any name in a QR code,
+    /// so it's a label, not a check.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The host's key: the phone dials this, and iroh's handshake proves it.
@@ -108,9 +151,25 @@ impl Ticket {
         self.key
     }
 
-    /// The relay the host is reached through.
+    /// The relay the host was on when it made the ticket: pairing goes
+    /// through it, and only it.
     pub fn relay(&self) -> &RelayUrl {
         &self.relay
+    }
+
+    /// Every entry of `relays`, [`relay`](Self::relay) first.
+    pub fn relays(&self) -> &[RelayEntry] {
+        &self.relays
+    }
+
+    /// Whether the relay list names n0's relays.
+    pub fn names_n0(&self) -> bool {
+        self.relays.contains(&RelayEntry::N0)
+    }
+
+    /// The host's direct addresses, best first.
+    pub fn addrs(&self) -> &[SocketAddr] {
+        &self.addrs
     }
 
     /// The pair code, `ABC-DEF`.
@@ -118,24 +177,27 @@ impl Ticket {
         &self.code
     }
 
-    /// The host key's first 8 characters, for the confirm step.
+    /// The host key's first [`KEY_PREFIX_LENGTH`] characters, for the confirm
+    /// step.
     pub fn key_prefix(&self) -> String {
-        self.key.to_string()[..8].to_string()
+        self.key.to_string()[..KEY_PREFIX_LENGTH].to_string()
     }
 
-    /// The relay's host name, for the confirm step.
+    /// The pairing relay's host name, for the confirm step.
     pub fn relay_host(&self) -> &str {
         // The check requires a host, so this is never empty.
         self.relay.host_str().unwrap_or_default()
     }
 
-    /// The ticket as JSON, fields in the order above.
+    /// The ticket as JSON, as kleio-host writes it, byte for byte.
     pub fn to_json(&self) -> String {
         let wire = WireOut {
             v: TICKET_VERSION,
             kind: TICKET_TYPE,
+            name: &self.name,
             key: self.key.to_string(),
-            relay: self.relay.as_str(),
+            relays: self.relays.iter().map(RelayEntry::as_str).collect(),
+            addrs: self.addrs.iter().map(ToString::to_string).collect(),
             code: &self.code,
         };
         serde_json::to_string(&wire).expect("a ticket of strings and a number serializes")
@@ -154,45 +216,30 @@ impl FromStr for Ticket {
         if !s.trim_start().starts_with('{') {
             return Err(TicketError::NotKleio);
         }
-        // The version and type first, so a v2 ticket is told apart from a
-        // broken v3 one. serde refuses a repeated `v` or `type` here.
+        // The version and type first, so other versions are told apart from
+        // a broken v4. serde refuses a repeated `v` or `type` here.
         let header: Header = serde_json::from_str(s).map_err(|_| TicketError::NotKleio)?;
         if header.kind != TICKET_TYPE {
             return Err(TicketError::NotKleio);
         }
-        if header.v != TICKET_VERSION {
-            return Err(TicketError::Version(header.v));
+        match header.v {
+            TICKET_VERSION => {}
+            PROTOTYPE_TICKET_VERSION => return Err(TicketError::Prototype),
+            TAILSCALE_TICKET_VERSION => return Err(TicketError::Tailscale),
+            v if v > TICKET_VERSION => return Err(TicketError::Newer(v)),
+            _ => return Err(TicketError::NotKleio),
         }
         let wire: WireIn = serde_json::from_str(s).map_err(|_| TicketError::Fields)?;
+        let (relay, relays) = check_relays(&wire.relays)?;
         Ok(Self {
+            name: check_name(&wire.name)?,
             key: check_key(&wire.key)?,
-            relay: check_relay(&wire.relay)?,
+            relay,
+            relays,
+            addrs: check_addrs(&wire.addrs)?,
             code: check_code(&wire.code)?,
         })
     }
-}
-
-/// Fold what a person typed into the six-character code, as kleio-host's
-/// `normalizePairCode` does: spaces and dashes go, letters are uppercased, and
-/// I, L and O, which the alphabet leaves out, become 1, 1 and 0. `None` unless
-/// that leaves exactly six characters from the alphabet.
-pub fn normalize_pair_code(raw: &str) -> Option<String> {
-    let mut out = String::with_capacity(PAIR_CODE_LENGTH);
-    for ch in raw.chars() {
-        if ch.is_whitespace() || ch == '-' {
-            continue;
-        }
-        let ch = match ch.to_ascii_uppercase() {
-            'I' | 'L' => '1',
-            'O' => '0',
-            other => other,
-        };
-        if !PAIR_CODE_ALPHABET.contains(ch) || out.len() == PAIR_CODE_LENGTH {
-            return None;
-        }
-        out.push(ch);
-    }
-    (out.len() == PAIR_CODE_LENGTH).then_some(out)
 }
 
 /// The fields every ticket version shares. Others are ignored here.
@@ -203,7 +250,7 @@ struct Header {
     kind: String,
 }
 
-/// A v3 ticket as read: exactly five fields, each once.
+/// A v4 ticket as read: exactly seven fields, each once.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireIn {
@@ -213,20 +260,70 @@ struct WireIn {
     #[serde(rename = "type")]
     #[allow(dead_code)]
     kind: String,
+    name: String,
     key: String,
-    relay: String,
+    relays: Vec<String>,
+    addrs: Vec<String>,
     code: String,
 }
 
-/// A v3 ticket as written.
+/// A v4 ticket as written: the fields in `buildTicket`'s order.
 #[derive(Serialize)]
 struct WireOut<'a> {
     v: u64,
     #[serde(rename = "type")]
     kind: &'a str,
+    name: &'a str,
     key: String,
-    relay: &'a str,
+    relays: Vec<&'a str>,
+    addrs: Vec<String>,
     code: &'a str,
+}
+
+/// 1 to [`MAX_NAME_BYTES`] bytes, exactly as kleio-host's `ticketName` leaves
+/// a name: no control or format characters (bidi overrides and zero-width
+/// characters among them, which could make a name read other than it is), no
+/// space but U+0020, and none at either end or two together.
+fn check_name(s: &str) -> Result<String, TicketError> {
+    let fits = !s.is_empty() && s.len() <= MAX_NAME_BYTES;
+    let clean = s
+        .chars()
+        .all(|c| !c.is_control() && !is_format(c) && (c == ' ' || !c.is_whitespace()));
+    let spaced = !s.starts_with(' ') && !s.ends_with(' ') && !s.contains("  ");
+    if fits && clean && spaced {
+        Ok(s.to_string())
+    } else {
+        Err(TicketError::Name)
+    }
+}
+
+/// Unicode's format characters (general category Cf, Unicode 15.1), which
+/// `ticketName` takes out with `\p{Cf}`.
+fn is_format(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F
+    )
 }
 
 /// 64 lowercase hex characters, then iroh's own parse, which also refuses
@@ -240,27 +337,53 @@ fn check_key(s: &str) -> Result<EndpointId, TicketError> {
     EndpointId::from_str(s).map_err(|_| TicketError::Key)
 }
 
-/// `https://<host>/` and nothing else: no user, password, port, path, query
-/// or fragment. It must also be exactly how the URL parser writes it, so the
-/// relay host the confirm step shows is the one dialled (no case, escapes or
-/// non-ASCII names that read one way and parse another). `kleio-link-host
-/// serve --relay` takes only what this takes, so a pinned relay can always go
-/// in a ticket.
-pub fn check_relay(s: &str) -> Result<RelayUrl, TicketError> {
-    let relay = RelayUrl::from_str(s).map_err(|_| TicketError::Relay)?;
-    let only_a_host = relay.scheme() == "https"
-        && relay.host_str().is_some_and(|h| !h.is_empty())
-        && relay.username().is_empty()
-        && relay.password().is_none()
-        && relay.port().is_none()
-        && relay.path() == "/"
-        && relay.query().is_none()
-        && relay.fragment().is_none();
-    if only_a_host && relay.as_str() == s {
-        Ok(relay)
-    } else {
-        Err(TicketError::Relay)
+/// A relay list (crate::relays), whose first entry is a relay's address.
+fn check_relays(entries: &[String]) -> Result<(RelayUrl, Vec<RelayEntry>), TicketError> {
+    let list = check_relay_list(entries.iter().map(String::as_str)).ok_or(TicketError::Relays)?;
+    debug_assert!(list.len() <= MAX_RELAYS);
+    match list.first() {
+        Some(RelayEntry::Url(relay)) => Ok((relay.clone(), list.clone())),
+        _ => Err(TicketError::Relays),
     }
+}
+
+/// Up to [`MAX_TICKET_ADDRS`] direct addresses, none twice.
+fn check_addrs(addrs: &[String]) -> Result<Vec<SocketAddr>, TicketError> {
+    if addrs.len() > MAX_TICKET_ADDRS {
+        return Err(TicketError::Addrs);
+    }
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::with_capacity(addrs.len());
+    for text in addrs {
+        let addr = check_direct_addr(text).ok_or(TicketError::Addrs)?;
+        if !seen.insert(addr) {
+            return Err(TicketError::Addrs);
+        }
+        out.push(addr);
+    }
+    Ok(out)
+}
+
+/// A direct address as kleio-host's `isDirectAddr` takes one: written exactly
+/// as Rust writes it (`192.0.2.1:7842`, `[2001:db8::1]:7842`), with a port,
+/// and one a phone could use: not loopback, unspecified or `0.x.x.x`, and no
+/// IPv6 zone.
+pub fn check_direct_addr(s: &str) -> Option<SocketAddr> {
+    let addr = SocketAddr::from_str(s).ok()?;
+    if addr.to_string() != s || addr.port() == 0 {
+        return None;
+    }
+    let usable = match addr {
+        SocketAddr::V4(v4) => {
+            let ip = v4.ip();
+            !ip.is_loopback() && ip.octets()[0] != 0
+        }
+        SocketAddr::V6(v6) => {
+            let ip = v6.ip();
+            !ip.is_loopback() && !ip.is_unspecified() && v6.scope_id() == 0 && v6.flowinfo() == 0
+        }
+    };
+    usable.then_some(addr)
 }
 
 /// `ABC-DEF` exactly: three alphabet characters, a dash, three more.
@@ -300,10 +423,12 @@ mod tests {
 
     fn good() -> Value {
         json!({
-            "v": 3,
+            "v": 4,
             "type": "kleio-pair",
+            "name": "mac-mini-1",
             "key": host_key().to_string(),
-            "relay": RELAY,
+            "relays": [RELAY, "n0"],
+            "addrs": ["192.168.1.20:52043"],
             "code": "ABC-DEF",
         })
     }
@@ -326,60 +451,108 @@ mod tests {
         s.parse()
     }
 
-    #[test]
-    fn reads_a_good_ticket() {
-        let ticket = parse(&good().to_string()).unwrap();
-        assert_eq!(ticket.key(), host_key());
-        assert_eq!(ticket.relay().as_str(), RELAY);
-        assert_eq!(ticket.code(), "ABC-DEF");
-        assert_eq!(ticket.key_prefix(), host_key().to_string()[..8]);
-        assert_eq!(ticket.relay_host(), "euc1-1.relay.n0.iroh.link.");
+    /// The vectors kleio-host's `buildTicket` makes (its tests check that).
+    fn vectors() -> Vec<Value> {
+        let file: Value = serde_json::from_str(include_str!("../tests/fixtures/tickets.json"))
+            .expect("the vectors are JSON");
+        file["good"].as_array().expect("good vectors").clone()
     }
 
     #[test]
-    fn writes_what_it_reads() {
-        let relay: RelayUrl = RELAY.parse().unwrap();
-        let ticket = Ticket::new(host_key(), &relay, " abc def ").unwrap();
-        assert_eq!(ticket.code(), "ABC-DEF");
-        let written = ticket.to_json();
-        assert!(written.starts_with(r#"{"v":3,"type":"kleio-pair","key":""#));
-        assert_eq!(parse(&written).unwrap(), ticket);
-        assert!(written.len() < 200, "{} bytes: {written}", written.len());
-    }
-
-    #[test]
-    fn never_writes_a_ticket_it_would_refuse() {
-        let http: RelayUrl = "http://euc1-1.relay.n0.iroh.link./".parse().unwrap();
-        assert_eq!(
-            Ticket::new(host_key(), &http, "ABC-DEF"),
-            Err(TicketError::Relay)
-        );
-        let relay: RelayUrl = RELAY.parse().unwrap();
-        for code in ["ABC-DE", "ABC-DEFG", "ABC-DEU", "", "ABC-DÉF"] {
+    fn reads_every_ticket_kleio_host_writes_as_it_was_built() {
+        let vectors = vectors();
+        assert!(vectors.len() >= 6, "{} vectors", vectors.len());
+        for vector in vectors {
+            let about = vector["about"].as_str().expect("about");
+            let text = vector["ticket"].as_str().expect("a ticket");
+            let build = &vector["build"];
+            let ticket = parse(text).unwrap_or_else(|err| panic!("{about}: {err:?}"));
             assert_eq!(
-                Ticket::new(host_key(), &relay, code),
-                Err(TicketError::Code),
-                "{code:?}"
+                ticket.to_json(),
+                text,
+                "{about}: writes it back byte for byte"
+            );
+            assert_eq!(ticket.name(), build["name"], "{about}");
+            assert_eq!(ticket.key().to_string(), build["key"], "{about}");
+            assert_eq!(ticket.relay().as_str(), build["relay"], "{about}");
+            // The relay it's on, then the list, each once, at most four.
+            let mut expected: Vec<&str> = vec![build["relay"].as_str().expect("relay")];
+            for entry in build["relays"].as_array().expect("relays") {
+                let entry = entry.as_str().expect("an entry");
+                if !expected.contains(&entry) {
+                    expected.push(entry);
+                }
+            }
+            expected.truncate(MAX_RELAYS);
+            let relays: Vec<&str> = ticket.relays().iter().map(RelayEntry::as_str).collect();
+            assert_eq!(relays, expected, "{about}");
+            assert_eq!(
+                ticket.names_n0(),
+                expected.contains(&"n0"),
+                "{about}: names n0"
+            );
+            let addrs: Vec<String> = ticket.addrs().iter().map(ToString::to_string).collect();
+            assert_eq!(Value::from(addrs), build["addrs"], "{about}");
+            let code: String = build["code"]
+                .as_str()
+                .expect("code")
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .map(|c| c.to_ascii_uppercase())
+                .collect();
+            assert_eq!(
+                ticket.code(),
+                format!("{}-{}", &code[..3], &code[3..]),
+                "{about}"
             );
         }
+    }
+
+    #[test]
+    fn the_default_ticket_fits_an_80_column_terminals_qr_code() {
+        let longest = vectors()
+            .into_iter()
+            .find(|v| {
+                v["about"]
+                    .as_str()
+                    .is_some_and(|a| a.starts_with("the longest default"))
+            })
+            .expect("the longest default vector");
+        assert!(longest["ticket"].as_str().expect("a ticket").len() < 300);
+    }
+
+    #[test]
+    fn shows_what_the_confirm_step_needs() {
+        let ticket = parse(&good().to_string()).unwrap();
+        assert_eq!(ticket.name(), "mac-mini-1");
+        assert_eq!(ticket.key(), host_key());
+        assert_eq!(ticket.key_prefix(), host_key().fmt_short().to_string());
+        assert_eq!(ticket.key_prefix().len(), KEY_PREFIX_LENGTH);
+        assert_eq!(ticket.relay().as_str(), RELAY);
+        assert_eq!(ticket.relay_host(), "euc1-1.relay.n0.iroh.link.");
+        assert_eq!(ticket.code(), "ABC-DEF");
+        assert!(ticket.names_n0());
+        let own = with("relays", json!(["https://relay.example.com/"]));
+        assert!(!parse(&own).unwrap().names_n0());
     }
 
     #[test]
     fn refuses_a_ticket_too_long_to_be_real() {
         let padded = format!("{}{}", good(), " ".repeat(MAX_TICKET_BYTES));
         assert_eq!(parse(&padded), Err(TicketError::TooLong));
+        let long_name = with("name", json!("x".repeat(MAX_TICKET_BYTES)));
+        assert_eq!(parse(&long_name), Err(TicketError::TooLong));
     }
 
     #[test]
     fn refuses_what_isnt_a_kleio_ticket() {
         let trailing = format!("{}x", good());
-        let key = host_key().to_string();
-        let as_array = format!(r#"[3,"kleio-pair","{key}","{RELAY}","ABC-DEF"]"#);
+        let as_array = format!(r#"[4,"kleio-pair","{}"]"#, host_key());
         for s in [
             "",
             "not json",
             "[]",
-            "3",
+            "4",
             r#""kleio-pair""#,
             "{}",
             trailing.as_str(),
@@ -395,7 +568,7 @@ mod tests {
             json!("kleio-pair2"),
             json!("Kleio-pair"),
             json!(""),
-            json!(3),
+            json!(4),
             Value::Null,
         ] {
             assert_eq!(
@@ -409,16 +582,26 @@ mod tests {
 
     #[test]
     fn tells_other_versions_apart() {
-        assert_eq!(parse(&with("v", json!(2))), Err(TicketError::Version(2)));
-        assert_eq!(parse(&with("v", json!(4))), Err(TicketError::Version(4)));
+        assert_eq!(parse(&with("v", json!(2))), Err(TicketError::Tailscale));
+        assert_eq!(parse(&with("v", json!(3))), Err(TicketError::Prototype));
+        assert_eq!(parse(&with("v", json!(5))), Err(TicketError::Newer(5)));
+        for v in [0, 1] {
+            assert_eq!(parse(&with("v", json!(v))), Err(TicketError::NotKleio));
+        }
         // Today's v2 ticket, as gg-app/src/kleio/pairTicket.ts writes it.
         let v2 = r#"{"v":2,"type":"kleio-pair","baseUrl":"https://mini.example.ts.net:8443","code":"ABC-DEF"}"#;
-        assert_eq!(parse(v2), Err(TicketError::Version(2)));
+        assert_eq!(parse(v2), Err(TicketError::Tailscale));
+        // The prototype's v3 ticket.
+        let v3 = format!(
+            r#"{{"v":3,"type":"kleio-pair","key":"{}","relay":"{RELAY}","code":"ABC-DEF"}}"#,
+            host_key()
+        );
+        assert_eq!(parse(&v3), Err(TicketError::Prototype));
     }
 
     #[test]
     fn refuses_a_version_that_isnt_a_whole_number() {
-        for v in [json!("3"), json!(3.0), json!(-3), json!(3.5), Value::Null] {
+        for v in [json!("4"), json!(4.0), json!(-4), json!(4.5), Value::Null] {
             assert_eq!(
                 parse(&with("v", v.clone())),
                 Err(TicketError::NotKleio),
@@ -430,7 +613,7 @@ mod tests {
 
     #[test]
     fn refuses_missing_extra_or_repeated_fields() {
-        for field in ["key", "relay", "code"] {
+        for field in ["name", "key", "relays", "addrs", "code"] {
             assert_eq!(
                 parse(&without(field)),
                 Err(TicketError::Fields),
@@ -442,24 +625,83 @@ mod tests {
                 "{field} as a number"
             );
         }
+        for (field, value) in [
+            ("token", json!("t0k3n")),
+            ("relay", json!(RELAY)),
+            ("baseUrl", json!("https://x.ts.net/")),
+        ] {
+            assert_eq!(
+                parse(&with(field, value)),
+                Err(TicketError::Fields),
+                "{field}"
+            );
+        }
         assert_eq!(
-            parse(&with("token", json!("t0k3n"))),
+            parse(&with("relays", json!([RELAY, 4]))),
             Err(TicketError::Fields)
         );
-        assert_eq!(
-            parse(&with("baseUrl", json!("https://x.ts.net/"))),
-            Err(TicketError::Fields)
-        );
-
-        let key = host_key().to_string();
-        let repeated_code = format!(
-            r#"{{"v":3,"type":"kleio-pair","key":"{key}","relay":"{RELAY}","code":"ABC-DEF","code":"XYZ-123"}}"#
+        let good = good().to_string();
+        let repeated_code = good.replace(
+            r#""code":"ABC-DEF""#,
+            r#""code":"ABC-DEF","code":"XYZ-123""#,
         );
         assert_eq!(parse(&repeated_code), Err(TicketError::Fields));
-        let repeated_v = format!(
-            r#"{{"v":3,"v":3,"type":"kleio-pair","key":"{key}","relay":"{RELAY}","code":"ABC-DEF"}}"#
-        );
+        let repeated_v = good.replace(r#""v":4"#, r#""v":4,"v":4"#);
         assert_eq!(parse(&repeated_v), Err(TicketError::NotKleio));
+    }
+
+    #[test]
+    fn takes_a_name_as_kleio_host_leaves_it() {
+        for name in [
+            "m",
+            "mac-mini-1",
+            "Will’s Mac mini",
+            "Wills-Mac-mini-in-the-office-123",
+            "Café du Kleio",
+            "メインのマック",
+            "🖥️ desk",
+        ] {
+            let ticket =
+                parse(&with("name", json!(name))).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(ticket.name(), name);
+        }
+    }
+
+    #[test]
+    fn refuses_a_name_kleio_host_wouldnt_write() {
+        for name in [
+            String::new(),
+            "x".repeat(MAX_NAME_BYTES + 1),
+            // 33 bytes: eleven three-byte characters.
+            "メ".repeat(11),
+            " mini".into(),
+            "mini ".into(),
+            "mac  mini".into(),
+            "mac\tmini".into(),
+            "mac\nmini".into(),
+            "mac\u{a0}mini".into(),
+            "mac\u{3000}mini".into(),
+            "mac\u{7}mini".into(),
+            "mac\u{85}mini".into(),
+            // Bidi overrides and isolates, zero-width characters and tags.
+            "\u{202e}inim cam".into(),
+            "mac\u{2066}mini\u{2069}".into(),
+            "mac\u{200b}mini".into(),
+            "mac\u{200d}mini".into(),
+            "\u{feff}mini".into(),
+            "mini\u{e0041}".into(),
+            "mac\u{ad}mini".into(),
+        ] {
+            assert_eq!(
+                parse(&with("name", json!(name))),
+                Err(TicketError::Name),
+                "{name:?}"
+            );
+        }
+        assert_eq!(
+            parse(&with("name", json!("x".repeat(MAX_NAME_BYTES)))).map(|t| t.name().len()),
+            Ok(MAX_NAME_BYTES)
+        );
     }
 
     #[test]
@@ -491,40 +733,119 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_bad_relay() {
-        for relay in [
-            "http://euc1-1.relay.n0.iroh.link./",
-            "wss://euc1-1.relay.n0.iroh.link./",
-            "HTTPS://euc1-1.relay.n0.iroh.link./",
-            "https://EUC1-1.relay.n0.iroh.link./",
-            "https://euc1-1.relay.n0.iroh.link.",
-            "https://euc1-1.relay.n0.iroh.link./relay",
-            "https://euc1-1.relay.n0.iroh.link./?x=1",
-            "https://euc1-1.relay.n0.iroh.link./#x",
-            "https://me@euc1-1.relay.n0.iroh.link./",
-            "https://me:pw@euc1-1.relay.n0.iroh.link./",
-            "https://euc1-1.relay.n0.iroh.link.:443/",
-            "https://euc1-1.relay.n0.iroh.link.:8443/",
-            "https://relay.exämple.com/",
-            "https://relay%2Eexample.com/",
-            "https:///",
-            "relay.n0.iroh.link",
-            "",
+    fn takes_relays_with_a_port_and_any_https_host() {
+        let ticket = parse(&with(
+            "relays",
+            json!([
+                "https://relay2.example.net:8443/",
+                "https://relay1.example.net/",
+                "n0"
+            ]),
+        ))
+        .unwrap();
+        assert_eq!(ticket.relay().as_str(), "https://relay2.example.net:8443/");
+        assert_eq!(ticket.relay_host(), "relay2.example.net");
+        assert_eq!(ticket.relays().len(), 3);
+        // A host that isn't a relay passes here, and fails when the phone
+        // asks it (pairing case 5).
+        let ticket = parse(&with("relays", json!(["https://example.com/"]))).unwrap();
+        assert_eq!(ticket.relay_host(), "example.com");
+    }
+
+    #[test]
+    fn refuses_bad_relays() {
+        let own = "https://relay.example.com/";
+        for relays in [
+            json!([]),
+            json!(["n0"]),
+            json!(["n0", RELAY]),
+            json!([RELAY, RELAY]),
+            json!([RELAY, "n0", "n0"]),
+            json!([
+                RELAY,
+                own,
+                "n0",
+                "https://a.example.com/",
+                "https://b.example.com/"
+            ]),
+            json!(["http://relay.example.com/"]),
+            json!(["wss://euc1-1.relay.n0.iroh.link./"]),
+            json!(["https://EUC1-1.relay.n0.iroh.link./"]),
+            json!(["https://euc1-1.relay.n0.iroh.link."]),
+            json!(["https://euc1-1.relay.n0.iroh.link./relay"]),
+            json!(["https://euc1-1.relay.n0.iroh.link./?x=1"]),
+            json!(["https://me@euc1-1.relay.n0.iroh.link./"]),
+            json!(["https://euc1-1.relay.n0.iroh.link.:443/"]),
+            json!(["https://relay.exämple.com/"]),
+            json!(["https://relay%2Eexample.com/"]),
+            json!([RELAY, "n1"]),
+            json!(RELAY),
         ] {
+            let expected = if relays.is_array()
+                && relays
+                    .as_array()
+                    .is_some_and(|a| a.iter().all(Value::is_string))
+            {
+                TicketError::Relays
+            } else {
+                TicketError::Fields
+            };
             assert_eq!(
-                parse(&with("relay", json!(relay))),
-                Err(TicketError::Relay),
-                "{relay:?}"
+                parse(&with("relays", relays.clone())),
+                Err(expected),
+                "{relays}"
             );
         }
     }
 
-    /// The check takes any https host: a host that isn't a relay passes here
-    /// and fails when the phone dials it (test 5).
     #[test]
-    fn takes_any_https_host_as_the_relay() {
-        let ticket = parse(&with("relay", json!("https://example.com/"))).unwrap();
-        assert_eq!(ticket.relay_host(), "example.com");
+    fn takes_up_to_two_direct_addresses_as_rust_writes_them() {
+        for addrs in [
+            json!([]),
+            json!(["192.168.1.20:52043"]),
+            json!([
+                "203.0.113.254:65535",
+                "[2a02:c7c8:aaaa:bbbb:cccc:dddd:eeee:ffff]:65535"
+            ]),
+            json!(["[2001:db8::7]:7842", "10.0.0.2:1"]),
+        ] {
+            let ticket =
+                parse(&with("addrs", addrs.clone())).unwrap_or_else(|e| panic!("{addrs}: {e}"));
+            let written: Vec<String> = ticket.addrs().iter().map(ToString::to_string).collect();
+            assert_eq!(Value::from(written), addrs);
+        }
+    }
+
+    #[test]
+    fn refuses_bad_direct_addresses() {
+        for addr in [
+            "192.168.1.20",
+            "192.168.1.20:0",
+            "192.168.1.20:65536",
+            "192.168.001.20:52043",
+            "127.0.0.1:52043",
+            "0.0.0.0:52043",
+            "0.1.2.3:52043",
+            "[::1]:52043",
+            "[::]:52043",
+            "[2001:DB8::7]:7842",
+            "[2001:db8:0:0:0:0:0:7]:7842",
+            "[fe80::1%3]:7842",
+            "[::ffff:102:304]:7842",
+            "2001:db8::7:7842",
+            "mini.local:7842",
+            " 192.168.1.20:52043",
+        ] {
+            assert_eq!(
+                parse(&with("addrs", json!([addr]))),
+                Err(TicketError::Addrs),
+                "{addr:?}"
+            );
+        }
+        let three = json!(["10.0.0.1:1", "10.0.0.2:1", "10.0.0.3:1"]);
+        assert_eq!(parse(&with("addrs", three)), Err(TicketError::Addrs));
+        let twice = json!(["10.0.0.1:1", "10.0.0.1:1"]);
+        assert_eq!(parse(&with("addrs", twice)), Err(TicketError::Addrs));
     }
 
     #[test]
@@ -542,16 +863,26 @@ mod tests {
     }
 
     #[test]
-    fn folds_a_typed_code_as_the_host_does() {
-        assert_eq!(normalize_pair_code("abc-def").as_deref(), Some("ABCDEF"));
+    fn every_refusal_says_something_different() {
+        let all = [
+            TicketError::TooLong,
+            TicketError::NotKleio,
+            TicketError::Tailscale,
+            TicketError::Prototype,
+            TicketError::Newer(5),
+            TicketError::Fields,
+            TicketError::Name,
+            TicketError::Key,
+            TicketError::Relays,
+            TicketError::Addrs,
+            TicketError::Code,
+        ];
+        let texts: BTreeSet<String> = all.iter().map(ToString::to_string).collect();
+        assert_eq!(texts.len(), all.len());
         assert_eq!(
-            normalize_pair_code(" ab c-d ef\t").as_deref(),
-            Some("ABCDEF")
+            TicketError::NotKleio.to_string(),
+            "That isn't a Kleio pairing code."
         );
-        assert_eq!(normalize_pair_code("ilo-abc").as_deref(), Some("110ABC"));
-        for raw in ["ABC-DE", "ABC-DEFG", "ABC-DEU", "ABC_DEF", "ABC-DÉF", ""] {
-            assert_eq!(normalize_pair_code(raw), None, "{raw:?}");
-        }
     }
 
     /// RFC 4648 base32 without padding: the 52-character form iroh also parses.

@@ -176,10 +176,10 @@ let hostPort: number;
 let H: Record<string, string>;
 const logs: string[] = [];
 
-async function startHost(opts: { key?: boolean } = {}): Promise<Host> {
+async function startHost(opts: { key?: boolean; publicUrl?: boolean } = {}): Promise<Host> {
   const h = createHost({
     listenPort: 0,
-    publicBaseUrl: "https://mini.test:8443",
+    ...(opts.publicUrl === false ? {} : { publicBaseUrl: "https://mini.test:8443" }),
     nodeId: "mini.test",
     registry,
     offers: createPairOfferStore(),
@@ -531,6 +531,33 @@ describe("apps: routes", () => {
     ];
     for (const r of bodies) expect(r.raw).not.toContain(KEY);
     for (const line of logs) expect(line).not.toContain(KEY);
+  });
+});
+
+describe("apps: a host with no public URL (the link only)", () => {
+  it("sends Composio no callback, so the sign-in ends on Composio's own page", async () => {
+    withKey();
+    host = await startHost({ publicUrl: false });
+    const isCreate = (s: { path: string }): boolean => s.path === "/api/v3.1/tool_router/session";
+    await until(() => composio.seen.some(isCreate));
+    await until(() => {
+      try {
+        return Boolean(mcpFile().mcpServers?.composio);
+      } catch {
+        return false;
+      }
+    });
+    await settle();
+    expect(composio.seen.find(isCreate)!.body).toEqual({
+      user_id: expect.stringMatching(/^kleio_[0-9a-f]{16}$/),
+      manage_connections: { enable: true, enable_connection_removal: false },
+    });
+
+    const r = await call("POST", "/kleio/connections", { toolkit: "Gmail" });
+    expect(r.status).toBe(200);
+    expect(composio.seen.find((s) => s.path.endsWith("/link"))!.body).toEqual({
+      toolkit: "gmail",
+    });
   });
 });
 

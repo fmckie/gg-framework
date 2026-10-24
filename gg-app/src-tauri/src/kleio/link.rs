@@ -3,10 +3,12 @@
 //! iroh instead of Tailscale. The kleio-link library does the dialling, the
 //! forwarding, the pairing call and the path log. Prototype only.
 //!
-//! - **Its own pairing.** `kleio_link_pair` redeems a scanned ticket's code
-//!   on `kleio/pair/0`. It's kept apart from the Tailscale pairing: `link.json`
-//!   beside `remote.json` holds the host's key, its relay and the mode, and
-//!   the Keychain entries go under `link-<host>`, with this device's own iroh
+//! - **Its own pairing.** `kleio_link_pair` redeems a scanned v4 ticket's
+//!   code on `kleio/pair/0`, in the library's three steps, each failure in
+//!   its own words. It's kept apart from the Tailscale pairing: `link.json`
+//!   beside `remote.json` holds the host's key, the relay it was reached
+//!   through, its relay list and direct addresses, and the mode, and the
+//!   Keychain entries go under `link-<host>`, with this device's own iroh
 //!   key. `remote.json` and its token are never touched.
 //! - **At boot** a link pairing wins over `remote.json` (`super::from_paired`).
 //!   The host's base URL is then [`LINK_BASE`]: a loopback listener that
@@ -34,13 +36,15 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
-use kleio_link::endpoint::{bind_client, Mode, IDLE_TIMEOUT};
+use kleio_link::endpoint::{bind_client, EndpointOptions, Mode, IDLE_TIMEOUT};
 use kleio_link::forward::Forward;
-use kleio_link::iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
-use kleio_link::link::{host_addr, Link};
-use kleio_link::pair::pair;
+use kleio_link::iroh::{Endpoint, EndpointId, SecretKey};
+use kleio_link::link::{Link, Route};
+use kleio_link::pair::{pair, PairStage};
 use kleio_link::paths::{PathEvents, PathLine};
-use kleio_link::ticket::{check_relay, Ticket};
+use kleio_link::probe::HttpsProbe;
+use kleio_link::relays::{check_relay_entry, check_relay_url, RelayEntry};
+use kleio_link::ticket::{check_direct_addr, Ticket};
 use tauri::{AppHandle, Manager, State};
 
 use super::{commands, keychain, store, OnScreen, Presence, Remote, LINK_BASE};
@@ -114,8 +118,16 @@ impl From<LinkMode> for Mode {
 pub struct LinkRecord {
     /// The host's iroh key: the app dials it, and the handshake proves it.
     pub host_key: String,
-    /// The relay the host is reached through.
+    /// The relay the host was on when it paired: dials start there.
     pub relay: String,
+    /// The host's relay list, as its ticket gave it: relay addresses, and
+    /// `n0` for n0's relays. A dial tries them all if the host isn't on
+    /// `relay`. Empty in a pairing from before lists.
+    #[serde(default)]
+    pub relays: Vec<String>,
+    /// The host's direct addresses, as its ticket gave them.
+    #[serde(default)]
+    pub addrs: Vec<String>,
     #[serde(default)]
     pub mode: LinkMode,
     /// The host's name, as it reports it.
@@ -128,10 +140,10 @@ pub struct LinkRecord {
     pub paired_at: String,
 }
 
-/// A link pairing that passed its checks, and the host's address from it.
+/// A link pairing that passed its checks, and the route to the host from it.
 struct Loaded {
     record: LinkRecord,
-    host: EndpointAddr,
+    route: Route,
 }
 
 pub fn path(home: &Path) -> PathBuf {
@@ -156,19 +168,34 @@ fn load(home: &Path) -> Option<Loaded> {
             return None;
         }
     };
-    let Some(host) = dialled(&record) else {
+    let Some(route) = dialled(&record) else {
         log::warn!("kleio-link: ignoring link.json (bad host key, relay, host or device id)");
         return None;
     };
-    Some(Loaded { record, host })
+    Some(Loaded { record, route })
 }
 
-/// The host's address, if the record names one the app can dial.
-fn dialled(record: &LinkRecord) -> Option<EndpointAddr> {
+/// The route to the host, if the record names one the app can dial. A list
+/// entry or address it can't read is left out: the relay alone still reaches
+/// the host, and a list that leaves nothing is the relay alone.
+fn dialled(record: &LinkRecord) -> Option<Route> {
     let key: EndpointId = record.host_key.parse().ok()?;
-    let relay = check_relay(&record.relay).ok()?;
+    let relay = check_relay_url(&record.relay)?;
     let named = !record.host.trim().is_empty() && !record.device_id.trim().is_empty();
-    named.then(|| host_addr(key, &relay))
+    let mut relays: Vec<RelayEntry> = record
+        .relays
+        .iter()
+        .filter_map(|entry| check_relay_entry(entry))
+        .collect();
+    if relays.is_empty() {
+        relays.push(RelayEntry::Url(relay.clone()));
+    }
+    let addrs = record
+        .addrs
+        .iter()
+        .filter_map(|addr| check_direct_addr(addr))
+        .collect();
+    named.then(|| Route::new(key, Some(relay), addrs, relays))
 }
 
 /// Write-then-rename, as `store::save` does, so a crash mid-write never
@@ -244,10 +271,10 @@ fn decode_key(text: &str) -> Option<SecretKey> {
     Some(SecretKey::from_bytes(&bytes))
 }
 
-/// What a launch on the link needs to run it: the host's address, this
+/// What a launch on the link needs to run it: the route to the host, this
 /// device's key, the mode, and the loopback listener the boot read bound.
 pub struct LinkBoot {
-    host: EndpointAddr,
+    route: Route,
     key: SecretKey,
     mode: LinkMode,
     /// Bound before the link's URL was handed out (`from_link`); `setup`
@@ -268,7 +295,7 @@ impl LinkBoot {
 /// The link pairing as the app's host, for boot (`super::from_paired`).
 /// `None` when there's none or it can't be used; why is logged.
 pub(super) fn from_link() -> Option<Remote> {
-    let Loaded { record, host } = load(&crate::home_dir())?;
+    let Loaded { record, route } = load(&crate::home_dir())?;
     let account = keychain_host(&record.host);
     let secret = |which| match keychain::get(&account, which) {
         Ok(found) => found,
@@ -322,7 +349,7 @@ pub(super) fn from_link() -> Option<Remote> {
         control_credential,
         admin: record.admin,
         link: Some(LinkBoot {
-            host,
+            route,
             key,
             mode: record.mode,
             listener: Mutex::new(listener),
@@ -377,7 +404,6 @@ struct Running {
     forward: Option<tauri::async_runtime::JoinHandle<()>>,
     mode: LinkMode,
     key: SecretKey,
-    host: EndpointAddr,
 }
 
 impl Running {
@@ -387,27 +413,35 @@ impl Running {
     /// dropped.
     async fn start(
         key: SecretKey,
-        host: EndpointAddr,
+        route: Route,
         mode: LinkMode,
         events: PathEvents,
         listener: Option<std::net::TcpListener>,
     ) -> Result<Self, String> {
-        let endpoint = bind_client(key.clone(), mode.into())
+        // The route's relay is the endpoint's only one: the link moves it to
+        // whichever relay it finds the host on.
+        let relays: Vec<_> = route.relay().cloned().into_iter().collect();
+        let options = EndpointOptions {
+            mode: mode.into(),
+            ..EndpointOptions::default()
+        };
+        let endpoint = bind_client(key.clone(), &relays, &options)
             .await
             .map_err(|e| format!("the link's endpoint didn't start: {e}"))?;
-        Self::start_on(endpoint, key, host, mode, events, listener).await
+        Self::start_on(endpoint, key, route, mode, events, listener).await
     }
 
     /// [`start`](Self::start), on an endpoint bound already.
     async fn start_on(
         endpoint: Endpoint,
         key: SecretKey,
-        host: EndpointAddr,
+        route: Route,
         mode: LinkMode,
         events: PathEvents,
         listener: Option<std::net::TcpListener>,
     ) -> Result<Self, String> {
-        let link = Link::with_path_events(endpoint, host.clone(), events);
+        let host = route.key();
+        let link = Link::with_path_events(endpoint, route, events);
         let forward = match listener {
             Some(listener) => Forward::from_std(listener, link.clone()),
             None => Forward::bind(LINK_PORT, link.clone()).await,
@@ -421,7 +455,7 @@ impl Running {
         };
         log::info!(
             "kleio-link: {LINK_BASE} forwards to {} ({mode:?})",
-            host.id.fmt_short()
+            host.fmt_short()
         );
         let forward = Some(tauri::async_runtime::spawn(forward.run()));
         Ok(Self {
@@ -429,7 +463,6 @@ impl Running {
             forward,
             mode,
             key,
-            host,
         })
     }
 
@@ -472,7 +505,7 @@ impl LinkRuntime {
     async fn start(
         &self,
         key: SecretKey,
-        host: EndpointAddr,
+        route: Route,
         mode: LinkMode,
         listener: Option<std::net::TcpListener>,
     ) -> Result<(), String> {
@@ -480,7 +513,7 @@ impl LinkRuntime {
         if running.is_some() {
             return Ok(());
         }
-        let started = Running::start(key, host, mode, self.events.clone(), listener).await;
+        let started = Running::start(key, route, mode, self.events.clone(), listener).await;
         self.set_failure(started.as_ref().err().cloned());
         *running = Some(started?);
         Ok(())
@@ -498,9 +531,9 @@ impl LinkRuntime {
             *running = Some(current);
             return Ok(());
         }
-        let (key, host) = (current.key.clone(), current.host.clone());
+        let (key, route) = (current.key.clone(), current.link.route());
         current.stop().await;
-        let started = Running::start(key, host, mode, self.events.clone(), None).await;
+        let started = Running::start(key, route, mode, self.events.clone(), None).await;
         self.set_failure(started.as_ref().err().cloned());
         match started {
             Ok(run) => {
@@ -616,7 +649,12 @@ impl LinkRuntime {
                 .or(record.map(|record| record.mode)),
             host: record.map(|record| record.host.clone()),
             host_key: record.map(|record| record.host_key.clone()),
-            relay: record.map(|record| record.relay.clone()),
+            relay: link
+                .and_then(|link| link.route().relay().map(ToString::to_string))
+                .or_else(|| record.map(|record| record.relay.clone())),
+            refused: link
+                .and_then(Link::refusal)
+                .map(|refusal| refusal.to_string()),
             connected: status.is_some_and(|status| status.connected),
             path: path
                 .as_ref()
@@ -671,7 +709,7 @@ pub fn setup(app: &AppHandle) {
     let runtime = app.state::<LinkRuntime>();
     let start = runtime.start(
         boot.key.clone(),
-        boot.host.clone(),
+        boot.route.clone(),
         boot.mode,
         boot.take_listener(),
     );
@@ -807,9 +845,11 @@ fn came_back(seen: OnScreen, now: OnScreen) -> bool {
 #[derive(Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TicketCheck {
-    /// The host key's first 8 characters.
+    /// The host's name, as the ticket gives it.
+    pub name: String,
+    /// The host key's first 10 characters, as `kleio-host status` shows it.
     pub key_prefix: String,
-    /// The relay's host name.
+    /// The pairing relay's host name.
     pub relay_host: String,
     /// The pair code, `ABC-DEF`.
     pub code: String,
@@ -821,6 +861,7 @@ pub struct TicketCheck {
 pub fn kleio_link_check_ticket(ticket: String) -> Result<TicketCheck, String> {
     let ticket = parse_ticket(&ticket)?;
     Ok(TicketCheck {
+        name: ticket.name().to_string(),
         key_prefix: ticket.key_prefix(),
         relay_host: ticket.relay_host().to_string(),
         code: ticket.code().to_string(),
@@ -831,10 +872,10 @@ fn parse_ticket(raw: &str) -> Result<Ticket, String> {
     raw.trim().parse::<Ticket>().map_err(|e| e.to_string())
 }
 
-/// Pairs over the link with the host a ticket names: dials its key on
-/// `kleio/pair/0` and redeems the ticket's code with a new key for this
-/// device. Answers as `kleio_pair` does, with the same errors, and saves the
-/// pairing apart from the Tailscale one. Then it switches the pairing on as
+/// Pairs over the link with the host a ticket names: reaches the ticket's
+/// relay, dials the host's key on `kleio/pair/0` and redeems the ticket's
+/// code with a new key for this device. Each way that can fail has its own
+/// error (`PairError`). It saves the pairing apart from the Tailscale one. Then it switches the pairing on as
 /// `kleio_activate_pairing` does after `kleio_pair` (`super::activate_paired`):
 /// in place on an iPhone that wasn't paired, at the next launch otherwise.
 /// So don't call `kleio_activate_pairing` after this; `kleio_link_status`
@@ -852,18 +893,24 @@ pub async fn kleio_link_pair(
         .map(|loaded| loaded.record.mode)
         .unwrap_or_default();
     let key = SecretKey::generate();
-    let endpoint = bind_client(key.clone(), mode.into())
-        .await
-        .map_err(|e| format!("Can't start the link: {e}"))?;
-    let answer = pair(&endpoint, &ticket, &label).await;
-    endpoint.close().await;
-    let payload = commands::checked_payload(answer.map_err(|e| e.to_string())?)?;
+    let options = EndpointOptions::default();
+    let probe =
+        HttpsProbe::new(&options.trust).map_err(|e| format!("Can't start the link: {e}"))?;
+    let stage = |stage: PairStage| log::info!("kleio-link: {}", stage.text());
+    let answer = pair(key.clone(), &ticket, &label, &options, &probe, stage).await;
+    let payload = commands::checked_link_payload(answer.map_err(|e| e.to_string())?)?;
     let account = keychain_host(&payload.host);
     commands::keep_secrets(&account, &payload)?;
     keychain::put(&account, keychain::Secret::IrohKey, &encode_key(&key))?;
     let record = LinkRecord {
         host_key: ticket.key().to_string(),
         relay: ticket.relay().to_string(),
+        relays: ticket
+            .relays()
+            .iter()
+            .map(|entry| entry.as_str().to_string())
+            .collect(),
+        addrs: ticket.addrs().iter().map(ToString::to_string).collect(),
         mode,
         host: payload.host,
         device_id: payload.device_id,
@@ -881,9 +928,8 @@ pub async fn kleio_link_pair(
     // Switching on in place starts a session at once, so the listener goes
     // up first. `kleio_activate_pairing` switches in place exactly then.
     if cfg!(mobile) && super::remote().is_none() {
-        let host = host_addr(ticket.key(), ticket.relay());
         app.state::<LinkRuntime>()
-            .start(key, host, mode, None)
+            .start(key, Route::from_ticket(&ticket), mode, None)
             .await
             .map_err(|e| format!("Paired, but {e}."))?;
     }
@@ -915,8 +961,11 @@ pub struct LinkStatusView {
     pub host: Option<String>,
     /// The host's iroh key.
     pub host_key: Option<String>,
-    /// The relay the host is reached through.
+    /// The relay the host was last reached through.
     pub relay: Option<String>,
+    /// Why the host turned this device away, if it did: not paired, or
+    /// removed.
+    pub refused: Option<String>,
     /// A connection to the host is open now.
     pub connected: bool,
     /// The open connection's path: `"relay"` or `"direct"`.
@@ -1103,6 +1152,8 @@ impl tracing::field::Visit for Line {
 mod tests {
     use std::sync::Arc;
 
+    use kleio_link::iroh::EndpointAddr;
+
     use super::*;
 
     /// One dir per call, as `store.rs`'s tests make them.
@@ -1127,6 +1178,8 @@ mod tests {
         LinkRecord {
             host_key: host_key().to_string(),
             relay: RELAY.into(),
+            relays: vec![RELAY.into(), "n0".into()],
+            addrs: vec!["192.168.1.20:52043".into()],
             mode: LinkMode::RelayOnly,
             host: "mac-mini-1.x.ts.net".into(),
             device_id: "dev-1".into(),
@@ -1148,9 +1201,15 @@ mod tests {
         save(&home, &record()).unwrap();
         let loaded = load(&home).expect("loads");
         assert_eq!(loaded.record, record());
+        let relay = check_relay_url(RELAY).unwrap();
         assert_eq!(
-            loaded.host,
-            host_addr(host_key(), &check_relay(RELAY).unwrap())
+            loaded.route,
+            Route::new(
+                host_key(),
+                Some(relay.clone()),
+                vec!["192.168.1.20:52043".parse().unwrap()],
+                vec![RelayEntry::Url(relay), RelayEntry::N0],
+            )
         );
         // Beside remote.json, which it leaves alone, and 0600 with no temp
         // file left behind.
@@ -1259,6 +1318,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// A pairing from before relay lists dials its relay alone, and an entry
+    /// or address that can't be read is left out rather than losing the
+    /// pairing.
+    #[test]
+    fn a_record_without_a_relay_list_dials_its_relay() {
+        let home = tmp_home();
+        let relay = check_relay_url(RELAY).unwrap();
+        for (relays, addrs) in [
+            (vec![], vec![]),
+            (
+                vec!["http://not.a.relay/".to_string()],
+                vec!["127.0.0.1:1".to_string()],
+            ),
+        ] {
+            save(
+                &home,
+                &LinkRecord {
+                    relays,
+                    addrs,
+                    ..record()
+                },
+            )
+            .unwrap();
+            let route = load(&home).expect("loads").route;
+            assert_eq!(route.relays(), [RelayEntry::Url(relay.clone())]);
+            assert_eq!(route.addrs(), []);
+            assert_eq!(route.relay(), Some(&relay));
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     #[test]
     fn a_record_without_a_mode_or_admin_flag_is_auto_and_not_admin() {
         let home = tmp_home();
@@ -1305,21 +1395,36 @@ mod tests {
 
     #[test]
     fn a_ticket_check_shows_what_the_confirm_step_needs() {
-        let ticket = Ticket::new(host_key(), &check_relay(RELAY).unwrap(), "abc-def")
-            .unwrap()
-            .to_json();
+        let ticket = serde_json::json!({
+            "v": 4,
+            "type": "kleio-pair",
+            "name": "mac-mini-1",
+            "key": host_key().to_string(),
+            "relays": [RELAY, "n0"],
+            "addrs": ["192.168.1.20:52043"],
+            "code": "ABC-DEF",
+        });
         assert_eq!(
             kleio_link_check_ticket(format!(" {ticket}\n")),
             Ok(TicketCheck {
-                key_prefix: host_key().to_string()[..8].to_string(),
+                name: "mac-mini-1".into(),
+                key_prefix: host_key().to_string()[..10].to_string(),
                 relay_host: "euc1-1.relay.n0.iroh.link.".into(),
                 code: "ABC-DEF".into(),
             })
         );
         assert_eq!(
             kleio_link_check_ticket("{}".into()),
-            Err("This QR code isn't a Kleio pairing code.".to_string())
+            Err("That isn't a Kleio pairing code.".to_string())
         );
+        // The prototype's v3 ticket says where it came from.
+        let v3 = format!(
+            r#"{{"v":3,"type":"kleio-pair","key":"{}","relay":"{RELAY}","code":"ABC-DEF"}}"#,
+            host_key()
+        );
+        assert!(kleio_link_check_ticket(v3)
+            .unwrap_err()
+            .contains("test build"));
     }
 
     #[test]
@@ -1403,7 +1508,7 @@ mod tests {
         kleio_link::endpoint::builder(
             SecretKey::from_bytes(&[seed; 32]),
             kleio_link::iroh::RelayMode::Disabled,
-            Mode::Auto,
+            &EndpointOptions::default(),
         )
         .alpns(alpns.iter().map(|alpn| alpn.to_vec()).collect())
         .bind_addr("127.0.0.1:0")
@@ -1468,7 +1573,7 @@ mod tests {
         Running::start_on(
             phone,
             SecretKey::from_bytes(&[seed + 1; 32]),
-            EndpointAddr::from(host.id()).with_ip_addr(socket),
+            EndpointAddr::from(host.id()).with_ip_addr(socket).into(),
             LinkMode::Auto,
             PathEvents::new(KEPT_EVENTS),
             Some(listener),
@@ -1490,7 +1595,7 @@ mod tests {
         let addr = listener.local_addr().expect("an address");
         let early = send_request(addr, b"sent before setup");
         let boot = LinkBoot {
-            host: EndpointAddr::from(SecretKey::from_bytes(&[31; 32]).public()),
+            route: EndpointAddr::from(SecretKey::from_bytes(&[31; 32]).public()).into(),
             key: SecretKey::from_bytes(&[32; 32]),
             mode: LinkMode::Auto,
             listener: Mutex::new(Some(listener)),

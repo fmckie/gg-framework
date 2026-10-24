@@ -7,8 +7,9 @@
  *   body     the substance as plain text: the reply, the question, the error
  *
  * Pure: the APNs pusher (apns.ts) and the Live Activity alerts
- * (live-activity.ts callers) render through `noticeFor`. A small reply
- * tracker (`createReplyTracker`) collects the text a run-end notice quotes.
+ * (live-activity.ts callers) render through `noticeFor`, and a new pairing's
+ * alert to each admin through `pairingNotice`. A small reply tracker
+ * (`createReplyTracker`) collects the text a run-end notice quotes.
  */
 
 import { createHash } from "node:crypto";
@@ -164,6 +165,33 @@ export function noticeFor(input: NoticeInput, conversationId?: string): Notice {
     interruptionLevel: "active",
     relevanceScore: RELEVANCE[input.kind],
     ...(collapseId ? { collapseId } : {}),
+  };
+}
+
+// ── New pairings ───────────────────────────────────────────────────────────
+
+/** A device that has just paired, as the alert to each admin names it. */
+export interface PairingNoticeInput {
+  /** The device's label, as it named itself. */
+  readonly label: string;
+  /** Whether it paired as an admin. */
+  readonly admin: boolean;
+  /** This host's name. */
+  readonly host: string;
+}
+
+/**
+ * What each admin's phone says when a device pairs: the device's own name,
+ * what happened, and what to do if it wasn't them. The app puts Revoke on it.
+ */
+export function pairingNotice(input: PairingNoticeInput): Notice {
+  const host = cleanName(input.host, TITLE_MAX) || "this host";
+  return {
+    title: cleanName(input.label, TITLE_MAX) || "A new device",
+    subtitle: input.admin ? "Paired as an admin" : "Paired",
+    body: `It can now use Kleio on ${host}. If you didn't pair it, revoke it.`,
+    interruptionLevel: "active",
+    relevanceScore: 1,
   };
 }
 

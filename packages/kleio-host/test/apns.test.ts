@@ -9,6 +9,8 @@ import {
   createApnsPusher,
   createProviderTokenSigner,
   MIN_PUSH_INTERVAL_MS,
+  PAIRING_CATEGORY,
+  PAIRING_THREAD,
 } from "../src/apns.js";
 import type { PairedDevice } from "../src/device-registry.js";
 
@@ -369,5 +371,68 @@ describe("createApnsPusher", () => {
     expect(await sign()).toBe(jwt);
     clock += 2 * 60_000;
     expect(await sign()).not.toBe(jwt);
+  });
+});
+
+describe("pairing", () => {
+  const alert = { deviceId: "d-new", label: "Will's iPhone", admin: false, host: "mac-mini-1" };
+
+  it("tells each admin's phone, once each, and never the new device or anyone else", async () => {
+    const p = pusher();
+    const devices = [
+      device({ deviceId: "a1", admin: true, push: reg("11".repeat(16)) }),
+      // The same phone paired twice: one alert.
+      device({ deviceId: "a2", admin: true, push: reg("11".repeat(16)) }),
+      device({ deviceId: "a3", admin: true, push: reg("22".repeat(16)) }),
+      device({ deviceId: "member", push: reg("33".repeat(16)) }),
+      device({ deviceId: "gone", admin: true, revoked: true, push: reg("44".repeat(16)) }),
+      device({ deviceId: "prod", admin: true, push: reg("55".repeat(16), "production") }),
+      device({ deviceId: "quiet", admin: true }),
+      device({ deviceId: "d-new", admin: true, push: reg("66".repeat(16)) }),
+    ];
+    expect(await p.pairing(alert, devices)).toBe(2);
+    expect(apple.pushes.map((x) => x.path).sort()).toEqual([
+      `/3/device/${"11".repeat(16)}`,
+      `/3/device/${"22".repeat(16)}`,
+    ]);
+  });
+
+  it("sends the device's name and ID, in the pairing category, as an alert", async () => {
+    const p = pusher();
+    await p.pairing(alert, [device({ admin: true, push: reg("11".repeat(16)) })]);
+    const push = apple.pushes[0];
+    expect(push?.headers["apns-push-type"]).toBe("alert");
+    expect(push?.headers["apns-priority"]).toBe("10");
+    expect(push?.body).toEqual({
+      aps: {
+        alert: {
+          title: "Will's iPhone",
+          subtitle: "Paired",
+          body: "It can now use Kleio on mac-mini-1. If you didn't pair it, revoke it.",
+        },
+        sound: "default",
+        "thread-id": PAIRING_THREAD,
+        category: PAIRING_CATEGORY,
+        "interruption-level": "active",
+        "relevance-score": 1,
+      },
+      kleio: { pairing: { deviceId: "d-new" } },
+    });
+  });
+
+  it("is never throttled, and doesn't stamp the throttle", async () => {
+    const p = pusher();
+    const devices = [device({ admin: true, push: reg("11".repeat(16)) })];
+    expect(await p.notify({ sessionId: "a", kind: "finished" }, devices)).toBe(1);
+    expect(await p.pairing(alert, devices)).toBe(1);
+    clock += MIN_PUSH_INTERVAL_MS;
+    expect(await p.pairing(alert, devices)).toBe(1);
+    expect(await p.notify({ sessionId: "b", kind: "finished" }, devices)).toBe(1);
+    expect(apple.pushes).toHaveLength(4);
+  });
+
+  it("is a no-op without Apple's credentials", async () => {
+    const p = createApnsPusher({ config: null });
+    expect(await p.pairing(alert, [device({ admin: true, push: reg("11".repeat(16)) })])).toBe(0);
   });
 });

@@ -258,6 +258,7 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
       host: "mac-mini-1.tail0000.ts.net",
       hostKey: "ab12cd34".padEnd(64, "0"),
       relay: "https://euc1-1.relay.n0.iroh.link./",
+      refused: null,
       connected: true,
       path: "relay",
       pathAddr: "https://euc1-1.relay.n0.iroh.link./",
@@ -395,12 +396,21 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
     );
   });
 
+  it("says so when the host has turned this device away", async () => {
+    const removed = "This device was removed from your host. Pair it again to use it.";
+    linkRoutes({ kleio_link_status: () => link({ connected: false, refused: removed }) });
+    const box = await card();
+    expect(within(box).getByRole("alert").textContent).toBe(removed);
+  });
+
   it("a device paired over Tailscale pairs over the link from the card", async () => {
-    const V3 = JSON.stringify({
-      v: 3,
+    const TICKET = JSON.stringify({
+      v: 4,
       type: "kleio-pair",
-      key: "ab12cd34".padEnd(64, "0"),
-      relay: "https://euc1-1.relay.n0.iroh.link./",
+      name: "mac-mini-1",
+      key: "ab12cd34ef".padEnd(64, "0"),
+      relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
+      addrs: [],
       code: "ABC-DEF",
     });
     let paired = false;
@@ -410,21 +420,22 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
           ? link({ active: false, running: false, connected: false })
           : link({ paired: false, active: false, running: false, debugBuild: true }),
       kleio_link_check_ticket: () => ({
-        keyPrefix: "ab12cd34",
+        name: "mac-mini-1",
+        keyPrefix: "ab12cd34ef",
         relayHost: "euc1-1.relay.n0.iroh.link.",
         code: "ABC-DEF",
       }),
       kleio_link_pair: (args) => {
-        expect(args).toEqual({ ticket: V3, label: "" });
+        expect(args).toEqual({ ticket: TICKET, label: "" });
         paired = true;
         return {};
       },
     });
     const box = await card();
     expect(within(box).getByText("Not paired over the link.")).toBeTruthy();
-    fireEvent.change(within(box).getByLabelText(/Pairing ticket/), { target: { value: V3 } });
+    fireEvent.change(within(box).getByLabelText(/Pairing ticket/), { target: { value: TICKET } });
     fireEvent.click(within(box).getByRole("button", { name: "Use ticket" }));
-    await within(box).findByText("ab12cd34…");
+    await within(box).findByText("ab12cd34ef…");
     fireEvent.click(within(box).getByRole("button", { name: "Pair" }));
     await within(box).findByText(/Restart Kleio to use it/);
   });

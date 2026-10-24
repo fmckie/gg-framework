@@ -3,7 +3,9 @@
 // and stand-ins on PATH for what talks to it. `ssh` runs the remote script
 // locally with HOME = the fake mini; `rsync` copies into it; `launchctl` and
 // `curl` record each call, and curl answers /kleio/health as the test says.
-// Nothing here reaches a real host or the real home.
+// The link job, started, writes link/state.json as kleio-link-host does,
+// unless the test says it's down. Nothing here reaches a real host or the
+// real home.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -30,6 +32,10 @@ afterEach(() => {
 
 const STATE = "Library/Application Support/Kleio/host";
 const LABELS = ["com.kleio.host.sidecar", "com.kleio.host.serve"] as const;
+/** Kleio's link: a mini from before it has neither its job nor bin/kleio-link-host. */
+const LINK = "com.kleio.host.link";
+const JOBS = [...LABELS, LINK] as const;
+const LINK_BUILT = "packages/kleio-link/target/aarch64-apple-darwin/release/kleio-link-host";
 
 function plist(label: string, version: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -56,15 +62,20 @@ interface World {
   readonly laptopHome: string;
   readonly log: string;
   health(state: "up" | "down"): void;
+  /** Whether kleio-link-host, started, writes its state. */
+  link(state: "up" | "down"): void;
   /** The macOS version the mini's sw_vers reports. */
   macos(version: string): void;
+  /** The mini's `uname -m`. */
+  arch(machine: string): void;
   calls(): string[];
   clearCalls(): void;
 }
 
 /**
  * A checkout with the two scripts and something built to deploy ("new"), and
- * a mini running an older host ("old") with state, ~/.gg and its two jobs.
+ * a mini running an older host ("old") with state, ~/.gg and its two jobs,
+ * from before Kleio's link.
  */
 function world(): World {
   const root = mkdtempSync(join(tmpdir(), "kleio-deploy-"));
@@ -90,15 +101,16 @@ function world(): World {
   write(join(repo, "packages/kleio-host/dist/bin/kleio-capture"), "new capture helper\n", 0o755);
   write(join(repo, "gg-app/src-tauri/sidecar/app-sidecar.mjs"), "new sidecar\n");
   write(join(repo, "gg-app/src-tauri/sidecar/node_modules/dep/index.js"), "new dep\n");
-  // Stands in for install-mini.sh: new plists, then both jobs restarted.
+  write(join(repo, LINK_BUILT), "new link host\n", 0o755);
+  // Stands in for install-mini.sh: new plists, then the three jobs restarted.
   write(
     join(repo, "packages/kleio-host/scripts/install-mini.sh"),
     `#!/bin/sh
 # new installer
 set -eu
 AGENTS="$HOME/Library/LaunchAgents"
-${LABELS.map((l) => `cat > "$AGENTS/${l}.plist" <<'PL'\n${plist(l, "new")}PL`).join("\n")}
-for label in ${LABELS.join(" ")}; do
+${JOBS.map((l) => `cat > "$AGENTS/${l}.plist" <<'PL'\n${plist(l, "new")}PL`).join("\n")}
+for label in ${JOBS.join(" ")}; do
   launchctl bootout "gui/$(id -u)/$label" || true
   launchctl bootstrap "gui/$(id -u)" "$AGENTS/$label.plist"
   launchctl kickstart -k "gui/$(id -u)/$label"
@@ -156,10 +168,21 @@ esac
   shim(
     "launchctl",
     `printf 'launchctl %s\\n' "$*" >> '${log}'
+# A loaded job is its pid in loaded/<label>, new on each start.
+start() {
+  n=$(( $(cat '${state}/next-pid' 2>/dev/null || echo 100) + 1 ))
+  echo "$n" > '${state}/next-pid'
+  echo "$n" > '${state}/loaded/'"$1"
+  [ "$1" = ${LINK} ] && [ "$(cat '${state}/link')" = up ] || return 0
+  mkdir -p "$HOME/${STATE}/link"
+  printf '{\\n  "version": 1,\\n  "pid": %s,\\n  "relay": "https://relay.example/",\\n  "relays": []\\n}\\n' "$n" > "$HOME/${STATE}/link/state.json"
+}
 case "$1" in
   bootout) rm -f '${state}/loaded/'"$(basename "$2")" ;;
-  bootstrap) : > '${state}/loaded/'"$(basename "$3" .plist)" ;;
-  print) [ -e '${state}/loaded/'"$(basename "$2")" ] ;;
+  bootstrap) start "$(basename "$3" .plist)" ;;
+  kickstart) [ ! -e '${state}/loaded/'"$(basename "$3")" ] || start "$(basename "$3")" ;;
+  print) [ -e '${state}/loaded/'"$(basename "$2")" ] || exit 113
+    printf '%s = {\\n\\tstate = running\\n\\tpid = %s\\n}\\n' "$2" "$(cat '${state}/loaded/'"$(basename "$2")")" ;;
 esac
 `,
   );
@@ -172,6 +195,7 @@ printf '{"ok":true,"sidecar":"up","devices":1,"offer":false,"sessions":[]}'
   );
   shim("sleep", "exit 0\n");
   shim("sw_vers", `[ "$1" = -productVersion ] && cat '${state}/macos'\n`);
+  shim("uname", `if [ "$1" = -m ]; then cat '${state}/arch'; else echo Darwin; fi\n`);
 
   const w: World = {
     repo,
@@ -179,12 +203,16 @@ printf '{"ok":true,"sidecar":"up","devices":1,"offer":false,"sessions":[]}'
     laptopHome,
     log,
     health: (s) => writeFileSync(join(state, "health"), s),
+    link: (s) => writeFileSync(join(state, "link"), s),
     macos: (v) => writeFileSync(join(state, "macos"), `${v}\n`),
+    arch: (m) => writeFileSync(join(state, "arch"), `${m}\n`),
     calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []),
     clearCalls: () => rmSync(log, { force: true }),
   };
   w.health("up");
+  w.link("up");
   w.macos("26.6.2");
+  w.arch("arm64");
   return w;
 }
 
@@ -249,6 +277,7 @@ const posixOnly = describe.skipIf(process.platform === "win32");
 posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_MS }, () => {
   it("keeps the old code in .prev and the state in a snapshot, then deploys", () => {
     const w = world();
+    const stateBefore = tree(join(w.mini, STATE));
 
     const r = run(w, "deploy-mini.sh", "--no-build");
 
@@ -269,7 +298,7 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     const snap = join(w.mini, "kleio-backups", stamp ?? "");
     expect(mode(join(w.mini, "kleio-backups"))).toBe(0o700);
     expect(mode(snap)).toBe(0o700);
-    expect(tree(join(snap, "state"))).toEqual(tree(join(w.mini, STATE)));
+    expect(tree(join(snap, "state"))).toEqual(stateBefore);
     expect(tree(join(snap, "gg"))).toEqual(tree(join(w.mini, ".gg")));
     expect(mode(join(snap, "state/secure"))).toBe(0o700);
     expect(mode(join(snap, "state/secure/device-registry.json"))).toBe(0o600);
@@ -290,9 +319,20 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
       "rsync -az --delete packages/kleio-host/dist/ mac-mini-1:kleio-host/dist/",
       "rsync -az packages/kleio-host/scripts/install-mini.sh mac-mini-1:kleio-host/",
       "rsync -az --delete gg-app/src-tauri/sidecar/ mac-mini-1:kleio-host/sidecar/",
+      `rsync -az ${LINK_BUILT} mac-mini-1:kleio-host/bin/kleio-link-host`,
     ]);
+    expect(w.calls()).toContain("ssh mac-mini-1 mkdir -p kleio-host/bin");
     expect(w.calls()).toContain("ssh mac-mini-1 sh kleio-host/install-mini.sh");
     expect(w.calls()).toContain("curl -s -m 2 http://127.0.0.1:8443/kleio/health");
+    // Kleio's link: kleio-link-host beside dist, its job up and on a relay.
+    // The mini had none before, so .prev has none.
+    expect(read(w, "kleio-host/bin/kleio-link-host")).toBe("new link host\n");
+    expect(existsSync(join(w.mini, "kleio-host/.prev/bin"))).toBe(false);
+    expect(existsSync(join(w.mini, `kleio-host/.prev/LaunchAgents/${LINK}.plist`))).toBe(false);
+    expect(r.out).toContain(
+      ".prev: the code that runs now (dist, sidecar, install-mini.sh, launchd plists)",
+    );
+    expect(r.out).toMatch(/; link up \(pid \d+\), on https:\/\/relay\.example\/\n/);
   });
 
   it("warns when the mini's macOS can't run the capture helper, and deploys the rest", () => {
@@ -319,6 +359,55 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     expect(r.out).toContain("missing packages/kleio-host/dist/bin/kleio-capture; build first");
     expect(tree(w.mini)).toEqual(before);
     expect(w.calls()).toEqual([]);
+  });
+
+  it("with --no-build, refuses to deploy without kleio-link-host, and changes nothing", () => {
+    const w = world();
+    rmSync(join(w.repo, "packages/kleio-link/target"), { recursive: true });
+    const before = tree(w.mini);
+
+    const r = run(w, "deploy-mini.sh", "--no-build");
+
+    expect(r.status).toBe(1);
+    expect(r.out).toContain(`missing ${LINK_BUILT}; build first`);
+    expect(tree(w.mini)).toEqual(before);
+    expect(w.calls()).toEqual([]);
+  });
+
+  it("refuses a mini without Apple silicon, which kleio-link-host is built for, and changes nothing", () => {
+    const w = world();
+    w.arch("x86_64");
+    const before = tree(w.mini);
+
+    const r = run(w, "deploy-mini.sh", "--no-build");
+
+    expect(r.status).not.toBe(0);
+    expect(r.out).toContain(
+      "The mini is x86_64: kleio-link-host is built for Apple silicon (arm64) only.",
+    );
+    expect(tree(w.mini)).toEqual(before);
+    expect(w.calls().some((c) => c.startsWith("rsync"))).toBe(false);
+  });
+
+  it("keeps the mark and says why when kleio-link-host doesn't come up", () => {
+    const w = world();
+    // An earlier kleio-link-host's state: it isn't the job's process now.
+    write(
+      join(w.mini, STATE, "link/state.json"),
+      '{\n  "pid": 1,\n  "relay": "https://relay.example/"\n}\n',
+    );
+    w.link("down");
+
+    const r = run(w, "deploy-mini.sh", "--no-build");
+
+    expect(r.status).not.toBe(0);
+    expect(r.out).toMatch(
+      /After 2 s, kleio-link-host is running \(pid \d+\), but hasn't written its state yet\./,
+    );
+    expect(r.out).toContain(`Its log: ${join(w.mini, STATE, "logs/link.err.log")}`);
+    expect(r.out).not.toContain("Not healthy after");
+    expect(r.out).toContain("To go back to the code that ran before:");
+    expect(read(w, "kleio-host/.deploy-in-progress")).toContain("code_changed=1");
   });
 
   it("refuses to deploy over an unfinished deploy, and changes nothing", () => {
@@ -388,6 +477,12 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     expect(read(w, join(moved, "LaunchAgents/com.kleio.host.serve.plist"))).toBe(
       plist("com.kleio.host.serve", "new"),
     );
+    // .prev is from before Kleio's link: kleio-link-host and its job go aside.
+    expect(existsSync(join(w.mini, "kleio-host/bin"))).toBe(false);
+    expect(read(w, join(moved, "bin/kleio-link-host"))).toBe("new link host\n");
+    expect(existsSync(join(w.mini, `Library/LaunchAgents/${LINK}.plist`))).toBe(false);
+    expect(read(w, join(moved, `LaunchAgents/${LINK}.plist`))).toBe(plist(LINK, "new"));
+    expect(r.out).toContain(`${LINK}: stopped, as .prev is from before Kleio's link`);
     // .prev stays, so a rollback can run again.
     expect(read(w, "kleio-host/.prev/dist/cli.js")).toBe("old cli\n");
     const restarts = w
@@ -397,6 +492,8 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
         c.replace(/gui\/\d+/, "gui/UID").replace(join(w.mini, "Library/LaunchAgents/"), ""),
       );
     expect(restarts).toEqual([
+      // Stopped, and not started again.
+      "launchctl bootout gui/UID/com.kleio.host.link",
       "launchctl bootout gui/UID/com.kleio.host.sidecar",
       "launchctl bootstrap gui/UID com.kleio.host.sidecar.plist",
       "launchctl kickstart -k gui/UID/com.kleio.host.sidecar",
@@ -436,11 +533,13 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     // workspace packages it uses, so those are built first, or an older
     // build would ship.
     // The capture helper comes after the host, whose build empties dist/.
+    // kleio-link-host is built for the mini's Apple silicon.
     const builds = [
       "+ pnpm --filter @kleio/coder... build",
       "+ node gg-app/scripts/bundle-sidecar.mjs",
       "+ pnpm --filter @kleio/host build",
       "+ sh packages/kleio-host/scripts/build-capture.sh",
+      "+ cargo build --release --locked --features host --bin kleio-link-host --target aarch64-apple-darwin --manifest-path packages/kleio-link/Cargo.toml",
     ].map((line) => deploy.out.indexOf(`\n${line}\n`));
     expect(builds, deploy.out).not.toContain(-1);
     expect([...builds].sort((a, b) => a - b)).toEqual(builds);
@@ -450,6 +549,8 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
       "+ rsync -az --delete packages/kleio-host/dist/ mac-mini-1:kleio-host/dist/",
       "+ rsync -az packages/kleio-host/scripts/install-mini.sh mac-mini-1:kleio-host/",
       "+ rsync -az --delete gg-app/src-tauri/sidecar/ mac-mini-1:kleio-host/sidecar/",
+      "+ ssh -o ConnectTimeout=15 mac-mini-1 mkdir -p kleio-host/bin",
+      `+ rsync -az ${LINK_BUILT} mac-mini-1:kleio-host/bin/kleio-link-host`,
       "+ ssh -o ConnectTimeout=15 mac-mini-1 sh kleio-host/install-mini.sh",
     ]) {
       expect(deploy.out).toContain(line);
@@ -520,6 +621,60 @@ posixOnly("deploy-mini.sh and rollback-mini.sh", { timeout: DEPLOY_TEST_TIMEOUT_
     expect(read(w, `kleio-host/.prev-${first}/dist/cli.js`)).toBe("old cli\n");
     expect(read(w, "kleio-host/dist/cli.js")).toBe("newer cli\n");
     expect(r.out).toContain(`.prev-${first}`);
+  });
+
+  it("keeps kleio-link-host in .prev once there, and a rollback restarts .prev's after serve", async () => {
+    const w = world();
+    expect(run(w, "deploy-mini.sh", "--no-build").status).toBe(0);
+    write(join(w.repo, LINK_BUILT), "newer link host\n", 0o755);
+    await nextSecond();
+    const second = run(w, "deploy-mini.sh", "--no-build");
+    expect(second.status, second.out).toBe(0);
+    expect(second.out).toContain(
+      ".prev: the code that runs now (dist, sidecar, bin, install-mini.sh, launchd plists)",
+    );
+    expect(read(w, "kleio-host/.prev/bin/kleio-link-host")).toBe("new link host\n");
+    expect(read(w, `kleio-host/.prev/LaunchAgents/${LINK}.plist`)).toBe(plist(LINK, "new"));
+    expect(read(w, "kleio-host/bin/kleio-link-host")).toBe("newer link host\n");
+    w.clearCalls();
+
+    const r = run(w, "rollback-mini.sh");
+
+    expect(r.status, r.out).toBe(0);
+    expect(read(w, "kleio-host/bin/kleio-link-host")).toBe("new link host\n");
+    const aside = readdirSync(join(w.mini, "kleio-host")).filter((d) =>
+      d.startsWith(".rolled-back-"),
+    );
+    expect(read(w, join("kleio-host", aside[0] ?? "", "bin/kleio-link-host"))).toBe(
+      "newer link host\n",
+    );
+    expect(read(w, `Library/LaunchAgents/${LINK}.plist`)).toBe(plist(LINK, "new"));
+    const started = w
+      .calls()
+      .filter((c) => c.startsWith("launchctl bootstrap"))
+      .map((c) => c.replace(/^.*\/([^/]+)\.plist$/, "$1"));
+    expect(started).toEqual([...JOBS]);
+    expect(r.out).toMatch(/\nlink: up \(pid \d+\), on https:\/\/relay\.example\/\n/);
+  });
+
+  it("keeps the mark when the kleio-link-host it rolled back to doesn't come up", async () => {
+    const w = world();
+    expect(run(w, "deploy-mini.sh", "--no-build").status).toBe(0);
+    await nextSecond();
+    w.health("down");
+    expect(run(w, "deploy-mini.sh", "--no-build").status).not.toBe(0);
+    w.health("up");
+    w.link("down");
+
+    const r = run(w, "rollback-mini.sh");
+
+    expect(r.status).not.toBe(0);
+    // The state the last kleio-link-host left doesn't count for this one.
+    expect(r.out).toMatch(
+      /2 s after the rollback, kleio-link-host is running \(pid \d+\), but hasn't written its state yet\./,
+    );
+    expect(r.out).toContain("The in-progress mark stays.");
+    expect(existsSync(join(w.mini, "kleio-host/.deploy-in-progress"))).toBe(true);
   });
 
   // Root reads anything, so the copy can't be made to fail that way.

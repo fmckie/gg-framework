@@ -5,6 +5,8 @@
  * alert push per registered phone: a nudge, not the content. The transcript
  * itself is in the ring and replays on attach with `Last-Event-ID`. Same model
  * as the old gg-ios-bridge (and Hermes): alert pushes only, never per-frame.
+ * And when a device pairs, one alert to each admin's phone (`pairing`), so a
+ * pairing nobody meant is seen at once.
  *
  * Off unless every Apple credential is present — a dev host without the `.p8`
  * key is a silent no-op. Every failure is swallowed: push must never break the
@@ -23,7 +25,12 @@ import { readFile } from "node:fs/promises";
 import { connect as http2Connect, constants as h2 } from "node:http2";
 import { request as httpRequest } from "node:http";
 import type { PairedDevice, PushRegistration } from "./device-registry.js";
-import { noticeFor, type NoticeInput } from "./notification-copy.js";
+import {
+  noticeFor,
+  pairingNotice,
+  type NoticeInput,
+  type PairingNoticeInput,
+} from "./notification-copy.js";
 
 const PRODUCTION = "https://api.push.apple.com";
 const SANDBOX = "https://api.sandbox.push.apple.com";
@@ -70,6 +77,17 @@ export type Nudge = NoticeInput &
     | { readonly sessionId: string; readonly groupId?: string }
     | { readonly sessionId?: string; readonly groupId: string }
   );
+
+/** The app's notification category for a new pairing: it puts Revoke on it. */
+export const PAIRING_CATEGORY = "KLEIO_PAIRING";
+
+/** New pairings share one thread in Notification Centre. */
+export const PAIRING_THREAD = "kleio-pairing";
+
+/** A device that has just paired, for `pairing`. */
+export interface PairingAlert extends PairingNoticeInput {
+  readonly deviceId: string;
+}
 
 /** A Live Activity's own push token, registered by the phone for one session. */
 export interface LiveActivityTarget {
@@ -121,6 +139,14 @@ export interface ApnsPusher {
    * number of devices that accepted. Coalesced within MIN_PUSH_INTERVAL_MS.
    */
   notify(nudge: Nudge, devices: readonly PairedDevice[]): Promise<number>;
+  /**
+   * A device has just paired: one alert to each admin device but that one,
+   * so a pairing nobody meant is seen at once, with Revoke a tap away (the
+   * app's PAIRING_CATEGORY). Never throttled, and doesn't stamp the throttle:
+   * each pairing matters, and it isn't a run. Returns the number of devices
+   * that accepted.
+   */
+  pairing(alert: PairingAlert, devices: readonly PairedDevice[]): Promise<number>;
   /**
    * Start (push-to-start), update or end one Live Activity on the lock screen. Separate from
    * `notify`: different token (the activity's), topic
@@ -295,6 +321,43 @@ export function createApnsPusher(opts: {
         log(
           `[apns] nudged ${okCount}/${targets.length} device(s) for ${nudge.groupId ?? nudge.sessionId}`,
         );
+        return okCount;
+      } catch (e) {
+        log(`[apns] push failed: ${String(e)}`);
+        return 0;
+      }
+    },
+    async pairing(alert, devices) {
+      if (!config) return 0;
+      const admins = devices.filter(
+        (d): d is PairedDevice & { push: PushRegistration } =>
+          d.admin &&
+          !d.revoked &&
+          d.deviceId !== alert.deviceId &&
+          d.push !== null &&
+          d.push.env === config.env,
+      );
+      // One alert per phone, as for nudges.
+      const targets = [...new Map(admins.map((d) => [d.push.token, d])).values()];
+      if (targets.length === 0) return 0;
+      const notice = pairingNotice(alert);
+      const payload = {
+        aps: {
+          alert: { title: notice.title, subtitle: notice.subtitle, body: notice.body },
+          sound: "default",
+          "thread-id": PAIRING_THREAD,
+          category: PAIRING_CATEGORY,
+          "interruption-level": notice.interruptionLevel,
+          "relevance-score": notice.relevanceScore,
+        },
+        kleio: { pairing: { deviceId: alert.deviceId } },
+      };
+      try {
+        const results = await Promise.allSettled(
+          targets.map((d) => send(config, d.push.token, payload)),
+        );
+        const okCount = results.filter((r) => r.status === "fulfilled" && r.value === 200).length;
+        log(`[apns] told ${okCount}/${targets.length} admin device(s) about a new pairing`);
         return okCount;
       } catch (e) {
         log(`[apns] push failed: ${String(e)}`);

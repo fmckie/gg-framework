@@ -1,16 +1,18 @@
 //! `kleio/pair/0`: one redeem request per connection, passed to kleio-host's
-//! `POST /kleio/pair/redeem`, and kleio-host's answer passed back as it is.
+//! `POST /kleio/pair/redeem` through its link listener, which names the
+//! phone's key, and kleio-host's answer passed back as it is.
 //!
-//! kleio-host decides, by code, expiry and the five tries. The forwarder
-//! reads at most 2 KiB of request and 16 KiB of answer, sends kleio-host only
-//! `{code, redemptionNonce, label}`, and puts the key on the allow-list when
-//! the answer is `ok: true`, before the phone gets it. Nothing here logs the
+//! kleio-host decides, by code, expiry and the five tries, and binds the new
+//! device to the key. The forwarder reads at most 2 KiB of request and
+//! 16 KiB of answer, and sends kleio-host only `{code, redemptionNonce,
+//! label}`. kleio-host writes its allow-list before it answers, so on
+//! `ok: true` the forwarder reads the list again before the phone gets the
+//! answer, and the phone's next connection gets in. Nothing here logs the
 //! request or the answer: they carry the code, the nonce and the device
 //! token.
 
 use std::fmt;
 use std::io;
-use std::net::SocketAddr;
 use std::time::Duration;
 
 use iroh::endpoint::{Connection, ReadToEndError, VarInt};
@@ -20,16 +22,19 @@ use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use super::budget::PairBudget;
-use super::connect_upstream;
 use super::gate::{AllowList, Device};
-use crate::close;
+use super::upstream::Upstream;
 use crate::pair::{
     read_answer, PairError, PairRequest, MAX_PAIR_ANSWER_BYTES, MAX_PAIR_REQUEST_BYTES,
-    PAIR_TIMEOUT,
 };
+use crate::{close, LINK_HOST};
 
 /// kleio-host's redeem route (`PAIR_REDEEM_PATH` in pair-code.ts).
 const REDEEM_PATH: &str = "/kleio/pair/redeem";
+
+/// How long one pairing exchange may take here, from the phone's stream to
+/// its closing the connection.
+const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// How long kleio-host gets to answer a redeem request, connecting included.
 const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(10);
@@ -44,7 +49,7 @@ const BAD_REQUEST: &[u8] = br#"{"ok":false,"error":"bad_request"}"#;
 /// Handles one pairing connection, if the budget lets it in.
 pub(super) async fn serve(
     conn: Connection,
-    upstream: SocketAddr,
+    upstream: &Upstream,
     allow: &AllowList,
     budget: &PairBudget,
 ) {
@@ -58,7 +63,7 @@ pub(super) async fn serve(
             return;
         }
     };
-    match tokio::time::timeout(PAIR_TIMEOUT, exchange(&conn, key, upstream, allow)).await {
+    match tokio::time::timeout(EXCHANGE_TIMEOUT, exchange(&conn, key, upstream, allow)).await {
         Ok(Ok(())) => {}
         Ok(Err(failure)) => {
             warn!("{peer} pairing failed: {failure}");
@@ -67,7 +72,7 @@ pub(super) async fn serve(
         Err(_) => {
             warn!(
                 "{peer} pairing failed: not done within {} s",
-                PAIR_TIMEOUT.as_secs()
+                EXCHANGE_TIMEOUT.as_secs()
             );
             conn.close(
                 VarInt::from_u32(close::PAIR_FAILED),
@@ -108,7 +113,7 @@ impl fmt::Display for Failure {
 async fn exchange(
     conn: &Connection,
     key: EndpointId,
-    upstream: SocketAddr,
+    upstream: &Upstream,
     allow: &AllowList,
 ) -> Result<(), Failure> {
     let peer = key.fmt_short();
@@ -118,10 +123,11 @@ async fn exchange(
         Ok(request) => match serde_json::from_slice::<PairRequest>(&request) {
             Ok(request) => {
                 let body = serde_json::to_vec(&request).expect("a request of strings serializes");
-                let answer = tokio::time::timeout(UPSTREAM_TIMEOUT, post_redeem(upstream, &body))
-                    .await
-                    .unwrap_or(Err(UpstreamError::TimedOut))
-                    .map_err(Failure::Upstream)?;
+                let answer =
+                    tokio::time::timeout(UPSTREAM_TIMEOUT, post_redeem(upstream, &key, &body))
+                        .await
+                        .unwrap_or(Err(UpstreamError::TimedOut))
+                        .map_err(Failure::Upstream)?;
                 record_outcome(key, &answer, allow);
                 answer
             }
@@ -143,19 +149,28 @@ async fn exchange(
     Ok(())
 }
 
-/// Puts the key on the allow-list if kleio-host paired it, and logs the
-/// outcome.
+/// Reads the allow-list again if kleio-host paired the key, so its next
+/// connection gets in, and logs the outcome.
 fn record_outcome(key: EndpointId, answer: &[u8], allow: &AllowList) {
     let peer = key.fmt_short();
     match read_answer(answer) {
         Ok(payload) => {
             let device = Device::from_payload(&payload);
             let label = device.label.clone().unwrap_or_default();
-            match allow.add(key, device) {
-                Ok(count) => info!("{peer} paired as {label:?}; {count} keys on the allow-list"),
-                Err(err) => error!(
-                    "{peer} paired as {label:?}, but the allow-list wasn't saved, so the key gets in only until the forwarder restarts: {err}"
-                ),
+            // kleio-host wrote its allow-list before it answered.
+            if let Err(err) = allow.reload() {
+                error!("{peer} paired as {label:?}, but the allow-list can't be read: {err}");
+            }
+            if allow.contains(&key) {
+                info!(
+                    "{peer} paired as {label:?}; {} keys on the allow-list",
+                    allow.len()
+                );
+            } else {
+                allow.add_provisional(key, device);
+                warn!(
+                    "{peer} paired as {label:?}, but kleio-host's allow-list doesn't have it, so it gets in only until the list next changes"
+                );
             }
         }
         Err(PairError::Refused(code)) => info!("{peer} pairing refused by kleio-host ({code:?})"),
@@ -185,13 +200,15 @@ impl fmt::Display for UpstreamError {
     }
 }
 
-/// `POST /kleio/pair/redeem` with `body`, and the answer's body.
-async fn post_redeem(upstream: SocketAddr, body: &[u8]) -> Result<Vec<u8>, UpstreamError> {
-    let mut tcp = connect_upstream(upstream)
-        .await
-        .map_err(UpstreamError::Io)?;
+/// `POST /kleio/pair/redeem` with `body`, for `key`, and the answer's body.
+async fn post_redeem(
+    upstream: &Upstream,
+    key: &EndpointId,
+    body: &[u8],
+) -> Result<Vec<u8>, UpstreamError> {
+    let mut tcp = upstream.connect(key).await.map_err(UpstreamError::Io)?;
     let head = format!(
-        "POST {REDEEM_PATH} HTTP/1.1\r\nhost: {upstream}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        "POST {REDEEM_PATH} HTTP/1.1\r\nhost: {LINK_HOST}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
         body.len()
     );
     tcp.write_all(head.as_bytes())

@@ -5,25 +5,32 @@
 #   sh packages/kleio-host/scripts/deploy-mini.sh [--dry-run] [--no-build] [--force]
 #
 # MINI is the SSH host (default mac-mini-1). HEALTH_WAIT is how many seconds
-# step 6 waits (1 to 600, default 60). In order:
+# step 6 waits (1 to 600, default 60). CARGO_TARGET_DIR, if set, is where
+# cargo puts kleio-link-host. In order:
 #   1. Builds @kleio/coder and the packages it bundles from this checkout, then
 #      the sidecar bundle from them, then the host and its page and PDF capture
-#      helper (build-capture.sh, needs Xcode), as the README does.
+#      helper (build-capture.sh, needs Xcode), as the README does, then
+#      kleio-link-host, Kleio's link, for Apple silicon (cargo, release).
 #   2. Checks the mini, read-only: the code, state and launchd files are there,
-#      there is room for a backup, and no earlier deploy was left unfinished.
+#      there is room for a backup, no earlier deploy was left unfinished, and
+#      it has Apple silicon, as kleio-link-host needs.
 #      It says which macOS the mini runs, and warns below macOS 14, where the
 #      capture helper can't run (voice shows of web pages and PDFs fail; the
 #      rest works).
 #   3. Marks a deploy in progress (~/kleio-host/.deploy-in-progress) and keeps
-#      the code that runs now in ~/kleio-host/.prev (dist, sidecar,
-#      install-mini.sh and the two launchd plists) for rollback-mini.sh.
+#      the code that runs now in ~/kleio-host/.prev (dist, sidecar, bin once a
+#      deploy has brought Kleio's link, install-mini.sh and the launchd
+#      plists) for rollback-mini.sh.
 #   4. Snapshots the host's state folder and ~/.gg into ~/kleio-backups/<UTC
 #      time>/ (0700: it holds keys and sign-ins, and never leaves the mini).
 #      APFS clones where the disk allows, so it takes seconds and little space.
-#   5. Copies the new code with the README's three rsync commands, then runs
-#      install-mini.sh, which restarts both jobs.
+#   5. Copies the new code as the README does (dist, install-mini.sh, the
+#      sidecar and bin/kleio-link-host), then runs install-mini.sh, which
+#      restarts the sidecar and serve jobs, and the link job if
+#      kleio-link-host or its job changed.
 #   6. Waits up to HEALTH_WAIT seconds for /kleio/health to say ok, with the
-#      sidecar up, trying once a second.
+#      sidecar up, and for kleio-link-host to be running and on a relay,
+#      trying once a second.
 #
 # On success the in-progress mark goes. On failure it stays and the rollback
 # command is printed; nothing is rolled back without you. Nothing is deleted
@@ -67,6 +74,10 @@ esac
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 [ -f "$REPO/packages/kleio-host/package.json" ] || { echo "deploy-mini: can't find the repo from $0" >&2; exit 2; }
 cd "$REPO"
+
+# kleio-link-host for the mini (Apple silicon), where cargo puts it.
+LINK_TARGET=aarch64-apple-darwin
+LINK_BUILT="${CARGO_TARGET_DIR:-packages/kleio-link/target}/$LINK_TARGET/release/kleio-link-host"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -118,6 +129,7 @@ STATE="$HOME/Library/Application Support/Kleio/host"
 GG="$HOME/.gg"
 AGENTS="$HOME/Library/LaunchAgents"
 LABELS="com.kleio.host.sidecar com.kleio.host.serve"
+LINK_LABEL="com.kleio.host.link"
 MARK="$CODE/.deploy-in-progress"
 BACKUPS="$HOME/kleio-backups"
 files() { echo $(( $(find "$1" ! -type d | wc -l) )); }
@@ -146,7 +158,9 @@ if [ -e "$MARK" ]; then
   if [ "$FORCE" = 1 ]; then echo "--force: going ahead." >&2; else problems=1; fi
 fi
 if [ "$problems" = 0 ]; then
-  need=$(du -sk "$STATE" "$GG" "$CODE/dist" "$CODE/sidecar" | awk '{ s += $1 } END { print s }')
+  bin=""
+  [ ! -d "$CODE/bin" ] || bin="$CODE/bin"
+  need=$(du -sk "$STATE" "$GG" "$CODE/dist" "$CODE/sidecar" ${bin:+"$bin"} | awk '{ s += $1 } END { print s }')
   free=$(df -Pk "$HOME" | awk 'NR == 2 { print $4 }')
   echo "state $(du -sh "$STATE" | cut -f1) ($(files "$STATE") files), ~/.gg $(du -sh "$GG" | cut -f1) ($(files "$GG") files), $(( free / 1048576 )) GB free"
   if [ "$free" -lt $(( need + 1048576 )) ]; then
@@ -166,6 +180,12 @@ case "$major" in
     fi
     ;;
 esac
+# kleio-link-host is built for Apple silicon only (aarch64-apple-darwin).
+arch=$(uname -m)
+if [ "$arch" != arm64 ]; then
+  echo "The mini is $arch: kleio-link-host is built for Apple silicon (arm64) only." >&2
+  problems=1
+fi
 exit "$problems"
 EOF
 }
@@ -220,8 +240,18 @@ else
   mkdir "$NEW" "$NEW/LaunchAgents"
   $CP "$CODE/dist" "$NEW/dist"
   $CP "$CODE/sidecar" "$NEW/sidecar"
+  # Kleio's link, once a deploy has brought it. A .prev without bin/ and the
+  # link job's plist is from before it: rolling back to it stops the link.
+  kept="dist, sidecar"
+  if [ -d "$CODE/bin" ]; then
+    $CP "$CODE/bin" "$NEW/bin"
+    kept="$kept, bin"
+  fi
   cp -p "$CODE/install-mini.sh" "$NEW/install-mini.sh"
   for label in $LABELS; do cp -p "$AGENTS/$label.plist" "$NEW/LaunchAgents/$label.plist"; done
+  if [ -f "$AGENTS/$LINK_LABEL.plist" ]; then
+    cp -p "$AGENTS/$LINK_LABEL.plist" "$NEW/LaunchAgents/$LINK_LABEL.plist"
+  fi
   printf '%s\n' "$STAMP" > "$NEW/.stamp"
   if [ -d "$CODE/.prev" ]; then
     old=$(cat "$CODE/.prev/.stamp" 2>/dev/null || true)
@@ -231,7 +261,7 @@ else
     echo "the last deploy's .prev: now .prev-$old"
   fi
   mv "$NEW" "$CODE/.prev"
-  echo ".prev: the code that runs now (dist, sidecar, install-mini.sh, launchd plists)"
+  echo ".prev: the code that runs now ($kept, install-mini.sh, launchd plists)"
 fi
 
 # 4. The state snapshot. The host keeps running: the registry and keys are
@@ -266,7 +296,8 @@ mark 1
 EOF
 }
 
-# 6. Waits for the host to answer, healthy, on its own port.
+# 6. Waits for the host to answer, healthy, on its own port, and for
+# kleio-link-host to be up.
 health() {
   prelude
   cat <<'EOF'
@@ -276,25 +307,53 @@ if [ -f "$PLIST" ] && [ -x /usr/libexec/PlistBuddy ]; then
   p=$(/usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:KLEIO_HOST_PORT' "$PLIST" 2>/dev/null || true)
   case "$p" in '' | *[!0-9]*) ;; *) PORT=$p ;; esac
 fi
+UID_="$(id -u)"
+LINK_STATE="$STATE/link/state.json"
+# Up when the link job's own process is writing its state file (pretty JSON,
+# a key a line), and that names the relay it's on.
+link_up() {
+  pid=$(launchctl print "gui/$UID_/$LINK_LABEL" 2>/dev/null | sed -n 's/^[[:blank:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
+  if [ -z "$pid" ]; then link="isn't running"; return 1; fi
+  wrote=$(sed -n 's/^[[:blank:]]*"pid":[[:blank:]]*\([0-9][0-9]*\).*/\1/p' "$LINK_STATE" 2>/dev/null | head -n 1)
+  if [ "$wrote" != "$pid" ]; then link="is running (pid $pid), but hasn't written its state yet"; return 1; fi
+  relay=$(sed -n 's/^[[:blank:]]*"relay":[[:blank:]]*"\([^"]*\)".*/\1/p' "$LINK_STATE" | head -n 1)
+  if [ -z "$relay" ]; then link="is running (pid $pid), but on no relay yet"; return 1; fi
+  link="up (pid $pid), on $relay"
+}
 # At most WAIT tries, a second apart, and never past WAIT seconds.
 end=$(( $(date +%s) + WAIT ))
 tries=0
 body=""
+host=0
+link_ok=0
+link="not checked"
 while :; do
   body=$(curl -s -m 2 "http://127.0.0.1:$PORT/kleio/health" 2>/dev/null || true)
+  host=0
   case "$body" in *'"ok":true'*)
-    case "$body" in *'"sidecar":"up"'*) echo "healthy: ok, sidecar up (port $PORT)"; exit 0 ;; esac ;;
+    case "$body" in *'"sidecar":"up"'*) host=1 ;; esac ;;
   esac
+  link_ok=0
+  if link_up; then link_ok=1; fi
+  if [ "$host" = 1 ] && [ "$link_ok" = 1 ]; then
+    echo "healthy: ok, sidecar up (port $PORT); link $link"
+    exit 0
+  fi
   tries=$(( tries + 1 ))
   if [ "$tries" -ge "$WAIT" ] || [ "$(date +%s)" -ge "$end" ]; then break; fi
   sleep 1
 done
-if [ -z "$body" ]; then
-  why="no answer"
-else
-  why="sidecar $(printf '%s' "$body" | sed -n 's/.*"sidecar":"\([a-z]*\)".*/\1/p')"
+if [ "$host" != 1 ]; then
+  if [ -z "$body" ]; then
+    why="no answer"
+  else
+    why="sidecar $(printf '%s' "$body" | sed -n 's/.*"sidecar":"\([a-z]*\)".*/\1/p')"
+  fi
+  echo "Not healthy after $WAIT s on port $PORT: $why" >&2
 fi
-echo "Not healthy after $WAIT s on port $PORT: $why" >&2
+if [ "$link_ok" != 1 ]; then
+  echo "After $WAIT s, kleio-link-host $link. Its log: $STATE/logs/link.err.log" >&2
+fi
 exit 1
 EOF
 }
@@ -354,11 +413,13 @@ if [ "$BUILD" = 1 ]; then
   run pnpm --filter @kleio/host build
   # After the host: its build empties dist/, where the helper goes.
   run sh packages/kleio-host/scripts/build-capture.sh
+  # Kleio's link (packages/kleio-link), for the mini.
+  run cargo build --release --locked --features host --bin kleio-link-host --target "$LINK_TARGET" --manifest-path packages/kleio-link/Cargo.toml
 else
   echo "skipped (--no-build)"
 fi
 if [ "$DRY" = 0 ]; then
-  for f in packages/kleio-host/dist/cli.js packages/kleio-host/dist/bin/kleio-capture gg-app/src-tauri/sidecar/app-sidecar.mjs packages/kleio-host/scripts/install-mini.sh; do
+  for f in packages/kleio-host/dist/cli.js packages/kleio-host/dist/bin/kleio-capture gg-app/src-tauri/sidecar/app-sidecar.mjs packages/kleio-host/scripts/install-mini.sh "$LINK_BUILT"; do
     [ -f "$f" ] || { echo "deploy-mini: missing $f; build first (or drop --no-build)" >&2; exit 1; }
   done
 fi
@@ -374,6 +435,8 @@ PHASE=code
 run rsync -az --delete packages/kleio-host/dist/ "$MINI:kleio-host/dist/" || fail "copying dist failed."
 run rsync -az packages/kleio-host/scripts/install-mini.sh "$MINI:kleio-host/" || fail "copying install-mini.sh failed."
 run rsync -az --delete gg-app/src-tauri/sidecar/ "$MINI:kleio-host/sidecar/" || fail "copying the sidecar failed."
+run ssh -o ConnectTimeout=15 "$MINI" mkdir -p kleio-host/bin || fail "making kleio-host/bin failed."
+run rsync -az "$LINK_BUILT" "$MINI:kleio-host/bin/kleio-link-host" || fail "copying kleio-link-host failed."
 run ssh -o ConnectTimeout=15 "$MINI" sh kleio-host/install-mini.sh || fail "install-mini.sh failed."
 
 step "6/6 health"

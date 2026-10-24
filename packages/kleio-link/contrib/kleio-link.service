@@ -1,0 +1,41 @@
+# Kleio's link on a Linux host: kleio-link-host serve as a systemd user
+# service next to kleio-host, as the launchd job com.kleio.host.link runs it
+# on the Mac mini. The steps are in packages/kleio-link/README.md, "On Linux".
+#
+# It runs as the user kleio-host runs as, with no root. kleio-host's state
+# folder holds the link's key, the secret for kleio-host's link listener and
+# the allow-list, and kleio-host makes them, so start kleio-host first. Until
+# they're there, this exits, and systemd starts it again 5 s later.
+#
+#   install -D -m 0644 contrib/kleio-link.service ~/.config/systemd/user/kleio-link.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now kleio-link.service
+#   journalctl --user -u kleio-link.service -f
+#
+# If kleio-host runs with KLEIO_HOST_HOME, XDG_STATE_HOME or KLEIO_LINK_PORT
+# set, give this the same folder and port with
+# `systemctl --user edit kleio-link.service`:
+#
+#   [Service]
+#   Environment=KLEIO_HOST_HOME=/srv/kleio/host
+#   Environment=KLEIO_LINK_PORT=8445
+
+[Unit]
+Description=Kleio's link (kleio-link-host)
+
+[Service]
+Type=exec
+# kleio-host's state folder: its default on Linux when XDG_STATE_HOME isn't set.
+Environment=KLEIO_HOST_HOME=%h/.local/state/kleio/host
+# kleio-host's link listener on 127.0.0.1: kleio-host's KLEIO_LINK_PORT.
+Environment=KLEIO_LINK_PORT=8445
+# In bin/ beside kleio-host's dist/, as on the mini, where `kleio-host pair` looks for it.
+ExecStart=%h/kleio-host/bin/kleio-link-host serve --state-dir ${KLEIO_HOST_HOME} --upstream 127.0.0.1:${KLEIO_LINK_PORT}
+# Always started again, 5 s apart, as launchd's KeepAlive and ThrottleInterval do on the mini.
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target

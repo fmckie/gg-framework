@@ -1,6 +1,6 @@
-// The connection prototype's Kleio link, from the webview: pairing with a v3
-// ticket, and the Link card's status and switch (Rust: kleio/link.rs, behind
-// the `kleio-link` feature). A build without the feature has none of
+// Kleio's link, from the webview: pairing with a link ticket, and the Link
+// card's status and switch (Rust: kleio/link.rs, behind the `kleio-link`
+// feature). A build without the feature has none of
 // these commands, so its first status call fails: then none of the link's UI
 // shows, and the pairing form is exactly what it was.
 
@@ -30,7 +30,10 @@ export interface LinkStatus {
   mode: LinkMode | null;
   host: string | null;
   hostKey: string | null;
+  /** The relay the host was last reached through. */
   relay: string | null;
+  /** Why the host turned this device away, if it did: not paired, or removed. */
+  refused: string | null;
   /** A connection to the host is open now. */
   connected: boolean;
   path: "relay" | "direct" | null;
@@ -50,11 +53,13 @@ export interface LinkStatus {
   debugBuild: boolean;
 }
 
-/** What the confirm step shows for a v3 ticket. */
+/** What the confirm step shows for a link ticket. */
 export interface TicketCheck {
-  /** The host key's first 8 characters. */
+  /** The host's name, as the ticket gives it. */
+  name: string;
+  /** The host key's first 10 characters, as `kleio-host status` shows it. */
   keyPrefix: string;
-  /** The relay's host name. */
+  /** The pairing relay's host name. */
   relayHost: string;
   /** The pair code, `ABC-DEF`. */
   code: string;

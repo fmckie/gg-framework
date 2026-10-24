@@ -587,7 +587,7 @@ function LinkCard({
   async function openTicket(text: string): Promise<void> {
     setError(null);
     const route = readTicket(text);
-    if (route.kind !== "v3") {
+    if (route.kind !== "link") {
       setError(
         route.kind === "v2"
           ? "That's a Tailscale pairing ticket. This card pairs over the Kleio link."
@@ -658,6 +658,11 @@ function LinkCard({
       {link.error !== null && (
         <p className="conn-bad" role="alert">
           {link.error}
+        </p>
+      )}
+      {link.refused !== null && (
+        <p className="conn-bad" role="alert">
+          {link.refused}
         </p>
       )}
       {link.tailscale && (

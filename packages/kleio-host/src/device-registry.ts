@@ -31,6 +31,11 @@ export interface PairedDevice {
   readonly push: PushRegistration | null;
   /** Live Activity push-to-start token (ActivityKit), if the iPhone sent one. */
   readonly liveStart: PushRegistration | null;
+  /**
+   * The device's key on the link (64 lowercase hex characters), bound when it
+   * paired over the link. Null for a device paired over its own network.
+   */
+  readonly linkKey: string | null;
 }
 
 export interface PushRegistration {
@@ -54,6 +59,8 @@ interface DeviceRecord {
   push?: PushRegistration | null;
   /** Live Activity push-to-start token. Absent in older records. */
   liveStart?: PushRegistration | null;
+  /** The device's link key. Absent for devices paired over their own network. */
+  readonly linkKey?: string;
 }
 
 interface StoreDocument {
@@ -65,22 +72,76 @@ export interface MintResult {
   readonly device: PairedDevice;
   /** The raw bearer token — handed to the device exactly once. */
   readonly token: string;
+  /**
+   * Devices this one replaces: live devices with the same link key, which
+   * only the same phone can hold, so they're its older pairings. Revoked in
+   * the same write, so one link key never has two live devices and a revoke
+   * always takes the key off the allow-list.
+   */
+  readonly superseded: readonly string[];
+}
+
+export interface MintOptions {
+  readonly admin?: boolean;
+  /** The device's key on the link, from the link listener (64 lowercase hex characters). */
+  readonly linkKey?: string;
 }
 
 export type RegistryError =
   | { readonly kind: "keychain"; readonly message: string }
   | { readonly kind: "io"; readonly message: string }
-  | { readonly kind: "not_found"; readonly message: string };
+  | { readonly kind: "not_found"; readonly message: string }
+  | { readonly kind: "invalid"; readonly message: string };
+
+/** A link key as iroh writes one: 64 lowercase hex characters. */
+export function isLinkKey(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+export const LINK_ALLOW_VERSION = 1;
+
+/** One paired device in the link's allow-list. */
+export interface LinkAllowEntry {
+  readonly key: string;
+  readonly deviceId: string;
+  readonly label: string;
+}
+
+/**
+ * `secure/link-allow.json`, which kleio-link-host reads: the keys it lets in
+ * on `kleio/http/0`, and the keys only revoked devices had, which it turns
+ * away as revoked rather than as unknown. It holds no token.
+ */
+export interface LinkAllowDocument {
+  readonly version: typeof LINK_ALLOW_VERSION;
+  /** Live devices with a link key, sorted by key. */
+  readonly devices: readonly LinkAllowEntry[];
+  /** Keys of revoked devices that no live device has, sorted. */
+  readonly revoked: readonly string[];
+}
+
+export function linkAllowDocument(devices: readonly PairedDevice[]): LinkAllowDocument {
+  const live = devices
+    .filter((d): d is PairedDevice & { linkKey: string } => !d.revoked && d.linkKey !== null)
+    .map((d) => ({ key: d.linkKey, deviceId: d.deviceId, label: d.label }))
+    .sort((a, b) => a.key.localeCompare(b.key) || a.deviceId.localeCompare(b.deviceId));
+  const liveKeys = new Set(live.map((d) => d.key));
+  const revoked = [
+    ...new Set(
+      devices.flatMap((d) =>
+        d.revoked && d.linkKey !== null && !liveKeys.has(d.linkKey) ? [d.linkKey] : [],
+      ),
+    ),
+  ].sort();
+  return { version: LINK_ALLOW_VERSION, devices: live, revoked };
+}
 
 export interface DeviceRegistry {
   /** Load the store and recover raw tokens into memory. */
   init(): Promise<void>;
   list(): PairedDevice[];
   get(deviceId: string): PairedDevice | undefined;
-  mint(
-    label: string,
-    options?: { readonly admin?: boolean },
-  ): Promise<Result<MintResult, RegistryError>>;
+  mint(label: string, options?: MintOptions): Promise<Result<MintResult, RegistryError>>;
   revoke(deviceId: string): Promise<Result<PairedDevice[], RegistryError>>;
   /** Best-effort lastSeen update; never throws. Rate-limited by the caller. */
   touch(deviceId: string): Promise<void>;
@@ -109,6 +170,13 @@ export interface DeviceRegistryDeps {
   readonly randomId?: () => string;
   readonly randomToken?: () => string;
   readonly log?: (msg: string) => void;
+  /**
+   * The link's allow-list (`secure/link-allow.json`): written at init and
+   * after each write that changes it. Unset, there's none.
+   */
+  readonly linkAllowPath?: string;
+  /** Locks the allow-list's temporary file before anything is in it (Windows). */
+  readonly secretLock?: SecretLock;
 }
 
 function isDeviceRecord(value: unknown): value is DeviceRecord {
@@ -121,7 +189,8 @@ function isDeviceRecord(value: unknown): value is DeviceRecord {
     (record.lastSeen === null || typeof record.lastSeen === "string") &&
     typeof record.revoked === "boolean" &&
     typeof record.encToken === "string" &&
-    (record.admin === undefined || typeof record.admin === "boolean")
+    (record.admin === undefined || typeof record.admin === "boolean") &&
+    (record.linkKey === undefined || isLinkKey(record.linkKey))
   );
 }
 
@@ -135,6 +204,7 @@ function toPaired(record: DeviceRecord): PairedDevice {
     admin: record.admin === true,
     push: record.push ?? null,
     liveStart: record.liveStart ?? null,
+    linkKey: record.linkKey ?? null,
   };
 }
 
@@ -212,12 +282,35 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
   function persistStore(): Promise<void> {
     const next = writeChain
       .catch(() => {})
-      .then(() => {
+      .then(async () => {
         const doc: StoreDocument = { version: STORE_SCHEMA, devices: records };
-        return atomicWrite(storePath, `${JSON.stringify(doc, null, 2)}\n`, FILE_MODE);
+        await atomicWrite(storePath, `${JSON.stringify(doc, null, 2)}\n`, FILE_MODE);
+        await writeLinkAllow();
       });
     writeChain = next;
     return next;
+  }
+
+  /** The allow-list as last written, so an unchanged one isn't written again. */
+  let writtenAllow: string | null = null;
+
+  /**
+   * Bring the allow-list up to date with `records`, in the write chain. A
+   * failure is logged, and the next write tries again; it never undoes the
+   * change, because the device store is the record, and kleio-host refuses a
+   * revoked device's token over the link whatever the allow-list says.
+   */
+  async function writeLinkAllow(): Promise<void> {
+    const path = deps.linkAllowPath;
+    if (path === undefined) return;
+    const text = `${JSON.stringify(linkAllowDocument(list()), null, 2)}\n`;
+    if (text === writtenAllow) return;
+    try {
+      await atomicWrite(path, text, FILE_MODE, deps.secretLock);
+      writtenAllow = text;
+    } catch (e) {
+      log(`[registry] couldn't write the link's allow-list ${path}: ${messageOf(e)}`);
+    }
   }
 
   async function init(): Promise<void> {
@@ -250,6 +343,11 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
       rawByDevice.set(record.deviceId, Buffer.from(dec.value, "utf8"));
     }
     log(`[registry] loaded ${records.length} device(s) from ${storePath}`);
+    // The allow-list may be missing or behind (a failed write, a restore).
+    writtenAllow = null;
+    const allow = writeChain.catch(() => {}).then(writeLinkAllow);
+    writeChain = allow;
+    await allow;
   }
 
   function list(): PairedDevice[] {
@@ -263,11 +361,15 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
 
   async function mint(
     label: string,
-    options: { readonly admin?: boolean } = {},
+    options: MintOptions = {},
   ): Promise<Result<MintResult, RegistryError>> {
     const trimmed = label.trim();
     if (trimmed.length === 0) {
       return err({ kind: "io", message: "a non-empty label is required" });
+    }
+    const linkKey = options.linkKey;
+    if (linkKey !== undefined && !isLinkKey(linkKey)) {
+      return err({ kind: "invalid", message: "a link key is 64 lowercase hex characters" });
     }
     if (!keychain.isAvailable()) {
       return err({ kind: "keychain", message: "keychain unavailable; cannot mint a secure token" });
@@ -284,7 +386,15 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
       revoked: false,
       encToken: enc.value,
       ...(options.admin ? { admin: true } : {}),
+      ...(linkKey !== undefined ? { linkKey } : {}),
     };
+    const older =
+      linkKey === undefined ? [] : records.filter((r) => r.linkKey === linkKey && !r.revoked);
+    const before = older.map((r) => ({ r, liveStart: r.liveStart }));
+    for (const r of older) {
+      r.revoked = true;
+      r.liveStart = null;
+    }
     records.push(record);
     rawByDevice.set(record.deviceId, Buffer.from(token, "utf8"));
     try {
@@ -292,9 +402,19 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     } catch (e) {
       records = records.filter((r) => r.deviceId !== record.deviceId);
       rawByDevice.delete(record.deviceId);
+      for (const { r, liveStart } of before) {
+        r.revoked = false;
+        r.liveStart = liveStart;
+      }
       return err({ kind: "io", message: messageOf(e) });
     }
-    return ok({ device: toPaired(record), token });
+    const superseded = older.map((r) => r.deviceId);
+    if (superseded.length > 0) {
+      log(
+        `[registry] ${record.deviceId} paired with the link key of ${superseded.join(", ")}, which it replaces (revoked)`,
+      );
+    }
+    return ok({ device: toPaired(record), token, superseded });
   }
 
   async function revoke(deviceId: string): Promise<Result<PairedDevice[], RegistryError>> {

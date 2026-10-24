@@ -47,17 +47,28 @@ import {
   type ServerResponse,
 } from "node:http";
 import { appendFile, lstat, mkdir, readFile, realpath, rm } from "node:fs/promises";
+import { isIPv4 } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
 import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
-import type { PairOfferStore } from "./pair-offer.js";
+import type { PairOfferStore, PayloadMinter, RedeemVia } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher, Nudge } from "./apns.js";
 import { createReplyTracker, noticeFor, type NoticeInput } from "./notification-copy.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
+import {
+  bindingAllows,
+  createLinkListener,
+  LINK_HOST,
+  linkTicket,
+  readLinkInfo,
+  type LinkListener,
+  type LinkOptions,
+  type LinkTicketError,
+} from "./link.js";
 import {
   contentDisposition,
   fileContentType,
@@ -199,11 +210,21 @@ export const DEVICE_TOKEN_HEADER = "x-kleio-device-token";
 export const CONTROL_HEADER = "x-kleio-control";
 
 export interface HostOptions {
+  /**
+   * The API's and previews' address: loopback only (127.0.0.1, the default,
+   * or ::1). Phones reach the host through Tailscale Serve or the link, never
+   * directly, so anything else throws.
+   */
   readonly listenHost?: string;
   readonly listenPort: number;
-  /** Public base the host tells devices to use, e.g. https://mini.tailnet.ts.net:8443 */
-  readonly publicBaseUrl: string;
-  /** Tailnet host name, used as the macaroon node caveat. */
+  /**
+   * Public base the host tells devices to use over their own network
+   * (Tailscale), e.g. https://mini.tailnet.ts.net:8443. Unset on a host
+   * reached over the link only: pairings then carry no `baseUrl`, and the
+   * Apps sign-in has no return page here.
+   */
+  readonly publicBaseUrl?: string;
+  /** This host's node ID (node-id.ts): the macaroon node caveat, and a pairing's `host`. */
   readonly nodeId: string;
   readonly registry: DeviceRegistry;
   readonly offers: PairOfferStore;
@@ -311,6 +332,12 @@ export interface HostOptions {
    * web page or PDF answers `unavailable`, and other files still show.
    */
   readonly capture?: Capturer;
+  /**
+   * Kleio's link (link.ts): the listener on 127.0.0.1 that kleio-link-host
+   * forwards phones' connections to, and what GET /kleio/link says. Unset:
+   * no link listener, and GET /kleio/link answers 404.
+   */
+  readonly link?: LinkOptions;
 }
 
 export interface Host {
@@ -319,6 +346,8 @@ export interface Host {
   readonly server: Server;
   /** The preview origin's server; null when `previewPort` is unset. */
   readonly previewServer: Server | null;
+  /** The link listener; null when `link` is unset. */
+  readonly link: LinkListener | null;
 }
 
 type Auth = { readonly device: PairedDevice; readonly admin: boolean };
@@ -644,7 +673,21 @@ const HOP_BY_HOP = new Set([
   "host",
 ]);
 
+/** 127.0.0.0/8 or ::1, as an address: a name could resolve to anything. */
+function isLoopbackAddress(host: string): boolean {
+  return (isIPv4(host) && host.startsWith("127.")) || host === "::1";
+}
+
+/** Why a pairing offer has no link ticket (POST /kleio/pair/offer's `ticketError`). */
+type OfferTicketError = "no_link" | LinkTicketError["kind"];
+
 export function createHost(options: HostOptions): Host {
+  const listenHost = options.listenHost ?? "127.0.0.1";
+  if (!isLoopbackAddress(listenHost)) {
+    throw new Error(
+      `kleio-host listens on loopback only (127.0.0.1 or ::1), not ${JSON.stringify(listenHost)}: phones reach it through Tailscale Serve or the link`,
+    );
+  }
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());
   const { registry, offers, rings } = options;
@@ -703,6 +746,17 @@ export function createHost(options: HostOptions): Host {
     if (!token) return null;
     const device = registry.authenticate(token);
     if (!device) return null;
+    // On the link, a token is good only from the key its device paired with;
+    // off it, only for a device that has none.
+    const via = linkKeyOf(req);
+    if (!bindingAllows(device, via)) {
+      log(
+        via === null
+          ? `[link] refused ${device.label}'s token off the link: it was paired over the link`
+          : `[link] refused ${device.label}'s token: it came with another device's link key`,
+      );
+      return null;
+    }
     let admin = device.admin;
     if (!admin) {
       const control = req.headers[CONTROL_HEADER];
@@ -724,12 +778,49 @@ export function createHost(options: HostOptions): Host {
     return { device, admin };
   }
 
-  function mintPayloadFor(admin: boolean): (label: string | undefined) => Promise<PairingPayload> {
-    return async (label) => {
-      const minted = await registry.mint(label ?? (admin ? "Admin device" : "Device"), { admin });
+  /** This host's name, as a pairing alert gives it. */
+  const hostName = options.link?.name ?? options.nodeId.split(".")[0] ?? options.nodeId;
+
+  /** Tell each admin's phone a device has paired (apns.ts `pairing`). */
+  async function announcePairing(device: PairedDevice): Promise<void> {
+    if (!options.apns?.configured) return;
+    try {
+      await options.apns.pairing(
+        { deviceId: device.deviceId, label: device.label, admin: device.admin, host: hostName },
+        registry.list(),
+      );
+    } catch (e) {
+      log(`[apns] ${String(e)}`);
+    }
+  }
+
+  /** The device key a request came with on the link; null off it. */
+  function linkKeyOf(req: IncomingMessage): string | null {
+    return linkListener?.keyOf(req.socket) ?? null;
+  }
+
+  function mintPayloadFor(admin: boolean): PayloadMinter {
+    return async (label, via: RedeemVia) => {
+      const minted = await registry.mint(label ?? (admin ? "Admin device" : "Device"), {
+        admin,
+        // Paired over the link: bound to its key from the start.
+        ...(via.linkKey !== null ? { linkKey: via.linkKey } : {}),
+      });
       if (!minted.ok) throw new Error(minted.error.message);
+      void background(announcePairing(minted.value.device));
+      // The same phone paired again: its older pairings are revoked with it.
+      for (const old of minted.value.superseded) {
+        const cut = dropStreams(old);
+        liveActivities.dropDevice(old);
+        log(
+          `[pair] ${minted.value.device.label} replaces ${old}, paired with the same link key (${cut} open stream(s) closed)`,
+        );
+      }
       const payload: PairingPayload = {
-        baseUrl: options.publicBaseUrl,
+        // A link device's token is no use off the link, so it gets no address there.
+        ...(options.publicBaseUrl !== undefined && via.linkKey === null
+          ? { baseUrl: options.publicBaseUrl }
+          : {}),
         host: options.nodeId,
         token: minted.value.token,
         label: minted.value.device.label,
@@ -1262,7 +1353,7 @@ export function createHost(options: HostOptions): Host {
         ...(options.composio?.apiKey ? { apiKey: options.composio.apiKey } : {}),
         ...(options.composio?.baseUrl ? { baseUrl: options.composio.baseUrl } : {}),
         ...(options.composio?.fetch ? { fetch: options.composio.fetch } : {}),
-        publicBaseUrl: options.publicBaseUrl,
+        ...(options.publicBaseUrl !== undefined ? { publicBaseUrl: options.publicBaseUrl } : {}),
         ggHome: options.composio?.ggHome ?? join(homedir(), ".gg"),
         secretLock,
         // New tools: idle conversations are retired so their next turn loads them.
@@ -2268,9 +2359,56 @@ export function createHost(options: HostOptions): Host {
 
   // ------------------------------------------------------------------ routes
 
+  /** A new offer's link ticket, or why there's none (said in the log). */
+  async function offerTicket(code: string): Promise<Result<string, OfferTicketError>> {
+    if (!options.link) return err("no_link");
+    const ticket = await linkTicket(options.link, code, now());
+    if (ticket.ok) return ticket;
+    const e = ticket.error;
+    log(
+      `[link] the pair offer has no QR code: ${e.kind === "ticket" ? `its ticket would be invalid (${e.error})` : e.message}`,
+    );
+    return err(e.kind);
+  }
+
+  // DNS rebinding: a web page whose name resolves to 127.0.0.1 could reach the
+  // API from a browser on this machine, and the Host header gives it away.
+  // Logged once per value for now, and refused once the logs show what
+  // Tailscale Serve sends (docs/adr/0002-kleio-link-replaces-tailscale.md).
+  const MAX_STRANGE_HOSTS = 32;
+  const strangeHosts = new Set<string>();
+
+  /** The Host headers each listener expects. */
+  function expectedHosts(onLink: boolean): Set<string> {
+    if (onLink) {
+      // The app's link address, and kleio-link-host's own pairing requests.
+      return new Set([LINK_HOST, `127.0.0.1:${linkListener?.port() ?? 0}`]);
+    }
+    const address = server.address();
+    const port = typeof address === "object" && address !== null ? address.port : 0;
+    const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]);
+    if (options.publicBaseUrl !== undefined) {
+      hosts.add(new URL(options.publicBaseUrl).host.toLowerCase());
+    }
+    return hosts;
+  }
+
+  function noteHostHeader(req: IncomingMessage): void {
+    const onLink = linkKeyOf(req) !== null;
+    const value = (req.headers.host ?? "").toLowerCase();
+    if (expectedHosts(onLink).has(value)) return;
+    const seen = `${onLink ? "link" : "api"} ${value}`;
+    if (strangeHosts.has(seen) || strangeHosts.size >= MAX_STRANGE_HOSTS) return;
+    strangeHosts.add(seen);
+    log(
+      `[host] a request ${onLink ? "on the link" : "to the API"} came with Host ${JSON.stringify(value.slice(0, 100))}, which this host doesn't expect (logged once, not refused yet)`,
+    );
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
+    noteHostHeader(req);
 
     // Composio's OAuth landing page: no token (a browser lands here), fixed HTML.
     if (connections) {
@@ -2320,10 +2458,19 @@ export function createHost(options: HostOptions): Host {
       } catch {
         return json(res, 400, { ok: false, error: "bad_request" });
       }
-      const outcome = await offers.redeem(parsed.code, parsed.redemptionNonce, parsed.label);
+      const outcome = await offers.redeem(parsed.code, parsed.redemptionNonce, parsed.label, {
+        linkKey: linkKeyOf(req),
+      });
       if (outcome.ok) return json(res, 200, { ok: true, payload: outcome.payload });
+      // 410 Gone: a code that was live, and why it no longer is (pair-offer.ts).
       const status =
-        outcome.reason === "bad_request" ? 400 : outcome.reason === "not_found" ? 404 : 401;
+        outcome.reason === "bad_request"
+          ? 400
+          : outcome.reason === "not_found"
+            ? 404
+            : outcome.reason === "unauthorized"
+              ? 401
+              : 410;
       return json(res, status, { ok: false, error: outcome.reason });
     }
 
@@ -2878,6 +3025,37 @@ export function createHost(options: HostOptions): Host {
       }
       return json(res, 200, await hostInfo.read());
     }
+    // A device removes itself, and only itself: a phone that won't keep a
+    // pairing it has just made (it refused this host), or one being reset.
+    if (path === "/kleio/devices/self") {
+      if (req.method !== "DELETE") {
+        res.setHeader("allow", "DELETE");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      const id = auth.device.deviceId;
+      const r = await registry.revoke(id);
+      if (!r.ok)
+        return json(res, r.error.kind === "not_found" ? 404 : 500, { error: r.error.message });
+      const cut = dropStreams(id);
+      liveActivities.dropDevice(id);
+      log(`[devices] ${auth.device.label} (${id}) removed itself (${cut} open stream(s) closed)`);
+      return json(res, 200, { ok: true });
+    }
+    // The link (link.ts), for any paired device: the host's key, its relay
+    // list and where it was last, so a phone can find it again.
+    if (path === "/kleio/link") {
+      if (req.method !== "GET") {
+        res.setHeader("allow", "GET");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      if (!options.link) return json(res, 404, { error: "no_link" });
+      const info = await readLinkInfo(options.link, now(), log);
+      if (!info.ok) {
+        log(`[link] GET /kleio/link: ${info.error}`);
+        return json(res, 500, { error: "link_config" });
+      }
+      return json(res, 200, info.value);
+    }
     // Setup: which third-party keys are present (any paired device; never a
     // key or a fragment of one), and an admin sets or removes the Composio and
     // Typesafe keys. A key is checked with its provider before it is saved.
@@ -3198,12 +3376,18 @@ export function createHost(options: HostOptions): Host {
           }
         }
         const offer = offers.offer(mintPayloadFor(admin), { admin });
-        log(`[admin] ${auth.device.label} minted a pair offer (admin=${admin})`);
+        const ticket = await offerTicket(offer.code);
+        log(
+          `[admin] ${auth.device.label} minted a pair offer (admin=${admin}, ${ticket.ok ? "with" : "without"} a link ticket)`,
+        );
         return json(res, 200, {
           code: offer.code,
           display: formatPairCode(offer.code),
           expiresAt: offer.expiresAt,
           admin,
+          // What the pairing QR code carries; null when the link can't pair now.
+          ticket: ticket.ok ? ticket.value : null,
+          ticketError: ticket.ok ? null : ticket.error,
         });
       }
       if (req.method === "POST" && path === "/kleio/pair/revoke") {
@@ -3250,11 +3434,24 @@ export function createHost(options: HostOptions): Host {
   });
   server.keepAliveTimeout = 65_000;
 
+  // The link's connections go to this same server once their first line
+  // checks out (link.ts).
+  const linkListener: LinkListener | null = options.link
+    ? createLinkListener({
+        http: server,
+        upstreamToken: options.link.upstreamToken,
+        log,
+        ...(options.link.preambleTimeoutMs !== undefined
+          ? { preambleTimeoutMs: options.link.preambleTimeoutMs }
+          : {}),
+      })
+    : null;
+
   /** Listen on the preview port, if there is one; sets previewBase when it was not given. */
   function startPreview(): Promise<void> {
     const ps = previewServer;
     if (!ps) return Promise.resolve();
-    const host = options.listenHost ?? "127.0.0.1";
+    const host = listenHost;
     return new Promise((resolve, reject) => {
       ps.once("error", reject);
       ps.listen(options.previewPort, host, () => {
@@ -3268,9 +3465,10 @@ export function createHost(options: HostOptions): Host {
     });
   }
 
-  return {
+  const self: Host = {
     server,
     previewServer,
+    link: linkListener,
     start: async () => {
       await startPreview();
       await briefing.load();
@@ -3281,11 +3479,9 @@ export function createHost(options: HostOptions): Host {
           reject(e);
         };
         server.once("error", failed);
-        server.listen(options.listenPort, options.listenHost ?? "127.0.0.1", () => {
+        server.listen(options.listenPort, listenHost, () => {
           server.off("error", failed);
-          log(
-            `[host] listening on http://${options.listenHost ?? "127.0.0.1"}:${options.listenPort}`,
-          );
+          log(`[host] listening on http://${listenHost}:${options.listenPort}`);
           void resumeTracked()
             .then(resumeHome)
             .then(() => {
@@ -3299,6 +3495,18 @@ export function createHost(options: HostOptions): Host {
             }, resolve);
         });
       });
+      // After the API, so each link connection the server gets has its
+      // timeouts. Without its listener, the link can't reach the host.
+      if (linkListener && options.link) {
+        let port: number;
+        try {
+          port = await linkListener.listen(options.link.port);
+        } catch (e) {
+          await self.stop();
+          throw e;
+        }
+        log(`[link] listening on http://127.0.0.1:${port} for kleio-link-host`);
+      }
     },
     stop: () =>
       new Promise((resolve) => {
@@ -3321,14 +3529,16 @@ export function createHost(options: HostOptions): Host {
         // close() alone waits for idle keep-alive sockets to time out (65 s here,
         // and slow to notice on Windows). Drop them: a stopping host has nothing
         // more to say, and clients reconnect with Last-Event-ID anyway.
-        const closed = Promise.all(
-          [server, previewServer].map((s) => {
+        const closed = Promise.all([
+          ...[server, previewServer].map((s) => {
             if (!s?.listening) return;
             const done = new Promise<void>((r) => s.close(() => r()));
             s.closeAllConnections();
             return done;
           }),
-        );
+          // Its connections that reached the API close with the API's.
+          linkListener?.close(),
+        ]);
         // Ring appends are queued, not awaited, on the hot path. A host that
         // resolves stop() with writes still in flight hands its successor a
         // file another handle is mid-append on — fine on POSIX, a stall or a
@@ -3346,4 +3556,5 @@ export function createHost(options: HostOptions): Host {
         setTimeout(resolve, 2000).unref();
       }),
   };
+  return self;
 }

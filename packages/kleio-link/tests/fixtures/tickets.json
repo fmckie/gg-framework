@@ -1,0 +1,82 @@
+{
+  "about": [
+    "Kleio's v4 pairing tickets, what a pairing QR code carries (docs/adr/0002-kleio-link-replaces-tailscale.md).",
+    "kleio-host's buildTicket makes each ticket from its build fields (packages/kleio-host/test/link.test.ts).",
+    "The link's Rust reads them too. Every ticket here is one a phone must accept.",
+    "The key is SecretKey::from_bytes(&[7; 32])'s public half."
+  ],
+  "good": [
+    {
+      "about": "the default: on one of n0's relays, n0's list, one address",
+      "build": {
+        "name": "mac-mini-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://euc1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "addrs": ["192.168.1.20:52043"],
+        "code": "ABC-DEF"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"mac-mini-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://euc1-1.relay.n0.iroh.link./\",\"n0\"],\"addrs\":[\"192.168.1.20:52043\"],\"code\":\"ABC-DEF\"}"
+    },
+    {
+      "about": "the longest default: a 32-byte name and the longest addresses, still under 300 bytes",
+      "build": {
+        "name": "Wills-Mac-mini-in-the-office-123",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://use1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "addrs": ["203.0.113.254:65535", "[2a02:c7c8:aaaa:bbbb:cccc:dddd:eeee:ffff]:65535"],
+        "code": "7kq m2x"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"Wills-Mac-mini-in-the-office-123\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://use1-1.relay.n0.iroh.link./\",\"n0\"],\"addrs\":[\"203.0.113.254:65535\",\"[2a02:c7c8:aaaa:bbbb:cccc:dddd:eeee:ffff]:65535\"],\"code\":\"7KQ-M2X\"}"
+    },
+    {
+      "about": "a relay of your own first, n0 behind it",
+      "build": {
+        "name": "vps-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://relay.example.com/",
+        "relays": ["https://relay.example.com/", "n0"],
+        "addrs": ["203.0.113.7:7842"],
+        "code": "Q4R-9ZT"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"vps-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://relay.example.com/\",\"n0\"],\"addrs\":[\"203.0.113.7:7842\"],\"code\":\"Q4R-9ZT\"}"
+    },
+    {
+      "about": "failed over to n0 while your own relay is down: the relay it's on, then the list; no addresses",
+      "build": {
+        "name": "vps-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://aps1-1.relay.n0.iroh.link./",
+        "relays": ["https://relay.example.com/", "n0"],
+        "addrs": [],
+        "code": "Q4R-9ZT"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"vps-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://aps1-1.relay.n0.iroh.link./\",\"https://relay.example.com/\",\"n0\"],\"addrs\":[],\"code\":\"Q4R-9ZT\"}"
+    },
+    {
+      "about": "a list without n0, on its second relay, which has a port",
+      "build": {
+        "name": "home-server",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://relay2.example.net:8443/",
+        "relays": ["https://relay1.example.net/", "https://relay2.example.net:8443/"],
+        "addrs": ["[2001:db8::7]:7842"],
+        "code": "HJK-MNP"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"home-server\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://relay2.example.net:8443/\",\"https://relay1.example.net/\"],\"addrs\":[\"[2001:db8::7]:7842\"],\"code\":\"HJK-MNP\"}"
+    },
+    {
+      "about": "a name that isn't ASCII, written as itself",
+      "build": {
+        "name": "Will’s Mac mini",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "relay": "https://usw1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "addrs": ["10.0.0.2:52043"],
+        "code": "0WX-YZ1"
+      },
+      "ticket": "{\"v\":4,\"type\":\"kleio-pair\",\"name\":\"Will’s Mac mini\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"relays\":[\"https://usw1-1.relay.n0.iroh.link./\",\"n0\"],\"addrs\":[\"10.0.0.2:52043\"],\"code\":\"0WX-YZ1\"}"
+    }
+  ]
+}

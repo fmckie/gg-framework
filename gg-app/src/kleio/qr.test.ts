@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+// The link's ticket vectors, which kleio-host's and the link's own tests read too.
+import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
 import { NOT_A_TICKET, pairTicket, readTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrCode } from "./qr";
 
@@ -119,6 +121,9 @@ describe("readTicket", () => {
     relay: "https://euc1-1.relay.n0.iroh.link./",
     code: "ABC-DEF",
   });
+  const [first] = vectors.good;
+  if (first === undefined) throw new Error("no ticket vectors");
+  const V4 = first.ticket;
 
   it("reads the v2 ticket pairTicket writes, to fill the pairing form", () => {
     const written = pairTicket(`${BASE}/`, "abc def");
@@ -129,8 +134,23 @@ describe("readTicket", () => {
     });
   });
 
-  it("sends a v3 ticket, whole and trimmed, to the link's confirm step", () => {
-    expect(readTicket(`  ${V3}\n`)).toEqual({ kind: "v3", ticket: V3 });
+  it("sends a v4 ticket, whole and trimmed, to the link's confirm step", () => {
+    expect(readTicket(`  ${V4}\n`)).toEqual({ kind: "link", ticket: V4 });
+  });
+
+  it("sends every ticket kleio-host writes to the link (the shared vectors)", () => {
+    for (const vector of vectors.good) {
+      expect(readTicket(vector.ticket), vector.about).toEqual({
+        kind: "link",
+        ticket: vector.ticket,
+      });
+    }
+  });
+
+  it("sends a v3 or a newer ticket to the link too, which says what it is", () => {
+    expect(readTicket(V3)).toEqual({ kind: "link", ticket: V3 });
+    const v5 = JSON.stringify({ ...JSON.parse(V4), v: 5 });
+    expect(readTicket(v5)).toEqual({ kind: "link", ticket: v5 });
   });
 
   it.each([
@@ -139,7 +159,8 @@ describe("readTicket", () => {
     ["a JSON string", JSON.stringify("kleio-pair")],
     ["a JSON array", JSON.stringify([2, "kleio-pair"])],
     ["another type", v2({ type: "wifi" })],
-    ["another version", v2({ v: 4 })],
+    ["a version before v2", v2({ v: 1 })],
+    ["a version that isn't whole", v2({ v: 3.5 })],
     ["a version written as text", v2({ v: "3" })],
     ["an extra field", v2({ token: "secret" })],
     ["a missing code", JSON.stringify({ v: 2, type: "kleio-pair", baseUrl: BASE })],
@@ -149,7 +170,10 @@ describe("readTicket", () => {
     ["an address off the tailnet", v2({ baseUrl: "https://example.com" })],
     ["an http address", v2({ baseUrl: "http://mac-mini-1.tail0000.ts.net:8443" })],
     ["an address with a path", v2({ baseUrl: `${BASE}/kleio` })],
-    ["a v3 ticket over 1 KiB", JSON.stringify({ v: 3, type: "kleio-pair", pad: "x".repeat(1100) })],
+    [
+      "a link ticket over 512 bytes",
+      JSON.stringify({ v: 4, type: "kleio-pair", pad: "x".repeat(500) }),
+    ],
   ])("refuses %s, so nothing is filled", (_label, text) => {
     expect(readTicket(text)).toEqual({ kind: "invalid", error: NOT_A_TICKET });
   });
