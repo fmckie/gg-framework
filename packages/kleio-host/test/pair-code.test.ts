@@ -17,6 +17,26 @@ describe("isPairingPayload", () => {
     }
   });
 
+  it("takes a preview origin that's https, or a host on the same Mac, and nothing after it", () => {
+    for (const previewOrigin of ["https://mini.test.ts.net:8444", "http://127.0.0.1:52715"]) {
+      expect(isPairingPayload({ ...LINK_ONLY, previewOrigin }), previewOrigin).toBe(true);
+    }
+    for (const previewOrigin of [
+      "",
+      "http://mini.test.ts.net:8444",
+      "http://localhost:52715",
+      "https://mini.test.ts.net:8444/",
+      "https://mini.test.ts.net:8444/p",
+      "https://user@mini.test.ts.net:8444",
+      "HTTPS://Mini.test.ts.net:8444",
+      "not a url",
+      8444,
+      null,
+    ]) {
+      expect(isPairingPayload({ ...LINK_ONLY, previewOrigin }), String(previewOrigin)).toBe(false);
+    }
+  });
+
   it("still needs the host, token, label and device ID", () => {
     for (const field of ["host", "token", "label", "deviceId"]) {
       const rest = Object.fromEntries(Object.entries(LINK_ONLY).filter(([k]) => k !== field));

@@ -15,6 +15,12 @@ export interface SendFileOptions {
   readonly missing: (res: ServerResponse) => void;
   /** HEAD: headers only. */
   readonly head?: boolean;
+  /**
+   * The request already has this file (its If-None-Match): answer 304 with
+   * `headers`' validators and no body. Asked only once the open file is
+   * still the one that was resolved.
+   */
+  readonly notModified?: boolean;
 }
 
 /**
@@ -49,6 +55,19 @@ export async function sendFile(
     await fh.close();
     options.missing(res);
     return [404, 0];
+  }
+  if (options.notModified) {
+    await fh.close();
+    // RFC 9110 15.4.5: the validators and caching headers a 200 would have
+    // had, and no content headers.
+    const { etag, "last-modified": lastModified, "cache-control": cacheControl } = options.headers;
+    res.writeHead(304, {
+      ...(etag === undefined ? {} : { etag }),
+      ...(lastModified === undefined ? {} : { "last-modified": lastModified }),
+      ...(cacheControl === undefined ? {} : { "cache-control": cacheControl }),
+    });
+    res.end();
+    return [304, 0];
   }
   res.writeHead(200, { ...options.headers, "content-length": String(file.size) });
   if (file.size === 0 || options.head) {

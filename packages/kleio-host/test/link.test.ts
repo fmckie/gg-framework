@@ -24,7 +24,7 @@ import {
   type LinkListener,
   type TicketInput,
 } from "../src/link.js";
-import { newRedemptionNonce, type PairingPayload } from "../src/pair-code.js";
+import { newRedemptionNonce, PAIR_MAX_ATTEMPTS, type PairingPayload } from "../src/pair-code.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
@@ -173,6 +173,30 @@ function apiRequest(
     );
     req.on("error", reject);
     req.end(options.body);
+  });
+}
+
+/**
+ * One request written by hand, for what Node's client won't send (a request
+ * with no Host header), opened with `key`'s first line when it's for the link.
+ */
+function rawRequest(
+  port: number,
+  request: string,
+  key?: string,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1");
+    let answer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (c: string) => (answer += c));
+    socket.on("end", () => {
+      const status = Number(/^HTTP\/1\.[01] (\d{3}) /.exec(answer)?.[1] ?? 0);
+      const blank = answer.indexOf("\r\n\r\n");
+      resolve({ status, body: blank === -1 ? "" : answer.slice(blank + 4) });
+    });
+    socket.on("error", reject);
+    socket.write((key === undefined ? "" : preamble(key)) + request);
   });
 }
 
@@ -665,33 +689,103 @@ describe("the link in the host", () => {
     );
   });
 
-  it("logs each Host header a listener doesn't expect, once, and still answers", async () => {
-    const { apiPort, linkPort, logs } = await linkHost({ publicUrl: true });
-    const strange = (): string[] =>
-      logs.filter((l) => l.includes("which this host doesn't expect"));
-    for (const host of [`127.0.0.1:${apiPort}`, `localhost:${apiPort}`, "mini.test.ts.net:8443"]) {
-      expect((await apiRequest(apiPort, { path: "/kleio/health", host })).status).toBe(200);
-    }
-    for (const host of [LINK_HOST, `127.0.0.1:${linkPort}`]) {
-      expect((await linkRequest(linkPort, KEY_A, { path: "/kleio/health", host })).status).toBe(
-        200,
-      );
-    }
-    expect(strange()).toEqual([]);
+  /** What a listener answers a request whose Host isn't one of its addresses. */
+  const MISDIRECTED = { status: 421, body: JSON.stringify({ error: "misdirected_request" }) };
 
-    for (let i = 0; i < 2; i += 1) {
-      const api = await apiRequest(apiPort, { path: "/kleio/health", host: "evil.example" });
-      expect(api.status).toBe(200);
-      const link = await linkRequest(linkPort, KEY_A, {
-        path: "/kleio/health",
-        host: `127.0.0.1:${apiPort}`,
-      });
-      expect(link.status).toBe(200);
+  it("answers each listener only at its own addresses, refusing any other name with 421", async () => {
+    const { apiPort, linkPort, logs } = await linkHost({ publicUrl: true });
+    const refused = (): string[] => logs.filter((l) => l.includes("[host] refused a request"));
+    // The API: this machine's names at its port, and KLEIO_PUBLIC_URL's, which
+    // Tailscale Serve passes on for a device paired by address.
+    for (const host of [
+      `127.0.0.1:${apiPort}`,
+      `localhost:${apiPort}`,
+      `[::1]:${apiPort}`,
+      "mini.test.ts.net:8443",
+      "MINI.test.ts.net:8443",
+    ]) {
+      expect((await apiRequest(apiPort, { path: "/kleio/health", host })).status, host).toBe(200);
     }
-    expect(strange()).toEqual([
-      expect.stringContaining('to the API came with Host "evil.example"'),
-      expect.stringContaining(`on the link came with Host "127.0.0.1:${apiPort}"`),
+    // The link: the app's link address, which kleio-link-host's own requests name too.
+    for (const host of [LINK_HOST, `127.0.0.1:${linkPort}`]) {
+      const answer = await linkRequest(linkPort, KEY_A, { path: "/kleio/health", host });
+      expect(answer.status, host).toBe(200);
+    }
+    expect(refused()).toEqual([]);
+
+    // A web page whose name points at this machine, each listener's names on
+    // the other, and the public name without its port: refused, and said once.
+    for (let i = 0; i < 2; i += 1) {
+      for (const host of ["evil.example", LINK_HOST, "mini.test.ts.net"]) {
+        const answer = await apiRequest(apiPort, { path: "/kleio/health", host });
+        expect(answer, host).toMatchObject(MISDIRECTED);
+      }
+      for (const host of [`127.0.0.1:${apiPort}`, "mini.test.ts.net:8443"]) {
+        const answer = await linkRequest(linkPort, KEY_A, { path: "/kleio/health", host });
+        expect(answer, host).toEqual(MISDIRECTED);
+      }
+    }
+    expect(refused()).toEqual([
+      `[host] refused a request to the API with Host "evil.example": it answers only to 127.0.0.1:${apiPort}, localhost:${apiPort}, [::1]:${apiPort}, mini.test.ts.net:8443 (said once for each)`,
+      expect.stringContaining(`to the API with Host "${LINK_HOST}":`),
+      expect.stringContaining('to the API with Host "mini.test.ts.net":'),
+      `[host] refused a request on the link with Host "127.0.0.1:${apiPort}": it answers only to ${LINK_HOST}, 127.0.0.1:${linkPort} (said once for each)`,
+      expect.stringContaining('on the link with Host "mini.test.ts.net:8443":'),
     ]);
+  });
+
+  it("refuses a request with no Host header with 400, on either listener", async () => {
+    const { apiPort, linkPort, logs } = await linkHost({ publicUrl: true });
+    const bad = { status: 400, body: JSON.stringify({ error: "bad_request" }) };
+    // HTTP/1.0 may leave Host out, so this host refuses it...
+    const noHost = "GET /kleio/health HTTP/1.0\r\n\r\n";
+    expect(await rawRequest(apiPort, noHost)).toEqual(bad);
+    expect(await rawRequest(linkPort, noHost, KEY_A)).toEqual(bad);
+    // ...and HTTP/1.1 must have one, so Node refuses it first.
+    const oneOne = await rawRequest(apiPort, "GET /kleio/health HTTP/1.1\r\n\r\n");
+    expect(oneOne.status).toBe(400);
+    expect(logs.filter((l) => l.includes("with no Host header"))).toEqual([
+      "[host] refused a request to the API with no Host header (said once)",
+      "[host] refused a request on the link with no Host header (said once)",
+    ]);
+    // With one, the same request is answered.
+    const named = `GET /kleio/health HTTP/1.0\r\nHost: 127.0.0.1:${apiPort}\r\n\r\n`;
+    expect((await rawRequest(apiPort, named)).status).toBe(200);
+    const onLink = `GET /kleio/health HTTP/1.0\r\nHost: ${LINK_HOST}\r\n\r\n`;
+    expect((await rawRequest(linkPort, onLink, KEY_A)).status).toBe(200);
+  });
+
+  it("refuses a misdirected request before anything else: no token, and no try at a code", async () => {
+    const { registry, apiPort } = await linkHost({ publicUrl: true });
+    const admin = await mint(registry, "Admin", undefined, true);
+    const evil = "evil.example";
+    const devices = { path: "/kleio/devices", token: admin.token };
+    expect(await apiRequest(apiPort, { ...devices, host: evil })).toMatchObject(MISDIRECTED);
+    expect((await apiRequest(apiPort, devices)).status).toBe(200);
+
+    // More wrong codes than a code's tries: none counts, as none is read.
+    const { code } = await offer(apiPort, admin.token);
+    const wrong = (code.startsWith("0") ? "1" : "0") + code.slice(1);
+    for (let i = 0; i <= PAIR_MAX_ATTEMPTS; i += 1) {
+      const body = redeemBody(wrong, "Stranger");
+      const tried = await apiRequest(apiPort, {
+        method: "POST",
+        path: "/kleio/pair/redeem",
+        body,
+        host: evil,
+      });
+      expect(tried).toMatchObject(MISDIRECTED);
+    }
+    // So the code still pairs, by the host's address, as pairing under
+    // "Advanced: connect over your own network" does.
+    const redeem = await apiRequest(apiPort, {
+      method: "POST",
+      path: "/kleio/pair/redeem",
+      body: redeemBody(code, "Laptop"),
+      host: "mini.test.ts.net:8443",
+    });
+    expect(redeem.status).toBe(200);
+    expect(payloadOf(redeem.body).baseUrl).toBe(PUBLIC_URL);
   });
 
   it("doesn't start when the link's port is taken, and frees the others", async () => {

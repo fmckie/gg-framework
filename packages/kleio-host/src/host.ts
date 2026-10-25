@@ -57,6 +57,11 @@ import type { PairOfferStore, PayloadMinter, RedeemVia } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher, Nudge } from "./apns.js";
 import { createReplyTracker, noticeFor, type NoticeInput } from "./notification-copy.js";
+import {
+  createNotificationSettings,
+  parseNotificationSettings,
+  textlessPusher,
+} from "./notification-settings.js";
 import { createBlobs, DEFAULT_BLOB_MODEL, type Blobs } from "./blobs.js";
 import { createConnections } from "./connections.js";
 import {
@@ -634,13 +639,41 @@ function fileErrorStatus(e: AgentFileError): [number, string] {
       : [404, "no such file"];
 }
 
-/** Stream a resolved agent file as a download (see send-file.ts). Returns [status, bytes]. */
-function sendAgentFile(res: ServerResponse, file: AgentFile): Promise<[number, number]> {
+/** A file's entity tag: its size and modified time, so any change makes a new one. */
+export function fileEtag(file: Pick<AgentFile, "size" | "mtimeMs">): string {
+  return `"${file.size}-${Math.trunc(file.mtimeMs)}"`;
+}
+
+/**
+ * Whether an If-None-Match header names `etag` (RFC 9110 13.1.2): `*`, or a
+ * comma-separated list of tags, compared weakly (a `W/` prefix is ignored).
+ */
+export function matchesEtag(ifNoneMatch: string | undefined, etag: string): boolean {
+  if (ifNoneMatch === undefined) return false;
+  const strong = (tag: string): string => (tag.startsWith("W/") ? tag.slice(2) : tag);
+  return ifNoneMatch
+    .split(",")
+    .map((t) => t.trim())
+    .some((t) => t === "*" || (t !== "" && strong(t) === strong(etag)));
+}
+
+/**
+ * Stream a resolved agent file as a download (see send-file.ts), or answer
+ * 304 when the request's If-None-Match already names this version of it.
+ * Returns [status, bytes].
+ */
+function sendAgentFile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  file: AgentFile,
+): Promise<[number, number]> {
+  const etag = fileEtag(file);
   return sendFile(res, file, {
+    notModified: matchesEtag(req.headers["if-none-match"], etag),
     headers: {
       "content-type": fileContentType(file.name),
       "last-modified": new Date(file.mtimeMs).toUTCString(),
-      etag: `"${file.size}-${Math.trunc(file.mtimeMs)}"`,
+      etag,
       "cache-control": "private, no-cache",
       "x-content-type-options": "nosniff",
       "content-security-policy": "sandbox; default-src 'none'",
@@ -691,6 +724,14 @@ export function createHost(options: HostOptions): Host {
   const log = options.log ?? ((): void => {});
   const now = options.now ?? ((): Date => new Date());
   const { registry, offers, rings } = options;
+  // Whether notifications quote what was said (notification-settings.ts).
+  // Every push to Apple goes through `apns`, which leaves the text out when an
+  // admin device has turned quoting off.
+  const notificationSettings = createNotificationSettings({
+    path: join(dirname(options.sidecarEndpointPath), "notifications.json"),
+    log,
+  });
+  const apns = options.apns ? textlessPusher(options.apns, notificationSettings) : undefined;
   const secretLock =
     options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
   const hostInfo = createHostInfo({ ...options.hostInfo, log });
@@ -783,9 +824,9 @@ export function createHost(options: HostOptions): Host {
 
   /** Tell each admin's phone a device has paired (apns.ts `pairing`). */
   async function announcePairing(device: PairedDevice): Promise<void> {
-    if (!options.apns?.configured) return;
+    if (!apns?.configured) return;
     try {
-      await options.apns.pairing(
+      await apns.pairing(
         { deviceId: device.deviceId, label: device.label, admin: device.admin, host: hostName },
         registry.list(),
       );
@@ -825,6 +866,9 @@ export function createHost(options: HostOptions): Host {
         token: minted.value.token,
         label: minted.value.device.label,
         deviceId: minted.value.device.deviceId,
+        // Where previews open, in a browser over Tailscale for now: the device
+        // opens a preview link only there, over the link too.
+        ...(previews && previewBase ? { previewOrigin: new URL(previewBase).origin } : {}),
       };
       if (!admin) return payload;
       const expires = new Date(now().getTime() + 365 * 24 * 3600_000);
@@ -924,14 +968,14 @@ export function createHost(options: HostOptions): Host {
             const groupTurn = groups?.owns(sessionId) ?? false;
             // A chat started by voice and not yet opened is named in its nudge.
             const startedNudge = started.onRunEnd(sessionId, s.subs.size === 0);
-            if (!groupTurn && (blobNudge || s.subs.size === 0) && options.apns?.configured) {
+            if (!groupTurn && (blobNudge || s.subs.size === 0) && apns?.configured) {
               const runNudge: Nudge = {
                 sessionId,
                 kind: outcome?.kind ?? "finished",
                 name: startedNudge?.name ?? describeSession(sessionId).title,
                 ...(outcome?.text ? { text: outcome.text } : {}),
               };
-              void options.apns
+              void apns
                 .notify(blobNudge ?? runNudge, registry.list())
                 .catch((e) => log(`[apns] ${String(e)}`));
             }
@@ -1071,7 +1115,7 @@ export function createHost(options: HostOptions): Host {
   // Lock-screen Live Activities, updated from here while the phone is locked.
   // The iPhone Live Activity per session / group (live-activity.ts).
   const liveActivities = createLiveActivityTracker({
-    apns: options.apns,
+    apns,
     startTokens: () =>
       registry
         .list()
@@ -1126,8 +1170,8 @@ export function createHost(options: HostOptions): Host {
   const askNotifier = createAskNotifier({
     attached: (sessionId) => (live.get(sessionId)?.subs.size ?? 0) > 0,
     push: (nudge) => {
-      if (!options.apns?.configured) return;
-      const apns = options.apns;
+      if (!apns?.configured) return;
+      const pusher = apns;
       const sid = nudge.sessionId;
       void (async () => {
         const viaLive = sid
@@ -1139,7 +1183,7 @@ export function createHost(options: HostOptions): Host {
           : false;
         if (!viaLive) {
           const name = sid ? describeSession(sid).title : undefined;
-          await apns.notify({ ...nudge, ...(name ? { name } : {}) }, registry.list());
+          await pusher.notify({ ...nudge, ...(name ? { name } : {}) }, registry.list());
         }
       })().catch((e) => log(`[apns] ${String(e)}`));
     },
@@ -1307,7 +1351,7 @@ export function createHost(options: HostOptions): Host {
         findBlob: (id) => blobs.find(id),
         modelOf: (b) => blobs.modelOf(b),
         notify: async (n) => {
-          if (options.apns?.configured) await options.apns.notify(n, registry.list());
+          if (apns?.configured) await apns.notify(n, registry.list());
         },
         onLive: (groupId, title, state, alert, fresh) => {
           groupTitles.set(groupId, title);
@@ -2372,16 +2416,20 @@ export function createHost(options: HostOptions): Host {
   }
 
   // DNS rebinding: a web page whose name resolves to 127.0.0.1 could reach the
-  // API from a browser on this machine, and the Host header gives it away.
-  // Logged once per value for now, and refused once the logs show what
-  // Tailscale Serve sends (docs/adr/0002-kleio-link-replaces-tailscale.md).
-  const MAX_STRANGE_HOSTS = 32;
-  const strangeHosts = new Set<string>();
+  // API from a browser on this machine, and the Host header gives it away. So
+  // each listener answers only a request that names one of its own addresses,
+  // before reading anything else: another name gets 421, and none 400 (RFC 9112
+  // section 3.2). Phase 1 only logged them, until the mini's logs showed that
+  // Tailscale Serve and the apps send only these names. Each refused value is
+  // still logged once.
+  const MAX_REFUSED_HOSTS = 32;
+  const refusedHosts = new Set<string>();
 
-  /** The Host headers each listener expects. */
+  /** The Host headers each listener answers to. */
   function expectedHosts(onLink: boolean): Set<string> {
     if (onLink) {
-      // The app's link address, and kleio-link-host's own pairing requests.
+      // The app's link address, which kleio-link-host's own requests name too,
+      // and the link listener's own.
       return new Set([LINK_HOST, `127.0.0.1:${linkListener?.port() ?? 0}`]);
     }
     const address = server.address();
@@ -2393,22 +2441,34 @@ export function createHost(options: HostOptions): Host {
     return hosts;
   }
 
-  function noteHostHeader(req: IncomingMessage): void {
+  /**
+   * Answers `req` itself, with 421 (or 400 with no Host), when it doesn't name
+   * one of its listener's addresses; true when it did.
+   */
+  function misdirected(req: IncomingMessage, res: ServerResponse): boolean {
     const onLink = linkKeyOf(req) !== null;
     const value = (req.headers.host ?? "").toLowerCase();
-    if (expectedHosts(onLink).has(value)) return;
+    const expected = expectedHosts(onLink);
+    if (expected.has(value)) return false;
     const seen = `${onLink ? "link" : "api"} ${value}`;
-    if (strangeHosts.has(seen) || strangeHosts.size >= MAX_STRANGE_HOSTS) return;
-    strangeHosts.add(seen);
-    log(
-      `[host] a request ${onLink ? "on the link" : "to the API"} came with Host ${JSON.stringify(value.slice(0, 100))}, which this host doesn't expect (logged once, not refused yet)`,
-    );
+    if (!refusedHosts.has(seen) && refusedHosts.size < MAX_REFUSED_HOSTS) {
+      refusedHosts.add(seen);
+      const where = onLink ? "on the link" : "to the API";
+      log(
+        value === ""
+          ? `[host] refused a request ${where} with no Host header (said once)`
+          : `[host] refused a request ${where} with Host ${JSON.stringify(value.slice(0, 100))}: it answers only to ${[...expected].join(", ")} (said once for each)`,
+      );
+    }
+    if (value === "") json(res, 400, { error: "bad_request" });
+    else json(res, 421, { error: "misdirected_request" });
+    return true;
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (misdirected(req, res)) return;
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
-    noteHostHeader(req);
 
     // Composio's OAuth landing page: no token (a browser lands here), fixed HTML.
     if (connections) {
@@ -3187,6 +3247,31 @@ export function createHost(options: HostOptions): Host {
       return json(res, 405, { error: "method_not_allowed" });
     }
 
+    // Whether notifications and Live Activities quote what was said
+    // (notification-settings.ts). Any paired device reads it; an admin device
+    // changes it.
+    if (path === "/kleio/notifications") {
+      if (req.method === "GET") return json(res, 200, await notificationSettings.current());
+      if (req.method !== "POST") {
+        res.setHeader("allow", "GET, POST");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const body = await readBody(req, 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body.toString("utf8"));
+      } catch {
+        return json(res, 400, { error: "bad_request" });
+      }
+      const next = parseNotificationSettings(parsed);
+      if (!next) return json(res, 400, { error: "bad_request" });
+      const saved = await background(notificationSettings.set(next));
+      log(`[notifications] ${auth.device.label} turned quoting ${saved.quoteText ? "on" : "off"}`);
+      return json(res, 200, saved);
+    }
+
     // The pinned home thread. Any paired device, not admin-only: it is the
     // conversation every device opens.
     if (req.method === "GET" && path === "/kleio/home") {
@@ -3296,7 +3381,7 @@ export function createHost(options: HostOptions): Host {
             json(res, status, { error });
             return [status, 0];
           }
-          return sendAgentFile(res, r.value);
+          return sendAgentFile(req, res, r.value);
         })();
       } finally {
         log(
@@ -3324,14 +3409,20 @@ export function createHost(options: HostOptions): Host {
     // App connections (Composio). Any paired device.
     if (connections) {
       const r = await background(
-        connections.route(req.method ?? "GET", path, url.searchParams, async () => {
-          const body = await readBody(req, 16 * 1024);
-          try {
-            return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
-          } catch {
-            return undefined;
-          }
-        }),
+        connections.route(
+          req.method ?? "GET",
+          path,
+          url.searchParams,
+          async () => {
+            const body = await readBody(req, 16 * 1024);
+            try {
+              return body && body.length ? (JSON.parse(body.toString("utf8")) as unknown) : {};
+            } catch {
+              return undefined;
+            }
+          },
+          { overLink: linkKeyOf(req) !== null },
+        ),
       );
       if (r) return json(res, r.status, r.body);
     }

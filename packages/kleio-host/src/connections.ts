@@ -10,8 +10,11 @@
  * next turn loads the tools.
  *
  * The phone's Apps screen lists connections, searches the catalogue, starts
- * an OAuth link (opened in a web sheet; Composio redirects to the callback
- * page below, which bounces to kleio://connections) and disconnects.
+ * an OAuth link (opened in the browser) and disconnects. Over Tailscale,
+ * Composio then redirects to the callback page below, which bounces to
+ * kleio://connections. A sign-in started over Kleio's link, or on a host with
+ * no public URL, ends on Composio's own page instead: the device may have no
+ * way to the host's public URL (an iPhone with Tailscale off).
  *
  * The API key comes from KLEIO_COMPOSIO_API_KEY or <state dir>/composio.key.
  * It never appears in a response body or a log line. An admin device can set
@@ -67,6 +70,15 @@ export interface HtmlReply {
   readonly html: string;
 }
 
+/** How a device's request reached the host. */
+export interface RouteFrom {
+  /**
+   * Over Kleio's link: the device may have no way to the host's public URL,
+   * so a sign-in it starts sends Composio no callback.
+   */
+  readonly overLink: boolean;
+}
+
 export interface Connections {
   /** Create the session and the mcp.json entry if a key is present. Never throws. */
   ensure(): Promise<void>;
@@ -76,6 +88,7 @@ export interface Connections {
     path: string,
     query: URLSearchParams,
     body: () => Promise<unknown>,
+    from: RouteFrom,
   ): Promise<Reply | null>;
   /** The unauthenticated OAuth landing page, or null when the path is not it. */
   callback(method: string, path: string, query: URLSearchParams): HtmlReply | null;
@@ -506,10 +519,13 @@ export function createConnections(options: ConnectionsOptions): Connections {
     return { status: 200, body: { toolkits: items, nextCursor } };
   }
 
-  async function connect(key: string, s: State, body: unknown): Promise<Reply> {
+  async function connect(key: string, s: State, body: unknown, from: RouteFrom): Promise<Reply> {
     const toolkit = str(obj(body).toolkit)?.trim().toLowerCase();
     if (!toolkit || !SLUG.test(toolkit))
       return { status: 400, body: { error: "toolkit must be an app id, e.g. gmail" } };
+    // Over the link, the browser may not reach the host's public URL, so the
+    // sign-in ends on Composio's own page rather than an error page.
+    const dropped = from.overLink && "callback_url" in callback;
     let r: Record<string, unknown>;
     try {
       r = obj(
@@ -519,7 +535,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
           `/api/v3.1/tool_router/session/${encodeURIComponent(s.sessionId!)}/link`,
           {
             toolkit,
-            ...callback,
+            ...(dropped ? {} : callback),
           },
         ),
       );
@@ -554,7 +570,10 @@ export function createConnections(options: ConnectionsOptions): Connections {
     const redirectUrl = str(r.redirect_url);
     if (!redirectUrl || !/^https:\/\//i.test(redirectUrl))
       return { status: 502, body: { error: "composio", status: 502, detail: "no sign-in link" } };
-    log(`[apps] connect started: ${toolkit}`);
+    log(
+      `[apps] connect started: ${toolkit}` +
+        (dropped ? ", to end on Composio's own page (over the link)" : ""),
+    );
     return {
       status: 200,
       body: { redirectUrl, connectionId: str(r.connected_account_id) ?? null },
@@ -608,7 +627,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
 
     ensure,
 
-    async route(method, path, query, body) {
+    async route(method, path, query, body, from) {
       if (path !== "/kleio/connections" && !path.startsWith("/kleio/connections/")) return null;
       if (path === "/kleio/connections/callback") return null;
       const key = await apiKey();
@@ -627,7 +646,7 @@ export function createConnections(options: ConnectionsOptions): Connections {
       try {
         if (path === "/kleio/connections") {
           if (method === "GET") return await list(key, s);
-          if (method === "POST") return await connect(key, s, await body());
+          if (method === "POST") return await connect(key, s, await body(), from);
           return { status: 405, body: { error: "method not allowed" } };
         }
         if (path === "/kleio/connections/toolkits" && method === "GET")
