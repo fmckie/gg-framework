@@ -52,6 +52,7 @@ export type {
 export { StreamResult, EventStream } from "./utils/event-stream.js";
 export {
   GGAIError,
+  ImagesTooLargeError,
   ProviderError,
   formatError,
   formatErrorForDisplay,

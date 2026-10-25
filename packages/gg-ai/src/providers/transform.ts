@@ -18,6 +18,7 @@ import type {
 import { resolveToolSchema, zodToJsonSchema } from "../utils/zod-to-json-schema.js";
 import { makeStrictToolSchema, UnsupportedStrictSchemaError } from "../utils/strict-tool-schema.js";
 import { DEFAULT_REASONING_FIELD } from "./reasoning-field.js";
+import { ImagesTooLargeError } from "../errors.js";
 
 // ── Shared helpers ─────────────────────────────────────────
 
@@ -194,6 +195,15 @@ const PROVIDER_IMAGE_BUDGETS: Partial<Record<Provider, number>> = {
   openrouter: 90,
 };
 
+/**
+ * The most image data, in base64 characters, one request carries: under the
+ * providers' request limits (Anthropic's is 32 MB), and small enough that a
+ * request built again on every retry doesn't fill the agent's memory. A chat
+ * whose agent took 39 screenshots of 3.5 MB each once sent 129 MB a try,
+ * which failed, and its retries ran the app sidecar out of memory.
+ */
+export const PROVIDER_IMAGE_BYTE_BUDGET = 20 * 1024 * 1024;
+
 function countContextImages(messages: Message[]): number {
   let count = 0;
   for (const message of messages) {
@@ -211,9 +221,10 @@ function countContextImages(messages: Message[]): number {
 }
 
 /**
- * Cap historical images before provider dispatch, removing the oldest first.
- * The persisted/live conversation is never mutated; only modified messages and
- * tool results are cloned for the outgoing request.
+ * Cap historical images before provider dispatch, removing the oldest first:
+ * first to the provider's image count, then to {@link PROVIDER_IMAGE_BYTE_BUDGET}
+ * of image data. The persisted/live conversation is never mutated; only
+ * modified messages and tool results are cloned for the outgoing request.
  */
 export function clampProviderContextImages(
   messages: Message[],
@@ -221,6 +232,93 @@ export function clampProviderContextImages(
   supportsImages: boolean | undefined,
 ): Message[] {
   if (supportsImages === false) return messages;
+  return clampContextImageBytes(clampContextImageCount(messages, provider));
+}
+
+/** Image parts of a message that carry images (user, or tool results), in order. */
+function imageParts(message: Message): ImageContent[] {
+  if (message.role === "user" && Array.isArray(message.content)) {
+    return message.content.filter((part): part is ImageContent => part.type === "image");
+  }
+  if (message.role === "tool") {
+    return message.content.flatMap((result) =>
+      Array.isArray(result.content)
+        ? result.content.filter((part): part is ImageContent => part.type === "image")
+        : [],
+    );
+  }
+  return [];
+}
+
+/** `messages` without the image parts in `drop`, a placeholder for any part list left empty. */
+function withoutImages(messages: Message[], drop: ReadonlySet<ImageContent>): Message[] {
+  const keep = <T extends { type: string }>(content: T[]): (T | TextContent)[] => {
+    const kept = content.filter((part) => !drop.has(part as unknown as ImageContent));
+    return kept.length > 0
+      ? kept
+      : [{ type: "text" as const, text: PROVIDER_IMAGE_LIMIT_PLACEHOLDER }];
+  };
+  return messages.map((message): Message => {
+    if (!imageParts(message).some((part) => drop.has(part))) return message;
+    if (message.role === "user" && Array.isArray(message.content)) {
+      return { ...message, content: keep(message.content) as typeof message.content };
+    }
+    if (message.role === "tool") {
+      return {
+        ...message,
+        content: message.content.map((result) =>
+          Array.isArray(result.content) &&
+          result.content.some((part) => drop.has(part as ImageContent))
+            ? { ...result, content: keep(result.content) as typeof result.content }
+            : result,
+        ),
+      };
+    }
+    return message;
+  });
+}
+
+/**
+ * Keeps the newest images until {@link PROVIDER_IMAGE_BYTE_BUDGET} of image
+ * data, then drops the rest, oldest included. The last user message's own
+ * images (what the user attached to the prompt being answered) are always
+ * kept: when they alone are over the budget, this throws
+ * {@link ImagesTooLargeError} rather than send a request a provider refuses.
+ */
+function clampContextImageBytes(messages: Message[]): Message[] {
+  let lastUser = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") {
+      lastUser = i;
+      break;
+    }
+  }
+  const pinned = lastUser >= 0 ? imageParts(messages[lastUser] as Message) : [];
+  const pinnedBytes = pinned.reduce((sum, part) => sum + part.data.length, 0);
+  if (pinnedBytes > PROVIDER_IMAGE_BYTE_BUDGET) {
+    throw new ImagesTooLargeError(pinnedBytes, PROVIDER_IMAGE_BYTE_BUDGET);
+  }
+  let room = PROVIDER_IMAGE_BYTE_BUDGET - pinnedBytes;
+  let full = false;
+  const drop = new Set<ImageContent>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (i === lastUser) continue;
+    const parts = imageParts(messages[i] as Message);
+    for (let j = parts.length - 1; j >= 0; j--) {
+      const part = parts[j] as ImageContent;
+      if (!full && part.data.length <= room) {
+        room -= part.data.length;
+      } else {
+        full = true;
+        drop.add(part);
+      }
+    }
+  }
+  return drop.size === 0 ? messages : withoutImages(messages, drop);
+}
+
+/** Caps the conversation at the provider's image count, removing the oldest first. */
+function clampContextImageCount(messages: Message[], provider: Provider): Message[] {
   const budget = PROVIDER_IMAGE_BUDGETS[provider] ?? 5;
   let remainingToRemove = countContextImages(messages) - budget;
   if (remainingToRemove <= 0) return messages;

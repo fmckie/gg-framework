@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { ImagesTooLargeError } from "../errors.js";
 import {
   clampProviderContextImages,
   downgradeUnsupportedVideos,
+  PROVIDER_IMAGE_BYTE_BUDGET,
   toAnthropicMessages,
   toAnthropicThinking,
   toAnthropicTools,
@@ -55,6 +57,111 @@ describe("provider image budgeting", () => {
         ? user.content.filter((part) => part.type === "image").length
         : 0,
     ).toBe(budget);
+  });
+
+  describe("by size", () => {
+    const MiB = 1024 * 1024;
+    /** One image of `mib` MiB of base64, named so a test can find it. */
+    const big = (name: string, mib: number) => image(name.padEnd(Math.round(mib * MiB), "A"));
+    const named = (result: Message[]): string[] =>
+      result.flatMap((m) =>
+        m.role === "user" && Array.isArray(m.content)
+          ? m.content.flatMap((p) =>
+              p.type === "image" ? [p.data.slice(0, 8).replace(/A+$/, "")] : [],
+            )
+          : m.role === "tool"
+            ? m.content.flatMap((r) =>
+                Array.isArray(r.content)
+                  ? r.content.flatMap((p) =>
+                      p.type === "image" ? [p.data.slice(0, 8).replace(/A+$/, "")] : [],
+                    )
+                  : [],
+              )
+            : [],
+      );
+    /** The screenshot chat: 39 tool results of one screenshot each, then the user's next prompt. */
+    const screenshotChat = (): Message[] => [
+      ...Array.from({ length: 39 }, (_, i): Message[] => [
+        {
+          role: "assistant",
+          content: [{ type: "tool_call", id: `c${i}`, name: "screenshot", args: {} }],
+        },
+        {
+          role: "tool",
+          content: [{ type: "tool_result", toolCallId: `c${i}`, content: [big(`s${i}`, 1)] }],
+        },
+      ]).flat(),
+      { role: "user", content: [{ type: "text", text: "and now?" }] },
+    ];
+
+    it("is 20 MiB", () => {
+      expect(PROVIDER_IMAGE_BYTE_BUDGET).toBe(20 * MiB);
+    });
+
+    it("sends the newest screenshots up to 20 MiB, and drops the older ones, not all 39", () => {
+      const messages = screenshotChat();
+      const before = messages.map((m) => m.content);
+      const result = clampProviderContextImages(messages, "anthropic", true);
+      // Under the count limit (90), every one went before: 39 MiB a request.
+      expect(named(result)).toEqual(Array.from({ length: 20 }, (_, i) => `s${i + 19}`));
+      const bytes = JSON.stringify(result).length;
+      expect(bytes).toBeLessThan(PROVIDER_IMAGE_BYTE_BUDGET + MiB);
+      expect(result[1]).toEqual({
+        role: "tool",
+        content: [
+          {
+            type: "tool_result",
+            toolCallId: "c0",
+            content: [{ type: "text", text: "[image omitted: provider image limit]" }],
+          },
+        ],
+      });
+      // The conversation itself is untouched.
+      expect(messages.map((m) => m.content)).toEqual(before);
+      expect(named(messages)).toHaveLength(39);
+    });
+
+    it("keeps the images the user just attached, fitting older ones in around them", () => {
+      const messages: Message[] = [
+        { role: "user", content: [big("old1", 4), big("old2", 4)] },
+        { role: "assistant", content: [{ type: "text", text: "seen" }] },
+        { role: "user", content: [{ type: "text", text: "these too" }, big("new", 15)] },
+      ];
+      const result = clampProviderContextImages(messages, "openai", true);
+      // 15 MiB pinned leaves 5: room for old2, the newer, and not old1.
+      expect(named(result)).toEqual(["old2", "new"]);
+    });
+
+    it("refuses attachments over 20 MiB on their own before any upload, and not as a retryable fault", () => {
+      const messages: Message[] = [
+        {
+          role: "user",
+          content: [{ type: "text", text: "all of them" }, big("a", 11), big("b", 10)],
+        },
+      ];
+      let thrown: unknown;
+      try {
+        clampProviderContextImages(messages, "anthropic", true);
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(ImagesTooLargeError);
+      expect(thrown).toMatchObject({
+        source: "capability",
+        bytes: 21 * MiB,
+        limit: 20 * MiB,
+        message:
+          "The images in this message come to 21.0 MB, over the 20.0 MB one request can carry. Attach fewer or smaller images.",
+      });
+    });
+
+    it("leaves a request under 20 MiB as it is", () => {
+      const messages: Message[] = [
+        { role: "user", content: [big("one", 8)] },
+        { role: "user", content: [big("two", 8)] },
+      ];
+      expect(clampProviderContextImages(messages, "anthropic", true)).toBe(messages);
+    });
   });
 
   it("is a no-op while supported context is within budget", () => {

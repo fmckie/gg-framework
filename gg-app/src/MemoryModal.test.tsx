@@ -309,8 +309,12 @@ describe("MemoryModal", () => {
       }),
     );
     expect(await screen.findByLabelText("Importance 4 of 5")).toBeDefined();
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: `Edit memory: ${KEN_MEMORY}` }),
+    // Focus moves back to the row's Edit in an effect after the list renders,
+    // so on a busy run it can land a render after the row does.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: `Edit memory: ${KEN_MEMORY}` }),
+      ),
     );
     expect(screen.getByRole("status").textContent).toBe("Memory saved.");
   });

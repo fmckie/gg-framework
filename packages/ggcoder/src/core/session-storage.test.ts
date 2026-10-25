@@ -1,10 +1,21 @@
 import crypto from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import fsp, {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  unlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import v8 from "node:v8";
+import vm from "node:vm";
 import { gunzipSync } from "node:zlib";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeCwd } from "./encode-cwd.js";
 import { SessionManager, type CustomEntry, type MessageEntry } from "./session-manager.js";
 import {
@@ -163,6 +174,84 @@ describe("session entry storage normalization", () => {
     expect(missingUser.content).toEqual([
       expect.objectContaining({ type: "text", text: expect.stringContaining("unavailable") }),
     ]);
+  });
+
+  /** A chat whose agent took `count` screenshots of `bytes` each, one tool result apiece. */
+  async function screenshotChat(count: number, bytes: number) {
+    const root = await makeTempDir();
+    const manager = new SessionManager(root);
+    const created = await manager.create("/project/shots", "anthropic", "test-model");
+    for (let i = 0; i < count; i++) {
+      await manager.appendEntry(
+        created.path,
+        messageEntry({
+          role: "tool",
+          content: [
+            {
+              type: "tool_result",
+              toolCallId: `shot-${i}`,
+              content: [
+                {
+                  type: "image",
+                  mediaType: "image/png",
+                  data: crypto.randomBytes(bytes).toString("base64"),
+                },
+              ],
+            },
+          ],
+        }),
+      );
+    }
+    return { manager, path: created.path };
+  }
+
+  const imagesOf = (
+    manager: SessionManager,
+    entries: Awaited<ReturnType<SessionManager["load"]>>["entries"],
+  ) =>
+    manager
+      .getMessages(entries)
+      .flatMap((m) => (m.role === "tool" ? m.content : []))
+      .flatMap((r) => (Array.isArray(r.content) ? r.content : []))
+      .flatMap((c) => (c.type === "image" ? [c.data] : []));
+
+  it("a chat opened again shares the images a session already holds, reading none of them", async () => {
+    const chat = await screenshotChat(6, 256 * 1024);
+    const first = await chat.manager.load(chat.path);
+    const read = vi.spyOn(fsp, "readFile");
+    try {
+      const again = await chat.manager.load(chat.path);
+      const assetReads = read.mock.calls.filter(([file]) =>
+        String(file).startsWith(sessionAssetDir(chat.path)),
+      );
+      expect(assetReads).toEqual([]);
+      expect(imagesOf(chat.manager, again.entries)).toEqual(imagesOf(chat.manager, first.entries));
+      expect(imagesOf(chat.manager, again.entries)).toHaveLength(6);
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it("holds a chat's screenshots once however often it's opened, not once per session", async () => {
+    // The sidecar crash: each reopening of a 39-screenshot chat held another
+    // 139 MB. Here 12 of 2 MiB: about 32 MiB of base64 per copy.
+    const chat = await screenshotChat(12, 2 * 1024 * 1024);
+    // Measured after a full collection, so garbage from building the chat
+    // doesn't hide what loading it holds.
+    v8.setFlagsFromString("--expose-gc");
+    const collect = vm.runInNewContext("gc") as () => void;
+    const held = (): number => {
+      collect();
+      return process.memoryUsage().external;
+    };
+    const before = held();
+    const sessions = [await chat.manager.load(chat.path)];
+    const once = held() - before;
+    expect(once).toBeGreaterThan(16 * 1024 * 1024);
+    for (let i = 0; i < 3; i++) sessions.push(await chat.manager.load(chat.path));
+    const more = held() - before - once;
+    expect(more).toBeLessThan(once / 4);
+    expect(sessions.map((s) => imagesOf(chat.manager, s.entries).length)).toEqual([12, 12, 12, 12]);
   });
 
   it("suppresses newly appended legacy display projections", async () => {
