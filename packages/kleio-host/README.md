@@ -1022,9 +1022,9 @@ Notifications (`notification-settings.ts`).
 - So a question can't be answered from the lock screen then. It's answered in Kleio.
 - `GET /kleio/notifications` returns `{quoteText}` to any paired device.
   `POST /kleio/notifications {quoteText}` is for admin devices.
-- It's kept in `notifications.json` in the state folder (0600), and read at each push. Quoting
-  is on until an admin turns it off. A file that can't be read means quoting off, and the log
-  says so once.
+- It's kept in `notifications.json` in the state folder (0600 off Windows; it holds no secret),
+  and read at each push. Quoting is on until an admin turns it off. A file that can't be read
+  means quoting off, and the log says so once.
 - The check wraps the APNs pusher itself, so every push to Apple goes through it. A new
   pairing's alert names only the device and the host, so it's the same either way.
 

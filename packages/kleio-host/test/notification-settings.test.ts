@@ -56,7 +56,11 @@ describe("the setting", () => {
     expect(await s.set({ quoteText: false })).toEqual({ quoteText: false });
     expect(await s.current()).toEqual({ quoteText: false });
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ quoteText: false });
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // Windows keeps no POSIX mode (a file reads as 0666): there the file has its
+    // folder's access, and it holds no secret.
+    if (process.platform !== "win32") {
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    }
     // Another host process reads the same file.
     expect(await store().current()).toEqual({ quoteText: false });
     await s.set({ quoteText: true });
