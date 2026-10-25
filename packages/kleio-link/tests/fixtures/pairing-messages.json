@@ -1,0 +1,118 @@
+{
+  "about": [
+    "What Kleio says when pairing over its link fails, one row for each case: the nine the plan tested on the phone, then the further ones.",
+    "Each case has words of its own: gg-app/src/kleio/LinkPairing.test.tsx checks no two are the same.",
+    "`from` names what says it: the link's PairError (src/pair.rs) or TicketError (src/ticket.rs), or a file in gg-app/src/kleio. Each one's tests check its words against these.",
+    "{host}, {device} and {relay} stand for the host's name, this device (iPhone or Mac) and the relay's host name.",
+    "`stages` are the three steps pairing shows while it runs, by PairStage."
+  ],
+  "stages": {
+    "relay": "Reaching the relay…",
+    "host": "Finding your host…",
+    "pairing": "Pairing…"
+  },
+  "cases": [
+    {
+      "id": "used",
+      "case": "The same QR code again, after it paired a device",
+      "from": ["pair.rs"],
+      "message": "This QR code was already used to pair a device. Show a new one on your host and scan that."
+    },
+    {
+      "id": "unauthorized",
+      "case": "The code changed",
+      "from": ["pair.rs"],
+      "message": "The code in this QR code doesn't match your host's. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "host-missing",
+      "case": "The key changed",
+      "from": ["pair.rs"],
+      "message": "No host with this QR code's key answered. Check you're scanning the QR code on your own host, and that it's awake."
+    },
+    {
+      "id": "host-elsewhere",
+      "case": "The relay changed to another of n0's",
+      "from": ["pair.rs"],
+      "message": "Your host is online, but not on the relay this QR code names. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "not-a-relay",
+      "case": "The relay changed to an https address that isn't a relay",
+      "from": ["pair.rs"],
+      "message": "The relay in this QR code ({relay}) isn't a relay. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "tailscale",
+      "case": "A v2 ticket that isn't whole, such as a link ticket with v changed to 2",
+      "from": ["pairTicket.ts", "ticket.rs"],
+      "message": "This QR code says it's a Tailscale pairing code, but it's incomplete. Show a new one on your host."
+    },
+    {
+      "id": "not-kleio",
+      "case": "Another type",
+      "from": ["pairTicket.ts", "ticket.rs"],
+      "message": "That isn't a Kleio pairing code."
+    },
+    {
+      "id": "expired",
+      "case": "A code older than 5 minutes",
+      "from": ["pair.rs"],
+      "message": "This QR code has expired: codes last 5 minutes. Show a new one on your host and scan it."
+    },
+    {
+      "id": "not-paired",
+      "case": "A key the host doesn't know, on kleio/http/0 (close code 1)",
+      "from": ["connectionDiagnosis.ts"],
+      "message": "{host} doesn't know this {device}. It may have been set up again. Pair it again."
+    },
+    {
+      "id": "revoked",
+      "case": "A revoked device (close code 5)",
+      "from": ["connectionDiagnosis.ts"],
+      "message": "{host} removed this {device}. This {device} was revoked on {host}, so {host} turns it away. Pair it again to use Kleio here."
+    },
+    {
+      "id": "not-found",
+      "case": "No code waiting",
+      "from": ["pair.rs"],
+      "message": "Your host isn't waiting for a pairing code. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "locked",
+      "case": "Too many wrong tries",
+      "from": ["pair.rs"],
+      "message": "Too many wrong codes were tried with this QR code. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "replaced",
+      "case": "A code replaced by a newer one",
+      "from": ["pair.rs"],
+      "message": "Your host has shown a newer QR code since this one. Scan the newest one."
+    },
+    {
+      "id": "busy",
+      "case": "The host pairing another device (close code 2)",
+      "from": ["pair.rs"],
+      "message": "Your host is pairing another device. Try again in a minute."
+    },
+    {
+      "id": "relay-unreachable",
+      "case": "A relay that can't be reached",
+      "from": ["pair.rs"],
+      "message": "Kleio can't reach the relay in this QR code ({relay}). Check this device is online, or try another network."
+    },
+    {
+      "id": "prototype",
+      "case": "A v3 ticket, from the connection prototype's test build",
+      "from": ["ticket.rs"],
+      "message": "This QR code comes from a test build of Kleio's link. Update Kleio on your host, then show a new QR code and scan that."
+    },
+    {
+      "id": "offline",
+      "case": "This device offline",
+      "from": ["LinkPairing.tsx"],
+      "message": "This {device} is offline. Connect it to the internet, then try again."
+    }
+  ]
+}

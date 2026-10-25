@@ -7,8 +7,8 @@ prototype measured, are in
 
 This crate has both ends:
 
-- **The app's side**, which gg-app builds in with its `kleio-link` feature on macOS and iOS
-  (`gg-app/src-tauri/src/kleio/link.rs`). The feature is off by default for now.
+- **The app's side**, which gg-app builds in on macOS and iOS
+  (`gg-app/src-tauri/src/kleio/link.rs`).
 - **`kleio-link-host`**, feature `host`: the host's side. It's a program of its own, run next to
   kleio-host as the same user, so it stays up while kleio-host is redeployed.
 
@@ -75,6 +75,19 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   - A connection is closed before anything else is read if that line is garbled, longer than 256
     bytes, unfinished after 5 s, or has the wrong secret.
 - **kleio-host listens on loopback only.** It refuses to start on any other address.
+- **In the app, the link's local end is a Unix socket only the app can use.**
+  - It's 0600, in a 0700 folder: `~/.kleio/run/link.sock` on the Mac, and `tmp/kl/link` in the
+    app's container on the iPhone.
+  - It forwards a connection only if it comes from the app's own process, which the socket's peer
+    credentials say (`LOCAL_PEEREPID` on Apple's systems).
+  - The app's requests name the host `link.kleio.invalid`, which never resolves, and which
+    kleio-host expects on the link.
+- **The app keeps its key, token and admin credential in the Keychain.**
+  - On the iPhone they can be read once the phone has been unlocked after starting, and they stay
+    on that phone (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronized). So a
+    launch while the phone is locked still finds the pairing, and a backup restored to another
+    phone carries none of them: that phone starts unpaired.
+  - On the Mac they're in the login Keychain.
 - **No custom crypto.** It's iroh's QUIC, random keys, tokens and codes, and constant-time
   comparisons.
 - **Not covered:** anything running as the host's user can read the link's secrets, as it can read
@@ -110,6 +123,9 @@ Others see a little too:
 ### What still needs Tailscale
 
 - **Site previews** open in Safari over Tailscale for now. A host with no public URL has none.
+  - The pairing keeps the host's preview origin, and the app opens previews only there.
+  - Before asking for a preview, the app checks it can reach that origin. With Tailscale off, it
+    says to turn it on, rather than open a page Safari can't load.
 - **The Apps (Composio) sign-in** ends on `<public URL>/kleio/connections/callback`. A host without
   one sends Composio no callback, so the sign-in ends on Composio's own page. The sign-in still
   works.
@@ -165,6 +181,31 @@ reached through, and its last direct addresses. It goes in two stages:
 The relay that worked becomes the app's only relay. So with a list without `"n0"`, the app never
 contacts n0's relays either.
 
+**After each new connection,** the app asks the host for `GET /kleio/link`: its relay list, its
+direct addresses, and whether a relay is rate-limiting it. The next dial uses them, and `link.json`
+keeps them for the next launch. It takes them only from the host it dialled, and only a list a
+pairing QR code could carry.
+
+**When a dial finds no host,** the link works out why:
+
+- **A relay answered, and the host didn't.** A connected home relay says so at once. The app says
+  "[Host] is asleep or offline. Last reached [time].", with a line for a laptop or a VPS.
+- **No relay answered.** The app asks each relay on the route `GET /ping`, in the background, and
+  none answers as a relay. It says "Kleio can't reach its relay. This network may block it: try
+  mobile data or another Wi-Fi.", and names the relays it tried.
+- **A relay turned this version away.** It answers `/ping`, but refuses this app's relay
+  connection. The app asks for an update.
+
+The app's words for each case, and the restart steps for the host's OS, are in `diagnoseLink`
+(`gg-app/src/kleio/connectionDiagnosis.ts`). While the app is on screen, it checks again after 1,
+2, 5 and 10 s, then every 30 s, and at once when the network or the app comes back. It doesn't
+check in the background.
+
+**Once the host turns the app's key away** (code 1 or 5), the link never dials it again: every
+request fails at once with that answer, until the app pairs again with a new key, or is opened
+again. Before this, a revoked phone dialled 185 times in 124 s, once for each request the app
+retried.
+
 ### n0's relays
 
 n0's public relays are the default. They're free, shared with other apps, and rate-limited. The
@@ -176,9 +217,26 @@ prototype measured, through them:
 - **Wi-Fi:** every connection the log could see went direct (10 of 10, with Tailscale off).
 - **Overall,** 73% of the test phone's connection time went through the relay.
 
+Phase 2 measured, in the real app on EE 4G, a 45 MiB file at 0.57 MB/s. While it came, the
+connection's round trip went from 0.1 s to 8.8 s, so chats waited up to about 20 s behind it. As
+in the prototype, no connection went direct on EE 4G.
+
 kleio-link-host notes when a relay says it's rate-limiting the host (`rateLimited` in
 `link/state.json`). A relay of your own avoids the limit: put it first in the list, with `"n0"`
 after it as the fallback.
+
+The app says a relay is slowing it in three cases, for as long as that connection lasts:
+
+- the relay told the phone so;
+- the relay told the host so;
+- a download of 10 MB or more through a relay came slower than 1.5 MB/s.
+
+It then says "Slowed by the shared relay, to about 1 MB/s. Chats are slower while a file
+downloads. A relay of your own is faster."
+
+So the app's downloads have no time limit, only a limit on waiting: a download stops when nothing
+has come from the host for 20 s. Until then, the file's card says how much has come, and about how
+long is left, by the last 5 s' rate.
 
 ## The files it shares with kleio-host
 
@@ -218,6 +276,9 @@ kleio-link-host help                     # all of it, with the test options
 - **`kleio-host pair` runs `qr` itself.** It looks for the binary in `bin/` beside its `dist/`, or
   at `KLEIO_LINK_HOST_BIN`. `qr` reads the ticket on stdin, so the code never shows in a process
   list.
+- **The test client's requests need the link's `Host`.** kleio-host refuses `Host: 127.0.0.1:<port>`
+  on the link, so through `client`, use
+  `curl -H 'Host: link.kleio.invalid' http://127.0.0.1:<port>/kleio/health`.
 - **Logs go to stderr.** `RUST_LOG` takes `target=level` pairs, such as `kleio_link=debug`. Logs
   name keys by their short form, with each connection's protocol, outcome and path events. They
   never hold a code, nonce, token or secret.

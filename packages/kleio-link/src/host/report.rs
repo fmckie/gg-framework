@@ -30,7 +30,8 @@ use super::open::OpenLinks;
 use super::relays::RelayBoard;
 use super::state::{iso8601, signature, HostDir, Signature};
 use super::upstream::Upstream;
-use crate::paths::{self, is_tailscale};
+use crate::endpoint::RateLimitWatch;
+use crate::paths;
 
 /// How often housekeeping runs.
 pub(crate) const TICK: Duration = Duration::from_secs(1);
@@ -235,11 +236,7 @@ impl Housekeeper {
                 })
                 .collect(),
         };
-        let socket = &self.endpoint.metrics().socket;
-        let rate_limited = self.rate.sample(
-            socket.relay_conns_success.get(),
-            socket.relay_conns_ratelimited.get(),
-        );
+        let rate_limited = self.rate.sample_endpoint(&self.endpoint);
         let live = self.open.live();
         for (key, serial, conn) in &live {
             let Some(direct) = paths::selected(conn).map(|path| path.direct) else {
@@ -296,29 +293,6 @@ impl Housekeeper {
     }
 }
 
-/// Whether the relay connection open now was told it's rate limited, from
-/// iroh's `relay_conns_success` and `relay_conns_ratelimited` counters. A
-/// relay says so once per connection, so a limit counts until the next
-/// connection; one reported in the same second as a new connection is taken
-/// to be the new one's.
-#[derive(Debug, Default)]
-struct RateLimitWatch {
-    conns: u64,
-    limited: u64,
-    base: u64,
-}
-
-impl RateLimitWatch {
-    fn sample(&mut self, conns: u64, limited: u64) -> bool {
-        if conns != self.conns {
-            self.conns = conns;
-            self.base = self.limited;
-        }
-        self.limited = limited;
-        limited > self.base
-    }
-}
-
 /// The addresses a phone could dial, best first: public IPv4, then private
 /// IPv4 (a phone on the same network), then IPv6, at most [`MAX_ADDRS`].
 /// Loopback, link-local, multicast and Tailscale addresses are left out.
@@ -348,21 +322,49 @@ fn ranked_addrs(addrs: impl Iterator<Item = SocketAddr>) -> Vec<String> {
         .collect()
 }
 
+/// Tailscale's address ranges: `100.64.0.0/10` and `fd7a:115c:a1e0::/48`.
+fn is_tailscale(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [first, second, ..] = v4.octets();
+            first == 100 && second & 0xc0 == 0x40
+        }
+        IpAddr::V6(v6) => {
+            let [a, b, c, ..] = v6.segments();
+            [a, b, c] == [0xfd7a, 0x115c, 0xa1e0]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_rate_limit_lasts_until_the_next_relay_connection() {
-        let mut watch = RateLimitWatch::default();
-        assert!(!watch.sample(1, 0));
-        assert!(watch.sample(1, 1), "the relay said so");
-        assert!(watch.sample(1, 1), "and it lasts");
-        assert!(!watch.sample(2, 1), "a new connection, not limited yet");
-        assert!(watch.sample(2, 2));
-        // Limited at once: a new connection and its limit in one second.
-        assert!(watch.sample(3, 3));
-        assert!(!watch.sample(4, 3));
+    fn knows_tailscales_ranges() {
+        for addr in [
+            "100.64.0.0",
+            "100.100.100.100",
+            "100.127.255.255",
+            "::ffff:100.64.0.1",
+            "fd7a:115c:a1e0::1",
+            "fd7a:115c:a1e0:ffff:ffff:ffff:ffff:ffff",
+        ] {
+            assert!(is_tailscale(addr.parse().unwrap()), "{addr}");
+        }
+        for addr in [
+            "100.63.255.255",
+            "100.128.0.0",
+            "10.0.0.1",
+            "192.168.1.10",
+            "::ffff:192.168.1.10",
+            "fd7a:115c:a1e1::1",
+            "fd7b:115c:a1e0::1",
+            "::1",
+            "2001:db8::1",
+        ] {
+            assert!(!is_tailscale(addr.parse().unwrap()), "{addr}");
+        }
     }
 
     #[test]

@@ -153,6 +153,39 @@ pub async fn bind_client(
         .await
 }
 
+/// Whether the relay connection open now was told it's rate limited, from
+/// iroh's `relay_conns_success` and `relay_conns_ratelimited` counters. A
+/// relay says so once per connection, so a limit counts until the next
+/// connection; one reported in the same second as a new connection is taken
+/// to be the new one's. Both ends keep one: the host for `link/state.json`
+/// (host/report.rs), the phone for its status (`Link::rate_limited`).
+#[derive(Debug, Default)]
+pub(crate) struct RateLimitWatch {
+    conns: u64,
+    limited: u64,
+    base: u64,
+}
+
+impl RateLimitWatch {
+    pub(crate) fn sample(&mut self, conns: u64, limited: u64) -> bool {
+        if conns != self.conns {
+            self.conns = conns;
+            self.base = self.limited;
+        }
+        self.limited = limited;
+        limited > self.base
+    }
+
+    /// [`sample`](Self::sample), from `endpoint`'s counters.
+    pub(crate) fn sample_endpoint(&mut self, endpoint: &Endpoint) -> bool {
+        let socket = &endpoint.metrics().socket;
+        self.sample(
+            socket.relay_conns_success.get(),
+            socket.relay_conns_ratelimited.get(),
+        )
+    }
+}
+
 /// Moves the endpoint from relay `from` to relay `to`, which becomes its
 /// home relay: added first, then `from` taken out, so it's never without
 /// one. iroh doesn't say which relays an endpoint has, so the caller keeps
@@ -179,6 +212,19 @@ mod tests {
         let config = format!("{:?}", QuicTransportConfig::default());
         let idle = format!("max_idle_timeout: Some({})", IDLE_TIMEOUT.as_millis());
         assert!(config.contains(&idle), "iroh's default config: {config}");
+    }
+
+    #[test]
+    fn a_rate_limit_lasts_until_the_next_relay_connection() {
+        let mut watch = RateLimitWatch::default();
+        assert!(!watch.sample(1, 0));
+        assert!(watch.sample(1, 1), "the relay said so");
+        assert!(watch.sample(1, 1), "and it lasts");
+        assert!(!watch.sample(2, 1), "a new connection, not limited yet");
+        assert!(watch.sample(2, 2));
+        // Limited at once: a new connection and its limit in one second.
+        assert!(watch.sample(3, 3));
+        assert!(!watch.sample(4, 3));
     }
 
     #[test]

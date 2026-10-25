@@ -573,7 +573,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::testing::{loopback_addr, loopback_endpoint, within_30_s};
+    use crate::testing::{
+        loopback_addr, loopback_endpoint, pairing_messages, pairing_table, within_30_s,
+    };
 
     const NONCE: &str = "00112233445566778899aabbccddeeff";
 
@@ -636,38 +638,36 @@ mod tests {
         }
     }
 
-    /// The plan's pairing cases each have their own words.
+    /// The plan's pairing cases each have their own words: these are the
+    /// table's (tests/fixtures/pairing-messages.json), whose words the app's
+    /// tests check are all different, and no two errors here share words.
     #[test]
     fn says_each_case_in_its_own_words() {
         let relay = || "example.com".to_string();
-        let cases = [
-            (
-                PairError::Refused(Refusal::Used),
-                "This QR code was already used to pair a device. Show a new one on your host and scan that.",
-            ),
-            (
-                PairError::Refused(Refusal::Unauthorized),
-                "The code in this QR code doesn't match your host's. Show a new QR code on your host and scan that.",
-            ),
-            (
-                PairError::HostMissing,
-                "No host with this QR code's key answered. Check you're scanning the QR code on your own host, and that it's awake.",
-            ),
-            (
-                PairError::HostElsewhere { relay: relay() },
-                "Your host is online, but not on the relay this QR code names. Show a new QR code on your host and scan that.",
-            ),
-            (
-                PairError::NotARelay { relay: relay(), why: "it answered HTTP 404".into() },
-                "The relay in this QR code (example.com) isn't a relay. Show a new QR code on your host and scan that.",
-            ),
-            (
-                PairError::Refused(Refusal::Expired),
-                "This QR code has expired: codes last 5 minutes. Show a new one on your host and scan it.",
-            ),
-        ];
-        for (err, words) in &cases {
-            assert_eq!(err.to_string(), *words);
+        let rows = pairing_messages("pair.rs");
+        assert_eq!(rows.len(), 11, "the table's cases from pair.rs");
+        for (id, words) in &rows {
+            let err = match id.as_str() {
+                "used" => PairError::Refused(Refusal::Used),
+                "unauthorized" => PairError::Refused(Refusal::Unauthorized),
+                "expired" => PairError::Refused(Refusal::Expired),
+                "not-found" => PairError::Refused(Refusal::NotFound),
+                "locked" => PairError::Refused(Refusal::Locked),
+                "replaced" => PairError::Refused(Refusal::Replaced),
+                "host-missing" => PairError::HostMissing,
+                "host-elsewhere" => PairError::HostElsewhere { relay: relay() },
+                "not-a-relay" => PairError::NotARelay {
+                    relay: relay(),
+                    why: "it answered HTTP 404".into(),
+                },
+                "relay-unreachable" => PairError::RelayUnreachable {
+                    relay: relay(),
+                    why: "dns error".into(),
+                },
+                "busy" => PairError::Busy,
+                other => panic!("the table has {other} from pair.rs, which says no such thing"),
+            };
+            assert_eq!(err.to_string(), *words, "{id}");
         }
         let all = [
             PairError::LabelTooLong,
@@ -701,16 +701,21 @@ mod tests {
         assert_eq!(texts.len(), all.len(), "two cases share words");
     }
 
+    /// Each step in the table's words, sent to the app by the name the
+    /// table files them under.
     #[test]
     fn names_each_step() {
-        let steps = [PairStage::Relay, PairStage::Host, PairStage::Pairing].map(PairStage::text);
+        let stages = &pairing_table()["stages"];
+        let steps = [PairStage::Relay, PairStage::Host, PairStage::Pairing];
+        for step in steps {
+            let name = serde_json::to_value(step).unwrap();
+            let name = name.as_str().expect("a step's name");
+            assert_eq!(step.text(), stages[name], "{name}");
+        }
+        assert_eq!(stages.as_object().map(|s| s.len()), Some(steps.len()));
         assert_eq!(
-            steps,
+            steps.map(PairStage::text),
             ["Reaching the relay…", "Finding your host…", "Pairing…"]
-        );
-        assert_eq!(
-            serde_json::to_value(PairStage::Pairing).unwrap(),
-            json!("pairing")
         );
     }
 

@@ -146,12 +146,48 @@ pub(crate) mod testing {
             .expect("the test finishes within 30 s")
     }
 
+    /// What Kleio says when pairing fails, case by case, and its steps: the
+    /// table the app's tests read too (tests/fixtures/pairing-messages.json).
+    pub(crate) fn pairing_table() -> serde_json::Value {
+        serde_json::from_str(include_str!("../tests/fixtures/pairing-messages.json"))
+            .expect("the pairing messages table is JSON")
+    }
+
+    /// The table's cases that `from` says, as (id, words), with `{relay}` as
+    /// `example.com`.
+    pub(crate) fn pairing_messages(from: &str) -> Vec<(String, String)> {
+        pairing_table()["cases"]
+            .as_array()
+            .expect("the table's cases")
+            .iter()
+            .filter(|row| {
+                row["from"]
+                    .as_array()
+                    .expect("what says it")
+                    .iter()
+                    .any(|says| says == from)
+            })
+            .map(|row| {
+                let id = row["id"].as_str().expect("an id").to_string();
+                let words = row["message"]
+                    .as_str()
+                    .expect("its words")
+                    .replace("{relay}", "example.com");
+                assert!(
+                    !words.contains('{'),
+                    "{id}: a stand-in the link doesn't fill"
+                );
+                (id, words)
+            })
+            .collect()
+    }
+
     /// A folder of one test's own, deleted when dropped. `name` must be
     /// unique among the tests; the process id keeps two runs apart.
-    #[cfg(feature = "host")]
+    #[cfg(any(feature = "host", unix))]
     pub(crate) struct TempDir(std::path::PathBuf);
 
-    #[cfg(feature = "host")]
+    #[cfg(any(feature = "host", unix))]
     impl TempDir {
         pub(crate) fn new(name: &str) -> Self {
             let path =
@@ -167,7 +203,7 @@ pub(crate) mod testing {
         }
     }
 
-    #[cfg(feature = "host")]
+    #[cfg(any(feature = "host", unix))]
     impl Drop for TempDir {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -175,7 +211,7 @@ pub(crate) mod testing {
     }
 
     /// A file's or folder's permission bits.
-    #[cfg(all(feature = "host", unix))]
+    #[cfg(unix)]
     pub(crate) fn mode(path: &std::path::Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
         std::fs::metadata(path)
