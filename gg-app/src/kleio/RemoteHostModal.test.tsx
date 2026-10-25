@@ -1,16 +1,27 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import * as scanner from "@tauri-apps/plugin-barcode-scanner";
+// The link's ticket vectors, which kleio-host's and the link's own tests read too.
+import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
 import { RemoteHostModal } from "./RemoteHostModal";
 import { relTime } from "./relTime";
 import { KleioBadge } from "./KleioBadge";
 import type { LinkStatus } from "./kleioLink";
 import { NOT_A_TICKET } from "./pairTicket";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  // The real one needs the Tauri bridge. This keeps its handler, for a test to call.
+  Channel: class {
+    onmessage: (message: unknown) => void;
+    constructor(onmessage: (message: unknown) => void = () => {}) {
+      this.onmessage = onmessage;
+    }
+  },
+}));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn(async () => undefined) }));
 vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   Format: { QRCode: "QR_CODE" },
@@ -143,22 +154,27 @@ describe("RemoteHostModal — not paired", () => {
 });
 
 describe("RemoteHostModal — pairing over the Kleio link (connection prototype)", () => {
-  // `routes` turns away a command it doesn't list, as a build without the
-  // `kleio-link` feature turns away the link's commands.
+  // `routes` turns away a command it doesn't list, as a Windows or Linux
+  // build, which has no link, turns away the link's commands.
   const NO_LINK: LinkStatus = {
     paired: false,
     active: false,
     running: false,
     error: null,
-    mode: null,
     host: null,
     hostKey: null,
     relay: null,
+    relayN0: false,
     refused: null,
+    refusal: null,
     connected: false,
+    dialling: false,
+    unreached: null,
+    lastReachedMs: null,
     path: null,
     pathAddr: null,
-    tailscale: false,
+    pathN0: false,
+    rateLimited: false,
     rttMs: null,
     connectedSinceMs: null,
     redials: 0,
@@ -166,7 +182,7 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     events: [],
     debugBuild: true,
   };
-  const LINK_REC = { ...REC, baseUrl: "http://127.0.0.1:47821" };
+  const LINK_REC = { ...REC, baseUrl: "http://link.kleio.invalid" };
   const TICKET = JSON.stringify({
     v: 4,
     type: "kleio-pair",
@@ -192,24 +208,26 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
   }
 
   function paste(text: string): void {
-    fireEvent.change(screen.getByLabelText(/Pairing ticket/), { target: { value: text } });
-    fireEvent.click(screen.getByRole("button", { name: "Use ticket" }));
+    fireEvent.change(screen.getByLabelText(/Paste pairing text/), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: "Use pairing text" }));
   }
 
-  it("without the link, the form is today's: no ticket field", async () => {
+  it("without the link, the form is today's: no pairing text field", async () => {
     routes({ kleio_remote_status: () => ({ active: null, paired: null }) });
     await openPane();
-    expect(screen.queryByLabelText(/Pairing ticket/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Use ticket" })).toBeNull();
+    expect(screen.queryByLabelText(/Paste pairing text/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use pairing text" })).toBeNull();
   });
 
-  it("with the link, a release build has no ticket field either", async () => {
+  it("on the Mac, a release build takes pasted pairing text, as no debug feature", async () => {
     routes({
       kleio_remote_status: () => ({ active: null, paired: null }),
       kleio_link_status: () => ({ ...NO_LINK, debugBuild: false }),
     });
     await openPane();
-    expect(screen.queryByLabelText(/Pairing ticket/)).toBeNull();
+    expect(screen.getByLabelText("Paste pairing text")).toBeTruthy();
+    expect(screen.queryByText("debug build")).toBeNull();
+    expect(screen.getByText(/It pairs over Kleio's link, with no Tailscale needed/)).toBeTruthy();
   });
 
   it("a pasted v2 ticket fills today's form, and pairs nothing by itself", async () => {
@@ -256,7 +274,7 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
         return CHECKED;
       },
       kleio_link_pair: (args) => {
-        expect(args).toEqual({ ticket: TICKET, label: "Laptop" });
+        expect(args).toEqual({ ticket: TICKET, label: "Laptop", onStage: expect.any(Channel) });
         paired = true;
         return LINK_REC;
       },
@@ -277,7 +295,10 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
     fireEvent.change(screen.getByLabelText("This device's name"), { target: { value: "Laptop" } });
     fireEvent.click(screen.getByRole("button", { name: "Pair" }));
     // On a computer it applies at the next launch, as a Tailscale pairing does.
-    expect((await screen.findByRole("status")).textContent).toMatch(/Restart Kleio to apply/);
+    // (The confirm step has a status of its own, for its steps, until then.)
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toMatch(/Restart Kleio to apply/),
+    );
     // kleio_link_pair switches the pairing on itself.
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_activate_pairing");
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_pair", expect.anything());
@@ -343,6 +364,22 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       });
       await openPane();
       expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
+    });
+
+    it("takes pasted pairing text only in a debug build, which says so", async () => {
+      let debugBuild = false;
+      routes({
+        kleio_remote_status: () => ({ active: null, paired: null }),
+        kleio_link_status: () => ({ ...NO_LINK, debugBuild }),
+      });
+      await openPane();
+      expect(screen.queryByLabelText(/Paste pairing text/)).toBeNull();
+      cleanup();
+      debugBuild = true;
+      await openPane();
+      expect(screen.getByLabelText(/Paste pairing text/)).toBeTruthy();
+      expect(screen.getByText("debug build")).toBeTruthy();
+      expect(screen.getByText(/in place of scanning its QR code/)).toBeTruthy();
     });
 
     it("scans QR codes only, then a link ticket goes to the confirm step", async () => {
@@ -459,13 +496,17 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       kleio_link_status: () => NO_LINK,
       kleio_link_check_ticket: () => CHECKED,
       kleio_link_pair: () => {
-        throw new Error("Code not recognised, or it expired. Mint a fresh one on the host.");
+        throw new Error(
+          "This QR code was already used to pair a device. Show a new one on your host and scan that.",
+        );
       },
     });
     await openPane();
     paste(TICKET);
     fireEvent.click(await screen.findByRole("button", { name: "Pair" }));
-    expect((await screen.findByRole("alert")).textContent).toMatch(/Code not recognised/);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "This QR code was already used to pair a device. Show a new one on your host and scan that.",
+    );
     expect((screen.getByRole("button", { name: "Pair" }) as HTMLButtonElement).disabled).toBe(
       false,
     );
@@ -495,6 +536,11 @@ describe("RemoteHostModal — paired", () => {
   });
 });
 
+const [VECTOR] = vectors.good;
+if (VECTOR === undefined) throw new Error("no ticket vectors");
+/** A v4 ticket as kleio-host builds it, for pair code ABC-DEF. */
+const TICKET = VECTOR.ticket;
+
 describe("RemoteHostModal — admin", () => {
   const ADMIN_REC = { ...REC, admin: true };
   const ADMIN_ACTIVE = { ...ACTIVE, admin: true };
@@ -502,7 +548,7 @@ describe("RemoteHostModal — admin", () => {
     {
       deviceId: "dev-self",
       label: "Laptop",
-      createdAt: "2026-09-22T10:00:00Z",
+      created: "2026-09-22T10:00:00Z",
       lastSeen: null,
       revoked: false,
       admin: true,
@@ -510,7 +556,7 @@ describe("RemoteHostModal — admin", () => {
     {
       deviceId: "dev-phone",
       label: "Phone",
-      createdAt: "2026-09-22T10:00:00Z",
+      created: "2026-09-22T10:00:00Z",
       lastSeen: "2026-09-22T10:05:00Z",
       revoked: false,
       admin: false,
@@ -518,14 +564,14 @@ describe("RemoteHostModal — admin", () => {
     {
       deviceId: "dev-old",
       label: "Old laptop",
-      createdAt: "2026-09-20T10:00:00Z",
+      created: "2026-09-20T10:00:00Z",
       lastSeen: "2026-09-20T11:00:00Z",
       revoked: true,
       admin: false,
     },
   ];
 
-  it("lists live devices, cannot remove itself, removes another after confirm, mints a code", async () => {
+  it("lists live devices, cannot revoke itself, revokes another after confirm, mints a code", async () => {
     let devices = DEVICES;
     routes({
       kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
@@ -544,9 +590,11 @@ describe("RemoteHostModal — admin", () => {
         expect(args).toEqual({ admin: true });
         // Epoch ms, as the host sends it (Rust passes it through as a u64).
         return {
-          display: "QRS-TUV",
+          display: "ABC-DEF",
           expiresAt: Date.now() + 5 * 60_000,
           admin: true,
+          ticket: TICKET,
+          ticketError: null,
         };
       },
     });
@@ -559,16 +607,16 @@ describe("RemoteHostModal — admin", () => {
     // Plain-words activity: last seen, or when it paired if never seen.
     expect(screen.getByText(/^Active \d/)).toBeDefined();
     expect(screen.getByText(/^Paired \d/)).toBeDefined();
-    // This Mac can't remove itself: its row has no buttons at all.
+    // This Mac can't revoke itself: its row has no buttons at all.
     const selfRow = screen.getByText("Laptop").closest("li");
     expect(selfRow).not.toBeNull();
     expect(selfRow?.querySelector("button")).toBeNull();
     // Another device: confirm first, with focus on the safe choice.
-    fireEvent.click(screen.getByRole("button", { name: "Remove Phone" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke this device: Phone" }));
     expect(invokeMock).not.toHaveBeenCalledWith("kleio_revoke", expect.anything());
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    await screen.findByText("Phone removed.");
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await screen.findByText("Phone revoked.");
     expect(invokeMock).toHaveBeenCalledWith("kleio_revoke", { deviceId: "dev-phone" });
     expect(screen.queryByText("Phone")).toBeNull();
     // Its button went with the row; focus comes back to the dialog. The modal
@@ -577,11 +625,67 @@ describe("RemoteHostModal — admin", () => {
     await waitFor(() =>
       expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true),
     );
-    // Mint an admin code.
+    // Mint an admin code: the link's QR code and pairing text, as in Settings.
     fireEvent.click(screen.getByLabelText("Make the new device an admin"));
     fireEvent.click(screen.getByRole("button", { name: "New pair code" }));
-    await screen.findByText("QRS-TUV");
-    expect(screen.getByText(/expires in 5 min/)).toBeDefined();
+    await screen.findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+    expect(screen.getByLabelText("Pairing text, for a Mac")).toHaveProperty("value", TICKET);
+    expect(screen.getByText(/^Works once · pairs an admin · expires in [45]:\d\d$/)).toBeDefined();
+    // A screen reader hears the new code once, and not the countdown.
+    expect(screen.getByText("Pair code ABC-DEF is ready.").getAttribute("role")).toBe("status");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("img", { name: /^Pairing QR code/ })).toBeNull();
+  });
+
+  it("marks a device paired this week New, but never itself", async () => {
+    const DAY = 24 * 60 * 60_000;
+    const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
+    routes({
+      kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
+      kleio_admin_state: () => ({
+        unlocked: true,
+        expiresAt: Date.now() + 60_000,
+        available: true,
+      }),
+      kleio_devices: () => [
+        {
+          deviceId: "dev-self",
+          label: "Laptop",
+          created: ago(60_000),
+          lastSeen: null,
+          revoked: false,
+          admin: true,
+        },
+        {
+          deviceId: "dev-new",
+          label: "Sam's iPad",
+          created: ago(6 * DAY),
+          lastSeen: ago(60_000),
+          revoked: false,
+          admin: false,
+        },
+        {
+          deviceId: "dev-phone",
+          label: "Phone",
+          created: ago(8 * DAY),
+          lastSeen: ago(60_000),
+          revoked: false,
+          admin: false,
+        },
+      ],
+    });
+    render(<RemoteHostModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Devices" }));
+    const row = (label: string): HTMLElement => {
+      const li = screen.getByText(label).closest("li");
+      if (!li) throw new Error(`no row for ${label}`);
+      return li;
+    };
+    await screen.findByText("Sam's iPad");
+    expect(within(row("Sam's iPad")).getByText("New")).toBeDefined();
+    expect(within(row("Phone")).queryByText("New")).toBeNull();
+    expect(within(row("Laptop")).queryByText("New")).toBeNull();
+    expect(within(row("Laptop")).getByText("This Mac")).toBeDefined();
   });
 
   it("explains a Touch ID refusal instead of a raw error", async () => {

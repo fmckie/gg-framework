@@ -2158,27 +2158,70 @@
   padding-top: 12px;
   border-top: 1px solid var(--border);
 }
-/* Kleio link (connection prototype): a direct path to a Tailscale address,
-   which voids a field run. As in the verdict, the edge and the icon carry
-   the tone; the words say it too. */
-.conn-link-alert {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--error) 55%, var(--border));
-  border-radius: var(--radius-card);
+/* A part of a card that opens on request (the link card's Details and
+   Advanced): a ruled-off row with a caret, as the iPhone's help topics. */
+.conn-disclosure {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+.conn-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--radius-button);
   font-size: 13px;
-  line-height: 1.5;
+  font-weight: 600;
   color: var(--text);
+  transition: background var(--t-fast);
 }
-.conn-link-alert > svg {
-  margin-top: 1px;
-  color: var(--error);
+.conn-disclosure-summary::-webkit-details-marker {
+  display: none;
 }
-.conn-link-alert p {
-  margin: 0;
+html.platform-ios .conn-disclosure-summary {
+  min-height: 44px;
+}
+.conn-disclosure-caret {
+  flex: none;
+  color: var(--text-muted);
+  transition: transform var(--t-fast);
+}
+.conn-disclosure[open] .conn-disclosure-caret {
+  transform: rotate(90deg);
+}
+.conn-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 0 4px;
+}
+@media (hover: hover) {
+  .conn-disclosure-summary:hover {
+    background: var(--surface-3);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conn-disclosure-caret,
+  .conn-disclosure-summary {
+    transition: none;
+  }
+}
+/* Pairing by address, under Advanced: today's fields, spaced as a card
+   spaces its own (the card's gap doesn't reach into a disclosure). */
+.conn-own-network {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.conn-own-network .modal-label {
+  margin: 0 0 6px;
+}
+.conn-own-network .modal-row > div {
+  flex: 1 1 0;
+  min-width: 0;
 }
 /* The link's path events scroll in a box of their own, at a fixed height:
    while paths change, one arrives every few seconds, and none of them may
@@ -2217,9 +2260,6 @@
 }
 .conn-link-events span {
   overflow-wrap: anywhere;
-}
-.conn-link-events li.is-warn {
-  color: var(--warning);
 }
 .conn-pair {
   display: flex;
@@ -2260,6 +2300,52 @@
   flex-direction: column;
   gap: 12px;
 }
+/* The offer over the link: which device does what, the pairing text to
+   copy, and the code to check. */
+.conn-pair-how {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.conn-pair-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.conn-pair-note.is-why {
+  color: var(--warning);
+}
+.conn-pair-ticket {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.conn-pair-ticket .kleio-ticket {
+  font-size: 11px;
+  resize: none;
+}
+.conn-pair-ticket > .btn {
+  align-self: flex-start;
+}
+.conn-pair-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.conn-pair-codeline {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
 .conn-devices {
   list-style: none;
   margin: 0;
@@ -2268,10 +2354,13 @@
   flex-direction: column;
   gap: 8px;
 }
+/* A row too narrow for its name and badges beside its buttons (an iPhone)
+   puts the buttons on a line of their own, at the right. */
 .conn-device {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgb(255 255 255 / 0.04);
@@ -2296,11 +2385,16 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 150px;
+}
+.conn-device > .btn,
+.conn-device > .conn-inline-confirm {
+  margin-left: auto;
 }
 .conn-device-name {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   font-size: 13.5px;
   font-weight: 600;
@@ -2313,6 +2407,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+/* The Host card's Forget host…: its confirm's words get a line of their own,
+   with Keep and Forget host under them. */
+.conn-forget-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 /* ── AI Providers: the private and cloud cards, stacked on the Settings page. */
@@ -2580,6 +2681,9 @@
   .conn-pair {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .conn-pair-text {
+    align-self: stretch;
   }
 }
 

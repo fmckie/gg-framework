@@ -1,32 +1,38 @@
 // Remote host pane (⌘⇧K). Three faces:
 //   not paired  → enter host URL + pair code → "Restart to connect"
 //   paired      → where you are, forget host
-//   paired admin→ + Devices tab: list / revoke / mint a code for another device
+//   paired admin→ + Devices tab: list (New marks a device paired this week) /
+//                  Revoke this device / a pair code for another device, with its
+//                  QR code and pairing text (PairingOffer.tsx)
 // Pairing and forgetting take effect on the next launch: the host base URL and
 // auth headers are baked into the shared HTTP client at boot, the same way an
 // update is applied — so the pane offers the same Restart button. The iPhone
 // cannot relaunch itself, so there a first pairing switches on in place and
 // the pane just closes into the app.
 //
-// Kleio's link (Rust feature `kleio-link`): the iPhone scans the pairing QR
-// code, and a link ticket pairs over the Kleio link instead, after a confirm
-// step that shows the host's name, key, relay and the code. Debug builds
-// also take a pasted ticket, as the simulator has no camera. A build without
-// the feature shows none of it.
+// Kleio's link (Rust: kleio/link.rs, macOS and iOS): the iPhone scans the
+// pairing QR code, the Mac takes its pairing text pasted in, and a link ticket
+// pairs over the Kleio link instead, after a confirm step that shows the
+// host's name, key, relay and the code. The iPhone's debug builds also take
+// pasted pairing text, as the simulator has no camera. Windows and Linux
+// builds, which have no link, show none of it.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { DesktopIcon, DeviceMobileIcon } from "@phosphor-icons/react";
 import { Badge } from "../Badge";
 import { Modal } from "../Modal";
 import { isPhone } from "../platform";
 import { theme } from "../theme";
 import { kleioLink, useKleioLink, type TicketCheck } from "./kleioLink";
-import { LinkConfirm, TicketPaste, TicketScan } from "./LinkPairing";
+import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
+import { ForgetHost } from "./ForgetHost";
+import { PairingOffer } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
+import { RestartNotice, UrlPairFields } from "./UrlPairing";
 import {
   explainError,
+  isNewDevice,
   kleio,
   useKleioRemote,
   type ActiveRemote,
@@ -94,7 +100,7 @@ export function RemoteHostModal({ onClose }: { onClose: () => void }): React.Rea
         {status === null ? (
           <p className="modal-hint">Checking…</p>
         ) : tab === "devices" && canAdmin ? (
-          <DevicesPanel selfId={active?.deviceId ?? ""} />
+          <DevicesPanel selfId={active?.deviceId ?? ""} baseUrl={active?.base ?? null} />
         ) : paired ? (
           <PairedPanel paired={paired} active={active} pending={pending} onForgot={refresh} />
         ) : (
@@ -122,7 +128,7 @@ function PairPanel({
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The Kleio link, when this build has it (connection prototype).
+  // Kleio's link, when this build has it (macOS and iOS).
   const { link } = useKleioLink();
   const [linkTicket, setLinkTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
 
@@ -196,58 +202,20 @@ function PairPanel({
         Run <code>kleio-host pair</code> on the host to get a 6-character code. Sessions will run
         there instead of on this {thisDevice()}.
       </p>
-      <label className="modal-label" htmlFor="kleio-url">
-        Host URL
-      </label>
-      <input
-        id="kleio-url"
-        className="modal-input"
-        data-modal-initial-focus
-        placeholder="https://mac-mini-1.your-tailnet.ts.net:8443"
-        value={baseUrl}
-        onChange={(e) => setBaseUrl(e.target.value)}
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
-        disabled={busy}
-        required
+      <UrlPairFields
+        baseUrl={baseUrl}
+        code={code}
+        label={label}
+        onBaseUrl={setBaseUrl}
+        onCode={setCode}
+        onLabel={setLabel}
+        busy={busy}
+        initialFocus
       />
-      <div className="modal-row">
-        <div>
-          <label className="modal-label" htmlFor="kleio-code">
-            Pair code
-          </label>
-          <input
-            id="kleio-code"
-            className="modal-input kleio-code"
-            placeholder="ABC-DEF"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck={false}
-            maxLength={7}
-            disabled={busy}
-            required
-          />
-        </div>
-        <div>
-          <label className="modal-label" htmlFor="kleio-label">
-            This device&apos;s name
-          </label>
-          <input
-            id="kleio-label"
-            className="modal-input"
-            placeholder={isPhone() ? "iPhone" : "Laptop"}
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            maxLength={64}
-            disabled={busy}
-          />
-        </div>
-      </div>
       {link && isPhone() && <TicketScan busy={busy} onTicket={(text) => void openTicket(text)} />}
-      {link?.debugBuild && <TicketPaste busy={busy} onTicket={(text) => void openTicket(text)} />}
+      {link && takesPairingText(link) && (
+        <TicketPaste busy={busy} onTicket={(text) => void openTicket(text)} />
+      )}
       {error && (
         <p className="modal-error" role="alert">
           {error}
@@ -275,19 +243,6 @@ function PairedPanel({
   pending: boolean;
   onForgot: () => Promise<void>;
 }): React.ReactElement {
-  const [confirm, setConfirm] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const forget = useCallback(async () => {
-    setError(null);
-    try {
-      await kleio.forget();
-      await onForgot();
-    } catch (e) {
-      setError(explainError(e));
-    }
-  }, [onForgot]);
-
   return (
     <>
       {pending && <RestartNotice what="Paired." />}
@@ -310,32 +265,7 @@ function PairedPanel({
         <dt>Status</dt>
         <dd>{active ? "Connected — sessions run on the host" : "Not active until restart"}</dd>
       </dl>
-      {error && (
-        <p className="modal-error" role="alert">
-          {error}
-        </p>
-      )}
-      <div className="modal-actions">
-        {confirm ? (
-          <>
-            <span className="modal-hint kleio-inline-hint">
-              {isPhone()
-                ? "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it."
-                : "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it."}
-            </span>
-            <button type="button" className="btn" onClick={() => setConfirm(false)}>
-              Keep
-            </button>
-            <button type="button" className="btn btn-primary" onClick={() => void forget()}>
-              Forget host
-            </button>
-          </>
-        ) : (
-          <button type="button" className="btn" onClick={() => setConfirm(true)}>
-            Forget host…
-          </button>
-        )}
-      </div>
+      <ForgetHost onForgot={onForgot} />
     </>
   );
 }
@@ -345,38 +275,19 @@ function thisDevice(): string {
   return isPhone() ? "iPhone" : "Mac";
 }
 
-function RestartNotice({ what }: { what: string }): React.ReactElement {
-  const [busy, setBusy] = useState(false);
-  // A phone app cannot relaunch itself; the person closes and reopens it.
-  if (isPhone()) {
-    return (
-      <div className="kleio-restart" role="status">
-        <span>{what} Close Kleio and open it again to apply.</span>
-      </div>
-    );
-  }
-  return (
-    <div className="kleio-restart" role="status">
-      <span>{what} Restart Kleio to apply — every window comes back where it was.</span>
-      <button
-        type="button"
-        className="btn btn-primary btn-sm"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          void relaunch();
-        }}
-      >
-        {busy ? "Restarting…" : "Restart now"}
-      </button>
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ devices
 
-function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
+function DevicesPanel({
+  selfId,
+  baseUrl,
+}: {
+  selfId: string;
+  /** The address this device reaches the host at, for PairingOffer. */
+  baseUrl: string | null;
+}): React.ReactElement {
   const [devices, setDevices] = useState<Device[] | null>(null);
+  /** When the list was loaded: what New is measured from. */
+  const [readAt, setReadAt] = useState(0);
   const [admin, setAdmin] = useState<AdminState | null>(null);
   const [offer, setOffer] = useState<PairOffer | null>(null);
   const [offerAdmin, setOfferAdmin] = useState(false);
@@ -418,6 +329,7 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
     () =>
       run("load", async () => {
         setDevices(await kleio.devices());
+        setReadAt(Date.now());
       }),
     [run],
   );
@@ -433,13 +345,14 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
     run(`revoke:${device.deviceId}`, async () => {
       setDevices(await kleio.revoke(device.deviceId));
       setConfirmRevoke(null);
-      setRemoved(`${device.label} removed.`);
+      setRemoved(`${device.label} revoked.`);
     });
 
   const mint = () =>
     run("offer", async () => {
       setOffer(await kleio.offer(offerAdmin));
     });
+  const offerDone = useCallback(() => setOffer(null), []);
 
   const lock = () =>
     run("lock", async () => {
@@ -448,7 +361,7 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
       setOffer(null);
     });
 
-  // Removed devices can't connect again, so the list shows only live ones
+  // Revoked devices can't connect again, so the list shows only live ones
   // (as Settings → Connection does).
   const live = (devices ?? []).filter((d) => !d.revoked);
 
@@ -516,6 +429,11 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
                 <span className="conn-device-name">
                   {d.label}
                   {d.deviceId === selfId && <Badge className="conn-inline-badge">This Mac</Badge>}
+                  {isNewDevice(d, selfId, readAt) && (
+                    <Badge color={theme.info} className="conn-inline-badge">
+                      New
+                    </Badge>
+                  )}
                   {d.admin && (
                     <Badge color={theme.warning} className="conn-inline-badge">
                       Admin
@@ -523,7 +441,7 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
                   )}
                 </span>
                 <span className="conn-device-sub">
-                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.createdAt)}`}
+                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.created)}`}
                 </span>
               </span>
               {d.deviceId !== selfId &&
@@ -543,18 +461,18 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
                       disabled={busy !== null}
                       onClick={() => void revoke(d)}
                     >
-                      {busy === `revoke:${d.deviceId}` ? "Removing…" : "Remove"}
+                      {busy === `revoke:${d.deviceId}` ? "Revoking…" : "Revoke"}
                     </button>
                   </span>
                 ) : (
                   <button
                     type="button"
                     className="btn btn-sm"
-                    aria-label={`Remove ${d.label}`}
+                    aria-label={`Revoke this device: ${d.label}`}
                     disabled={busy !== null}
                     onClick={() => setConfirmRevoke(d.deviceId)}
                   >
-                    Remove
+                    Revoke this device
                   </button>
                 ))}
             </li>
@@ -582,16 +500,12 @@ function DevicesPanel({ selfId }: { selfId: string }): React.ReactElement {
             {busy === "offer" ? "Minting…" : "New pair code"}
           </button>
         </div>
-        {offer && (
-          <div className="kleio-offer-code" role="status">
-            <code>{offer.display}</code>
-            <span className="modal-hint">
-              {offer.admin ? "admin · " : ""}expires{" "}
-              {relTime(new Date(offer.expiresAt).toISOString())}. Enter it on the other device with
-              this host&apos;s URL.
-            </span>
-          </div>
-        )}
+        {/* There before it speaks, so a screen reader hears a new code. The
+            countdown below stays out of it, or it would speak every second. */}
+        <p className="sr-only" role="status">
+          {offer ? `Pair code ${offer.display} is ready.` : ""}
+        </p>
+        {offer && <PairingOffer offer={offer} baseUrl={baseUrl} onDone={offerDone} />}
       </div>
     </div>
   );

@@ -10,8 +10,9 @@ import { SettingsCard } from "../settings-section";
 import { authStatusWithError, type AuthStatusResult } from "../agent";
 import { localStorageOrNull, markSetupSeen } from "../app-entry-view";
 import type { SettingsTabId } from "../SettingsScreen";
+import { diagnosisText, type Diagnosis } from "./connectionDiagnosis";
 import { shortHost } from "./host-name";
-import { useHostReach, type HostReach } from "./hostReach";
+import { useHostReach, useHostReachWords, type HostReach } from "./hostReach";
 import {
   errorText,
   KleioApiError,
@@ -85,10 +86,13 @@ function Callout({
 
 function HostCard({
   reach,
+  words,
   name,
   onOpenTab,
 }: {
   reach: HostReach;
+  /** Over Kleio's link, why it isn't connected (diagnoseLink's words). */
+  words: Diagnosis | null;
   name: string;
   onOpenTab: (tab: SettingsTabId) => void;
 }): React.ReactElement {
@@ -97,9 +101,11 @@ function HostCard({
   const line =
     reach === "connected"
       ? `Connected to ${name}.`
-      : reach === "checking"
-        ? `Checking ${name}…`
-        : `Can't reach ${name} right now.`;
+      : words
+        ? diagnosisText(words)
+        : reach === "checking"
+          ? `Checking ${name}…`
+          : `Can't reach ${name} right now.`;
   return (
     <SettingsCard
       title="Host"
@@ -252,6 +258,7 @@ export function SetupPage({
   // From the voice card, which asks the host itself: null until it knows.
   const [voiceReady, setVoiceReady] = useState<boolean | null>(null);
   const reach = useHostReach();
+  const words = useHostReachWords();
   const host = useKleioRemote().status?.active?.host;
 
   // Seeing Setup, however it was reached, means it needn't open by itself again.
@@ -317,7 +324,12 @@ export function SetupPage({
         </Callout>
       )}
 
-      <HostCard reach={reach} name={host ? shortHost(host) : "your host"} onOpenTab={onOpenTab} />
+      <HostCard
+        reach={reach}
+        words={words}
+        name={host ? shortHost(host) : "your host"}
+        onOpenTab={onOpenTab}
+      />
       <ProviderCard auth={auth} onOpenTab={onOpenTab} />
       {/* Until the host says otherwise (an older host can't), assume an admin:
           the host still refuses a change from any other device. */}

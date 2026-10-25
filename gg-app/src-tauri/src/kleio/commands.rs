@@ -4,7 +4,8 @@
 //!
 //! Wire contract is `packages/kleio-host/src/{pair-code,host}.ts`:
 //!   POST /kleio/pair/redeem {code, redemptionNonce, label}
-//!     200 {ok:true, payload:{baseUrl?, host, token, label, deviceId, controlCredential?}}
+//!     200 {ok:true, payload:{baseUrl?, host, token, label, deviceId, controlCredential?,
+//!                            previewOrigin?}}
 //!     (no baseUrl for a device paired over Kleio's link)
 //!     400|401|404 {ok:false, error}
 //!   admin (device token + control macaroon):
@@ -34,6 +35,23 @@ pub(super) struct PairingPayload {
     pub(super) device_id: String,
     #[serde(default)]
     pub(super) control_credential: Option<String>,
+    /// Where the host's site previews open; absent from a host without them.
+    #[serde(default)]
+    pub(super) preview_origin: Option<String>,
+}
+
+impl PairingPayload {
+    /// The preview origin the pairing keeps: the host's, if it's one this
+    /// build opens previews at (`files::preview_origin`). One it won't is
+    /// left out, and logged: previews are optional, the pairing isn't.
+    pub(super) fn kept_preview_origin(&self) -> Option<String> {
+        let given = self.preview_origin.as_deref()?;
+        let kept = super::files::preview_origin(given);
+        if kept.is_none() {
+            log::warn!("kleio: the host's preview origin isn't one Kleio opens; no site previews");
+        }
+        kept
+    }
 }
 
 fn validate_payload(p: &PairingPayload) -> Result<(), String> {
@@ -82,7 +100,7 @@ pub(super) fn checked_payload(payload: serde_json::Value) -> Result<PairingPaylo
 
 /// [`checked_payload`] for a pairing over Kleio's link (`link.rs`), whose
 /// payload has no base URL: the link is the way to the host.
-#[cfg(any(feature = "kleio-link", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
 pub(super) fn checked_link_payload(payload: serde_json::Value) -> Result<PairingPayload, String> {
     let payload: PairingPayload = serde_json::from_value(payload)
         .map_err(|_| "Host sent a malformed pairing ticket".to_string())?;
@@ -182,7 +200,7 @@ pub async fn kleio_pair(
     let code = compact_code(&code)?;
     let label = label_or_default(&label);
 
-    let client = reqwest::Client::builder()
+    let client = host_client(&super::Transport::Url)
         .timeout(TIMEOUT)
         .build()
         .map_err(|e| e.to_string())?;
@@ -235,6 +253,7 @@ pub async fn kleio_pair(
 
     let admin = payload.control_credential.is_some();
     keep_secrets(&payload.host, &payload)?;
+    let preview_origin = payload.kept_preview_origin();
     let rec = store::HostRecord {
         base_url: payload.base_url,
         host: payload.host,
@@ -242,8 +261,22 @@ pub async fn kleio_pair(
         label: payload.label,
         admin,
         paired_at: now_iso(),
+        preview_origin,
     };
-    store::save(&crate::home_dir(), &rec)?;
+    let home = crate::home_dir();
+    store::save(&home, &rec)?;
+    // kleio (macOS and iPhone): a link pairing wins at boot, so pairing by
+    // the host's address sets it aside (the Connection page's "Advanced:
+    // connect over your own network"). The host lists it until an admin
+    // revokes it, as after Forget host.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        let replaced = super::link::forget(&home)
+            .map_err(|e| format!("Paired, but Kleio couldn't set its link pairing aside: {e}"))?;
+        if replaced {
+            log::info!("kleio: the pairing by address replaces the link pairing");
+        }
+    }
     log::info!(
         "kleio: paired to {} as {} (admin={admin}); takes effect on restart",
         rec.host,
@@ -257,9 +290,9 @@ pub async fn kleio_pair(
 #[tauri::command]
 pub fn kleio_forget() -> Result<(), String> {
     let home = crate::home_dir();
-    // kleio (connection prototype): the link pairing, while there's one, is
-    // the pairing shown and the next launch uses, so it's the one forgotten.
-    #[cfg(feature = "kleio-link")]
+    // kleio (macOS and iPhone): the link pairing, while there's one, is the
+    // pairing shown and the next launch uses, so it's the one forgotten.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     if super::link::forget(&home)? {
         return Ok(());
     }
@@ -343,6 +376,19 @@ fn admin_remote() -> Result<&'static super::Remote, AdminError> {
     }
 }
 
+/// The start of every client that talks to a host, so each reaches it the
+/// same way: a link pairing's over the link's socket, which only this process
+/// can use ([`super::LINK_BASE`] names the host, and is never looked up), and
+/// anything else at its URL.
+pub(crate) fn host_client(transport: &super::Transport) -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder();
+    match transport {
+        super::Transport::Url => builder,
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        super::Transport::Link(boot) => builder.unix_socket(boot.socket()),
+    }
+}
+
 fn admin_client(r: &super::Remote) -> Result<reqwest::Client, AdminError> {
     let mut h = reqwest::header::HeaderMap::new();
     let hv = |s: &str| {
@@ -355,7 +401,7 @@ fn admin_client(r: &super::Remote) -> Result<reqwest::Client, AdminError> {
     if let Some(c) = r.control_credential.as_deref() {
         h.insert(CONTROL_HEADER, hv(c)?);
     }
-    reqwest::Client::builder()
+    host_client(&r.transport)
         .default_headers(h)
         .timeout(TIMEOUT)
         .build()
@@ -456,12 +502,32 @@ pub async fn kleio_revoke(
     devices_from(&body, &r.device_id)
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Offer {
     pub display: String,
     pub expires_at: u64,
     pub admin: bool,
+    /// The link's pairing ticket for this code: what the QR code and the
+    /// pairing text carry. None from a host without the link, or while its
+    /// link can't pair, when `ticket_error` says why.
+    pub ticket: Option<String>,
+    /// Why there's no ticket: `no_link`, `link_down`, `config` or `ticket`.
+    /// None with a ticket, and from a host from before the link, which sends
+    /// neither.
+    pub ticket_error: Option<String>,
+}
+
+/// An offer, as `POST /kleio/pair/offer` answers it.
+fn offer_from(body: &serde_json::Value) -> Offer {
+    let text = |key: &str| body.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    Offer {
+        display: text("display").unwrap_or_default(),
+        expires_at: body.get("expiresAt").and_then(|v| v.as_u64()).unwrap_or(0),
+        admin: body.get("admin").and_then(|v| v.as_bool()).unwrap_or(false),
+        ticket: text("ticket"),
+        ticket_error: text("ticketError"),
+    }
 }
 
 #[tauri::command]
@@ -481,15 +547,7 @@ pub async fn kleio_offer(gate: State<'_, BiometricGate>, admin: bool) -> Result<
             .json(&serde_json::json!({ "admin": admin })),
     )
     .await?;
-    Ok(Offer {
-        display: body
-            .get("display")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
-        expires_at: body.get("expiresAt").and_then(|v| v.as_u64()).unwrap_or(0),
-        admin: body.get("admin").and_then(|v| v.as_bool()).unwrap_or(false),
-    })
+    Ok(offer_from(&body))
 }
 
 #[tauri::command]
@@ -595,7 +653,13 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             | ["kleio", "chats"]
             | ["kleio", "models"]
             | ["kleio", "health"]
+            // The host's OS and whether it stays on, for the app's words
+            // when it can't be reached (connectionDiagnosis.ts).
+            | ["kleio", "host"]
             | ["kleio", "brief"]
+            // Whether notifications quote what was said: any device reads it,
+            // an admin device changes it (kleio-host notification-settings.ts).
+            | ["kleio", "notifications"]
             | ["kleio", "voice"]
             | ["kleio", "voice", "key"]
             | ["kleio", "voice", "settings"]
@@ -650,7 +714,7 @@ pub(super) fn answer_client(r: &super::Remote) -> Result<reqwest::Client, String
         reqwest::header::HeaderValue::from_str(&r.device_token)
             .map_err(|_| "device token is not header-safe".to_string())?,
     );
-    reqwest::Client::builder()
+    host_client(&r.transport)
         .default_headers(h)
         .timeout(Duration::from_secs(20))
         .build()
@@ -668,7 +732,7 @@ pub(super) fn api_client(r: &super::Remote) -> Result<&'static reqwest::Client, 
         reqwest::header::HeaderValue::from_str(&r.device_token)
             .map_err(|_| "device token is not header-safe".to_string())?,
     );
-    let c = reqwest::Client::builder()
+    let c = host_client(&r.transport)
         .default_headers(h)
         .timeout(API_TIMEOUT)
         .build()
@@ -807,6 +871,100 @@ pub async fn host_auth(
 mod tests {
     use super::*;
 
+    /// The offer passes on the host's ticket, or why it has none. A host from
+    /// before the link sends neither.
+    #[test]
+    fn an_offer_carries_the_hosts_ticket_or_why_it_has_none() {
+        let ticket = r#"{"v":4,"type":"kleio-pair","code":"ABC-DEF"}"#;
+        let with = offer_from(&serde_json::json!({
+            "code": "ABCDEF",
+            "display": "ABC-DEF",
+            "expiresAt": 1_792_000_000_000_u64,
+            "admin": false,
+            "ticket": ticket,
+            "ticketError": null,
+        }));
+        assert_eq!(
+            with,
+            Offer {
+                display: "ABC-DEF".into(),
+                expires_at: 1_792_000_000_000,
+                admin: false,
+                ticket: Some(ticket.into()),
+                ticket_error: None,
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&with).expect("serializes"),
+            serde_json::json!({
+                "display": "ABC-DEF",
+                "expiresAt": 1_792_000_000_000_u64,
+                "admin": false,
+                "ticket": ticket,
+                "ticketError": null,
+            })
+        );
+
+        let down = offer_from(&serde_json::json!({
+            "display": "GHJ-KMN",
+            "expiresAt": 1_792_000_000_000_u64,
+            "admin": true,
+            "ticket": null,
+            "ticketError": "link_down",
+        }));
+        assert_eq!(down.ticket, None);
+        assert_eq!(down.ticket_error.as_deref(), Some("link_down"));
+        assert!(down.admin);
+
+        let before = offer_from(&serde_json::json!({
+            "display": "PQR-STV",
+            "expiresAt": 1_792_000_000_000_u64,
+            "admin": false,
+        }));
+        assert_eq!((before.ticket, before.ticket_error), (None, None));
+    }
+
+    /// A URL pairing's clients go to its URL, as before the link.
+    #[test]
+    fn a_url_pairings_clients_go_to_its_url() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let addr = listener.local_addr().expect("an address");
+        let served = std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            let (mut conn, _) = listener.accept().expect("a connection");
+            let mut head = Vec::new();
+            let mut chunk = [0; 1024];
+            while !head.windows(4).any(|end| end == b"\r\n\r\n") {
+                let read = conn.read(&mut chunk).expect("reads");
+                assert_ne!(read, 0, "the request ended early");
+                head.extend_from_slice(&chunk[..read]);
+            }
+            conn.write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                .expect("answers");
+            String::from_utf8(head).expect("a text head")
+        });
+        // As `run()` does first: a client can't be built without one.
+        crate::install_rustls_provider();
+        let client = host_client(&super::super::Transport::Url)
+            .build()
+            .expect("a client");
+        let status = tauri::async_runtime::block_on(async {
+            client
+                .get(format!("http://{addr}/kleio/health"))
+                .send()
+                .await
+                .expect("an answer")
+                .status()
+        });
+        assert_eq!(status, 204);
+        let head = served.join().expect("served").to_ascii_lowercase();
+        assert!(
+            head.starts_with("get /kleio/health http/1.1\r\n"),
+            "{head:?}"
+        );
+        assert!(head.contains(&format!("\r\nhost: {addr}\r\n")), "{head:?}");
+    }
+
     #[test]
     fn host_auth_allows_only_the_three_auth_routes() {
         assert!(auth_route_allowed("GET", "/auth/status"));
@@ -831,6 +989,13 @@ mod tests {
     }
 
     #[test]
+    fn the_hosts_own_facts_are_a_product_route() {
+        assert_eq!(check_route("GET", "/kleio/host", None), Ok(false));
+        assert!(check_route("GET", "/kleio/host", Some("s1")).is_err());
+        assert!(check_route("GET", "/kleio/host/x", None).is_err());
+    }
+
+    #[test]
     fn chats_is_a_product_route() {
         assert_eq!(check_route("POST", "/kleio/chats", None), Ok(false));
         assert!(check_route("POST", "/kleio/chats", Some("s1")).is_err());
@@ -844,6 +1009,7 @@ mod tests {
             label: "Laptop".into(),
             device_id: "dev-1".into(),
             control_credential: cred.map(str::to_string),
+            preview_origin: None,
         }
     }
 
@@ -925,6 +1091,8 @@ mod tests {
             ("POST", "/kleio/home/new"),
             ("GET", "/kleio/models"),
             ("POST", "/kleio/brief"),
+            ("GET", "/kleio/notifications"),
+            ("POST", "/kleio/notifications"),
             ("GET", "/kleio/voice"),
             ("POST", "/kleio/voice/key"),
             ("DELETE", "/kleio/voice/key"),
@@ -1130,6 +1298,8 @@ mod tests {
             "/kleio/projects/code/x",
             "/kleio/projects?name=it's",
             "/kleio/models/x",
+            "/kleio/notifications/x",
+            "/kleio/notificationsx",
             "/kleio/blobs/../devices",
             "/kleio/blobs/./x",
             "/kleio/blobs//x",

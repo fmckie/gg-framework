@@ -1,13 +1,19 @@
-// Kleio link pairing (Rust feature `kleio-link`), shared by the pairing form
+// Kleio link pairing (Rust: kleio/link.rs, macOS and iOS), shared by the pairing form
 // (RemoteHostModal) and the Link card on the Connection page: scanning the
-// pairing QR code on the iPhone, a pasted ticket in debug builds, and a link
-// ticket's confirm step, which pairs over the Kleio link.
+// pairing QR code on the iPhone, pasted pairing text on the Mac (and in the
+// iPhone's debug builds), and a link ticket's confirm step, which pairs over
+// the Kleio link and shows each step as it begins.
+//
+// What pairing says when it fails is the pairing messages table's
+// (packages/kleio-link/tests/fixtures/pairing-messages.json): the link's own
+// words for most cases, this device being offline here, and a ticket that
+// isn't one in readTicket. LinkPairing.test.tsx checks no two are the same.
 
 import { QrCodeIcon, XIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isPhone } from "../platform";
-import { kleioLink, type LinkStatus, type TicketCheck } from "./kleioLink";
+import { kleioLink, type LinkStatus, type PairStage, type TicketCheck } from "./kleioLink";
 import { cancelScan, usePairingScan } from "./qrScan";
 import { explainError } from "./useKleioRemote";
 
@@ -82,7 +88,32 @@ function ScanOverlay(): React.ReactElement {
   );
 }
 
-/** Debug builds: a pasted ticket, for a device without a camera. */
+/** What each pairing step shows while it runs (PairStage::text in pair.rs). */
+export const PAIR_STAGE_TEXT: Record<PairStage, string> = {
+  relay: "Reaching the relay…",
+  host: "Finding your host…",
+  pairing: "Pairing…",
+};
+
+/** What pairing says on a device with no network at all. */
+export function pairingOffline(device: "iPhone" | "Mac"): string {
+  return `This ${device} is offline. Connect it to the internet, then try again.`;
+}
+
+/**
+ * Whether the pairing form takes pasted pairing text: always on the Mac,
+ * which has no camera to scan with, and in the iPhone's debug builds, as the
+ * simulator has none either.
+ */
+export function takesPairingText(link: LinkStatus): boolean {
+  return !isPhone() || link.debugBuild;
+}
+
+/**
+ * Paste pairing text: the ticket that `kleio-host pair`, and an admin's Pair a
+ * device (PairingOffer.tsx), give as text beside its QR code. Where
+ * `takesPairingText` says.
+ */
 export function TicketPaste({
   busy,
   onTicket,
@@ -91,11 +122,13 @@ export function TicketPaste({
   onTicket: (text: string) => void;
 }): React.ReactElement {
   const [text, setText] = useState("");
+  // On the iPhone, only a debug build has it.
+  const phone = isPhone();
   return (
     <div className="kleio-ticket-paste">
       <label className="modal-label" htmlFor="kleio-ticket">
-        Pairing ticket
-        <span className="kleio-tag">debug build</span>
+        Paste pairing text
+        {phone && <span className="kleio-tag">debug build</span>}
       </label>
       <textarea
         id="kleio-ticket"
@@ -111,7 +144,18 @@ export function TicketPaste({
       />
       <div className="modal-row">
         <span className="modal-hint kleio-inline-hint">
-          The pairing text <code>kleio-host pair</code> prints, in place of scanning its QR code.
+          {phone ? (
+            <>
+              The pairing text <code>kleio-host pair</code> prints, in place of scanning its QR
+              code.
+            </>
+          ) : (
+            <>
+              Copy it from Pair a device, in Settings → Connection on your admin device, or from
+              what <code>kleio-host pair</code> prints on your host. It pairs over Kleio&apos;s
+              link, with no Tailscale needed.
+            </>
+          )}
         </span>
         <button
           type="button"
@@ -119,7 +163,7 @@ export function TicketPaste({
           disabled={busy || text.trim() === ""}
           onClick={() => onTicket(text)}
         >
-          Use ticket
+          Use pairing text
         </button>
       </div>
     </div>
@@ -127,9 +171,11 @@ export function TicketPaste({
 }
 
 /**
- * A link ticket's confirm step: the host it names, then Pair over the link.
- * `onPaired` gets the link's status after pairing (`null` if it couldn't be
- * read): `active` says the pairing switched on in place.
+ * A link ticket's confirm step: the host it names, then Pair over the link,
+ * which shows each step as it begins and says why if it fails. A device with
+ * no network at all doesn't dial. `onPaired` gets the link's status after
+ * pairing (`null` if it couldn't be read): `active` says the pairing switched
+ * on in place.
  */
 export function LinkConfirm({
   ticket,
@@ -147,8 +193,10 @@ export function LinkConfirm({
   onPaired: (now: LinkStatus | null) => Promise<void> | void;
 }): React.ReactElement {
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState<PairStage>("relay");
   const [error, setError] = useState<string | null>(null);
   const backRef = useRef<HTMLButtonElement>(null);
+  const device = isPhone() ? "iPhone" : "Mac";
 
   // The step replaces the focused button: focus the safe choice.
   useEffect(() => {
@@ -156,18 +204,25 @@ export function LinkConfirm({
   }, []);
 
   const pair = useCallback(async () => {
-    setBusy(true);
     setError(null);
+    // With no network at all, nothing would answer: say so, not why a dial failed.
+    if (!navigator.onLine) {
+      setError(pairingOffline(device));
+      return;
+    }
+    setBusy(true);
+    setStage("relay");
     try {
       // Pairs and switches the pairing on, as pair + activatePairing do.
-      await kleioLink.pair(ticket, label);
+      await kleioLink.pair(ticket, label, setStage);
       await onPaired(await kleioLink.status().catch(() => null));
     } catch (e) {
-      setError(explainError(e));
+      // Gone offline on the way: that's why it failed, whatever the link saw.
+      setError(navigator.onLine ? explainError(e) : pairingOffline(device));
     } finally {
       setBusy(false);
     }
-  }, [ticket, label, onPaired]);
+  }, [ticket, label, onPaired, device]);
 
   return (
     <form
@@ -177,8 +232,8 @@ export function LinkConfirm({
       }}
     >
       <p className="modal-hint">
-        Pair over the Kleio link with this host? Check the pair code matches the one{" "}
-        <code>kleio-host pair</code> shows there.
+        Pair over the Kleio link with this host? Check the pair code matches the one shown with the
+        QR code or pairing text.
       </p>
       <dl className="kleio-facts">
         <dt>Host</dt>
@@ -213,12 +268,16 @@ export function LinkConfirm({
           {error}
         </p>
       )}
+      {/* There before it speaks, so a screen reader hears each step. */}
+      <p className="sr-only" role="status">
+        {busy ? PAIR_STAGE_TEXT[stage] : ""}
+      </p>
       <div className="modal-actions">
         <button ref={backRef} type="button" className="btn" disabled={busy} onClick={onBack}>
           Back
         </button>
         <button type="submit" className="btn btn-primary" disabled={busy}>
-          {busy ? "Pairing…" : "Pair"}
+          {busy ? PAIR_STAGE_TEXT[stage] : "Pair"}
         </button>
       </div>
     </form>

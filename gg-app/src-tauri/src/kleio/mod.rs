@@ -1,8 +1,9 @@
 //! Kleio — remote host support for gg-app.
 //!
 //! Everything Kleio-specific on the Rust side lives in this directory. `lib.rs`
-//! touches it at three points only: `sidecar_base`, the shared client's default
-//! headers, and the daemon spawn / SSE-bridge branch. Upstream sync stays a merge.
+//! touches it at three points only: `sidecar_base`, the shared client (how it
+//! reaches the host, and its default headers), and the daemon spawn /
+//! SSE-bridge branch. Upstream sync stays a merge.
 //!
 //! Activation, in priority order, decided once at boot:
 //!   1. Environment (dev override): KLEIO_HOST_URL + KLEIO_DEVICE_TOKEN.
@@ -11,13 +12,15 @@
 //!      app (`commands.rs`) and takes effect on the next launch — except on
 //!      the iPhone, which cannot relaunch itself: there a first pairing
 //!      switches on in place (`activate_paired`), once, never host-to-host.
-//!      With feature `kleio-link`, a link pairing (`link.rs`) is read
-//!      first, and wins over `remote.json`.
+//!      On macOS and iOS a link pairing (`link.rs`) is read first, and wins
+//!      over `remote.json`; pairing by the host's address sets it aside.
 //!   3. Neither → normal local sidecar. Nothing below is touched.
 //!
 //! When remote, no local sidecar is spawned; every sidecar call goes to the
 //! host, authenticated with `x-kleio-device-token` (and `x-kleio-control` for
-//! admin devices); the SSE bridge resumes with `Last-Event-ID`.
+//! admin devices); the SSE bridge resumes with `Last-Event-ID`. Every client
+//! that talks to the host is built by `commands::host_client`, which sends a
+//! link pairing's requests to the link's socket ([`Transport`]).
 
 pub mod biometric;
 pub mod brief;
@@ -25,7 +28,7 @@ pub mod commands;
 pub mod files;
 pub use commands::host_auth;
 pub mod keychain;
-#[cfg(feature = "kleio-link")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod link;
 pub mod live;
 pub mod parked;
@@ -40,7 +43,8 @@ pub mod tailscale;
 use std::sync::{Once, OnceLock};
 
 pub struct Remote {
-    /// Base URL without trailing slash, e.g. `https://host:8443`.
+    /// Base URL without trailing slash, e.g. `https://host:8443`; over the
+    /// link, [`LINK_BASE`].
     pub base: String,
     /// Tailnet host name as the host reports it.
     pub host: String,
@@ -50,10 +54,54 @@ pub struct Remote {
     /// Control macaroon, present only for admin devices.
     pub control_credential: Option<String>,
     pub admin: bool,
-    /// What the link needs, when this pairing is the link's (feature
-    /// `kleio-link`, `link.rs`).
-    #[cfg(feature = "kleio-link")]
-    pub link: Option<link::LinkBoot>,
+    /// How this device reaches the host.
+    pub transport: Transport,
+    /// Where the host's site previews open, as it said at pairing: the only
+    /// place `kleio_site_open` opens a preview link (`files.rs`). None from a
+    /// host without previews, or one paired before hosts said.
+    pub preview_origin: Option<String>,
+}
+
+/// How this device reaches its host.
+pub enum Transport {
+    /// At [`Remote::base`], a URL on a network this device is on: Tailscale's,
+    /// or one of the user's own.
+    Url,
+    /// Over Kleio's link (`link.rs`: macOS and iOS only). The base is
+    /// [`LINK_BASE`], and requests go to the link's socket, which carries
+    /// them to the host.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    Link(Box<link::LinkBoot>),
+}
+
+impl Transport {
+    /// Over Kleio's link, rather than at a URL.
+    pub fn is_link(&self) -> bool {
+        match self {
+            Transport::Url => false,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            Transport::Link(_) => true,
+        }
+    }
+}
+
+impl Remote {
+    /// What the link needs, when this pairing is the link's.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn link(&self) -> Option<&link::LinkBoot> {
+        match &self.transport {
+            Transport::Link(boot) => Some(boot),
+            Transport::Url => None,
+        }
+    }
+}
+
+/// The shared client's start (`lib.rs`, registration point 2/3): the paired
+/// host's ([`commands::host_client`]), or a plain one for the local sidecar.
+pub fn client_builder() -> reqwest::ClientBuilder {
+    remote().map_or_else(reqwest::Client::builder, |r| {
+        commands::host_client(&r.transport)
+    })
 }
 
 static REMOTE: OnceLock<Remote> = OnceLock::new();
@@ -68,6 +116,18 @@ pub fn remote() -> Option<&'static Remote> {
         }
     });
     REMOTE.get()
+}
+
+/// The host this process uses, if boot has chosen it already. Unlike
+/// [`remote`], it never reads the pairing itself, so a task that may run
+/// outside the app, such as the link's in its tests, never reads this
+/// machine's own pairing or Keychain.
+pub(crate) fn remote_if_booted() -> Option<&'static Remote> {
+    if BOOT.is_completed() {
+        REMOTE.get()
+    } else {
+        None
+    }
 }
 
 /// iPhone only: a phone app cannot relaunch to pick up a fresh pairing, so the
@@ -112,8 +172,8 @@ fn from_env() -> Option<Remote> {
         device_token,
         control_credential: std::env::var("KLEIO_CONTROL_CREDENTIAL").ok(),
         admin: false,
-        #[cfg(feature = "kleio-link")]
-        link: None,
+        transport: Transport::Url,
+        preview_origin: None,
     })
 }
 
@@ -125,10 +185,11 @@ pub fn remote_now() -> Option<Remote> {
     from_env().or_else(from_paired)
 }
 
-/// The pairing on disk. With feature `kleio-link`, a link pairing wins
-/// over `remote.json`.
+/// The pairing on disk. On macOS and iOS, which have the link, a link
+/// pairing wins over `remote.json`. `kleio_pair` sets it aside, so a pairing
+/// by address is the one used from the next launch.
 fn from_paired() -> Option<Remote> {
-    #[cfg(feature = "kleio-link")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if let Some(r) = link::from_link() {
             return Some(r);
@@ -169,8 +230,8 @@ fn from_store() -> Option<Remote> {
         device_token,
         admin: rec.admin,
         control_credential,
-        #[cfg(feature = "kleio-link")]
-        link: None,
+        transport: Transport::Url,
+        preview_origin: rec.preview_origin,
     })
 }
 
@@ -208,10 +269,10 @@ pub fn kleio_remote_status() -> RemoteStatus {
     }
 }
 
-/// The pairing on disk that the next launch uses: the link's first when the
-/// link prototype is built in (`from_paired`'s order), else `remote.json`.
+/// The pairing on disk that the next launch uses: the link's first on macOS
+/// and iOS (`from_paired`'s order), else `remote.json`.
 fn paired_now(home: &std::path::Path) -> Option<store::HostRecord> {
-    #[cfg(feature = "kleio-link")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     if let Some(record) = link::paired_record(home) {
         return Some(record);
     }
@@ -243,26 +304,24 @@ pub fn state_dir(home: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
-/// Hosts Kleio pairs with: https (Tailscale Serve terminates TLS) and, in a
-/// debug build only, exactly `http://127.0.0.1:<port>`, a host on this Mac
-/// (`gg-app/scripts/dev-host.mjs`). Mirrors `checked_preview_url` in `files.rs`.
-/// With feature `kleio-link`, also exactly [`LINK_BASE`], in any build.
+/// Host URLs Kleio pairs with ([`Transport::Url`]): https (Tailscale Serve
+/// terminates TLS) and, in a debug build only, exactly
+/// `http://127.0.0.1:<port>`, a host on this Mac (`gg-app/scripts/dev-host.mjs`).
+/// Mirrors `checked_preview_url` in `files.rs`. Never [`LINK_BASE`]: that's
+/// only ever the link's, and no file, QR code or form gives it.
 fn host_url_allowed(url: &str) -> bool {
-    host_url_allowed_in(url, cfg!(debug_assertions), LINK_BUILD)
+    host_url_allowed_in(url, cfg!(debug_assertions))
 }
 
-fn host_url_allowed_in(url: &str, debug_build: bool, link_build: bool) -> bool {
-    url.starts_with("https://")
-        || (debug_build && is_loopback_http(url))
-        || (link_build && url == LINK_BASE)
+fn host_url_allowed_in(url: &str, debug_build: bool) -> bool {
+    url.starts_with("https://") || (debug_build && is_loopback_http(url))
 }
 
-/// The connection prototype's link on this device: a loopback listener that
-/// carries the app's requests to the host over iroh (`link.rs`).
-pub const LINK_BASE: &str = "http://127.0.0.1:47821";
-
-/// Whether this build has the link (feature `kleio-link`).
-const LINK_BUILD: bool = cfg!(feature = "kleio-link");
+/// The host's base URL over Kleio's link ([`Transport::Link`]). Its requests
+/// go to the link's socket, so the name is never looked up, and `.invalid`
+/// can't resolve, so it can't be taken for a real address. kleio-host
+/// expects it as the Host of a request on the link (`LINK_HOST`).
+pub const LINK_BASE: &str = "http://link.kleio.invalid";
 
 /// Exactly `http://127.0.0.1:<1-65535>`, the port written plainly: no user,
 /// path, query, fragment or other host.
@@ -618,8 +677,7 @@ mod tests {
         for debug_build in [false, true] {
             assert!(host_url_allowed_in(
                 "https://mac-mini-1.x.ts.net:8443",
-                debug_build,
-                false
+                debug_build
             ));
             for local in [
                 "http://127.0.0.1:52714",
@@ -627,7 +685,7 @@ mod tests {
                 "http://127.0.0.1:65535",
             ] {
                 assert_eq!(
-                    host_url_allowed_in(local, debug_build, false),
+                    host_url_allowed_in(local, debug_build),
                     debug_build,
                     "{local}"
                 );
@@ -656,7 +714,7 @@ mod tests {
                 "",
             ] {
                 assert!(
-                    !host_url_allowed_in(refused, debug_build, false),
+                    !host_url_allowed_in(refused, debug_build),
                     "{refused:?} (debug build {debug_build})"
                 );
             }
@@ -668,60 +726,27 @@ mod tests {
         assert!(host_url_allowed("https://mac-mini-1.x.ts.net:8443"));
     }
 
+    /// The link's base is the link's alone: no pairing record, QR code or
+    /// typed URL can make a URL client use it.
     #[test]
-    fn the_link_feature_also_allows_exactly_the_links_url() {
+    fn the_links_url_is_never_a_host_url() {
         for debug_build in [false, true] {
-            // Without the feature the link's URL is one more loopback port.
+            assert!(!host_url_allowed_in(LINK_BASE, debug_build));
+            // Nor the prototype's loopback port, outside a debug build.
             assert_eq!(
-                host_url_allowed_in(LINK_BASE, debug_build, false),
+                host_url_allowed_in("http://127.0.0.1:47821", debug_build),
                 debug_build
             );
-            // With it, that URL is allowed in any build, and nothing else is.
-            assert!(host_url_allowed_in(LINK_BASE, debug_build, true));
-            for url in [
-                "https://mac-mini-1.x.ts.net:8443",
-                "http://127.0.0.1:52714",
-                "http://127.0.0.1:47822",
-                "http://127.0.0.1:4782",
-                "http://127.0.0.1:478210",
-                "http://127.0.0.1:047821",
-                "http://127.0.0.1:47821/",
-                "http://127.0.0.1:47821/kleio",
-                "http://127.0.0.1:47821?x=1",
-                "http://user@127.0.0.1:47821",
-                "http://localhost:47821",
-                "http://[::1]:47821",
-                "HTTP://127.0.0.1:47821",
-                " http://127.0.0.1:47821",
-                "http://127.0.0.1:47821 ",
-                "",
-            ] {
-                assert_eq!(
-                    host_url_allowed_in(url, debug_build, true),
-                    host_url_allowed_in(url, debug_build, false),
-                    "{url:?} (debug build {debug_build})"
-                );
-            }
         }
+        assert!(!host_url_allowed(LINK_BASE));
     }
 
-    #[cfg(feature = "kleio-link")]
+    /// The name the app gives link requests is the one kleio-host and
+    /// kleio-link-host expect on the link.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     #[test]
-    fn with_the_link_feature_any_build_allows_the_links_url() {
-        assert!(host_url_allowed(LINK_BASE));
-        assert!(host_url_allowed_in(LINK_BASE, false, LINK_BUILD));
-        assert!(!host_url_allowed_in(
-            "http://127.0.0.1:47822",
-            false,
-            LINK_BUILD
-        ));
-    }
-
-    #[cfg(not(feature = "kleio-link"))]
-    #[test]
-    fn without_the_link_feature_its_url_is_any_loopback_port() {
-        assert_eq!(host_url_allowed(LINK_BASE), cfg!(debug_assertions));
-        assert!(!host_url_allowed_in(LINK_BASE, false, LINK_BUILD));
+    fn the_links_url_names_the_host_kleio_host_expects() {
+        assert_eq!(LINK_BASE, format!("http://{}", kleio_link::LINK_HOST));
     }
 
     #[test]

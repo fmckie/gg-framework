@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { useEffect } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { authStatusWithError } from "../agent";
-import { useHostReach } from "./hostReach";
+import { useHostReach, useHostReachWords } from "./hostReach";
 import {
   KleioApiError,
   getDictationSetup,
@@ -23,7 +23,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn(async () => undefin
 vi.mock("./VoiceCard", () => ({ VoiceCard: vi.fn() }));
 // Covered by its own tests; here it only has to be in the right place.
 vi.mock("./BrainCard", () => ({ BrainCard: vi.fn() }));
-vi.mock("./hostReach", () => ({ useHostReach: vi.fn() }));
+vi.mock("./hostReach", () => ({ useHostReach: vi.fn(), useHostReachWords: vi.fn() }));
 vi.mock("./useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
 vi.mock("../agent", () => ({ authStatusWithError: vi.fn() }));
 vi.mock("./kleioApi", async (importOriginal) => {
@@ -79,6 +79,7 @@ beforeEach(() => {
   vi.mocked(getDictationSetup).mockResolvedValue({ state: "absent", bytes: 138_853_314 });
   vi.mocked(authStatusWithError).mockResolvedValue({ providers: [PROVIDER], error: null });
   vi.mocked(useHostReach).mockReturnValue("connected");
+  vi.mocked(useHostReachWords).mockReturnValue(null);
   vi.mocked(useKleioRemote).mockReturnValue({
     status: {
       active: {
@@ -210,6 +211,26 @@ describe("SetupPage", () => {
     expect(within(host).getByText("Can't reach home-server right now.")).toBeTruthy();
     expect(within(host).queryByText("Done")).toBeNull();
     expect(screen.getByText("1 of 4 done")).toBeTruthy();
+  });
+
+  it("over Kleio's link, says why the host can't be reached", async () => {
+    vi.mocked(useHostReach).mockReturnValue("disconnected");
+    vi.mocked(useHostReachWords).mockReturnValue({
+      tone: "bad",
+      badge: "Relay blocked",
+      headline: "Kleio can't reach its relay",
+      detail: "This network may block it: try mobile data or another Wi-Fi.",
+      checks: [],
+      fix: [],
+    });
+    await renderPage();
+    const host = card("Host");
+    expect(
+      within(host).getByText(
+        "Kleio can't reach its relay. This network may block it: try mobile data or another Wi-Fi.",
+      ),
+    ).toBeTruthy();
+    expect(within(host).getByText("Can't reach")).toBeTruthy();
   });
 
   it("says it's still checking the host", async () => {

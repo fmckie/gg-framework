@@ -6,7 +6,16 @@ import { FileCard } from "./FileCard";
 import { FileViewerProvider } from "./FileViewerProvider";
 import type { FileOwner } from "./kleioFiles";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  // The real one needs the Tauri bridge. This keeps its handler, for a test to call.
+  Channel: class {
+    onmessage: (message: unknown) => void;
+    constructor(onmessage: (message: unknown) => void = () => {}) {
+      this.onmessage = onmessage;
+    }
+  },
+}));
 // The viewer draws documents through Markdown, which reaches the Tauri bridge on import.
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
@@ -35,7 +44,14 @@ describe("FileCard", () => {
     });
     await renderCard();
     await waitFor(() => expect(screen.getByText("PDF document · 47 KB")).toBeTruthy());
-    expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", { owner: OWNER, path: PATH });
+    // On its own, so a big file through a relay would wait for a tap.
+    expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", {
+      owner: OWNER,
+      path: PATH,
+      onProgress: expect.anything(),
+      auto: true,
+    });
+    expect(screen.queryByRole("button", { name: /^Download / })).toBeNull();
     expect(screen.getByText("Your AI research report")).toBeTruthy();
     expect(screen.getByText(PATH)).toBeTruthy();
     expect(document.querySelector("img.kleio-file-thumb")?.getAttribute("src")).toBe(THUMB);
@@ -116,7 +132,97 @@ describe("FileCard", () => {
       render(<FileCard owner={owner} path="out/report.pdf" label="Quarterly report" />);
     });
     await waitFor(() => expect(screen.getByText("PDF document · 2 KB")).toBeTruthy());
-    expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", { owner, path: "out/report.pdf" });
+    expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", {
+      owner,
+      path: "out/report.pdf",
+      onProgress: expect.anything(),
+      auto: true,
+    });
+  });
+
+  it("says how much of a big file has come, and about how long is left", async () => {
+    let report: (progress: unknown) => void = () => {};
+    let finish: (info: unknown) => void = () => {};
+    vi.mocked(invoke).mockImplementation((cmd, args) => {
+      if (cmd !== "kleio_file_fetch") return Promise.resolve(undefined);
+      const channel = (args as { onProgress: { onmessage: (m: unknown) => void } }).onProgress;
+      report = (progress) => channel.onmessage(progress);
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    await renderCard();
+    expect(screen.getByText("Fetching from your host…")).toBeTruthy();
+    const MiB = 1024 * 1024;
+    act(() => report({ received: 0, total: 45 * MiB, secondsLeft: null }));
+    expect(screen.getByText("Fetching from your host… 0 bytes of 45.0 MB")).toBeTruthy();
+    act(() => report({ received: 12.4 * MiB, total: 45 * MiB, secondsLeft: 31 }));
+    expect(
+      screen.getByText("Fetching from your host… 12.4 MB of 45.0 MB, about 30 seconds left"),
+    ).toBeTruthy();
+    await act(async () =>
+      finish({ name: PATH, size: 45 * MiB, mime: "application/pdf", thumbnail: null }),
+    );
+    expect(screen.getByText("PDF document · 45.0 MB")).toBeTruthy();
+  });
+
+  it("through a relay, waits for a tap on a big file, then downloads it with its progress", async () => {
+    const MiB = 1024 * 1024;
+    const calls: Record<string, unknown>[] = [];
+    let report: (progress: unknown) => void = () => {};
+    let finish: (info: unknown) => void = () => {};
+    vi.mocked(invoke).mockImplementation((cmd, args) => {
+      if (cmd !== "kleio_file_fetch") return Promise.resolve(undefined);
+      const a = args as Record<string, unknown> & {
+        onProgress: { onmessage: (m: unknown) => void };
+      };
+      calls.push(a);
+      // The card's own fetch: the host's size, and nothing downloaded.
+      if (a.auto === true)
+        return Promise.resolve({
+          name: PATH,
+          size: 45 * MiB,
+          mime: "application/pdf",
+          thumbnail: null,
+          held: true,
+        });
+      report = (progress) => a.onProgress.onmessage(progress);
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    });
+    await renderCard();
+    await waitFor(() => expect(screen.getByText("PDF document · 45.0 MB")).toBeTruthy());
+    expect(document.querySelector("img.kleio-file-thumb")).toBeNull();
+    const download = screen.getByRole("button", { name: `Download ${PATH}, 45.0 MB` });
+    expect(download.textContent).toBe("Download");
+    // Open and Save are still there, and the card didn't fetch it again.
+    expect(screen.getByRole("button", { name: "Open" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save a copy" })).toBeTruthy();
+    expect(calls).toHaveLength(1);
+
+    await act(async () => {
+      fireEvent.click(download);
+    });
+    // A tap: the whole file, however big.
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).not.toHaveProperty("auto");
+    act(() => report({ received: 12.4 * MiB, total: 45 * MiB, secondsLeft: 31 }));
+    expect(
+      screen.getByText("Fetching from your host… 12.4 MB of 45.0 MB, about 30 seconds left"),
+    ).toBeTruthy();
+    await act(async () =>
+      finish({
+        name: PATH,
+        size: 45 * MiB,
+        mime: "application/pdf",
+        thumbnail: THUMB,
+        held: false,
+      }),
+    );
+    expect(screen.getByText("PDF document · 45.0 MB")).toBeTruthy();
+    expect(document.querySelector("img.kleio-file-thumb")?.getAttribute("src")).toBe(THUMB);
+    expect(screen.queryByRole("button", { name: /^Download / })).toBeNull();
   });
 });
 

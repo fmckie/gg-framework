@@ -1,23 +1,34 @@
-// Settings → Connection: how this device, the Mac mini (the Kleio host) and the
-// other Kleio app reach each other. Everything runs on the Mac mini; the Mac
-// and the iPhone are windows onto it, joined privately over Tailscale.
+// Settings → Connection: how this device, the host and the other Kleio app
+// reach each other. Everything runs on the host; the Mac and the iPhone are
+// windows onto it, joined over Kleio's link, or by the host's address over
+// Tailscale or your own network.
 //
 // - The verdict: in plain words, does it work, what was checked, and numbered
-//   steps to fix it when it doesn't (connectionDiagnosis.ts).
-// - Mac mini: its address, how quickly it replies, how this device is paired.
-// - Tailscale (Mac only): the private network's details.
-// - iPhone: a one-time pairing QR the Kleio iPhone app scans (admin).
-// - Devices: every paired device, with revoke (admin).
-// - Kleio link (connection prototype, Rust feature `kleio-link`): the
-//   link's path, speed and recent path events, with its Auto / Relay only
-//   switch. A build without the feature doesn't show it.
+//   steps to fix it when it doesn't (connectionDiagnosis.ts). Over the link
+//   it's diagnoseLink's, in the same words as the gate and the home screen.
+// - Kleio's link (Rust: kleio/link.rs, macOS and iOS): that it's end-to-end
+//   encrypted and what isn't, which way it goes and through which relay, its
+//   numbers and path events under Details, and pairing by the host's address
+//   under "Advanced: connect over your own network". Windows and Linux
+//   builds don't show it.
+// - Host: its name (or address), how quickly it replies, how this device is
+//   paired.
+// - Notifications: they come through Apple, so they aren't end-to-end
+//   encrypted, and whether they quote what was said (the host's setting; an
+//   admin device changes it).
+// - Tailscale (a Mac paired by address): the private network's details.
+// - Pair a device: a one-time pairing QR code an iPhone scans, with its
+//   pairing text for a Mac (admin; PairingOffer.tsx).
+// - Devices: every paired device, with the ones paired this week marked New,
+//   and Revoke this device (admin).
 //
 // Replaces upstream's Telegram "Remote" page: the iPhone app is Kleio's remote.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowClockwiseIcon,
+  CaretRightIcon,
   CheckCircleIcon,
   CheckIcon,
   CopyIcon,
@@ -38,29 +49,35 @@ import { theme } from "../theme";
 import { toast } from "../toast";
 import {
   diagnose,
+  isKleioDown,
+  relayHost,
   unreachableReason,
   type Checked,
   type Diagnosis,
   type FixStep,
   type HealthCheck,
+  type LinkHealth,
   type Tone,
 } from "./connectionDiagnosis";
-import { REACH_TIMEOUT_MS } from "./hostReach";
-import { hostHealth } from "./kleioApi";
+import { linkVerdict, REACH_TIMEOUT_MS } from "./hostReach";
 import {
-  kleioLink,
-  useKleioLink,
-  type LinkMode,
-  type LinkStatus,
-  type TicketCheck,
-} from "./kleioLink";
-import { LinkConfirm, TicketPaste, TicketScan } from "./LinkPairing";
-import { pairTicket, readTicket } from "./pairTicket";
-import { encodeQr, qrSvgPath, type QrResult } from "./qr";
+  hostHealth,
+  KleioApiError,
+  notificationSettings,
+  setQuoteText,
+  type NotificationSettings,
+} from "./kleioApi";
+import { kleioLink, useKleioLink, type LinkStatus, type TicketCheck } from "./kleioLink";
+import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
+import { PairingOffer } from "./PairingOffer";
+import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
+import { ForgetHost } from "./ForgetHost";
+import { RestartNotice, UrlPairFields } from "./UrlPairing";
 import { useFollowLatest } from "./useFollowLatest";
 import {
   explainError,
+  isNewDevice,
   kleio,
   useKleioRemote,
   type Device as PairedDevice,
@@ -69,19 +86,23 @@ import {
 } from "./useKleioRemote";
 
 const REFRESH_MS = 15_000;
-const QR_QUIET_ZONE = 4;
-/** The Link card reads the link this often. Reading never dials. */
+/** The link card reads the link this often. Reading never dials. */
 const LINK_REFRESH_MS = 3_000;
-/** Path events the Link card shows: the latest, as many as the link keeps
+/** Path events the link card shows: the latest, as many as the link keeps
  *  (`KEPT_EVENTS` in `link.rs`). */
 const LINK_EVENTS_SHOWN = 20;
+/** What n0's relay is, and how it did in the connection prototype's field tests. */
+export const N0_RELAY_LINE =
+  "The default relay is n0's: free, shared with other apps, and rate-limited. We measured about 1 MB/s. 73% of our test phone's connection time went through it, and on EE 4G no connection went direct.";
 
 type Device = "Mac" | "iPhone";
 
 /** One round of checks, with whether this device had a network at the time. */
 interface Checks {
   health: HealthCheck;
-  /** `null` on the iPhone, which can't read its own Tailscale. */
+  /** The check failed with the host's link answering for a stopped Kleio (its 502). */
+  kleioDown: boolean;
+  /** `null` on the iPhone, which can't read its own Tailscale, and over the link. */
   net: Checked<TailscaleStatus> | null;
   online: boolean;
 }
@@ -107,12 +128,25 @@ function statusOf(e: unknown): number {
   return typeof e.status === "number" ? e.status : 0;
 }
 
+/** A round of checks as diagnoseLink reads it. */
+function linkHealthOf(checks: Checks): LinkHealth {
+  return checks.health.state === "ok"
+    ? { state: "ok", value: checks.health.value }
+    : { state: "error", kleioDown: checks.kleioDown };
+}
+
 export function ConnectionPage(): React.ReactElement {
   const { status, refresh: refreshRemote } = useKleioRemote();
+  // Read here for the verdict and the map as well as the link card.
+  const { link, setLink } = useKleioLink(LINK_REFRESH_MS);
   const active = status?.active ?? null;
   const paired = status?.paired ?? null;
   const phone = isPhone();
   const device: Device = phone ? "iPhone" : "Mac";
+  // Whether this launch reaches the host over the link: unknown until the
+  // link answers, or turns out not to be in this build, so the first check
+  // already knows which way it goes.
+  const overLink = link === undefined ? undefined : link?.active === true;
   const [checks, setChecks] = useState<Checks | null>(null);
   const [checking, setChecking] = useState(false);
   const alive = useRef(true);
@@ -124,10 +158,12 @@ export function ConnectionPage(): React.ReactElement {
   }, []);
 
   const check = useCallback(async () => {
+    if (overLink === undefined) return;
     setChecking(true);
     const [h, t] = await Promise.allSettled([
       hostHealth(REACH_TIMEOUT_MS),
-      phone ? Promise.resolve(null) : kleio.tailscale(),
+      // Tailscale says nothing about the link, and the iPhone can't read it.
+      phone || overLink ? Promise.resolve(null) : kleio.tailscale(),
     ]);
     if (!alive.current) return;
     setChecks({
@@ -138,6 +174,10 @@ export function ConnectionPage(): React.ReactElement {
               state: "error",
               reason: unreachableReason(statusOf(h.reason), explainError(h.reason)),
             },
+      kleioDown:
+        h.status === "rejected" &&
+        h.reason instanceof KleioApiError &&
+        isKleioDown(h.reason.status, h.reason.message),
       net:
         t.status === "rejected"
           ? { state: "error" }
@@ -147,16 +187,51 @@ export function ConnectionPage(): React.ReactElement {
       online: navigator.onLine,
     });
     setChecking(false);
-  }, [phone]);
+  }, [phone, overLink]);
 
   useEffect(() => {
+    if (overLink === undefined) return;
     void check();
     const id = window.setInterval(() => void check(), REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [check]);
+  }, [check, overLink]);
 
   const hostLabel = shortName(active?.host ?? paired?.host ?? "Host");
-  const verdict = checks ? diagnose({ ...checks, hostLabel, device }) : null;
+  const linkInUse = overLink === true && link ? link : null;
+
+  // Whether the host's notifications quote what was said: its Notifications
+  // card, and the link card's words about what isn't end-to-end encrypted.
+  const [notices, setNotices] = useState<Notices>({ state: "loading" });
+  const pairedId = active?.deviceId ?? null;
+  useEffect(() => {
+    if (pairedId === null) return;
+    let live = true;
+    notificationSettings().then(
+      (s) => {
+        if (live) setNotices({ state: "ok", quoteText: s.quoteText });
+      },
+      (e: unknown) => {
+        if (!live) return;
+        // A host from before the setting turns the route away.
+        const old = e instanceof KleioApiError && (e.status === 404 || e.status === 403);
+        setNotices({ state: "error", old, message: explainError(e) });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [pairedId]);
+  const verdict = !checks
+    ? null
+    : linkInUse
+      ? linkVerdict(linkInUse, linkHealthOf(checks))
+      : diagnose({
+          health: checks.health,
+          net: checks.net,
+          online: checks.online,
+          hostLabel,
+          device,
+        });
   const health = checks?.health ?? null;
 
   return (
@@ -182,21 +257,39 @@ export function ConnectionPage(): React.ReactElement {
         device={device}
         hostLabel={hostLabel}
         health={health}
-        net={checks?.net?.state === "ok" ? checks.net.value : null}
+        via={linkInUse ? "Kleio's link" : "Tailscale"}
+        {...firstLeg(checks, linkInUse, phone)}
       />
 
       <Verdict verdict={verdict} hostLabel={hostLabel} />
 
       <div className="settings-cols">
         <div className="settings-col">
+          <LinkCard
+            link={link}
+            setLink={setLink}
+            device={device}
+            hostLabel={hostLabel}
+            quoteText={notices.state === "ok" ? notices.quoteText : null}
+            onPaired={() => void refreshRemote()}
+          />
+
           <SettingsCard
             title="Host"
             description="Kleio's brain lives here. Chats, specialists and code all run on it, so they keep going when this device sleeps."
           >
             <dl className="conn-facts">
-              <Fact label="Address">
-                <code className="conn-code">{active?.base ?? paired?.baseUrl ?? "Not paired"}</code>
-              </Fact>
+              {linkInUse ? (
+                <Fact label="Name">
+                  <code className="conn-code">{active?.host ?? linkInUse.host ?? "—"}</code>
+                </Fact>
+              ) : (
+                <Fact label="Address">
+                  <code className="conn-code">
+                    {active?.base ?? paired?.baseUrl ?? "Not paired"}
+                  </code>
+                </Fact>
+              )}
               {health?.state === "ok" && (
                 <Fact label="Reply time">{formatLatency(health.value.latencyMs)}</Fact>
               )}
@@ -216,17 +309,31 @@ export function ConnectionPage(): React.ReactElement {
               </Fact>
               {paired && <Fact label="Paired">{relTime(paired.pairedAt)}</Fact>}
             </dl>
+            {/* Forgotten in this launch: it applies on the next. */}
+            {paired ? (
+              <ForgetHost compact onForgot={refreshRemote} />
+            ) : (
+              active && <RestartNotice what="You just forgot the host." />
+            )}
           </SettingsCard>
 
-          <LinkCard phone={phone} onPaired={() => void refreshRemote()} />
+          {active && (
+            <NotificationsCard
+              notices={notices}
+              admin={active.admin}
+              device={device}
+              hostLabel={hostLabel}
+              onSaved={(s) => setNotices({ state: "ok", quoteText: s.quoteText })}
+            />
+          )}
 
-          {!phone && (
+          {!phone && overLink === false && (
             <TailscaleCard net={checks === null ? undefined : checks.net} hostLabel={hostLabel} />
           )}
         </div>
 
         <div className="settings-col">
-          <PhoneCard
+          <PairDeviceCard
             baseUrl={active?.base ?? null}
             admin={active?.admin ?? false}
             onPaired={() => void check()}
@@ -381,27 +488,65 @@ function Fact({
   );
 }
 
-// ─── the map: this device ── Tailscale ── Mac mini ── Tailscale ── the other ─
+// ─── the map: this device ── the way in ── host ── the way in ── the other ──
+
+type NodeState = "is-up" | "is-down" | "is-unknown" | "is-idle";
+
+/**
+ * The map's first leg, this device to the host, and this device's end of it.
+ * Over the link, from what the link says; otherwise from Tailscale here.
+ */
+function firstLeg(
+  checks: Checks | null,
+  link: LinkStatus | null,
+  phone: boolean,
+): { linkUp: boolean; selfState: NodeState; selfDetail: string } {
+  const reached = checks?.health.state === "ok";
+  const app = phone ? "Kleio app" : "Kleio Desktop";
+  if (link) {
+    // This device's side is down when its link can't work from here.
+    const down =
+      !link.running ||
+      link.refusal !== null ||
+      link.unreached?.kind === "no-relay" ||
+      checks?.online === false;
+    return {
+      linkUp: reached || link.connected,
+      selfState: !checks ? "is-unknown" : down ? "is-down" : "is-up",
+      selfDetail: app,
+    };
+  }
+  const net = checks?.net?.state === "ok" ? checks.net.value : null;
+  return {
+    linkUp: reached || (net?.running === true && net.host?.online === true),
+    // A reply from the host proves this device's Tailscale works, even on
+    // the iPhone, where the app can't read Tailscale itself.
+    selfState: net ? (net.running ? "is-up" : "is-down") : reached ? "is-up" : "is-unknown",
+    selfDetail: net?.self?.name ?? app,
+  };
+}
 
 function ConnectionMap({
   device,
   hostLabel,
   health,
-  net,
+  via,
+  linkUp,
+  selfState,
+  selfDetail,
 }: {
   device: Device;
   hostLabel: string;
   /** `null` until the first check finishes. */
   health: HealthCheck | null;
-  net: TailscaleStatus | null;
+  /** How the devices reach the host: Kleio's link, or Tailscale. */
+  via: string;
+  linkUp: boolean;
+  selfState: NodeState;
+  selfDetail: string;
 }): React.ReactElement {
   const hostKnown = health !== null;
-  const reached = health?.state === "ok";
-  const hostUp = reached && health.value.sidecar === "up";
-  const linkUp = reached || (net?.running === true && net.host?.online === true);
-  // A reply from the Mac mini proves this device's Tailscale works, even on
-  // the iPhone, where the app can't read Tailscale itself.
-  const selfState = net ? (net.running ? "is-up" : "is-down") : reached ? "is-up" : "is-unknown";
+  const hostUp = health?.state === "ok" && health.value.sidecar === "up";
   const phone = device === "iPhone";
   const desktop = <DesktopIcon size={26} weight="duotone" aria-hidden="true" />;
   const mobile = <DeviceMobileIcon size={26} weight="duotone" aria-hidden="true" />;
@@ -410,10 +555,10 @@ function ConnectionMap({
       <MapNode
         icon={phone ? mobile : desktop}
         name={`This ${device}`}
-        detail={net?.self?.name ?? (phone ? "Kleio app" : "Kleio Desktop")}
+        detail={selfDetail}
         state={selfState}
       />
-      <MapLink up={linkUp} known={hostKnown} label="Tailscale" />
+      <MapLink up={linkUp} known={hostKnown} label={via} />
       <MapNode
         icon={<HardDrivesIcon size={30} weight="duotone" aria-hidden="true" />}
         name={hostLabel}
@@ -421,7 +566,7 @@ function ConnectionMap({
         state={!hostKnown ? "is-unknown" : hostUp ? "is-up" : "is-down"}
         hub
       />
-      <MapLink up={hostUp} known={hostKnown} label="Tailscale" />
+      <MapLink up={hostUp} known={hostKnown} label={via} />
       <MapNode
         icon={phone ? desktop : mobile}
         name={phone ? "Mac" : "iPhone"}
@@ -442,7 +587,7 @@ function MapNode({
   icon: React.ReactNode;
   name: string;
   detail: string;
-  state: "is-up" | "is-down" | "is-unknown" | "is-idle";
+  state: NodeState;
   hub?: boolean;
 }): React.ReactElement {
   return (
@@ -532,12 +677,7 @@ function TailscaleCard({
   );
 }
 
-// ─── the Kleio link (connection prototype) ──────────────────────────────────
-
-const LINK_MODES: [LinkMode, string][] = [
-  ["auto", "Auto"],
-  ["relayOnly", "Relay only"],
-];
+// ─── Kleio's link ───────────────────────────────────────────────────────────
 
 /** `14:06:21`, this device's time. */
 function clock(ms: number): string {
@@ -545,11 +685,19 @@ function clock(ms: number): string {
 }
 
 function LinkBadge({ link }: { link: LinkStatus }): React.ReactElement {
-  if (!link.paired) return <Badge>Not paired</Badge>;
-  if (!link.active) return <Badge color={theme.warning}>Not in use</Badge>;
-  if (link.error !== null) return <Badge color={theme.error}>Not running</Badge>;
-  if (link.tailscale) return <Badge color={theme.error}>Tailscale path</Badge>;
-  if (!link.connected) return <Badge color={theme.warning}>Not connected</Badge>;
+  if (!link.active) {
+    return link.paired ? (
+      <Badge color={theme.warning}>Not in use</Badge>
+    ) : (
+      <Badge>Not paired</Badge>
+    );
+  }
+  if (link.error !== null || !link.running) return <Badge color={theme.error}>Not running</Badge>;
+  if (link.refusal !== null) return <Badge color={theme.error}>Turned away</Badge>;
+  if (!link.connected) {
+    return <Badge color={theme.warning}>{link.dialling ? "Reconnecting" : "Not connected"}</Badge>;
+  }
+  if (link.rateLimited) return <Badge color={theme.warning}>Slowed</Badge>;
   return link.path === "direct" ? (
     <Badge color={theme.success}>Direct</Badge>
   ) : (
@@ -557,31 +705,203 @@ function LinkBadge({ link }: { link: LinkStatus }): React.ReactElement {
   );
 }
 
+/** Which way the open connection goes. */
+function linkPath(link: LinkStatus): React.ReactNode {
+  if (!link.connected) {
+    return link.dialling ? "Reconnecting…" : "No connection open. The next request dials.";
+  }
+  if (link.path === "direct") {
+    return (
+      <>
+        Direct <code className="conn-code">{link.pathAddr}</code>
+      </>
+    );
+  }
+  if (link.path !== "relay") return "Connected";
+  const own = relayHost(link.pathAddr);
+  const through = link.pathN0
+    ? "Through n0's public relay"
+    : `Through your relay${own ? ` (${own})` : ""}`;
+  return link.rateLimited ? `${through}, slowed by the relay` : through;
+}
+
+/** The host's relay, by name: one of n0's, or the host's own. */
+function linkRelay(link: LinkStatus): React.ReactNode {
+  const host = relayHost(link.relay);
+  if (!host) return "—";
+  const name = <code className="conn-code">{host}</code>;
+  return link.relayN0 ? <>n0&apos;s public relay {name}</> : name;
+}
+
+/** What the host's notifications are, for `device`'s own words. */
+function notificationsName(device: Device): string {
+  return device === "iPhone"
+    ? "Notifications and Live Activities"
+    : "iPhone notifications and Live Activities";
+}
+
 /**
- * The link's path, speed and recent path events, with its switch. Nothing
- * without the link. A device not paired over it pairs here too: on a phone
- * already paired over Tailscale, the pairing form doesn't show.
+ * What isn't end-to-end encrypted: the host's notifications and Live
+ * Activities go through Apple, with the start of a reply, question or error
+ * unless the host quotes nothing (`quoteText` false). Unknown is taken as
+ * quoting, as hosts did before the setting.
+ */
+function notificationsLine(device: Device, quoteText: boolean | null): string {
+  const what = notificationsName(device);
+  return quoteText === false
+    ? `${what} aren't end-to-end encrypted: Apple delivers them, but they quote nothing that was said.`
+    : `${what} aren't end-to-end encrypted: Apple delivers them, with the start of a reply, question or error.`;
+}
+
+/** The host's notifications setting, as the page holds it. */
+type Notices =
+  | { state: "loading" }
+  | { state: "ok"; quoteText: boolean }
+  /** `old`: a host from before the setting. */
+  | { state: "error"; old: boolean; message: string };
+
+const QUOTE_ON =
+  "They quote the start of a reply, question or error, and some questions can be answered from the lock screen.";
+const QUOTE_OFF =
+  "They say what happened, such as Finished or Needs your answer, but quote nothing. Questions are answered in Kleio.";
+
+/**
+ * Notifications: they come through Apple, so they aren't end-to-end
+ * encrypted. An admin device chooses whether they quote what was said; any
+ * other device sees the choice.
+ */
+function NotificationsCard({
+  notices,
+  admin,
+  device,
+  hostLabel,
+  onSaved,
+}: {
+  notices: Notices;
+  admin: boolean;
+  device: Device;
+  hostLabel: string;
+  onSaved: (settings: NotificationSettings) => void;
+}): React.ReactElement {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const descId = useId();
+
+  async function choose(quoteText: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      onSaved(await setQuoteText(quoteText));
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SettingsCard
+      title="Notifications"
+      description={`${notificationsName(device)} come through Apple, so they aren't end-to-end encrypted like your chats.`}
+    >
+      {notices.state === "error" ? (
+        <p className="settings-desc">
+          {notices.old
+            ? `Kleio on ${hostLabel} can't leave text out of notifications yet. Update it to choose.`
+            : notices.message}
+        </p>
+      ) : (
+        <div className="kleio-setting">
+          <span className="kleio-setting-text">
+            <span className="kleio-setting-name">Quote what was said</span>
+            <span className="kleio-setting-desc" id={descId}>
+              {notices.state === "loading" ? "Checking…" : notices.quoteText ? QUOTE_ON : QUOTE_OFF}
+            </span>
+          </span>
+          <label className="cl-switch kleio-switch">
+            <input
+              type="checkbox"
+              aria-label="Quote what was said"
+              aria-describedby={descId}
+              checked={notices.state === "ok" && notices.quoteText}
+              disabled={!admin || busy || notices.state !== "ok"}
+              onChange={(e) => void choose(e.target.checked)}
+            />
+            <span />
+          </label>
+        </div>
+      )}
+      {!admin && notices.state === "ok" && (
+        <p className="settings-desc">Only an admin device can change this.</p>
+      )}
+      {error && (
+        <p className="conn-bad" role="alert">
+          {error}
+        </p>
+      )}
+    </SettingsCard>
+  );
+}
+
+/** A part of a card that opens on request. */
+function Disclosure({
+  summary,
+  onOpen,
+  children,
+}: {
+  summary: string;
+  onOpen?: () => void;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <details
+      className="conn-disclosure"
+      onToggle={(e) => {
+        if (e.currentTarget.open) onOpen?.();
+      }}
+    >
+      <summary className="conn-disclosure-summary">
+        <CaretRightIcon
+          size={13}
+          weight="bold"
+          aria-hidden="true"
+          className="conn-disclosure-caret"
+        />
+        {summary}
+      </summary>
+      <div className="conn-disclosure-body">{children}</div>
+    </details>
+  );
+}
+
+/**
+ * The link card, the page's main one: that the link is end-to-end encrypted
+ * and what isn't, which way it goes and through which relay, its numbers and
+ * path events under Details, and pairing by the host's address under
+ * Advanced. A device not paired over the link pairs here too. Nothing in a
+ * build without the link.
  */
 function LinkCard({
-  phone,
+  link,
+  setLink,
+  device,
+  hostLabel,
+  quoteText,
   onPaired,
 }: {
-  phone: boolean;
+  /** `undefined` until the link answers; `null` in a build without it. */
+  link: LinkStatus | null | undefined;
+  setLink: (status: LinkStatus) => void;
+  device: Device;
+  hostLabel: string;
+  /** Whether the host's notifications quote what was said; null while unknown. */
+  quoteText: boolean | null;
   onPaired: () => void;
 }): React.ReactElement | null {
-  const { link, setLink } = useKleioLink(LINK_REFRESH_MS);
-  const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [ticket, setTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
   const [label, setLabel] = useState("");
-  const eventsRef = useRef<HTMLDivElement>(null);
-  const { catchUp, handlers: followHandlers } = useFollowLatest(eventsRef);
-  // Each refresh replaces the events: a reader at the newest is carried
-  // along, one scrolled up to read isn't.
-  useEffect(() => {
-    catchUp();
-  }, [link?.events, catchUp]);
   if (!link) return null;
 
   async function openTicket(text: string): Promise<void> {
@@ -605,28 +925,21 @@ function LinkCard({
     }
   }
 
-  async function choose(mode: LinkMode): Promise<void> {
-    if (switching || link?.mode === mode) return;
-    setSwitching(true);
-    setError(null);
-    try {
-      setLink(await kleioLink.setMode(mode));
-    } catch (e) {
-      setError(explainError(e));
-    } finally {
-      setSwitching(false);
-    }
-  }
-
-  const inUse = link.paired && link.active && link.error === null;
-  const events = link.events.slice(-LINK_EVENTS_SHOWN);
+  // This launch goes over the link, even after its pairing is set aside.
+  const inUse = link.active && link.error === null;
+  const phone = device === "iPhone";
   return (
     <SettingsCard
-      title="Kleio link (prototype)"
+      title="Kleio's link"
       badge={<LinkBadge link={link} />}
-      description="This device reaching the host by its key, through a relay or directly, without Tailscale."
+      description={
+        link.active
+          ? `Your chats travel end-to-end encrypted between this ${device} and ${hostLabel}. Relays pass them on but can't read them.`
+          : "Reaches your host from anywhere, end-to-end encrypted, with no Tailscale needed."
+      }
     >
-      {!link.paired ? (
+      {link.active && <p className="settings-desc">{notificationsLine(device, quoteText)}</p>}
+      {!link.paired && !link.active ? (
         ticket ? (
           <LinkConfirm
             ticket={ticket.ticket}
@@ -644,7 +957,7 @@ function LinkCard({
           <>
             <p className="settings-desc">Not paired over the link.</p>
             {phone && <TicketScan busy={checking} onTicket={(text) => void openTicket(text)} />}
-            {link.debugBuild && (
+            {takesPairingText(link) && (
               <TicketPaste busy={checking} onTicket={(text) => void openTicket(text)} />
             )}
           </>
@@ -654,169 +967,135 @@ function LinkCard({
           Paired over the link with {link.host ? shortName(link.host) : "the host"}.{" "}
           {phone ? "Close Kleio and open it again to use it." : "Restart Kleio to use it."}
         </p>
+      ) : !link.paired ? (
+        <p className="settings-desc">
+          This {device}&apos;s link pairing was removed. Kleio keeps using the link until{" "}
+          {phone ? "you close it and open it again." : "it restarts."}
+        </p>
       ) : null}
-      {link.error !== null && (
+      {/* Over the link, the verdict above says why it isn't running. */}
+      {!link.active && link.error !== null && (
         <p className="conn-bad" role="alert">
           {link.error}
         </p>
       )}
-      {link.refused !== null && (
-        <p className="conn-bad" role="alert">
-          {link.refused}
-        </p>
-      )}
-      {link.tailscale && (
-        <div className="conn-link-alert" role="alert">
-          <WarningCircleIcon size={18} weight="fill" aria-hidden="true" />
-          <p>
-            <strong>The direct path is to a Tailscale address</strong>
-            {link.pathAddr && (
-              <>
-                {" "}
-                (<code className="conn-code">{link.pathAddr}</code>)
-              </>
-            )}
-            . Turn Tailscale off on this {phone ? "iPhone" : "Mac"}: a field run on this path
-            doesn&apos;t count.
-          </p>
-        </div>
-      )}
-      {link.paired && (
+      {(link.paired || link.active) && (
         <dl className="conn-facts">
           {inUse && (
             <>
-              <Fact label="Path">
-                {!link.connected ? (
-                  "No connection open. The next request dials."
-                ) : link.path === "direct" ? (
-                  <>
-                    Direct <code className="conn-code">{link.pathAddr}</code>
-                  </>
-                ) : (
-                  "Through the relay"
-                )}
-              </Fact>
+              <Fact label="Path">{linkPath(link)}</Fact>
               <Fact label="Round trip">
                 {link.connected && link.rttMs !== null ? formatLatency(link.rttMs) : "—"}
               </Fact>
             </>
           )}
-          <Fact label="Relay">
-            <code className="conn-code">{link.relay ?? "—"}</code>
-          </Fact>
-          {inUse && (
-            <>
-              <Fact label="Connected">
-                {link.connected && link.connectedSinceMs !== null
-                  ? `Since ${clock(link.connectedSinceMs)}, ${relTime(new Date(link.connectedSinceMs).toISOString())}`
-                  : "—"}
-              </Fact>
-              <Fact label="Redials">{String(link.redials)}</Fact>
-              <Fact label="Last resume">
-                {link.lastResumeMs !== null ? formatLatency(link.lastResumeMs) : "None yet"}
-              </Fact>
-            </>
-          )}
-          <Fact label="Mode">
-            <span className="kleio-seg" role="radiogroup" aria-label="Link mode">
-              {LINK_MODES.map(([mode, name]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  role="radio"
-                  aria-checked={link.mode === mode}
-                  disabled={switching}
-                  onClick={() => void choose(mode)}
-                >
-                  {name}
-                </button>
-              ))}
-            </span>
-          </Fact>
+          <Fact label="Relay">{linkRelay(link)}</Fact>
         </dl>
       )}
+      {inUse && link.relayN0 && <p className="settings-desc">{N0_RELAY_LINE}</p>}
       {error && (
         <p className="conn-bad" role="alert">
           {error}
         </p>
       )}
-      {inUse && (
-        <div className="conn-health-box">
-          <p className="conn-fix-title" id="conn-link-events">
-            Path events
-          </p>
-          <div
-            ref={eventsRef}
-            className="conn-link-events-box"
-            role="region"
-            aria-labelledby="conn-link-events"
-            tabIndex={0}
-            {...followHandlers}
-          >
-            {events.length === 0 ? (
-              <p className="settings-desc">None yet.</p>
-            ) : (
-              <ol className="conn-link-events" aria-labelledby="conn-link-events">
-                {events.map((event, i) => (
-                  <li
-                    key={`${event.atMs}:${i}`}
-                    className={event.text.includes("Tailscale address") ? "is-warn" : undefined}
-                  >
-                    <time dateTime={new Date(event.atMs).toISOString()}>{clock(event.atMs)}</time>
-                    <span>{event.text}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
-        </div>
-      )}
+      {inUse && <LinkDetails link={link} />}
+      <Disclosure summary="Advanced: connect over your own network">
+        <OwnNetworkForm device={device} hostLabel={hostLabel} onPaired={onPaired} />
+      </Disclosure>
     </SettingsCard>
   );
 }
 
-// ─── the iPhone: a one-time pairing QR ──────────────────────────────────────
+/** The link's numbers and recent path events, for a closer look. */
+function LinkDetails({ link }: { link: LinkStatus }): React.ReactElement {
+  const eventsRef = useRef<HTMLDivElement>(null);
+  const { catchUp, handlers: followHandlers } = useFollowLatest(eventsRef);
+  // Each refresh replaces the events: a reader at the newest is carried
+  // along, one scrolled up to read isn't.
+  useEffect(() => {
+    catchUp();
+  }, [link.events, catchUp]);
+  const events = link.events.slice(-LINK_EVENTS_SHOWN);
+  return (
+    // Closed, the box has no height to scroll; opened, it starts at the newest.
+    <Disclosure summary="Details" onOpen={catchUp}>
+      <dl className="conn-facts">
+        <Fact label="Connected">
+          {link.connected && link.connectedSinceMs !== null
+            ? `Since ${clock(link.connectedSinceMs)}, ${relTime(new Date(link.connectedSinceMs).toISOString())}`
+            : "—"}
+        </Fact>
+        <Fact label="Redials">{String(link.redials)}</Fact>
+        <Fact label="Last resume">
+          {link.lastResumeMs !== null ? formatLatency(link.lastResumeMs) : "None yet"}
+        </Fact>
+        {link.hostKey && (
+          <Fact label="Host key">
+            <code className="conn-code">{link.hostKey.slice(0, 10)}…</code>
+          </Fact>
+        )}
+      </dl>
+      <div>
+        <p className="conn-fix-title" id="conn-link-events">
+          Path events
+        </p>
+        <div
+          ref={eventsRef}
+          className="conn-link-events-box"
+          role="region"
+          aria-labelledby="conn-link-events"
+          tabIndex={0}
+          {...followHandlers}
+        >
+          {events.length === 0 ? (
+            <p className="settings-desc">None yet.</p>
+          ) : (
+            <ol className="conn-link-events" aria-labelledby="conn-link-events">
+              {events.map((event, i) => (
+                <li key={`${event.atMs}:${i}`}>
+                  <time dateTime={new Date(event.atMs).toISOString()}>{clock(event.atMs)}</time>
+                  <span>{event.text}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+    </Disclosure>
+  );
+}
 
-function PhoneCard({
-  baseUrl,
-  admin,
+/**
+ * Today's pairing form, for a host this device reaches over Tailscale,
+ * another VPN or its own network: its https address and a pair code. The
+ * pairing replaces this device's, a link pairing too (`kleio_pair`), from
+ * the next launch.
+ */
+function OwnNetworkForm({
+  device,
+  hostLabel,
   onPaired,
 }: {
-  baseUrl: string | null;
-  admin: boolean;
+  device: Device;
+  hostLabel: string;
   onPaired: () => void;
 }): React.ReactElement {
-  const [offer, setOffer] = useState<PairOffer | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [code, setCode] = useState("");
+  const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  const [done, setDone] = useState(false);
 
-  useEffect(() => {
-    if (!offer) return;
-    const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [offer]);
-
-  const expired = offer ? offer.expiresAt <= now : false;
-  useEffect(() => {
-    if (!expired) return;
-    setOffer(null);
-    onPaired();
-  }, [expired, onPaired]);
-
-  const ticket = useMemo((): QrResult | null => {
-    if (!offer || !baseUrl) return null;
-    const t = pairTicket(baseUrl, offer.display);
-    return t.ok ? encodeQr(t.value) : t;
-  }, [offer, baseUrl]);
-
-  async function mint(): Promise<void> {
+  async function submit(): Promise<void> {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      setOffer(await kleio.offer(false));
-      setNow(Date.now());
+      await kleio.pair(baseUrl, code, label);
+      await kleio.activatePairing();
+      setDone(true);
+      onPaired();
     } catch (e) {
       setError(explainError(e));
     } finally {
@@ -824,79 +1103,116 @@ function PhoneCard({
     }
   }
 
-  const secondsLeft = offer ? Math.max(0, Math.round((offer.expiresAt - now) / 1000)) : 0;
+  if (done) return <RestartNotice what="Paired over your own network." />;
+  return (
+    <form
+      className="conn-own-network"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <p className="settings-desc">
+        For a host this {device} reaches over Tailscale, another VPN or your own network, at an
+        https address. Run <code className="conn-code">kleio-host pair</code> on {hostLabel} for a
+        code.
+      </p>
+      <UrlPairFields
+        baseUrl={baseUrl}
+        code={code}
+        label={label}
+        onBaseUrl={setBaseUrl}
+        onCode={setCode}
+        onLabel={setLabel}
+        busy={busy}
+      />
+      <p className="settings-desc">
+        Pairing here replaces this {device}&apos;s pairing from the next launch. {hostLabel} still
+        lists the old one until an admin revokes it.
+      </p>
+      {error && (
+        <p className="conn-bad" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="conn-row">
+        <button
+          type="submit"
+          className="btn btn-primary btn-sm"
+          disabled={busy || !baseUrl || !code}
+        >
+          {busy ? "Pairing…" : "Pair"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── pair a device: a one-time pairing QR code ──────────────────────────────
+
+function PairDeviceCard({
+  baseUrl,
+  admin,
+  onPaired,
+}: {
+  /** The address this device reaches the host at, for a Tailscale QR code
+   *  when the host gives no link ticket. */
+  baseUrl: string | null;
+  admin: boolean;
+  onPaired: () => void;
+}): React.ReactElement {
+  const [offer, setOffer] = useState<PairOffer | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const done = useCallback(() => {
+    setOffer(null);
+    onPaired();
+  }, [onPaired]);
+
+  async function mint(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setOffer(await kleio.offer(false));
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <SettingsCard
-      title="iPhone"
-      description="Pair the Kleio iPhone app with your host. Your phone needs Tailscale too."
+      title="Pair a device"
+      description="Pair another iPhone or Mac with your host. An iPhone scans the QR code, and a Mac pastes its pairing text."
     >
       {!admin ? (
         <p className="settings-desc">
-          Only an admin Mac can pair a new phone. On the host, run{" "}
-          <code className="conn-code">kleio-host pair</code> and type the code on your phone.
+          Only an admin device can pair another device. On your host, run{" "}
+          <code className="conn-code">kleio-host pair</code>: an iPhone scans its QR code, and a Mac
+          pastes its pairing text.
         </p>
-      ) : offer && ticket?.ok ? (
-        <div className="conn-pair">
-          <svg
-            className="conn-qr"
-            viewBox={`0 0 ${ticket.value.size + QR_QUIET_ZONE * 2} ${ticket.value.size + QR_QUIET_ZONE * 2}`}
-            role="img"
-            aria-label={`Pairing QR code for pair code ${offer.display}`}
-            shapeRendering="crispEdges"
-          >
-            <rect width="100%" height="100%" fill="#fff" />
-            <path d={qrSvgPath(ticket.value, QR_QUIET_ZONE)} fill="#000" />
-          </svg>
-          <div className="conn-pair-text">
-            {/* The iPhone app is the desktop app on a phone: it pairs by typing
-                the host's address and this code (it has no QR scanner). */}
-            <ol className="conn-steps">
-              <li>
-                Open Kleio on your iPhone and tap <strong>Pair with your host</strong>.
-              </li>
-              <li>
-                Host URL: <code className="conn-pair-code">{baseUrl}</code>
-              </li>
-              <li>
-                Pair code: <code className="conn-pair-code">{offer.display}</code>, then tap{" "}
-                <strong>Pair</strong>.
-              </li>
-            </ol>
-            <p className="conn-expiry">
-              Works once · expires in {Math.floor(secondsLeft / 60)}:
-              {String(secondsLeft % 60).padStart(2, "0")}
-            </p>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setOffer(null);
-                onPaired();
-              }}
-            >
-              Done
-            </button>
-          </div>
-        </div>
+      ) : offer ? (
+        <PairingOffer offer={offer} baseUrl={baseUrl} onDone={done} />
       ) : (
         <div className="conn-pair-start">
           <ShieldCheckIcon size={20} weight="duotone" aria-hidden="true" />
           <p className="settings-desc">
-            You'll get a one-time code that works for a few minutes. It pairs the phone; it never
+            You'll get a one-time code that works for a few minutes. It pairs the device; it never
             shares a password.
           </p>
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={busy || !baseUrl}
+            disabled={busy}
             onClick={() => void mint()}
           >
             {busy ? "Confirm with Touch ID…" : "Show pairing QR"}
           </button>
         </div>
       )}
-      {ticket && !ticket.ok && <p className="conn-bad">{ticket.error}</p>}
       {error && (
         <p className="conn-bad" role="alert">
           {error}
@@ -918,6 +1234,8 @@ function DevicesCard({
   onChanged: () => void;
 }): React.ReactElement {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
+  /** When the list was loaded: what New is measured from. */
+  const [readAt, setReadAt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -927,6 +1245,7 @@ function DevicesCard({
     setError(null);
     try {
       setDevices(await kleio.devices());
+      setReadAt(Date.now());
     } catch (e) {
       setError(explainError(e));
     } finally {
@@ -934,12 +1253,12 @@ function DevicesCard({
     }
   }, []);
 
-  async function revoke(id: string): Promise<void> {
+  async function revoke(device: PairedDevice): Promise<void> {
     setBusy(true);
     try {
-      setDevices(await kleio.revoke(id));
+      setDevices(await kleio.revoke(device.deviceId));
       setConfirm(null);
-      toast("Device removed.", "success");
+      toast(`${device.label} revoked.`, "success");
       onChanged();
     } catch (e) {
       setError(explainError(e));
@@ -952,10 +1271,10 @@ function DevicesCard({
   return (
     <SettingsCard
       title="Devices"
-      description="Everything paired with your host. Remove one and it's signed out straight away."
+      description="Everything paired with your host. New marks a device paired this week. Revoke one and it's cut off straight away."
     >
       {!admin ? (
-        <p className="settings-desc">Only an admin Mac can see and remove devices.</p>
+        <p className="settings-desc">Only an admin device can see and revoke devices.</p>
       ) : devices === null ? (
         <div className="conn-row">
           <p className="settings-desc">Showing devices needs Touch ID.</p>
@@ -985,6 +1304,11 @@ function DevicesCard({
                 <span className="conn-device-name">
                   {d.label}
                   {d.deviceId === selfId && <Badge className="conn-inline-badge">This Mac</Badge>}
+                  {isNewDevice(d, selfId, readAt) && (
+                    <Badge color={theme.info} className="conn-inline-badge">
+                      New
+                    </Badge>
+                  )}
                   {d.admin && (
                     <Badge color={theme.warning} className="conn-inline-badge">
                       Admin
@@ -992,7 +1316,7 @@ function DevicesCard({
                   )}
                 </span>
                 <span className="conn-device-sub">
-                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.createdAt)}`}
+                  {d.lastSeen ? `Active ${relTime(d.lastSeen)}` : `Paired ${relTime(d.created)}`}
                 </span>
               </span>
               {d.deviceId !== selfId &&
@@ -1009,19 +1333,19 @@ function DevicesCard({
                       type="button"
                       className="btn btn-primary btn-sm"
                       disabled={busy}
-                      onClick={() => void revoke(d.deviceId)}
+                      onClick={() => void revoke(d)}
                     >
-                      Remove
+                      Revoke
                     </button>
                   </span>
                 ) : (
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    aria-label={`Remove ${d.label}`}
+                    aria-label={`Revoke this device: ${d.label}`}
                     onClick={() => setConfirm(d.deviceId)}
                   >
-                    Remove
+                    Revoke this device
                   </button>
                 ))}
             </li>

@@ -139,6 +139,34 @@ describe("AppsPage", () => {
     expect(connectToolkit).toHaveBeenCalledWith("gmail");
   });
 
+  it("refreshes when Kleio comes back from the browser's sign-in, focused or on screen again", async () => {
+    await renderPage();
+    const loads = (): number => vi.mocked(listConnections).mock.calls.length;
+    const before = loads();
+    let state: DocumentVisibilityState = "hidden";
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockImplementation(() => state);
+    try {
+      // Leaving for Safari reads nothing.
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(loads()).toBe(before);
+      // Back on screen: the iPhone, where the window may not be focused.
+      state = "visible";
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(loads()).toBe(before + 1);
+      // The Mac's window focused again.
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(loads()).toBe(before + 2);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
   it("asks before disconnecting an app", async () => {
     vi.mocked(listConnections).mockResolvedValue({
       configured: true,

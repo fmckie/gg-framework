@@ -8,10 +8,13 @@
 // six-character code. A ticket the phone would refuse is never drawn.
 //
 // `readTicket` is the reading side, for a scanned or pasted ticket. A v2
-// ticket fills the pairing form; a v4 ticket (Kleio's link: the host's name,
-// key, relays, addresses and the code) goes to the link's confirm step, where
-// Rust's check of it (packages/kleio-link, ticket.rs) decides. So do v3 (the
-// connection prototype's) and later versions, which that check names.
+// ticket fills the pairing form, and one that isn't whole says so; a v4
+// ticket (Kleio's link: the host's name, key, relays, addresses and the code)
+// goes to the link's confirm step, where Rust's check of it
+// (packages/kleio-link, ticket.rs) decides. So do v3 (the connection
+// prototype's) and later versions, which that check names. Its words for a
+// refused ticket are the pairing messages table's
+// (packages/kleio-link/tests/fixtures/pairing-messages.json), as Rust's are.
 
 export type TicketResult = { ok: true; value: string } | { ok: false; error: string };
 
@@ -25,6 +28,10 @@ export type TicketRoute =
 
 /** What anything that isn't a ticket gets, and it fills nothing. */
 export const NOT_A_TICKET = "That isn't a Kleio pairing code.";
+
+/** What a v2 ticket the pairing form can't use gets, and it fills nothing. */
+export const TAILSCALE_TICKET_INCOMPLETE =
+  "This QR code says it's a Tailscale pairing code, but it's incomplete. Show a new one on your host.";
 
 const MAX_HOSTNAME = 253;
 const HOSTNAME = /^[A-Za-z0-9.-]+$/;
@@ -83,9 +90,11 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 /**
  * Where a scanned or pasted ticket leads. A v2 ticket must be exactly what
  * `pairTicket` writes: its four fields, an https tailnet address with nothing
- * but a port, and `ABC-DEF` in the pair alphabet. A link ticket, v3 or later,
- * is passed on whole, for Rust to check. Anything else is refused and fills
- * nothing.
+ * but a port, and `ABC-DEF` in the pair alphabet. One that isn't, such as a
+ * link ticket with its version changed to 2, is refused as an incomplete
+ * Tailscale ticket. A link ticket, v3 or later, is passed on whole, for Rust
+ * to check. Anything else is refused as no Kleio ticket. A refused ticket
+ * fills nothing.
  */
 export function readTicket(text: string): TicketRoute {
   const invalid: TicketRoute = { kind: "invalid", error: NOT_A_TICKET };
@@ -105,11 +114,13 @@ export function readTicket(text: string): TicketRoute {
   ) {
     return { kind: "link", ticket: raw };
   }
-  if (parsed.v !== 2 || Object.keys(parsed).sort().join(",") !== V2_FIELDS) return invalid;
+  if (parsed.v !== 2) return invalid;
+  const incomplete: TicketRoute = { kind: "invalid", error: TAILSCALE_TICKET_INCOMPLETE };
+  if (Object.keys(parsed).sort().join(",") !== V2_FIELDS) return incomplete;
   const { baseUrl, code } = parsed;
   if (typeof baseUrl !== "string" || typeof code !== "string" || !PAIR_CODE.test(code)) {
-    return invalid;
+    return incomplete;
   }
   const base = tailnetBase(baseUrl);
-  return base.ok ? { kind: "v2", baseUrl: base.base, code } : invalid;
+  return base.ok ? { kind: "v2", baseUrl: base.base, code } : incomplete;
 }

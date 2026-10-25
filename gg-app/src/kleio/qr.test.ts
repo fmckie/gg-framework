@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 // The link's ticket vectors, which kleio-host's and the link's own tests read too.
 import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
-import { NOT_A_TICKET, pairTicket, readTicket } from "./pairTicket";
+import { NOT_A_TICKET, pairTicket, readTicket, TAILSCALE_TICKET_INCOMPLETE } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrCode } from "./qr";
 
 function encode(text: string): QrCode {
@@ -159,22 +159,32 @@ describe("readTicket", () => {
     ["a JSON string", JSON.stringify("kleio-pair")],
     ["a JSON array", JSON.stringify([2, "kleio-pair"])],
     ["another type", v2({ type: "wifi" })],
+    ["a link ticket of another type", JSON.stringify({ ...JSON.parse(V4), type: "wifi" })],
     ["a version before v2", v2({ v: 1 })],
     ["a version that isn't whole", v2({ v: 3.5 })],
     ["a version written as text", v2({ v: "3" })],
+    [
+      "a link ticket over 512 bytes",
+      JSON.stringify({ v: 4, type: "kleio-pair", pad: "x".repeat(500) }),
+    ],
+  ])("refuses %s as no Kleio ticket, so nothing is filled", (_label, text) => {
+    expect(readTicket(text)).toEqual({ kind: "invalid", error: NOT_A_TICKET });
+  });
+
+  // A v2 ticket the pairing form can't use says it's Tailscale's, as Rust's
+  // check does (TicketError::Tailscale).
+  it.each([
+    ["a link ticket with its version changed to 2", JSON.stringify({ ...JSON.parse(V4), v: 2 })],
     ["an extra field", v2({ token: "secret" })],
     ["a missing code", JSON.stringify({ v: 2, type: "kleio-pair", baseUrl: BASE })],
     ["a code outside the pair alphabet", v2({ code: "ABI-DEF" })],
     ["a code without its dash", v2({ code: "ABCDEF" })],
     ["a lowercase code", v2({ code: "abc-def" })],
+    ["a code that isn't text", v2({ code: 123456 })],
     ["an address off the tailnet", v2({ baseUrl: "https://example.com" })],
     ["an http address", v2({ baseUrl: "http://mac-mini-1.tail0000.ts.net:8443" })],
     ["an address with a path", v2({ baseUrl: `${BASE}/kleio` })],
-    [
-      "a link ticket over 512 bytes",
-      JSON.stringify({ v: 4, type: "kleio-pair", pad: "x".repeat(500) }),
-    ],
-  ])("refuses %s, so nothing is filled", (_label, text) => {
-    expect(readTicket(text)).toEqual({ kind: "invalid", error: NOT_A_TICKET });
+  ])("refuses a v2 ticket with %s as an incomplete one, so nothing is filled", (_label, text) => {
+    expect(readTicket(text)).toEqual({ kind: "invalid", error: TAILSCALE_TICKET_INCOMPLETE });
   });
 });

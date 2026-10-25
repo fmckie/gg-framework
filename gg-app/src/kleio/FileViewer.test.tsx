@@ -242,7 +242,7 @@ describe("FileViewer, while it opens and when it can't", () => {
       await screen.findByText("Update your host to view coding-session files here."),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open in app" }));
-    expect(files.openFile).toHaveBeenCalledWith(SESSION, "out/notes.md");
+    expect(files.openFile).toHaveBeenCalledWith(SESSION, "out/notes.md", expect.any(Function));
     cleanup();
     // A host from before shows at all.
     api.createFileShow.mockRejectedValue(new KleioApiError(404, "not found"));
@@ -322,15 +322,35 @@ describe("FileViewer, its actions", () => {
     await openViewer(SPECIALIST, "findings.pdf");
     await vi.waitFor(() => expect(counter()).toBe("Page 1 of 3"));
     fireEvent.click(screen.getByRole("button", { name: "Open in app" }));
-    expect(files.openFile).toHaveBeenCalledWith(SPECIALIST, "findings.pdf");
+    expect(files.openFile).toHaveBeenCalledWith(SPECIALIST, "findings.pdf", expect.any(Function));
     files.saveFile.mockResolvedValueOnce(true);
     fireEvent.click(await screen.findByRole("button", { name: "Save a copy" }));
-    expect(files.saveFile).toHaveBeenCalledWith(SPECIALIST, "findings.pdf");
+    expect(files.saveFile).toHaveBeenCalledWith(SPECIALIST, "findings.pdf", expect.any(Function));
     expect(await screen.findByText("Saved.")).toBeTruthy();
     expect(screen.getByText("Saved.").getAttribute("role")).toBe("status");
     files.saveFile.mockRejectedValueOnce(new Error("no such file"));
     fireEvent.click(screen.getByRole("button", { name: "Save a copy" }));
     expect(await screen.findByText("This file isn't on your host any more.")).toBeTruthy();
+  });
+
+  it("says how the download goes when the file isn't here yet", async () => {
+    await openViewer(SPECIALIST, "findings.pdf");
+    await vi.waitFor(() => expect(counter()).toBe("Page 1 of 3"));
+    let done: () => void = () => {};
+    files.openFile.mockImplementationOnce(
+      (_owner: FileOwner, _path: string, progress: (p: KleioFiles.DownloadProgress) => void) => {
+        progress({ received: 3 * 1024 * 1024, total: 9 * 1024 * 1024, secondsLeft: 70 });
+        return new Promise<void>((resolve) => {
+          done = resolve;
+        });
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open in app" }));
+    expect(
+      await screen.findByText("Downloading… 3.0 MB of 9.0 MB, about a minute left"),
+    ).toBeTruthy();
+    await act(async () => done());
+    expect(screen.queryByText(/Downloading…/)).toBeNull();
   });
 
   it("opens a show from the call as it is, at its page, without asking the host again", async () => {

@@ -13,6 +13,7 @@ import {
   fileErrorText,
   fileKind,
   fileLinks,
+  downloadText,
   formatBytes,
   ownerKey,
   siteErrorText,
@@ -424,6 +425,21 @@ describe("file words", () => {
     expect(formatBytes(900)).toBe("900 bytes");
     expect(formatBytes(48_000)).toBe("47 KB");
     expect(formatBytes(3_500_000)).toBe("3.3 MB");
+  });
+
+  it("says how a download goes, and about how long is left", () => {
+    const MiB = 1024 * 1024;
+    const at = (received: number, secondsLeft: number | null, total: number | null = 45 * MiB) =>
+      downloadText({ received, total, secondsLeft });
+    expect(at(0, null)).toBe("0 bytes of 45.0 MB");
+    expect(at(12.4 * MiB, 31)).toBe("12.4 MB of 45.0 MB, about 30 seconds left");
+    expect(at(12.4 * MiB, 7)).toBe("12.4 MB of 45.0 MB, a few seconds left");
+    expect(at(MiB, 80)).toBe("1.0 MB of 45.0 MB, about a minute left");
+    expect(at(MiB, 150)).toBe("1.0 MB of 45.0 MB, about 3 minutes left");
+    // All here: no time left to give.
+    expect(at(45 * MiB, 0)).toBe("45.0 MB of 45.0 MB");
+    // A host that didn't give the size.
+    expect(at(2 * MiB, null, null)).toBe("2.0 MB so far");
   });
 
   it("explains the host's file errors", () => {

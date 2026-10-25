@@ -5,7 +5,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { openProjectPath } from "../agent";
 import { toast } from "../toast";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  // The real one needs the Tauri bridge. This keeps its handler, for a test to call.
+  Channel: class {
+    onmessage: (message: unknown) => void;
+    constructor(onmessage: (message: unknown) => void = () => {}) {
+      this.onmessage = onmessage;
+    }
+  },
+}));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("../agent", () => ({ openProjectPath: vi.fn(), sendPrompt: vi.fn() }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
@@ -53,7 +62,12 @@ describe("Chat/Code outputs when paired to a Mac mini", () => {
     expect(screen.getByRole("button", { name: "Open site index.html" })).toBeTruthy();
     expect(document.querySelectorAll(".kleio-file")).toHaveLength(2);
     await waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", { owner: OWNER, path: "report.pdf" }),
+      expect(invoke).toHaveBeenCalledWith("kleio_file_fetch", {
+        owner: OWNER,
+        path: "report.pdf",
+        onProgress: expect.anything(),
+        auto: true,
+      }),
     );
   });
 
@@ -128,11 +142,15 @@ describe("Chat/Code outputs when paired to a Mac mini", () => {
         .mock.calls.filter(([cmd]) => cmd === "kleio_file_fetch")
         .map(([, args]) => args);
     await waitFor(() =>
-      expect(fetched()).toEqual([
-        { owner, path: `${folder}/london-ai-jobs-2026-10-09.pdf` },
-        { owner, path: `${folder}/report-p1.png` },
-        { owner, path: `${folder}/report-p6.png` },
-      ]),
+      // Each card's own fetch.
+      expect(fetched()).toEqual(
+        ["london-ai-jobs-2026-10-09.pdf", "report-p1.png", "report-p6.png"].map((name) => ({
+          owner,
+          path: `${folder}/${name}`,
+          onProgress: expect.anything(),
+          auto: true,
+        })),
+      ),
     );
     vi.mocked(invoke).mockClear();
     fireEvent.click(open);

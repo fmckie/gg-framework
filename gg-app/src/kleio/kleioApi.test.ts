@@ -326,6 +326,42 @@ describe("dictation setup", () => {
   });
 });
 
+describe("notification setting", () => {
+  const UNREADABLE = "The host's notification setting couldn't be read.";
+
+  it("reads the host's setting, and sends an admin's choice as {quoteText}", async () => {
+    const read = reply({ quoteText: true });
+    expect(await api.notificationSettings()).toEqual({ quoteText: true });
+    // Only the setting is kept of what the host sends back.
+    const set = reply({ quoteText: false, more: "dropped" });
+    expect(await api.setQuoteText(false)).toEqual({ quoteText: false });
+    expect([...read, ...set]).toEqual([
+      { method: "GET", path: "/kleio/notifications", body: null, session: null },
+      { method: "POST", path: "/kleio/notifications", body: { quoteText: false }, session: null },
+    ]);
+  });
+
+  // One-element rows, so `[]` reaches the test as an array: it.each spreads a row.
+  it.each<[unknown]>([
+    [null],
+    ["true"],
+    [[]],
+    [{}],
+    [{ quoteText: "off" }],
+    [{ quoteText: 1 }],
+    [{ quotetext: true }],
+  ])("refuses %j with the usual 502, rather than guessing", async (body) => {
+    reply(body);
+    const read = await api.notificationSettings().catch((e: unknown) => e);
+    expect(read).toBeInstanceOf(api.KleioApiError);
+    expect(read).toMatchObject({ status: 502, message: UNREADABLE });
+    await expect(api.setQuoteText(true)).rejects.toMatchObject({
+      status: 502,
+      message: UNREADABLE,
+    });
+  });
+});
+
 describe("kleioApi routes", () => {
   const cases: Array<{
     name: string;

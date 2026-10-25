@@ -5,7 +5,8 @@
 // draws the kind (Markdown, text, CSV, PDFs, pictures), else in its usual app
 // (viewerContext.ts). A card only
 // fetches its file once it scrolls into view, so a long history of reports
-// doesn't download them all at once.
+// doesn't download them all at once. While it comes, the card says how much
+// has, and about how long is left.
 //
 // A web page (.html/.htm) gets a site card instead: one Open site action that
 // asks the Mac mini for a short-lived link on its sandboxed preview origin and
@@ -15,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowSquareOutIcon,
+  CloudArrowDownIcon,
   DownloadSimpleIcon,
   FileCsvIcon,
   FileDocIcon,
@@ -30,6 +32,7 @@ import {
 import { fileExtension, isSitePath } from "./filePaths";
 import { useOpenFile } from "./viewerContext";
 import {
+  downloadText,
   fetchFile,
   fileErrorText,
   fileKind,
@@ -38,6 +41,7 @@ import {
   ownerKey,
   saveFile,
   siteErrorText,
+  type DownloadProgress,
   type FileInfo,
   type FileOwner,
 } from "./kleioFiles";
@@ -190,8 +194,12 @@ function SiteCard({ owner, path, label }: CardProps): React.ReactElement {
 function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElement | null {
   const name = path.split("/").pop() ?? path;
   const [load, setLoad] = useState<Load>({ state: "loading" });
+  const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [busy, setBusy] = useState<"open" | "save" | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // Taps on Download. Until one, the card asks on its own, so through a
+  // relay a big file waits (`held`).
+  const [pulls, setPulls] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const seen = useSeen(cardRef);
   const stableOwner = useStableOwner(owner);
@@ -201,13 +209,14 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
     if (!seen) return;
     let live = true;
     setLoad({ state: "loading" });
-    fetchFile(stableOwner, path)
+    setProgress(null);
+    fetchFile(stableOwner, path, (p) => live && setProgress(p), pulls === 0)
       .then((info) => live && setLoad({ state: "ready", info }))
       .catch((e: unknown) => live && setLoad({ state: "error", text: fileErrorText(e) }));
     return () => {
       live = false;
     };
-  }, [seen, stableOwner, path]);
+  }, [seen, stableOwner, path, pulls]);
 
   async function act(kind: "open" | "save"): Promise<void> {
     if (busy) return;
@@ -226,6 +235,7 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
   // A file the reply only named, and that isn't there, is no card at all.
   if (named && load.state === "error") return null;
   const info = load.state === "ready" ? load.info : null;
+  const held = info?.held === true ? info : null;
   const thumb = info?.thumbnail ?? null;
   const missing = load.state === "error";
   const title = label && label !== name ? label : name;
@@ -271,13 +281,29 @@ function DocumentCard({ owner, path, label, named }: CardProps): React.ReactElem
               {load.text}
             </>
           ) : load.state === "loading" ? (
-            "Fetching from your host…"
+            progress ? (
+              `Fetching from your host… ${downloadText(progress)}`
+            ) : (
+              "Fetching from your host…"
+            )
           ) : (
             meta
           )}
         </span>
         {!missing && (
           <span className="kleio-file-actions">
+            {held && (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                aria-label={`Download ${name}, ${formatBytes(held.size)}`}
+                disabled={busy !== null}
+                onClick={() => setPulls((n) => n + 1)}
+              >
+                <CloudArrowDownIcon size={13} weight="bold" aria-hidden="true" />
+                Download
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-ghost btn-sm"
