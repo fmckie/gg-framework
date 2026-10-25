@@ -38,6 +38,8 @@ pub mod push;
 pub mod radio;
 pub mod show;
 pub mod store;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod switch;
 pub mod tailscale;
 
 use std::sync::{Once, OnceLock};

@@ -67,9 +67,15 @@ import {
   setQuoteText,
   type NotificationSettings,
 } from "./kleioApi";
-import { kleioLink, useKleioLink, type LinkStatus, type TicketCheck } from "./kleioLink";
+import {
+  kleioLink,
+  useKleioLink,
+  type LinkStatus,
+  type SwitchStatus,
+  type TicketCheck,
+} from "./kleioLink";
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
-import { PairingOffer } from "./PairingOffer";
+import { noTicketWords, PairingOffer } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import { ForgetHost } from "./ForgetHost";
@@ -272,6 +278,8 @@ export function ConnectionPage(): React.ReactElement {
             hostLabel={hostLabel}
             quoteText={notices.state === "ok" ? notices.quoteText : null}
             onPaired={() => void refreshRemote()}
+            byAddress={active !== null && link?.active !== true}
+            admin={active?.admin ?? false}
           />
 
           <SettingsCard
@@ -888,6 +896,8 @@ function LinkCard({
   hostLabel,
   quoteText,
   onPaired,
+  byAddress,
+  admin,
 }: {
   /** `undefined` until the link answers; `null` in a build without it. */
   link: LinkStatus | null | undefined;
@@ -897,12 +907,63 @@ function LinkCard({
   /** Whether the host's notifications quote what was said; null while unknown. */
   quoteText: boolean | null;
   onPaired: () => void;
+  /** This launch reaches the host by its address (Tailscale), not the link. */
+  byAddress: boolean;
+  /** This device is an admin on the host. */
+  admin: boolean;
 }): React.ReactElement | null {
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [ticket, setTicket] = useState<{ ticket: string; check: TicketCheck } | null>(null);
   const [label, setLabel] = useState("");
+  const [switchStatus, setSwitchStatus] = useState<SwitchStatus | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  // A switch's cleanup, while there's an old pairing to put away (switch.rs).
+  useEffect(() => {
+    if (!link?.paired) return;
+    let live = true;
+    kleioLink.switchStatus().then(
+      (s) => live && setSwitchStatus(s),
+      () => live && setSwitchStatus(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [link?.paired, link?.connected]);
   if (!link) return null;
+
+  /** An admin device switches with an admin code of its own: one Touch ID, nothing to paste. */
+  async function switchHere(): Promise<void> {
+    setError(null);
+    setChecking(true);
+    try {
+      const offer = await kleio.offer(true);
+      if (!offer.ticket) {
+        setError(noTicketWords(offer.ticketError));
+        return;
+      }
+      setTicket({ ticket: offer.ticket, check: await kleioLink.checkTicket(offer.ticket) });
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function removeOld(): Promise<void> {
+    setError(null);
+    setRemoving(true);
+    try {
+      await kleioLink.removeOld();
+      setSwitchStatus(await kleioLink.switchStatus().catch(() => null));
+      onPaired();
+    } catch (e) {
+      setError(explainError(e));
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   async function openTicket(text: string): Promise<void> {
     setError(null);
@@ -955,7 +1016,23 @@ function LinkCard({
           />
         ) : (
           <>
-            <p className="settings-desc">Not paired over the link.</p>
+            {byAddress ? (
+              <p className="settings-desc">{switchWords(device, hostLabel, admin)}</p>
+            ) : (
+              <p className="settings-desc">Not paired over the link.</p>
+            )}
+            {byAddress && admin && (
+              <div className="conn-row">
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={checking}
+                  onClick={() => void switchHere()}
+                >
+                  {checking ? "Making a pair code…" : "Switch to Kleio's link"}
+                </button>
+              </div>
+            )}
             {phone && <TicketScan busy={checking} onTicket={(text) => void openTicket(text)} />}
             {takesPairingText(link) && (
               <TicketPaste busy={checking} onTicket={(text) => void openTicket(text)} />
@@ -966,6 +1043,8 @@ function LinkCard({
         <p className="settings-desc">
           Paired over the link with {link.host ? shortName(link.host) : "the host"}.{" "}
           {phone ? "Close Kleio and open it again to use it." : "Restart Kleio to use it."}
+          {byAddress &&
+            ` Your pairing over Tailscale stays until the link has reached ${hostLabel}, as the way back.`}
         </p>
       ) : !link.paired ? (
         <p className="settings-desc">
@@ -993,6 +1072,15 @@ function LinkCard({
         </dl>
       )}
       {inUse && link.relayN0 && <p className="settings-desc">{N0_RELAY_LINE}</p>}
+      {switchStatus && switchStatus.state !== "none" && (
+        <SwitchCleanup
+          status={switchStatus}
+          device={device}
+          hostLabel={hostLabel}
+          removing={removing}
+          onRemove={() => void removeOld()}
+        />
+      )}
       {error && (
         <p className="conn-bad" role="alert">
           {error}
@@ -1004,6 +1092,80 @@ function LinkCard({
       </Disclosure>
     </SettingsCard>
   );
+}
+
+/** What a device paired by address is offered, to switch to the link. */
+export function switchWords(device: Device, hostLabel: string, admin: boolean): string {
+  const how = admin
+    ? `It pairs again with a code of its own, so this ${device} stays an admin.`
+    : device === "iPhone"
+      ? "Scan a pairing QR code from an admin device's Settings → Connection."
+      : "Paste pairing text from an admin device's Settings → Connection.";
+  return `This ${device} reaches ${hostLabel} over Tailscale. Switch to Kleio's link: no Tailscale needed. ${how} Your pairing over Tailscale stays until the link has reached ${hostLabel}.`;
+}
+
+/** What the switch's cleanup is waiting for, and the way out when the host refused. */
+function SwitchCleanup({
+  status,
+  device,
+  hostLabel,
+  removing,
+  onRemove,
+}: {
+  status: SwitchStatus;
+  device: Device;
+  hostLabel: string;
+  removing: boolean;
+  onRemove: () => void;
+}): React.ReactElement | null {
+  const old = `This ${device}'s old pairing over Tailscale`;
+  switch (status.state) {
+    case "none":
+      return null;
+    case "waiting-for-link":
+      return (
+        <p className="settings-desc">
+          {old} stays until the link has reached {hostLabel}: it's the way back.
+        </p>
+      );
+    case "pending":
+      return <p className="settings-desc">{old} is removed the next time the link connects.</p>;
+    case "waiting-for-host":
+      return (
+        <p className="settings-desc" role="status">
+          {old} is removed once {hostLabel} answers over Tailscale. Kleio tries again each time the
+          link connects.{status.reason ? ` Last try: ${status.reason}` : ""}
+        </p>
+      );
+    case "unfinished":
+      return (
+        <p className="settings-desc" role="status">
+          {hostLabel} dropped {old.replace("This", "this")}, but a part of it is still on this{" "}
+          {device}. Kleio removes it the next time the link connects.
+          {status.reason ? ` (${status.reason})` : ""}
+        </p>
+      );
+    case "refused":
+      return (
+        <>
+          <p className="conn-bad" role="alert">
+            {status.reason ?? `${hostLabel} won't remove ${old.replace("This", "this")}.`} The link
+            works, so it can be removed from this {device}. {hostLabel} lists it until an admin
+            revokes it.
+          </p>
+          <div className="conn-row">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={removing}
+              onClick={onRemove}
+            >
+              {removing ? "Removing…" : `Remove it from this ${device}`}
+            </button>
+          </div>
+        </>
+      );
+  }
 }
 
 /** The link's numbers and recent path events, for a closer look. */
