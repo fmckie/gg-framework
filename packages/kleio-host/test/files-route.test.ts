@@ -5,6 +5,7 @@ import {
   rmSync,
   symlinkSync,
   truncateSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { request as httpRequest, type IncomingHttpHeaders } from "node:http";
@@ -14,7 +15,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { MAX_FILE_BYTES } from "../src/files.js";
-import { createHost, DEVICE_TOKEN_HEADER, type Host, type HostOptions } from "../src/host.js";
+import {
+  createHost,
+  DEVICE_TOKEN_HEADER,
+  matchesEtag,
+  type Host,
+  type HostOptions,
+} from "../src/host.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
@@ -176,6 +183,70 @@ describe("GET /kleio/blobs/:id/files/*", () => {
     );
   });
 
+  it("answers 304 with no body when the app already has this version of the file", async () => {
+    const b = await newBlob("Scout");
+    const name = "Morning-AI-Research-2026-10-01.pdf";
+    const file = join(blobDir(b.id), name);
+    mkdirSync(blobDir(b.id), { recursive: true });
+    writeFileSync(file, Buffer.from("%PDF-1.7\nfirst version"));
+    const path = `/kleio/blobs/${b.id}/files/${name}`;
+    const first = await call("GET", path);
+    expect(first.status).toBe(200);
+    const etag = first.headers.etag ?? "";
+    expect(etag).toMatch(/^"\d+-\d+"$/);
+
+    // The same version: 304, its validators, and no body or content headers.
+    // (The route logs once its response has finished, so wait for the 200's line first.)
+    expect(await logged(`[files] Phone ${b.id} → 200`)).toBeDefined();
+    logs.length = 0;
+    const again = await call("GET", path, undefined, { ...H, "if-none-match": etag });
+    expect(again.status).toBe(304);
+    expect(again.raw.length).toBe(0);
+    expect(again.headers.etag).toBe(etag);
+    expect(again.headers["last-modified"]).toBe(first.headers["last-modified"]);
+    expect(again.headers["cache-control"]).toBe("private, no-cache");
+    expect(again.headers["content-type"]).toBeUndefined();
+    expect(again.headers["content-disposition"]).toBeUndefined();
+    expect(await logged(`[files] Phone ${b.id} → `)).toMatch(
+      new RegExp(`^\\[files\\] Phone ${b.id} → 304 0B \\d+ms$`),
+    );
+    // A weak form of the tag, a list naming it, and * match too.
+    for (const header of [`W/${etag}`, `"0-0", ${etag}`, "*"]) {
+      const r = await call("GET", path, undefined, { ...H, "if-none-match": header });
+      expect(r.status, header).toBe(304);
+    }
+
+    // Another tag, or none: the whole file, as before.
+    for (const extra of [{ "if-none-match": '"0-0"' }, {}]) {
+      const r = await call("GET", path, undefined, { ...H, ...extra });
+      expect(r.status).toBe(200);
+      expect(r.raw.toString()).toBe("%PDF-1.7\nfirst version");
+    }
+
+    // A changed file is a new version: the old tag gets all of it, with the new tag.
+    writeFileSync(file, Buffer.from("%PDF-1.7\nthe second, longer version"));
+    utimesSync(file, new Date(), new Date(Date.now() + 5_000));
+    const changed = await call("GET", path, undefined, { ...H, "if-none-match": etag });
+    expect(changed.status).toBe(200);
+    expect(changed.raw.toString()).toBe("%PDF-1.7\nthe second, longer version");
+    expect(changed.headers.etag).not.toBe(etag);
+  });
+
+  it("still answers 401 and 404 to a request that names a tag", async () => {
+    const b = await newBlob("Scout");
+    mkdirSync(blobDir(b.id), { recursive: true });
+    writeFileSync(join(blobDir(b.id), "a.pdf"), "x");
+    const tagged = { "if-none-match": "*" };
+    expect((await call("GET", `/kleio/blobs/${b.id}/files/a.pdf`, undefined, tagged)).status).toBe(
+      401,
+    );
+    const gone = await call("GET", `/kleio/blobs/${b.id}/files/gone.pdf`, undefined, {
+      ...H,
+      ...tagged,
+    });
+    expect(gone.status).toBe(404);
+  });
+
   it("serves an encoded nested name, and html only as a download", async () => {
     const b = await newBlob("Scout");
     mkdirSync(join(blobDir(b.id), "out dir"), { recursive: true });
@@ -263,6 +334,25 @@ describe("GET /kleio/blobs/:id/files/*", () => {
   });
 });
 
+describe("matchesEtag", () => {
+  const TAG = '"1024-1729800000000"';
+  it.each<[string | undefined, boolean]>([
+    [undefined, false],
+    ["", false],
+    [TAG, true],
+    [`W/${TAG}`, true],
+    [`"0-0",${TAG}`, true],
+    [` "0-0" , W/${TAG} `, true],
+    ["*", true],
+    ['"1024-1729800000001"', false],
+    ['"0-0", "1-1"', false],
+    ["1024-1729800000000", false],
+    [",", false],
+  ])("If-None-Match %j names the file: %s", (header, expected) => {
+    expect(matchesEtag(header, TAG)).toBe(expected);
+  });
+});
+
 describe("GET /kleio/groups/:id/members/:blobId/files/*", () => {
   it("serves a member's file from its group folder", async () => {
     const a = await newBlob("Ada");
@@ -323,6 +413,18 @@ describe("GET /kleio/workspace/files/*?cwd=", () => {
     expect(await logged("[files] Phone workspace ")).toMatch(
       new RegExp(`^\\[files\\] Phone workspace ".*demo" → 200 ${bytes.length}B \\d+ms$`),
     );
+  });
+
+  it("answers 304 for a Chat or Code file the app already has", async () => {
+    writeFileSync(join(project(), "out", "report.pdf"), Buffer.from("%PDF-1.7\nhello"));
+    const first = await call("GET", ws(project(), "out/report.pdf"));
+    expect(first.status).toBe(200);
+    const again = await call("GET", ws(project(), "out/report.pdf"), undefined, {
+      ...H,
+      "if-none-match": first.headers.etag ?? "",
+    });
+    expect(again.status).toBe(304);
+    expect(again.raw.length).toBe(0);
   });
 
   it("serves a CSV from the Chat root and a file from an extra root", async () => {

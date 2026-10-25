@@ -209,6 +209,21 @@
   background: rgb(255 255 255 / 0.12);
   color: var(--text);
 }
+/* A long reason ("Kleio's link isn't running on this iPhone") ends in an
+   ellipsis rather than run off a narrow screen: Connection has it whole. */
+.kleio-home .home-version-row {
+  max-width: 100%;
+}
+.kleio-status {
+  max-width: 100%;
+  min-width: 0;
+}
+.kleio-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .kleio-status-dot {
   width: 7px;
   height: 7px;

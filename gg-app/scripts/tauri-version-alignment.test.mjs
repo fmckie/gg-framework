@@ -13,8 +13,7 @@ const cargoPackages = readFileSync(new URL("../src-tauri/Cargo.lock", import.met
 describe("Tauri binding versions", () => {
   it.each([
     ["api", "tauri"],
-    // kleio (connection prototype): the iPhone's pairing QR scanner, which
-    // only builds with the `kleio-link` feature.
+    // kleio: the iPhone's pairing QR scanner, for Kleio's link.
     ["plugin-barcode-scanner", "tauri-plugin-barcode-scanner"],
     ["plugin-dialog", "tauri-plugin-dialog"],
     ["plugin-log", "tauri-plugin-log"],

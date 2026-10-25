@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
+import type { Diagnosis } from "./connectionDiagnosis";
 import { KleioHome } from "./KleioHome";
 import { shortHost } from "./host-name";
 import type * as VoiceCall from "./voiceCall";
@@ -35,11 +36,16 @@ vi.mock("./useKleioRemote", () => ({
     refresh: vi.fn(),
   }),
 }));
-// Whether the Mac mini answers right now (HostReachProvider, mounted in main.tsx).
+// Whether the Mac mini answers right now (HostReachProvider, mounted in main.tsx),
+// and over Kleio's link, why not.
 const reach = vi.hoisted(() => ({
   value: "connected" as "checking" | "connected" | "disconnected",
+  words: null as Diagnosis | null,
 }));
-vi.mock("./hostReach", () => ({ useHostReach: () => reach.value }));
+vi.mock("./hostReach", () => ({
+  useHostReach: () => reach.value,
+  useHostReachWords: () => reach.words,
+}));
 
 vi.mock("../agent", () => ({
   waitForReady: vi.fn(async () => undefined),
@@ -85,6 +91,7 @@ afterEach(() => {
   vi.clearAllMocks();
   voice.open = false;
   reach.value = "connected";
+  reach.words = null;
 });
 
 describe("KleioHome", () => {
@@ -135,6 +142,43 @@ describe("KleioHome", () => {
     expect(screen.queryByRole("button", { name: /Connected to/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Disconnected from mac-mini-1/ }));
     expect(p.onSettings).toHaveBeenCalledWith("connection");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+  });
+
+  it("over Kleio's link, says why it can't reach the host, with the rest on hover", async () => {
+    reach.value = "disconnected";
+    reach.words = {
+      tone: "bad",
+      badge: "Asleep or offline",
+      headline: "mac-mini-1 is asleep or offline",
+      detail: "Last reached 3 min ago.",
+      checks: [],
+      fix: [],
+    };
+    const p = renderHome();
+    const pill = screen.getByRole("button", { name: "mac-mini-1 is asleep or offline" });
+    expect(pill.getAttribute("title")).toBe(
+      "mac-mini-1 is asleep or offline. Last reached 3 min ago.",
+    );
+    expect(pill.className).toContain("is-down");
+    fireEvent.click(pill);
+    expect(p.onSettings).toHaveBeenCalledWith("connection");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+  });
+
+  it("over Kleio's link, says so while it reconnects", async () => {
+    reach.value = "checking";
+    reach.words = {
+      tone: "warn",
+      badge: "Reconnecting",
+      headline: "Reconnecting to mac-mini-1…",
+      detail: "Kleio is looking for it through its relays.",
+      checks: [],
+      fix: [],
+    };
+    renderHome();
+    const pill = screen.getByRole("button", { name: "Reconnecting to mac-mini-1…" });
+    expect(pill.className).toContain("is-checking");
     await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
   });
 

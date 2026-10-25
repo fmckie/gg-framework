@@ -8,6 +8,13 @@
 //! arrive while one is in flight wait for it and share its outcome, so a burst
 //! of requests during an outage costs one dial, not one each.
 //!
+//! Once the host has turned this device's key away ([`LinkError::NotPaired`]
+//! or [`LinkError::Revoked`]), the link holds that answer and never dials
+//! again: every request fails with it at once. The key can't be let back in,
+//! so only a new pairing, with a new key and a new link, reaches the host.
+//! Without this, a revoked phone dialled 185 times in 124 s, one dial for each
+//! request the app retried.
+//!
 //! There's no address lookup, and a relay drops what it gets for a key that
 //! isn't connected to it, so the phone finds the host only through the
 //! relays the host names, and the host may have moved relay (it does after
@@ -30,7 +37,20 @@
 //! ([`Link::with_path_events`]), and times a resume: from
 //! [`Link::begin_resume`] to the first byte back from the host in reply to a
 //! request sent after it.
+//!
+//! It also says whether a dial is under way ([`Link::dialling`]), when bytes
+//! last came from the host ([`Link::last_heard`]), whether this device's
+//! relay says it's rate-limiting it ([`Link::rate_limited`]), and, after a
+//! dial that found no host, why ([`Link::unreached`]): a relay answered and
+//! the host didn't, no relay answered, or the relay turned this version of
+//! its protocol away. A connected home relay answers that at once. Otherwise
+//! the app's link ([`Link::watched`]) asks every relay on the route
+//! `GET /ping`, in the background, so the requests that waited on the dial
+//! fail without waiting for that. Each new connection moves
+//! [`Link::watch_connections`] on, so the app can ask the host for its relay
+//! list again.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -39,12 +59,14 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use iroh::endpoint::{ConnectError, ConnectingError, Connection, ConnectionError, VarInt};
-use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, TransportAddr};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, TransportAddr, Watcher};
+use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{info, warn};
 
-use crate::endpoint::switch_relay;
+use crate::endpoint::{switch_relay, RateLimitWatch};
 use crate::paths::{PathEvents, SelectedPath};
+use crate::probe::{ping_all, HttpsProbe, Ping};
 use crate::relays::{every_relay, RelayEntry};
 use crate::ticket::Ticket;
 use crate::{close, error_chain, paths, ALPN_HTTP};
@@ -210,6 +232,42 @@ impl fmt::Display for LinkError {
 
 impl std::error::Error for LinkError {}
 
+/// Why the latest dial found no host, as far as the link could tell
+/// ([`Link::unreached`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unreached {
+    /// A relay answered, but the host didn't within [`DIAL_TIMEOUT`]: it's
+    /// asleep or offline, or its link isn't running.
+    HostSilent,
+    /// No relay on the route answered as a relay: looking it up, connecting
+    /// or TLS failed, or nothing came back in time. With no direct path
+    /// either, this network may be blocking them. Each relay tried, in the
+    /// order the route names them.
+    NoRelay { tried: Vec<RelayUrl> },
+    /// The relay answers `GET /ping`, but turned down this device's relay
+    /// connection, as a relay does a version of its protocol it no longer
+    /// takes.
+    RelayRefused { relay: RelayUrl },
+}
+
+impl fmt::Display for Unreached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::HostSilent => f.write_str("a relay answered, but the host didn't"),
+            Self::NoRelay { tried } => {
+                f.write_str("no relay answered:")?;
+                for relay in tried {
+                    write!(f, " {relay}")?;
+                }
+                Ok(())
+            }
+            Self::RelayRefused { relay } => {
+                write!(f, "{relay} turned down this version's relay connection")
+            }
+        }
+    }
+}
+
 /// What the link is doing, for the Link card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkStatus {
@@ -231,8 +289,18 @@ struct Inner {
     endpoint: Endpoint,
     route: Mutex<Route>,
     kept: Option<PathEvents>,
+    /// Asks the route's relays why a dial found no host. Without it, only a
+    /// connected home relay says.
+    probe: Option<HttpsProbe>,
     cache: Cache<Connection>,
     resume: Resume,
+    heard: Heard,
+    /// Why the latest dial found no host. Kept until a dial connects, so it
+    /// doesn't come and go with each retry.
+    unreached: Mutex<Option<Unreached>>,
+    rate: Mutex<RateLimitWatch>,
+    /// Connections made so far: [`Link::watch_connections`].
+    made: watch::Sender<u64>,
 }
 
 impl Inner {
@@ -241,29 +309,58 @@ impl Inner {
         // holder panicked.
         self.route.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    fn unreached(&self) -> MutexGuard<'_, Option<Unreached>> {
+        // One assignment at a time, so it's whole even if a holder panicked.
+        self.unreached
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl Link {
     /// A link to the host `route` leads to. Nothing is dialled until the
     /// first [`connection`](Self::connection).
     pub fn new(endpoint: Endpoint, route: Route) -> Self {
-        Self::build(endpoint, route, None)
+        Self::build(endpoint, route, None, None)
     }
 
     /// [`new`](Self::new), keeping each connection's path events in `events`
     /// as well as logging them.
     pub fn with_path_events(endpoint: Endpoint, route: Route, events: PathEvents) -> Self {
-        Self::build(endpoint, route, Some(events))
+        Self::build(endpoint, route, Some(events), None)
     }
 
-    fn build(endpoint: Endpoint, route: Route, kept: Option<PathEvents>) -> Self {
+    /// The app's link: [`with_path_events`](Self::with_path_events), and
+    /// when a dial finds no host and the home relay isn't connected, it asks
+    /// the route's relays with `probe` why ([`unreached`](Self::unreached)).
+    pub fn watched(
+        endpoint: Endpoint,
+        route: Route,
+        events: PathEvents,
+        probe: HttpsProbe,
+    ) -> Self {
+        Self::build(endpoint, route, Some(events), Some(probe))
+    }
+
+    fn build(
+        endpoint: Endpoint,
+        route: Route,
+        kept: Option<PathEvents>,
+        probe: Option<HttpsProbe>,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 endpoint,
                 route: Mutex::new(route),
                 kept,
+                probe,
                 cache: Cache::new(),
                 resume: Resume::default(),
+                heard: Heard::new(),
+                unreached: Mutex::new(None),
+                rate: Mutex::default(),
+                made: watch::Sender::new(0),
             }),
         }
     }
@@ -291,20 +388,62 @@ impl Link {
     /// Each new connection gets the path log.
     pub async fn connection(&self) -> Result<Connection, LinkError> {
         let inner = &*self.inner;
-        inner.cache.get(|| dial(inner)).await
+        inner
+            .cache
+            .get_then(|| dial(inner), |failure| self.found_no_host(failure))
+            .await
     }
 
-    /// Whether the host turned this device away on the latest connection:
+    /// Whether the host has turned this device away:
     /// [`LinkError::NotPaired`] or [`LinkError::Revoked`]. It does so just
-    /// after the handshake, so a dial succeeds and the connection then closes
-    /// with the reason. Never dials.
+    /// after the handshake, so a dial usually succeeds and the connection
+    /// then closes with the reason. Once it has, the link never dials again
+    /// (see the module docs). Never dials.
     pub fn refusal(&self) -> Option<LinkError> {
-        self.inner.cache.latest().and_then(|conn| refusal(&conn))
+        self.inner.cache.refusal()
     }
 
     /// What the link is doing now. Never dials.
     pub fn status(&self) -> LinkStatus {
         self.inner.cache.status()
+    }
+
+    /// Whether a dial is under way. Never dials.
+    pub fn dialling(&self) -> bool {
+        self.inner.cache.dialling()
+    }
+
+    /// How long ago bytes last came from the host, or a connection to it
+    /// opened. `None` before either. Never dials.
+    pub fn last_heard(&self) -> Option<Duration> {
+        self.inner.heard.ago()
+    }
+
+    /// Why the latest dial found no host, once the link has looked. `None`
+    /// while a connection is open, before a dial has failed, while it's still
+    /// looking after the first failure, and once the host has turned this
+    /// device away ([`refusal`](Self::refusal) says so). Never dials.
+    pub fn unreached(&self) -> Option<Unreached> {
+        if self.status().connected || self.refusal().is_some() {
+            return None;
+        }
+        self.inner.unreached().clone()
+    }
+
+    /// Whether this device's relay has said it's rate-limiting this device,
+    /// on the relay connection open now. Never dials.
+    pub fn rate_limited(&self) -> bool {
+        self.inner
+            .rate
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .sample_endpoint(&self.inner.endpoint)
+    }
+
+    /// How many connections the link has made, moving on each time one
+    /// opens: the app asks the host for its relay list then.
+    pub fn watch_connections(&self) -> watch::Receiver<u64> {
+        self.inner.made.subscribe()
     }
 
     /// The path the open connection's bytes take now. Never dials.
@@ -355,7 +494,106 @@ impl Link {
     /// resume `sent_in`. They end the resume under way only if it's that one:
     /// a reply to a request sent before it began ends nothing.
     pub(crate) fn bytes_from_host(&self, sent_in: u64) {
+        self.inner.heard.note();
         self.inner.resume.end(sent_in);
+    }
+
+    /// After a dial that found no host, other than by turning this device
+    /// away: why, for [`unreached`](Self::unreached). A connected home relay
+    /// means a relay answered and the host didn't. Otherwise, with a probe,
+    /// it asks every relay on the route `GET /ping` in the background, and
+    /// the answer before stands until theirs is in.
+    fn found_no_host(&self, failure: &LinkError) {
+        if matches!(failure, LinkError::NotPaired | LinkError::Revoked) {
+            return;
+        }
+        let home = self.inner.endpoint.home_relay_status().get();
+        if home.iter().any(|status| status.is_connected()) {
+            *self.inner.unreached() = Some(Unreached::HostSilent);
+            return;
+        }
+        let Some(probe) = self.inner.probe.clone() else {
+            return;
+        };
+        let turned_down = home.iter().find_map(|status| {
+            let error = error_chain(status.last_error()?);
+            turned_down_by_relay(&error).then(|| status.url().clone())
+        });
+        let link = self.clone();
+        tokio::spawn(async move {
+            let relays = link.route().every_relay();
+            let pings = ping_all(&probe, relays.clone()).await;
+            let why = unreached_by(relays, &pings, turned_down);
+            // A dial may have connected while the relays answered.
+            if !link.status().connected {
+                warn!("the host wasn't reached: {why}");
+                *link.inner.unreached() = Some(why);
+            }
+        });
+    }
+}
+
+/// Why a dial found no host, from what the route's relays answered to
+/// `GET /ping` and the home relay that turned this device's connection
+/// down as a protocol version it doesn't take, if one did.
+fn unreached_by(
+    relays: Vec<RelayUrl>,
+    pings: &BTreeMap<RelayUrl, Ping>,
+    turned_down: Option<RelayUrl>,
+) -> Unreached {
+    let answered = |relay: &RelayUrl| matches!(pings.get(relay), Some(Ping::Relay(_)));
+    if let Some(relay) = turned_down.filter(|relay| answered(relay)) {
+        return Unreached::RelayRefused { relay };
+    }
+    if relays.iter().any(answered) {
+        return Unreached::HostSilent;
+    }
+    Unreached::NoRelay { tried: relays }
+}
+
+/// Whether a relay connection's error is the relay turning down this
+/// version of the relay protocol: iroh-relay answers an upgrade with a
+/// version it doesn't take with 400, and one that has to change protocol
+/// would say 426 or name a version this end doesn't know. Read from the
+/// error's words, which is all iroh shows of it (`RelayStatus::last_error`);
+/// a test pins them.
+fn turned_down_by_relay(error: &str) -> bool {
+    const UPGRADE: &str = "Unexpected status during upgrade: ";
+    error
+        .split(UPGRADE)
+        .skip(1)
+        .any(|rest| rest.starts_with("400") || rest.starts_with("426"))
+        || error.contains("invalid iroh-relay version header")
+}
+
+/// When bytes last came from the host: every read from it notes the time,
+/// so it's one atomic store, with no lock.
+struct Heard {
+    since: Instant,
+    /// Milliseconds after `since`, plus one; 0 for never.
+    at: AtomicU64,
+}
+
+impl Heard {
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            at: AtomicU64::new(0),
+        }
+    }
+
+    fn note(&self) {
+        let ms = u64::try_from(self.since.elapsed().as_millis()).unwrap_or(u64::MAX - 1);
+        self.at.store(ms.saturating_add(1), Ordering::Release);
+    }
+
+    fn ago(&self) -> Option<Duration> {
+        let at = self.at.load(Ordering::Acquire).checked_sub(1)?;
+        Some(
+            self.since
+                .elapsed()
+                .saturating_sub(Duration::from_millis(at)),
+        )
     }
 }
 
@@ -369,6 +607,9 @@ async fn dial(inner: &Inner) -> Result<Connection, LinkError> {
         .second_stage()
         .map(|addr| connect_later(endpoint, addr));
     let conn = in_two_stages(first, second).await?;
+    inner.heard.note();
+    *inner.unreached() = None;
+    inner.made.send_modify(|made| *made += 1);
     if let Some(relay) = paths::relay_used(&conn) {
         if route.relay() != Some(&relay) {
             info!("the host is on {relay} now");
@@ -444,11 +685,6 @@ where
             Err(_) => first.await,
         },
     }
-}
-
-/// How the host turned `conn` away, if it did.
-fn refusal(conn: &Connection) -> Option<LinkError> {
-    refused_with(&conn.close_reason()?)
 }
 
 /// The refusal a connection closed for `reason` means, if it's one.
@@ -539,11 +775,18 @@ impl Resume {
 /// What [`Cache`] needs to know about a connection.
 pub(crate) trait Closable: Clone {
     fn is_closed(&self) -> bool;
+    /// How the host turned this device away, if it closed the connection
+    /// for that.
+    fn refusal(&self) -> Option<LinkError>;
 }
 
 impl Closable for Connection {
     fn is_closed(&self) -> bool {
         self.close_reason().is_some()
+    }
+
+    fn refusal(&self) -> Option<LinkError> {
+        refused_with(&self.close_reason()?)
     }
 }
 
@@ -565,11 +808,31 @@ struct State<C> {
     redials: u64,
     /// The latest dial's error, until a dial connects.
     last_failure: Option<LinkError>,
+    /// The host's refusal, once it has turned this device away: kept for the
+    /// cache's life, so nothing dials again.
+    refused: Option<LinkError>,
 }
 
 impl<C: Closable> State<C> {
     fn open(&self) -> Option<C> {
         self.conn.as_ref().filter(|conn| !conn.is_closed()).cloned()
+    }
+
+    /// The host's refusal, if it has turned this device away, on a dial or
+    /// by closing the latest connection. Held from the first time it's seen.
+    fn refusal(&mut self) -> Option<LinkError> {
+        if self.refused.is_none() {
+            let closed = self.conn.as_ref().filter(|conn| conn.is_closed());
+            if let Some(refused) = closed.and_then(Closable::refusal) {
+                self.hold(refused);
+            }
+        }
+        self.refused.clone()
+    }
+
+    fn hold(&mut self, refused: LinkError) {
+        warn!("the host turned this device away, so the link won't dial it again: {refused}");
+        self.refused = Some(refused);
     }
 }
 
@@ -584,20 +847,38 @@ impl<C: Closable> Cache<C> {
                 dials_done: 0,
                 redials: 0,
                 last_failure: None,
+                refused: None,
             }),
         }
     }
 
-    /// The open connection, or else the outcome of `dial`.
+    /// The open connection, or else the outcome of `dial`. Once the host
+    /// has turned this device away, its refusal, with no dial.
+    #[cfg(test)]
     pub(crate) async fn get<F, Fut>(&self, dial: F) -> Result<C, LinkError>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<C, LinkError>>,
     {
+        self.get_then(dial, |_| {}).await
+    }
+
+    /// [`get`](Self::get), calling `failed` with the error of a dial this
+    /// request made that failed: once a dial, not for the requests that
+    /// shared it.
+    pub(crate) async fn get_then<F, Fut, G>(&self, dial: F, failed: G) -> Result<C, LinkError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<C, LinkError>>,
+        G: FnOnce(&LinkError),
+    {
         let dials_seen = {
-            let state = self.state();
+            let mut state = self.state();
             if let Some(conn) = state.open() {
                 return Ok(conn);
+            }
+            if let Some(refused) = state.refusal() {
+                return Err(refused);
             }
             state.dials_done
         };
@@ -606,6 +887,9 @@ impl<C: Closable> Cache<C> {
             let mut state = self.state();
             if let Some(conn) = state.open() {
                 return Ok(conn);
+            }
+            if let Some(refused) = state.refusal() {
+                return Err(refused);
             }
             // A dial finished while this request waited, and left no
             // connection: share its error rather than dial again at once.
@@ -646,20 +930,30 @@ impl<C: Closable> Cache<C> {
                 state.conn = None;
                 state.connected_at = None;
                 state.last_failure = Some(failure.clone());
+                if matches!(failure, LinkError::NotPaired | LinkError::Revoked) {
+                    state.hold(failure.clone());
+                }
+                // `failed` may read the state.
+                drop(state);
+                failed(&failure);
                 Err(failure)
             }
         }
     }
 
+    /// Whether a dial is under way. Never dials.
+    pub(crate) fn dialling(&self) -> bool {
+        self.dialling.try_lock().is_err()
+    }
+
+    /// The host's refusal, if it has turned this device away. Never dials.
+    pub(crate) fn refusal(&self) -> Option<LinkError> {
+        self.state().refusal()
+    }
+
     /// The open connection, if there is one. Never dials.
     pub(crate) fn current(&self) -> Option<C> {
         self.state().open()
-    }
-
-    /// The latest connection, open or closed, until a dial fails. Never
-    /// dials.
-    pub(crate) fn latest(&self) -> Option<C> {
-        self.state().conn.clone()
     }
 
     pub(crate) fn status(&self) -> LinkStatus {
@@ -693,6 +987,7 @@ mod tests {
     struct Fake {
         id: u32,
         closed: Arc<AtomicBool>,
+        refused: Arc<Mutex<Option<LinkError>>>,
     }
 
     impl Fake {
@@ -700,17 +995,29 @@ mod tests {
             Self {
                 id,
                 closed: Arc::default(),
+                refused: Arc::default(),
             }
         }
 
         fn close(&self) {
             self.closed.store(true, Ordering::SeqCst);
         }
+
+        /// What the host does to a key it turns away: closes the connection,
+        /// saying why.
+        fn turn_away(&self, why: LinkError) {
+            *self.refused.lock().unwrap() = Some(why);
+            self.close();
+        }
     }
 
     impl Closable for Fake {
         fn is_closed(&self) -> bool {
             self.closed.load(Ordering::SeqCst)
+        }
+
+        fn refusal(&self) -> Option<LinkError> {
+            self.refused.lock().unwrap().clone()
         }
     }
 
@@ -737,6 +1044,12 @@ mod tests {
         fn fails(&self) -> impl Future<Output = Result<Fake, LinkError>> {
             self.start();
             ready(Err(refused()))
+        }
+
+        /// The host turns the key away before the dial has finished.
+        fn turned_away(&self, why: LinkError) -> impl Future<Output = Result<Fake, LinkError>> {
+            self.start();
+            ready(Err(why))
         }
 
         fn slowly_connects(&self, id: u32) -> impl Future<Output = Result<Fake, LinkError>> {
@@ -866,6 +1179,53 @@ mod tests {
         assert_eq!(cache.status(), status(true, Some(0), 3));
     }
 
+    /// A revoked phone dialled 185 times in 124 s, once for each request the
+    /// app retried (step 30). Turned away, the link dials no more.
+    #[tokio::test(start_paused = true)]
+    async fn once_the_host_turns_this_device_away_it_never_dials_again() {
+        for why in [LinkError::NotPaired, LinkError::Revoked] {
+            // Just after the handshake: the connection closes, saying why.
+            let cache = Cache::new();
+            let dialer = Dialer::default();
+            let conn = cache.get(|| dialer.connects(1)).await.unwrap();
+            assert_eq!(cache.refusal(), None);
+            conn.turn_away(why.clone());
+            for id in 2..5 {
+                let again = cache.get(|| dialer.connects(id)).await;
+                assert_eq!(again.unwrap_err(), why);
+            }
+            assert_eq!((dialer.count(), cache.refusal()), (1, Some(why.clone())));
+            assert_eq!(cache.status(), status(false, None, 0));
+
+            // Before the dial has finished: the dial fails, saying why.
+            let cache = Cache::new();
+            let dialer = Dialer::default();
+            let first = cache.get(|| dialer.turned_away(why.clone())).await;
+            assert_eq!(first.unwrap_err(), why);
+            let (a, b) = tokio::join!(
+                cache.get(|| dialer.connects(1)),
+                cache.get(|| dialer.connects(2)),
+            );
+            assert_eq!((a.unwrap_err(), b.unwrap_err()), (why.clone(), why.clone()));
+            assert_eq!((dialer.count(), cache.refusal()), (1, Some(why)));
+        }
+    }
+
+    /// Only the host's refusal is held: a connection closed for any other
+    /// reason is dialled again, as before.
+    #[tokio::test(start_paused = true)]
+    async fn holds_nothing_else() {
+        let cache = Cache::new();
+        let dialer = Dialer::default();
+        cache.get(|| dialer.connects(1)).await.unwrap().close();
+        assert_eq!(cache.get(|| dialer.fails()).await.unwrap_err(), refused());
+        let timed_out = cache.get(|| dialer.turned_away(LinkError::TimedOut)).await;
+        assert_eq!(timed_out.unwrap_err(), LinkError::TimedOut);
+        assert_eq!(cache.refusal(), None);
+        assert_eq!(cache.get(|| dialer.connects(2)).await.unwrap().id, 2);
+        assert_eq!(dialer.count(), 4);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn says_how_long_the_open_connection_has_been_up() {
         let cache = Cache::new();
@@ -891,6 +1251,165 @@ mod tests {
         assert_ne!(
             LinkError::NotPaired.to_string(),
             LinkError::Revoked.to_string()
+        );
+    }
+
+    /// The hook hears each failed dial once, not each request that shared
+    /// it, and nothing of one that connected.
+    #[tokio::test(start_paused = true)]
+    async fn hears_each_failed_dial_once() {
+        let cache = Cache::new();
+        let dialer = Dialer::default();
+        let heard = Mutex::new(Vec::new());
+        let note = |failure: &LinkError| heard.lock().unwrap().push(failure.clone());
+        let (a, b) = tokio::join!(
+            cache.get_then(|| dialer.slowly_fails(), note),
+            cache.get_then(|| dialer.connects(2), note),
+        );
+        assert_eq!((a.unwrap_err(), b.unwrap_err()), (refused(), refused()));
+        assert_eq!(*heard.lock().unwrap(), vec![refused()]);
+        let timed_out = cache.get_then(|| dialer.hangs(), note).await;
+        assert_eq!(timed_out.unwrap_err(), LinkError::TimedOut);
+        cache
+            .get_then(|| dialer.connects(3), note)
+            .await
+            .expect("connects");
+        assert_eq!(*heard.lock().unwrap(), vec![refused(), LinkError::TimedOut]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn says_while_a_dial_is_under_way() {
+        let cache: Cache<Fake> = Cache::new();
+        let dialer = Dialer::default();
+        assert!(!cache.dialling());
+        let dial = cache.get(|| dialer.slowly_connects(1));
+        tokio::pin!(dial);
+        assert!(tokio::time::timeout(Duration::from_millis(500), &mut dial)
+            .await
+            .is_err());
+        assert!(cache.dialling(), "half way through the dial");
+        dial.await.expect("connects");
+        assert!(!cache.dialling());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn says_how_long_ago_the_host_was_heard() {
+        let heard = Heard::new();
+        assert_eq!(heard.ago(), None, "never");
+        tokio::time::advance(Duration::from_secs(3)).await;
+        heard.note();
+        assert_eq!(heard.ago(), Some(Duration::ZERO));
+        tokio::time::advance(Duration::from_secs(90)).await;
+        assert_eq!(heard.ago(), Some(Duration::from_secs(90)));
+        heard.note();
+        assert_eq!(heard.ago(), Some(Duration::ZERO));
+    }
+
+    fn pings(answers: &[(&RelayUrl, Ping)]) -> BTreeMap<RelayUrl, Ping> {
+        answers
+            .iter()
+            .map(|(relay, ping)| ((*relay).clone(), ping.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn tells_a_silent_host_from_relays_that_dont_answer() {
+        let (own, n0) = (
+            relay("relay.example.com"),
+            relay("euc1-1.relay.n0.iroh.link."),
+        );
+        let both = vec![own.clone(), n0.clone()];
+        let up = Ping::Relay(Duration::from_millis(40));
+        let down = Ping::NoAnswer("dns error".into());
+        let not_one = Ping::NotARelay("it answered HTTP 404".into());
+
+        // One relay answering is enough: the host is the one that's missing.
+        let one_up = pings(&[(&own, down.clone()), (&n0, up.clone())]);
+        assert_eq!(
+            unreached_by(both.clone(), &one_up, None),
+            Unreached::HostSilent
+        );
+
+        // None answering as a relay does, a web page included: every one tried.
+        let none_up = pings(&[(&own, not_one), (&n0, down.clone())]);
+        assert_eq!(
+            unreached_by(both.clone(), &none_up, None),
+            Unreached::NoRelay {
+                tried: both.clone()
+            }
+        );
+        assert_eq!(
+            unreached_by(both.clone(), &BTreeMap::new(), None),
+            Unreached::NoRelay {
+                tried: both.clone()
+            },
+            "a relay the probe never heard back from"
+        );
+
+        // The home relay answers /ping, yet turned this version away.
+        let home_up = pings(&[(&own, up.clone()), (&n0, up)]);
+        assert_eq!(
+            unreached_by(both.clone(), &home_up, Some(own.clone())),
+            Unreached::RelayRefused { relay: own.clone() }
+        );
+        // One that doesn't answer at all is just not there.
+        assert_eq!(
+            unreached_by(both.clone(), &one_up, Some(own)),
+            Unreached::HostSilent
+        );
+        assert_eq!(
+            unreached_by(both.clone(), &none_up, Some(n0)),
+            Unreached::NoRelay { tried: both }
+        );
+    }
+
+    /// The words iroh-relay's client puts to a relay turning the upgrade
+    /// down (`ConnectError` in iroh-relay 1.4.1's client.rs), as the relay
+    /// connection's error carries them.
+    #[test]
+    fn knows_a_relay_turning_this_version_away() {
+        let upgrade = |status: reqwest::StatusCode| {
+            format!("Failed to connect to relay server: Unexpected status during upgrade: {status}")
+        };
+        assert!(turned_down_by_relay(&upgrade(
+            reqwest::StatusCode::BAD_REQUEST
+        )));
+        assert!(turned_down_by_relay(&upgrade(
+            reqwest::StatusCode::UPGRADE_REQUIRED
+        )));
+        assert!(turned_down_by_relay(
+            "Server replied with invalid iroh-relay version header: iroh-relay-v9"
+        ));
+        for other in [
+            upgrade(reqwest::StatusCode::TOO_MANY_REQUESTS),
+            upgrade(reqwest::StatusCode::SERVICE_UNAVAILABLE),
+            "Failed to connect to relay server: dns error: no record found".to_string(),
+            "tls connection failed: invalid peer certificate: UnknownIssuer".to_string(),
+        ] {
+            assert!(!turned_down_by_relay(&other), "{other}");
+        }
+    }
+
+    #[test]
+    fn says_why_the_host_wasnt_reached() {
+        let tried = vec![
+            relay("relay.example.com"),
+            relay("euc1-1.relay.n0.iroh.link."),
+        ];
+        assert_eq!(
+            Unreached::NoRelay { tried }.to_string(),
+            "no relay answered: https://relay.example.com/ https://euc1-1.relay.n0.iroh.link./"
+        );
+        assert_eq!(
+            Unreached::RelayRefused {
+                relay: relay("relay.example.com")
+            }
+            .to_string(),
+            "https://relay.example.com/ turned down this version's relay connection"
+        );
+        assert_eq!(
+            Unreached::HostSilent.to_string(),
+            "a relay answered, but the host didn't"
         );
     }
 
@@ -1129,8 +1648,16 @@ mod tests {
             let link = Link::new(phone, loopback_addr(&host).into());
             assert!(!link.close_connection(), "nothing to close before a dial");
             assert_eq!(link.status(), status(false, None, 0));
+            let mut made = link.watch_connections();
+            assert_eq!((*made.borrow_and_update(), link.last_heard()), (0, None));
 
             let first = link.connection().await.expect("dials");
+            assert!(made.has_changed().expect("the link is there"));
+            assert_eq!(*made.borrow_and_update(), 1);
+            assert!(
+                link.last_heard().is_some(),
+                "a connection is hearing from the host"
+            );
             let host_side = accepted.recv().await.expect("the host accepted");
             assert!(link.close_connection(), "closes the open connection");
             assert!(first.close_reason().is_some(), "the connection is closed");
@@ -1145,6 +1672,8 @@ mod tests {
             let now = link.status();
             assert!(now.connected);
             assert_eq!(now.redials, 1);
+            assert_eq!(*made.borrow_and_update(), 2);
+            assert_eq!(link.unreached(), None, "it's connected");
         })
         .await;
     }

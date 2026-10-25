@@ -1,21 +1,36 @@
-// Kleio's link, from the webview: pairing with a link ticket, and the Link
-// card's status and switch (Rust: kleio/link.rs, behind the `kleio-link`
-// feature). A build without the feature has none of
-// these commands, so its first status call fails: then none of the link's UI
-// shows, and the pairing form is exactly what it was.
+// Kleio's link, from the webview: pairing with a link ticket, and the link
+// card's status (Rust: kleio/link.rs, on macOS and iOS). Windows and Linux
+// builds have none of these commands, so their first status call fails: then
+// none of the link's UI shows, and the pairing form is exactly what it was.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import type { HostRecord } from "./useKleioRemote";
-
-/** Through the relay at first then direct, or through the relay only. */
-export type LinkMode = "auto" | "relayOnly";
 
 /** One path event, as the link's log wrote it. */
 export interface LinkEvent {
   /** Milliseconds since 1970. */
   atMs: number;
   text: string;
+}
+
+/** A relay, as the link names it. */
+export interface LinkRelayName {
+  /** Its host name. */
+  host: string;
+  /** One of n0's public relays. */
+  n0: boolean;
+}
+
+/** Why the latest dial found no host, once the link has looked. */
+export interface LinkUnreached {
+  /**
+   * `host-silent`: a relay answered, the host didn't. `no-relay`: no relay
+   * answered. `relay-refused`: the relay turned this version of Kleio away.
+   */
+  kind: "host-silent" | "no-relay" | "relay-refused";
+  /** Every relay tried (`no-relay`), or the one that turned Kleio away. */
+  relays: LinkRelayName[];
 }
 
 /** `kleio_link_status`: what the link is doing now. Reading it never dials. */
@@ -27,20 +42,34 @@ export interface LinkStatus {
   running: boolean;
   /** Why the link couldn't start, if it couldn't. */
   error: string | null;
-  mode: LinkMode | null;
   host: string | null;
   hostKey: string | null;
   /** The relay the host was last reached through. */
   relay: string | null;
+  /** `relay` is one of n0's public relays. */
+  relayN0: boolean;
   /** Why the host turned this device away, if it did: not paired, or removed. */
   refused: string | null;
+  /** How the host turned this device away, if it did. */
+  refusal: "not-paired" | "revoked" | null;
   /** A connection to the host is open now. */
   connected: boolean;
+  /** A dial to the host is under way. */
+  dialling: boolean;
+  /** Why the latest dial found no host, once the link has looked. */
+  unreached: LinkUnreached | null;
+  /** When bytes last came from the host, in milliseconds since 1970. */
+  lastReachedMs: number | null;
   path: "relay" | "direct" | null;
   /** The relay's URL, or the direct path's `ip:port`. */
   pathAddr: string | null;
-  /** The direct path is to a Tailscale address: a field run on it doesn't count. */
-  tailscale: boolean;
+  /** The open connection goes through one of n0's public relays. */
+  pathN0: boolean;
+  /**
+   * A relay is slowing the open connection: it said so to this device or the
+   * host, or a big download through it came slower than 1.5 MB/s.
+   */
+  rateLimited: boolean;
   rttMs: number | null;
   /** When the open connection came up, in milliseconds since 1970. */
   connectedSinceMs: number | null;
@@ -49,9 +78,15 @@ export interface LinkStatus {
   lastResumeMs: number | null;
   /** The latest path events, oldest first. */
   events: LinkEvent[];
-  /** The pairing form also takes a pasted ticket (debug builds). */
+  /**
+   * A debug build: the iPhone's pairing form also takes pasted pairing text,
+   * as the Mac's always does, since the simulator has no camera.
+   */
   debugBuild: boolean;
 }
+
+/** The step a pairing is on, as it begins (PairStage in packages/kleio-link). */
+export type PairStage = "relay" | "host" | "pairing";
 
 /** What the confirm step shows for a link ticket. */
 export interface TicketCheck {
@@ -68,9 +103,15 @@ export interface TicketCheck {
 export const kleioLink = {
   status: () => invoke<LinkStatus>("kleio_link_status"),
   checkTicket: (ticket: string) => invoke<TicketCheck>("kleio_link_check_ticket", { ticket }),
-  /** Pairs and switches the pairing on, as `pair` then `activatePairing` do. */
-  pair: (ticket: string, label: string) => invoke<HostRecord>("kleio_link_pair", { ticket, label }),
-  setMode: (mode: LinkMode) => invoke<LinkStatus>("kleio_link_set_mode", { mode }),
+  /**
+   * Pairs and switches the pairing on, as `pair` then `activatePairing` do,
+   * telling `onStage` each step as it begins.
+   */
+  pair: (ticket: string, label: string, onStage?: (stage: PairStage) => void) =>
+    invoke<HostRecord>(
+      "kleio_link_pair",
+      onStage ? { ticket, label, onStage: new Channel<PairStage>(onStage) } : { ticket, label },
+    ),
 };
 
 /**

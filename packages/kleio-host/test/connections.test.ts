@@ -8,12 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer, request as httpRequest, type Server } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDeviceRegistry, type DeviceRegistry } from "../src/device-registry.js";
 import { createFileKeychain, generateMasterKey } from "../src/file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER, type Host } from "../src/host.js";
+import { LINK_HOST } from "../src/link.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
@@ -176,10 +178,28 @@ let hostPort: number;
 let H: Record<string, string>;
 const logs: string[] = [];
 
-async function startHost(opts: { key?: boolean; publicUrl?: boolean } = {}): Promise<Host> {
+/** The secret kleio-link-host opens each link connection with, in tests. */
+const LINK_SECRET = "Lk7_".repeat(10) + "xyz";
+/** A phone's key on the link. */
+const PHONE_KEY = "a".repeat(64);
+
+async function startHost(
+  opts: { key?: boolean; publicUrl?: boolean; link?: boolean } = {},
+): Promise<Host> {
   const h = createHost({
     listenPort: 0,
     ...(opts.publicUrl === false ? {} : { publicBaseUrl: "https://mini.test:8443" }),
+    ...(opts.link
+      ? {
+          link: {
+            port: 0,
+            upstreamToken: LINK_SECRET,
+            publicKey: "e".repeat(64),
+            dir: join(home, "link"),
+            name: "mini",
+          },
+        }
+      : {}),
     nodeId: "mini.test",
     registry,
     offers: createPairOfferStore(),
@@ -270,6 +290,49 @@ function call(method: string, path: string, body?: unknown, headers = H): Promis
     req.on("error", reject);
     if (data) req.write(data);
     req.end();
+  });
+}
+
+/** A request over the host's link listener, as kleio-link-host passes on one from `key`. */
+function linkCall(
+  h: Host,
+  key: string,
+  method: string,
+  path: string,
+  body: unknown,
+  token: string,
+): Promise<{ status: number; body: any }> {
+  const port = h.link?.port() ?? 0;
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body));
+    const req = httpRequest(
+      {
+        host: "127.0.0.1",
+        port,
+        method,
+        path,
+        headers: {
+          host: LINK_HOST,
+          "content-type": "application/json",
+          "content-length": data.length,
+          [DEVICE_TOKEN_HEADER]: token,
+        },
+        // No `agent`: with one, Node ignores createConnection.
+        createConnection: () => {
+          const socket = connect(port, "127.0.0.1");
+          socket.write(`KLEIO-LINK/1 ${key} ${LINK_SECRET}\r\n`);
+          return socket;
+        },
+      },
+      (res) => {
+        let s = "";
+        res.setEncoding("utf8");
+        res.on("data", (c: string) => (s += c));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(s) }));
+      },
+    );
+    req.on("error", reject);
+    req.end(data);
   });
 }
 
@@ -557,6 +620,49 @@ describe("apps: a host with no public URL (the link only)", () => {
     expect(r.status).toBe(200);
     expect(composio.seen.find((s) => s.path.endsWith("/link"))!.body).toEqual({
       toolkit: "gmail",
+    });
+  });
+});
+
+describe("apps: a sign-in started over the link, on a host with a public URL too", () => {
+  it("sends Composio no callback over the link, as the phone may not reach that URL; over Tailscale it does", async () => {
+    withKey();
+    host = await startHost({ link: true });
+    const minted = await registry.mint("Link phone", { linkKey: PHONE_KEY });
+    if (!minted.ok) throw new Error("mint");
+    const links = (): { body: any }[] => composio.seen.filter((s) => s.path.endsWith("/link"));
+
+    const overLink = await linkCall(
+      host,
+      PHONE_KEY,
+      "POST",
+      "/kleio/connections",
+      { toolkit: "Gmail" },
+      minted.value.token,
+    );
+    expect(overLink.status).toBe(200);
+    expect(overLink.body.redirectUrl).toBe("https://connect.composio.dev/link/lt_1?toolkit=gmail");
+    expect(links().map((s) => s.body)).toEqual([{ toolkit: "gmail" }]);
+    expect(logs).toContain(
+      "[apps] connect started: gmail, to end on Composio's own page (over the link)",
+    );
+
+    // The device paired over Tailscale still lands on the host's page, which
+    // takes it back to the app.
+    expect((await call("POST", "/kleio/connections", { toolkit: "notion" })).status).toBe(200);
+    expect(links().map((s) => s.body)).toEqual([
+      { toolkit: "gmail" },
+      { toolkit: "notion", callback_url: "https://mini.test:8443/kleio/connections/callback" },
+    ]);
+    expect(logs).toContain("[apps] connect started: notion");
+    // The session, which in-chat sign-in links share, keeps the callback.
+    expect(
+      composio.seen.find((s) => s.path === "/api/v3.1/tool_router/session")!.body
+        .manage_connections,
+    ).toEqual({
+      enable: true,
+      callback_url: "https://mini.test:8443/kleio/connections/callback",
+      enable_connection_removal: false,
     });
   });
 });

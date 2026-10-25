@@ -548,6 +548,44 @@ export async function normalizeSessionEntryForStorage<T>(
   } as T;
 }
 
+/**
+ * The image (or video) data loaded sessions hold, by asset hash, so a chat
+ * opened again (a new session, or one parked and reopened) shares the string
+ * already in memory rather than reading and holding its own copy. A chat whose
+ * agent took 39 screenshots holds 139 MB of them; held once per session, a few
+ * reopenings filled the app sidecar's memory.
+ *
+ * Each entry is a weak reference to a block that holds the data, so it goes
+ * once no loaded session holds that block. Assets are named by the hash of
+ * their bytes, so one hash is the same data in any chat.
+ */
+const loadedMedia = new Map<string, WeakRef<{ data: string }>>();
+const loadedMediaGone = new FinalizationRegistry<string>((sha256) => {
+  if (loadedMedia.get(sha256)?.deref() === undefined) loadedMedia.delete(sha256);
+});
+
+/**
+ * An asset's data as base64: the copy a loaded session already holds, while
+ * its file is still there, else read from the file.
+ */
+async function loadMediaData(assetPath: string, sha256: string): Promise<string> {
+  const held = loadedMedia.get(sha256)?.deref();
+  if (held) {
+    // Still on disk: a deleted asset degrades as it always has.
+    await fs.access(assetPath);
+    return held.data;
+  }
+  return (await fs.readFile(assetPath)).toString("base64");
+}
+
+/** Remembers `block` as holding its asset's data, for {@link loadMediaData}. */
+function rememberMedia(sha256: string, block: { data: string }): void {
+  if (loadedMedia.get(sha256)?.deref() === undefined) {
+    loadedMedia.set(sha256, new WeakRef(block));
+  }
+  loadedMediaGone.register(block, sha256);
+}
+
 async function hydrateMediaBlocks(blocks: unknown[], sessionPath: string): Promise<unknown[]> {
   const hydrated: unknown[] = [];
   for (const value of blocks) {
@@ -568,8 +606,10 @@ async function hydrateMediaBlocks(blocks: unknown[], sessionPath: string): Promi
       continue;
     }
     try {
-      const data = await fs.readFile(path.join(sessionAssetDir(sessionPath), marker.sha256));
-      hydrated.push({ ...value, data: data.toString("base64") });
+      const assetPath = path.join(sessionAssetDir(sessionPath), marker.sha256);
+      const block = { ...value, data: await loadMediaData(assetPath, marker.sha256) };
+      rememberMedia(marker.sha256, block);
+      hydrated.push(block);
     } catch {
       hydrated.push({
         type: "text",

@@ -434,6 +434,52 @@ export const hostHealth = async (timeoutMs?: number): Promise<HostHealth> => {
   return { sidecar, devices, latencyMs };
 };
 
+/**
+ * Whether the host's notifications and Live Activities quote what was said
+ * (GET and POST /kleio/notifications, kleio-host notification-settings.ts).
+ * Apple delivers them, so they aren't end-to-end encrypted.
+ */
+export interface NotificationSettings {
+  quoteText: boolean;
+}
+
+function notificationSettingsFrom(body: unknown): NotificationSettings {
+  const quoteText: unknown =
+    typeof body === "object" && body !== null ? (body as { quoteText?: unknown }).quoteText : null;
+  if (typeof quoteText !== "boolean") {
+    throw new KleioApiError(502, "The host's notification setting couldn't be read.");
+  }
+  return { quoteText };
+}
+
+export const notificationSettings = async (): Promise<NotificationSettings> =>
+  notificationSettingsFrom(await call<unknown>("GET", "/kleio/notifications"));
+
+/** Admin devices only: the host refuses others with a 403. */
+export const setQuoteText = async (quoteText: boolean): Promise<NotificationSettings> =>
+  notificationSettingsFrom(await call<unknown>("POST", "/kleio/notifications", { quoteText }));
+
+/** What the app keeps of GET /kleio/host (host-info.ts), for its words when the host can't be reached. */
+export interface HostKind {
+  /** The host's `process.platform`: `darwin`, `linux`, `win32`, … */
+  os: string;
+  /** It's a laptop, which sleeps when its lid closes. */
+  laptop: boolean;
+}
+
+/** GET /kleio/host: which OS the host runs, and whether it's a laptop. */
+export const getHostKind = async (): Promise<HostKind> => {
+  const body = await call<Record<string, unknown>>("GET", "/kleio/host");
+  const alwaysOn =
+    typeof body.alwaysOn === "object" && body.alwaysOn !== null
+      ? (body.alwaysOn as Record<string, unknown>)
+      : {};
+  return {
+    os: typeof body.os === "string" ? body.os : "unknown",
+    laptop: alwaysOn.state === "laptop",
+  };
+};
+
 // ─── home thread ────────────────────────────────────────────────────────────
 
 export const getHome = (): Promise<ThreadSession> => call("GET", "/kleio/home");

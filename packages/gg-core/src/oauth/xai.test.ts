@@ -158,7 +158,12 @@ describe("loginXai (device code flow)", () => {
           expires_in: 1,
         }),
       )
-      .mockResolvedValue(jsonResponse({ error: "authorization_pending" }, 400));
+      // A fresh response for each poll: a body reads only once, and the 1 s
+      // sleep can end a millisecond short of the deadline, so a second poll
+      // must get a pending answer too, not a body already read.
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ error: "authorization_pending" }, 400)),
+      );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(loginXai(callbacks())).rejects.toThrow(/timed out/i);

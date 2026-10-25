@@ -22,7 +22,8 @@ import { useCallOpen } from "./voiceCall";
 import { KleioMark } from "./KleioMark";
 import { hasUsableLocalModel } from "./privateModels";
 import { useKleioRemote } from "./useKleioRemote";
-import { useHostReach } from "./hostReach";
+import { diagnosisText } from "./connectionDiagnosis";
+import { useHostReach, useHostReachWords } from "./hostReach";
 import { shortHost } from "./host-name";
 
 interface Props {
@@ -53,6 +54,8 @@ export function KleioHome({
   const voiceReady = useVoiceReady();
   // Paired is not enough: the Mac mini has to be answering right now.
   const reach = useHostReach();
+  // Over Kleio's link, why it isn't (diagnoseLink's words).
+  const words = useHostReachWords();
   const connected = Boolean(status?.active) && reach === "connected";
 
   useEffect(() => {
@@ -122,10 +125,10 @@ export function KleioHome({
   const pill = !status?.active
     ? { state: "is-down", text: `Disconnected from ${mini}` }
     : reach === "checking"
-      ? { state: "is-checking", text: `Connecting to ${mini}…` }
+      ? { state: "is-checking", text: words?.headline ?? `Connecting to ${mini}…` }
       : reach === "connected"
         ? { state: "is-up", text: `Connected to ${mini}` }
-        : { state: "is-down", text: `Disconnected from ${mini}` };
+        : { state: "is-down", text: words?.headline ?? `Disconnected from ${mini}` };
 
   return (
     <div className="home kleio-home" data-tauri-drag-region>
@@ -137,14 +140,16 @@ export function KleioHome({
           type="button"
           className={`kleio-status ${pill.state}`}
           title={
-            pill.state === "is-down"
-              ? "Can't reach your host. Open Connection to see why."
-              : "Connection to your host"
+            words && pill.state !== "is-up"
+              ? diagnosisText(words)
+              : pill.state === "is-down"
+                ? "Can't reach your host. Open Connection to see why."
+                : "Connection to your host"
           }
           onClick={() => onSettings("connection")}
         >
           <span className="kleio-status-dot" aria-hidden="true" />
-          {pill.text}
+          <span className="kleio-status-text">{pill.text}</span>
         </button>
       </div>
       <KleioMark />

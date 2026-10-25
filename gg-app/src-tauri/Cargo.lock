@@ -1763,6 +1763,7 @@ dependencies = [
  "objc2-foundation",
  "objc2-local-authentication",
  "objc2-quick-look-thumbnailing",
+ "objc2-security",
  "objc2-ui-kit",
  "objc2-user-notifications",
  "reqwest",

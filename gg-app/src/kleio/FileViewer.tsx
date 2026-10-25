@@ -16,7 +16,14 @@ import { withViewTransition } from "../view-transition";
 import { CsvTable } from "./CsvTable";
 import { fileExtension } from "./filePaths";
 import { createFileShow, KleioApiError, type FileShowRequest } from "./kleioApi";
-import { fileErrorText, openFile, saveFile, type FileOwner } from "./kleioFiles";
+import {
+  downloadText,
+  fileErrorText,
+  openFile,
+  saveFile,
+  type DownloadProgress,
+  type FileOwner,
+} from "./kleioFiles";
 import type { RenderTable, ShowKit } from "./ShowViews";
 import type { ViewFile, ViewRequest } from "./viewerContext";
 import type { ShowProblem, Shown } from "./voiceTools";
@@ -130,7 +137,8 @@ function useEscape(close: () => void): void {
   }, [close]);
 }
 
-/** Open in app and Save a copy, each saying how it went in `onNote`. */
+/** Open in app and Save a copy, each saying in `onNote` how the download
+ *  goes when the file isn't here yet, and how it went. */
 function FileActions({
   file,
   onNote,
@@ -143,9 +151,12 @@ function FileActions({
     if (busy) return;
     setBusy(kind);
     onNote("");
+    const coming = (p: DownloadProgress): void => onNote(`Downloading… ${downloadText(p)}`);
     try {
-      if (kind === "open") await openFile(file.owner, file.path);
-      else if (await saveFile(file.owner, file.path)) onNote("Saved.");
+      if (kind === "open") {
+        await openFile(file.owner, file.path, coming);
+        onNote("");
+      } else onNote((await saveFile(file.owner, file.path, coming)) ? "Saved." : "");
     } catch (e) {
       onNote(fileErrorText(e));
     } finally {

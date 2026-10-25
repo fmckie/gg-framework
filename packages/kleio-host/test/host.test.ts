@@ -97,6 +97,8 @@ async function startHost(
     workspaceRoots?: () => Promise<string[]>;
     /** false: a host reached over the link only, with no KLEIO_PUBLIC_URL. */
     publicUrl?: false;
+    /** Site previews, on this public base. */
+    previewBaseUrl?: string;
   } = {},
 ): Promise<Host> {
   const h = (overrides.create ?? createHost)({
@@ -113,6 +115,9 @@ async function startHost(
     routinePollMs: 200,
     homeCwd: join(home, "Kleio"),
     ...(overrides.workspaceRoots ? { workspaceRoots: overrides.workspaceRoots } : {}),
+    ...(overrides.previewBaseUrl
+      ? { previewPort: 0, previewBaseUrl: overrides.previewBaseUrl }
+      : {}),
   });
   await h.start();
   hostPort = (h.server.address() as { port: number }).port;
@@ -418,11 +423,30 @@ describe("host: pairing", () => {
     expect(redeem.status).toBe(200);
     const payload = redeem.body.payload as PairingPayload;
     expect(payload).not.toHaveProperty("baseUrl");
+    // No public URL, no previews: nowhere for the device to open one.
+    expect(payload).not.toHaveProperty("previewOrigin");
     expect(payload).toMatchObject({ host: NODE, label: "Phone" });
     expect(isPairingPayload(payload)).toBe(true);
     expect(
       macaroon.verify(ROOT, payload.controlCredential!, { now: new Date(), nodeId: NODE }),
     ).toEqual({ ok: true });
+  });
+
+  it("a host with previews names their origin, the one place the device opens a preview link", async () => {
+    await host.stop();
+    host = await startHost({ previewBaseUrl: "https://mini.test.ts.net:8444/" });
+    const admin = await pairAdmin();
+    const offer = await call("POST", "/kleio/pair/offer", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+      body: {},
+    });
+    const redeem = await call("POST", "/kleio/pair/redeem", {
+      body: { code: offer.body.code, redemptionNonce: newRedemptionNonce(), label: "Phone" },
+    });
+    expect(redeem.status).toBe(200);
+    const payload = redeem.body.payload as PairingPayload;
+    expect(payload.previewOrigin).toBe("https://mini.test.ts.net:8444");
+    expect(isPairingPayload(payload)).toBe(true);
   });
 
   it("an admin offer yields a control credential that passes the node/exp caveats", async () => {
@@ -1125,6 +1149,122 @@ describe("host: Live Activity", () => {
       priority: 10,
       alert: { title: "my-app", body: "Ship it?", sound: "default" },
       attributes: { kind: "code", title: "my-app", sessionId: sid },
+    });
+  });
+});
+
+describe("host: notifications that quote nothing (/kleio/notifications)", () => {
+  const tick = (ms = 60): Promise<void> => new Promise((r) => setTimeout(r, ms));
+  /** Poll for work the host does in the background (slow CI runners outlast a fixed pause). */
+  const until = async (check: () => boolean, ms = 5000): Promise<void> => {
+    const t = Date.now();
+    while (!check()) {
+      if (Date.now() - t > ms) throw new Error("timed out waiting");
+      await tick(20);
+    }
+  };
+
+  it("any device reads the setting; only an admin device changes it", async () => {
+    await host.stop();
+    const logs: string[] = [];
+    host = await startHost({ create: (o) => createHost({ ...o, log: (m) => logs.push(m) }) });
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    const get = (headers: Record<string, string>): Promise<Res> =>
+      call("GET", "/kleio/notifications", { headers });
+    const post = (headers: Record<string, string>, body: unknown): Promise<Res> =>
+      call("POST", "/kleio/notifications", { headers, body });
+    expect((await get({})).status).toBe(401);
+    expect(await get(P)).toMatchObject({ status: 200, body: { quoteText: true } });
+    expect((await post(P, { quoteText: false })).status).toBe(403);
+    for (const bad of [{ quoteText: "off" }, {}, [], { quoteText: false, more: 1 }]) {
+      expect((await post(A, bad)).status).toBe(400);
+    }
+    expect((await call("DELETE", "/kleio/notifications", { headers: A })).status).toBe(405);
+    expect(await get(P)).toMatchObject({ body: { quoteText: true } });
+
+    expect(await post(A, { quoteText: false })).toMatchObject({
+      status: 200,
+      body: { quoteText: false },
+    });
+    expect(await get(P)).toMatchObject({ body: { quoteText: false } });
+    expect(JSON.parse(readFileSync(join(home, "notifications.json"), "utf8"))).toEqual({
+      quoteText: false,
+    });
+    expect(logs).toContain("[notifications] Bootstrap admin turned quoting off");
+  });
+
+  it("with quoting off, a question and a reply reach Apple without their words", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const A = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const P = { [DEVICE_TOKEN_HEADER]: phone.value.token };
+    await call("POST", "/kleio/push", {
+      headers: P,
+      body: { token: "ab".repeat(16), env: "sandbox" },
+    });
+    await call("POST", "/kleio/live-activity/start-token", {
+      headers: P,
+      body: { token: "cd".repeat(32), env: "sandbox" },
+    });
+    await call("POST", "/kleio/notifications", { headers: A, body: { quoteText: false } });
+
+    const created = await call("POST", "/session", {
+      headers: A,
+      body: { mode: "code", cwd: "/Users/x/projects/my-app" },
+    });
+    const sid = created.body.sessionId as string;
+    await tick(50);
+    const emit = (type: string, data: Record<string, unknown> = {}): void =>
+      sidecar.emit(sid, `data: ${JSON.stringify({ type, data })}`);
+    emit("run_start");
+    emit("ask_user", {
+      id: "ask-4",
+      questions: [
+        {
+          id: "f",
+          question: "Ship the release to everyone?",
+          kind: "choice",
+          options: [{ label: "Ship it", recommended: true }, { label: "Wait" }],
+        },
+      ],
+    });
+    await tick(80);
+    // The lock screen says a question is waiting, and whose, but not what it asks.
+    expect(livePushes).toHaveLength(1);
+    expect(livePushes[0]).toMatchObject({
+      event: "start",
+      line: "Needs your help",
+      alert: { title: "my-app", body: "Tap to answer.", sound: "default" },
+      attributes: { kind: "code", title: "my-app", sessionId: sid },
+    });
+    for (const field of ["detail", "options", "askId", "askKey", "recommended"]) {
+      expect(livePushes[0]?.state).not.toHaveProperty(field);
+    }
+    expect(JSON.stringify(livePushes)).not.toContain("Ship");
+
+    emit("ask_user_done", { id: "ask-4" });
+    emit("text_delta", { text: "Shipped 2.1.4 to everyone." });
+    emit("run_end", {});
+    await until(() => nudges.some((n) => n.sessionId === sid));
+    expect(nudgeText.get(sid)).toEqual({ kind: "finished", name: "my-app", text: undefined });
+    expect(JSON.stringify(livePushes)).not.toContain("Shipped");
+
+    // Quoting on again: the next reply is quoted, as before the setting.
+    await call("POST", "/kleio/notifications", { headers: A, body: { quoteText: true } });
+    nudges.length = 0;
+    emit("run_start");
+    emit("text_delta", { text: "Rolled back 2.1.4." });
+    emit("run_end", {});
+    await until(() => nudges.some((n) => n.sessionId === sid));
+    expect(nudgeText.get(sid)).toEqual({
+      kind: "finished",
+      name: "my-app",
+      text: "Rolled back 2.1.4.",
     });
   });
 });

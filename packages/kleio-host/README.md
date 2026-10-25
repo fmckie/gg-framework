@@ -29,10 +29,19 @@ kleio-link-host:
 
 `KLEIO_PREVIEW_URL` defaults to `KLEIO_PUBLIC_URL` with the preview port. Both are optional. A host
 without `KLEIO_PUBLIC_URL` is reached over the link only. It has no site previews, which need
-Tailscale for now, and its Apps sign-in ends on Composio's own page.
+Tailscale for now, and its Apps sign-in ends on Composio's own page, as any sign-in started over the
+link does.
 
-A request whose `Host` header its listener doesn't expect is logged once, as a guard against DNS
-rebinding. It isn't refused yet.
+As a guard against DNS rebinding, a listener answers a request only when its `Host` header names
+one of the listener's addresses, before reading anything else:
+
+- **The API (8443):** `127.0.0.1`, `localhost` or `[::1]` at its port, or `KLEIO_PUBLIC_URL`'s name
+  and port. A device paired by address keeps `KLEIO_PUBLIC_URL` as its address, so a proxy in front
+  of the API has to pass that `Host` on, as Tailscale Serve does.
+- **The link (8445):** `link.kleio.invalid`, which the app and kleio-link-host send, or `127.0.0.1`
+  at its port.
+
+Any other name gets 421 and a request with no `Host` gets 400. Each value refused is logged once.
 
 Three launchd jobs: `com.kleio.host.sidecar`, `com.kleio.host.serve`, and `com.kleio.host.link`,
 which runs kleio-link-host. So the proxy can be redeployed without killing a run, and a deploy that
@@ -343,9 +352,14 @@ one it's on first), up to two direct addresses, and the code, but never a token.
 - `pair` also prints the ticket as text, for "Paste pairing text" on a Mac.
 - While kleio-link-host is down or on no relay, there's no ticket, and `pair` says why.
 - `POST /kleio/pair/offer` gives the same: `ticket`, or `null` with a `ticketError`.
+- An admin device shows them too, in Settings → Connection → **Pair a device** and in the ⌘⇧K
+  pane's Devices tab. Without a ticket it says why, and a device paired by a tailnet address draws
+  a Tailscale QR code instead.
 
 **Redeeming:** the device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem`, and
-receives `{ baseUrl?, host, token, label, deviceId, controlCredential? }`.
+receives `{ baseUrl?, host, token, label, deviceId, controlCredential?, previewOrigin? }`.
+`previewOrigin` is where the host's site previews open, such as
+`https://mini.tailnet.ts.net:8444`. It's absent on a host without previews.
 
 - **Over the link,** the request goes through kleio-link-host, and the new device is bound to the
   phone's link key. There's no `baseUrl`, since the token is good only on the link. A phone that
@@ -378,6 +392,8 @@ what was missed (persisted ring, survives a host restart).
 - `revoke` takes a device ID, or at least 8 characters of a link key, as `devices` and
   kleio-link-host's log show them.
 - A device can remove itself, and only itself, with `DELETE /kleio/devices/self`.
+- In the app, an admin revokes a device in **Devices**, with **Revoke this device**. A device
+  paired in the last week is marked **New**, so a pairing nobody meant stands out.
 
 `GET /kleio/link` gives any paired device what it needs to find the host again:
 
@@ -398,12 +414,15 @@ what was missed (persisted ring, survives a host restart).
 Debug builds also take a host on this Mac, exactly `http://127.0.0.1:<port>` (dev-host `--app`);
 release builds take `https://` only.
 
-An app built with gg-app's `kleio-link` feature pairs over the link instead, with no URL and no
-Tailscale. It scans the QR code `kleio-host pair` shows, or, in a debug build, takes its pairing
-text pasted in. The feature is off by default for now.
+Kleio on the iPhone and the Mac pairs over the link instead, with no URL and no Tailscale. The
+iPhone scans the QR code `kleio-host pair` shows, and the Mac takes its pairing text pasted in
+("Paste pairing text"). An iPhone debug build takes the pasted text too, as the simulator has no
+camera.
 
-The token and control credential go to the login Keychain (`com.kleio.gg-app`), the
-non-secret record to `~/.kleio/remote.json`. Admin actions in the pane's
+The token and control credential go to the Keychain (`com.kleio.gg-app`): the login Keychain
+on the Mac, and on the iPhone the app's own, where they can be read once the phone has been
+unlocked after starting and stay on that phone. The non-secret record goes to
+`~/.kleio/remote.json`. Admin actions in the pane's
 **Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
 refuse without it. **Forget host** + restart returns to local mode. Env override for
 development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
@@ -704,9 +723,12 @@ createdAt}]}`.
 - `POST /kleio/connections {toolkit}` returns `{redirectUrl, connectionId}`. Open it in a web sheet.
 - `DELETE /kleio/connections/:id`.
 - `GET /kleio/connections/callback?status=` is **unauthenticated**. It serves a fixed page that
-  redirects to `kleio://connections?status=success|failed`. A host without `KLEIO_PUBLIC_URL`
-  sends Composio no callback, so the sign-in ends on Composio's own page instead. The app is
-  connected either way.
+  redirects to `kleio://connections?status=success|failed`. A sign-in started over the link, or on
+  a host without `KLEIO_PUBLIC_URL`, sends Composio no callback, so it ends on Composio's own page
+  instead. The device may have no way to the public URL, such as an iPhone with Tailscale off. The
+  app is connected either way, and its Apps page refreshes when you come back to it.
+- In-chat sign-in links, which Kleio's replies offer, use the Composio session's callback. That's
+  the host's public URL when it has one, whichever way the device connects.
 
 **Errors:** with no key, the list says `configured:false` and the other routes answer 503. A
 Composio error is a 502 `{error:"composio", status, detail}`.
@@ -906,6 +928,11 @@ request. Any other `cwd` is a 404 `no such workspace`.
 - **Responses:** always a download (`content-disposition: attachment`, `nosniff`). HTML, SVG
   and scripts come back as `application/octet-stream`, so nothing an agent writes runs on the
   API origin.
+- **A copy the app has:** each file comes with an `etag` (its size and modified time). A request
+  with `If-None-Match` naming it gets 304 and no body, so the app's cached copy is used rather
+  than the whole file sent again. The `[files]` line says `304 0B`. Any change to the file makes
+  a new tag. Hosts before Phase 2 always send 200: the app then stops reading once it sees its
+  copy's own tag.
 
 **Site previews.** `POST /kleio/previews {owner, path}` returns `{url, expiresAt}`, a link on
 the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, blobId}` or
@@ -922,6 +949,13 @@ the preview port. `owner` is `{kind:"blob", blobId}`, `{kind:"group", groupId, b
 - **Errors:** 400 `not_a_site` (not HTML), 400 `bad_request`, plus the file errors above; 404
   when the host runs without a preview port. A host with neither `KLEIO_PUBLIC_URL` nor
   `KLEIO_PREVIEW_URL` has none: previews need Tailscale for now.
+- **Where the app opens them:** only on the preview origin the pairing gave it (`previewOrigin`),
+  or, for a Tailscale pairing from before pairings gave one, on the host's own name. Anything else
+  the host sends is refused, not opened.
+- **Over the link,** previews still open in the browser over Tailscale. Before asking the host for
+  a link, the app checks the device reaches the preview origin. If it doesn't, it says "Site
+  previews open over Tailscale for now: turn Tailscale on, then open again." A link pairing with no
+  preview origin says "Site previews need Tailscale for now."
 - **Logs:** never include the link's token.
 
 ### Page and PDF capture (`kleio-capture`)
@@ -978,6 +1012,21 @@ each admin device (see [Pair a device](#pair-a-device)).
 **Pushes aren't end-to-end encrypted.** Apple delivers them, and a nudge quotes up to 170
 characters of the reply, question or error (`notification-copy.ts`). Live Activities show
 summaries too. Kleio's link doesn't change that.
+
+**To quote nothing,** an admin device turns off "Quote what was said" in Settings → Connection →
+Notifications (`notification-settings.ts`).
+
+- With it off, notifications and Live Activities still name the conversation, say what happened
+  ("Finished", "Needs your answer") and show a run's steps. They carry no reply, question, error,
+  result or answer choices: a nudge says "Tap to see the result." and the like.
+- So a question can't be answered from the lock screen then. It's answered in Kleio.
+- `GET /kleio/notifications` returns `{quoteText}` to any paired device.
+  `POST /kleio/notifications {quoteText}` is for admin devices.
+- It's kept in `notifications.json` in the state folder (0600 off Windows; it holds no secret),
+  and read at each push. Quoting is on until an admin turns it off. A file that can't be read
+  means quoting off, and the log says so once.
+- The check wraps the APNs pusher itself, so every push to Apple goes through it. A new
+  pairing's alert names only the device and the host, so it's the same either way.
 
 ### Headless and macOS privacy prompts
 

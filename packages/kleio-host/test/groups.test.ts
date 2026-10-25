@@ -1132,7 +1132,10 @@ describe("groups: Live Activity", () => {
 
     // The chat gets the whole question, buttons and all, under the member's id.
     expect((await page(g.id)).asks).toEqual({ [a.id]: prompt });
-    // Someone is watching: the activity says so, without an alert.
+    // Someone is watching: the activity says so, without an alert. The push
+    // goes out after the host reads the notification setting, so it can land
+    // after the chat shows the question.
+    await until(() => lives.some((l) => l.state.phase === "needsYou"));
     const ask = lives.find((l) => l.state.phase === "needsYou");
     expect(ask).toMatchObject({ state: { detail: "Chef: Fish or veg?" } });
     expect(ask?.alert).toBeUndefined();

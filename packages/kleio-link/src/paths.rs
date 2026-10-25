@@ -5,9 +5,7 @@
 //!
 //! Each line names the peer by its key's short form, and says how long after
 //! the connection opened it happened, so "relay at the start, then direct
-//! after x s" reads straight off the log. A direct path to a Tailscale address
-//! is flagged: with the phone's Tailscale on, iroh could go "direct" through
-//! the tailnet, and such a run is invalid.
+//! after x s" reads straight off the log.
 //!
 //! A status screen gets the same lines: [`PathEvents`] keeps a link's latest
 //! path events (not the numbers every [`STATS_EVERY`]), and [`selected`] says
@@ -15,7 +13,6 @@
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::net::IpAddr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime};
 
@@ -90,8 +87,6 @@ pub struct SelectedPath {
     pub direct: bool,
     /// The relay's URL, or the direct path's `ip:port`.
     pub addr: String,
-    /// A direct path to a Tailscale address, which makes a field run invalid.
-    pub tailscale: bool,
     /// Its round-trip time.
     pub rtt: Duration,
 }
@@ -100,15 +95,14 @@ pub struct SelectedPath {
 pub fn selected(conn: &Connection) -> Option<SelectedPath> {
     let list = conn.paths();
     let path = list.iter().find(|path| path.is_selected())?;
-    let (direct, addr, tailscale) = match path.remote_addr() {
-        TransportAddr::Relay(url) => (false, url.to_string(), false),
-        TransportAddr::Ip(addr) => (true, addr.to_string(), is_tailscale(addr.ip())),
-        other => (false, other.to_string(), false),
+    let (direct, addr) = match path.remote_addr() {
+        TransportAddr::Relay(url) => (false, url.to_string()),
+        TransportAddr::Ip(addr) => (true, addr.to_string()),
+        other => (false, other.to_string()),
     };
     Some(SelectedPath {
         direct,
         addr,
-        tailscale,
         rtt: path.rtt(),
     })
 }
@@ -267,12 +261,6 @@ impl fmt::Display for Addr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             TransportAddr::Relay(url) => write!(f, "relay {url}"),
-            TransportAddr::Ip(addr) if is_tailscale(addr.ip()) => {
-                write!(
-                    f,
-                    "direct {addr} (a Tailscale address: this run is invalid)"
-                )
-            }
             TransportAddr::Ip(addr) => write!(f, "direct {addr}"),
             other => write!(f, "{other}"),
         }
@@ -327,20 +315,6 @@ impl fmt::Display for Paths<'_> {
     }
 }
 
-/// Tailscale's address ranges: `100.64.0.0/10` and `fd7a:115c:a1e0::/48`.
-pub(crate) fn is_tailscale(ip: IpAddr) -> bool {
-    match ip.to_canonical() {
-        IpAddr::V4(v4) => {
-            let [first, second, ..] = v4.octets();
-            first == 100 && second & 0xc0 == 0x40
-        }
-        IpAddr::V6(v6) => {
-            let [a, b, c, ..] = v6.segments();
-            [a, b, c] == [0xfd7a, 0x115c, 0xa1e0]
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::SocketAddr;
@@ -371,42 +345,16 @@ mod tests {
     }
 
     #[test]
-    fn flags_a_direct_path_to_a_tailscale_address() {
+    fn a_direct_path_over_tailscale_is_direct_like_any_other() {
+        // Kleio's link is end to end over Tailscale too: nothing to flag.
         assert_eq!(
             Addr(&ip("100.101.102.103:41641")).to_string(),
-            "direct 100.101.102.103:41641 (a Tailscale address: this run is invalid)"
+            "direct 100.101.102.103:41641"
         );
         assert_eq!(
             Addr(&ip("[fd7a:115c:a1e0::5]:41641")).to_string(),
-            "direct [fd7a:115c:a1e0::5]:41641 (a Tailscale address: this run is invalid)"
+            "direct [fd7a:115c:a1e0::5]:41641"
         );
-    }
-
-    #[test]
-    fn knows_tailscales_ranges() {
-        for addr in [
-            "100.64.0.0",
-            "100.100.100.100",
-            "100.127.255.255",
-            "::ffff:100.64.0.1",
-            "fd7a:115c:a1e0::1",
-            "fd7a:115c:a1e0:ffff:ffff:ffff:ffff:ffff",
-        ] {
-            assert!(is_tailscale(addr.parse().unwrap()), "{addr}");
-        }
-        for addr in [
-            "100.63.255.255",
-            "100.128.0.0",
-            "10.0.0.1",
-            "192.168.1.10",
-            "::ffff:192.168.1.10",
-            "fd7a:115c:a1e1::1",
-            "fd7b:115c:a1e0::1",
-            "::1",
-            "2001:db8::1",
-        ] {
-            assert!(!is_tailscale(addr.parse().unwrap()), "{addr}");
-        }
     }
 
     #[test]

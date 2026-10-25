@@ -1,44 +1,99 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { invoke } from "@tauri-apps/api/core";
-import { ConnectionPage, formatLatency } from "./ConnectionPage";
-import { RESTART_HOST } from "./connectionDiagnosis";
-import { hostHealth } from "./kleioApi";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import { relaunch } from "@tauri-apps/plugin-process";
+// The link's ticket vectors, which kleio-host's and the link's own tests read too.
+import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
+import { toast } from "../toast";
+import { ConnectionPage, formatLatency, N0_RELAY_LINE } from "./ConnectionPage";
+import { forgetHint } from "./ForgetHost";
+import { RESTART_HOST, RESTART_LINK, START_HOST } from "./connectionDiagnosis";
+import { hostHealth, KleioApiError, notificationSettings, setQuoteText } from "./kleioApi";
+import type * as KleioApi from "./kleioApi";
 import type { LinkStatus } from "./kleioLink";
-import { kleio, type TailscaleNode, type TailscaleStatus } from "./useKleioRemote";
+import { noTicketWords } from "./PairingOffer";
+import { pairTicket } from "./pairTicket";
+import { encodeQr, qrSvgPath } from "./qr";
+import {
+  kleio,
+  type RemoteStatus,
+  type TailscaleNode,
+  type TailscaleStatus,
+} from "./useKleioRemote";
 import type * as KleioRemote from "./useKleioRemote";
+
+/** This launch's pairing, as useKleioRemote reads it: by address unless a test says otherwise. */
+const remote = vi.hoisted(() => ({ status: null as RemoteStatus | null }));
 
 // Only the Kleio link's commands go through invoke here; everything else the
 // page reads is mocked below.
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  // The real one needs the Tauri bridge. This keeps its handler, for a test to call.
+  Channel: class {
+    onmessage: (message: unknown) => void;
+    constructor(onmessage: (message: unknown) => void = () => {}) {
+      this.onmessage = onmessage;
+    }
+  },
+}));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn(async () => undefined) }));
 vi.mock("../toast", () => ({ toast: vi.fn() }));
-vi.mock("./kleioApi", () => ({ hostHealth: vi.fn() }));
+vi.mock("./kleioApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof KleioApi>()),
+  hostHealth: vi.fn(),
+  notificationSettings: vi.fn(),
+  setQuoteText: vi.fn(),
+}));
 vi.mock("./useKleioRemote", async (importOriginal) => {
   const real = await importOriginal<typeof KleioRemote>();
   return {
     ...real,
-    useKleioRemote: () => ({
-      status: {
-        active: {
-          base: "https://mac-mini-1.tail0000.ts.net:8443",
-          host: "mac-mini-1.tail0000.ts.net",
-          deviceId: "self",
-          label: "Laptop",
-          admin: true,
-        },
-        paired: null,
-      },
-      refresh: vi.fn(),
-    }),
+    useKleioRemote: () => ({ status: remote.status, refresh: vi.fn() }),
     kleio: {
       tailscale: vi.fn(),
       offer: vi.fn(),
       devices: vi.fn(),
       revoke: vi.fn(),
+      pair: vi.fn(),
+      activatePairing: vi.fn(),
+      forget: vi.fn(),
     },
   };
 });
+
+const BY_ADDRESS: RemoteStatus = {
+  active: {
+    base: "https://mac-mini-1.tail0000.ts.net:8443",
+    host: "mac-mini-1.tail0000.ts.net",
+    deviceId: "self",
+    label: "Laptop",
+    admin: true,
+  },
+  // The pairing on disk this launch booted with. (None, with a pairing
+  // active, is one forgotten in this launch.)
+  paired: {
+    baseUrl: "https://mac-mini-1.tail0000.ts.net:8443",
+    host: "mac-mini-1.tail0000.ts.net",
+    deviceId: "self",
+    label: "Laptop",
+    admin: true,
+    pairedAt: "2026-10-01T09:00:00Z",
+  },
+};
+
+const [VECTOR] = vectors.good;
+if (VECTOR === undefined) throw new Error("no ticket vectors");
+/** A v4 ticket as kleio-host builds it, for pair code ABC-DEF. */
+const TICKET = VECTOR.ticket;
+
+/** The path a QR code of `text` draws. */
+function qrPath(text: string): string {
+  const qr = encodeQr(text);
+  if (!qr.ok) throw new Error(qr.error);
+  return qrSvgPath(qr.value, 4);
+}
 
 const MINI: TailscaleNode = {
   name: "mac-mini-1",
@@ -74,7 +129,7 @@ async function renderPage(): Promise<void> {
 }
 
 /** Answers the link's commands from `map`; any other is turned away, as a
- *  build without the `kleio-link` feature turns away all of them. */
+ *  Windows or Linux build, which has no link, turns away all of them. */
 function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unknown>): void {
   vi.mocked(invoke).mockImplementation(async (cmd, args) => {
     const fn = map[cmd];
@@ -84,7 +139,9 @@ function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unkn
 }
 
 beforeEach(() => {
+  remote.status = BY_ADDRESS;
   vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
+  vi.mocked(notificationSettings).mockResolvedValue({ quoteText: true });
   vi.mocked(kleio.tailscale).mockResolvedValue(net());
   linkRoutes({});
 });
@@ -92,12 +149,13 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   document.documentElement.classList.remove("platform-ios");
+  localStorage.clear();
 });
 
-/** The verdict under the map, and its checklist rows as "label: text". */
-function verdict(): { box: HTMLElement; checks: string[] } {
+/** The verdict under the map, once the first check is in, and its checklist rows as "label: text". */
+async function verdict(): Promise<{ box: HTMLElement; checks: string[] }> {
   const box = screen.getByRole("region", { name: "Connection check" });
-  const list = within(box).getByRole("list", { name: "What was checked" });
+  const list = await within(box).findByRole("list", { name: "What was checked" });
   const checks = within(list)
     .getAllByRole("listitem")
     .map((li) => [...li.querySelectorAll("span")].map((s) => s.textContent).join(": "));
@@ -107,7 +165,7 @@ function verdict(): { box: HTMLElement; checks: string[] } {
 describe("ConnectionPage", () => {
   it("says it's connected, what it checked, and how quick the Mac mini is", async () => {
     await renderPage();
-    const { box, checks } = verdict();
+    const { box, checks } = await verdict();
     expect(within(box).getByRole("heading", { name: "Connected to mac-mini-1" })).toBeTruthy();
     expect(checks).toEqual([
       "Tailscale on this Mac: On, as laptop",
@@ -140,7 +198,7 @@ describe("ConnectionPage", () => {
       }),
     );
     await renderPage();
-    const { box, checks } = verdict();
+    const { box, checks } = await verdict();
     expect(
       within(box).getByRole("heading", { name: "Tailscale is turned off on this Mac" }),
     ).toBeTruthy();
@@ -164,7 +222,7 @@ describe("ConnectionPage", () => {
       Object.assign(new Error("Bad gateway"), { status: 502 }),
     );
     await renderPage();
-    const { box } = verdict();
+    const { box } = await verdict();
     expect(
       within(box).getByRole("heading", { name: "Kleio on mac-mini-1 isn't answering" }),
     ).toBeTruthy();
@@ -181,7 +239,7 @@ describe("ConnectionPage", () => {
     document.documentElement.classList.add("platform-ios");
     vi.mocked(hostHealth).mockRejectedValue(new Error("dns error: failed to lookup address"));
     await renderPage();
-    const { box, checks } = verdict();
+    const { box, checks } = await verdict();
     expect(
       within(box).getByRole("heading", { name: "This iPhone can't find mac-mini-1" }),
     ).toBeTruthy();
@@ -192,32 +250,80 @@ describe("ConnectionPage", () => {
     expect(screen.queryByRole("region", { name: "Tailscale" })).toBeNull();
   });
 
-  it("shows a one-time pair code and the address to type into the iPhone app", async () => {
+  it("Pair a device draws the host's link ticket: an iPhone scans it, a Mac pastes its text", async () => {
     vi.mocked(kleio.offer).mockResolvedValue({
       display: "ABC-DEF",
       expiresAt: Date.now() + 5 * 60_000,
       admin: false,
+      ticket: TICKET,
+      ticketError: null,
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Show pairing QR" }));
-    const qr = await screen.findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
-    // A phone pair code, never an admin one.
+    const card = screen.getByRole("region", { name: "Pair a device" });
+    fireEvent.click(within(card).getByRole("button", { name: "Show pairing QR" }));
+    const qr = await within(card).findByRole("img", {
+      name: "Pairing QR code for pair code ABC-DEF",
+    });
+    // A pair code for a device, never an admin one.
     expect(kleio.offer).toHaveBeenCalledWith(false);
-    expect(qr.querySelector("path")?.getAttribute("d")).toMatch(/^M\d+ \d+h1v1h-1z/);
-    expect(screen.getByText("ABC-DEF")).toBeTruthy();
-    // The iPhone app pairs by typing: it needs the host's address too.
-    const steps = within(screen.getByRole("region", { name: "iPhone" })).getByRole("list");
-    expect(within(steps).getByText("https://mac-mini-1.tail0000.ts.net:8443")).toBeTruthy();
-    expect(within(steps).getByText("Pair with your host")).toBeTruthy();
-    expect(screen.getByText(/expires in [45]:\d\d/)).toBeTruthy();
+    expect(qr.querySelector("path")?.getAttribute("d")).toBe(qrPath(TICKET));
+    expect(within(card).getByLabelText("Pairing text, for a Mac")).toHaveProperty("value", TICKET);
+    // Nothing to type: the host's address is no part of it, nor Tailscale.
+    expect(within(card).queryByText("https://mac-mini-1.tail0000.ts.net:8443")).toBeNull();
+    expect(within(card).queryByText(/Tailscale/)).toBeNull();
+    expect(within(card).getByText(/expires in [45]:\d\d/)).toBeTruthy();
+    // Done checks the connection again, as a pairing may have changed it.
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Done" }));
+    });
+    expect(hostHealth).toHaveBeenCalledTimes(2);
+    expect(within(card).getByRole("button", { name: "Show pairing QR" })).toBeTruthy();
   });
 
-  it("lists devices after Touch ID and asks before removing one", async () => {
+  it("with no link ticket, Pair a device says why, and draws today's Tailscale QR code to go with the address", async () => {
+    vi.mocked(kleio.offer).mockResolvedValue({
+      display: "ABC-DEF",
+      expiresAt: Date.now() + 5 * 60_000,
+      admin: false,
+      ticket: null,
+      ticketError: "no_link",
+    });
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Pair a device" });
+    fireEvent.click(within(card).getByRole("button", { name: "Show pairing QR" }));
+    const qr = await within(card).findByRole("img", {
+      name: "Pairing QR code for pair code ABC-DEF",
+    });
+    expect(within(card).getByText(noTicketWords("no_link"))).toBeTruthy();
+    const base = "https://mac-mini-1.tail0000.ts.net:8443";
+    const v2 = pairTicket(base, "ABC-DEF");
+    if (!v2.ok) throw new Error(v2.error);
+    expect(qr.querySelector("path")?.getAttribute("d")).toBe(qrPath(v2.value));
+    const steps = within(card).getByRole("list");
+    expect(within(steps).getByText(base)).toBeTruthy();
+    expect(within(steps).getByText("ABC-DEF")).toBeTruthy();
+    expect(within(steps).getByText("Pair with your host")).toBeTruthy();
+  });
+
+  it("only an admin pairs another device; the card says how to on the host", async () => {
+    const active = BY_ADDRESS.active;
+    if (active === null) throw new Error("BY_ADDRESS has a pairing");
+    remote.status = { ...BY_ADDRESS, active: { ...active, admin: false } };
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Pair a device" });
+    expect(within(card).getByText(/^Only an admin device can pair another device\./)).toBeTruthy();
+    expect(within(card).getByText("kleio-host pair")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+  });
+
+  it("lists devices after Touch ID, marks the ones paired this week New, and asks before revoking one", async () => {
+    const DAY = 24 * 60 * 60_000;
+    const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
     vi.mocked(kleio.devices).mockResolvedValue([
       {
         deviceId: "self",
         label: "Laptop",
-        createdAt: "2026-09-01T00:00:00Z",
+        created: ago(DAY),
         lastSeen: null,
         revoked: false,
         admin: true,
@@ -225,8 +331,16 @@ describe("ConnectionPage", () => {
       {
         deviceId: "p1",
         label: "Sam's iPhone",
-        createdAt: "2026-09-02T00:00:00Z",
+        created: ago(2 * 60 * 60_000),
         lastSeen: null,
+        revoked: false,
+        admin: false,
+      },
+      {
+        deviceId: "p2",
+        label: "Old iPad",
+        created: ago(30 * DAY),
+        lastSeen: ago(DAY),
         revoked: false,
         admin: false,
       },
@@ -235,34 +349,192 @@ describe("ConnectionPage", () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Show devices" }));
     const devices = screen.getByRole("region", { name: "Devices" });
-    await within(devices).findByText("Sam's iPhone");
-    // This Mac can't remove itself.
-    expect(within(devices).queryByRole("button", { name: "Remove Laptop" })).toBeNull();
-    fireEvent.click(within(devices).getByRole("button", { name: "Remove Sam's iPhone" }));
+    const row = async (label: string): Promise<HTMLElement> => {
+      const li = (await within(devices).findByText(label)).closest("li");
+      if (!li) throw new Error(`no row for ${label}`);
+      return li;
+    };
+    // Paired two hours ago: New, and when it paired, as the host names it.
+    const sam = await row("Sam's iPhone");
+    expect(within(sam).getByText("New")).toBeTruthy();
+    expect(within(sam).getByText("Paired 2 h ago")).toBeTruthy();
+    // This Mac, new as it is, and last month's device aren't.
+    expect(within(await row("Laptop")).queryByText("New")).toBeNull();
+    expect(within(await row("Old iPad")).queryByText("New")).toBeNull();
+    // This Mac can't revoke itself.
+    expect(
+      within(devices).queryByRole("button", { name: "Revoke this device: Laptop" }),
+    ).toBeNull();
+    fireEvent.click(within(sam).getByRole("button", { name: "Revoke this device: Sam's iPhone" }));
     expect(kleio.revoke).not.toHaveBeenCalled();
-    fireEvent.click(within(devices).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(sam).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(kleio.revoke).toHaveBeenCalledWith("p1"));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Sam's iPhone revoked.", "success"));
   });
 });
 
-describe("ConnectionPage — Kleio link (connection prototype)", () => {
+describe("ConnectionPage — Forget host", () => {
+  it("asks first, then forgets the host, and says it applies at the next launch", async () => {
+    vi.mocked(kleio.forget).mockImplementation(async () => {
+      remote.status = { ...BY_ADDRESS, paired: null };
+    });
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<ConnectionPage />);
+    });
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    expect(within(host).getByText(forgetHint())).toBeTruthy();
+    expect(forgetHint()).toBe(
+      "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it.",
+    );
+    // Keep puts it back as it was, and nothing was forgotten.
+    fireEvent.click(within(host).getByRole("button", { name: "Keep" }));
+    expect(within(host).queryByText(forgetHint())).toBeNull();
+    expect(kleio.forget).not.toHaveBeenCalled();
+
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    expect(kleio.forget).toHaveBeenCalledTimes(1);
+    // Read again: the pairing is gone from disk, and this launch still runs on it.
+    await act(async () => {
+      view?.rerender(<ConnectionPage />);
+    });
+    const after = screen.getByRole("region", { name: "Host" });
+    expect(within(after).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(within(after).getByRole("status").textContent).toMatch(
+      /^You just forgot the host\. Restart Kleio to apply/,
+    );
+  });
+
+  it("on the iPhone, says Kleio disconnects the next time it's opened", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderPage();
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    expect(
+      within(host).getByText(
+        "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says why when forgetting fails, and keeps the pairing", async () => {
+    vi.mocked(kleio.forget).mockRejectedValue(new Error("couldn't remove remote.json"));
+    await renderPage();
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    expect(within(host).getByRole("alert").textContent).toMatch(/remote\.json/);
+    expect(within(host).queryByRole("status")).toBeNull();
+  });
+
+  it("isn't offered with no pairing at all", async () => {
+    remote.status = { active: null, paired: null };
+    await renderPage();
+    const host = screen.getByRole("region", { name: "Host" });
+    expect(within(host).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(within(host).queryByRole("status")).toBeNull();
+  });
+});
+
+describe("ConnectionPage — Notifications", () => {
+  const QUOTE = { name: "Quote what was said" };
+  const ON =
+    "They quote the start of a reply, question or error, and some questions can be answered from the lock screen.";
+  const OFF =
+    "They say what happened, such as Finished or Needs your answer, but quote nothing. Questions are answered in Kleio.";
+
+  /** The card and its switch, once the host's setting is in. */
+  async function notifications(): Promise<{ box: HTMLElement; quote: HTMLInputElement }> {
+    await renderPage();
+    const box = screen.getByRole("region", { name: "Notifications" });
+    const quote = within(box).getByRole("checkbox", QUOTE);
+    if (!(quote instanceof HTMLInputElement)) throw new Error("not a checkbox");
+    await waitFor(() => expect(within(box).queryByText("Checking…")).toBeNull());
+    return { box, quote };
+  }
+
+  it("says they come through Apple, and an admin device turns quoting off", async () => {
+    vi.mocked(setQuoteText).mockResolvedValue({ quoteText: false });
+    const { box, quote } = await notifications();
+    expect(
+      within(box).getByText(
+        "iPhone notifications and Live Activities come through Apple, so they aren't end-to-end encrypted like your chats.",
+      ),
+    ).toBeTruthy();
+    expect([quote.checked, quote.disabled]).toEqual([true, false]);
+    const words = (): string | null =>
+      document.getElementById(quote.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+    expect(words()).toBe(ON);
+    fireEvent.click(quote);
+    await waitFor(() => expect(quote.checked).toBe(false));
+    expect(setQuoteText).toHaveBeenCalledWith(false);
+    expect(words()).toBe(OFF);
+    expect(within(box).queryByText("Only an admin device can change this.")).toBeNull();
+  });
+
+  it("shows another device the host's choice, which only an admin device changes", async () => {
+    vi.mocked(notificationSettings).mockResolvedValue({ quoteText: false });
+    const active = BY_ADDRESS.active;
+    if (active === null) throw new Error("BY_ADDRESS has a pairing");
+    remote.status = { ...BY_ADDRESS, active: { ...active, admin: false } };
+    const { box, quote } = await notifications();
+    expect([quote.checked, quote.disabled]).toEqual([false, true]);
+    expect(within(box).getByText(OFF)).toBeTruthy();
+    expect(within(box).getByText("Only an admin device can change this.")).toBeTruthy();
+  });
+
+  it("a save that fails says why, and the switch stays as the host has it", async () => {
+    vi.mocked(setQuoteText).mockRejectedValue(new KleioApiError(0, "request timed out"));
+    const { box, quote } = await notifications();
+    fireEvent.click(quote);
+    expect(await within(box).findByRole("alert")).toBeTruthy();
+    expect(quote.checked).toBe(true);
+    expect(within(box).getByText(ON)).toBeTruthy();
+  });
+
+  it("a host from before the setting: says to update it, with no switch", async () => {
+    vi.mocked(notificationSettings).mockRejectedValue(new KleioApiError(404, "not found"));
+    await renderPage();
+    const box = screen.getByRole("region", { name: "Notifications" });
+    expect(
+      await within(box).findByText(
+        "Kleio on mac-mini-1 can't leave text out of notifications yet. Update it to choose.",
+      ),
+    ).toBeTruthy();
+    expect(within(box).queryByRole("checkbox")).toBeNull();
+  });
+});
+
+describe("ConnectionPage — Kleio's link", () => {
   const EVENT_AT = Date.UTC(2026, 9, 17, 13, 6, 21);
-  /** A link in use, through the relay; `over` replaces fields. */
+  const N0 = "https://euc1-1.relay.n0.iroh.link./";
+  /** A link in use, through n0's relay; `over` replaces fields. */
   function link(over: Partial<LinkStatus> = {}): LinkStatus {
     return {
       paired: true,
       active: true,
       running: true,
       error: null,
-      mode: "auto",
       host: "mac-mini-1.tail0000.ts.net",
-      hostKey: "ab12cd34".padEnd(64, "0"),
-      relay: "https://euc1-1.relay.n0.iroh.link./",
+      hostKey: "ab12cd34ef".padEnd(64, "0"),
+      relay: N0,
+      relayN0: true,
       refused: null,
+      refusal: null,
       connected: true,
+      dialling: false,
+      unreached: null,
+      lastReachedMs: EVENT_AT,
       path: "relay",
-      pathAddr: "https://euc1-1.relay.n0.iroh.link./",
-      tailscale: false,
+      pathAddr: N0,
+      pathN0: true,
+      rateLimited: false,
       rttMs: 55,
       connectedSinceMs: EVENT_AT,
       redials: 0,
@@ -273,10 +545,23 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
     };
   }
 
+  /** This launch reaches the host over the link, as the boot read gives it. */
+  function onTheLink(over: Partial<LinkStatus> = {}): void {
+    const base = "http://link.kleio.invalid";
+    const active = { ...BY_ADDRESS.active, base } as RemoteStatus["active"];
+    remote.status = { ...BY_ADDRESS, active };
+    linkRoutes({ kleio_link_status: () => link(over) });
+  }
+
+  /** Not answering: nothing came back in time. */
+  function noAnswer(): void {
+    vi.mocked(hostHealth).mockRejectedValue(new Error("request timed out"));
+  }
+
   /** The card, once the page has read the link. */
   async function card(): Promise<HTMLElement> {
     await renderPage();
-    return screen.findByRole("region", { name: "Kleio link (prototype)" });
+    return screen.findByRole("region", { name: "Kleio's link" });
   }
 
   /** A fact's value, by its label. */
@@ -285,42 +570,174 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
     return dt.nextElementSibling?.textContent ?? "";
   }
 
+  /** Opens one of the card's disclosures, as a click on its summary does. */
+  function open(box: HTMLElement, summary: string): HTMLElement {
+    const row = within(box).getByText(summary, { selector: "summary" });
+    const details = row.closest("details");
+    if (!details) throw new Error(`${summary} isn't a disclosure`);
+    expect(details.open).toBe(false);
+    fireEvent.click(row);
+    expect(details.open).toBe(true);
+    return details;
+  }
+
   it("isn't there in a build without the link", async () => {
     await renderPage();
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("kleio_link_status"));
     await act(async () => {});
-    expect(screen.queryByRole("region", { name: "Kleio link (prototype)" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Kleio's link" })).toBeNull();
     // The rest of the page is today's.
     expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
   });
 
-  it("shows the path, round trip, relay, redials, last resume and path events", async () => {
-    linkRoutes({
-      kleio_link_status: () =>
-        link({
-          path: "direct",
-          pathAddr: "192.168.4.68:52617",
-          rttMs: 2,
-          redials: 3,
-          lastResumeMs: 340,
-          events: [
-            { atMs: EVENT_AT, text: "6ef5181507 +0.0s connected: relay (selected)" },
-            {
-              atMs: EVENT_AT + 17_400,
-              text: "6ef5181507 +17.4s path selected: direct 192.168.4.68:52617",
-            },
-          ],
-        }),
+  it("over the link, gives the link's own verdict, and never asks Tailscale", async () => {
+    onTheLink();
+    await renderPage();
+    const { box, checks } = await verdict();
+    expect(within(box).getByRole("heading", { name: "Connected to mac-mini-1" })).toBeTruthy();
+    expect(box.textContent).toContain(
+      "Through the relay. n0's public relay is shared and rate-limited, so big files are slower.",
+    );
+    expect(checks).toEqual([
+      "Kleio's link on this Mac: Connected",
+      "Path: Through n0's public relay",
+      "Kleio on mac-mini-1: Running",
+    ]);
+    expect(kleio.tailscale).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Tailscale" })).toBeNull();
+    // The host by its name: over the link there's no address to show.
+    const host = screen.getByRole("region", { name: "Host" });
+    expect(fact(host, "Name")).toBe("mac-mini-1.tail0000.ts.net");
+    expect(within(host).queryByText("http://link.kleio.invalid")).toBeNull();
+    expect(
+      [...document.querySelectorAll(".conn-link-label")].map((label) => label.textContent),
+    ).toEqual(["Kleio's link", "Kleio's link"]);
+  });
+
+  it("over the link, a host that doesn't answer is asleep or offline, with the restart for its OS", async () => {
+    localStorage.setItem("kleio.hostKind", JSON.stringify({ os: "darwin", laptop: false }));
+    noAnswer();
+    onTheLink({
+      connected: false,
+      path: null,
+      pathAddr: null,
+      pathN0: false,
+      lastReachedMs: Date.now() - 3 * 60_000,
+      unreached: { kind: "host-silent", relays: [] },
+    });
+    await renderPage();
+    const { box } = await verdict();
+    expect(
+      within(box).getByRole("heading", { name: "mac-mini-1 is asleep or offline" }),
+    ).toBeTruthy();
+    expect(within(box).getByText("Last reached 3 min ago.")).toBeTruthy();
+    expect([...box.querySelectorAll(".conn-command code")].map((c) => c.textContent)).toEqual([
+      RESTART_LINK,
+    ]);
+    // Nothing on the page talks of Tailscale.
+    expect(within(box).queryByText(/Tailscale/)).toBeNull();
+  });
+
+  it("over the link, the host's link answering for a stopped Kleio gives its restart", async () => {
+    localStorage.setItem("kleio.hostKind", JSON.stringify({ os: "linux", laptop: false }));
+    vi.mocked(hostHealth).mockRejectedValue(new KleioApiError(502, "kleio_down"));
+    onTheLink();
+    await renderPage();
+    const { box } = await verdict();
+    expect(
+      within(box).getByRole("heading", { name: "Kleio on mac-mini-1 isn't running" }),
+    ).toBeTruthy();
+    expect([...box.querySelectorAll(".conn-command code")].map((c) => c.textContent)).toEqual([
+      START_HOST,
+    ]);
+  });
+
+  it("says the link is end-to-end encrypted, what isn't, and what n0's relay is", async () => {
+    onTheLink();
+    const box = await card();
+    expect(
+      within(box).getByText(
+        "Your chats travel end-to-end encrypted between this Mac and mac-mini-1. Relays pass them on but can't read them.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(box).getByText(
+        "iPhone notifications and Live Activities aren't end-to-end encrypted: Apple delivers them, with the start of a reply, question or error.",
+      ),
+    ).toBeTruthy();
+    expect(within(box).getByText(N0_RELAY_LINE)).toBeTruthy();
+    // What was measured: Phase 2's EE 4G connections all went through the relay, too.
+    expect(N0_RELAY_LINE).toMatch(/on EE 4G no connection went direct\.$/);
+    expect(fact(box, "Path")).toBe("Through n0's public relay");
+    expect(fact(box, "Relay")).toBe("n0's public relay euc1-1.relay.n0.iroh.link");
+    expect(within(box).getByText("Relay", { selector: ".badge" })).toBeTruthy();
+  });
+
+  it("says notifications quote nothing once the host leaves the text out", async () => {
+    vi.mocked(notificationSettings).mockResolvedValue({ quoteText: false });
+    onTheLink();
+    const box = await card();
+    expect(
+      await within(box).findByText(
+        "iPhone notifications and Live Activities aren't end-to-end encrypted: Apple delivers them, but they quote nothing that was said.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("on the iPhone, of its own notifications; through the host's own relay, nothing of n0's", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const own = "https://relay.example.com./";
+    onTheLink({ relay: own, relayN0: false, pathAddr: own, pathN0: false });
+    const box = await card();
+    expect(
+      within(box).getByText(
+        "Your chats travel end-to-end encrypted between this iPhone and mac-mini-1. Relays pass them on but can't read them.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(box).getByText(
+        "Notifications and Live Activities aren't end-to-end encrypted: Apple delivers them, with the start of a reply, question or error.",
+      ),
+    ).toBeTruthy();
+    expect(within(box).queryByText(N0_RELAY_LINE)).toBeNull();
+    expect(fact(box, "Path")).toBe("Through your relay (relay.example.com)");
+    expect(fact(box, "Relay")).toBe("relay.example.com");
+  });
+
+  it("says when a relay is slowing it", async () => {
+    onTheLink({ rateLimited: true });
+    const box = await card();
+    expect(within(box).getByText("Slowed", { selector: ".badge" })).toBeTruthy();
+    expect(fact(box, "Path")).toBe("Through n0's public relay, slowed by the relay");
+  });
+
+  it("shows the path, round trip and relay, and the rest under Details", async () => {
+    onTheLink({
+      path: "direct",
+      pathAddr: "192.168.4.68:52617",
+      pathN0: false,
+      rttMs: 2,
+      redials: 3,
+      lastResumeMs: 340,
+      events: [
+        { atMs: EVENT_AT, text: "6ef5181507 +0.0s connected: relay (selected)" },
+        {
+          atMs: EVENT_AT + 17_400,
+          text: "6ef5181507 +17.4s path selected: direct 192.168.4.68:52617",
+        },
+      ],
     });
     const box = await card();
     expect(within(box).getByText("Direct", { selector: ".badge" })).toBeTruthy();
     expect(fact(box, "Path")).toBe("Direct 192.168.4.68:52617");
     expect(fact(box, "Round trip")).toBe("2 ms");
-    expect(fact(box, "Relay")).toBe("https://euc1-1.relay.n0.iroh.link./");
-    expect(fact(box, "Connected")).toMatch(/^Since /);
-    expect(fact(box, "Redials")).toBe("3");
-    expect(fact(box, "Last resume")).toBe("340 ms");
-    const events = within(box).getByRole("list", { name: "Path events" });
+    expect(fact(box, "Relay")).toBe("n0's public relay euc1-1.relay.n0.iroh.link");
+    const details = open(box, "Details");
+    expect(fact(details, "Connected")).toMatch(/^Since /);
+    expect(fact(details, "Redials")).toBe("3");
+    expect(fact(details, "Last resume")).toBe("340 ms");
+    expect(fact(details, "Host key")).toBe("ab12cd34ef…");
+    const events = within(details).getByRole("list", { name: "Path events" });
     expect(
       within(events)
         .getAllByRole("listitem")
@@ -337,9 +754,9 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
       atMs: EVENT_AT + i * 1_000,
       text: `6ef5181507 +${i}.0s path event ${i + 1}`,
     }));
-    linkRoutes({ kleio_link_status: () => link({ events }) });
-    const box = await card();
-    const scroll = within(box).getByRole("region", { name: "Path events" });
+    onTheLink({ events });
+    const details = open(await card(), "Details");
+    const scroll = within(details).getByRole("region", { name: "Path events" });
     expect(scroll.getAttribute("tabindex")).toBe("0");
     const shown = within(scroll)
       .getAllByRole("listitem")
@@ -348,62 +765,64 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
   });
 
   it("has the events box before the first event, so it moves nothing", async () => {
-    linkRoutes({ kleio_link_status: () => link({ events: [] }) });
-    const box = await card();
-    const scroll = within(box).getByRole("region", { name: "Path events" });
+    onTheLink({ events: [] });
+    const details = open(await card(), "Details");
+    const scroll = within(details).getByRole("region", { name: "Path events" });
     expect(within(scroll).getByText("None yet.")).toBeTruthy();
   });
 
-  it("says plainly when the direct path is to a Tailscale address", async () => {
-    const text =
-      "6ef5181507 +17.4s path opened: direct 100.73.82.118:49382 (a Tailscale address: this run is invalid)";
-    linkRoutes({
-      kleio_link_status: () =>
-        link({
-          path: "direct",
-          pathAddr: "100.73.82.118:49382",
-          tailscale: true,
-          events: [{ atMs: EVENT_AT, text }],
-        }),
+  it("takes a direct path over Tailscale for what it is: direct", async () => {
+    const text = "6ef5181507 +17.4s path opened: direct 100.73.82.118:49382";
+    onTheLink({
+      path: "direct",
+      pathAddr: "100.73.82.118:49382",
+      pathN0: false,
+      events: [{ atMs: EVENT_AT, text }],
     });
     const box = await card();
-    expect(within(box).getByText("Tailscale path", { selector: ".badge" })).toBeTruthy();
-    const alert = within(box).getByRole("alert");
-    expect(alert.textContent).toMatch(/direct path is to a Tailscale address/);
-    expect(alert.textContent).toMatch(/100\.73\.82\.118:49382/);
-    expect(alert.textContent).toMatch(/doesn't count/);
-    expect(within(box).getByText(text).closest("li")?.className).toBe("is-warn");
+    expect(within(box).getByText("Direct", { selector: ".badge" })).toBeTruthy();
+    expect(within(box).queryByRole("alert")).toBeNull();
+    expect(within(open(box, "Details")).getByText(text).closest("li")?.className).toBe("");
   });
 
-  it("switches between Auto and Relay only", async () => {
-    let mode: LinkStatus["mode"] = "auto";
-    linkRoutes({
-      kleio_link_status: () => link({ mode }),
-      kleio_link_set_mode: (args) => {
-        expect(args).toEqual({ mode: "relayOnly" });
-        mode = "relayOnly";
-        return link({ mode });
-      },
+  it("has no mode switch: the link finds its own path", async () => {
+    onTheLink();
+    const box = await card();
+    expect(within(box).queryByRole("radiogroup")).toBeNull();
+    expect(within(box).queryByText("Relay only")).toBeNull();
+    expect(within(box).queryByText("Mode")).toBeNull();
+  });
+
+  it("when the host has turned this device away, the verdict says so and how to pair again", async () => {
+    noAnswer();
+    onTheLink({
+      connected: false,
+      path: null,
+      pathAddr: null,
+      pathN0: false,
+      refused: "This device was removed from your host. Pair it again to use it.",
+      refusal: "revoked",
     });
-    const box = await card();
-    const switcher = within(box).getByRole("radiogroup", { name: "Link mode" });
-    const relayOnly = within(switcher).getByRole("radio", { name: "Relay only" });
-    expect(relayOnly.getAttribute("aria-checked")).toBe("false");
-    fireEvent.click(relayOnly);
-    await waitFor(() => expect(relayOnly.getAttribute("aria-checked")).toBe("true"));
-    expect(within(switcher).getByRole("radio", { name: "Auto" }).getAttribute("aria-checked")).toBe(
-      "false",
-    );
+    await renderPage();
+    const { box } = await verdict();
+    expect(within(box).getByRole("heading", { name: "mac-mini-1 removed this Mac" })).toBeTruthy();
+    expect(box.querySelector(".conn-command code")?.textContent).toBe("kleio-host pair");
+    const linkCard = screen.getByRole("region", { name: "Kleio's link" });
+    expect(within(linkCard).getByText("Turned away", { selector: ".badge" })).toBeTruthy();
   });
 
-  it("says so when the host has turned this device away", async () => {
-    const removed = "This device was removed from your host. Pair it again to use it.";
-    linkRoutes({ kleio_link_status: () => link({ connected: false, refused: removed }) });
+  it("once its link pairing is set aside, says the link stays in use until a restart", async () => {
+    onTheLink({ paired: false });
     const box = await card();
-    expect(within(box).getByRole("alert").textContent).toBe(removed);
+    expect(
+      within(box).getByText(
+        "This Mac's link pairing was removed. Kleio keeps using the link until it restarts.",
+      ),
+    ).toBeTruthy();
+    expect(within(box).queryByText("Not paired over the link.")).toBeNull();
   });
 
-  it("a device paired over Tailscale pairs over the link from the card", async () => {
+  it("a device paired by address pairs over the link from the card, by pasted pairing text on the Mac", async () => {
     const TICKET = JSON.stringify({
       v: 4,
       type: "kleio-pair",
@@ -418,7 +837,7 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
       kleio_link_status: () =>
         paired
           ? link({ active: false, running: false, connected: false })
-          : link({ paired: false, active: false, running: false, debugBuild: true }),
+          : link({ paired: false, active: false, running: false, debugBuild: false }),
       kleio_link_check_ticket: () => ({
         name: "mac-mini-1",
         keyPrefix: "ab12cd34ef",
@@ -426,18 +845,95 @@ describe("ConnectionPage — Kleio link (connection prototype)", () => {
         code: "ABC-DEF",
       }),
       kleio_link_pair: (args) => {
-        expect(args).toEqual({ ticket: TICKET, label: "" });
+        expect(args).toEqual({ ticket: TICKET, label: "", onStage: expect.any(Channel) });
         paired = true;
         return {};
       },
     });
     const box = await card();
+    expect(
+      within(box).getByText(
+        "Reaches your host from anywhere, end-to-end encrypted, with no Tailscale needed.",
+      ),
+    ).toBeTruthy();
     expect(within(box).getByText("Not paired over the link.")).toBeTruthy();
-    fireEvent.change(within(box).getByLabelText(/Pairing ticket/), { target: { value: TICKET } });
-    fireEvent.click(within(box).getByRole("button", { name: "Use ticket" }));
+    fireEvent.change(within(box).getByLabelText("Paste pairing text"), {
+      target: { value: TICKET },
+    });
+    fireEvent.click(within(box).getByRole("button", { name: "Use pairing text" }));
     await within(box).findByText("ab12cd34ef…");
-    fireEvent.click(within(box).getByRole("button", { name: "Pair" }));
+    // The confirm step's, not the one in the closed Advanced form (which
+    // jsdom, unlike a browser, doesn't hide).
+    const confirm = within(box)
+      .getAllByRole("button", { name: "Pair" })
+      .find((button) => !button.closest("details"));
+    if (!confirm) throw new Error("no Pair button in the confirm step");
+    fireEvent.click(confirm);
     await within(box).findByText(/Restart Kleio to use it/);
+  });
+
+  it("pairs by the host's address under Advanced, and says what that replaces", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue({
+      baseUrl: "https://mac-mini-1.tail0000.ts.net:8443",
+      host: "mac-mini-1.tail0000.ts.net",
+      deviceId: "d2",
+      label: "Laptop",
+      admin: false,
+      pairedAt: "2026-10-23T10:00:00Z",
+    });
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    onTheLink();
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    expect(
+      within(advanced).getByText(
+        "Pairing here replaces this Mac's pairing from the next launch. mac-mini-1 still lists the old one until an admin revokes it.",
+      ),
+    ).toBeTruthy();
+    const pair = within(advanced).getByRole("button", { name: "Pair" }) as HTMLButtonElement;
+    expect(pair.disabled).toBe(true);
+    fireEvent.change(within(advanced).getByLabelText("Host URL"), {
+      target: { value: "https://mac-mini-1.tail0000.ts.net:8443" },
+    });
+    fireEvent.change(within(advanced).getByLabelText("Pair code"), {
+      target: { value: "abc-def" },
+    });
+    fireEvent.click(pair);
+    const done = await within(advanced).findByRole("status");
+    expect(kleio.pair).toHaveBeenCalledWith(
+      "https://mac-mini-1.tail0000.ts.net:8443",
+      "ABC-DEF",
+      "",
+    );
+    expect(kleio.activatePairing).toHaveBeenCalledOnce();
+    expect(done.textContent).toMatch(/^Paired over your own network\. Restart Kleio to apply/);
+    fireEvent.click(within(advanced).getByRole("button", { name: "Restart now" }));
+    expect(relaunch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the form and the host's words when a pairing by address fails", async () => {
+    vi.mocked(kleio.pair).mockRejectedValue(
+      new Error("Code not recognised, or it expired. Mint a fresh one on the host."),
+    );
+    onTheLink();
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    fireEvent.change(within(advanced).getByLabelText("Host URL"), {
+      target: { value: "https://mac-mini-1.tail0000.ts.net:8443" },
+    });
+    fireEvent.change(within(advanced).getByLabelText("Pair code"), {
+      target: { value: "ZZZ-ZZZ" },
+    });
+    fireEvent.click(within(advanced).getByRole("button", { name: "Pair" }));
+    const alert = await within(advanced).findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Code not recognised, or it expired. Mint a fresh one on the host.",
+    );
+    expect(kleio.activatePairing).not.toHaveBeenCalled();
+    expect(
+      (within(advanced).getByRole("button", { name: "Pair" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect((within(advanced).getByLabelText("Host URL") as HTMLInputElement).value).toBe(
+      "https://mac-mini-1.tail0000.ts.net:8443",
+    );
   });
 });
 

@@ -95,6 +95,28 @@ export class VideoUnsupportedError extends GGAIError {
   }
 }
 
+/**
+ * The images a user attached to one message are too big to send in one
+ * request (see `clampProviderContextImages`). Older images in the
+ * conversation are dropped to fit; the user's own attachments never are, so a
+ * request they alone overfill fails here, before any upload, rather than
+ * being refused by the provider and retried.
+ */
+export class ImagesTooLargeError extends GGAIError {
+  readonly bytes: number;
+  readonly limit: number;
+  constructor(bytes: number, limit: number) {
+    const mb = (n: number): string => (n / (1024 * 1024)).toFixed(1);
+    super(
+      `The images in this message come to ${mb(bytes)} MB, over the ${mb(limit)} MB one request can carry. Attach fewer or smaller images.`,
+      { source: "capability" },
+    );
+    this.name = "ImagesTooLargeError";
+    this.bytes = bytes;
+    this.limit = limit;
+  }
+}
+
 export class ProviderError extends GGAIError {
   readonly provider: string;
   readonly statusCode?: number;

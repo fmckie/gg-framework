@@ -7,6 +7,7 @@
 // link on its sandboxed preview origin and opens that in the browser.
 
 import { invoke } from "@tauri-apps/api/core";
+import { fileArgs } from "./fileOpen";
 import { errorText } from "./kleioApi";
 import {
   agentFilePath,
@@ -31,17 +32,47 @@ export interface FileInfo {
   mime: string;
   /** A PNG data URL of the first page (Quick Look), or null. */
   thumbnail: string | null;
+  /** Not downloaded: it's over 20 MB and would come through a relay, so the
+   *  card waits for a tap (`HOLD_OVER_BYTES` in kleio/files.rs). */
+  held?: boolean;
 }
 
-export const fetchFile = (owner: FileOwner, path: string): Promise<FileInfo> =>
-  invoke<FileInfo>("kleio_file_fetch", { owner, path });
+/** How much of a file has come from the host (`Progress` in kleio/files.rs):
+ *  when the host answers, every quarter second or so, and at the end. */
+export interface DownloadProgress {
+  received: number;
+  /** The file's size, when the host gave it. */
+  total: number | null;
+  /** Seconds to go at the recent rate, once there's one to go by. */
+  secondsLeft: number | null;
+}
+
+/**
+ * Brings the file here, checked against the host so it's the current version,
+ * and describes it, telling `onProgress` how it's going. `auto`: a card asking
+ * on its own, so through a relay a big file waits for a tap (`held`). The app
+ * downloads each file once, however many ask (`Downloads` in kleio/files.rs).
+ */
+export const fetchFile = async (
+  owner: FileOwner,
+  path: string,
+  onProgress?: (progress: DownloadProgress) => void,
+  auto = false,
+): Promise<FileInfo> =>
+  invoke<FileInfo>("kleio_file_fetch", {
+    ...fileArgs(owner, path, onProgress),
+    ...(auto ? { auto: true } : {}),
+  });
 
 // Opening a file in its app and a web page in the browser load with the app.
 export { openFile, openSite } from "./fileOpen";
 
 /** True when saved, false when the save dialog was cancelled. */
-export const saveFile = (owner: FileOwner, path: string): Promise<boolean> =>
-  invoke<boolean>("kleio_file_save", { owner, path });
+export const saveFile = async (
+  owner: FileOwner,
+  path: string,
+  onProgress?: (progress: DownloadProgress) => void,
+): Promise<boolean> => invoke<boolean>("kleio_file_save", fileArgs(owner, path, onProgress));
 
 export function fileOwner(blobId: string, groupId?: string): FileOwner {
   return groupId ? { kind: "group", groupId, blobId } : { kind: "blob", blobId };
@@ -220,6 +251,23 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${n} bytes`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** About how long a download has to go, in words. */
+function timeLeft(seconds: number): string {
+  if (seconds < 10) return "a few seconds left";
+  if (seconds < 60) return `about ${Math.round(seconds / 5) * 5} seconds left`;
+  const minutes = Math.round(seconds / 60);
+  return minutes === 1 ? "about a minute left" : `about ${minutes} minutes left`;
+}
+
+/** How a download is going: "12.4 MB of 45.0 MB, about 30 seconds left". */
+export function downloadText(p: DownloadProgress): string {
+  if (p.total === null) return `${formatBytes(p.received)} so far`;
+  const done = `${formatBytes(p.received)} of ${formatBytes(p.total)}`;
+  return p.secondsLeft === null || p.received >= p.total
+    ? done
+    : `${done}, ${timeLeft(p.secondsLeft)}`;
 }
 
 /** The Rust/host error as something to show under a file. */

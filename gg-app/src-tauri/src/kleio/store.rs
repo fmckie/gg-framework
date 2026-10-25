@@ -18,6 +18,11 @@ pub struct HostRecord {
     pub admin: bool,
     /// ISO-8601, display only.
     pub paired_at: String,
+    /// Where the host's site previews open, as it said at pairing
+    /// (`files::preview_origin`). Absent from a host without previews, and
+    /// from a record written before hosts said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_origin: Option<String>,
 }
 
 pub fn path(home: &Path) -> PathBuf {
@@ -27,7 +32,14 @@ pub fn path(home: &Path) -> PathBuf {
 pub fn load(home: &Path) -> Option<HostRecord> {
     let raw = std::fs::read_to_string(path(home)).ok()?;
     match serde_json::from_str::<HostRecord>(&raw) {
-        Ok(r) if super::host_url_allowed(&r.base_url) && !r.device_id.is_empty() => Some(r),
+        Ok(mut r) if super::host_url_allowed(&r.base_url) && !r.device_id.is_empty() => {
+            // A preview origin this build won't open is as good as none.
+            r.preview_origin = r
+                .preview_origin
+                .as_deref()
+                .and_then(super::files::preview_origin);
+            Some(r)
+        }
         Ok(_) => {
             log::warn!(
                 "kleio: ignoring ~/.kleio/remote.json (base URL not allowed or no deviceId)"
@@ -93,6 +105,7 @@ mod tests {
             label: "Laptop".into(),
             admin: true,
             paired_at: "2026-09-22T00:00:00Z".into(),
+            preview_origin: Some("https://mac-mini-1.example.ts.net:8444".into()),
         }
     }
 

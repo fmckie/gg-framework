@@ -28,6 +28,8 @@ use kleio_link::host::Config;
 use kleio_link::iroh::endpoint::{Connection, ConnectionError};
 use kleio_link::iroh::{EndpointId, RelayUrl, SecretKey};
 use kleio_link::link::{Link, LinkError, Route};
+use kleio_link::paths::PathEvents;
+use kleio_link::probe::HttpsProbe;
 use kleio_link::ticket::Ticket;
 use kleio_link::{ALPN_HTTP, LINK_HOST};
 use rustls_pki_types::CertificateDer;
@@ -181,6 +183,17 @@ pub async fn phone(key: SecretKey, route: Route, options: &EndpointOptions) -> L
         .await
         .expect("the phone's endpoint binds");
     Link::new(endpoint, route)
+}
+
+/// [`phone`], as the app's link is: when a dial finds no host, it asks the
+/// relays why.
+pub async fn watched_phone(key: SecretKey, route: Route, options: &EndpointOptions) -> Link {
+    let relays: Vec<RelayUrl> = route.relay().cloned().into_iter().collect();
+    let endpoint = bind_client(key, &relays, options)
+        .await
+        .expect("the phone's endpoint binds");
+    let probe = HttpsProbe::new(&options.trust).expect("a probe");
+    Link::watched(endpoint, route, PathEvents::new(20), probe)
 }
 
 /// `GET path` over `link`, as the app's forwarder passes a request on, with

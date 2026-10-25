@@ -1,20 +1,24 @@
-//! The connection prototype's link (feature `kleio-link`; see
-//! `.gg/plans/kleio-connection-prototype.md`): this app reaching its host over
-//! iroh instead of Tailscale. The kleio-link library does the dialling, the
-//! forwarding, the pairing call and the path log. Prototype only.
+//! Kleio's link (`docs/adr/0002-kleio-link-replaces-tailscale.md`), on macOS
+//! and iOS: this app reaching its host over iroh instead of Tailscale. The
+//! kleio-link library does the dialling, the forwarding, the pairing call and
+//! the path log.
 //!
-//! - **Its own pairing.** `kleio_link_pair` redeems a scanned v4 ticket's
-//!   code on `kleio/pair/0`, in the library's three steps, each failure in
-//!   its own words. It's kept apart from the Tailscale pairing: `link.json`
+//! - **Its own pairing.** `kleio_link_pair` redeems a scanned or pasted v4
+//!   ticket's code on `kleio/pair/0`, in the library's three steps, which it
+//!   tells the webview as each begins, each failure in its own words. It's
+//!   kept apart from the Tailscale pairing: `link.json`
 //!   beside `remote.json` holds the host's key, the relay it was reached
-//!   through, its relay list and direct addresses, and the mode, and the
-//!   Keychain entries go under `link-<host>`, with this device's own iroh
-//!   key. `remote.json` and its token are never touched.
+//!   through, and its relay list and direct addresses, and the Keychain
+//!   entries go under `link-<host>`, with this device's own iroh key.
+//!   `remote.json` and its token are never touched.
 //! - **At boot** a link pairing wins over `remote.json` (`super::from_paired`).
-//!   The host's base URL is then [`LINK_BASE`]: a loopback listener that
-//!   carries each of the app's connections over one cached connection to the
+//!   Pairing by the host's address instead (`kleio_pair`, the Connection
+//!   page's "Advanced: connect over your own network") sets it aside. The
+//!   app's requests to the host then go to the link's socket
+//!   ([`socket_path`]), which only this process can use, and the link
+//!   carries each of their connections over one cached connection to the
 //!   host, dialled again when it has closed, within 10 s. The boot read binds
-//!   the listener before it hands that URL out, so nothing can send to it
+//!   the socket before it hands the pairing out, so nothing can send to it
 //!   before it's up; `setup` then forwards on it.
 //! - **Back on screen** after at least the host's idle timeout in the
 //!   background, it closes the connection and dials again at once: the host
@@ -22,35 +26,66 @@
 //!   absence it tells iroh the network may have changed and dials again only
 //!   if the connection has closed. It times each resume, from coming back on
 //!   screen to the first byte back from the host.
+//! - **Finding the host again:** after each new connection it asks the host
+//!   for its relay list, direct addresses and whether its relay is
+//!   rate-limiting it (`GET /kleio/link`), for the next dial, and keeps the
+//!   list and addresses in `link.json` for the next launch.
+//! - **Why it can't reach the host,** for the app's words
+//!   (`diagnoseLink` in connectionDiagnosis.ts): `kleio_link_status` says
+//!   whether a dial is under way, when the host was last heard, why the last
+//!   dial found no host, and whether a relay is slowing the link: the relay
+//!   said so to this device or the host, or a big download through it came
+//!   slower than [`SLOW_RELAY_BYTES_PER_S`].
 //! - **Logs:** the library writes path events, and each path's numbers every
 //!   30 s, through `tracing`. `LogBridge` passes them, and iroh's warnings, to
 //!   the app's log, and the last 20 path events are kept for the Link card.
 //! - **The pairing QR (iPhone):** the barcode-scanner plugin, registered in
-//!   `lib.rs`. Its permission is granted here, so a build without the feature
-//!   has neither the plugin nor the grant: [`scanner_capability`].
+//!   `lib.rs` for the iPhone only. Its permission is granted here, on the
+//!   iPhone only, so no other build names a plugin it lacks:
+//!   [`scanner_capability`].
 
 use std::fmt;
 use std::future::Future;
+use std::net::SocketAddr;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
-use kleio_link::endpoint::{bind_client, EndpointOptions, Mode, IDLE_TIMEOUT};
+use kleio_link::endpoint::{bind_client, EndpointOptions, IDLE_TIMEOUT};
 use kleio_link::forward::Forward;
-use kleio_link::iroh::{Endpoint, EndpointId, SecretKey};
-use kleio_link::link::{Link, Route};
+use kleio_link::iroh::{Endpoint, EndpointId, RelayUrl, SecretKey};
+use kleio_link::link::{Link, LinkError, Route, Unreached};
 use kleio_link::pair::{pair, PairStage};
 use kleio_link::paths::{PathEvents, PathLine};
 use kleio_link::probe::HttpsProbe;
-use kleio_link::relays::{check_relay_entry, check_relay_url, RelayEntry};
+use kleio_link::relays::{
+    check_relay_entry, check_relay_list, check_relay_url, is_n0_relay, RelayEntry,
+};
 use kleio_link::ticket::{check_direct_addr, Ticket};
+use tauri::ipc::JavaScriptChannelId;
 use tauri::{AppHandle, Manager, State};
 
-use super::{commands, keychain, store, OnScreen, Presence, Remote, LINK_BASE};
+use super::{commands, keychain, store, OnScreen, Presence, Remote, Transport, LINK_BASE};
 
-/// The link's loopback port: [`LINK_BASE`]'s.
-pub const LINK_PORT: u16 = 47821;
+/// The link's socket, which only this process can use
+/// ([`Forward::listen_private`]), in a folder of its own. A socket's path
+/// can't be over 103 bytes here, so on the iPhone it's in the container's
+/// `tmp`: 96 bytes at most, where `Library/Application Support` would make
+/// it 118.
+pub fn socket_path(home: &Path) -> PathBuf {
+    socket_path_on(home, cfg!(target_os = "ios"))
+}
+
+fn socket_path_on(home: &Path, iphone: bool) -> PathBuf {
+    if iphone {
+        home.join("tmp/kl/link")
+    } else {
+        super::state_dir(home).join("run/link.sock")
+    }
+}
 
 /// The scanner commands the main window may call, as 4e grants them: scan,
 /// cancel and the permission checks. Not the plugin's default set, which
@@ -88,48 +123,41 @@ const START_TIMEOUT: Duration = Duration::from_secs(5);
 /// idle timeout closed it.
 const HOST_IDLE_TIMEOUT: Duration = IDLE_TIMEOUT;
 
-/// The Link card's switch, as the webview names it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LinkMode {
-    /// Through the relay at first, then direct once iroh finds a path.
-    #[default]
-    Auto,
-    /// Through the relay only: the endpoint has no IP transports.
-    RelayOnly,
-}
+/// A download through a relay at least this big says how fast the relay lets
+/// bytes through: n0's let the first 5 MiB through faster (2.12 MB/s on
+/// 2026-10-20), then 1.06–1.31 MB/s.
+const SLOW_CHECK_BYTES: u64 = 10_000_000;
 
-impl From<LinkMode> for Mode {
-    fn from(mode: LinkMode) -> Self {
-        match mode {
-            LinkMode::Auto => Mode::Auto,
-            LinkMode::RelayOnly => Mode::RelayOnly,
-        }
-    }
-}
+/// Slower than this through a relay, and the relay is slowing the link.
+const SLOW_RELAY_BYTES_PER_S: f64 = 1_500_000.0;
+
+/// How long the host gets to answer `GET /kleio/link`.
+const LINK_INFO_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ── The link pairing ────────────────────────────────────────────────────────
 
 /// The link pairing, `link.json` beside `remote.json`. Nothing secret: the
 /// device token, the control credential and this device's iroh key are in
-/// the Keychain, under [`keychain_host`].
+/// the Keychain, under [`keychain_host`]. A field it doesn't know, such as
+/// the prototype's `mode`, is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkRecord {
     /// The host's iroh key: the app dials it, and the handshake proves it.
     pub host_key: String,
-    /// The relay the host was on when it paired: dials start there.
+    /// The relay the host was last reached through, at first the one it
+    /// paired through: dials start there.
     pub relay: String,
-    /// The host's relay list, as its ticket gave it: relay addresses, and
-    /// `n0` for n0's relays. A dial tries them all if the host isn't on
-    /// `relay`. Empty in a pairing from before lists.
+    /// The host's relay list, as its ticket gave it and the host has given it
+    /// since (`GET /kleio/link`): relay addresses, and `n0` for n0's relays.
+    /// A dial tries them all if the host isn't on `relay`. Empty in a pairing
+    /// from before lists.
     #[serde(default)]
     pub relays: Vec<String>,
-    /// The host's direct addresses, as its ticket gave them.
+    /// The host's direct addresses, as its ticket gave them and the host has
+    /// given them since.
     #[serde(default)]
     pub addrs: Vec<String>,
-    #[serde(default)]
-    pub mode: LinkMode,
     /// The host's name, as it reports it.
     pub host: String,
     pub device_id: String,
@@ -138,6 +166,10 @@ pub struct LinkRecord {
     pub admin: bool,
     /// ISO-8601, display only.
     pub paired_at: String,
+    /// Where the host's site previews open, over Tailscale for now
+    /// (`files::preview_origin`). Absent from a host without Tailscale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_origin: Option<String>,
 }
 
 /// A link pairing that passed its checks, and the route to the host from it.
@@ -172,7 +204,18 @@ fn load(home: &Path) -> Option<Loaded> {
         log::warn!("kleio-link: ignoring link.json (bad host key, relay, host or device id)");
         return None;
     };
-    Some(Loaded { record, route })
+    // A preview origin this build won't open is as good as none.
+    let preview_origin = record
+        .preview_origin
+        .as_deref()
+        .and_then(super::files::preview_origin);
+    Some(Loaded {
+        record: LinkRecord {
+            preview_origin,
+            ..record
+        },
+        route,
+    })
 }
 
 /// The route to the host, if the record names one the app can dial. A list
@@ -235,6 +278,7 @@ pub(super) fn paired_record(home: &Path) -> Option<store::HostRecord> {
         label: record.label,
         admin: record.admin,
         paired_at: record.paired_at,
+        preview_origin: record.preview_origin,
     })
 }
 
@@ -272,19 +316,26 @@ fn decode_key(text: &str) -> Option<SecretKey> {
 }
 
 /// What a launch on the link needs to run it: the route to the host, this
-/// device's key, the mode, and the loopback listener the boot read bound.
+/// device's key, and the socket the boot read bound.
 pub struct LinkBoot {
     route: Route,
     key: SecretKey,
-    mode: LinkMode,
-    /// Bound before the link's URL was handed out (`from_link`); `setup`
+    /// Where the link's socket is: every client of the host sends there
+    /// (`commands::host_client`).
+    socket: PathBuf,
+    /// Bound before the pairing was handed out (`from_link`); `setup`
     /// forwards on it.
-    listener: Mutex<Option<std::net::TcpListener>>,
+    listener: Mutex<Option<UnixListener>>,
 }
 
 impl LinkBoot {
+    /// Where the link's socket is.
+    pub fn socket(&self) -> &Path {
+        &self.socket
+    }
+
     /// The listener the boot read bound, for `setup`: once.
-    fn take_listener(&self) -> Option<std::net::TcpListener> {
+    fn take_listener(&self) -> Option<UnixListener> {
         self.listener
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -323,17 +374,18 @@ pub(super) fn from_link() -> Option<Remote> {
     } else {
         None
     };
-    // Whatever sends to the host reads its URL here first, so the boot read
-    // binds the listener before handing the URL out: a request sent before
-    // `setup` forwards, such as the Live Activity token iOS can report as
-    // soon as `live::begin` runs, waits in its backlog instead of being
-    // refused. Later reads bind nothing: after an in-place pairing the link
-    // is listening already (`activate_paired`), and `remote_now`'s isn't
+    // Whatever sends to the host reads the pairing here first, so the boot
+    // read binds the socket before handing the pairing out: a request sent
+    // before `setup` forwards, such as the Live Activity token iOS can
+    // report as soon as `live::begin` runs, waits in its backlog instead of
+    // being refused. Later reads bind nothing: after an in-place pairing the
+    // link is listening already (`activate_paired`), and `remote_now`'s isn't
     // running.
+    let socket = socket_path(&crate::home_dir());
     let listener = if super::BOOT.is_completed() {
         None
     } else {
-        listen_at_boot()
+        listen_at_boot(&socket)
     };
     log::info!(
         "kleio: remote host mode → {} over the link ({})",
@@ -348,25 +400,26 @@ pub(super) fn from_link() -> Option<Remote> {
         device_token,
         control_credential,
         admin: record.admin,
-        link: Some(LinkBoot {
+        preview_origin: record.preview_origin,
+        transport: Transport::Link(Box::new(LinkBoot {
             route,
             key,
-            mode: record.mode,
+            socket,
             listener: Mutex::new(listener),
-        }),
+        })),
     })
 }
 
-/// The link's loopback listener, bound now (see `from_link`). `None` if it
-/// can't be: `setup` then tries again, and says why if it still can't.
-fn listen_at_boot() -> Option<std::net::TcpListener> {
-    match Forward::listen(LINK_PORT) {
+/// The link's socket, listening now (see `from_link`). `None` if it can't
+/// be: `setup` then tries again, and says why if it still can't.
+fn listen_at_boot(path: &Path) -> Option<UnixListener> {
+    match Forward::listen_private(path) {
         Ok(listener) => {
-            log::info!("kleio-link: listening on {LINK_BASE}");
+            log::info!("kleio-link: listening on its socket ({})", path.display());
             Some(listener)
         }
         Err(e) => {
-            log::warn!("kleio-link: can't listen on {LINK_BASE} at boot: {e}");
+            log::warn!("kleio-link: can't listen on its socket at boot: {e}");
             None
         }
     }
@@ -379,7 +432,7 @@ pub struct LinkRuntime {
     running: tokio::sync::Mutex<Option<Running>>,
     /// Why it couldn't start, if it couldn't.
     failure: Mutex<Option<String>>,
-    /// Kept across mode switches, so the card's history goes on.
+    /// The latest path events, for the Link card, kept for the launch.
     events: PathEvents,
     /// When the app went to the background, until it's back on screen.
     away_since: Mutex<Option<WentAway>>,
@@ -396,78 +449,152 @@ impl Default for LinkRuntime {
     }
 }
 
-/// The link while it runs: its endpoint (in the `Link`) and loopback listener.
+/// The link while it runs: its endpoint (in the `Link`) and socket.
 struct Running {
     link: Link,
-    /// Forwarding on the loopback listener; `None` only while a new listener
-    /// takes over (`forward_again`).
+    /// Forwarding on the socket; `None` only while a new listener takes over
+    /// (`forward_again`).
     forward: Option<tauri::async_runtime::JoinHandle<()>>,
-    mode: LinkMode,
-    key: SecretKey,
+    /// Where the socket is.
+    socket: PathBuf,
+    throttle: Arc<Throttle>,
+    /// Asks the host for its relay list after each new connection
+    /// ([`refresh_route`]). It runs until Kleio quits; only the tests stop it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    refresher: tauri::async_runtime::JoinHandle<()>,
+}
+
+/// Signs that a relay is slowing the link, besides this device's own relay
+/// saying so (`Link::rate_limited`).
+#[derive(Debug, Default)]
+struct Throttle {
+    /// The host's relay told the host it's rate-limiting it, as the host last
+    /// said (`GET /kleio/link`).
+    host: AtomicBool,
+    /// The connection a big download through a relay came slower than
+    /// [`SLOW_RELAY_BYTES_PER_S`] on: its number (`Link::watch_connections`)
+    /// plus one; 0 for none.
+    slow_on: AtomicU64,
+}
+
+/// Whether a download of `bytes` in `took` says a relay is slowing the link:
+/// `None` when it can't tell, as for one that went direct, or was too small.
+fn slowed_by_relay(bytes: u64, took: Duration, through_relay: bool) -> Option<bool> {
+    if !through_relay || bytes < SLOW_CHECK_BYTES || took.is_zero() {
+        return None;
+    }
+    Some((bytes as f64 / took.as_secs_f64()) < SLOW_RELAY_BYTES_PER_S)
+}
+
+impl Running {
+    /// The connection open now's number, as [`Throttle::slow_on`] keeps it.
+    fn connection_number(&self) -> u64 {
+        *self.link.watch_connections().borrow()
+    }
+
+    /// Whether a relay is slowing the connection open now: its relay told
+    /// this device or the host so, or a big download through it was slow.
+    fn rate_limited(&self, through_relay: bool) -> bool {
+        through_relay
+            && (self.link.rate_limited()
+                || self.throttle.host.load(Ordering::Acquire)
+                || self.throttle.slow_on.load(Ordering::Acquire)
+                    == self.connection_number().saturating_add(1))
+    }
+
+    /// A download over the link finished: `bytes` in `took`.
+    fn note_download(&self, bytes: u64, took: Duration) {
+        let through_relay = self.link.path().is_some_and(|path| !path.direct);
+        match slowed_by_relay(bytes, took, through_relay) {
+            Some(true) => {
+                log::info!(
+                    "kleio-link: {bytes} bytes through the relay took {:.1} s: the relay is \
+                     slowing the link",
+                    took.as_secs_f64()
+                );
+                let on = self.connection_number().saturating_add(1);
+                self.throttle.slow_on.store(on, Ordering::Release);
+            }
+            Some(false) => self.throttle.slow_on.store(0, Ordering::Release),
+            None => {}
+        }
+    }
 }
 
 impl Running {
     /// The endpoint, then forwarding on `listener` (the boot read's) or on a
-    /// new one on [`LINK_PORT`]. Connections waiting on `listener` are
+    /// new socket at `socket`. Connections waiting on `listener` are
     /// forwarded too; if the endpoint can't start, they're refused as it's
     /// dropped.
     async fn start(
         key: SecretKey,
         route: Route,
-        mode: LinkMode,
         events: PathEvents,
-        listener: Option<std::net::TcpListener>,
+        socket: PathBuf,
+        listener: Option<UnixListener>,
     ) -> Result<Self, String> {
         // The route's relay is the endpoint's only one: the link moves it to
         // whichever relay it finds the host on.
         let relays: Vec<_> = route.relay().cloned().into_iter().collect();
-        let options = EndpointOptions {
-            mode: mode.into(),
-            ..EndpointOptions::default()
-        };
-        let endpoint = bind_client(key.clone(), &relays, &options)
+        let endpoint = bind_client(key, &relays, &EndpointOptions::default())
             .await
             .map_err(|e| format!("the link's endpoint didn't start: {e}"))?;
-        Self::start_on(endpoint, key, route, mode, events, listener).await
+        Self::start_on(endpoint, route, events, socket, listener).await
     }
 
     /// [`start`](Self::start), on an endpoint bound already.
     async fn start_on(
         endpoint: Endpoint,
-        key: SecretKey,
         route: Route,
-        mode: LinkMode,
         events: PathEvents,
-        listener: Option<std::net::TcpListener>,
+        socket: PathBuf,
+        listener: Option<UnixListener>,
     ) -> Result<Self, String> {
         let host = route.key();
-        let link = Link::with_path_events(endpoint, route, events);
+        let link = match HttpsProbe::new(&EndpointOptions::default().trust) {
+            Ok(probe) => Link::watched(endpoint, route, events, probe),
+            Err(e) => {
+                log::warn!("kleio-link: {e}; it won't ask relays why the host isn't there");
+                Link::with_path_events(endpoint, route, events)
+            }
+        };
         let forward = match listener {
-            Some(listener) => Forward::from_std(listener, link.clone()),
-            None => Forward::bind(LINK_PORT, link.clone()).await,
+            Some(listener) => Forward::from_std_private(listener, link.clone()),
+            None => Forward::bind_private(&socket, link.clone()),
         };
         let forward = match forward {
             Ok(forward) => forward,
             Err(e) => {
                 link.endpoint().close().await;
-                return Err(format!("the link couldn't listen on {LINK_BASE}: {e}"));
+                return Err(format!("the link couldn't listen on its socket: {e}"));
             }
         };
-        log::info!(
-            "kleio-link: {LINK_BASE} forwards to {} ({mode:?})",
-            host.fmt_short()
-        );
+        log::info!("kleio-link: its socket forwards to {}", host.fmt_short());
         let forward = Some(tauri::async_runtime::spawn(forward.run()));
+        let throttle = Arc::new(Throttle::default());
+        let refresher = {
+            let (link, throttle) = (link.clone(), throttle.clone());
+            tauri::async_runtime::spawn(async move {
+                let mut made = link.watch_connections();
+                while made.changed().await.is_ok() {
+                    refresh_route(&link, &throttle).await;
+                }
+            })
+        };
         Ok(Self {
             link,
             forward,
-            mode,
-            key,
+            socket,
+            throttle,
+            refresher,
         })
     }
 
     /// Stops listening, then closes the endpoint, which ends its connection.
+    /// Only the tests stop it: in the app the link runs until Kleio quits.
+    #[cfg(test)]
     async fn stop(mut self) {
+        self.refresher.abort();
         self.stop_forwarding().await;
         self.link.endpoint().close().await;
     }
@@ -480,20 +607,16 @@ impl Running {
         }
     }
 
-    /// Forwards on a new listener in place of one iOS took away
+    /// Forwards on a new socket in place of one iOS took away
     /// ([`listen_again`]): `listener` if the main thread could bind one, else
-    /// a new one on `port` once the old has closed. The old listener's task
-    /// never ends by itself: iOS leaves it waiting forever.
-    async fn forward_again(
-        &mut self,
-        listener: Option<std::net::TcpListener>,
-        port: u16,
-    ) -> Result<(), String> {
+    /// a new one at the same path. The old listener's task never ends by
+    /// itself: iOS leaves it waiting forever.
+    async fn forward_again(&mut self, listener: Option<UnixListener>) -> Result<(), String> {
         self.stop_forwarding().await;
         let forward = listener
-            .map_or_else(|| Forward::listen(port), Ok)
-            .and_then(|listener| Forward::from_std(listener, self.link.clone()))
-            .map_err(|e| format!("the link couldn't listen on {LINK_BASE} again: {e}"))?;
+            .map_or_else(|| Forward::listen_private(&self.socket), Ok)
+            .and_then(|listener| Forward::from_std_private(listener, self.link.clone()))
+            .map_err(|e| format!("the link couldn't listen on its socket again: {e}"))?;
         self.forward = Some(tauri::async_runtime::spawn(forward.run()));
         Ok(())
     }
@@ -501,59 +624,33 @@ impl Running {
 
 impl LinkRuntime {
     /// Starts the link, unless it's running already, forwarding on
-    /// `listener` if there's one (the boot read's).
+    /// `listener` if there's one (the boot read's), else on a new socket at
+    /// `socket`.
     async fn start(
         &self,
         key: SecretKey,
         route: Route,
-        mode: LinkMode,
-        listener: Option<std::net::TcpListener>,
+        socket: PathBuf,
+        listener: Option<UnixListener>,
     ) -> Result<(), String> {
         let mut running = self.running.lock().await;
         if running.is_some() {
             return Ok(());
         }
-        let started = Running::start(key, route, mode, self.events.clone(), listener).await;
+        let started = Running::start(key, route, self.events.clone(), socket, listener).await;
         self.set_failure(started.as_ref().err().cloned());
         *running = Some(started?);
         Ok(())
     }
 
-    /// Runs the link in `mode`. Relay only is an endpoint without IP
-    /// transports, so a running link starts again with a new endpoint and
-    /// listener; one that isn't running takes `mode` when it next starts.
-    async fn switch(&self, mode: LinkMode) -> Result<(), String> {
-        let mut running = self.running.lock().await;
-        let Some(current) = running.take() else {
-            return Ok(());
-        };
-        if current.mode == mode {
-            *running = Some(current);
-            return Ok(());
-        }
-        let (key, route) = (current.key.clone(), current.link.route());
-        current.stop().await;
-        let started = Running::start(key, route, mode, self.events.clone(), None).await;
-        self.set_failure(started.as_ref().err().cloned());
-        match started {
-            Ok(run) => {
-                *running = Some(run);
-                Ok(())
-            }
-            Err(e) => Err(format!(
-                "The link stopped and couldn't start again: {e}. Close and reopen Kleio."
-            )),
-        }
-    }
-
     /// See [`listen_again`]: forwards on `listener`, or on a new one once the
     /// old has closed. Nothing to do if the link isn't running.
-    async fn forward_again(&self, listener: Option<std::net::TcpListener>) {
+    async fn forward_again(&self, listener: Option<UnixListener>) {
         let mut running = self.running.lock().await;
         let Some(run) = running.as_mut() else {
             return;
         };
-        match run.forward_again(listener, LINK_PORT).await {
+        match run.forward_again(listener).await {
             Ok(()) => log::info!("kleio-link: forwarding on the new listener"),
             Err(e) => {
                 log::error!("kleio-link: {e}; the host can't be reached until Kleio opens again");
@@ -617,6 +714,23 @@ impl LinkRuntime {
         }
     }
 
+    /// A download over the link finished: see [`note_download`].
+    async fn note_download(&self, bytes: u64, took: Duration) {
+        if let Some(run) = self.running.lock().await.as_ref() {
+            run.note_download(bytes, took);
+        }
+    }
+
+    /// See [`through_relay`].
+    async fn through_relay(&self) -> bool {
+        self.running
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|run| run.link.path())
+            .is_none_or(|path| !path.direct)
+    }
+
     /// The app went to the background: note when, unless it's noted already
     /// for this absence.
     fn note_background(&self) {
@@ -638,29 +752,48 @@ impl LinkRuntime {
         let status = link.map(Link::status);
         let path = link.and_then(Link::path);
         let record = loaded.as_ref().map(|loaded| &loaded.record);
+        let through_relay = path.as_ref().is_some_and(|path| !path.direct);
+        let relay = link
+            .and_then(|link| link.route().relay().map(ToString::to_string))
+            .or_else(|| record.map(|record| record.relay.clone()));
+        let relay_n0 = relay
+            .as_deref()
+            .and_then(|relay| relay.parse::<RelayUrl>().ok())
+            .is_some_and(|relay| is_n0_relay(&relay));
         LinkStatusView {
             paired: record.is_some(),
-            active: super::remote().is_some_and(|r| r.link.is_some()),
+            active: super::remote().is_some_and(|r| r.link().is_some()),
             running: running.is_some(),
             error: self.failure().clone(),
-            mode: running
-                .as_ref()
-                .map(|run| run.mode)
-                .or(record.map(|record| record.mode)),
             host: record.map(|record| record.host.clone()),
             host_key: record.map(|record| record.host_key.clone()),
-            relay: link
-                .and_then(|link| link.route().relay().map(ToString::to_string))
-                .or_else(|| record.map(|record| record.relay.clone())),
+            relay,
+            relay_n0,
             refused: link
                 .and_then(Link::refusal)
                 .map(|refusal| refusal.to_string()),
+            refusal: link
+                .and_then(Link::refusal)
+                .and_then(|refusal| refusal_kind(&refusal)),
             connected: status.is_some_and(|status| status.connected),
+            dialling: link.is_some_and(Link::dialling),
+            unreached: link.and_then(Link::unreached).map(UnreachedView::from),
+            last_reached_ms: link
+                .and_then(Link::last_heard)
+                .and_then(|ago| SystemTime::now().checked_sub(ago))
+                .map(epoch_ms),
             path: path
                 .as_ref()
                 .map(|path| if path.direct { "direct" } else { "relay" }),
             path_addr: path.as_ref().map(|path| path.addr.clone()),
-            tailscale: path.as_ref().is_some_and(|path| path.tailscale),
+            path_n0: through_relay
+                && path
+                    .as_ref()
+                    .and_then(|path| path.addr.parse::<RelayUrl>().ok())
+                    .is_some_and(|relay| is_n0_relay(&relay)),
+            rate_limited: running
+                .as_ref()
+                .is_some_and(|run| run.rate_limited(through_relay)),
             rtt_ms: path.as_ref().map(|path| millis(path.rtt)),
             connected_since_ms: status
                 .and_then(|status| status.connected_for)
@@ -703,14 +836,14 @@ pub fn setup(app: &AppHandle) {
         log::warn!("kleio-link: the QR scanner isn't allowed: {e}");
     }
     watch_presence(app.clone());
-    let Some(boot) = super::remote().and_then(|r| r.link.as_ref()) else {
+    let Some(boot) = super::remote().and_then(Remote::link) else {
         return;
     };
     let runtime = app.state::<LinkRuntime>();
     let start = runtime.start(
         boot.key.clone(),
         boot.route.clone(),
-        boot.mode,
+        boot.socket.clone(),
         boot.take_listener(),
     );
     // Setup runs on the main thread, outside the async runtime, so it may
@@ -745,22 +878,20 @@ fn block_on_within<F: Future>(
 /// forwards on the new listener as soon as the runtime gets to it.
 #[cfg_attr(desktop, allow(dead_code))]
 pub fn listen_again(app: &AppHandle) {
-    if !super::remote().is_some_and(|r| r.link.is_some()) {
+    let Some(boot) = super::remote().and_then(Remote::link) else {
         return;
-    }
-    let Some(bound) = listen_if_gone(LINK_PORT) else {
+    };
+    let Some(bound) = listen_if_gone(boot.socket()) else {
         return;
     };
     log::info!(
-        "kleio-link: back on screen, and nothing was listening on {LINK_BASE} (iOS closes a \
-         suspended app's listeners): listening again"
+        "kleio-link: back on screen, and nothing was listening on its socket (iOS can close a \
+         suspended app's sockets): listening again"
     );
     let listener = match bound {
         Ok(listener) => Some(listener),
         Err(e) => {
-            log::warn!(
-                "kleio-link: can't listen on {LINK_BASE} until the old listener closes: {e}"
-            );
+            log::warn!("kleio-link: can't listen on its socket here yet: {e}");
             None
         }
     };
@@ -771,10 +902,10 @@ pub fn listen_again(app: &AppHandle) {
 }
 
 /// What [`listen_again`] does on the main thread: nothing while something
-/// still listens on `port`, else a new listener on it, bound now, or why it
-/// couldn't be (the old socket may still hold the port).
-fn listen_if_gone(port: u16) -> Option<std::io::Result<std::net::TcpListener>> {
-    (!Forward::listening(port)).then(|| Forward::listen(port))
+/// still listens on the socket at `path`, else a new listener there, bound
+/// now, or why it couldn't be.
+fn listen_if_gone(path: &Path) -> Option<std::io::Result<UnixListener>> {
+    (!Forward::listening_private(path)).then(|| Forward::listen_private(path))
 }
 
 /// Each time the app goes to the background the link notes when, and each
@@ -839,6 +970,154 @@ fn came_back(seen: OnScreen, now: OnScreen) -> bool {
     now.visible && (!seen.visible || now.changes.wrapping_sub(seen.changes) >= 2)
 }
 
+/// A download over the link finished: `bytes` in `took`, from asking to
+/// the last byte (`files.rs`). One of at least [`SLOW_CHECK_BYTES`] through a
+/// relay that came slower than [`SLOW_RELAY_BYTES_PER_S`] marks the
+/// connection as slowed by its relay; a faster one clears the mark.
+pub async fn note_download(app: &AppHandle, bytes: u64, took: Duration) {
+    if let Some(runtime) = app.try_state::<LinkRuntime>() {
+        runtime.note_download(bytes, took).await;
+    }
+}
+
+/// Whether a download over the link now would come through a relay: yes,
+/// unless the connection open now goes direct. Before one is open it's
+/// taken to, as a connection starts on the relay (`files.rs`).
+pub async fn through_relay(app: &AppHandle) -> bool {
+    let Some(runtime) = app.try_state::<LinkRuntime>() else {
+        return true;
+    };
+    runtime.through_relay().await
+}
+
+// ── Finding the host again ──────────────────────────────────────────────────
+
+/// `GET /kleio/link`'s answer, as far as the app reads it
+/// (packages/kleio-host/src/link.ts, `LinkInfo`).
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkInfo {
+    key: String,
+    relays: Vec<String>,
+    addrs: Vec<String>,
+    rate_limited: bool,
+}
+
+/// What the app takes from the host's answer.
+#[derive(Debug, PartialEq, Eq)]
+struct HostRoute {
+    relays: Vec<RelayEntry>,
+    addrs: Vec<SocketAddr>,
+    rate_limited: bool,
+}
+
+/// The host's relay list and direct addresses, for the next dial, and
+/// whether its relay is rate-limiting it: only from the host the link
+/// dials, `host`, and only a list that passes the checks a ticket's does.
+/// An address that doesn't is left out.
+fn read_link_info(info: &LinkInfo, host: EndpointId) -> Result<HostRoute, String> {
+    let key: EndpointId = info
+        .key
+        .parse()
+        .map_err(|_| "its key isn't a key".to_string())?;
+    if key != host {
+        return Err(format!("it names another host ({})", key.fmt_short()));
+    }
+    let relays = check_relay_list(info.relays.iter().map(String::as_str))
+        .ok_or_else(|| "its relay list isn't one".to_string())?;
+    let addrs = info
+        .addrs
+        .iter()
+        .filter_map(|addr| check_direct_addr(addr))
+        .collect();
+    Ok(HostRoute {
+        relays,
+        addrs,
+        rate_limited: info.rate_limited,
+    })
+}
+
+/// `record` with the route's relay, list and addresses, if any differs, for
+/// the next launch. `None` when nothing has changed, or the record is for
+/// another host, as after pairing again during this launch.
+fn refreshed(record: &LinkRecord, route: &Route) -> Option<LinkRecord> {
+    if record.host_key != route.key().to_string() {
+        return None;
+    }
+    let mut next = record.clone();
+    if let Some(relay) = route.relay() {
+        next.relay = relay.to_string();
+    }
+    next.relays = route
+        .relays()
+        .iter()
+        .map(|entry| entry.as_str().to_string())
+        .collect();
+    next.addrs = route.addrs().iter().map(ToString::to_string).collect();
+    (next != *record).then_some(next)
+}
+
+/// After each new connection: the host's relay list, direct addresses and
+/// rate-limit word, from `GET /kleio/link`, for the next dial and for
+/// `link.json`. A host from before the route answers 404. A failure is
+/// logged, and changes nothing. Only for the host boot chose: in the app it
+/// has by now (`setup` asks first), and a test's link has none.
+async fn refresh_route(link: &Link, throttle: &Throttle) {
+    let Some(r) = super::remote_if_booted().filter(|r| r.link().is_some()) else {
+        return;
+    };
+    let info = match fetch_link_info(r).await {
+        Ok(Some(info)) => info,
+        Ok(None) => return,
+        Err(e) => {
+            log::warn!("kleio-link: couldn't ask the host for its relays: {e}");
+            return;
+        }
+    };
+    let host = match read_link_info(&info, link.route().key()) {
+        Ok(host) => host,
+        Err(e) => {
+            log::warn!("kleio-link: not taking the host's relays: {e}");
+            return;
+        }
+    };
+    throttle.host.store(host.rate_limited, Ordering::Release);
+    link.refresh(host.relays, host.addrs);
+    let home = crate::home_dir();
+    let Some(Loaded { record, .. }) = load(&home) else {
+        return;
+    };
+    if let Some(next) = refreshed(&record, &link.route()) {
+        match save(&home, &next) {
+            Ok(()) => log::info!(
+                "kleio-link: kept the host's relays ({}) and addresses for the next launch",
+                next.relays.join(", ")
+            ),
+            Err(e) => log::warn!("kleio-link: couldn't keep the host's relays: {e}"),
+        }
+    }
+}
+
+/// `GET /kleio/link` over the link, with this device's token. `None` from a
+/// host without it.
+async fn fetch_link_info(r: &Remote) -> Result<Option<LinkInfo>, String> {
+    let res = commands::api_client(r)?
+        .get(format!("{}/kleio/link", r.base))
+        .timeout(LINK_INFO_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| commands::root_cause(&e))?;
+    match res.status().as_u16() {
+        200 => res
+            .json::<LinkInfo>()
+            .await
+            .map(Some)
+            .map_err(|e| commands::root_cause(&e)),
+        404 => Ok(None),
+        status => Err(format!("it answered HTTP {status}")),
+    }
+}
+
 // ── Commands ────────────────────────────────────────────────────────────────
 
 /// What the confirm step shows for a scanned ticket.
@@ -874,8 +1153,10 @@ fn parse_ticket(raw: &str) -> Result<Ticket, String> {
 
 /// Pairs over the link with the host a ticket names: reaches the ticket's
 /// relay, dials the host's key on `kleio/pair/0` and redeems the ticket's
-/// code with a new key for this device. Each way that can fail has its own
-/// error (`PairError`). It saves the pairing apart from the Tailscale one. Then it switches the pairing on as
+/// code with a new key for this device, telling `on_stage` each of those
+/// steps as it begins, if the webview gave a channel. Each way that can fail
+/// has its own error (`PairError`). It saves the pairing apart from the
+/// Tailscale one. Then it switches the pairing on as
 /// `kleio_activate_pairing` does after `kleio_pair` (`super::activate_paired`):
 /// in place on an iPhone that wasn't paired, at the next launch otherwise.
 /// So don't call `kleio_activate_pairing` after this; `kleio_link_status`
@@ -883,20 +1164,26 @@ fn parse_ticket(raw: &str) -> Result<Ticket, String> {
 #[tauri::command]
 pub async fn kleio_link_pair(
     app: AppHandle,
+    webview: tauri::Webview,
     ticket: String,
     label: String,
+    on_stage: Option<JavaScriptChannelId>,
 ) -> Result<store::HostRecord, String> {
     let ticket = parse_ticket(&ticket)?;
     let label = commands::label_or_default(&label);
     let home = crate::home_dir();
-    let mode = load(&home)
-        .map(|loaded| loaded.record.mode)
-        .unwrap_or_default();
     let key = SecretKey::generate();
     let options = EndpointOptions::default();
     let probe =
         HttpsProbe::new(&options.trust).map_err(|e| format!("Can't start the link: {e}"))?;
-    let stage = |stage: PairStage| log::info!("kleio-link: {}", stage.text());
+    let stages = on_stage.map(|id| id.channel_on::<_, PairStage>(webview));
+    let stage = |stage: PairStage| {
+        log::info!("kleio-link: {}", stage.text());
+        if let Some(stages) = &stages {
+            // The webview may have gone: pairing carries on regardless.
+            let _ = stages.send(stage);
+        }
+    };
     let answer = pair(key.clone(), &ticket, &label, &options, &probe, stage).await;
     let payload = commands::checked_link_payload(answer.map_err(|e| e.to_string())?)?;
     let account = keychain_host(&payload.host);
@@ -911,7 +1198,7 @@ pub async fn kleio_link_pair(
             .map(|entry| entry.as_str().to_string())
             .collect(),
         addrs: ticket.addrs().iter().map(ToString::to_string).collect(),
-        mode,
+        preview_origin: payload.kept_preview_origin(),
         host: payload.host,
         device_id: payload.device_id,
         label: payload.label,
@@ -929,7 +1216,7 @@ pub async fn kleio_link_pair(
     // up first. `kleio_activate_pairing` switches in place exactly then.
     if cfg!(mobile) && super::remote().is_none() {
         app.state::<LinkRuntime>()
-            .start(key, Route::from_ticket(&ticket), mode, None)
+            .start(key, Route::from_ticket(&ticket), socket_path(&home), None)
             .await
             .map_err(|e| format!("Paired, but {e}."))?;
     }
@@ -941,6 +1228,7 @@ pub async fn kleio_link_pair(
         label: record.label,
         admin: record.admin,
         paired_at: record.paired_at,
+        preview_origin: record.preview_origin,
     })
 }
 
@@ -956,25 +1244,37 @@ pub struct LinkStatusView {
     pub running: bool,
     /// Why it couldn't start, if it couldn't.
     pub error: Option<String>,
-    pub mode: Option<LinkMode>,
     /// The host's name, as it reports it.
     pub host: Option<String>,
     /// The host's iroh key.
     pub host_key: Option<String>,
     /// The relay the host was last reached through.
     pub relay: Option<String>,
+    /// `relay` is one of n0's public relays.
+    pub relay_n0: bool,
     /// Why the host turned this device away, if it did: not paired, or
     /// removed.
     pub refused: Option<String>,
+    /// How: `not-paired` or `revoked`.
+    pub refusal: Option<&'static str>,
     /// A connection to the host is open now.
     pub connected: bool,
+    /// A dial to the host is under way.
+    pub dialling: bool,
+    /// Why the latest dial found no host, once the link has looked.
+    pub unreached: Option<UnreachedView>,
+    /// When bytes last came from the host, in milliseconds since 1970.
+    pub last_reached_ms: Option<u64>,
     /// The open connection's path: `"relay"` or `"direct"`.
     pub path: Option<&'static str>,
     /// The relay's URL, or the direct path's `ip:port`.
     pub path_addr: Option<String>,
-    /// The direct path is to a Tailscale address, which makes a field run
-    /// invalid.
-    pub tailscale: bool,
+    /// The open connection goes through one of n0's public relays.
+    pub path_n0: bool,
+    /// A relay is slowing the open connection: it told this device or the
+    /// host so, or a big download through it came slower than
+    /// [`SLOW_RELAY_BYTES_PER_S`].
+    pub rate_limited: bool,
     pub rtt_ms: Option<u64>,
     /// When the open connection came up, in milliseconds since 1970.
     pub connected_since_ms: Option<u64>,
@@ -984,10 +1284,69 @@ pub struct LinkStatusView {
     pub last_resume_ms: Option<u64>,
     /// The latest path events, oldest first.
     pub events: Vec<LinkEvent>,
-    /// A debug build, whose pairing form also takes a pasted ticket: the
-    /// simulator has no camera. The webview can't tell, as `tauri build
-    /// --debug` still builds it in production mode.
+    /// A debug build, whose pairing form on the iPhone also takes pasted
+    /// pairing text, as the Mac's always does: the simulator has no camera.
+    /// The webview can't tell, as `tauri build --debug` still builds it in
+    /// production mode.
     pub debug_build: bool,
+}
+
+/// Why the latest dial found no host (`Unreached`), for the app's words.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreachedView {
+    /// `host-silent`: a relay answered, the host didn't. `no-relay`: no relay
+    /// answered. `relay-refused`: the relay turned this version away.
+    pub kind: &'static str,
+    /// Every relay tried (`no-relay`), or the one that turned this version
+    /// away (`relay-refused`).
+    pub relays: Vec<RelayName>,
+}
+
+/// A relay, as the app names it.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelayName {
+    /// Its host name, without the final dot n0's addresses have.
+    pub host: String,
+    /// One of n0's public relays.
+    pub n0: bool,
+}
+
+impl From<&RelayUrl> for RelayName {
+    fn from(relay: &RelayUrl) -> Self {
+        Self {
+            host: relay
+                .host_str()
+                .unwrap_or_default()
+                .trim_end_matches('.')
+                .to_string(),
+            n0: is_n0_relay(relay),
+        }
+    }
+}
+
+impl From<Unreached> for UnreachedView {
+    fn from(why: Unreached) -> Self {
+        let (kind, relays) = match why {
+            Unreached::HostSilent => ("host-silent", Vec::new()),
+            Unreached::NoRelay { tried } => ("no-relay", tried),
+            Unreached::RelayRefused { relay } => ("relay-refused", vec![relay]),
+        };
+        Self {
+            kind,
+            relays: relays.iter().map(RelayName::from).collect(),
+        }
+    }
+}
+
+/// The host's refusal, as `kleio_link_status` names it.
+fn refusal_kind(refusal: &LinkError) -> Option<&'static str> {
+    match refusal {
+        LinkError::NotPaired => Some("not-paired"),
+        LinkError::Revoked => Some("revoked"),
+        LinkError::Dial(_) | LinkError::TimedOut => None,
+    }
 }
 
 /// One path event, for the Link card.
@@ -1011,25 +1370,6 @@ impl From<PathLine> for LinkEvent {
 /// The link, for the Link card. Never dials.
 #[tauri::command]
 pub async fn kleio_link_status(runtime: State<'_, LinkRuntime>) -> Result<LinkStatusView, String> {
-    Ok(runtime.status().await)
-}
-
-/// The Link card's switch: saves the mode and, if the link is running,
-/// starts it again in that mode. In-flight requests end, and the event
-/// streams reconnect by themselves. Returns the new status.
-#[tauri::command]
-pub async fn kleio_link_set_mode(
-    runtime: State<'_, LinkRuntime>,
-    mode: LinkMode,
-) -> Result<LinkStatusView, String> {
-    let home = crate::home_dir();
-    let mut loaded = load(&home).ok_or("Kleio isn't paired over the link.")?;
-    if loaded.record.mode != mode {
-        loaded.record.mode = mode;
-        save(&home, &loaded.record)?;
-        log::info!("kleio-link: mode is now {mode:?}");
-    }
-    runtime.switch(mode).await?;
     Ok(runtime.status().await)
 }
 
@@ -1150,6 +1490,7 @@ impl tracing::field::Visit for Line {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixStream;
     use std::sync::Arc;
 
     use kleio_link::iroh::EndpointAddr;
@@ -1180,18 +1521,169 @@ mod tests {
             relay: RELAY.into(),
             relays: vec![RELAY.into(), "n0".into()],
             addrs: vec!["192.168.1.20:52043".into()],
-            mode: LinkMode::RelayOnly,
             host: "mac-mini-1.x.ts.net".into(),
             device_id: "dev-1".into(),
             label: "iPhone".into(),
             admin: false,
             paired_at: "2026-10-17T00:00:00Z".into(),
+            preview_origin: Some("https://mac-mini-1.x.ts.net:8444".into()),
         }
     }
 
     #[test]
-    fn the_link_is_its_port_on_loopback() {
-        assert_eq!(LINK_BASE, format!("http://127.0.0.1:{LINK_PORT}"));
+    fn a_big_slow_download_through_a_relay_says_the_relay_is_slowing_it() {
+        const MIB_45: u64 = 45 * 1024 * 1024;
+        // 45 MiB in 44.6 s, as through n0's relay on 2026-10-20: 1.06 MB/s.
+        assert_eq!(
+            slowed_by_relay(MIB_45, Duration::from_millis(44_600), true),
+            Some(true)
+        );
+        assert_eq!(
+            slowed_by_relay(MIB_45, Duration::from_secs(20), true),
+            Some(false),
+            "2.4 MB/s"
+        );
+        // Under 10 MB says nothing: n0's relays let the first 5 MiB through
+        // faster. Nor does a direct path, however slow.
+        assert_eq!(
+            slowed_by_relay(9_000_000, Duration::from_secs(60), true),
+            None
+        );
+        assert_eq!(
+            slowed_by_relay(MIB_45, Duration::from_secs(300), false),
+            None
+        );
+        assert_eq!(slowed_by_relay(MIB_45, Duration::ZERO, true), None);
+    }
+
+    fn link_info(key: &str, relays: &[&str], addrs: &[&str], rate_limited: bool) -> LinkInfo {
+        LinkInfo {
+            key: key.to_string(),
+            relays: relays.iter().map(ToString::to_string).collect(),
+            addrs: addrs.iter().map(ToString::to_string).collect(),
+            rate_limited,
+        }
+    }
+
+    #[test]
+    fn takes_the_hosts_relays_only_from_the_host_it_dials() {
+        let host = host_key().to_string();
+        // kleio-host's answer as it is (link.ts `readLinkInfo`).
+        let answer = format!(
+            r#"{{"key":"{host}","relays":["https://relay.example.com/","n0"],"listVersion":3,
+                "running":true,"relay":"https://relay.example.com/",
+                "addrs":["203.0.113.7:7842","not an address","127.0.0.1:7842"],
+                "rateLimited":true,"updatedAt":"2026-10-23T12:00:00.000Z"}}"#
+        );
+        let info: LinkInfo = serde_json::from_str(&answer).expect("reads");
+        assert_eq!(
+            read_link_info(&info, host_key()),
+            Ok(HostRoute {
+                relays: vec![
+                    RelayEntry::Url("https://relay.example.com/".parse().unwrap()),
+                    RelayEntry::N0
+                ],
+                addrs: vec!["203.0.113.7:7842".parse().unwrap()],
+                rate_limited: true,
+            })
+        );
+        // Another host's answer, or a list a ticket couldn't carry, changes
+        // nothing.
+        let other = SecretKey::from_bytes(&[9; 32]).public().to_string();
+        for (info, why) in [
+            (link_info(&other, &["n0"], &[], false), "another host"),
+            (link_info("not a key", &["n0"], &[], false), "isn't a key"),
+            (link_info(&host, &[], &[], false), "isn't one"),
+            (
+                link_info(&host, &["http://relay.example.com/"], &[], false),
+                "isn't one",
+            ),
+            (link_info(&host, &["n0", "n0"], &[], false), "isn't one"),
+        ] {
+            let read = read_link_info(&info, host_key());
+            assert!(
+                read.as_ref().is_err_and(|e| e.contains(why)),
+                "{info:?}: {read:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_what_the_host_said_for_the_next_launch() {
+        let record = record();
+        let route = dialled(&record).expect("dials");
+        assert_eq!(refreshed(&record, &route), None, "nothing new");
+
+        let moved: RelayUrl = "https://relay.example.com/".parse().unwrap();
+        let route = Route::new(
+            host_key(),
+            Some(moved.clone()),
+            vec!["203.0.113.7:7842".parse().unwrap()],
+            vec![RelayEntry::Url(moved.clone()), RelayEntry::N0],
+        );
+        let next = refreshed(&record, &route).expect("something changed");
+        assert_eq!(next.relay, "https://relay.example.com/");
+        assert_eq!(next.relays, ["https://relay.example.com/", "n0"]);
+        assert_eq!(next.addrs, ["203.0.113.7:7842"]);
+        let rest = LinkRecord {
+            relay: record.relay.clone(),
+            relays: record.relays.clone(),
+            addrs: record.addrs.clone(),
+            ..next
+        };
+        assert_eq!(rest, record, "and nothing else");
+
+        // A pairing to another host, as after pairing again during this
+        // launch, is left alone.
+        let other = LinkRecord {
+            host_key: SecretKey::from_bytes(&[9; 32]).public().to_string(),
+            ..record
+        };
+        assert_eq!(refreshed(&other, &route), None);
+    }
+
+    #[test]
+    fn names_the_relays_it_couldnt_reach() {
+        let n0: RelayUrl = RELAY.parse().unwrap();
+        let own: RelayUrl = "https://relay.example.com/".parse().unwrap();
+        let view = UnreachedView::from(Unreached::NoRelay {
+            tried: vec![own, n0.clone()],
+        });
+        assert_eq!(
+            serde_json::to_value(&view).unwrap(),
+            serde_json::json!({"kind": "no-relay", "relays": [
+                {"host": "relay.example.com", "n0": false},
+                {"host": "euc1-1.relay.n0.iroh.link", "n0": true},
+            ]})
+        );
+        assert_eq!(
+            UnreachedView::from(Unreached::HostSilent),
+            UnreachedView {
+                kind: "host-silent",
+                relays: Vec::new()
+            }
+        );
+        let refused = UnreachedView::from(Unreached::RelayRefused { relay: n0 });
+        assert_eq!((refused.kind, refused.relays.len()), ("relay-refused", 1));
+        assert_eq!(refusal_kind(&LinkError::NotPaired), Some("not-paired"));
+        assert_eq!(refusal_kind(&LinkError::Revoked), Some("revoked"));
+        assert_eq!(refusal_kind(&LinkError::TimedOut), None);
+    }
+
+    #[test]
+    fn the_links_socket_fits_where_a_socket_can_be() {
+        // An iPhone app's container, as its HOME names it: 84 bytes.
+        let container = Path::new(
+            "/private/var/mobile/Containers/Data/Application/0A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5D",
+        );
+        let iphone = socket_path_on(container, true);
+        assert_eq!(iphone, container.join("tmp/kl/link"));
+        assert_eq!(iphone.as_os_str().len(), 96);
+        assert!(iphone.as_os_str().len() <= kleio_link::forward::SOCKET_PATH_MAX);
+        assert_eq!(
+            socket_path_on(Path::new("/Users/someone"), false),
+            Path::new("/Users/someone/.kleio/run/link.sock")
+        );
     }
 
     #[test]
@@ -1274,6 +1766,7 @@ mod tests {
                 label: "iPhone".into(),
                 admin: false,
                 paired_at: "2026-10-17T00:00:00Z".into(),
+                preview_origin: Some("https://mac-mini-1.x.ts.net:8444".into()),
             })
         );
         // One it can't dial isn't shown, as boot doesn't use it.
@@ -1318,6 +1811,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
+    /// The pairing the next launch uses (`super::paired_now`, in
+    /// `super::from_paired`'s order): the link pairing, then `remote.json`.
+    /// A link record it can't dial, or none, leaves `remote.json`'s.
+    #[test]
+    fn the_next_launch_takes_the_link_pairing_before_remote_json() {
+        let home = tmp_home();
+        let by_address = store::HostRecord {
+            base_url: "https://mac-mini-1.x.ts.net:8443".into(),
+            host: "mac-mini-1.x.ts.net".into(),
+            device_id: "dev-0".into(),
+            label: "Laptop".into(),
+            admin: true,
+            paired_at: "2026-10-01T00:00:00Z".into(),
+            preview_origin: None,
+        };
+        assert_eq!(super::super::paired_now(&home), None);
+        store::save(&home, &by_address).unwrap();
+        assert_eq!(super::super::paired_now(&home), Some(by_address.clone()));
+
+        save(&home, &record()).unwrap();
+        let next = super::super::paired_now(&home).expect("a pairing");
+        assert_eq!(next.base_url, LINK_BASE);
+        assert_eq!(Some(next), paired_record(&home));
+
+        let undialable = LinkRecord {
+            host_key: "not a key".into(),
+            ..record()
+        };
+        save(&home, &undialable).unwrap();
+        assert_eq!(super::super::paired_now(&home), Some(by_address.clone()));
+        std::fs::remove_file(path(&home)).unwrap();
+        assert_eq!(super::super::paired_now(&home), Some(by_address));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
     /// A pairing from before relay lists dials its relay alone, and an entry
     /// or address that can't be read is left out rather than losing the
     /// pairing.
@@ -1350,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_without_a_mode_or_admin_flag_is_auto_and_not_admin() {
+    fn a_record_without_an_admin_flag_is_not_admin() {
         let home = tmp_home();
         std::fs::create_dir_all(super::super::state_dir(&home)).unwrap();
         let written = serde_json::json!({
@@ -1363,8 +1891,20 @@ mod tests {
         });
         std::fs::write(path(&home), written.to_string()).unwrap();
         let loaded = load(&home).expect("loads");
-        assert_eq!(loaded.record.mode, LinkMode::Auto);
         assert!(!loaded.record.admin);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// The prototype's builds saved a mode, which is gone: such a pairing
+    /// still loads, as it was.
+    #[test]
+    fn a_record_from_before_with_a_mode_still_loads() {
+        let home = tmp_home();
+        std::fs::create_dir_all(super::super::state_dir(&home)).unwrap();
+        let mut written = serde_json::to_value(record()).unwrap();
+        written["mode"] = "relayOnly".into();
+        std::fs::write(path(&home), written.to_string()).unwrap();
+        assert_eq!(load(&home).expect("loads").record, record());
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -1376,21 +1916,6 @@ mod tests {
         assert!(decode_key("not base64!").is_none());
         let short = base64::engine::general_purpose::STANDARD.encode([9u8; 31]);
         assert!(decode_key(&short).is_none());
-    }
-
-    #[test]
-    fn names_the_modes_as_the_webview_does() {
-        assert_eq!(
-            serde_json::to_value(LinkMode::RelayOnly).unwrap(),
-            "relayOnly"
-        );
-        assert_eq!(
-            serde_json::from_value::<LinkMode>("auto".into()).unwrap(),
-            LinkMode::Auto
-        );
-        assert!(serde_json::from_value::<LinkMode>("direct".into()).is_err());
-        assert_eq!(Mode::from(LinkMode::Auto), Mode::Auto);
-        assert_eq!(Mode::from(LinkMode::RelayOnly), Mode::RelayOnly);
     }
 
     #[test]
@@ -1537,49 +2062,129 @@ mod tests {
         }
     }
 
+    /// A host that answers each request with an HTTP reply carrying the
+    /// request's head, as kleio-host got it.
+    async fn http_host(endpoint: Endpoint) {
+        while let Some(incoming) = endpoint.accept().await {
+            let Ok(conn) = incoming.await else { continue };
+            tauri::async_runtime::spawn(async move {
+                while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                    tauri::async_runtime::spawn(async move {
+                        let mut head = Vec::new();
+                        let mut chunk = [0; 1024];
+                        while !head.windows(4).any(|end| end == b"\r\n\r\n") {
+                            match recv.read(&mut chunk).await {
+                                Ok(Some(read)) => head.extend_from_slice(&chunk[..read]),
+                                _ => return,
+                            }
+                        }
+                        let reply = format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                            head.len()
+                        );
+                        let _ = send.write_all(reply.as_bytes()).await;
+                        let _ = send.write_all(&head).await;
+                        let _ = send.finish();
+                    });
+                }
+            });
+        }
+    }
+
     /// How long a test waits on loopback before it fails.
     const WAIT: Duration = Duration::from_secs(20);
 
-    /// A request on a new loopback connection, half-closed once sent.
-    fn send_request(addr: std::net::SocketAddr, body: &[u8]) -> std::net::TcpStream {
+    /// A request on a new connection to the socket at `path`, half-closed
+    /// once sent.
+    fn send_request(path: &Path, body: &[u8]) -> UnixStream {
         use std::io::Write;
-        let mut tcp = std::net::TcpStream::connect_timeout(&addr, WAIT).expect("taken at once");
-        tcp.set_read_timeout(Some(WAIT)).expect("a read timeout");
-        tcp.write_all(body).expect("the request is taken");
-        tcp.shutdown(std::net::Shutdown::Write)
+        let mut stream = UnixStream::connect(path).expect("taken at once");
+        stream.set_read_timeout(Some(WAIT)).expect("a read timeout");
+        stream.write_all(body).expect("the request is taken");
+        stream
+            .shutdown(std::net::Shutdown::Write)
             .expect("half-closes");
-        tcp
+        stream
     }
 
     /// The whole answer to a request.
-    fn read_reply(mut tcp: std::net::TcpStream) -> Vec<u8> {
+    fn read_reply(mut stream: UnixStream) -> Vec<u8> {
         use std::io::Read;
         let mut back = Vec::new();
-        tcp.read_to_end(&mut back).expect("an answer");
+        stream.read_to_end(&mut back).expect("an answer");
         back
     }
 
     /// The link between loopback endpoints (keys from `seed` and `seed + 1`),
-    /// forwarding on `listener` as setup does on the boot read's.
-    async fn running_on(listener: std::net::TcpListener, seed: u8) -> Running {
+    /// forwarding on `listener`, at `socket`, as setup does on the boot
+    /// read's, to a host that echoes what it gets.
+    async fn running_on(listener: UnixListener, socket: PathBuf, seed: u8) -> Running {
+        running_with(listener, socket, seed, echo_host).await
+    }
+
+    /// [`running_on`], to a host that does what `host_does`.
+    async fn running_with<H, F>(
+        listener: UnixListener,
+        socket: PathBuf,
+        seed: u8,
+        host_does: H,
+    ) -> Running
+    where
+        H: FnOnce(Endpoint) -> F,
+        F: Future<Output = ()> + Send + 'static,
+    {
         let host = loopback_endpoint(seed, &[kleio_link::ALPN_HTTP]).await;
         let phone = loopback_endpoint(seed + 1, &[]).await;
-        tauri::async_runtime::spawn(echo_host(host.clone()));
-        let socket = host
+        tauri::async_runtime::spawn(host_does(host.clone()));
+        let udp = host
             .bound_sockets()
             .into_iter()
             .find(|socket| socket.is_ipv4())
             .expect("a bound IPv4 loopback socket");
         Running::start_on(
             phone,
-            SecretKey::from_bytes(&[seed + 1; 32]),
-            EndpointAddr::from(host.id()).with_ip_addr(socket).into(),
-            LinkMode::Auto,
+            EndpointAddr::from(host.id()).with_ip_addr(udp).into(),
             PathEvents::new(KEPT_EVENTS),
+            socket,
             Some(listener),
         )
         .await
         .expect("starts")
+    }
+
+    /// A slow download through a relay marks the connection it came on, and
+    /// only that one; a direct one says nothing either way.
+    #[test]
+    fn marks_only_the_connection_a_slow_download_came_on() {
+        let home = tmp_home();
+        let path = socket_path_on(&home, false);
+        let listener = Forward::listen_private(&path).expect("listens on its socket");
+        let running = block_on_within(WAIT, running_on(listener, path, 41)).expect("starts");
+        block_on_within(WAIT, running.link.connection())
+            .expect("within 20 s")
+            .expect("connects");
+        assert!(!running.rate_limited(true), "nothing has said so");
+
+        // As `note_download` marks one through a relay (this one's direct).
+        let on = running.connection_number() + 1;
+        running.throttle.slow_on.store(on, Ordering::Release);
+        assert!(running.rate_limited(true));
+        assert!(!running.rate_limited(false), "a direct path isn't slowed");
+
+        running.link.close_connection();
+        block_on_within(WAIT, running.link.connection())
+            .expect("within 20 s")
+            .expect("dials again");
+        assert!(
+            !running.rate_limited(true),
+            "a new connection starts unmarked"
+        );
+        // A download that went direct says nothing either way.
+        running.note_download(SLOW_CHECK_BYTES * 5, Duration::from_secs(600));
+        assert_eq!(running.throttle.slow_on.load(Ordering::Acquire), on);
+        assert!(!running.rate_limited(true));
+        block_on_within(WAIT, running.stop()).expect("stops");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// The listener is up from the boot read, so a request sent before setup
@@ -1588,32 +2193,76 @@ mod tests {
     /// connection is forwarded too, on that same listener.
     #[test]
     fn the_boot_listener_takes_requests_at_once_and_setup_forwards_them() {
-        // The boot read's listener, on a free port here (LINK_PORT in the
-        // app). Nothing forwards yet, and a request is taken all the same: it
-        // waits in the backlog.
-        let listener = Forward::listen(0).expect("listens on loopback");
-        let addr = listener.local_addr().expect("an address");
-        let early = send_request(addr, b"sent before setup");
+        // The boot read's socket, under a test home. Nothing forwards yet, and
+        // a request is taken all the same: it waits in the backlog.
+        let home = tmp_home();
+        let path = socket_path_on(&home, false);
+        let listener = Forward::listen_private(&path).expect("listens on its socket");
+        let early = send_request(&path, b"sent before setup");
         let boot = LinkBoot {
             route: EndpointAddr::from(SecretKey::from_bytes(&[31; 32]).public()).into(),
             key: SecretKey::from_bytes(&[32; 32]),
-            mode: LinkMode::Auto,
+            socket: path.clone(),
             listener: Mutex::new(Some(listener)),
         };
 
         // What setup does with it, between loopback endpoints.
         let listener = boot.take_listener().expect("the boot read's listener");
         assert!(boot.take_listener().is_none(), "setup takes it once");
-        let running = block_on_within(WAIT, running_on(listener, 31)).expect("starts within 20 s");
+        let running = block_on_within(WAIT, running_on(listener, path.clone(), 31))
+            .expect("starts within 20 s");
 
         // As soon as that returns, a new request is forwarded, and the one
         // sent before setup has its answer too.
         assert_eq!(
-            read_reply(send_request(addr, b"sent after setup")),
+            read_reply(send_request(&path, b"sent after setup")),
             b"sent after setup"
         );
         assert_eq!(read_reply(early), b"sent before setup");
         block_on_within(WAIT, running.stop()).expect("stops");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A link pairing's clients send to the link's socket, which only this
+    /// process can use, and the link takes their requests to the host, named
+    /// as kleio-host expects on the link.
+    #[test]
+    fn a_link_pairings_clients_reach_the_host_through_its_socket() {
+        let home = tmp_home();
+        let path = socket_path_on(&home, false);
+        let listener = Forward::listen_private(&path).expect("listens on its socket");
+        let running = block_on_within(WAIT, running_with(listener, path.clone(), 35, http_host))
+            .expect("starts within 20 s");
+        let transport = Transport::Link(Box::new(LinkBoot {
+            route: EndpointAddr::from(SecretKey::from_bytes(&[35; 32]).public()).into(),
+            key: SecretKey::from_bytes(&[36; 32]),
+            socket: path.clone(),
+            listener: Mutex::new(None),
+        }));
+        // As `run()` does first: a client can't be built without one.
+        crate::install_rustls_provider();
+        let client = commands::host_client(&transport).build().expect("a client");
+        let (status, head) = block_on_within(WAIT, async {
+            let res = client
+                .get(format!("{LINK_BASE}/kleio/health"))
+                .send()
+                .await
+                .expect("an answer");
+            (res.status().as_u16(), res.text().await.expect("a body"))
+        })
+        .expect("within 20 s");
+        assert_eq!(status, 200);
+        assert!(
+            head.starts_with("GET /kleio/health HTTP/1.1\r\n"),
+            "{head:?}"
+        );
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("\r\nhost: link.kleio.invalid\r\n"),
+            "{head:?}"
+        );
+        block_on_within(WAIT, running.stop()).expect("stops");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// iOS can take a suspended app's listener away (TN2277), and the app's
@@ -1623,44 +2272,45 @@ mod tests {
     /// away, and answered once forwarding has moved to the new listener.
     #[test]
     fn a_listener_ios_took_away_is_replaced_before_anything_sends() {
-        let listener = Forward::listen(0).expect("listens on loopback");
-        let addr = listener.local_addr().expect("an address");
-        let mut running =
-            block_on_within(WAIT, running_on(listener, 33)).expect("starts within 20 s");
-        assert_eq!(read_reply(send_request(addr, b"first")), b"first");
+        let home = tmp_home();
+        let path = socket_path_on(&home, false);
+        let listener = Forward::listen_private(&path).expect("listens on its socket");
+        let mut running = block_on_within(WAIT, running_on(listener, path.clone(), 33))
+            .expect("starts within 20 s");
+        assert_eq!(read_reply(send_request(&path, b"first")), b"first");
         // Still listening: nothing to do, and the check (a connection that
         // sends nothing) leaves forwarding as it was.
-        assert!(listen_if_gone(addr.port()).is_none(), "it was listening");
-        assert_eq!(read_reply(send_request(addr, b"second")), b"second");
+        assert!(listen_if_gone(&path).is_none(), "it was listening");
+        assert_eq!(read_reply(send_request(&path, b"second")), b"second");
 
         // What iOS does while the app is away: the listener goes, and a
         // request is refused.
         block_on_within(WAIT, running.stop_forwarding()).expect("within 20 s");
         assert!(
-            !Forward::listening(addr.port()),
+            !Forward::listening_private(&path),
             "a request would be refused"
         );
 
         // Coming back: listening again at once, so a request is taken before
         // forwarding moves to the new listener...
-        let again = listen_if_gone(addr.port())
+        let again = listen_if_gone(&path)
             .expect("finds nothing listening")
             .expect("listens again");
-        let early = send_request(addr, b"sent on coming back");
+        let early = send_request(&path, b"sent on coming back");
         // ...and answered once it has.
-        block_on_within(WAIT, running.forward_again(Some(again), addr.port()))
+        block_on_within(WAIT, running.forward_again(Some(again)))
             .expect("within 20 s")
             .expect("forwards again");
         assert_eq!(read_reply(early), b"sent on coming back");
 
-        // Had the old socket still held the port, the new listener comes
-        // once the old one has closed.
+        // Had the main thread not listened again, forwarding does.
         block_on_within(WAIT, running.stop_forwarding()).expect("within 20 s");
-        block_on_within(WAIT, running.forward_again(None, addr.port()))
+        block_on_within(WAIT, running.forward_again(None))
             .expect("within 20 s")
             .expect("forwards again");
-        assert_eq!(read_reply(send_request(addr, b"after")), b"after");
+        assert_eq!(read_reply(send_request(&path, b"after")), b"after");
         block_on_within(WAIT, running.stop()).expect("stops");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

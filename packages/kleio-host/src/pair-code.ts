@@ -60,6 +60,12 @@ export interface PairingPayload {
    * offers). Ordinary device pairs omit it.
    */
   readonly controlCredential?: string;
+  /**
+   * The origin of the host's site previews, e.g.
+   * `https://mini.tailnet.ts.net:8444`: the device opens a preview link only
+   * there. Absent on a host with no previews, which is one without Tailscale.
+   */
+  readonly previewOrigin?: string;
 }
 
 export interface PairRedeemRequest {
@@ -141,6 +147,24 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+/**
+ * An origin and nothing after it, written as `URL.origin` writes one: https,
+ * or exactly `http://127.0.0.1:<port>`, a host on the same Mac.
+ */
+function isPreviewOrigin(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const scheme =
+    url.protocol === "https:" ||
+    (url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port !== "");
+  return scheme && url.origin === value;
+}
+
 /** Validate a redeemed ticket before anything is saved; the host is untrusted input. */
 export function isPairingPayload(value: unknown): value is PairingPayload {
   if (typeof value !== "object" || value === null) return false;
@@ -160,6 +184,7 @@ export function isPairingPayload(value: unknown): value is PairingPayload {
     return false;
   }
   if (p.controlCredential !== undefined && !isNonEmptyString(p.controlCredential)) return false;
+  if (p.previewOrigin !== undefined && !isPreviewOrigin(p.previewOrigin)) return false;
   return true;
 }
 

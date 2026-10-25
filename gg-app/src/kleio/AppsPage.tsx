@@ -187,10 +187,17 @@ export function AppsPage(): React.ReactElement {
 
   useEffect(() => {
     void load();
-    // Back from the browser's sign-in: refresh when the window regains focus.
-    const onFocus = (): void => void load();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    // Back from the browser's sign-in: refresh when the window regains focus,
+    // or is on screen again (the iPhone, coming back from Safari).
+    const again = (): void => {
+      if (document.visibilityState !== "hidden") void load();
+    };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+    };
   }, [load]);
 
   const waiting = connections.some((c) => connectionState(c.status) === "pending");

@@ -5861,15 +5861,15 @@ fn with_desktop_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<t
     builder
 }
 
-/// kleio (connection prototype, iPhone): the barcode scanner, for the pairing
-/// QR code. Its permission is granted in `kleio::link::setup`, which needs the
+/// kleio (iPhone): the barcode scanner, for the pairing QR code of Kleio's
+/// link. Its permission is granted in `kleio::link::setup`, which needs the
 /// app first.
-#[cfg(all(feature = "kleio-link", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 fn with_link_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.plugin(tauri_plugin_barcode_scanner::init())
 }
 
-#[cfg(not(all(feature = "kleio-link", target_os = "ios")))]
+#[cfg(not(target_os = "ios"))]
 fn with_link_plugins(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder
 }
@@ -5937,7 +5937,8 @@ fn build_http_client(daemon_token: &str) -> reqwest::Client {
     if let Ok(v) = reqwest::header::HeaderValue::from_str(daemon_token) {
         default_headers.insert("x-gg-token", v);
     }
-    // kleio: registration point 2/3 — the host checks a device token instead.
+    // kleio: registration point 2/3 — the host checks a device token instead,
+    // and the client reaches it as its pairing says (over the link, or a URL).
     if let Some(r) = kleio::remote() {
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&r.device_token) {
             default_headers.insert(kleio::DEVICE_TOKEN_HEADER, v);
@@ -5948,7 +5949,7 @@ fn build_http_client(daemon_token: &str) -> reqwest::Client {
             }
         }
     }
-    reqwest::Client::builder()
+    kleio::client_builder()
         .default_headers(default_headers)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
@@ -5997,6 +5998,7 @@ pub fn run() {
         .manage(kleio::push::PushToken::default()) // kleio
         .manage(kleio::push::PendingTap::default()) // kleio
         .manage(kleio::live::LiveTokens::default()) // kleio
+        .manage(kleio::files::Downloads::default()) // kleio
         .manage(kleio::BridgeEpochs::default()) // kleio
         .manage(keep_awake::KeepAwake::default()) // kleio voice keep-awake
         .manage(kleio::parked::Parked::load(
@@ -6007,14 +6009,12 @@ pub fn run() {
             kleio::commands::kleio_pair,
             kleio::commands::kleio_forget,
             kleio_activate_pairing,
-            #[cfg(feature = "kleio-link")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_check_ticket,
-            #[cfg(feature = "kleio-link")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_pair,
-            #[cfg(feature = "kleio-link")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_status,
-            #[cfg(feature = "kleio-link")]
-            kleio::link::kleio_link_set_mode,
             kleio_chat_for_session,
             kleio::push::kleio_take_notification_tap,
             kleio::live::kleio_live_start,
@@ -6166,10 +6166,10 @@ pub fn run() {
             if let Err(e) = init_tray(&app.handle().clone()) {
                 log::warn!("tray init failed: {e}");
             }
-            // kleio (connection prototype): the link's state and log and, when
+            // kleio (macOS and iPhone): the link's state and log and, when
             // this launch reaches the host over the link, its loopback
             // listener, up before the first request below.
-            #[cfg(feature = "kleio-link")]
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::setup(app.handle());
             // Spawn the ONE shared Node daemon before any window asks for a
             // session. Window session creation (in restore/setup) awaits its
@@ -6282,7 +6282,7 @@ pub fn run() {
                 let app = window.app_handle().clone();
                 // iOS may have taken the link's listener away while the app
                 // was suspended: it listens again before anything is told.
-                #[cfg(feature = "kleio-link")]
+                #[cfg(target_os = "ios")]
                 kleio::link::listen_again(&app);
                 app.state::<kleio::Presence>().foreground();
                 // A push-token registration that failed earlier gets another go.

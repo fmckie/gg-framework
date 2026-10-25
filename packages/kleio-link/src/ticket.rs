@@ -410,6 +410,7 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+    use crate::testing::pairing_messages;
 
     const RELAY: &str = "https://euc1-1.relay.n0.iroh.link./";
 
@@ -883,6 +884,24 @@ mod tests {
             TicketError::NotKleio.to_string(),
             "That isn't a Kleio pairing code."
         );
+    }
+
+    /// The table the app's tests share (tests/fixtures/pairing-messages.json)
+    /// has these refusals' words. The app's own reader says the first two the
+    /// same way, before a ticket gets here.
+    #[test]
+    fn says_the_pairing_tables_words() {
+        let rows = pairing_messages("ticket.rs");
+        assert_eq!(rows.len(), 3, "the table's cases from ticket.rs");
+        for (id, words) in &rows {
+            let err = match id.as_str() {
+                "tailscale" => TicketError::Tailscale,
+                "not-kleio" => TicketError::NotKleio,
+                "prototype" => TicketError::Prototype,
+                other => panic!("the table has {other} from ticket.rs, which says no such thing"),
+            };
+            assert_eq!(err.to_string(), *words, "{id}");
+        }
     }
 
     /// RFC 4648 base32 without padding: the 52-character form iroh also parses.

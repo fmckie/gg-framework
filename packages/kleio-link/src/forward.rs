@@ -1,5 +1,7 @@
-//! The phone's loopback listener. The app's HTTP client talks to
-//! `http://127.0.0.1:<port>`; each TCP connection it opens becomes one
+//! The app's side of the link: where the app's HTTP client connects. In the
+//! app that's a Unix socket only the app's own process can use
+//! ([`Forward::listen_private`]); for tests and the `client` dev tool, a
+//! loopback TCP listener. Each connection the client opens becomes one
 //! bidirectional stream on the link's connection, copied both ways until both
 //! sides have finished. The host's forwarder copies each stream to kleio-host
 //! the same way, so the bytes are plain HTTP from end to end. Each stream
@@ -9,12 +11,16 @@
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
+#[cfg(unix)]
+use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::net::TcpListener;
+#[cfg(unix)]
+use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, warn};
 
 use crate::link::Link;
@@ -26,10 +32,29 @@ const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 /// at once either way unless the listener's backlog is full.
 #[cfg(unix)]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(100);
+/// The most a connection's first read takes: enough to tell it's sending,
+/// and usually its whole request head.
+const FIRST_READ: usize = 8 * 1024;
 
-/// The loopback listener, and the link it forwards to.
+/// The longest path a Unix socket can have, in bytes: `sun_path` holds 108
+/// on Linux and 104 elsewhere (Apple's systems among them), the last a NUL.
+#[cfg(target_os = "linux")]
+pub const SOCKET_PATH_MAX: usize = 107;
+#[cfg(all(unix, not(target_os = "linux")))]
+pub const SOCKET_PATH_MAX: usize = 103;
+
+/// What the forwarder listens on.
+enum Listener {
+    /// Loopback TCP: tests and the `client` dev tool.
+    Tcp(TcpListener),
+    /// The app's private socket.
+    #[cfg(unix)]
+    Private(UnixListener),
+}
+
+/// The listener, and the link it forwards to.
 pub struct Forward {
-    listener: TcpListener,
+    listener: Listener,
     link: Link,
 }
 
@@ -38,7 +63,10 @@ impl Forward {
     /// nothing else on the network can send through the link.
     pub async fn bind(port: u16, link: Link) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
-        Ok(Self { listener, link })
+        Ok(Self {
+            listener: Listener::Tcp(listener),
+            link,
+        })
     }
 
     /// Listens on `127.0.0.1:port` now, before the link exists and without a
@@ -77,29 +105,182 @@ impl Forward {
         on_loopback(listener.local_addr()?)?;
         listener.set_nonblocking(true)?;
         let listener = TcpListener::from_std(listener)?;
-        Ok(Self { listener, link })
+        Ok(Self {
+            listener: Listener::Tcp(listener),
+            link,
+        })
     }
 
-    /// Where the listener is.
+    /// Listens on a socket at `path` that only this process can use, now,
+    /// before the link exists and without a runtime, as
+    /// [`listen`](Self::listen) does on loopback. The socket is 0600, in a
+    /// folder of its own made 0700, and [`run`](Self::run) forwards only
+    /// connections from this process. A socket left at `path` that nothing
+    /// listens on (by a launch that has ended, or one iOS took away) is
+    /// replaced; one something still listens on isn't. Refuses a path over
+    /// [`SOCKET_PATH_MAX`] bytes.
+    #[cfg(unix)]
+    pub fn listen_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
+        use std::os::unix::fs::{DirBuilderExt, FileTypeExt, PermissionsExt};
+
+        let length = path.as_os_str().len();
+        if length > SOCKET_PATH_MAX {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "the link's socket path is {length} bytes, over the {SOCKET_PATH_MAX} a \
+                     socket's can be: {}",
+                    path.display()
+                ),
+            ));
+        }
+        let folder = path
+            .parent()
+            .filter(|folder| !folder.as_os_str().is_empty())
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("the link's socket needs a folder: {}", path.display()),
+                )
+            })?;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(folder)?;
+        // One made before may let others in.
+        std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o700))?;
+        match std::fs::symlink_metadata(path) {
+            Ok(meta) if meta.file_type().is_socket() => {
+                if Self::listening_private(path) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!("something already listens on {}", path.display()),
+                    ));
+                }
+                std::fs::remove_file(path)?;
+            }
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!("{} is there, and isn't a socket", path.display()),
+                ));
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+        let listener = std::os::unix::net::UnixListener::bind(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(listener)
+    }
+
+    /// Whether something still listens on the socket at `path`, as
+    /// [`listening`](Self::listening) tells for a port: it connects and
+    /// closes at once without sending anything, which [`run`](Self::run)
+    /// passes on as nothing at all. Unless the listener's backlog is full, it
+    /// answers at once.
+    #[cfg(unix)]
+    pub fn listening_private(path: &Path) -> bool {
+        match std::os::unix::net::UnixStream::connect(path) {
+            Ok(_) => true,
+            Err(err) => !matches!(
+                err.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::NotFound
+            ),
+        }
+    }
+
+    /// Forwards on a listener from [`listen_private`](Self::listen_private),
+    /// connections already waiting included, from this process only. Call it
+    /// within the runtime.
+    #[cfg(unix)]
+    pub fn from_std_private(
+        listener: std::os::unix::net::UnixListener,
+        link: Link,
+    ) -> io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        let listener = UnixListener::from_std(listener)?;
+        Ok(Self {
+            listener: Listener::Private(listener),
+            link,
+        })
+    }
+
+    /// [`listen_private`](Self::listen_private), then
+    /// [`from_std_private`](Self::from_std_private). Call it within the
+    /// runtime.
+    #[cfg(unix)]
+    pub fn bind_private(path: &Path, link: Link) -> io::Result<Self> {
+        Self::from_std_private(Self::listen_private(path)?, link)
+    }
+
+    /// Where the TCP listener is. The private socket has no address.
     pub fn local_addr(&self) -> io::Result<SocketAddr> {
-        self.listener.local_addr()
+        match &self.listener {
+            Listener::Tcp(listener) => listener.local_addr(),
+            #[cfg(unix)]
+            Listener::Private(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "the link's private socket has no IP address",
+            )),
+        }
     }
 
     /// Forwards connections until the task running this is dropped or
-    /// aborted.
+    /// aborted. On the private socket, only this process's.
     pub async fn run(self) {
-        loop {
-            match self.listener.accept().await {
-                Ok((tcp, _)) => {
-                    tokio::spawn(forward(tcp, self.link.clone()));
+        let Self { listener, link } = self;
+        match listener {
+            Listener::Tcp(listener) => loop {
+                match listener.accept().await {
+                    Ok((tcp, _)) => {
+                        // Small writes, such as one event of a stream, go out
+                        // at once instead of waiting on Nagle's algorithm. The
+                        // field tests time them.
+                        if let Err(err) = tcp.set_nodelay(true) {
+                            debug!("couldn't turn off Nagle's algorithm: {err}");
+                        }
+                        tokio::spawn(forward(tcp, link.clone()));
+                    }
+                    Err(err) => {
+                        warn!("loopback accept failed: {err}");
+                        tokio::time::sleep(ACCEPT_RETRY).await;
+                    }
                 }
-                Err(err) => {
-                    warn!("loopback accept failed: {err}");
-                    tokio::time::sleep(ACCEPT_RETRY).await;
+            },
+            #[cfg(unix)]
+            Listener::Private(listener) => loop {
+                match listener.accept().await {
+                    Ok((stream, _)) => match from_this_process(&stream) {
+                        Ok(true) => {
+                            tokio::spawn(forward(stream, link.clone()));
+                        }
+                        Ok(false) => {
+                            warn!("turned away a connection to the link's socket from another process");
+                        }
+                        // Closed already, say: turned away all the same.
+                        Err(err) => {
+                            debug!("turned away a connection to the link's socket: can't tell its process: {err}");
+                        }
+                    },
+                    Err(err) => {
+                        warn!("the link's socket: accept failed: {err}");
+                        tokio::time::sleep(ACCEPT_RETRY).await;
+                    }
                 }
-            }
+            },
         }
     }
+}
+
+/// Whether the other end of `stream` is this process: the app's own HTTP
+/// client. The socket's modes keep other users out; this keeps out the
+/// user's other programs.
+#[cfg(unix)]
+fn from_this_process(stream: &UnixStream) -> io::Result<bool> {
+    let pid = stream.peer_cred()?.pid();
+    Ok(pid.and_then(|pid| u32::try_from(pid).ok()) == Some(std::process::id()))
 }
 
 /// Only on loopback, so nothing else on the network can send through the
@@ -115,29 +296,24 @@ fn on_loopback(addr: SocketAddr) -> io::Result<()> {
     }
 }
 
-/// One TCP connection, over one stream.
-async fn forward(mut tcp: TcpStream, link: Link) {
-    // Small writes, such as one event of a stream, go out at once instead of
-    // waiting on Nagle's algorithm. The field tests time them.
-    if let Err(err) = tcp.set_nodelay(true) {
-        debug!("couldn't turn off Nagle's algorithm: {err}");
-    }
+/// One connection from the app, over one stream.
+async fn forward<S: AsyncRead + AsyncWrite + Unpin>(mut app: S, link: Link) {
     // Nothing goes to the host before the app sends something: a connection
-    // closed without a byte, such as `Forward::listening` checking the
-    // listener, dials nothing and opens no stream. (HTTP's client always
-    // speaks first.)
-    match tcp.peek(&mut [0; 1]).await {
+    // closed without a byte, such as a `listening` check, dials nothing and
+    // opens no stream. (HTTP's client always speaks first.)
+    let mut first = vec![0; FIRST_READ];
+    let read = match app.read(&mut first).await {
         Ok(0) => return,
-        Ok(_) => {}
+        Ok(read) => read,
         Err(err) => {
             debug!("dropped a connection before it sent anything: {err}");
             return;
         }
-    }
+    };
     let conn = match link.connection().await {
         Ok(conn) => conn,
-        // The link has logged the failed dial. Dropping the TCP connection
-        // tells the app's HTTP client.
+        // The link has logged the failed dial. Dropping the app's connection
+        // tells its HTTP client.
         Err(err) => {
             debug!("dropped a connection: {err}");
             return;
@@ -151,15 +327,20 @@ async fn forward(mut tcp: TcpStream, link: Link) {
         }
     };
     let mut stream = HostStream::new(recv, send, link);
-    match tokio::io::copy_bidirectional(&mut tcp, &mut stream).await {
+    if let Err(err) = stream.write_all(&first[..read]).await {
+        debug!("stream ended: {err}");
+        return;
+    }
+    match tokio::io::copy_bidirectional(&mut app, &mut stream).await {
         Ok((sent, received)) => {
+            let sent = sent.saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
             debug!("stream finished: sent {sent} B, received {received} B")
         }
         Err(err) => debug!("stream ended: {err}"),
     }
 }
 
-/// One stream to the host, as the app's TCP connection sees it. It notes the
+/// One stream to the host, as the app's connection sees it. It notes the
 /// link's resume number each time the app sends bytes on it, and passes that
 /// note to the link each time bytes come back, so only a reply to a request
 /// sent after a resume began can end it.
@@ -226,12 +407,14 @@ impl<R: Unpin, W: AsyncWrite + Unpin> AsyncWrite for HostStream<R, W> {
 mod tests {
     use iroh::endpoint::{Connection, VarInt};
     use iroh::Endpoint;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
     use tokio::sync::mpsc;
 
     use super::*;
     use crate::paths::PathEvents;
     use crate::testing::{loopback_addr, loopback_endpoint, within_30_s};
+    #[cfg(unix)]
+    use crate::testing::{mode, TempDir};
     use crate::ALPN_HTTP;
 
     /// A host that echoes every stream of every connection, and hands the
@@ -353,7 +536,6 @@ mod tests {
             // Loopback endpoints have no relay, so the path is direct.
             let path = link.path().expect("an open path");
             assert!(path.direct, "{path:?}");
-            assert!(!path.tailscale, "{path:?}");
             let direct: SocketAddr = path.addr.parse().expect("an ip:port");
             assert!(direct.ip().is_loopback(), "{path:?}");
             let lines = events.lines();
@@ -511,6 +693,188 @@ mod tests {
             assert!(!Forward::listening(port), "nothing listens once it's gone");
         })
         .await;
+    }
+
+    /// A short socket path, in a folder of the test's own.
+    #[cfg(unix)]
+    fn socket_in(dir: &TempDir) -> std::path::PathBuf {
+        dir.path().join("run").join("l.sock")
+    }
+
+    /// Sends `body` on a new connection to the socket at `path`, half-closes
+    /// it, and reads everything that comes back.
+    #[cfg(unix)]
+    async fn round_trip_private(path: &Path, body: &[u8]) -> Vec<u8> {
+        let mut stream = UnixStream::connect(path).await.expect("connects");
+        stream.write_all(body).await.expect("writes");
+        stream.shutdown().await.expect("half-closes");
+        let mut back = Vec::new();
+        stream.read_to_end(&mut back).await.expect("reads");
+        back
+    }
+
+    /// The app's socket: 0600 in a 0700 folder, forwarding this process's
+    /// connections, those made before forwarding started included.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn forwards_this_processes_connections_on_its_private_socket() {
+        within_30_s(async {
+            let dir = TempDir::new("fwd-private");
+            let path = socket_in(&dir);
+            let listener = Forward::listen_private(&path).expect("listens");
+            assert_eq!(mode(path.parent().expect("a folder")), 0o700);
+            assert_eq!(mode(&path), 0o600);
+            assert!(Forward::listening_private(&path));
+            // Taken before anything forwards, and answered once it does.
+            let mut early = UnixStream::connect(&path).await.expect("taken at once");
+            early.write_all(b"sent early").await.expect("taken at once");
+            early.shutdown().await.expect("half-closes");
+
+            let host = loopback_endpoint(13, &[ALPN_HTTP]).await;
+            let phone = loopback_endpoint(14, &[]).await;
+            let (accepted_tx, mut accepted) = mpsc::unbounded_channel();
+            tokio::spawn(echo_host(host.clone(), accepted_tx));
+            let link = Link::new(phone, loopback_addr(&host).into());
+            let forward = Forward::from_std_private(listener, link).expect("forwards on it");
+            assert!(forward.local_addr().is_err(), "a socket has no IP address");
+            tokio::spawn(forward.run());
+
+            let mut back = Vec::new();
+            early.read_to_end(&mut back).await.expect("reads");
+            assert_eq!(back, b"sent early");
+            assert_eq!(round_trip_private(&path, b"second").await, b"second");
+            accepted.recv().await.expect("the host accepted");
+            assert!(accepted.try_recv().is_err(), "a second connection");
+        })
+        .await;
+    }
+
+    /// The variable naming the socket [`as_another_process`] connects to.
+    #[cfg(unix)]
+    const OTHER_PROCESS: &str = "KLEIO_LINK_TEST_OTHER_PROCESS";
+
+    /// Not a test of its own: with [`OTHER_PROCESS`] set, it's another
+    /// process connecting to the link's socket, which
+    /// `turns_away_a_connection_from_another_process` runs. It sends a
+    /// request and says how much came back.
+    #[cfg(unix)]
+    #[test]
+    fn as_another_process() {
+        use std::io::{Read, Write};
+        let Some(path) = std::env::var_os(OTHER_PROCESS) else {
+            return;
+        };
+        let mut stream = std::os::unix::net::UnixStream::connect(path).expect("connects");
+        // Turned away, the write may fail and the read be cut short.
+        let _ = stream.write_all(b"GET /kleio/health HTTP/1.1\r\nhost: link\r\n\r\n");
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        let mut back = Vec::new();
+        let _ = stream.read_to_end(&mut back);
+        println!("another process got {} bytes back", back.len());
+    }
+
+    /// The socket's modes keep other users out; the forwarder turns away the
+    /// user's other programs too, before anything is dialled.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn turns_away_a_connection_from_another_process() {
+        within_30_s(async {
+            let dir = TempDir::new("fwd-other");
+            let path = socket_in(&dir);
+            let host = loopback_endpoint(15, &[ALPN_HTTP]).await;
+            let phone = loopback_endpoint(16, &[]).await;
+            let (accepted_tx, mut accepted) = mpsc::unbounded_channel();
+            tokio::spawn(echo_host(host.clone(), accepted_tx));
+            let link = Link::new(phone, loopback_addr(&host).into());
+            let forward = Forward::bind_private(&path, link.clone()).expect("listens");
+            tokio::spawn(forward.run());
+
+            let exe = std::env::current_exe().expect("this test binary");
+            let socket = path.clone();
+            let out = tokio::task::spawn_blocking(move || {
+                std::process::Command::new(exe)
+                    .args([
+                        "--exact",
+                        "forward::tests::as_another_process",
+                        "--nocapture",
+                        "--test-threads=1",
+                    ])
+                    .env(OTHER_PROCESS, socket)
+                    .output()
+            })
+            .await
+            .expect("runs")
+            .expect("the other process ran");
+            let said = String::from_utf8_lossy(&out.stdout);
+            assert!(out.status.success(), "{out:?}");
+            assert!(said.contains("another process got 0 bytes back"), "{said}");
+            assert!(accepted.try_recv().is_err(), "the host was dialled");
+            assert!(!link.status().connected, "dialled for another process");
+
+            // This process's own connection goes through.
+            assert_eq!(round_trip_private(&path, b"mine").await, b"mine");
+        })
+        .await;
+    }
+
+    /// A socket left by a launch that has ended is replaced, and a folder
+    /// made before is closed to others; a socket something listens on, or a
+    /// file that isn't a socket, is left alone.
+    #[cfg(unix)]
+    #[test]
+    fn replaces_a_socket_nothing_listens_on_and_nothing_else() {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+        let dir = TempDir::new("fwd-stale");
+        let path = socket_in(&dir);
+        std::fs::DirBuilder::new()
+            .mode(0o755)
+            .create(path.parent().expect("a folder"))
+            .expect("made");
+        std::fs::set_permissions(
+            path.parent().expect("a folder"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .expect("opened up");
+        let first = Forward::listen_private(&path).expect("listens");
+        assert_eq!(mode(path.parent().expect("a folder")), 0o700);
+        let taken = Forward::listen_private(&path).expect_err("something listens");
+        assert_eq!(taken.kind(), io::ErrorKind::AddrInUse, "{taken}");
+
+        drop(first);
+        assert!(
+            path.exists(),
+            "the socket file stays when its listener goes"
+        );
+        assert!(!Forward::listening_private(&path));
+        let _again = Forward::listen_private(&path).expect("replaces it");
+        assert!(Forward::listening_private(&path));
+
+        let file = dir.path().join("run").join("not-a-socket");
+        std::fs::write(&file, b"kept").expect("written");
+        let refused = Forward::listen_private(&file).expect_err("not a socket");
+        assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists, "{refused}");
+        assert_eq!(std::fs::read(&file).expect("still there"), b"kept");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_socket_path_longer_than_a_socket_can_have() {
+        let dir = TempDir::new("fwd-long");
+        let folder = dir.path().join("run");
+        let room = SOCKET_PATH_MAX - folder.as_os_str().len() - 1;
+        let longest = folder.join("x".repeat(room));
+        assert_eq!(longest.as_os_str().len(), SOCKET_PATH_MAX);
+        Forward::listen_private(&longest).expect("the longest path a socket can have");
+        let refused =
+            Forward::listen_private(&folder.join("x".repeat(room + 1))).expect_err("a byte over");
+        assert_eq!(refused.kind(), io::ErrorKind::InvalidInput, "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .contains(&format!("over the {SOCKET_PATH_MAX}")),
+            "{refused}"
+        );
     }
 
     #[test]

@@ -30,10 +30,25 @@ export interface RemoteStatus {
 export interface Device {
   deviceId: string;
   label: string;
-  createdAt: string;
+  /** When it paired (ISO 8601), as the host's device list names it. */
+  created: string;
   lastSeen: string | null;
   revoked: boolean;
   admin: boolean;
+}
+
+/** How long a paired device shows as New in the devices lists: a week. */
+export const NEW_DEVICE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a device paired recently enough to show as New, so a pairing nobody
+ * meant stands out to an admin (each one also pushes an alert to the admins'
+ * phones). Never this device itself, and never a revoked one.
+ */
+export function isNewDevice(device: Device, selfId: string | null, now: number): boolean {
+  if (device.revoked || device.deviceId === selfId) return false;
+  const created = Date.parse(device.created);
+  return !Number.isNaN(created) && now - created < NEW_DEVICE_MS;
 }
 
 export interface PairOffer {
@@ -41,6 +56,13 @@ export interface PairOffer {
   /** Epoch milliseconds (the host's `expiresAt`, passed through by Rust). */
   expiresAt: number;
   admin: boolean;
+  /** The link's pairing ticket for this code: what the QR code and the
+   *  pairing text carry. `null` from a host without the link, or while its
+   *  link can't pair, when `ticketError` says why. */
+  ticket: string | null;
+  /** Why there's no ticket: "no_link", "link_down", "config" or "ticket".
+   *  `null` with a ticket, and from a host from before the link. */
+  ticketError: string | null;
 }
 
 export interface AdminState {
