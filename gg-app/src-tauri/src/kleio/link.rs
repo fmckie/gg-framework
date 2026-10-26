@@ -10,7 +10,8 @@
 //!   beside `remote.json` holds the host's key, the relay it was reached
 //!   through, and its relay list and direct addresses, and the Keychain
 //!   entries go under `link-<host>`, with this device's own iroh key.
-//!   `remote.json` and its token are never touched.
+//!   `remote.json` and its token aren't touched here: after a switch from
+//!   them, `switch.rs` removes them once the link has had a good session.
 //! - **At boot** a link pairing wins over `remote.json` (`super::from_paired`).
 //!   Pairing by the host's address instead (`kleio_pair`, the Connection
 //!   page's "Advanced: connect over your own network") sets it aside. The
@@ -297,6 +298,10 @@ pub(super) fn forget(home: &Path) -> Result<bool, String> {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.to_string()),
+    }
+    // No link pairing: nothing for a switch's cleanup to finish.
+    if let Err(e) = super::switch::clear(home) {
+        log::warn!("kleio-switch: couldn't clear switch.json: {e}");
     }
     log::info!("kleio-link: forgot the pairing to {}", record.host);
     Ok(true)
@@ -857,6 +862,9 @@ pub fn setup(app: &AppHandle) {
             runtime.set_failure(Some(e));
         }
     }
+    // A switch's cleanup, at launch: a good session from an earlier launch lets
+    // it go on, or finish what it left (`switch.rs`).
+    tauri::async_runtime::spawn(super::switch::run(crate::home_dir()));
 }
 
 /// Runs `task` on the async runtime from outside it, as setup does on the
@@ -1066,7 +1074,12 @@ async fn refresh_route(link: &Link, throttle: &Throttle) {
     let Some(r) = super::remote_if_booted().filter(|r| r.link().is_some()) else {
         return;
     };
-    let info = match fetch_link_info(r).await {
+    let answer = fetch_link_info(r).await;
+    if is_good_session(&answer) {
+        // The switch's cleanup may go on (`switch.rs`).
+        super::switch::after_good_session(&r.host, &r.device_id);
+    }
+    let info = match answer {
         Ok(Some(info)) => info,
         Ok(None) => return,
         Err(e) => {
@@ -1096,6 +1109,14 @@ async fn refresh_route(link: &Link, throttle: &Throttle) {
             Err(e) => log::warn!("kleio-link: couldn't keep the host's relays: {e}"),
         }
     }
+}
+
+/// A good link session, for a switch's cleanup (`switch.rs`): the host
+/// answered `GET /kleio/link` over the link, with this pairing's token, so the
+/// link reaches it and it knows this pairing. No answer, or a host without the
+/// route (404), isn't one.
+fn is_good_session(answer: &Result<Option<LinkInfo>, String>) -> bool {
+    matches!(answer, Ok(Some(_)))
 }
 
 /// `GET /kleio/link` over the link, with this device's token. `None` from a
@@ -1206,6 +1227,11 @@ pub async fn kleio_link_pair(
         paired_at: commands::now_iso(),
     };
     save(&home, &record)?;
+    // A new link pairing starts a switch's cleanup afresh: an earlier
+    // pairing's marks name another device, and count for nothing.
+    if let Err(e) = super::switch::clear(&home) {
+        log::warn!("kleio-switch: couldn't clear switch.json: {e}");
+    }
     log::info!(
         "kleio-link: paired to {} as {} (admin={})",
         record.host,
@@ -1563,6 +1589,22 @@ mod tests {
             addrs: addrs.iter().map(ToString::to_string).collect(),
             rate_limited,
         }
+    }
+
+    #[test]
+    fn only_the_hosts_answer_over_the_link_is_a_good_session_for_the_switch() {
+        // GET /kleio/link answered with this pairing's token: the link works.
+        let answered = Ok(Some(link_info(
+            &host_key().to_string(),
+            &["n0"],
+            &[],
+            false,
+        )));
+        assert!(is_good_session(&answered));
+        // No answer, or a host without the route: the old pairing stays.
+        assert!(!is_good_session(&Ok(None)));
+        assert!(!is_good_session(&Err("it answered HTTP 401".to_string())));
+        assert!(!is_good_session(&Err("connection refused".to_string())));
     }
 
     #[test]

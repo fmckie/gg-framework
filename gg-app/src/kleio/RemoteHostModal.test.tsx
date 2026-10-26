@@ -402,7 +402,11 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       expect(scanner.scan).toHaveBeenCalledWith({ formats: ["QR_CODE"], windowed: true });
       // A scan only reads the code: nothing pairs until Pair is pressed.
       expect(invokeMock).not.toHaveBeenCalledWith("kleio_link_pair", expect.anything());
-      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false);
+      // The overlay clears the page's class in an effect, which a busy machine can
+      // run a beat after the step this waited for shows, so wait for it too.
+      await waitFor(() =>
+        expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false),
+      );
     });
 
     it("a scanned v2 ticket fills the form", async () => {
@@ -479,12 +483,18 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
       await openPane();
       fireEvent.click(screen.getByRole("button", { name: "Scan QR code" }));
       const overlay = await screen.findByRole("dialog", { name: "Scan QR code" });
-      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(true);
+      // The overlay sets and clears the page's class in an effect, which can run a
+      // beat after the overlay shows or goes, so wait for each.
+      await waitFor(() =>
+        expect(document.documentElement.classList.contains("kleio-scanning")).toBe(true),
+      );
       fireEvent.click(within(overlay).getByRole("button", { name: "Cancel" }));
       await waitFor(() =>
         expect(screen.queryByRole("dialog", { name: "Scan QR code" })).toBeNull(),
       );
-      expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false);
+      await waitFor(() =>
+        expect(document.documentElement.classList.contains("kleio-scanning")).toBe(false),
+      );
       expect(screen.queryByRole("alert")).toBeNull();
       expect(screen.getByRole("button", { name: "Scan QR code" })).toBeTruthy();
     });

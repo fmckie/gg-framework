@@ -403,6 +403,70 @@ what was missed (persisted ring, survives a host restart).
 - whether a relay is slowing it down;
 - whether kleio-link-host is running.
 
+### Connect over your own network
+
+A device pairs over [Kleio's link](#kleios-link) by default, and needs nothing else. It can also
+pair by the host's address instead, under **Settings → Connection → Advanced: connect over your own
+network** (or ⌘⇧K on a Mac). That's for a host the device reaches some other way. Any of these
+works, as long as the address is https with a publicly trusted certificate.
+
+**The rule for the typed address** (`typed_base_in` in `gg-app/src-tauri/src/kleio/commands.rs`),
+the same on the iPhone and the Mac:
+
+- `https://<host>` or `https://<host>:<port>`. A trailing slash is fine, and the name is
+  lower-cased;
+- no username or password, path, query or fragment, and a DNS name, not an IP address;
+- not plain http, except `http://127.0.0.1:<port>` in a debug build, for
+  [a local host](#develop-against-a-local-host);
+- **the certificate must be publicly trusted.** The app checks it against the system's trust
+  store, and accepts no other: a proxy with a self-signed certificate fails at the first request.
+- The app follows no redirect: the device's token never goes on to another address.
+- **A pairing QR code stays Tailscale's.** An older host's QR code (`v2`) is drawn and read only
+  for a `.ts.net` address. Another address is typed.
+
+**On the host,** `KLEIO_PUBLIC_URL` is that address, and kleio-host refuses to start with one the
+app wouldn't pair with. kleio-host stays on `127.0.0.1` in every case. Whatever's in front of it
+terminates TLS, and passes the request on with its `Host` header as it came, so the API's
+DNS-rebinding guard knows the name (see the listeners, above).
+
+**Tailscale** (the installer's default): Tailscale Serve fronts `127.0.0.1:8443` at the Mac's
+tailnet name, with a certificate Tailscale gets for it, and only devices on your tailnet reach it.
+`install-mini.sh` sets `KLEIO_PUBLIC_URL` and `KLEIO_PREVIEW_URL` from that name.
+
+**Another VPN** (WireGuard, a company VPN): the same, behind a TLS proxy on the host. Its name needs
+a publicly trusted certificate, such as one from Let's Encrypt through a DNS challenge, for a name
+that resolves on the VPN.
+
+**A home network, behind a TLS proxy.** For example, Caddy on the host, for
+`kleio.example.com` pointed at the host's address on your network:
+
+```caddyfile
+kleio.example.com:8443 {
+	# A DNS challenge gets a publicly trusted certificate without opening a
+	# port to the internet (Caddy's DNS module for your DNS provider).
+	tls {
+		dns <your provider> {env.DNS_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8443
+}
+
+kleio.example.com:8444 {
+	tls {
+		dns <your provider> {env.DNS_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8444
+}
+```
+
+- Then on the host: `KLEIO_PUBLIC_URL=https://kleio.example.com:8443` and
+  `KLEIO_PREVIEW_URL=https://kleio.example.com:8444`.
+- Caddy passes the request's `Host` on by default, which the guard needs.
+- Keep the proxy off the internet, unless you mean to put the host there. The device's token is
+  all that guards the API.
+
+**Then pair:** `kleio-host pair` gives the code. Type the address and the code into the
+Advanced form, and restart the app.
+
 ### From gg-app (the laptop)
 
 1. On the mini: `kleio-host pair --admin` → `ABC-DEF`.

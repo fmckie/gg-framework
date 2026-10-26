@@ -6,7 +6,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 // The link's ticket vectors, which kleio-host's and the link's own tests read too.
 import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
 import { toast } from "../toast";
-import { ConnectionPage, formatLatency, N0_RELAY_LINE } from "./ConnectionPage";
+import { ConnectionPage, formatLatency, N0_RELAY_LINE, switchWords } from "./ConnectionPage";
 import { forgetHint } from "./ForgetHost";
 import { RESTART_HOST, RESTART_LINK, START_HOST } from "./connectionDiagnosis";
 import { hostHealth, KleioApiError, notificationSettings, setQuoteText } from "./kleioApi";
@@ -856,7 +856,8 @@ describe("ConnectionPage — Kleio's link", () => {
         "Reaches your host from anywhere, end-to-end encrypted, with no Tailscale needed.",
       ),
     ).toBeTruthy();
-    expect(within(box).getByText("Not paired over the link.")).toBeTruthy();
+    // Paired by address (over Tailscale): the switch's words, as an admin.
+    expect(within(box).getByText(switchWords("Mac", "mac-mini-1", true))).toBeTruthy();
     fireEvent.change(within(box).getByLabelText("Paste pairing text"), {
       target: { value: TICKET },
     });
@@ -870,6 +871,178 @@ describe("ConnectionPage — Kleio's link", () => {
     if (!confirm) throw new Error("no Pair button in the confirm step");
     fireEvent.click(confirm);
     await within(box).findByText(/Restart Kleio to use it/);
+  });
+
+  describe("switching from Tailscale to the link", () => {
+    const TICKET = JSON.stringify({
+      v: 4,
+      type: "kleio-pair",
+      name: "mac-mini-1",
+      key: "ab12cd34ef".padEnd(64, "0"),
+      relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
+      addrs: [],
+      code: "ADM-123",
+    });
+    const OFFER = {
+      display: "ADM-123",
+      expiresAt: 0,
+      admin: true,
+      ticket: TICKET,
+      ticketError: null,
+    };
+    const CHECK = {
+      name: "mac-mini-1",
+      keyPrefix: "ab12cd34ef",
+      relayHost: "euc1-1.relay.n0.iroh.link.",
+      code: "ADM-123",
+    };
+
+    it("offers an admin Mac the switch, with a code of its own, and keeps Tailscale until the link reaches the host", async () => {
+      vi.mocked(kleio.offer).mockResolvedValue(OFFER);
+      let paired = false;
+      const pairs: unknown[] = [];
+      linkRoutes({
+        kleio_link_status: () =>
+          paired
+            ? link({ active: false, running: false, connected: false })
+            : link({ paired: false, active: false, running: false, debugBuild: false }),
+        kleio_link_check_ticket: (args) => {
+          expect(args).toEqual({ ticket: TICKET });
+          return CHECK;
+        },
+        kleio_link_pair: (args) => {
+          pairs.push(args);
+          paired = true;
+          return {};
+        },
+        kleio_switch_status: () => ({ state: "waiting-for-link", reason: null }),
+      });
+      const box = await card();
+      expect(within(box).getByText(switchWords("Mac", "mac-mini-1", true))).toBeTruthy();
+      expect(switchWords("Mac", "mac-mini-1", true)).toBe(
+        "This Mac reaches mac-mini-1 over Tailscale. Switch to Kleio's link: no Tailscale needed. It pairs again with a code of its own, so this Mac stays an admin. Your pairing over Tailscale stays until the link has reached mac-mini-1.",
+      );
+      fireEvent.click(within(box).getByRole("button", { name: "Switch to Kleio's link" }));
+      // An admin code, so the link pairing is an admin as the Tailscale one is.
+      await within(box).findByText("ab12cd34ef…");
+      expect(kleio.offer).toHaveBeenCalledWith(true);
+      expect(within(box).getByText("ADM-123")).toBeTruthy();
+      const confirm = within(box)
+        .getAllByRole("button", { name: "Pair" })
+        .find((button) => !button.closest("details"));
+      if (!confirm) throw new Error("no Pair button in the confirm step");
+      fireEvent.click(confirm);
+      expect(
+        await within(box).findByText(
+          /Restart Kleio to use it\. Your pairing over Tailscale stays until the link has reached mac-mini-1, as the way back\./,
+        ),
+      ).toBeTruthy();
+      expect(pairs).toEqual([{ ticket: TICKET, label: "", onStage: expect.any(Channel) }]);
+      expect(
+        await within(box).findByText(
+          "This Mac's old pairing over Tailscale stays until the link has reached mac-mini-1: it's the way back.",
+        ),
+      ).toBeTruthy();
+    });
+
+    it("a switch whose code can't be made says why, and pairs nothing", async () => {
+      vi.mocked(kleio.offer).mockRejectedValue({
+        kind: "denied",
+        message: "Touch ID was cancelled or didn't match.",
+      });
+      const pairs: unknown[] = [];
+      linkRoutes({
+        kleio_link_status: () => link({ paired: false, active: false, running: false }),
+        kleio_link_pair: (args) => pairs.push(args),
+      });
+      const box = await card();
+      fireEvent.click(within(box).getByRole("button", { name: "Switch to Kleio's link" }));
+      expect((await within(box).findByRole("alert")).textContent).toBe(
+        "Touch ID was cancelled or didn't match.",
+      );
+      expect(pairs).toEqual([]);
+      // Still the way it was: the switch is offered again.
+      expect(within(box).getByRole("button", { name: "Switch to Kleio's link" })).toBeTruthy();
+    });
+
+    it("a device that isn't an admin is told where to get a code, and isn't offered its own", async () => {
+      const active = BY_ADDRESS.active;
+      if (active === null) throw new Error("BY_ADDRESS has a pairing");
+      remote.status = { ...BY_ADDRESS, active: { ...active, admin: false } };
+      linkRoutes({
+        kleio_link_status: () =>
+          link({ paired: false, active: false, running: false, debugBuild: false }),
+      });
+      const box = await card();
+      expect(
+        within(box).getByText(
+          "This Mac reaches mac-mini-1 over Tailscale. Switch to Kleio's link: no Tailscale needed. Paste pairing text from an admin device's Settings → Connection. Your pairing over Tailscale stays until the link has reached mac-mini-1.",
+        ),
+      ).toBeTruthy();
+      expect(within(box).queryByRole("button", { name: "Switch to Kleio's link" })).toBeNull();
+      expect(within(box).getByLabelText("Paste pairing text")).toBeTruthy();
+      expect(switchWords("iPhone", "mac-mini-1", false)).toMatch(
+        /Scan a pairing QR code from an admin device's Settings → Connection\./,
+      );
+    });
+
+    it("says what the cleanup is waiting for, then removes the old pairing here once the host refused", async () => {
+      let status: { state: string; reason: string | null } = {
+        state: "refused",
+        reason:
+          "The host didn't take this Mac's old pairing's token (HTTP 401): it may have been revoked already, or it doesn't match.",
+      };
+      const removed: string[] = [];
+      onTheLink();
+      linkRoutes({
+        kleio_link_status: () => link(),
+        kleio_switch_status: () => status,
+        kleio_switch_remove_old: () => {
+          removed.push("old");
+          status = { state: "none", reason: null };
+        },
+      });
+      const box = await card();
+      const alert = await within(box).findByRole("alert");
+      expect(alert.textContent).toBe(
+        "The host didn't take this Mac's old pairing's token (HTTP 401): it may have been revoked already, or it doesn't match. The link works, so it can be removed from this Mac. mac-mini-1 lists it until an admin revokes it.",
+      );
+      await act(async () => {
+        fireEvent.click(within(box).getByRole("button", { name: "Remove it from this Mac" }));
+      });
+      expect(removed).toEqual(["old"]);
+      await waitFor(() =>
+        expect(within(box).queryByRole("button", { name: /Remove it from/ })).toBeNull(),
+      );
+    });
+
+    it.each<[string, string | null, RegExp]>([
+      [
+        "waiting-for-link",
+        null,
+        /stays until the link has reached mac-mini-1: it's the way back\.$/,
+      ],
+      ["pending", null, /is removed the next time the link connects\.$/],
+      [
+        "waiting-for-host",
+        "connection refused",
+        /once mac-mini-1 answers over Tailscale\. Kleio tries again each time the link connects\. Last try: connection refused$/,
+      ],
+      [
+        "unfinished",
+        "the Keychain is locked",
+        /mac-mini-1 dropped this Mac's old pairing over Tailscale, but a part of it is still on this Mac\. Kleio removes it the next time the link connects\. \(the Keychain is locked\)$/,
+      ],
+    ])("says the cleanup is %s", async (state, reason, words) => {
+      onTheLink();
+      linkRoutes({
+        kleio_link_status: () => link(),
+        kleio_switch_status: () => ({ state, reason }),
+      });
+      const box = await card();
+      expect(await within(box).findByText(words)).toBeTruthy();
+      expect(within(box).queryByRole("button", { name: /Remove it from/ })).toBeNull();
+    });
   });
 
   it("pairs by the host's address under Advanced, and says what that replaces", async () => {

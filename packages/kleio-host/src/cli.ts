@@ -22,6 +22,7 @@ import { createSecretLock, type SecretLock } from "./acl.js";
 import { createDeviceRegistry, type PairedDevice } from "./device-registry.js";
 import { createFileKeychain } from "./file-keychain.js";
 import { createHost, DEVICE_TOKEN_HEADER } from "./host.js";
+import { checkedPublicUrl } from "./public-url.js";
 import { apnsConfigFromEnv, createApnsPusher } from "./apns.js";
 import { runCaptureCheck } from "./capture-check.js";
 import { createCapturer, defaultCacheDir, defaultHelperPath, macHelperBackend } from "./capture.js";
@@ -87,20 +88,11 @@ function listenPort(): number {
 
 /**
  * KLEIO_PUBLIC_URL without its trailing slash: where devices reach this host
- * over their own network (Tailscale). Unset on a host reached over the link
- * only.
+ * over their own network (Tailscale, another VPN, or a TLS proxy). Unset on a
+ * host reached over the link only.
  */
 function publicBase(): string | undefined {
-  const raw = process.env.KLEIO_PUBLIC_URL;
-  if (!raw) return undefined;
-  try {
-    new URL(raw);
-  } catch {
-    throw new Error(
-      `KLEIO_PUBLIC_URL must be a URL (e.g. https://mini.tailnet.ts.net:8443), not ${JSON.stringify(raw)}`,
-    );
-  }
-  return raw.replace(/\/$/, "");
+  return checkedPublicUrl(process.env.KLEIO_PUBLIC_URL);
 }
 
 /** The link listener's port on 127.0.0.1 (see link.ts). */

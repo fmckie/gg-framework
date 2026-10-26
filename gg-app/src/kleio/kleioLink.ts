@@ -100,8 +100,28 @@ export interface TicketCheck {
   code: string;
 }
 
+/**
+ * Where a switch from a pairing by address to the link is (`SwitchView` in
+ * kleio/switch.rs):
+ * - `none`: no old pairing waiting to go;
+ * - `waiting-for-link`: the link pairing hasn't had a good session yet;
+ * - `pending`: it has, and the cleanup runs at the next connection;
+ * - `waiting-for-host`: the host wasn't reached to drop the old pairing;
+ * - `refused`: the host won't drop it (a 401), so it can be removed here;
+ * - `unfinished`: the host dropped it, and what's left here is still going.
+ */
+export interface SwitchStatus {
+  state: "none" | "waiting-for-link" | "pending" | "waiting-for-host" | "refused" | "unfinished";
+  /** Why, from the last run, for `waiting-for-host`, `refused` and `unfinished`. */
+  reason: string | null;
+}
+
 export const kleioLink = {
   status: () => invoke<LinkStatus>("kleio_link_status"),
+  /** The switch's cleanup: what it's waiting for. */
+  switchStatus: () => invoke<SwitchStatus>("kleio_switch_status"),
+  /** Removes the old pairing by address here, once the host refused to. */
+  removeOld: () => invoke<void>("kleio_switch_remove_old"),
   checkTicket: (ticket: string) => invoke<TicketCheck>("kleio_link_check_ticket", { ticket }),
   /**
    * Pairs and switches the pairing on, as `pair` then `activatePairing` do,

@@ -132,6 +132,16 @@ export function useKleioRemote(): { status: RemoteStatus | null; refresh: () => 
 
 /** "Denied" errors from the Rust gate are `denied:<reason>`; everything else is a message. */
 export function explainError(e: unknown): string {
+  // An admin command's error (Rust `AdminError`) arrives as {kind, message}:
+  // its message, rather than "[object Object]".
+  if (
+    typeof e === "object" &&
+    e !== null &&
+    !(e instanceof Error) &&
+    typeof (e as { message?: unknown }).message === "string"
+  ) {
+    return (e as { message: string }).message;
+  }
   // Tauri delivers a command's Err(String) as-is; a thrown Error stringifies
   // with an "Error: " prefix. Match the marker anywhere so both forms work.
   const s = String(e);

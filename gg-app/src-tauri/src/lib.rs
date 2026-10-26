@@ -6015,6 +6015,10 @@ pub fn run() {
             kleio::link::kleio_link_pair,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_status,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            kleio::switch::kleio_switch_status,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            kleio::switch::kleio_switch_remove_old,
             kleio_chat_for_session,
             kleio::push::kleio_take_notification_tap,
             kleio::live::kleio_live_start,
