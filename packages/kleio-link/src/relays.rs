@@ -266,6 +266,21 @@ mod tests {
         assert_eq!(config.list_version, 3);
         assert_eq!(config.relays.len(), 2);
         assert_eq!(LinkConfig::default().relays, [RelayEntry::N0]);
+        // While a new list waits for devices, `relays` is the host's order,
+        // and `list` and `promoted` are kleio-host's (link-relays.ts), as the
+        // shared fixture has it.
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/relay-config.json"))
+                .expect("the fixture is JSON");
+        let waiting = LinkConfig::parse(fixture["waiting"].to_string().as_bytes()).expect("reads");
+        assert_eq!(waiting.list_version, 4);
+        assert_eq!(
+            waiting.relays,
+            [
+                RelayEntry::N0,
+                RelayEntry::Url(check_relay_url("https://relay.example.com/").expect("a relay")),
+            ]
+        );
         for bad in [
             &br#"{"version":2,"listVersion":0,"relays":["n0"]}"#[..],
             br#"{"version":1,"relays":["n0"]}"#,

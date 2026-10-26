@@ -39,6 +39,12 @@
 //   config.json  kleio-host's: the relay list, in order, where "n0" stands
 //                for n0's public relays. Without the file, n0's alone.
 //                {"version":1,"listVersion":0,"relays":["n0"]}
+//                `relays` is the order kleio-link-host uses. While a new
+//                list waits for every device to have it (link-relays.ts),
+//                `list` is that list and `promoted` the last one every
+//                device had, and `relays` keeps the host on relays they know:
+//                {"version":1,"listVersion":1,"relays":["n0","https://<relay>/"],
+//                 "list":["https://<relay>/"],"promoted":["n0"]}
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { open } from "node:fs/promises";
@@ -500,11 +506,30 @@ export type LinkStateRead =
 export interface LinkConfig {
   /** Goes up by one each time the list changes; 0 for the list without the file. */
   readonly listVersion: number;
+  /** The list, as devices get it: GET /kleio/link and pairing tickets. */
   readonly relays: readonly string[];
+  /** The order kleio-link-host uses: the file's `relays`. */
+  readonly hostOrder: readonly string[];
+  /**
+   * While `relays` waits for every device to have it, the last list every
+   * device had; null once `relays` is in use (link-relays.ts).
+   */
+  readonly promoted: readonly string[] | null;
 }
 
 /** The list without link/config.json: n0's relays alone. */
-export const DEFAULT_LINK_CONFIG: LinkConfig = { listVersion: 0, relays: [N0_RELAYS] };
+export const DEFAULT_LINK_CONFIG: LinkConfig = {
+  listVersion: 0,
+  relays: [N0_RELAYS],
+  hostOrder: [N0_RELAYS],
+  promoted: null,
+};
+
+/** Whether `relay` is one of n0's public relays. */
+export function isN0RelayUrl(relay: string): boolean {
+  const host = new URL(relay).hostname;
+  return host.endsWith(".relay.n0.iroh.link.") || host.endsWith(".relay.n0.iroh.link");
+}
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === "object" && x !== null && !Array.isArray(x);
@@ -606,12 +631,24 @@ export async function readLinkConfig(dir: string): Promise<Result<LinkConfig, st
   const doc = read.value;
   if (!isRecord(doc) || doc.version !== 1) return err(`${path}: not a version 1 relay list`);
   if (!isCount(doc.listVersion)) return err(`${path}: listVersion isn't a count`);
-  if (!isRelayList(doc.relays)) {
-    return err(
-      `${path}: relays must be 1 to ${MAX_RELAYS} relay addresses (https://<host>/) or "n0", none twice`,
-    );
+  const lists = ["relays", "list", "promoted"] as const;
+  for (const name of lists) {
+    if ((name === "relays" || doc[name] !== undefined) && !isRelayList(doc[name])) {
+      return err(
+        `${path}: ${name} must be 1 to ${MAX_RELAYS} relay addresses (https://<host>/) or "n0", none twice`,
+      );
+    }
   }
-  return ok({ listVersion: doc.listVersion, relays: [...doc.relays] });
+  if ((doc.list === undefined) !== (doc.promoted === undefined)) {
+    return err(`${path}: list and promoted come together`);
+  }
+  const hostOrder = [...(doc.relays as string[])];
+  return ok({
+    listVersion: doc.listVersion,
+    relays: isRelayList(doc.list) ? [...doc.list] : hostOrder,
+    hostOrder,
+    promoted: isRelayList(doc.promoted) ? [...doc.promoted] : null,
+  });
 }
 
 /** GET /kleio/link: what a paired device keeps, to find the host again. */
