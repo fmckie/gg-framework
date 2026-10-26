@@ -221,6 +221,23 @@ Phase 2 measured, in the real app on EE 4G, a 45 MiB file at 0.57 MB/s. While it
 connection's round trip went from 0.1 s to 8.8 s, so chats waited up to about 20 s behind it. As
 in the prototype, no connection went direct on EE 4G.
 
+That was QUIC's default congestion control, Cubic, which slows down only when packets are lost. A
+shared relay doesn't drop what's over its limit, it reads it more slowly, so the file's data
+queued in the relay's path and everything else waited behind it. So kleio-link-host now runs
+BBRv3 (`transport` in `src/host/mod.rs`), which paces at the rate the path delivers and keeps
+about a round trip's worth in flight:
+
+- Through a test relay limited to 1 MiB/s, with a 45 MiB file (`tests/pacing.rs`), requests
+  alongside it took 0.2 s at most, against 1.2–2.1 s with Cubic. The file came at 95% of the
+  limit either way.
+- With 5 MiB let through faster first, as n0's relays do, the slowest request took 0.25 s.
+- With two big files at once, it took 0.19 s.
+- On a direct path BBRv3 measured the same as Cubic.
+
+Only the host's end changed, as only the host sends big answers. The phone keeps iroh's default,
+so a big upload from the phone still queues. Downloads get no faster: a relay of your own is what
+makes them faster.
+
 kleio-link-host notes when a relay says it's rate-limiting the host (`rateLimited` in
 `link/state.json`). A relay of your own avoids the limit: put it first in the list, with `"n0"`
 after it as the fallback.
@@ -392,6 +409,10 @@ cargo test --locked --features host --test end_to_end -- --ignored
   failover, and a relay's rate limit.
 - **`tests/end_to_end.rs`** runs the real kleio-host and kleio-link-host, with a relay and a phone
   in the test process. CI runs it on Linux, macOS and Windows.
-- **iroh is pinned** (`=1.4.1`), and gg-app's lockfile and this one must agree on iroh's and noq's
-  versions. `node scripts/check-link-locks.mjs` checks that, and CI runs it. Dependabot updates both
+- **`tests/pacing.rs`** sends a 45 MiB answer through a relay limited to 1 MiB/s, with a request
+  alongside it each second. Each must take under 1 s, and the answer must come at 90% of the limit
+  or better. It takes about 50 s.
+- **iroh is pinned** (`=1.4.1`), and noq-proto with it (`=1.4.0`, iroh's own, for the host's
+  BBRv3). gg-app's lockfile and this one must agree on iroh's and noq's versions.
+  `node scripts/check-link-locks.mjs` checks that, and CI runs it. Dependabot updates both
   lockfiles in one group.

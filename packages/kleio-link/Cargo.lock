@@ -1584,6 +1584,7 @@ dependencies = [
  "getrandom 0.4.3",
  "iroh",
  "iroh-relay",
+ "noq-proto",
  "qrcode",
  "reqwest",
  "rustls-pki-types",

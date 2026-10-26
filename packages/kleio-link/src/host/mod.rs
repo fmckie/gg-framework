@@ -41,8 +41,9 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iroh::endpoint::{Builder, Incoming, VarInt};
+use iroh::endpoint::{Builder, Incoming, QuicTransportConfig, VarInt};
 use iroh::{Endpoint, RelayMap, RelayMode, RelayUrl, SecretKey, Watcher};
+use noq_proto::congestion::Bbr3Config;
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
@@ -170,7 +171,8 @@ pub async fn serve(config: Config) -> Result<(), HostError> {
     Ok(())
 }
 
-/// The host's endpoint: the shared builder, with the two ALPNs and the gate.
+/// The host's endpoint: the shared builder, with the two ALPNs, the gate
+/// and its congestion control ([`transport`]).
 fn host_builder(
     secret_key: SecretKey,
     relay_mode: RelayMode,
@@ -180,6 +182,31 @@ fn host_builder(
     builder(secret_key, relay_mode, options)
         .alpns(vec![ALPN_HTTP.to_vec(), ALPN_PAIR.to_vec()])
         .hooks(Gate::new(allow))
+        .transport_config(transport())
+}
+
+/// The host's QUIC transport: iroh's default, with BBRv3 congestion control
+/// in place of Cubic, so a big answer through a shared relay doesn't hold
+/// up the connection's other answers.
+///
+/// A shared relay such as n0's limits what each endpoint sends it, to about
+/// 1 MB/s, by reading more slowly rather than by dropping what's over. Cubic
+/// slows down only for loss, so it never slowed: a big answer filled the
+/// relay's path up to its stream's flow-control window, and every other
+/// answer waited behind it. In Phase 2's check, while a 45 MiB file came
+/// through n0's relay, the round trip went from 0.1 s to 8.8 s and chats
+/// waited up to 20 s. BBRv3 paces at the rate the path delivers and keeps
+/// about a round trip's worth in flight, so the relay's queue stays short.
+///
+/// Through a test relay limited to 1 MiB/s, with a 45 MiB answer
+/// (tests/pacing.rs): requests alongside it took 0.2 s at most, against
+/// 1.2–2.1 s with Cubic, and the answer came at 95% of the relay's limit
+/// either way. On a direct path it measured the same as Cubic. Only the host sends
+/// big answers, so the phone keeps iroh's default.
+fn transport() -> QuicTransportConfig {
+    QuicTransportConfig::builder()
+        .congestion_controller_factory(Arc::new(Bbr3Config::default()))
+        .build()
 }
 
 /// Logs the relay the host is reached through each time it changes.
@@ -816,5 +843,24 @@ mod tests {
             assert_eq!(line, format!("KLEIO-LINK/1 {} {fresh}\r\n", phone.id()));
         })
         .await;
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+
+    /// The host changes only its congestion control: noq's `Debug` leaves the
+    /// controller out, so the rest, the idle timeout among it, reads as
+    /// iroh's default.
+    #[test]
+    fn the_host_changes_only_its_congestion_control() {
+        let default = format!("{:?}", QuicTransportConfig::default());
+        assert_eq!(format!("{:?}", transport()), default);
+        let idle = format!(
+            "max_idle_timeout: Some({})",
+            crate::endpoint::IDLE_TIMEOUT.as_millis()
+        );
+        assert!(default.contains(&idle), "iroh's default config: {default}");
     }
 }
