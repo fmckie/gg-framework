@@ -1458,6 +1458,33 @@ mod tests {
         assert_eq!(route.every_relay()[0], relay("relay.example.com"));
     }
 
+    /// A list without "n0": no stage of a dial names any of n0's relays, so
+    /// the phone's endpoint (bound with the route's relays alone) never
+    /// contacts them.
+    #[test]
+    fn a_list_without_n0_never_dials_n0s_relays() {
+        let own = relay("relay.example.com");
+        let other = relay("relay.example.org");
+        for last in [None, Some(own.clone()), Some(other.clone())] {
+            let route = Route::new(
+                key(),
+                last,
+                vec![addr("192.168.1.20:52043")],
+                vec![RelayEntry::Url(own.clone()), RelayEntry::Url(other.clone())],
+            );
+            let mut named = route.every_relay();
+            named.extend(route.first_stage().relay_urls().cloned());
+            if let Some(second) = route.second_stage() {
+                named.extend(second.relay_urls().cloned());
+            }
+            assert!(!named.is_empty());
+            assert!(
+                !named.iter().any(crate::relays::is_n0_relay),
+                "n0 named: {named:?}"
+            );
+        }
+    }
+
     #[test]
     fn has_no_second_stage_when_the_list_adds_nothing() {
         let own = relay("relay.example.com");
