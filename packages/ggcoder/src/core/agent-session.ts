@@ -395,6 +395,12 @@ export interface AgentSessionOptions {
   orchestrationPrompt?: boolean;
   /** Host-provided tools appended to this session only (for example, chat delegation). */
   additionalTools?: AgentTool[];
+  /**
+   * Each tool's details, reshaped before its `tool_call_end` event (the agent
+   * loop's `transformToolDetails`). The app's sidecar makes image previews
+   * WebP here (`withAppImagePreviews`); the terminal sets none.
+   */
+  toolDetails?: (details: unknown) => Promise<unknown>;
   /** Mode-owned completion policy; absent in Coder/chat/worker sessions. */
   completionReview?: CompletionReview;
 }
@@ -2612,6 +2618,7 @@ export class AgentSession {
         provider: this.provider,
         model: this.model,
         tools: options.disableTools ? [] : this.tools,
+        transformToolDetails: this.opts.toolDetails,
         webSearch: !options.disableTools,
         maxTokens: this.maxTokens,
         maxTurns: this.opts.maxTurns,

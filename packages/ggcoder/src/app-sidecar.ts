@@ -220,7 +220,12 @@ import {
   stopRadio,
 } from "./core/radio.js";
 import { enrichProcessPath } from "./core/shell-path.js";
-import { downscaleForPreview, shrinkToFit, validateVisionImage } from "./utils/image.js";
+import {
+  appToolImages,
+  shrinkToFit,
+  validateVisionImage,
+  withAppImagePreviews,
+} from "./utils/image.js";
 import { startServeMode, type ServeController } from "./modes/serve-mode.js";
 import { installSteroids, probeSteroids } from "./core/steroids.js";
 import { loadTelegramConfig, saveTelegramConfig, verifyBotToken } from "./core/telegram-config.js";
@@ -2462,6 +2467,8 @@ async function createSession(
     model,
     cwd,
     thinkingLevel,
+    // Image previews go to the app as WebP, which reach the phone a tenth the size.
+    toolDetails: withAppImagePreviews,
     sessionId: resumeSessionPath,
     signal: abort.signal,
     // Keep MCP startup off the readiness path in both modes.
@@ -4542,8 +4549,9 @@ async function createSession(
       //
       // The `details` object (imagePreviews with path + downscaled preview) is
       // event-only and never persisted — we reconstruct from the raw
-      // ImageContent in the tool result, downsampling on the sidecar side and
-      // extracting the path from the text block ("Generated image → /path").
+      // ImageContent in the tool result, making the app's preview on the
+      // sidecar side and extracting the path from the text block
+      // ("Generated image → /path").
       void (async () => {
         const commandCandidates = [...PROMPT_COMMANDS, ...(await loadCustomCommands(cwd))];
         const messages = session.getMessages();
@@ -4744,25 +4752,12 @@ async function createSession(
                 const pathMatch = textContent.match(/→\s*(\S+)/);
                 const imgPath = pathMatch?.[1];
 
-                // Downscale each image for the webview preview.
-                const toolImages: Array<{ src: string; path?: string }> = [];
-                for (const block of imageBlocks) {
-                  if (block.type !== "image") continue;
-                  try {
-                    const rawBuf = Buffer.from(block.data, "base64");
-                    const previewBuf = await downscaleForPreview(rawBuf);
-                    toolImages.push({
-                      src: `data:${block.mediaType};base64,${previewBuf.toString("base64")}`,
-                      path: imgPath,
-                    });
-                  } catch {
-                    // Downscale failed — use the raw data.
-                    toolImages.push({
-                      src: `data:${block.mediaType};base64,${block.data}`,
-                      path: imgPath,
-                    });
-                  }
-                }
+                // The app's preview of each image (WebP, 480 px wide), as the
+                // live tool_call_end event carries it.
+                const toolImages = await appToolImages(
+                  imageBlocks.flatMap((block) => (block.type === "image" ? [block] : [])),
+                  imgPath,
+                );
                 if (toolImages.length > 0) {
                   history.push({
                     role: "assistant",

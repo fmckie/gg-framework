@@ -389,6 +389,14 @@ export interface AgentOptions {
     maxTurns: number;
     extension: number;
   }) => Promise<boolean> | boolean;
+  /**
+   * Applied to each tool's `details` before its `tool_call_end` event, which
+   * then carries what it returns: a host reshaping what goes out with the
+   * event, such as an app making image previews smaller. The tool's result,
+   * which the model sees, is untouched. A transform that throws leaves the
+   * details as they were.
+   */
+  transformToolDetails?: (details: unknown) => Promise<unknown>;
 }
 
 // ── Agent Result ────────────────────────────────────────────

@@ -543,6 +543,79 @@ export async function downscaleForPreview(buffer: Buffer): Promise<Buffer> {
 }
 
 /**
+ * WebP quality and effort (0–6) for the app's image previews. On the Mac
+ * mini, a chat's 54 screenshots came to 3.7 MB at effort 2 in 1.03 s, 3.6 MB
+ * at sharp's default in 1.36 s, and 40.8 MB as the terminal's PNG in 0.76 s.
+ */
+const APP_PREVIEW_QUALITY = 70;
+const APP_PREVIEW_EFFORT = 2;
+
+/**
+ * An image's preview for the desktop and phone app: at most PREVIEW_MAX_WIDTH
+ * wide, as WebP, about a tenth of the PNG the terminal's preview keeps. A
+ * chat's previews cross the network each time it opens, at about 1 MB/s
+ * through a shared relay. Every webview the app runs in shows WebP: the
+ * sidecar's Node needs macOS 11, and the iPhone app iOS 18.
+ *
+ * On any sharp failure the image comes back as it was: a preview is cosmetic.
+ */
+export async function previewForApp(
+  buffer: Buffer,
+  mediaType: string,
+): Promise<{ buffer: Buffer; mediaType: string }> {
+  try {
+    const sharp = await loadSharp();
+    const webp = await sharp(buffer)
+      .resize(PREVIEW_MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: APP_PREVIEW_QUALITY, effort: APP_PREVIEW_EFFORT })
+      .toBuffer();
+    return { buffer: webp, mediaType: "image/webp" };
+  } catch {
+    return { buffer, mediaType };
+  }
+}
+
+/**
+ * A tool's `details` with its `imagePreviews` (screenshot, read,
+ * generate_image) made the app's ([`previewForApp`]), for its tool_call_end
+ * event. Anything else comes back as it was.
+ */
+export async function withAppImagePreviews(details: unknown): Promise<unknown> {
+  if (!details || typeof details !== "object") return details;
+  const previews: unknown = Reflect.get(details, "imagePreviews");
+  if (!Array.isArray(previews) || previews.length === 0) return details;
+  const made: unknown[] = [];
+  for (const preview of previews) {
+    const base64: unknown = preview && typeof preview === "object" ? preview.base64 : undefined;
+    const mediaType: unknown =
+      preview && typeof preview === "object" ? preview.mediaType : undefined;
+    if (typeof base64 !== "string" || typeof mediaType !== "string") {
+      made.push(preview);
+      continue;
+    }
+    const app = await previewForApp(Buffer.from(base64, "base64"), mediaType);
+    made.push({ ...preview, base64: app.buffer.toString("base64"), mediaType: app.mediaType });
+  }
+  return { ...details, imagePreviews: made };
+}
+
+/**
+ * A stored tool result's images as a reopened chat shows them (the sidecar's
+ * `GET /history`): data URLs of their app previews, with the file's path.
+ */
+export async function appToolImages(
+  blocks: ReadonlyArray<{ data: string; mediaType: string }>,
+  path: string | undefined,
+): Promise<Array<{ src: string; path?: string }>> {
+  const images: Array<{ src: string; path?: string }> = [];
+  for (const block of blocks) {
+    const app = await previewForApp(Buffer.from(block.data, "base64"), block.mediaType);
+    images.push({ src: `data:${app.mediaType};base64,${app.buffer.toString("base64")}`, path });
+  }
+  return images;
+}
+
+/**
  * Read a file and return an attachment (base64 for images, raw text for text files).
  *
  * Image decode / shrink failures degrade to a text placeholder instead of throwing,
