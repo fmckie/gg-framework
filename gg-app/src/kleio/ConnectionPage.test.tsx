@@ -16,6 +16,7 @@ import { noTicketWords } from "./PairingOffer";
 import { pairTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath } from "./qr";
 import {
+  type Forgot,
   kleio,
   type RemoteStatus,
   type TailscaleNode,
@@ -374,9 +375,38 @@ describe("ConnectionPage", () => {
 });
 
 describe("ConnectionPage — Forget host", () => {
+  /** Forget host, confirmed, with the host answering `onHost`: the page as it
+   *  reads after, with the pairing gone from disk and this launch still on it. */
+  async function forgetWith(onHost: Forgot): Promise<HTMLElement> {
+    vi.mocked(kleio.forget).mockImplementation(async () => {
+      remote.status = { ...BY_ADDRESS, paired: null };
+      return onHost;
+    });
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<ConnectionPage />);
+    });
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    expect(kleio.forget).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      view?.rerender(<ConnectionPage />);
+    });
+    const after = screen.getByRole("region", { name: "Host" });
+    expect(within(after).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(within(after).getByRole("status").textContent).toMatch(
+      /^You just forgot the host\. Restart Kleio to apply/,
+    );
+    return after;
+  }
+
   it("asks first, then forgets the host, and says it applies at the next launch", async () => {
     vi.mocked(kleio.forget).mockImplementation(async () => {
       remote.status = { ...BY_ADDRESS, paired: null };
+      return { onHost: "removed" };
     });
     let view: ReturnType<typeof render> | undefined;
     await act(async () => {
@@ -386,7 +416,7 @@ describe("ConnectionPage — Forget host", () => {
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(within(host).getByText(forgetHint())).toBeTruthy();
     expect(forgetHint()).toBe(
-      "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it.",
+      "Kleio asks the host to remove this Mac, then forgets the host here. Sessions go back to running on this Mac after a restart. If the host can't be reached, it's forgotten here only, and the host lists this Mac until an admin revokes it.",
     );
     // Keep puts it back as it was, and nothing was forgotten.
     fireEvent.click(within(host).getByRole("button", { name: "Keep" }));
@@ -409,16 +439,64 @@ describe("ConnectionPage — Forget host", () => {
     );
   });
 
-  it("on the iPhone, says Kleio disconnects the next time it's opened", async () => {
+  it("on the iPhone, says the host is asked to remove it, and what if it can't be", async () => {
     document.documentElement.classList.add("platform-ios");
     await renderPage();
     const host = screen.getByRole("region", { name: "Host" });
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(
       within(host).getByText(
-        "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it.",
+        "Kleio asks the host to remove this iPhone, then forgets the host here. If the host can't be reached, it's forgotten here only, and the host lists this iPhone until an admin revokes it.",
       ),
     ).toBeTruthy();
+  });
+
+  it("host reached: says the host removed this Mac", async () => {
+    await forgetWith({ onHost: "removed" });
+    expect(toast).toHaveBeenCalledExactlyOnceWith("The host removed this Mac.", "success");
+  });
+
+  it("host unreachable: forgets it here anyway, and says the host still lists this Mac", async () => {
+    await forgetWith({
+      onHost: "notRemoved",
+      reason: "the host couldn't be reached (connection refused)",
+    });
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "Forgot the host here only: the host couldn't be reached (connection refused). The host lists this Mac until an admin revokes it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("host answers 401: forgets it here anyway, and says it may be revoked already", async () => {
+    await forgetWith({ onHost: "refused" });
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "Forgot the host here. The host turned this Mac's token away (HTTP 401), so it may have been revoked already. If the host still lists this Mac, an admin can revoke it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("keeps Keep and Forget host disabled while the host is asked", async () => {
+    let answer: (f: Forgot) => void = () => {};
+    vi.mocked(kleio.forget).mockImplementation(
+      () =>
+        new Promise<Forgot>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await renderPage();
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    const forgetting = within(host).getByRole<HTMLButtonElement>("button", { name: "Forgetting…" });
+    const keep = within(host).getByRole<HTMLButtonElement>("button", { name: "Keep" });
+    expect([forgetting.disabled, keep.disabled]).toEqual([true, true]);
+    await act(async () => {
+      answer({ onHost: "removed" });
+    });
   });
 
   it("says why when forgetting fails, and keeps the pairing", async () => {

@@ -1,17 +1,53 @@
 // "Forget host…" and its confirm, in Settings → Connection's Host card and
 // the ⌘⇧K pane (RemoteHostModal.tsx), so both ask the same way. Forgetting
-// takes effect on the next launch: the host still lists this device until an
-// admin revokes it.
+// asks the host to remove this device first (`kleio_forget`), then forgets
+// the pairing here whatever the host said, and a toast says what that was.
+// Here, it takes effect on the next launch.
 
 import { useCallback, useState } from "react";
 import { isPhone } from "../platform";
-import { explainError, kleio } from "./useKleioRemote";
+import { toast, type ToastTone } from "../toast";
+import { explainError, kleio, type Forgot } from "./useKleioRemote";
+
+/** This device, in the words shown. */
+function device(): string {
+  return isPhone() ? "iPhone" : "Mac";
+}
 
 /** What forgetting does, said on the confirm step. */
 export function forgetHint(): string {
+  const d = device();
+  const asks = `Kleio asks the host to remove this ${d}, then forgets the host here.`;
+  const unreached = `If the host can't be reached, it's forgotten here only, and the host lists this ${d} until an admin revokes it.`;
   return isPhone()
-    ? "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it."
-    : "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it.";
+    ? `${asks} ${unreached}`
+    : `${asks} Sessions go back to running on this Mac after a restart. ${unreached}`;
+}
+
+/** What Forget host says once it's done, from what the host said. `sticky`:
+ *  it stays until dismissed, as the host still lists this device. */
+export function forgotWords(
+  forgot: Forgot,
+): { message: string; tone: ToastTone; sticky: boolean } | null {
+  const d = device();
+  switch (forgot.onHost) {
+    case "removed":
+      return { message: `The host removed this ${d}.`, tone: "success", sticky: false };
+    case "refused":
+      return {
+        message: `Forgot the host here. The host turned this ${d}'s token away (HTTP 401), so it may have been revoked already. If the host still lists this ${d}, an admin can revoke it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    case "notRemoved":
+      return {
+        message: `Forgot the host here only: ${forgot.reason}. The host lists this ${d} until an admin revokes it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    case "notPaired":
+      return null;
+  }
 }
 
 /**
@@ -33,7 +69,9 @@ export function ForgetHost({
     setBusy(true);
     setError(null);
     try {
-      await kleio.forget();
+      const words = forgotWords(await kleio.forget());
+      if (words?.sticky) toast(words.message, words.tone, 0);
+      else if (words) toast(words.message, words.tone);
       await onForgot();
     } catch (e) {
       setError(explainError(e));
@@ -57,11 +95,16 @@ export function ForgetHost({
             <span className={compact ? "conn-forget-hint" : "modal-hint kleio-inline-hint"}>
               {forgetHint()}
             </span>
-            <button type="button" className={quiet} onClick={() => setConfirm(false)}>
+            <button
+              type="button"
+              className={quiet}
+              disabled={busy}
+              onClick={() => setConfirm(false)}
+            >
               Keep
             </button>
             <button type="button" className={strong} disabled={busy} onClick={() => void forget()}>
-              Forget host
+              {busy ? "Forgetting…" : "Forget host"}
             </button>
           </>
         ) : (

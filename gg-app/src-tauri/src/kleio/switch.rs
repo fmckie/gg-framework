@@ -463,7 +463,7 @@ pub fn kleio_switch_status() -> SwitchView {
 /// Removes the old pairing here only, when the host won't drop it (a 401):
 /// its Keychain items, then `remote.json`. Only once the link has had its
 /// good session, so this device always keeps a working pairing. The host
-/// lists the old device until an admin revokes it, as after Forget host.
+/// lists the old device until an admin revokes it.
 #[tauri::command]
 pub async fn kleio_switch_remove_old() -> Result<(), String> {
     let _one = one_at_a_time().lock().await;

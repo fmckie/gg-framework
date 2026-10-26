@@ -288,8 +288,8 @@ replacing your pairing with the mini. To try pairing, use `--app` (below).
   sandbox and goes with it.
 
 > **Warning:** in an app started this way, don't use **Forget host** or **Pair**. Forget host
-> (`kleio_forget`) deletes the real `~/.kleio/remote.json` and the mini's Keychain items, whatever
-> the environment says, and Pair replaces them.
+> (`kleio_forget`) asks the mini to remove this Mac, then deletes the real `~/.kleio/remote.json`
+> and the mini's Keychain items, whatever the environment says, and Pair replaces them.
 
 ### Open the desktop app as a new user (`--app`)
 
@@ -488,8 +488,10 @@ on the Mac, and on the iPhone the app's own, where they can be read once the pho
 unlocked after starting and stay on that phone. The non-secret record goes to
 `~/.kleio/remote.json`. Admin actions in the pane's
 **Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
-refuse without it. **Forget host** + restart returns to local mode. Env override for
-development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
+refuse without it. **Forget host** asks the host to remove this device
+(`DELETE /kleio/devices/self`), then forgets the pairing here even if the host can't be reached,
+and a restart returns to local mode. Env override for development: `KLEIO_HOST_URL` +
+`KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
 
 ### Routines (`/schedule`) run here
 

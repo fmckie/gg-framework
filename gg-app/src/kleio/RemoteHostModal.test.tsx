@@ -532,6 +532,7 @@ describe("RemoteHostModal — paired", () => {
       kleio_remote_status: () => ({ active: ACTIVE, paired }),
       kleio_forget: () => {
         paired = null;
+        return { onHost: "removed" };
       },
     });
     render(<RemoteHostModal onClose={() => {}} />);
