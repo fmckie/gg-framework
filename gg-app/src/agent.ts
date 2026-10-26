@@ -155,6 +155,9 @@ export interface AgentState {
   runState?: "idle" | "running" | "cancelling";
   /** `ask_user` questions still awaiting an answer (validated on use). */
   pendingAsks?: unknown[];
+  /** True when the sidecar can list a chat's images by ref, to load as
+   *  they're scrolled to (`listHistory(true)`). Absent on older sidecars. */
+  historyImageRefs?: boolean;
   /** Current reasoning level, or null when thinking is off. May be absent on
    * frames from older sidecars / partial model_change spreads. */
   thinkingLevel?: string | null;
@@ -795,8 +798,16 @@ export interface HistoryEntry {
   /** Webview-copy info row marker (e.g. the video-capability warning). */
   infoKind?: "video_warning";
   /** Tool-produced images rendered inline (same as live `images` items),
-   *  reconstructed from ImageContent blocks in persisted tool results. */
-  toolImages?: Array<{ src: string; path?: string }>;
+   *  reconstructed from ImageContent blocks in persisted tool results: each
+   *  its preview (`src`), or, asked for by ref, a `ref` to load it by as it's
+   *  scrolled to (`historyImages`), with its preview's size. */
+  toolImages?: Array<{
+    src?: string;
+    ref?: string;
+    width?: number;
+    height?: number;
+    path?: string;
+  }>;
   /** Sub-agent delegation group (same as live `subagent_group` items). */
   subagentGroup?: Array<{
     agentName?: string;
@@ -805,15 +816,26 @@ export interface HistoryEntry {
   }>;
 }
 
-/** Fetch the resumed session's prior messages so the transcript can hydrate. */
-export async function listHistory(): Promise<HistoryEntry[]> {
+/** Fetch the resumed session's prior messages so the transcript can hydrate.
+ *  `imagesByRef`: its tool images as refs, to load as they're scrolled to,
+ *  from a sidecar whose state says it can (`historyImageRefs`). */
+export async function listHistory(imagesByRef = false): Promise<HistoryEntry[]> {
   try {
-    const res = await invoke<{ history: HistoryEntry[] }>("agent_history");
+    const res = await invoke<{ history: HistoryEntry[] }>("agent_history", { imagesByRef });
     return res.history ?? [];
   } catch (e) {
     await logError(`agent_history failed: ${String(e)}`);
     return [];
   }
+}
+
+/** Some of a resumed chat's tool images by ref (from `listHistory(true)`):
+ *  their previews as data URLs. A ref the chat no longer has is left out. */
+export async function historyImages(refs: readonly string[]): Promise<Record<string, string>> {
+  const res = await invoke<{ images?: Record<string, string> }>("agent_history_images", {
+    refs,
+  });
+  return res.images ?? {};
 }
 
 // ── Transcript export ──────────────────────────────────────

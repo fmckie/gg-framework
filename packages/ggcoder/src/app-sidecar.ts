@@ -221,7 +221,9 @@ import {
 } from "./core/radio.js";
 import { enrichProcessPath } from "./core/shell-path.js";
 import {
+  appToolImageRefs,
   appToolImages,
+  historyImageRef,
   shrinkToFit,
   validateVisionImage,
   withAppImagePreviews,
@@ -608,7 +610,11 @@ interface HistoryEntryForWire {
   error?: { scope: string; headline: string; message?: string; guidance?: string };
   /** Webview-copy info row marker (e.g. the video-capability warning). */
   infoKind?: "video_warning";
-  toolImages?: Array<{ src: string; path?: string }>;
+  // Each image's preview (`src`), or with `?images=refs` its ref and its
+  // preview's size, for the app to load as it's scrolled to.
+  toolImages?: Array<
+    { src: string; path?: string } | { ref: string; width?: number; height?: number; path?: string }
+  >;
   subagentGroup?: Array<{
     agentName?: string;
     status: "done" | "error";
@@ -2182,6 +2188,29 @@ type WorkspaceMode = "code" | "chat" | "motion";
 /** Unknown or missing modes fall back to the coding agent. */
 function parseWorkspaceMode(value: unknown): WorkspaceMode {
   return value === "chat" || value === "motion" ? value : "code";
+}
+
+/** The most image refs one `GET /history-images` asks for. */
+const HISTORY_IMAGES_MAX = 8;
+
+/** An image ref (historyImageRef): 64 lowercase hex characters. */
+const HISTORY_IMAGE_REF = /^[0-9a-f]{64}$/;
+
+/** Every tool image in `messages`, by ref. */
+function historyImagesOf(
+  messages: ReturnType<AgentSession["getMessages"]>,
+): Map<string, { data: string; mediaType: string }> {
+  const images = new Map<string, { data: string; mediaType: string }>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") continue;
+    for (const result of msg.content) {
+      if (typeof result.content === "string") continue;
+      for (const block of result.content) {
+        if (block.type === "image") images.set(historyImageRef(block.data), block);
+      }
+    }
+  }
+  return images;
 }
 
 interface SessionContext {
@@ -4124,6 +4153,12 @@ async function createSession(
   }
 
   // OPTIONS/CORS preflight is handled at the daemon level before delegation.
+  // This chat's tool images by ref (historyImageRef), as the last
+  // `GET /history?images=refs` listed them, for `GET /history-images`. Each is
+  // the session's own copy. Replaced at each such /history, or when asked for
+  // one it hasn't listed.
+  let historyImages = new Map<string, { data: string; mediaType: string }>();
+
   function handle(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -4143,6 +4178,9 @@ async function createSession(
         supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
         supportsVideo: getModel(st.model)?.supportsVideo ?? false,
         autopilot,
+        // `GET /history?images=refs` and `GET /history-images` are here: an
+        // app may load a chat's images as they're scrolled to.
+        historyImageRefs: true,
         // Questions still parked on the user, so a client that attaches late
         // (a phone opening a push) can re-show the band.
         pendingAsks: asks.pending(),
@@ -4540,7 +4578,40 @@ async function createSession(
       return;
     }
 
-    if (method === "GET" && url === "/history") {
+    // Some of this chat's tool images, as an app scrolls to them: the previews
+    // of up to HISTORY_IMAGES_MAX refs from `GET /history?images=refs`. A ref
+    // not in this chat is left out.
+    if (method === "GET" && url.startsWith("/history-images?")) {
+      const refs = (
+        new URLSearchParams(url.slice("/history-images?".length)).get("refs") ?? ""
+      ).split(",");
+      if (refs.length > HISTORY_IMAGES_MAX || !refs.every((ref) => HISTORY_IMAGE_REF.test(ref))) {
+        json(res, 400, { error: `refs: 1 to ${HISTORY_IMAGES_MAX} image refs` });
+        return;
+      }
+      void (async () => {
+        if (refs.some((ref) => !historyImages.has(ref))) {
+          historyImages = historyImagesOf(session.getMessages());
+        }
+        const images: Record<string, string> = {};
+        for (const ref of refs) {
+          const block = historyImages.get(ref);
+          const [image] = block ? await appToolImages([block], undefined) : [];
+          if (image) images[ref] = image.src;
+        }
+        json(res, 200, { images });
+      })().catch((error: unknown) => {
+        json(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
+
+    if (method === "GET" && (url === "/history" || url.startsWith("/history?"))) {
+      // `?images=refs`: tool images as refs, for an app that loads each as it's
+      // scrolled to (`GET /history-images`), not as previews in this answer.
+      const imagesByRef =
+        new URLSearchParams(url.slice("/history".length)).get("images") === "refs";
+      const listedImages = new Map<string, { data: string; mediaType: string }>();
       // Reconstruct the transcript from persisted messages so resume is 1:1 with
       // the live SSE stream. Walks ALL message types (not just user/assistant):
       // tool result messages carry ImageContent blocks (screenshots,
@@ -4753,11 +4824,13 @@ async function createSession(
                 const imgPath = pathMatch?.[1];
 
                 // The app's preview of each image (WebP, 480 px wide), as the
-                // live tool_call_end event carries it.
-                const toolImages = await appToolImages(
-                  imageBlocks.flatMap((block) => (block.type === "image" ? [block] : [])),
-                  imgPath,
+                // live tool_call_end event carries it, or its ref.
+                const blocks = imageBlocks.flatMap((block) =>
+                  block.type === "image" ? [block] : [],
                 );
+                const toolImages = imagesByRef
+                  ? await appToolImageRefs(blocks, imgPath, listedImages)
+                  : await appToolImages(blocks, imgPath);
                 if (toolImages.length > 0) {
                   history.push({
                     role: "assistant",
@@ -4899,6 +4972,7 @@ async function createSession(
         for (const count of [...appMarkersByCount.keys()].sort((a, b) => a - b))
           flushAppMarkers(count);
 
+        if (imagesByRef) historyImages = listedImages;
         json(res, 200, { history });
       })();
       return;

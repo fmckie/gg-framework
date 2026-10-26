@@ -1160,12 +1160,52 @@ async fn sidecar_get_json(
 }
 
 /// Proxy: resumed conversation history (user + assistant text) for hydration.
+/// `images_by_ref`: its tool images as refs, to load as they're scrolled to
+/// (`agent_history_images`), from a sidecar whose state says it can
+/// (`historyImageRefs`).
 #[tauri::command]
 async fn agent_history(
     webview: WebviewWindow,
     client: State<'_, reqwest::Client>,
+    images_by_ref: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    sidecar_get_json(&webview, &client, "/history").await
+    let path = if images_by_ref == Some(true) {
+        "/history?images=refs"
+    } else {
+        "/history"
+    };
+    sidecar_get_json(&webview, &client, path).await
+}
+
+/// The most image refs one `agent_history_images` asks for.
+const HISTORY_IMAGES_MAX: usize = 8;
+
+/// The sidecar's path for some of a chat's history images: 1 to
+/// [`HISTORY_IMAGES_MAX`] refs, each 64 lowercase hex characters, so nothing
+/// else reaches the path.
+fn history_images_path(refs: &[String]) -> Result<String, String> {
+    if refs.is_empty() || refs.len() > HISTORY_IMAGES_MAX {
+        return Err(format!(
+            "Ask for 1 to {HISTORY_IMAGES_MAX} images at a time."
+        ));
+    }
+    let is_ref =
+        |r: &String| r.len() == 64 && r.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    if !refs.iter().all(is_ref) {
+        return Err("That isn't an image in this chat.".into());
+    }
+    Ok(format!("/history-images?refs={}", refs.join(",")))
+}
+
+/// Proxy: some of a resumed chat's tool images, as preview data URLs by ref,
+/// as the transcript scrolls to them.
+#[tauri::command]
+async fn agent_history_images(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    refs: Vec<String>,
+) -> Result<serde_json::Value, String> {
+    sidecar_get_json(&webview, &client, &history_images_path(&refs)?).await
 }
 
 /// Proxy: export this window's session as Markdown.
@@ -6061,6 +6101,7 @@ pub fn run() {
             agent_accept_plan,
             agent_new_session,
             agent_history,
+            agent_history_images,
             agent_export_transcript,
             agent_auth_apikey,
             agent_auth_oauth_start,
@@ -6423,6 +6464,26 @@ fn refresh_live_sessions(app: &tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn history_images_path_takes_1_to_8_image_refs_and_nothing_else() {
+        let r = |c: char| c.to_string().repeat(64);
+        assert_eq!(
+            super::history_images_path(&[r('a'), r('0')]),
+            Ok(format!("/history-images?refs={},{}", r('a'), r('0')))
+        );
+        assert!(super::history_images_path(&vec![r('f'); 8]).is_ok());
+        for refs in [
+            vec![],
+            vec![r('a'); 9],
+            vec![r('A')],
+            vec!["a".repeat(63)],
+            vec![format!("{}&x=1", "a".repeat(60))],
+            vec![format!("{}../", "a".repeat(61))],
+        ] {
+            assert!(super::history_images_path(&refs).is_err(), "{refs:?}");
+        }
+    }
+
     use super::*;
 
     #[test]

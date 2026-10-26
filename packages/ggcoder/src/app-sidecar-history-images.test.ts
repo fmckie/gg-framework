@@ -183,14 +183,27 @@ async function writeSessionWithScreenshot(): Promise<string> {
   return file;
 }
 
+/** Reopens the stored chat with a screenshot: its session id. */
+async function reopenChat(): Promise<string> {
+  const sessionPath = await writeSessionWithScreenshot();
+  const created = await request("POST", "/session", {
+    body: { mode: "code", cwd: tmpProject, sessionPath },
+  });
+  expect(created, JSON.stringify(created.json)).toMatchObject({ status: 200 });
+  return created.json.sessionId as string;
+}
+
+/** A WebP data URL's image: its format and size. */
+async function webpOf(src: string | undefined): Promise<[string | undefined, number | undefined]> {
+  const prefix = "data:image/webp;base64,";
+  expect(src?.startsWith(prefix)).toBe(true);
+  const meta = await sharp(Buffer.from(src?.slice(prefix.length) ?? "", "base64")).metadata();
+  return [meta.format, meta.width];
+}
+
 describe("GET /history", () => {
   it("sends a reopened chat's screenshot as a 480 px WebP, with its path", async () => {
-    const sessionPath = await writeSessionWithScreenshot();
-    const created = await request("POST", "/session", {
-      body: { mode: "code", cwd: tmpProject, sessionPath },
-    });
-    expect(created, JSON.stringify(created.json)).toMatchObject({ status: 200 });
-    const session = created.json.sessionId as string;
+    const session = await reopenChat();
 
     const res = await request("GET", "/history", { session });
     expect(res.status).toBe(200);
@@ -207,5 +220,79 @@ describe("GET /history", () => {
       Buffer.from(image?.src.slice(prefix.length) ?? "", "base64"),
     ).metadata();
     expect([meta.format, meta.width]).toEqual(["webp", 480]);
+  }, 30_000);
+});
+
+describe("a chat's images loaded as they're scrolled to", () => {
+  /** The ref `GET /history?images=refs` lists for the screenshot. */
+  async function listedRef(session: string): Promise<string> {
+    const res = await request("GET", "/history?images=refs", { session });
+    expect(res.status).toBe(200);
+    const history = res.json.history as Array<{ toolImages?: Array<Record<string, unknown>> }>;
+    const images = history.flatMap((entry) => entry.toolImages ?? []);
+    expect(images).toHaveLength(1);
+    return images[0]?.ref as string;
+  }
+
+  it("says the sidecar has them", async () => {
+    const session = await reopenChat();
+    const state = await request("GET", "/state", { session });
+    expect(state.json.historyImageRefs).toBe(true);
+  }, 30_000);
+
+  it("lists each image by ref with its preview's size and path, and sends no image", async () => {
+    const session = await reopenChat();
+    const res = await request("GET", "/history?images=refs", { session });
+    const history = res.json.history as Array<{ toolImages?: Array<Record<string, unknown>> }>;
+    const [image] = history.flatMap((entry) => entry.toolImages ?? []);
+    expect(image).toEqual({
+      ref: expect.stringMatching(/^[0-9a-f]{64}$/),
+      width: 480,
+      height: 309,
+      path: path.join(tmpProject, "shot.png"),
+    });
+  }, 30_000);
+
+  it("sends a listed image's 480 px WebP preview by its ref", async () => {
+    const session = await reopenChat();
+    const ref = await listedRef(session);
+    const res = await request("GET", `/history-images?refs=${ref}`, { session });
+    expect(res.status).toBe(200);
+    const images = res.json.images as Record<string, string>;
+    expect(Object.keys(images)).toEqual([ref]);
+    expect(await webpOf(images[ref])).toEqual(["webp", 480]);
+  }, 30_000);
+
+  it("finds an image by its ref without a listing first, as after a reopen", async () => {
+    const session = await reopenChat();
+    const ref = await listedRef(await reopenChat());
+    const res = await request("GET", `/history-images?refs=${ref}`, { session });
+    expect(Object.keys(res.json.images as Record<string, string>)).toEqual([ref]);
+  }, 30_000);
+
+  it("leaves out a ref this chat doesn't have", async () => {
+    const session = await reopenChat();
+    const ref = await listedRef(session);
+    const other = "0".repeat(64);
+    const res = await request("GET", `/history-images?refs=${ref},${other}`, { session });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.json.images as Record<string, string>)).toEqual([ref]);
+  }, 30_000);
+
+  it("refuses refs that aren't image refs, or more than 8", async () => {
+    const session = await reopenChat();
+    const ref = await listedRef(session);
+    for (const refs of [
+      "",
+      "../state",
+      ref.toUpperCase(),
+      `${ref},x`,
+      Array(9).fill(ref).join(","),
+    ]) {
+      const res = await request("GET", `/history-images?refs=${encodeURIComponent(refs)}`, {
+        session,
+      });
+      expect(res.status, refs).toBe(400);
+    }
   }, 30_000);
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -597,6 +598,53 @@ export async function withAppImagePreviews(details: unknown): Promise<unknown> {
     made.push({ ...preview, base64: app.buffer.toString("base64"), mediaType: app.mediaType });
   }
   return { ...details, imagePreviews: made };
+}
+
+/** A stored image's id in a chat's history: the SHA-256 of its base64 data. */
+export function historyImageRef(data: string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+/**
+ * The size of an image's app preview ([`previewForApp`]), read from its
+ * header, or null when sharp can't read it.
+ */
+export async function appPreviewSize(
+  buffer: Buffer,
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const sharp = await loadSharp();
+    const { width, height } = await sharp(buffer).metadata();
+    if (!width || !height) return null;
+    if (width <= PREVIEW_MAX_WIDTH) return { width, height };
+    return {
+      width: PREVIEW_MAX_WIDTH,
+      height: Math.max(1, Math.round((height * PREVIEW_MAX_WIDTH) / width)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A stored tool result's images as refs, for an app that loads each as it's
+ * scrolled to (the sidecar's `GET /history?images=refs`): its ref, its
+ * preview's size, and the file's path. `seen` gets each ref's image, for
+ * `GET /history-images`.
+ */
+export async function appToolImageRefs(
+  blocks: ReadonlyArray<{ data: string; mediaType: string }>,
+  path: string | undefined,
+  seen: Map<string, { data: string; mediaType: string }>,
+): Promise<Array<{ ref: string; width?: number; height?: number; path?: string }>> {
+  const images: Array<{ ref: string; width?: number; height?: number; path?: string }> = [];
+  for (const block of blocks) {
+    const ref = historyImageRef(block.data);
+    seen.set(ref, block);
+    const size = await appPreviewSize(Buffer.from(block.data, "base64"));
+    images.push({ ref, ...size, path });
+  }
+  return images;
 }
 
 /**

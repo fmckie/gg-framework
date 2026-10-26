@@ -8379,3 +8379,28 @@ select {
   display: flex;
   gap: 10px;
 }
+
+/* A resumed chat's image until its preview loads (historyImages.tsx): a box
+   of its size, so the transcript doesn't move when it comes. */
+.img-thumb.img-thumb-waiting {
+  display: block;
+  max-width: 100%;
+  border-radius: 0;
+}
+.img-thumb.img-thumb-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .img-thumb.img-thumb-waiting {
+    animation: none;
+  }
+}
