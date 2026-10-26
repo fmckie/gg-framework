@@ -40,6 +40,7 @@ async function setup(answerPrompt: () => unknown = () => null): Promise<{
   sends: ReturnType<typeof vi.fn>;
 }> {
   const sends = vi.fn();
+  const stateAsked = vi.fn();
   const state: AgentState = {
     cwd: "/workspaces/attachments",
     mode: "code",
@@ -55,6 +56,7 @@ async function setup(answerPrompt: () => unknown = () => null): Promise<{
       case "sidecar_port":
         return 12345;
       case "agent_state":
+        stateAsked();
         return state;
       case "agent_models":
         return { models: [{ id: state.model, provider: state.provider }] };
@@ -75,6 +77,10 @@ async function setup(answerPrompt: () => unknown = () => null): Promise<{
   });
   render(<App />);
   const input = await screen.findByRole<HTMLTextAreaElement>("textbox");
+  // The composer shows before the app has reached its agent, and a Send before
+  // then is ignored (App's readyRef). It asks for the agent's state once ready,
+  // so wait for that.
+  await waitFor(() => expect(stateAsked).toHaveBeenCalled());
   return { input, sends };
 }
 
