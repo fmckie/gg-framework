@@ -207,8 +207,8 @@ jobs:
           cache-dependency-path: subject/pnpm-lock.yaml
 
       # Kleio's link (packages/kleio-link) pins iroh, and gg-app builds it, so
-      # both lockfiles must name the same iroh and noq versions. Dependabot can
-      # open one pull request per directory for one iroh release.
+      # both lockfiles must name the same iroh and noq versions. Dependabot
+      # bumps them in one pull request across both; this catches anything else.
       - name: Link lockfiles agree on iroh and noq
         run: |
           node --test scripts/check-link-locks.test.mjs
