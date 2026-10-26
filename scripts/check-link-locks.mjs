@@ -2,8 +2,9 @@
 // Kleio's link (packages/kleio-link) pins iroh, and gg-app builds the link, so
 // both Cargo.lock files must name the same versions of iroh, its sub-crates
 // and noq: the crates .github/dependabot.yml's "iroh" group moves together.
-// One iroh release can open a Dependabot pull request per directory; this
-// fails CI until both lockfiles agree, so neither merges alone.
+// Dependabot bumps that group in both directories in one pull request. This
+// fails CI if the lockfiles disagree anyway (a hand edit, or a directory the
+// group's update left out), so neither merges alone.
 //
 //   node scripts/check-link-locks.mjs
 
