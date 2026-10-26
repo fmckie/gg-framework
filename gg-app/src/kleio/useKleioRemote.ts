@@ -73,6 +73,13 @@ export type Forgot =
   | { onHost: "notRemoved"; reason: string }
   | { onHost: "notPaired" };
 
+/** A pairing by address (`kleio_pair`): its record, and what the host of the
+ *  link pairing it set aside said when asked to remove it. `null` when there
+ *  was no link pairing. */
+export interface Paired extends HostRecord {
+  setAside: Forgot | null;
+}
+
 export interface AdminState {
   unlocked: boolean;
   expiresAt: number | null;
@@ -82,7 +89,7 @@ export interface AdminState {
 export const kleio = {
   status: () => invoke<RemoteStatus>("kleio_remote_status"),
   pair: (baseUrl: string, code: string, label: string) =>
-    invoke<HostRecord>("kleio_pair", { baseUrl, code, label }),
+    invoke<Paired>("kleio_pair", { baseUrl, code, label }),
   /** After `pair`: "active" = switched on in place (iPhone, first pairing);
    *  "restart" = applies on the next launch. */
   activatePairing: () => invoke<"active" | "restart">("kleio_activate_pairing"),

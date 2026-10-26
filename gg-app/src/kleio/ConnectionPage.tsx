@@ -46,7 +46,7 @@ import { isPhone } from "../platform";
 import { SettingsCard } from "../settings-section";
 import { SettingsHeaderAction, SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
-import { toast } from "../toast";
+import { toast, type ToastTone } from "../toast";
 import {
   diagnose,
   isKleioDown,
@@ -87,6 +87,7 @@ import {
   kleio,
   useKleioRemote,
   type Device as PairedDevice,
+  type Forgot,
   type PairOffer,
   type TailscaleStatus,
 } from "./useKleioRemote";
@@ -1088,7 +1089,12 @@ function LinkCard({
       )}
       {inUse && <LinkDetails link={link} />}
       <Disclosure summary="Advanced: connect over your own network">
-        <OwnNetworkForm device={device} hostLabel={hostLabel} onPaired={onPaired} />
+        <OwnNetworkForm
+          device={device}
+          hostLabel={hostLabel}
+          linkPaired={link.paired}
+          onPaired={onPaired}
+        />
       </Disclosure>
     </SettingsCard>
   );
@@ -1228,18 +1234,53 @@ function LinkDetails({ link }: { link: LinkStatus }): React.ReactElement {
 }
 
 /**
+ * What a pairing by address says about the link pairing it set aside, from
+ * what that pairing's host said when asked to remove it. `sticky`: it stays
+ * until dismissed, as the host still lists it.
+ */
+function setAsideWords(
+  setAside: Forgot | null,
+  device: Device,
+): { message: string; tone: ToastTone; sticky: boolean } | null {
+  switch (setAside?.onHost) {
+    case "removed":
+      return {
+        message: `The host removed this ${device}'s link pairing.`,
+        tone: "success",
+        sticky: false,
+      };
+    case "refused":
+      return {
+        message: `This ${device}'s link pairing was set aside here. The host turned its token away (HTTP 401), so it may have been revoked already. If the host still lists it, an admin can revoke it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    case "notRemoved":
+      return {
+        message: `This ${device}'s link pairing was set aside here only: ${setAside.reason}. The host lists it until an admin revokes it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * Today's pairing form, for a host this device reaches over Tailscale,
  * another VPN or its own network: its https address and a pair code. The
- * pairing replaces this device's, a link pairing too (`kleio_pair`), from
- * the next launch.
+ * pairing replaces this device's from the next launch (`kleio_pair`). A
+ * link pairing it replaces is set aside, and its host asked to remove it.
  */
 function OwnNetworkForm({
   device,
   hostLabel,
+  linkPaired,
   onPaired,
 }: {
   device: Device;
   hostLabel: string;
+  linkPaired: boolean;
   onPaired: () => void;
 }): React.ReactElement {
   const [baseUrl, setBaseUrl] = useState("");
@@ -1254,7 +1295,10 @@ function OwnNetworkForm({
     setBusy(true);
     setError(null);
     try {
-      await kleio.pair(baseUrl, code, label);
+      const paired = await kleio.pair(baseUrl, code, label);
+      const words = setAsideWords(paired.setAside, device);
+      if (words?.sticky) toast(words.message, words.tone, 0);
+      else if (words) toast(words.message, words.tone);
       await kleio.activatePairing();
       setDone(true);
       onPaired();
@@ -1289,8 +1333,9 @@ function OwnNetworkForm({
         busy={busy}
       />
       <p className="settings-desc">
-        Pairing here replaces this {device}&apos;s pairing from the next launch. {hostLabel} still
-        lists the old one until an admin revokes it.
+        {linkPaired
+          ? `Pairing here replaces this ${device}'s link pairing from the next launch, and asks ${hostLabel} to remove it. If it can't be reached, ${hostLabel} lists the link pairing until an admin revokes it.`
+          : `Pairing here replaces this ${device}'s pairing from the next launch. ${hostLabel} still lists the old one until an admin revokes it.`}
       </p>
       {error && (
         <p className="conn-bad" role="alert">

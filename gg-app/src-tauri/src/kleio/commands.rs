@@ -260,11 +260,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 /// Pair this laptop to a host. Probes `/kleio/health` first so a typo in the
 /// URL fails with a network message, not "code not recognised".
 #[tauri::command]
-pub async fn kleio_pair(
-    base_url: String,
-    code: String,
-    label: String,
-) -> Result<store::HostRecord, String> {
+pub async fn kleio_pair(base_url: String, code: String, label: String) -> Result<Paired, String> {
     let base = normalize_base(&base_url)?;
     let code = compact_code(&code)?;
     let label = label_or_default(&label);
@@ -336,22 +332,55 @@ pub async fn kleio_pair(
     store::save(&home, &rec)?;
     // kleio (macOS and iPhone): a link pairing wins at boot, so pairing by
     // the host's address sets it aside (the Connection page's "Advanced:
-    // connect over your own network"). The host lists it until an admin
-    // revokes it.
+    // connect over your own network"). Its host is asked to remove it first,
+    // as Forget host does, now that this pairing is kept, and it's set aside
+    // here whatever the host said.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    {
-        let replaced = super::link::forget(&home)
-            .map_err(|e| format!("Paired, but Kleio couldn't set its link pairing aside: {e}"))?;
-        if replaced {
+    let set_aside = match super::link::paired_record(&home) {
+        Some(old) => {
+            let on_host = remove_pairing(remove_over_link(&old), || {
+                super::link::forget(&home).map(|_| ())
+            })
+            .await
+            .map_err(set_aside_failed)?;
             log::info!("kleio: the pairing by address replaces the link pairing");
+            Some(on_host)
         }
-    }
+        None => None,
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    let set_aside = None;
     log::info!(
         "kleio: paired to {} as {} (admin={admin}); takes effect on restart",
         rec.host,
         rec.label
     );
-    Ok(rec)
+    Ok(Paired {
+        record: rec,
+        set_aside,
+    })
+}
+
+/// A pairing by address, as `kleio_pair` answers: its record, and what the
+/// host of the link pairing it set aside said when asked to remove it (None
+/// when there was no link pairing).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Paired {
+    #[serde(flatten)]
+    pub record: store::HostRecord,
+    pub set_aside: Option<Forgot>,
+}
+
+/// Why the link pairing couldn't be set aside after pairing by address, with
+/// the host's part when it removed it.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn set_aside_failed((on_host, e): (Forgot, String)) -> String {
+    if on_host == Forgot::Removed {
+        format!("Paired, and the host removed the link pairing, but Kleio couldn't set it aside here: {e}")
+    } else {
+        format!("Paired, but Kleio couldn't set its link pairing aside: {e}")
+    }
 }
 
 /// What the host said when Forget host asked it to remove this device. The
@@ -382,36 +411,47 @@ pub async fn kleio_forget() -> Result<Forgot, String> {
     // pairing shown and the next launch uses, so it's the one forgotten.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     if let Some(rec) = super::link::paired_record(&home) {
-        return forget_pairing(remove_over_link(&rec), || {
+        return remove_pairing(remove_over_link(&rec), || {
             super::link::forget(&home).map(|_| ())
         })
-        .await;
+        .await
+        .map_err(forget_failed);
     }
     let Some(rec) = store::load(&home) else {
         store::clear(&home)?;
         return Ok(Forgot::NotPaired);
     };
-    forget_pairing(remove_at_address(&rec), || {
+    remove_pairing(remove_at_address(&rec), || {
         keychain::delete(&rec.host, keychain::Secret::DeviceToken)?;
         keychain::delete(&rec.host, keychain::Secret::ControlCredential)?;
         store::clear(&home)
     })
     .await
+    .map_err(forget_failed)
 }
 
-/// Forget host's order: the host first, while this device still has the
-/// token to ask with, then the pairing here, whatever the host said.
-async fn forget_pairing(
+/// A pairing that's going, by Forget host or set aside by a pairing by
+/// address: its host first, while this device still has the token to ask
+/// with, then here, whatever the host said. A failure here comes back with
+/// what the host said, for the caller's words.
+async fn remove_pairing(
     ask_host: impl std::future::Future<Output = Forgot>,
-    forget_here: impl FnOnce() -> Result<(), String>,
-) -> Result<Forgot, String> {
+    remove_here: impl FnOnce() -> Result<(), String>,
+) -> Result<Forgot, (Forgot, String)> {
     let on_host = ask_host.await;
-    match forget_here() {
+    match remove_here() {
         Ok(()) => Ok(on_host),
-        Err(e) if on_host == Forgot::Removed => Err(format!(
-            "The host has removed this device, but Kleio couldn't forget it here: {e}"
-        )),
-        Err(e) => Err(e),
+        Err(e) => Err((on_host, e)),
+    }
+}
+
+/// Why Forget host failed here, with the host's part when it removed the
+/// device.
+fn forget_failed((on_host, e): (Forgot, String)) -> String {
+    if on_host == Forgot::Removed {
+        format!("The host has removed this device, but Kleio couldn't forget it here: {e}")
+    } else {
+        e
     }
 }
 
@@ -1504,7 +1544,8 @@ mod tests {
     }
 
     /// The host is asked first, while the token is still here, and the
-    /// pairing is forgotten here whatever it said.
+    /// pairing is removed here whatever it said: Forget host's order, and a
+    /// set-aside link pairing's.
     #[test]
     fn forget_host_forgets_here_whatever_the_host_said() {
         for on_host in [
@@ -1519,7 +1560,7 @@ mod tests {
                 steps.lock().unwrap().push("host");
                 on_host.clone()
             };
-            let forgot = tauri::async_runtime::block_on(forget_pairing(ask, || {
+            let forgot = tauri::async_runtime::block_on(remove_pairing(ask, || {
                 steps.lock().unwrap().push("here");
                 Ok(())
             }));
@@ -1531,14 +1572,66 @@ mod tests {
     #[test]
     fn forget_host_says_when_the_host_removed_it_but_it_stayed_here() {
         let stuck = || Err("couldn't remove remote.json".to_string());
+        let failed = |on_host: Forgot| {
+            tauri::async_runtime::block_on(remove_pairing(async { on_host }, stuck))
+                .map_err(forget_failed)
+        };
         assert_eq!(
-            tauri::async_runtime::block_on(forget_pairing(async { Forgot::Removed }, stuck)),
+            failed(Forgot::Removed),
             Err("The host has removed this device, but Kleio couldn't forget it here: couldn't remove remote.json".into())
         );
         assert_eq!(
-            tauri::async_runtime::block_on(forget_pairing(async { Forgot::Refused }, stuck)),
+            failed(Forgot::Refused),
             Err("couldn't remove remote.json".into())
         );
+    }
+
+    /// A pairing by address that couldn't set the link pairing aside says
+    /// so, and that the host removed it when it did.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[test]
+    fn a_pairing_by_address_says_when_the_link_pairing_stayed_here() {
+        let e = "couldn't remove link.json".to_string();
+        assert_eq!(
+            set_aside_failed((Forgot::Removed, e.clone())),
+            "Paired, and the host removed the link pairing, but Kleio couldn't set it aside here: couldn't remove link.json"
+        );
+        assert_eq!(
+            set_aside_failed((
+                Forgot::NotRemoved {
+                    reason: "the host couldn't be reached (connection refused)".into()
+                },
+                e
+            )),
+            "Paired, but Kleio couldn't set its link pairing aside: couldn't remove link.json"
+        );
+    }
+
+    /// What the Connection page reads after a pairing by address: the record
+    /// as before, and what the set-aside link pairing's host said.
+    #[test]
+    fn a_pairing_by_address_reaches_the_app_with_what_it_set_aside() {
+        let record = store::HostRecord {
+            base_url: "https://mac-mini-1.tail0000.ts.net:8443".into(),
+            host: "mac-mini-1.tail0000.ts.net".into(),
+            device_id: "d2".into(),
+            label: "Laptop".into(),
+            admin: false,
+            paired_at: "2026-10-26T10:00:00Z".into(),
+            preview_origin: None,
+        };
+        let json = |set_aside: Option<Forgot>| {
+            serde_json::to_value(Paired {
+                record: record.clone(),
+                set_aside,
+            })
+            .expect("serializes")
+        };
+        let mut expected = serde_json::to_value(&record).expect("serializes");
+        expected["setAside"] = serde_json::Value::Null;
+        assert_eq!(json(None), expected);
+        expected["setAside"] = serde_json::json!({ "onHost": "refused" });
+        assert_eq!(json(Some(Forgot::Refused)), expected);
     }
 
     /// What ForgetHost.tsx reads.
@@ -1838,7 +1931,8 @@ mod live {
         let code = std::env::var("KLEIO_LIVE_CODE").expect("KLEIO_LIVE_CODE");
         let rec = kleio_pair(base, code, "Step-4 laptop".into())
             .await
-            .expect("pair");
+            .expect("pair")
+            .record;
         eprintln!("paired: {rec:?}");
         assert!(rec.admin, "expected an admin ticket");
         // Both secrets landed in the Keychain; the record is on disk; the

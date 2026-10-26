@@ -18,6 +18,7 @@ import { encodeQr, qrSvgPath } from "./qr";
 import {
   type Forgot,
   kleio,
+  type Paired,
   type RemoteStatus,
   type TailscaleNode,
   type TailscaleStatus,
@@ -1123,21 +1124,42 @@ describe("ConnectionPage — Kleio's link", () => {
     });
   });
 
-  it("pairs by the host's address under Advanced, and says what that replaces", async () => {
-    vi.mocked(kleio.pair).mockResolvedValue({
+  /** A pairing by address, as `kleio_pair` answers it. */
+  function pairedByAddress(setAside: Forgot | null): Paired {
+    return {
       baseUrl: "https://mac-mini-1.tail0000.ts.net:8443",
       host: "mac-mini-1.tail0000.ts.net",
       deviceId: "d2",
       label: "Laptop",
       admin: false,
       pairedAt: "2026-10-23T10:00:00Z",
+      setAside,
+    };
+  }
+
+  /** Pairs by address under Advanced, and hands back the form's box. */
+  async function pairByAddress(): Promise<HTMLElement> {
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    fireEvent.change(within(advanced).getByLabelText("Host URL"), {
+      target: { value: "https://mac-mini-1.tail0000.ts.net:8443" },
     });
+    fireEvent.change(within(advanced).getByLabelText("Pair code"), {
+      target: { value: "abc-def" },
+    });
+    fireEvent.click(within(advanced).getByRole("button", { name: "Pair" }));
+    const done = await within(advanced).findByRole("status");
+    expect(done.textContent).toMatch(/^Paired over your own network\. Restart Kleio to apply/);
+    return advanced;
+  }
+
+  it("pairs by the host's address under Advanced, and says what that replaces", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress({ onHost: "removed" }));
     vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
     onTheLink();
     const advanced = open(await card(), "Advanced: connect over your own network");
     expect(
       within(advanced).getByText(
-        "Pairing here replaces this Mac's pairing from the next launch. mac-mini-1 still lists the old one until an admin revokes it.",
+        "Pairing here replaces this Mac's link pairing from the next launch, and asks mac-mini-1 to remove it. If it can't be reached, mac-mini-1 lists the link pairing until an admin revokes it.",
       ),
     ).toBeTruthy();
     const pair = within(advanced).getByRole("button", { name: "Pair" }) as HTMLButtonElement;
@@ -1157,8 +1179,57 @@ describe("ConnectionPage — Kleio's link", () => {
     );
     expect(kleio.activatePairing).toHaveBeenCalledOnce();
     expect(done.textContent).toMatch(/^Paired over your own network\. Restart Kleio to apply/);
+    // The link pairing's host was reached, and removed it.
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "The host removed this Mac's link pairing.",
+      "success",
+    );
     fireEvent.click(within(advanced).getByRole("button", { name: "Restart now" }));
     expect(relaunch).toHaveBeenCalledOnce();
+  });
+
+  it("sets the link pairing aside even when its host can't be reached, and says so", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(
+      pairedByAddress({
+        onHost: "notRemoved",
+        reason: "this launch doesn't reach the host over Kleio's link",
+      }),
+    );
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    onTheLink();
+    await pairByAddress();
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "This Mac's link pairing was set aside here only: this launch doesn't reach the host over Kleio's link. The host lists it until an admin revokes it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("sets the link pairing aside when its host answers 401, and says it may be revoked", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress({ onHost: "refused" }));
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    onTheLink();
+    await pairByAddress();
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "This Mac's link pairing was set aside here. The host turned its token away (HTTP 401), so it may have been revoked already. If the host still lists it, an admin can revoke it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("with no link pairing, says the host still lists the pairing it replaces", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress(null));
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    linkRoutes({ kleio_link_status: () => link({ paired: false, active: false }) });
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    expect(
+      within(advanced).getByText(
+        "Pairing here replaces this Mac's pairing from the next launch. mac-mini-1 still lists the old one until an admin revokes it.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+    await pairByAddress();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("keeps the form and the host's words when a pairing by address fails", async () => {
