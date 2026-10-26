@@ -65,6 +65,21 @@ export interface PairOffer {
   ticketError: string | null;
 }
 
+/** What the host said when Forget host asked it to remove this device
+ *  (`kleio_forget`). The pairing is forgotten here whatever it said. */
+export type Forgot =
+  | { onHost: "removed" }
+  | { onHost: "refused" }
+  | { onHost: "notRemoved"; reason: string }
+  | { onHost: "notPaired" };
+
+/** A pairing by address (`kleio_pair`): its record, and what the host of the
+ *  link pairing it set aside said when asked to remove it. `null` when there
+ *  was no link pairing. */
+export interface Paired extends HostRecord {
+  setAside: Forgot | null;
+}
+
 export interface AdminState {
   unlocked: boolean;
   expiresAt: number | null;
@@ -74,11 +89,11 @@ export interface AdminState {
 export const kleio = {
   status: () => invoke<RemoteStatus>("kleio_remote_status"),
   pair: (baseUrl: string, code: string, label: string) =>
-    invoke<HostRecord>("kleio_pair", { baseUrl, code, label }),
+    invoke<Paired>("kleio_pair", { baseUrl, code, label }),
   /** After `pair`: "active" = switched on in place (iPhone, first pairing);
    *  "restart" = applies on the next launch. */
   activatePairing: () => invoke<"active" | "restart">("kleio_activate_pairing"),
-  forget: () => invoke<void>("kleio_forget"),
+  forget: () => invoke<Forgot>("kleio_forget"),
   devices: () => invoke<Device[]>("kleio_devices"),
   revoke: (deviceId: string) => invoke<Device[]>("kleio_revoke", { deviceId }),
   offer: (admin: boolean) => invoke<PairOffer>("kleio_offer", { admin }),

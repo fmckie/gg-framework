@@ -28,6 +28,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowClockwiseIcon,
+  ArrowUpIcon,
   CaretRightIcon,
   CheckCircleIcon,
   CheckIcon,
@@ -38,6 +39,7 @@ import {
   LockSimpleIcon,
   QuestionIcon,
   ShieldCheckIcon,
+  TrashIcon,
   WarningCircleIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -46,7 +48,7 @@ import { isPhone } from "../platform";
 import { SettingsCard } from "../settings-section";
 import { SettingsHeaderAction, SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
-import { toast } from "../toast";
+import { toast, type ToastTone } from "../toast";
 import {
   diagnose,
   isKleioDown,
@@ -64,9 +66,19 @@ import {
   hostHealth,
   KleioApiError,
   notificationSettings,
-  setQuoteText,
   type NotificationSettings,
+  setQuoteText,
 } from "./kleioApi";
+import {
+  adoptRelayList,
+  refusedPings,
+  type RelayList,
+  relayList,
+  type RelayPing,
+  type RelayRow,
+  type RelayState,
+  setRelayList,
+} from "./kleioRelays";
 import {
   kleioLink,
   useKleioLink,
@@ -87,6 +99,7 @@ import {
   kleio,
   useKleioRemote,
   type Device as PairedDevice,
+  type Forgot,
   type PairOffer,
   type TailscaleStatus,
 } from "./useKleioRemote";
@@ -334,6 +347,8 @@ export function ConnectionPage(): React.ReactElement {
               onSaved={(s) => setNotices({ state: "ok", quoteText: s.quoteText })}
             />
           )}
+
+          {active && <RelaysCard admin={active.admin} hostLabel={hostLabel} />}
 
           {!phone && overLink === false && (
             <TailscaleCard net={checks === null ? undefined : checks.net} hostLabel={hostLabel} />
@@ -1088,7 +1103,12 @@ function LinkCard({
       )}
       {inUse && <LinkDetails link={link} />}
       <Disclosure summary="Advanced: connect over your own network">
-        <OwnNetworkForm device={device} hostLabel={hostLabel} onPaired={onPaired} />
+        <OwnNetworkForm
+          device={device}
+          hostLabel={hostLabel}
+          linkPaired={link.paired}
+          onPaired={onPaired}
+        />
       </Disclosure>
     </SettingsCard>
   );
@@ -1228,18 +1248,53 @@ function LinkDetails({ link }: { link: LinkStatus }): React.ReactElement {
 }
 
 /**
+ * What a pairing by address says about the link pairing it set aside, from
+ * what that pairing's host said when asked to remove it. `sticky`: it stays
+ * until dismissed, as the host still lists it.
+ */
+function setAsideWords(
+  setAside: Forgot | null,
+  device: Device,
+): { message: string; tone: ToastTone; sticky: boolean } | null {
+  switch (setAside?.onHost) {
+    case "removed":
+      return {
+        message: `The host removed this ${device}'s link pairing.`,
+        tone: "success",
+        sticky: false,
+      };
+    case "refused":
+      return {
+        message: `This ${device}'s link pairing was set aside here. The host turned its token away (HTTP 401), so it may have been revoked already. If the host still lists it, an admin can revoke it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    case "notRemoved":
+      return {
+        message: `This ${device}'s link pairing was set aside here only: ${setAside.reason}. The host lists it until an admin revokes it.`,
+        tone: "warning",
+        sticky: true,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * Today's pairing form, for a host this device reaches over Tailscale,
  * another VPN or its own network: its https address and a pair code. The
- * pairing replaces this device's, a link pairing too (`kleio_pair`), from
- * the next launch.
+ * pairing replaces this device's from the next launch (`kleio_pair`). A
+ * link pairing it replaces is set aside, and its host asked to remove it.
  */
 function OwnNetworkForm({
   device,
   hostLabel,
+  linkPaired,
   onPaired,
 }: {
   device: Device;
   hostLabel: string;
+  linkPaired: boolean;
   onPaired: () => void;
 }): React.ReactElement {
   const [baseUrl, setBaseUrl] = useState("");
@@ -1254,7 +1309,10 @@ function OwnNetworkForm({
     setBusy(true);
     setError(null);
     try {
-      await kleio.pair(baseUrl, code, label);
+      const paired = await kleio.pair(baseUrl, code, label);
+      const words = setAsideWords(paired.setAside, device);
+      if (words?.sticky) toast(words.message, words.tone, 0);
+      else if (words) toast(words.message, words.tone);
       await kleio.activatePairing();
       setDone(true);
       onPaired();
@@ -1289,8 +1347,9 @@ function OwnNetworkForm({
         busy={busy}
       />
       <p className="settings-desc">
-        Pairing here replaces this {device}&apos;s pairing from the next launch. {hostLabel} still
-        lists the old one until an admin revokes it.
+        {linkPaired
+          ? `Pairing here replaces this ${device}'s link pairing from the next launch, and asks ${hostLabel} to remove it. If it can't be reached, ${hostLabel} lists the link pairing until an admin revokes it.`
+          : `Pairing here replaces this ${device}'s pairing from the next launch. ${hostLabel} still lists the old one until an admin revokes it.`}
       </p>
       {error && (
         <p className="conn-bad" role="alert">
@@ -1308,6 +1367,378 @@ function OwnNetworkForm({
       </div>
     </form>
   );
+}
+
+// ─── relays: the link's relay list, as an admin changes it ──────────────────
+
+/** "Run your own relay" in kleio-link's README. */
+const OWN_RELAY_DOCS =
+  "https://github.com/fmckie/gg-framework/blob/main/packages/kleio-link/README.md#run-your-own-relay";
+
+/** A relay in the list, in words: n0's, or its host name. */
+export function relayName(entry: string): string {
+  if (entry === "n0") return "n0's public relays";
+  try {
+    return new URL(entry).host;
+  } catch {
+    return entry;
+  }
+}
+
+/** A relay's state, in words. */
+const RELAY_STATE_WORDS: Record<RelayState, string> = {
+  home: "In use",
+  connecting: "Connecting",
+  standby: "Ready",
+  unreachable: "Can't be reached",
+  untested: "Not tried yet",
+  unknown: "Not known",
+};
+
+/** What a relay said to GET /ping, in words, when it didn't answer as a relay. */
+export function pingWords(ping: RelayPing): string {
+  if (ping.kind === "relay") return `${relayName(ping.relay)} answered in ${ping.ms} ms.`;
+  return `${relayName(ping.relay)}: ${ping.detail}.`;
+}
+
+/** An address as typed, made a relay entry: https://<host>[:<port>]/. Null when it isn't one. */
+export function relayEntryOf(typed: string): string | null {
+  const t = typed.trim();
+  if (t.toLowerCase() === "n0") return "n0";
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+  if (url.pathname !== "/" || url.search || url.hash) return null;
+  return url.href;
+}
+
+type RelaysState =
+  | { state: "loading" }
+  | { state: "ok"; list: RelayList }
+  | { state: "error"; old: boolean; message: string };
+
+function RelaysCard({
+  admin,
+  hostLabel,
+}: {
+  admin: boolean;
+  hostLabel: string;
+}): React.ReactElement {
+  const [relays, setRelays] = useState<RelaysState>({ state: "loading" });
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const [adding, setAdding] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unanswered, setUnanswered] = useState<RelayPing[]>([]);
+  const [confirmUse, setConfirmUse] = useState(false);
+  const addId = useId();
+
+  const load = useCallback(async () => {
+    try {
+      setRelays({ state: "ok", list: await relayList() });
+    } catch (e) {
+      const old = e instanceof KleioApiError && (e.status === 404 || e.status === 403);
+      setRelays({ state: "error", old, message: explainError(e) });
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (relays.state !== "ok") {
+    return (
+      <SettingsCard title="Relays" description="Relays help your devices find this host.">
+        <p className="settings-desc">
+          {relays.state === "loading"
+            ? "Checking…"
+            : relays.old
+              ? `Kleio on ${hostLabel} can't change its relays yet. Update it to choose.`
+              : relays.message}
+        </p>
+      </SettingsCard>
+    );
+  }
+  const list = relays.list;
+  const entries = draft ?? list.relays.map((r) => r.entry);
+  const changed = draft !== null && draft.join("\n") !== list.relays.map((r) => r.entry).join("\n");
+  const rowOf = (entry: string): RelayRow | undefined => list.relays.find((r) => r.entry === entry);
+
+  function edit(next: string[]): void {
+    setDraft(next);
+    setError(null);
+    setUnanswered([]);
+  }
+
+  function add(): void {
+    const entry = relayEntryOf(adding);
+    if (entry === null) {
+      setError("Type a relay's https address, such as https://relay.example.com/.");
+      return;
+    }
+    if (entries.includes(entry)) {
+      setError(`${relayName(entry)} is in the list already.`);
+      return;
+    }
+    edit([entry, ...entries]);
+    setAdding("");
+  }
+
+  async function save(force: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const { list: saved } = await setRelayList(list.listVersion, entries, force);
+      setRelays({ state: "ok", list: saved });
+      setDraft(null);
+      setUnanswered([]);
+      toast(
+        saved.inUse
+          ? "Relays saved. The host uses them now."
+          : `Relays saved. The host moves once ${waitingWords(saved.waiting)} have the new list.`,
+        "success",
+      );
+    } catch (e) {
+      const pings = refusedPings(e);
+      if (pings.length > 0) {
+        setUnanswered(pings.filter((p) => p.kind !== "relay"));
+      } else if (e instanceof KleioApiError && e.status === 409) {
+        setError(
+          "The relays changed on another device. Here they are now; make your change again.",
+        );
+        setDraft(null);
+        await load();
+      } else {
+        setError(explainError(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adoptNow(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      setRelays({ state: "ok", list: await adoptRelayList(list.listVersion) });
+      setConfirmUse(false);
+      toast("The host uses the new relays now.", "success");
+    } catch (e) {
+      if (e instanceof KleioApiError && e.status === 409) await load();
+      setError(explainError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SettingsCard
+      title="Relays"
+      description="Your devices find this host through these, in order. n0's are free and shared, and slow big downloads to about 1 MB/s. A relay of your own is faster."
+    >
+      <ol className="conn-devices" aria-label="Relays, in order">
+        {entries.map((entry, i) => {
+          const row = rowOf(entry);
+          return (
+            <li key={entry} className="conn-device">
+              <span className="conn-device-main">
+                <span className="conn-device-name">
+                  {relayName(entry)}
+                  {list.hostRelay !== null && row?.state === "home" && (
+                    <Badge color={theme.success} className="conn-inline-badge">
+                      In use
+                    </Badge>
+                  )}
+                  {(row === undefined || row.new) && (
+                    <Badge color={theme.info} className="conn-inline-badge">
+                      New
+                    </Badge>
+                  )}
+                </span>
+                <span className="conn-device-sub">
+                  {row === undefined
+                    ? "Not saved yet"
+                    : row.state === "home"
+                      ? entry === "n0"
+                        ? "The host is on one of them"
+                        : "The host is on it"
+                      : RELAY_STATE_WORDS[row.state]}
+                </span>
+              </span>
+              {admin && (
+                <span className="conn-inline-confirm conn-relay-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label={`Move up: ${relayName(entry)}`}
+                    disabled={busy || i === 0}
+                    onClick={() => {
+                      const next = [...entries];
+                      [next[i - 1], next[i]] = [entry, next[i - 1] ?? entry];
+                      edit(next);
+                    }}
+                  >
+                    <ArrowUpIcon size={14} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label={`Remove: ${relayName(entry)}`}
+                    disabled={busy || entries.length === 1}
+                    onClick={() => edit(entries.filter((e) => e !== entry))}
+                  >
+                    <TrashIcon size={14} aria-hidden="true" />
+                  </button>
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+
+      {!list.inUse && (
+        <p className="settings-desc" role="status">
+          The host stays on relays every device knows until {waitingWords(list.waiting)}{" "}
+          {list.waiting === 1 ? "has" : "have"} the new list
+          {list.waitingFor && list.waitingFor.length > 0
+            ? `: ${list.waitingFor.map((d) => d.label).join(", ")}`
+            : ""}
+          . A device opens Kleio to get it.
+        </p>
+      )}
+
+      {admin ? (
+        <>
+          {entries.length < 4 && (
+            <form
+              className="conn-row conn-relay-add"
+              onSubmit={(e) => {
+                e.preventDefault();
+                add();
+              }}
+            >
+              <label className="sr-only" htmlFor={addId}>
+                A relay's address
+              </label>
+              <input
+                id={addId}
+                className="modal-input"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="https://relay.example.com/"
+                value={adding}
+                disabled={busy}
+                onChange={(e) => setAdding(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="btn btn-ghost btn-sm"
+                disabled={busy || adding.trim() === ""}
+              >
+                Add
+              </button>
+            </form>
+          )}
+          {unanswered.length > 0 && (
+            <div className="conn-bad conn-relay-unanswered" role="alert">
+              <p>
+                {unanswered.length === 1 ? "This relay doesn't" : "These relays don't"} answer as a
+                relay does:
+              </p>
+              <ul>
+                {unanswered.map((p) => (
+                  <li key={p.relay}>{pingWords(p)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {error && (
+            <p className="conn-bad" role="alert">
+              {error}
+            </p>
+          )}
+          {confirmUse && !changed && !list.inUse && (
+            <p className="settings-desc">
+              The host moves at once. A device without the new list then pairs again.
+            </p>
+          )}
+          <div className="conn-row">
+            {changed && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy}
+                  onClick={() => edit(list.relays.map((r) => r.entry))}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={busy}
+                  onClick={() => void save(unanswered.length > 0)}
+                >
+                  {busy ? "Saving…" : unanswered.length > 0 ? "Save anyway" : "Save"}
+                </button>
+              </>
+            )}
+            {!changed &&
+              !list.inUse &&
+              (confirmUse ? (
+                <span className="conn-inline-confirm">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    disabled={busy}
+                    onClick={() => setConfirmUse(false)}
+                  >
+                    Keep waiting
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={busy}
+                    onClick={() => void adoptNow()}
+                  >
+                    Use it now
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={busy}
+                  onClick={() => setConfirmUse(true)}
+                >
+                  Use it now…
+                </button>
+              ))}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => void openUrl(OWN_RELAY_DOCS)}
+            >
+              Run your own relay
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="settings-desc">Only an admin device can change the relays.</p>
+      )}
+    </SettingsCard>
+  );
+}
+
+/** "1 device" or "3 devices". */
+function waitingWords(n: number): string {
+  return n === 1 ? "1 device" : `${n} devices`;
 }
 
 // ─── pair a device: a one-time pairing QR code ──────────────────────────────

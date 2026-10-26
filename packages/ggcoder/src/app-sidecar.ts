@@ -220,7 +220,15 @@ import {
   stopRadio,
 } from "./core/radio.js";
 import { enrichProcessPath } from "./core/shell-path.js";
-import { downscaleForPreview, shrinkToFit, validateVisionImage } from "./utils/image.js";
+import {
+  appToolImageRefs,
+  appToolImages,
+  historyImageRef,
+  screenPreview,
+  shrinkToFit,
+  validateVisionImage,
+  withAppImagePreviews,
+} from "./utils/image.js";
 import { startServeMode, type ServeController } from "./modes/serve-mode.js";
 import { installSteroids, probeSteroids } from "./core/steroids.js";
 import { loadTelegramConfig, saveTelegramConfig, verifyBotToken } from "./core/telegram-config.js";
@@ -603,7 +611,11 @@ interface HistoryEntryForWire {
   error?: { scope: string; headline: string; message?: string; guidance?: string };
   /** Webview-copy info row marker (e.g. the video-capability warning). */
   infoKind?: "video_warning";
-  toolImages?: Array<{ src: string; path?: string }>;
+  // Each image's preview (`src`), or with `?images=refs` its ref and its
+  // preview's size, for the app to load as it's scrolled to.
+  toolImages?: Array<
+    { src: string; path?: string } | { ref: string; width?: number; height?: number; path?: string }
+  >;
   subagentGroup?: Array<{
     agentName?: string;
     status: "done" | "error";
@@ -1742,6 +1754,35 @@ async function main(): Promise<void> {
       return;
     }
 
+    // An image the phone opens full size, made screen-sized (kleio-host's
+    // voice show): a WebP of at most 2048 px, or 204 when the original is as
+    // small already or can't be read, and goes as it is.
+    if (method === "POST" && url === "/image-preview") {
+      const started = Date.now();
+      void readCappedBodyBuffer(req, res, IMAGE_PREVIEW_MAX_BODY_BYTES, {
+        error: "too_large",
+      }).then(async (bytes) => {
+        if (bytes === null) return;
+        const preview = await screenPreview(bytes);
+        log("INFO", "app-sidecar", "image preview", {
+          bytes: String(bytes.length),
+          out: preview ? String(preview.length) : "-",
+          ms: String(Date.now() - started),
+        });
+        if (!preview) {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "image/webp",
+          "content-length": String(preview.length),
+        });
+        res.end(preview);
+      });
+      return;
+    }
+
     // Progress is daemon-level so the Home screen can paint before a project
     // session exists; per-session callers still work through the same endpoint.
     if (method === "GET" && url === "/progress") {
@@ -2179,6 +2220,32 @@ function parseWorkspaceMode(value: unknown): WorkspaceMode {
   return value === "chat" || value === "motion" ? value : "code";
 }
 
+/** The largest image `POST /image-preview` takes: 64 MiB. */
+const IMAGE_PREVIEW_MAX_BODY_BYTES = 64 * 1024 * 1024;
+
+/** The most image refs one `GET /history-images` asks for. */
+const HISTORY_IMAGES_MAX = 8;
+
+/** An image ref (historyImageRef): 64 lowercase hex characters. */
+const HISTORY_IMAGE_REF = /^[0-9a-f]{64}$/;
+
+/** Every tool image in `messages`, by ref. */
+function historyImagesOf(
+  messages: ReturnType<AgentSession["getMessages"]>,
+): Map<string, { data: string; mediaType: string }> {
+  const images = new Map<string, { data: string; mediaType: string }>();
+  for (const msg of messages) {
+    if (msg.role !== "tool") continue;
+    for (const result of msg.content) {
+      if (typeof result.content === "string") continue;
+      for (const block of result.content) {
+        if (block.type === "image") images.set(historyImageRef(block.data), block);
+      }
+    }
+  }
+  return images;
+}
+
 interface SessionContext {
   id: string;
   mode: WorkspaceMode;
@@ -2462,6 +2529,8 @@ async function createSession(
     model,
     cwd,
     thinkingLevel,
+    // Image previews go to the app as WebP, which reach the phone a tenth the size.
+    toolDetails: withAppImagePreviews,
     sessionId: resumeSessionPath,
     signal: abort.signal,
     // Keep MCP startup off the readiness path in both modes.
@@ -4117,6 +4186,12 @@ async function createSession(
   }
 
   // OPTIONS/CORS preflight is handled at the daemon level before delegation.
+  // This chat's tool images by ref (historyImageRef), as the last
+  // `GET /history?images=refs` listed them, for `GET /history-images`. Each is
+  // the session's own copy. Replaced at each such /history, or when asked for
+  // one it hasn't listed.
+  let historyImages = new Map<string, { data: string; mediaType: string }>();
+
   function handle(
     req: http.IncomingMessage,
     res: http.ServerResponse,
@@ -4136,6 +4211,9 @@ async function createSession(
         supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
         supportsVideo: getModel(st.model)?.supportsVideo ?? false,
         autopilot,
+        // `GET /history?images=refs` and `GET /history-images` are here: an
+        // app may load a chat's images as they're scrolled to.
+        historyImageRefs: true,
         // Questions still parked on the user, so a client that attaches late
         // (a phone opening a push) can re-show the band.
         pendingAsks: asks.pending(),
@@ -4533,7 +4611,40 @@ async function createSession(
       return;
     }
 
-    if (method === "GET" && url === "/history") {
+    // Some of this chat's tool images, as an app scrolls to them: the previews
+    // of up to HISTORY_IMAGES_MAX refs from `GET /history?images=refs`. A ref
+    // not in this chat is left out.
+    if (method === "GET" && url.startsWith("/history-images?")) {
+      const refs = (
+        new URLSearchParams(url.slice("/history-images?".length)).get("refs") ?? ""
+      ).split(",");
+      if (refs.length > HISTORY_IMAGES_MAX || !refs.every((ref) => HISTORY_IMAGE_REF.test(ref))) {
+        json(res, 400, { error: `refs: 1 to ${HISTORY_IMAGES_MAX} image refs` });
+        return;
+      }
+      void (async () => {
+        if (refs.some((ref) => !historyImages.has(ref))) {
+          historyImages = historyImagesOf(session.getMessages());
+        }
+        const images: Record<string, string> = {};
+        for (const ref of refs) {
+          const block = historyImages.get(ref);
+          const [image] = block ? await appToolImages([block], undefined) : [];
+          if (image) images[ref] = image.src;
+        }
+        json(res, 200, { images });
+      })().catch((error: unknown) => {
+        json(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      });
+      return;
+    }
+
+    if (method === "GET" && (url === "/history" || url.startsWith("/history?"))) {
+      // `?images=refs`: tool images as refs, for an app that loads each as it's
+      // scrolled to (`GET /history-images`), not as previews in this answer.
+      const imagesByRef =
+        new URLSearchParams(url.slice("/history".length)).get("images") === "refs";
+      const listedImages = new Map<string, { data: string; mediaType: string }>();
       // Reconstruct the transcript from persisted messages so resume is 1:1 with
       // the live SSE stream. Walks ALL message types (not just user/assistant):
       // tool result messages carry ImageContent blocks (screenshots,
@@ -4542,8 +4653,9 @@ async function createSession(
       //
       // The `details` object (imagePreviews with path + downscaled preview) is
       // event-only and never persisted — we reconstruct from the raw
-      // ImageContent in the tool result, downsampling on the sidecar side and
-      // extracting the path from the text block ("Generated image → /path").
+      // ImageContent in the tool result, making the app's preview on the
+      // sidecar side and extracting the path from the text block
+      // ("Generated image → /path").
       void (async () => {
         const commandCandidates = [...PROMPT_COMMANDS, ...(await loadCustomCommands(cwd))];
         const messages = session.getMessages();
@@ -4744,25 +4856,14 @@ async function createSession(
                 const pathMatch = textContent.match(/→\s*(\S+)/);
                 const imgPath = pathMatch?.[1];
 
-                // Downscale each image for the webview preview.
-                const toolImages: Array<{ src: string; path?: string }> = [];
-                for (const block of imageBlocks) {
-                  if (block.type !== "image") continue;
-                  try {
-                    const rawBuf = Buffer.from(block.data, "base64");
-                    const previewBuf = await downscaleForPreview(rawBuf);
-                    toolImages.push({
-                      src: `data:${block.mediaType};base64,${previewBuf.toString("base64")}`,
-                      path: imgPath,
-                    });
-                  } catch {
-                    // Downscale failed — use the raw data.
-                    toolImages.push({
-                      src: `data:${block.mediaType};base64,${block.data}`,
-                      path: imgPath,
-                    });
-                  }
-                }
+                // The app's preview of each image (WebP, 480 px wide), as the
+                // live tool_call_end event carries it, or its ref.
+                const blocks = imageBlocks.flatMap((block) =>
+                  block.type === "image" ? [block] : [],
+                );
+                const toolImages = imagesByRef
+                  ? await appToolImageRefs(blocks, imgPath, listedImages)
+                  : await appToolImages(blocks, imgPath);
                 if (toolImages.length > 0) {
                   history.push({
                     role: "assistant",
@@ -4904,6 +5005,7 @@ async function createSession(
         for (const count of [...appMarkersByCount.keys()].sort((a, b) => a - b))
           flushAppMarkers(count);
 
+        if (imagesByRef) historyImages = listedImages;
         json(res, 200, { history });
       })();
       return;

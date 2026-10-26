@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -540,6 +541,153 @@ export async function downscaleForPreview(buffer: Buffer): Promise<Buffer> {
   } catch {
     return buffer;
   }
+}
+
+/**
+ * WebP quality and effort (0–6) for the app's image previews. On the Mac
+ * mini, a chat's 54 screenshots came to 3.7 MB at effort 2 in 1.03 s, 3.6 MB
+ * at sharp's default in 1.36 s, and 40.8 MB as the terminal's PNG in 0.76 s.
+ */
+const APP_PREVIEW_QUALITY = 70;
+const APP_PREVIEW_EFFORT = 2;
+
+/**
+ * An image's preview for the desktop and phone app: at most PREVIEW_MAX_WIDTH
+ * wide, as WebP, about a tenth of the PNG the terminal's preview keeps. A
+ * chat's previews cross the network each time it opens, at about 1 MB/s
+ * through a shared relay. Every webview the app runs in shows WebP: the
+ * sidecar's Node needs macOS 11, and the iPhone app iOS 18.
+ *
+ * On any sharp failure the image comes back as it was: a preview is cosmetic.
+ */
+export async function previewForApp(
+  buffer: Buffer,
+  mediaType: string,
+): Promise<{ buffer: Buffer; mediaType: string }> {
+  try {
+    const sharp = await loadSharp();
+    const webp = await sharp(buffer)
+      .resize(PREVIEW_MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: APP_PREVIEW_QUALITY, effort: APP_PREVIEW_EFFORT })
+      .toBuffer();
+    return { buffer: webp, mediaType: "image/webp" };
+  } catch {
+    return { buffer, mediaType };
+  }
+}
+
+/**
+ * A tool's `details` with its `imagePreviews` (screenshot, read,
+ * generate_image) made the app's ([`previewForApp`]), for its tool_call_end
+ * event. Anything else comes back as it was.
+ */
+export async function withAppImagePreviews(details: unknown): Promise<unknown> {
+  if (!details || typeof details !== "object") return details;
+  const previews: unknown = Reflect.get(details, "imagePreviews");
+  if (!Array.isArray(previews) || previews.length === 0) return details;
+  const made: unknown[] = [];
+  for (const preview of previews) {
+    const base64: unknown = preview && typeof preview === "object" ? preview.base64 : undefined;
+    const mediaType: unknown =
+      preview && typeof preview === "object" ? preview.mediaType : undefined;
+    if (typeof base64 !== "string" || typeof mediaType !== "string") {
+      made.push(preview);
+      continue;
+    }
+    const app = await previewForApp(Buffer.from(base64, "base64"), mediaType);
+    made.push({ ...preview, base64: app.buffer.toString("base64"), mediaType: app.mediaType });
+  }
+  return { ...details, imagePreviews: made };
+}
+
+/** The longest side of an image the app opens full size on a phone. */
+export const SCREEN_PREVIEW_MAX = 2048;
+/** WebP quality for an image opened full size, at screen size. */
+const SCREEN_PREVIEW_QUALITY = 80;
+
+/**
+ * An image opened full size, made screen-sized for the phone that asked: at
+ * most SCREEN_PREVIEW_MAX on its longest side, as WebP. Null when it's small
+ * enough already (it fits, and is no bigger than its WebP would be), or when
+ * sharp can't read it: then the original goes as it is.
+ */
+export async function screenPreview(buffer: Buffer): Promise<Buffer | null> {
+  try {
+    const sharp = await loadSharp();
+    const { width, height } = await sharp(buffer).metadata();
+    if (!width || !height) return null;
+    const webp = await sharp(buffer)
+      .rotate()
+      .resize(SCREEN_PREVIEW_MAX, SCREEN_PREVIEW_MAX, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: SCREEN_PREVIEW_QUALITY, effort: APP_PREVIEW_EFFORT })
+      .toBuffer();
+    return webp.length < buffer.length ? webp : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A stored image's id in a chat's history: the SHA-256 of its base64 data. */
+export function historyImageRef(data: string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+/**
+ * The size of an image's app preview ([`previewForApp`]), read from its
+ * header, or null when sharp can't read it.
+ */
+export async function appPreviewSize(
+  buffer: Buffer,
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const sharp = await loadSharp();
+    const { width, height } = await sharp(buffer).metadata();
+    if (!width || !height) return null;
+    if (width <= PREVIEW_MAX_WIDTH) return { width, height };
+    return {
+      width: PREVIEW_MAX_WIDTH,
+      height: Math.max(1, Math.round((height * PREVIEW_MAX_WIDTH) / width)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A stored tool result's images as refs, for an app that loads each as it's
+ * scrolled to (the sidecar's `GET /history?images=refs`): its ref, its
+ * preview's size, and the file's path. `seen` gets each ref's image, for
+ * `GET /history-images`.
+ */
+export async function appToolImageRefs(
+  blocks: ReadonlyArray<{ data: string; mediaType: string }>,
+  path: string | undefined,
+  seen: Map<string, { data: string; mediaType: string }>,
+): Promise<Array<{ ref: string; width?: number; height?: number; path?: string }>> {
+  const images: Array<{ ref: string; width?: number; height?: number; path?: string }> = [];
+  for (const block of blocks) {
+    const ref = historyImageRef(block.data);
+    seen.set(ref, block);
+    const size = await appPreviewSize(Buffer.from(block.data, "base64"));
+    images.push({ ref, ...size, path });
+  }
+  return images;
+}
+
+/**
+ * A stored tool result's images as a reopened chat shows them (the sidecar's
+ * `GET /history`): data URLs of their app previews, with the file's path.
+ */
+export async function appToolImages(
+  blocks: ReadonlyArray<{ data: string; mediaType: string }>,
+  path: string | undefined,
+): Promise<Array<{ src: string; path?: string }>> {
+  const images: Array<{ src: string; path?: string }> = [];
+  for (const block of blocks) {
+    const app = await previewForApp(Buffer.from(block.data, "base64"), block.mediaType);
+    images.push({ src: `data:${app.mediaType};base64,${app.buffer.toString("base64")}`, path });
+  }
+  return images;
 }
 
 /**

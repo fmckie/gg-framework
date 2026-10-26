@@ -1801,6 +1801,7 @@ export async function* agentLoop(
         invalidToolArgumentCounts,
         markFatalToolArgumentError,
         seenToolCalls: new Set<string>(),
+        transformToolDetails: options.transformToolDetails,
       };
       const hasSequentialToolCall = toolCalls.some(
         (toolCall) => toolMap.get(toolCall.name)?.executionMode === "sequential",
@@ -1991,6 +1992,8 @@ interface ToolBatchExecutionOptions {
    * as fatal.
    */
   markFatalToolArgumentError: (error: Error, recoverable: boolean, toolName: string) => void;
+  /** The host's reshaping of each tool's details for its event (AgentOptions). */
+  transformToolDetails?: (details: unknown) => Promise<unknown>;
 }
 
 interface ToolBatchExecutionResult {
@@ -2000,6 +2003,19 @@ interface ToolBatchExecutionResult {
 
 interface ToolEventState {
   finalized: boolean;
+}
+
+/** A tool's details as the host reshapes them for its event, or as they were. */
+async function hostDetails(
+  details: unknown,
+  transform: ((details: unknown) => Promise<unknown>) | undefined,
+): Promise<unknown> {
+  if (!transform || details === undefined) return details;
+  try {
+    return await transform(details);
+  } catch {
+    return details;
+  }
 }
 
 function pushToolEvent(
@@ -2153,7 +2169,10 @@ async function executeSingleToolCall(
   // All tool output crosses both an event boundary and the provider-context
   // boundary below. Sanitize every branch, including unknown/validation errors.
   resultContent = redactValue(resultContent, toolRedactionOptions());
-  details = redactValue(details, toolRedactionOptions());
+  details = redactValue(
+    await hostDetails(details, options.transformToolDetails),
+    toolRedactionOptions(),
+  );
 
   const durationMs = Date.now() - startTime;
 

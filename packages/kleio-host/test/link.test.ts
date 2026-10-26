@@ -25,6 +25,7 @@ import {
   type TicketInput,
 } from "../src/link.js";
 import { newRedemptionNonce, PAIR_MAX_ATTEMPTS, type PairingPayload } from "../src/pair-code.js";
+import type { RelayPing } from "../src/link-relays.js";
 import { createPairOfferStore } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
@@ -389,7 +390,13 @@ describe("the link listener", () => {
 });
 
 describe("the link in the host", () => {
-  async function linkHost(link: { port?: number; publicUrl?: boolean } = {}): Promise<{
+  async function linkHost(
+    link: {
+      port?: number;
+      publicUrl?: boolean;
+      pingRelay?: (relay: string) => Promise<RelayPing>;
+    } = {},
+  ): Promise<{
     host: Host;
     registry: DeviceRegistry;
     apiPort: number;
@@ -425,6 +432,7 @@ describe("the link in the host", () => {
       controlRootKey: "control-root-key-for-tests-0123456789",
       routinePollMs: 0,
       log: (m) => logs.push(m),
+      ...(link.pingRelay ? { pingRelay: link.pingRelay } : {}),
       link: {
         port: link.port ?? 0,
         upstreamToken: SECRET,
@@ -546,6 +554,162 @@ describe("the link in the host", () => {
       rateLimited: false,
       updatedAt: old,
     });
+  });
+
+  /** Waits until `check` holds, for up to 2 s. */
+  async function until(check: () => boolean | Promise<boolean>): Promise<void> {
+    for (let i = 0; i < 100; i++) {
+      if (await check()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("never happened");
+  }
+
+  function configDoc(dir: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(dir, "config.json"), "utf8")) as Record<string, unknown>;
+  }
+
+  const ANSWERS = async (): Promise<RelayPing> => ({ kind: "relay", ms: 12 });
+
+  it("shows any paired device the relay list, and lets only an admin change it", async () => {
+    const { registry, apiPort, linkPort } = await linkHost({ pingRelay: ANSWERS });
+    const phone = await mint(registry, "iPhone", KEY_A);
+    const admin = await mint(registry, "Laptop", undefined, true);
+    const seen = await linkRequest(linkPort, KEY_A, {
+      path: "/kleio/link/relays",
+      token: phone.token,
+    });
+    expect(seen.status).toBe(200);
+    expect(JSON.parse(seen.body)).toEqual({
+      listVersion: 0,
+      relays: [{ entry: "n0", state: "unknown", new: false }],
+      inUse: true,
+      hostRelay: null,
+      waiting: 0,
+    });
+    const put = (token: string, body: unknown) =>
+      apiRequest(apiPort, {
+        method: "PUT",
+        path: "/kleio/link/relays",
+        token,
+        body: JSON.stringify(body),
+      });
+    const refused = await linkRequest(linkPort, KEY_A, {
+      method: "PUT",
+      path: "/kleio/link/relays",
+      token: phone.token,
+      body: JSON.stringify({ listVersion: 0, relays: [OWN, "n0"] }),
+    });
+    expect(refused.status).toBe(403);
+
+    const set = await put(admin.token, { listVersion: 0, relays: [OWN, "n0"] });
+    expect(set.status).toBe(200);
+    expect(JSON.parse(set.body)).toMatchObject({
+      listVersion: 1,
+      relays: [
+        { entry: OWN, new: true },
+        { entry: "n0", new: false },
+      ],
+      inUse: false,
+      waiting: 1,
+      waitingFor: [{ deviceId: phone.deviceId, label: "iPhone" }],
+      pings: [{ relay: OWN, kind: "relay", ms: 12 }],
+    });
+  });
+
+  it("uses a new list once every device has it, keeping the host on known relays till then", async () => {
+    const { registry, apiPort, linkPort, dir } = await linkHost({ pingRelay: ANSWERS });
+    const phone = await mint(registry, "iPhone", KEY_A);
+    const pad = await mint(registry, "iPad", KEY_B);
+    const admin = await mint(registry, "Laptop", undefined, true);
+    const set = await apiRequest(apiPort, {
+      method: "PUT",
+      path: "/kleio/link/relays",
+      token: admin.token,
+      body: JSON.stringify({ listVersion: 0, relays: [OWN] }),
+    });
+    expect(set.status).toBe(200);
+    // kleio-link-host stays on n0's relays, which every device knows.
+    expect(configDoc(dir)).toEqual({
+      version: 1,
+      listVersion: 1,
+      relays: ["n0", OWN],
+      list: [OWN],
+      promoted: ["n0"],
+    });
+    // Devices get the new list.
+    const info = await linkRequest(linkPort, KEY_A, { path: "/kleio/link", token: phone.token });
+    expect(JSON.parse(info.body)).toMatchObject({ relays: [OWN], listVersion: 1 });
+    await until(() => registry.get(phone.deviceId)?.listVersion === 1);
+    expect(configDoc(dir).promoted).toEqual(["n0"]);
+    // The last device gets it: the host uses it.
+    await linkRequest(linkPort, KEY_B, { path: "/kleio/link", token: pad.token });
+    await until(() => configDoc(dir).promoted === undefined);
+    expect(configDoc(dir)).toEqual({ version: 1, listVersion: 1, relays: [OWN] });
+  });
+
+  it("refuses a bad list, a stale one, and a relay that doesn't answer unless saved anyway", async () => {
+    const { registry, apiPort, dir } = await linkHost({
+      pingRelay: async () => ({ kind: "no_answer", detail: "ENOTFOUND" }),
+    });
+    const admin = await mint(registry, "Laptop", undefined, true);
+    const put = (body: unknown) =>
+      apiRequest(apiPort, {
+        method: "PUT",
+        path: "/kleio/link/relays",
+        token: admin.token,
+        body: JSON.stringify(body),
+      });
+    expect(await put({ listVersion: 0, relays: ["http://relay.example.com/"] })).toMatchObject({
+      status: 400,
+      body: JSON.stringify({
+        error: "bad_relays",
+        message: "http://relay.example.com/ isn't https.",
+      }),
+    });
+    expect((await put({ relays: [OWN] })).status).toBe(400);
+    const unreachable = await put({ listVersion: 0, relays: [OWN, "n0"] });
+    expect(unreachable.status).toBe(422);
+    expect(JSON.parse(unreachable.body)).toEqual({
+      error: "relay_unreachable",
+      pings: [{ relay: OWN, kind: "no_answer", detail: "ENOTFOUND" }],
+    });
+    const anyway = await put({ listVersion: 0, relays: [OWN, "n0"], force: true });
+    expect(anyway.status).toBe(200);
+    // No device on the link waits for it, so it's used at once.
+    expect(configDoc(dir)).toEqual({ version: 1, listVersion: 1, relays: [OWN, "n0"] });
+    expect(await put({ listVersion: 0, relays: ["n0"] })).toMatchObject({
+      status: 409,
+      body: JSON.stringify({ error: "stale", listVersion: 1 }),
+    });
+  });
+
+  it("uses a waiting list now when an admin says so", async () => {
+    const { registry, apiPort, linkPort, dir } = await linkHost({ pingRelay: ANSWERS });
+    const phone = await mint(registry, "iPhone", KEY_A);
+    const admin = await mint(registry, "Laptop", undefined, true);
+    await apiRequest(apiPort, {
+      method: "PUT",
+      path: "/kleio/link/relays",
+      token: admin.token,
+      body: JSON.stringify({ listVersion: 0, relays: [OWN] }),
+    });
+    const notAdmin = await linkRequest(linkPort, KEY_A, {
+      method: "POST",
+      path: "/kleio/link/relays/use-now",
+      token: phone.token,
+      body: JSON.stringify({ listVersion: 1 }),
+    });
+    expect(notAdmin.status).toBe(403);
+    const used = await apiRequest(apiPort, {
+      method: "POST",
+      path: "/kleio/link/relays/use-now",
+      token: admin.token,
+      body: JSON.stringify({ listVersion: 1 }),
+    });
+    expect(used.status).toBe(200);
+    expect(JSON.parse(used.body)).toMatchObject({ inUse: true, waiting: 0 });
+    expect(configDoc(dir)).toEqual({ version: 1, listVersion: 1, relays: [OWN] });
   });
 
   it("answers 500 for a relay list it can't read, and 405 to anything but GET", async () => {
@@ -1004,7 +1168,7 @@ describe("the link's files", () => {
     writeConfig(dir, { version: 1, listVersion: 2, relays: [OWN, "n0"] });
     expect(await readLinkConfig(dir)).toEqual({
       ok: true,
-      value: { listVersion: 2, relays: [OWN, "n0"] },
+      value: { listVersion: 2, relays: [OWN, "n0"], hostOrder: [OWN, "n0"], promoted: null },
     });
     for (const bad of [
       { version: 2, listVersion: 0, relays: ["n0"] },

@@ -188,6 +188,7 @@ import {
   WorkspaceFileCards,
   WorkspaceFilesProvider,
 } from "./kleio/WorkspaceFiles";
+import { HistoryImage, HistoryImagesProvider } from "./historyImages";
 import { TitleUsageMeter } from "./TitleUsageMeter";
 import { useWindowFocused } from "./useWindowFocused";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -420,8 +421,14 @@ export type Item =
     };
 
 export interface TranscriptImage {
-  /** data: URL (base64) ready to drop into <img src>. */
-  src: string;
+  /** data: URL (base64) ready to drop into <img src>. Absent for a resumed
+   *  chat's image listed by `ref`, which loads as it's scrolled to. */
+  src?: string;
+  /** The image's ref, to load its preview by (historyImages.tsx). */
+  ref?: string;
+  /** Its preview's size, so its box holds its place until it loads. */
+  width?: number;
+  height?: number;
   /** Source file path, shown as a caption + used as a stable key. */
   path?: string;
 }
@@ -1585,7 +1592,7 @@ function App(): React.ReactElement {
       setProjectTasks(await listTasks());
       // Hydrate the transcript when resuming an existing session — the webview
       // only sees live SSE events, so past messages must be fetched explicitly.
-      const history = await listHistory();
+      const history = await listHistory(st?.historyImageRefs === true);
       if (history.length > 0) {
         // A freshly hydrated session lands at the bottom (newest message).
         stickToBottomRef.current = true;
@@ -1613,7 +1620,13 @@ function App(): React.ReactElement {
               return {
                 kind: "images",
                 id: nextId(),
-                images: h.toolImages.map((img) => ({ src: img.src, path: img.path })),
+                images: h.toolImages.map((img) => ({
+                  src: img.src,
+                  ref: img.ref,
+                  width: img.width,
+                  height: img.height,
+                  path: img.path,
+                })),
               };
             // Sub-agent delegation group — reconstructed from persisted tool_call
             // + tool_result pairing. toolUseCount/activities aren't persisted, so
@@ -3266,20 +3279,22 @@ function App(): React.ReactElement {
                   </div>
                 ))}
               <PromptSendProvider value={sendKenRecommendedPrompt}>
-                <WorkspaceFilesProvider
-                  cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
-                >
-                  {items.map((it) => (
-                    <TranscriptRow
-                      key={it.id}
-                      item={it}
-                      animateIn={it.id >= liveFromId}
-                      onContentGrow={maybeScrollToBottom}
-                      onAskAnswer={answerAsk}
-                      onAskType={typeAskInstead}
-                    />
-                  ))}
-                </WorkspaceFilesProvider>
+                <HistoryImagesProvider>
+                  <WorkspaceFilesProvider
+                    cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
+                  >
+                    {items.map((it) => (
+                      <TranscriptRow
+                        key={it.id}
+                        item={it}
+                        animateIn={it.id >= liveFromId}
+                        onContentGrow={maybeScrollToBottom}
+                        onAskAnswer={answerAsk}
+                        onAskType={typeAskInstead}
+                      />
+                    ))}
+                  </WorkspaceFilesProvider>
+                </HistoryImagesProvider>
               </PromptSendProvider>
             </>
           )}
@@ -4158,12 +4173,7 @@ function TranscriptRowBody({
                   openImage();
                 }}
               >
-                <img
-                  className="img-thumb"
-                  src={img.src}
-                  alt={img.path ?? "image"}
-                  onLoad={onContentGrow}
-                />
+                <HistoryImage image={img} alt={img.path ?? "image"} onLoad={onContentGrow} />
                 {img.path && (
                   <figcaption className="img-cap" title={img.path}>
                     {basename(img.path)}

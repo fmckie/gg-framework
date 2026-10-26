@@ -243,7 +243,9 @@ describe("MemoryModal", () => {
 
     const form = screen.getByRole("form", { name: "New memory" });
     const text = within(form).getByRole("textbox", { name: "Memory" });
-    expect(document.activeElement).toBe(text);
+    // The modal moves focus in an effect after the render that shows its
+    // target, so on a busy run it can land a beat after the editor does.
+    await waitFor(() => expect(document.activeElement).toBe(text));
     expect(within(form).getByRole("radio", { name: "Other" })).toHaveProperty("checked", true);
     expect(within(form).getByRole("radio", { name: "3" })).toHaveProperty("checked", true);
     expect(within(form).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
@@ -271,7 +273,9 @@ describe("MemoryModal", () => {
 
     expect(await screen.findByText("Ken is building durable chat memory.")).toBeDefined();
     expect(screen.queryByRole("form")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add memory" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add memory" })),
+    );
     expect(screen.getByRole("status").textContent).toBe("Memory added.");
     expect(document.querySelector(".memory-modal .badge")?.textContent).toBe("2");
     expect(saveJiwaMock).not.toHaveBeenCalled();
@@ -342,7 +346,7 @@ describe("MemoryModal", () => {
     expect(text).toHaveProperty("value", "Call yourself Blargo in chat!");
     expect(within(form).getByRole("radio", { name: "Identity" })).toHaveProperty("checked", true);
     expect(within(form).getByRole("button", { name: "Save" })).toHaveProperty("disabled", false);
-    expect(document.activeElement).toBe(text);
+    await waitFor(() => expect(document.activeElement).toBe(text));
     expect(saveMemoryMock).not.toHaveBeenCalled();
   });
 
@@ -376,8 +380,10 @@ describe("MemoryModal", () => {
     expect(screen.queryByRole("form")).toBeNull();
     expect(screen.getByRole("dialog")).toBeDefined();
     expect(onClose).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: `Edit memory: ${KEN_MEMORY}` }),
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: `Edit memory: ${KEN_MEMORY}` }),
+      ),
     );
     expect(screen.getByText(KEN_MEMORY)).toBeDefined();
     expect(saveMemoryMock).not.toHaveBeenCalled();

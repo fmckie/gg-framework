@@ -147,7 +147,12 @@ kleio-host keeps the relay list in `link/config.json`, in its state folder:
     `defaults::prod`).
 - **`listVersion`** goes up by one each time the list changes. `GET /kleio/link` gives it to phones
   with the list.
-- **There's no setting for it in the app yet.**
+- **An admin changes it** in the app, under **Settings → Connection → Relays**, or with
+  `PUT /kleio/link/relays` (kleio-host's README, "Changing the relay list").
+- **A changed list reaches devices before the host moves.** Until every device on the link seen in
+  the last 30 days has it, `relays` keeps the host on relays they know, `list` holds the new list,
+  and `promoted` the last one they all had. kleio-link-host reads `relays` and ignores the rest
+  (`tests/fixtures/relay-config.json`).
 - **A list that can't be read** stops kleio-link-host from starting, rather than leave it on n0's
   relays when the list may leave them out. A change that can't be read while it runs is logged, and
   the last good list stays.
@@ -221,6 +226,23 @@ Phase 2 measured, in the real app on EE 4G, a 45 MiB file at 0.57 MB/s. While it
 connection's round trip went from 0.1 s to 8.8 s, so chats waited up to about 20 s behind it. As
 in the prototype, no connection went direct on EE 4G.
 
+That was QUIC's default congestion control, Cubic, which slows down only when packets are lost. A
+shared relay doesn't drop what's over its limit, it reads it more slowly, so the file's data
+queued in the relay's path and everything else waited behind it. So kleio-link-host now runs
+BBRv3 (`transport` in `src/host/mod.rs`), which paces at the rate the path delivers and keeps
+about a round trip's worth in flight:
+
+- Through a test relay limited to 1 MiB/s, with a 45 MiB file (`tests/pacing.rs`), requests
+  alongside it took 0.2 s at most, against 1.2–2.1 s with Cubic. The file came at 95% of the
+  limit either way.
+- With 5 MiB let through faster first, as n0's relays do, the slowest request took 0.25 s.
+- With two big files at once, it took 0.19 s.
+- On a direct path BBRv3 measured the same as Cubic.
+
+Only the host's end changed, as only the host sends big answers. The phone keeps iroh's default,
+so a big upload from the phone still queues. Downloads get no faster: a relay of your own is what
+makes them faster.
+
 kleio-link-host notes when a relay says it's rate-limiting the host (`rateLimited` in
 `link/state.json`). A relay of your own avoids the limit: put it first in the list, with `"n0"`
 after it as the fallback.
@@ -237,6 +259,74 @@ downloads. A relay of your own is faster."
 So the app's downloads have no time limit, only a limit on waiting: a download stops when nothing
 has come from the host for 20 s. Until then, the file's card says how much has come, and about how
 long is left, by the last 5 s' rate.
+
+### Run your own relay
+
+A relay of your own isn't rate-limited, so downloads go as fast as its connection. It forwards the
+link's packets without being able to read them, as n0's do. It needs a machine with a public
+address, such as a small VPS, and a DNS name for it.
+
+**Get iroh-relay 1.4.1,** the version kleio-link is built with:
+
+- from n0's releases, <https://github.com/n0-computer/iroh/releases/tag/v1.4.1>:
+  `iroh-relay-v1.4.1-<target>.tar.gz` for Linux and macOS, and a `.zip` for Windows;
+- or with Rust: `cargo install iroh-relay --version 1.4.1 --features server --locked`.
+
+**Open these ports to it:**
+
+- **TCP 443:** the relay itself, over HTTPS, and Let's Encrypt's check;
+- **TCP 80:** a captive-portal check that iroh's clients make;
+- **UDP 7842,** if you turn on `enable_quic_addr_discovery`: it helps devices find a direct path.
+  The relay works without it.
+
+**Write its config,** for example `/etc/iroh-relay/config.toml`, with your relay's name and an
+email for Let's Encrypt:
+
+```toml
+# Its metrics listen on every address (port 9090) unless told otherwise.
+enable_metrics = false
+
+# Let's Encrypt over TLS-ALPN-01 on port 443: no web server needed.
+[tls]
+cert_mode = "LetsEncrypt"
+hostname = "relay.example.com"
+contact = "you@example.com"
+cert_dir = "/var/lib/iroh-relay"
+```
+
+Settings of its own, like `enable_metrics`, go above `[tls]`: TOML puts what follows a table into
+it. Run it with `iroh-relay --config-path /etc/iroh-relay/config.toml`. It binds ports 80 and 443,
+so as a systemd service give it `AmbientCapabilities=CAP_NET_BIND_SERVICE` rather than running it
+as root.
+
+**Check it answers** as a relay does, with 200 and nothing else:
+
+```sh
+curl -si https://relay.example.com/ping | head -1
+```
+
+**Add it in Kleio,** under **Settings → Connection → Relays**, above `n0`. Keep `n0` after it as
+the fallback. The host moves to it once every device has the new list, or at once with **Use it
+now**.
+
+**Who may use it.** Without an `access` setting, anyone can relay through it, though only your
+devices' packets mean anything. To let in only your host and devices, list their keys, above
+`[tls]`:
+
+```toml
+access.allowlist = [
+  "<the host's key: kleio-link-host id>",
+  "<each device's key: link-allow.json>",
+]
+```
+
+- The host's key is what `kleio-link-host id` prints. Each paired device's is in the state
+  folder's `secure/link-allow.json`, under `devices`, as `key`.
+- The list doesn't reload: restart iroh-relay after changing it.
+- **A new device isn't on it yet when it pairs,** so it finds the host through the next relay in
+  the list. Keep `n0` in the list, and add the new device's key after pairing.
+- iroh-relay's `shared_token` and `http` access need the client to send a token, which Kleio's
+  link doesn't, so use `allowlist`.
 
 ## The files it shares with kleio-host
 
@@ -392,6 +482,10 @@ cargo test --locked --features host --test end_to_end -- --ignored
   failover, and a relay's rate limit.
 - **`tests/end_to_end.rs`** runs the real kleio-host and kleio-link-host, with a relay and a phone
   in the test process. CI runs it on Linux, macOS and Windows.
-- **iroh is pinned** (`=1.4.1`), and gg-app's lockfile and this one must agree on iroh's and noq's
-  versions. `node scripts/check-link-locks.mjs` checks that, and CI runs it. Dependabot updates both
+- **`tests/pacing.rs`** sends a 45 MiB answer through a relay limited to 1 MiB/s, with a request
+  alongside it each second. Each must take under 1 s, and the answer must come at 90% of the limit
+  or better. It takes about 50 s.
+- **iroh is pinned** (`=1.4.1`), and noq-proto with it (`=1.4.0`, iroh's own, for the host's
+  BBRv3). gg-app's lockfile and this one must agree on iroh's and noq's versions.
+  `node scripts/check-link-locks.mjs` checks that, and CI runs it. Dependabot updates both
   lockfiles in one group.

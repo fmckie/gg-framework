@@ -2962,3 +2962,58 @@ describe("null arguments from strict sampling", () => {
     expect(received).toEqual([{ cursor: null }]);
   });
 });
+
+describe("transformToolDetails", () => {
+  const usage = { inputTokens: 10, outputTokens: 5 };
+  const shot: AgentTool<typeof emptyParams> = {
+    name: "shot",
+    description: "a screenshot",
+    parameters: emptyParams,
+    async execute() {
+      return { content: "captured", details: { imagePreviews: [{ base64: "png" }] } };
+    },
+  };
+
+  beforeEach(() => {
+    mockStream.mockReset();
+    mockStream
+      .mockReturnValueOnce(
+        mockToolCallResult("shot", usage) as unknown as ReturnType<typeof stream>,
+      )
+      .mockReturnValueOnce(mockOkResult("done") as unknown as ReturnType<typeof stream>);
+  });
+
+  it("reshapes a tool's details before its tool_call_end event, not what the model sees", async () => {
+    const given: unknown[] = [];
+    const { events } = await collectLoop([{ role: "user", content: "go" }], {
+      provider: "anthropic",
+      model: "test",
+      tools: [shot],
+      transformToolDetails: async (details) => {
+        given.push(details);
+        return { imagePreviews: [{ base64: "webp" }] };
+      },
+    });
+
+    expect(given).toEqual([{ imagePreviews: [{ base64: "png" }] }]);
+    const end = events.find((e) => e.type === "tool_call_end");
+    expect(end).toMatchObject({ details: { imagePreviews: [{ base64: "webp" }] }, isError: false });
+    const next = mockStream.mock.calls[1]?.[0].messages ?? [];
+    expect(JSON.stringify(next)).toContain('"captured"');
+    expect(JSON.stringify(next)).not.toContain("webp");
+  });
+
+  it("keeps the details as they were when the transform throws", async () => {
+    const { events } = await collectLoop([{ role: "user", content: "go" }], {
+      provider: "anthropic",
+      model: "test",
+      tools: [shot],
+      transformToolDetails: async () => {
+        throw new Error("no sharp");
+      },
+    });
+
+    const end = events.find((e) => e.type === "tool_call_end");
+    expect(end).toMatchObject({ details: { imagePreviews: [{ base64: "png" }] }, isError: false });
+  });
+});

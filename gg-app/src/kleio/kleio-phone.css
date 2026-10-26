@@ -856,3 +856,11 @@ html.platform-ios .kleio-scan-cancel {
   min-height: 44px;
   padding-inline: 20px;
 }
+
+/* Settings → Connection → Relays: moving and removing a relay are icons
+   alone, side by side, so each gets Apple's full 44pt. */
+html.platform-ios .conn-relay-actions .btn {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}

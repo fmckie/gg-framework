@@ -204,6 +204,8 @@ describe("device registry", () => {
         liveStart: null,
         // ...and records from before the link have no link key.
         linkKey: null,
+        // An old store has no relay list version.
+        listVersion: null,
       },
     ]);
     expect(reg.authenticate("legacy-raw-token")?.label).toBe("W's mac");
@@ -281,6 +283,25 @@ describe("device registry: link keys", () => {
     await again.init();
     expect(again.get(minted.value.device.deviceId)?.linkKey).toBe(KEY_A);
     expect(again.get(plain.value.device.deviceId)?.linkKey).toBeNull();
+  });
+
+  it("keeps the relay list version a device got, across a reload, writing only a change", async () => {
+    const reg = registry();
+    await reg.init();
+    const minted = await reg.mint("iPhone", { linkKey: KEY_A });
+    if (!minted.ok) throw new Error("mint failed");
+    expect(minted.value.device.listVersion).toBeNull();
+    await reg.setListVersion(minted.value.device.deviceId, 3);
+    expect(reg.get(minted.value.device.deviceId)?.listVersion).toBe(3);
+    const written = statSync(storePath).mtimeMs;
+    await new Promise((r) => setTimeout(r, 20));
+    await reg.setListVersion(minted.value.device.deviceId, 3);
+    expect(statSync(storePath).mtimeMs).toBe(written);
+    await reg.setListVersion("no-such-device", 4);
+
+    const again = registry();
+    await again.init();
+    expect(again.get(minted.value.device.deviceId)?.listVersion).toBe(3);
   });
 
   it("refuses a link key that isn't 64 lowercase hex characters, and mints nothing", async () => {

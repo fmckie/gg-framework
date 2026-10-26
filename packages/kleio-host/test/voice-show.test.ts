@@ -378,6 +378,51 @@ describe("POST /kleio/voice/show: files on the allow-list", () => {
     expectSafeHeaders(await part(info(y).id, "image"), "image/png");
   });
 
+  it("shows a big picture at screen size, as the sidecar makes it", async () => {
+    // A PNG of 600 KB: past the 512 KiB a picture goes as it is under.
+    const big = Buffer.concat([PNG, Buffer.alloc(600_000)]);
+    put(kleioDir(), ".gg/generated/poster.png", big);
+    const webp = Buffer.from("RIFF\0\0\0\0WEBPVP8 small");
+    sidecar.imagePreview = webp;
+    const r = await show({ source: "kleio", path: ".gg/generated/poster.png" });
+    const img = await part(info(r).id, "image");
+    expect(img.status).toBe(200);
+    expectSafeHeaders(img, "image/webp");
+    expect(img.raw.equals(webp)).toBe(true);
+    expect(sidecar.imagePreviewCalls.map((b) => b.equals(big))).toEqual([true]);
+  });
+
+  it("shows a big picture as it is when the sidecar can't make it smaller", async () => {
+    const big = Buffer.concat([PNG, Buffer.alloc(600_000)]);
+    put(kleioDir(), ".gg/generated/photo.png", big);
+    sidecar.imagePreview = null;
+    const r = await show({ source: "kleio", path: ".gg/generated/photo.png" });
+    const img = await part(info(r).id, "image");
+    expectSafeHeaders(img, "image/png");
+    expect(img.raw.equals(big)).toBe(true);
+    expect(sidecar.imagePreviewCalls).toHaveLength(1);
+  });
+
+  it("shows a small picture as it is, without asking the sidecar", async () => {
+    put(kleioDir(), ".gg/generated/icon.png", PNG);
+    sidecar.imagePreview = Buffer.from("RIFF\0\0\0\0WEBPVP8 small");
+    const r = await show({ source: "kleio", path: ".gg/generated/icon.png" });
+    const img = await part(info(r).id, "image");
+    expectSafeHeaders(img, "image/png");
+    expect(img.raw.equals(PNG)).toBe(true);
+    expect(sidecar.imagePreviewCalls).toHaveLength(0);
+  });
+
+  it("shows a big picture as it is when the sidecar is down", async () => {
+    const big = Buffer.concat([PNG, Buffer.alloc(600_000)]);
+    put(kleioDir(), ".gg/generated/down.png", big);
+    const r = await show({ source: "kleio", path: ".gg/generated/down.png" });
+    await sidecar.close();
+    const img = await part(info(r).id, "image");
+    expectSafeHeaders(img, "image/png");
+    expect(img.raw.equals(big)).toBe(true);
+  });
+
   it("shows a project's plan, its pictures and the pictures its agents made", async () => {
     put(appDir(), ".gg/plans/plan.md", "## The plan");
     put(appDir(), "docs/diagram.jpg", JPEG);

@@ -11,7 +11,7 @@ publish = false
 # The `kleio-link-host` binary: the link's host side, which runs next to
 # kleio-host, with its `qr`, `id` and `client` commands. The phone's build
 # leaves it out.
-host = ["dep:qrcode", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
+host = ["dep:noq-proto", "dep:qrcode", "dep:tracing-subscriber", "tokio/rt-multi-thread"]
 
 [[bin]]
 name = "kleio-link-host"
@@ -30,6 +30,11 @@ required-features = ["host"]
 name = "end_to_end"
 required-features = ["host"]
 
+# A big answer through a rate-limited relay, with requests alongside it.
+[[test]]
+name = "pacing"
+required-features = ["host"]
+
 [dependencies]
 # Pinned. No default features: `fast-apple-datapath` uses private Apple APIs
 # (the iPhone build can't have them), and without `portmapper` nothing asks the
@@ -46,6 +51,10 @@ serde_json = "1"
 # rustls-pki-types: the certificates a relay of your own may chain to.
 futures-util = { version = "0.3.34", default-features = false }
 getrandom = "0.4"
+# The host's congestion control, BBRv3 (src/host/mod.rs, `transport`): iroh
+# exports only the congestion traits. Pinned to iroh's version, with no
+# default features as iroh has it, so it adds no crates.
+noq-proto = { version = "=1.4.0", default-features = false, optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 # 1.14: gg-app's tree has it already.
 rustls-pki-types = "1.14"

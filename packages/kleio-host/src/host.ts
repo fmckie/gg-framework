@@ -70,10 +70,19 @@ import {
   LINK_HOST,
   linkTicket,
   readLinkInfo,
+  readLinkState,
   type LinkListener,
   type LinkOptions,
   type LinkTicketError,
 } from "./link.js";
+import {
+  createRelayList,
+  MAX_RELAY_LIST_BODY,
+  pingRelay,
+  relayListProblem,
+  relayListStatus,
+  type RelayPing,
+} from "./link-relays.js";
 import {
   contentDisposition,
   fileContentType,
@@ -331,6 +340,8 @@ export interface HostOptions {
   readonly secretLock?: SecretLock;
   /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner… */
   readonly hostInfo?: HostInfoSeams;
+  /** How a relay an admin adds is asked `GET /ping` (link-relays.ts). Tests fake it. */
+  readonly pingRelay?: (relay: string) => Promise<RelayPing>;
   /**
    * Draws web pages and PDFs for a voice show (capture.ts); the CLI passes
    * the macOS helper's. Unset, or unable to draw on this host: a show of a
@@ -563,6 +574,13 @@ function textFailure(f: FilesFailure): ShowFailure {
 }
 
 /** The headers every part of a show carries: nothing in it runs, sniffs or is kept. */
+/** A picture shown at screen size when it's bigger than this: 512 KiB. */
+const SCREEN_IMAGE_FROM_BYTES = 512 * 1024;
+/** The largest picture made screen-sized; a bigger one goes as it is. */
+const SCREEN_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
+/** How long the sidecar has to make one. */
+const SCREEN_IMAGE_TIMEOUT_MS = 15_000;
+
 const SHOW_PART_HEADERS: Readonly<Record<string, string>> = {
   "x-content-type-options": "nosniff",
   "content-security-policy": "sandbox; default-src 'none'",
@@ -727,6 +745,38 @@ export function createHost(options: HostOptions): Host {
   // Whether notifications quote what was said (notification-settings.ts).
   // Every push to Apple goes through `apns`, which leaves the text out when an
   // admin device has turned quoting off.
+  // The link's relay list, as admins change it (link-relays.ts).
+  const relayList = options.link
+    ? createRelayList({
+        dir: options.link.dir,
+        devices: () => registry.list(),
+        now,
+        log,
+      })
+    : null;
+
+  /**
+   * GET /kleio/link/relays' answer, with which devices it waits for to admins
+   * only. Null when the list can't be read (logged).
+   */
+  async function relayListBody(admin: boolean): Promise<Record<string, unknown> | null> {
+    if (!options.link || !relayList) return null;
+    const config = await relayList.read();
+    if (!config.ok) {
+      log(`[link] the relay list: ${config.error}`);
+      return null;
+    }
+    const read = await readLinkState(options.link.dir, options.link.publicKey, now());
+    return { ...relayListStatus(config.value, read, registry.list(), now(), admin) };
+  }
+
+  /** What each added relay said to GET /ping, for an admin. */
+  function pingsBody(
+    pings: readonly { relay: string; ping: RelayPing }[],
+  ): Record<string, unknown>[] {
+    return pings.map(({ relay, ping }) => ({ relay, ...ping }));
+  }
+
   const notificationSettings = createNotificationSettings({
     path: join(dirname(options.sidecarEndpointPath), "notifications.json"),
     log,
@@ -1516,6 +1566,46 @@ export function createHost(options: HostOptions): Host {
       req.on("error", () => resolve(null));
       if (payload) req.write(payload);
       req.end();
+    });
+  }
+
+  /**
+   * An image made screen-sized by the sidecar (`POST /image-preview`), or null
+   * when the original should go as it is: the sidecar answered 204 (it's as
+   * small already, or it can't read it), or it's down or slow.
+   */
+  async function sidecarImage(bytes: Buffer): Promise<Buffer | null> {
+    const ep = await endpoint();
+    if (!ep) return null;
+    return new Promise((resolve) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path: "/image-preview",
+          method: "POST",
+          headers: {
+            host: `127.0.0.1:${ep.port}`,
+            "x-gg-token": ep.token,
+            "content-type": "application/octet-stream",
+            "content-length": String(bytes.length),
+          },
+          timeout: SCREEN_IMAGE_TIMEOUT_MS,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            const body = Buffer.concat(chunks);
+            const webp = res.statusCode === 200 && res.headers["content-type"] === "image/webp";
+            resolve(webp && body.length > 0 ? body : null);
+          });
+          res.on("error", () => resolve(null));
+        },
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      req.end(bytes);
     });
   }
 
@@ -2390,6 +2480,23 @@ export function createHost(options: HostOptions): Host {
       }
       case "image": {
         if (part.kind !== "image") return noSuchPart();
+        // A big picture goes screen-sized, as the phone shows it: an original
+        // of up to 14 MB took half a minute through n0's relay. A small one,
+        // or one the sidecar can't make smaller, goes as it is.
+        if (file.size > SCREEN_IMAGE_FROM_BYTES && file.size <= SCREEN_IMAGE_MAX_BYTES) {
+          const original = await readHead(file, SCREEN_IMAGE_MAX_BYTES);
+          if (original === null) return failWith(res, { status: 404, error: "not_found" });
+          const smaller = await sidecarImage(original);
+          if (smaller) {
+            res.writeHead(200, {
+              ...SHOW_PART_HEADERS,
+              "content-type": "image/webp",
+              "content-length": smaller.length,
+            });
+            res.end(smaller);
+            return 200;
+          }
+        }
         const [status] = await sendFile(res, file, {
           headers: { ...SHOW_PART_HEADERS, "content-type": what.type },
           missing: (r) => void failWith(r, { status: 404, error: "not_found" }),
@@ -3102,19 +3209,134 @@ export function createHost(options: HostOptions): Host {
       return json(res, 200, { ok: true });
     }
     // The link (link.ts), for any paired device: the host's key, its relay
-    // list and where it was last, so a phone can find it again.
+    // list and where it was last, so a phone can find it again. The list's
+    // version it got is kept: a new list waits for every device to have it
+    // (link-relays.ts).
     if (path === "/kleio/link") {
       if (req.method !== "GET") {
         res.setHeader("allow", "GET");
         return json(res, 405, { error: "method not allowed" });
       }
-      if (!options.link) return json(res, 404, { error: "no_link" });
+      if (!options.link || !relayList) return json(res, 404, { error: "no_link" });
       const info = await readLinkInfo(options.link, now(), log);
       if (!info.ok) {
         log(`[link] GET /kleio/link: ${info.error}`);
         return json(res, 500, { error: "link_config" });
       }
-      return json(res, 200, info.value);
+      json(res, 200, info.value);
+      const got = info.value.listVersion;
+      if (auth.device.listVersion !== got) {
+        const list = relayList;
+        void background(
+          (async () => {
+            await registry.setListVersion(auth.device.deviceId, got);
+            const settled = await list.settle();
+            if (!settled.ok) log(`[link] couldn't settle the relay list: ${settled.error}`);
+          })(),
+        );
+      }
+      return;
+    }
+    // The link's relay list (link-relays.ts): any paired device sees it and
+    // how each relay is; an admin changes it, or uses a waiting one now.
+    if (path === "/kleio/link/relays") {
+      if (!options.link || !relayList) return json(res, 404, { error: "no_link" });
+      if (req.method === "GET") {
+        const body = await relayListBody(auth.admin);
+        return body ? json(res, 200, body) : json(res, 500, { error: "link_config" });
+      }
+      if (req.method !== "PUT") {
+        res.setHeader("allow", "GET, PUT");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const body = await readBody(req, MAX_RELAY_LIST_BODY);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body.toString("utf8"));
+      } catch {
+        return json(res, 400, { error: "bad_request", message: "That isn't JSON." });
+      }
+      const doc = (typeof parsed === "object" && parsed !== null ? parsed : {}) as Record<
+        string,
+        unknown
+      >;
+      const expected = doc.listVersion;
+      if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) {
+        return json(res, 400, {
+          error: "bad_request",
+          message: "Say which list version this changes (listVersion).",
+        });
+      }
+      const problem = relayListProblem(doc.relays);
+      if (problem !== null) return json(res, 400, { error: "bad_relays", message: problem });
+      const relays = doc.relays as string[];
+      // A relay being added must answer GET /ping, unless the admin says to
+      // save it anyway (`force`).
+      const current = await relayList.read();
+      const known = current.ok ? current.value.relays : [];
+      const added = relays.filter((r) => r !== "n0" && !known.includes(r));
+      const pings = await Promise.all(
+        added.map(async (relay) => ({
+          relay,
+          ping: await (options.pingRelay ?? pingRelay)(relay),
+        })),
+      );
+      const failed = pings.filter((p) => p.ping.kind !== "relay");
+      if (failed.length > 0 && doc.force !== true) {
+        return json(res, 422, { error: "relay_unreachable", pings: pingsBody(pings) });
+      }
+      const set = await background(relayList.set(expected, relays));
+      if (!set.ok) {
+        if (set.error.kind === "stale") {
+          return json(res, 409, { error: "stale", listVersion: set.error.listVersion });
+        }
+        log(`[link] couldn't change the relay list: ${set.error.message}`);
+        return json(res, 500, { error: "link_config" });
+      }
+      log(
+        `[link] ${auth.device.label} set relay list ${set.value.listVersion}: ${relays.join(", ")}${failed.length > 0 ? ` (saved anyway: ${failed.map((p) => p.relay).join(", ")} didn't answer)` : ""}`,
+      );
+      const listed = await relayListBody(true);
+      return listed
+        ? json(res, 200, { ...listed, pings: pingsBody(pings) })
+        : json(res, 500, { error: "link_config" });
+    }
+    // "Use it now": the host uses a waiting relay list before every device
+    // has it. One that hasn't got it pairs again if the host moves.
+    if (path === "/kleio/link/relays/use-now") {
+      if (!options.link || !relayList) return json(res, 404, { error: "no_link" });
+      if (req.method !== "POST") {
+        res.setHeader("allow", "POST");
+        return json(res, 405, { error: "method not allowed" });
+      }
+      if (!auth.admin) return json(res, 403, { error: "forbidden" });
+      const body = await readBody(req, 1024);
+      if (body === null) return json(res, 413, { error: "too_large" });
+      let expected: unknown;
+      try {
+        expected = (JSON.parse(body.toString("utf8")) as { listVersion?: unknown }).listVersion;
+      } catch {
+        return json(res, 400, { error: "bad_request", message: "That isn't JSON." });
+      }
+      if (typeof expected !== "number" || !Number.isSafeInteger(expected) || expected < 0) {
+        return json(res, 400, {
+          error: "bad_request",
+          message: "Say which list version to use (listVersion).",
+        });
+      }
+      const used = await background(relayList.useNow(expected));
+      if (!used.ok) {
+        if (used.error.kind === "stale") {
+          return json(res, 409, { error: "stale", listVersion: used.error.listVersion });
+        }
+        log(`[link] couldn't use the relay list now: ${used.error.message}`);
+        return json(res, 500, { error: "link_config" });
+      }
+      log(`[link] ${auth.device.label} had the host use relay list ${expected} now`);
+      const listed = await relayListBody(true);
+      return listed ? json(res, 200, listed) : json(res, 500, { error: "link_config" });
     }
     // Setup: which third-party keys are present (any paired device; never a
     // key or a fragment of one), and an admin sets or removes the Composio and

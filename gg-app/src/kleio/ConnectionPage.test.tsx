@@ -11,12 +11,16 @@ import { forgetHint } from "./ForgetHost";
 import { RESTART_HOST, RESTART_LINK, START_HOST } from "./connectionDiagnosis";
 import { hostHealth, KleioApiError, notificationSettings, setQuoteText } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
+import { adoptRelayList, relayList, setRelayList, type RelayList } from "./kleioRelays";
+import type * as KleioRelays from "./kleioRelays";
 import type { LinkStatus } from "./kleioLink";
 import { noTicketWords } from "./PairingOffer";
 import { pairTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath } from "./qr";
 import {
+  type Forgot,
   kleio,
+  type Paired,
   type RemoteStatus,
   type TailscaleNode,
   type TailscaleStatus,
@@ -45,6 +49,12 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   hostHealth: vi.fn(),
   notificationSettings: vi.fn(),
   setQuoteText: vi.fn(),
+}));
+vi.mock("./kleioRelays", async (importOriginal) => ({
+  ...(await importOriginal<typeof KleioRelays>()),
+  relayList: vi.fn(),
+  setRelayList: vi.fn(),
+  adoptRelayList: vi.fn(),
 }));
 vi.mock("./useKleioRemote", async (importOriginal) => {
   const real = await importOriginal<typeof KleioRemote>();
@@ -138,10 +148,20 @@ function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unkn
   });
 }
 
+/** The relay list as the host gives it: n0's alone, in use. */
+const N0_LIST: RelayList = {
+  listVersion: 0,
+  relays: [{ entry: "n0", state: "home", new: false }],
+  inUse: true,
+  hostRelay: "https://euc1-1.relay.n0.iroh.link./",
+  waiting: 0,
+};
+
 beforeEach(() => {
   remote.status = BY_ADDRESS;
   vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
   vi.mocked(notificationSettings).mockResolvedValue({ quoteText: true });
+  vi.mocked(relayList).mockResolvedValue(N0_LIST);
   vi.mocked(kleio.tailscale).mockResolvedValue(net());
   linkRoutes({});
 });
@@ -374,9 +394,38 @@ describe("ConnectionPage", () => {
 });
 
 describe("ConnectionPage — Forget host", () => {
+  /** Forget host, confirmed, with the host answering `onHost`: the page as it
+   *  reads after, with the pairing gone from disk and this launch still on it. */
+  async function forgetWith(onHost: Forgot): Promise<HTMLElement> {
+    vi.mocked(kleio.forget).mockImplementation(async () => {
+      remote.status = { ...BY_ADDRESS, paired: null };
+      return onHost;
+    });
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<ConnectionPage />);
+    });
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    expect(kleio.forget).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      view?.rerender(<ConnectionPage />);
+    });
+    const after = screen.getByRole("region", { name: "Host" });
+    expect(within(after).queryByRole("button", { name: /Forget host/ })).toBeNull();
+    expect(within(after).getByRole("status").textContent).toMatch(
+      /^You just forgot the host\. Restart Kleio to apply/,
+    );
+    return after;
+  }
+
   it("asks first, then forgets the host, and says it applies at the next launch", async () => {
     vi.mocked(kleio.forget).mockImplementation(async () => {
       remote.status = { ...BY_ADDRESS, paired: null };
+      return { onHost: "removed" };
     });
     let view: ReturnType<typeof render> | undefined;
     await act(async () => {
@@ -386,7 +435,7 @@ describe("ConnectionPage — Forget host", () => {
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(within(host).getByText(forgetHint())).toBeTruthy();
     expect(forgetHint()).toBe(
-      "Sessions go back to running on this Mac after a restart. The host still lists this device until an admin revokes it.",
+      "Kleio asks the host to remove this Mac, then forgets the host here. Sessions go back to running on this Mac after a restart. If the host can't be reached, it's forgotten here only, and the host lists this Mac until an admin revokes it.",
     );
     // Keep puts it back as it was, and nothing was forgotten.
     fireEvent.click(within(host).getByRole("button", { name: "Keep" }));
@@ -409,16 +458,64 @@ describe("ConnectionPage — Forget host", () => {
     );
   });
 
-  it("on the iPhone, says Kleio disconnects the next time it's opened", async () => {
+  it("on the iPhone, says the host is asked to remove it, and what if it can't be", async () => {
     document.documentElement.classList.add("platform-ios");
     await renderPage();
     const host = screen.getByRole("region", { name: "Host" });
     fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
     expect(
       within(host).getByText(
-        "Kleio disconnects the next time you open it. The host still lists this device until an admin revokes it.",
+        "Kleio asks the host to remove this iPhone, then forgets the host here. If the host can't be reached, it's forgotten here only, and the host lists this iPhone until an admin revokes it.",
       ),
     ).toBeTruthy();
+  });
+
+  it("host reached: says the host removed this Mac", async () => {
+    await forgetWith({ onHost: "removed" });
+    expect(toast).toHaveBeenCalledExactlyOnceWith("The host removed this Mac.", "success");
+  });
+
+  it("host unreachable: forgets it here anyway, and says the host still lists this Mac", async () => {
+    await forgetWith({
+      onHost: "notRemoved",
+      reason: "the host couldn't be reached (connection refused)",
+    });
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "Forgot the host here only: the host couldn't be reached (connection refused). The host lists this Mac until an admin revokes it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("host answers 401: forgets it here anyway, and says it may be revoked already", async () => {
+    await forgetWith({ onHost: "refused" });
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "Forgot the host here. The host turned this Mac's token away (HTTP 401), so it may have been revoked already. If the host still lists this Mac, an admin can revoke it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("keeps Keep and Forget host disabled while the host is asked", async () => {
+    let answer: (f: Forgot) => void = () => {};
+    vi.mocked(kleio.forget).mockImplementation(
+      () =>
+        new Promise<Forgot>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    await renderPage();
+    const host = screen.getByRole("region", { name: "Host" });
+    fireEvent.click(within(host).getByRole("button", { name: "Forget host…" }));
+    await act(async () => {
+      fireEvent.click(within(host).getByRole("button", { name: "Forget host" }));
+    });
+    const forgetting = within(host).getByRole<HTMLButtonElement>("button", { name: "Forgetting…" });
+    const keep = within(host).getByRole<HTMLButtonElement>("button", { name: "Keep" });
+    expect([forgetting.disabled, keep.disabled]).toEqual([true, true]);
+    await act(async () => {
+      answer({ onHost: "removed" });
+    });
   });
 
   it("says why when forgetting fails, and keeps the pairing", async () => {
@@ -1045,21 +1142,42 @@ describe("ConnectionPage — Kleio's link", () => {
     });
   });
 
-  it("pairs by the host's address under Advanced, and says what that replaces", async () => {
-    vi.mocked(kleio.pair).mockResolvedValue({
+  /** A pairing by address, as `kleio_pair` answers it. */
+  function pairedByAddress(setAside: Forgot | null): Paired {
+    return {
       baseUrl: "https://mac-mini-1.tail0000.ts.net:8443",
       host: "mac-mini-1.tail0000.ts.net",
       deviceId: "d2",
       label: "Laptop",
       admin: false,
       pairedAt: "2026-10-23T10:00:00Z",
+      setAside,
+    };
+  }
+
+  /** Pairs by address under Advanced, and hands back the form's box. */
+  async function pairByAddress(): Promise<HTMLElement> {
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    fireEvent.change(within(advanced).getByLabelText("Host URL"), {
+      target: { value: "https://mac-mini-1.tail0000.ts.net:8443" },
     });
+    fireEvent.change(within(advanced).getByLabelText("Pair code"), {
+      target: { value: "abc-def" },
+    });
+    fireEvent.click(within(advanced).getByRole("button", { name: "Pair" }));
+    const done = await within(advanced).findByRole("status");
+    expect(done.textContent).toMatch(/^Paired over your own network\. Restart Kleio to apply/);
+    return advanced;
+  }
+
+  it("pairs by the host's address under Advanced, and says what that replaces", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress({ onHost: "removed" }));
     vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
     onTheLink();
     const advanced = open(await card(), "Advanced: connect over your own network");
     expect(
       within(advanced).getByText(
-        "Pairing here replaces this Mac's pairing from the next launch. mac-mini-1 still lists the old one until an admin revokes it.",
+        "Pairing here replaces this Mac's link pairing from the next launch, and asks mac-mini-1 to remove it. If it can't be reached, mac-mini-1 lists the link pairing until an admin revokes it.",
       ),
     ).toBeTruthy();
     const pair = within(advanced).getByRole("button", { name: "Pair" }) as HTMLButtonElement;
@@ -1079,8 +1197,57 @@ describe("ConnectionPage — Kleio's link", () => {
     );
     expect(kleio.activatePairing).toHaveBeenCalledOnce();
     expect(done.textContent).toMatch(/^Paired over your own network\. Restart Kleio to apply/);
+    // The link pairing's host was reached, and removed it.
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "The host removed this Mac's link pairing.",
+      "success",
+    );
     fireEvent.click(within(advanced).getByRole("button", { name: "Restart now" }));
     expect(relaunch).toHaveBeenCalledOnce();
+  });
+
+  it("sets the link pairing aside even when its host can't be reached, and says so", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(
+      pairedByAddress({
+        onHost: "notRemoved",
+        reason: "this launch doesn't reach the host over Kleio's link",
+      }),
+    );
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    onTheLink();
+    await pairByAddress();
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "This Mac's link pairing was set aside here only: this launch doesn't reach the host over Kleio's link. The host lists it until an admin revokes it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("sets the link pairing aside when its host answers 401, and says it may be revoked", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress({ onHost: "refused" }));
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    onTheLink();
+    await pairByAddress();
+    expect(toast).toHaveBeenCalledExactlyOnceWith(
+      "This Mac's link pairing was set aside here. The host turned its token away (HTTP 401), so it may have been revoked already. If the host still lists it, an admin can revoke it.",
+      "warning",
+      0,
+    );
+  });
+
+  it("with no link pairing, says the host still lists the pairing it replaces", async () => {
+    vi.mocked(kleio.pair).mockResolvedValue(pairedByAddress(null));
+    vi.mocked(kleio.activatePairing).mockResolvedValue("restart");
+    linkRoutes({ kleio_link_status: () => link({ paired: false, active: false }) });
+    const advanced = open(await card(), "Advanced: connect over your own network");
+    expect(
+      within(advanced).getByText(
+        "Pairing here replaces this Mac's pairing from the next launch. mac-mini-1 still lists the old one until an admin revokes it.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+    await pairByAddress();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it("keeps the form and the host's words when a pairing by address fails", async () => {
@@ -1114,5 +1281,184 @@ describe("wording", () => {
   it("reads latency in plain words", () => {
     expect(formatLatency(38)).toBe("38 ms");
     expect(formatLatency(1250)).toBe("1.3 s");
+  });
+});
+
+describe("ConnectionPage — relays", () => {
+  const OWN = "https://relay.example.com/";
+
+  async function relaysCard(): Promise<HTMLElement> {
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Relays" });
+    await within(card).findByRole("list", { name: "Relays, in order" });
+    return card;
+  }
+
+  function rows(card: HTMLElement): string[] {
+    return within(within(card).getByRole("list", { name: "Relays, in order" }))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+  }
+
+  it("shows the relays in order, and which the host is on", async () => {
+    const card = await relaysCard();
+    expect(rows(card)).toEqual(["n0's public relaysIn useThe host is on one of them"]);
+  });
+
+  it("lets an admin add a relay ahead of n0's, and says the host moves once devices have it", async () => {
+    vi.mocked(setRelayList).mockResolvedValue({
+      list: {
+        listVersion: 1,
+        relays: [
+          { entry: OWN, state: "untested", new: true },
+          { entry: "n0", state: "home", new: false },
+        ],
+        inUse: false,
+        hostRelay: "https://euc1-1.relay.n0.iroh.link./",
+        waiting: 2,
+        waitingFor: [
+          { deviceId: "p", label: "iPhone", lastSeen: null },
+          { deviceId: "q", label: "iPad", lastSeen: null },
+        ],
+      },
+      pings: [{ relay: OWN, kind: "relay", ms: 40 }],
+    });
+    const card = await relaysCard();
+    fireEvent.change(within(card).getByLabelText("A relay's address"), {
+      target: { value: "relay.example.com" },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+    expect(rows(card)[0]).toBe("relay.example.comNewNot saved yet");
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save" }));
+    });
+    expect(setRelayList).toHaveBeenCalledWith(0, [OWN, "n0"], false);
+    expect(toast).toHaveBeenCalledWith(
+      "Relays saved. The host moves once 2 devices have the new list.",
+      "success",
+    );
+    expect(within(card).getByRole("status").textContent).toBe(
+      "The host stays on relays every device knows until 2 devices have the new list: iPhone, iPad. A device opens Kleio to get it.",
+    );
+    expect(within(card).getByRole("button", { name: "Use it now…" })).toBeTruthy();
+  });
+
+  it("says which relays didn't answer, and saves them only when asked to anyway", async () => {
+    const refused = new KleioApiError(422, "relay_unreachable", undefined, undefined, {
+      error: "relay_unreachable",
+      pings: [{ relay: OWN, kind: "no_answer", detail: "no answer in 5 s" }],
+    });
+    vi.mocked(setRelayList)
+      .mockRejectedValueOnce(refused)
+      .mockResolvedValueOnce({ list: { ...N0_LIST, listVersion: 1 }, pings: [] });
+    const card = await relaysCard();
+    fireEvent.change(within(card).getByLabelText("A relay's address"), {
+      target: { value: OWN },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save" }));
+    });
+    expect(within(card).getByRole("alert").textContent).toBe(
+      "This relay doesn't answer as a relay does:relay.example.com: no answer in 5 s.",
+    );
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save anyway" }));
+    });
+    expect(vi.mocked(setRelayList).mock.calls).toEqual([
+      [0, [OWN, "n0"], false],
+      [0, [OWN, "n0"], true],
+    ]);
+  });
+
+  it("turns away an address that isn't a relay's, and one already listed", async () => {
+    const card = await relaysCard();
+    const field = within(card).getByLabelText("A relay's address");
+    for (const [typed, words] of [
+      [
+        "http://relay.example.com/",
+        "Type a relay's https address, such as https://relay.example.com/.",
+      ],
+      [
+        "https://relay.example.com/path",
+        "Type a relay's https address, such as https://relay.example.com/.",
+      ],
+      ["n0", "n0's public relays is in the list already."],
+    ]) {
+      fireEvent.change(field, { target: { value: typed } });
+      fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+      expect(within(card).getByRole("alert").textContent).toBe(words);
+    }
+    expect(setRelayList).not.toHaveBeenCalled();
+  });
+
+  it("moves a relay up, and removes one, but never the last", async () => {
+    vi.mocked(relayList).mockResolvedValue({
+      ...N0_LIST,
+      relays: [
+        { entry: "n0", state: "home", new: false },
+        { entry: OWN, state: "standby", new: false },
+      ],
+    });
+    const card = await relaysCard();
+    fireEvent.click(within(card).getByRole("button", { name: "Move up: relay.example.com" }));
+    expect(rows(card).map((r) => r.slice(0, 17))).toEqual([
+      "relay.example.com",
+      "n0's public relay",
+    ]);
+    fireEvent.click(within(card).getByRole("button", { name: "Remove: n0's public relays" }));
+    expect(rows(card)).toHaveLength(1);
+    expect(
+      (within(card).getByRole("button", { name: "Remove: relay.example.com" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(within(card).getByRole("button", { name: "Undo" }));
+    expect(rows(card)).toHaveLength(2);
+  });
+
+  it("uses a waiting list now when an admin says so", async () => {
+    vi.mocked(relayList).mockResolvedValue({
+      ...N0_LIST,
+      listVersion: 2,
+      inUse: false,
+      waiting: 1,
+    });
+    vi.mocked(adoptRelayList).mockResolvedValue({ ...N0_LIST, listVersion: 2 });
+    const card = await relaysCard();
+    // It asks first: a device without the new list pairs again.
+    fireEvent.click(within(card).getByRole("button", { name: "Use it now…" }));
+    expect(
+      within(card).getByText(
+        "The host moves at once. A device without the new list then pairs again.",
+      ),
+    ).toBeTruthy();
+    expect(adoptRelayList).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole("button", { name: "Keep waiting" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Use it now…" }));
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Use it now" }));
+    });
+    expect(adoptRelayList).toHaveBeenCalledOnce();
+    expect(adoptRelayList).toHaveBeenCalledWith(2);
+    expect(toast).toHaveBeenCalledWith("The host uses the new relays now.", "success");
+    expect(within(card).queryByRole("button", { name: /Use it now/ })).toBeNull();
+  });
+
+  it("shows a device that isn't an admin the list, and nothing to change it with", async () => {
+    remote.status = { ...BY_ADDRESS, active: { ...BY_ADDRESS.active!, admin: false } };
+    const card = await relaysCard();
+    expect(within(card).queryByRole("button", { name: /Move up|Remove|Add|Save/ })).toBeNull();
+    expect(within(card).getByText("Only an admin device can change the relays.")).toBeTruthy();
+  });
+
+  it("says when the host is too old to change its relays", async () => {
+    vi.mocked(relayList).mockRejectedValue(new KleioApiError(404, "not found"));
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Relays" });
+    expect(
+      await within(card).findByText(
+        "Kleio on mac-mini-1 can't change its relays yet. Update it to choose.",
+      ),
+    ).toBeTruthy();
   });
 });

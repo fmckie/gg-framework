@@ -3,7 +3,7 @@
 
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { PairedDevice } from "./device-registry.js";
-import { keyPrefix, type LinkPeer, type LinkStateRead } from "./link.js";
+import { isN0RelayUrl, keyPrefix, type LinkPeer, type LinkStateRead } from "./link.js";
 import { err, ok, type Result } from "./result.js";
 
 /** The shortest prefix of a link key `revoke` takes. */
@@ -43,9 +43,16 @@ export function noTicketText(ticketError: string | null, linkDir: string): strin
   }
 }
 
-/** A device as GET /kleio/devices gives it; a host from before the link has no `linkKey`. */
+/**
+ * A device as GET /kleio/devices gives it; a host from before the link has no
+ * `linkKey`, and one from before relay lists no `listVersion`.
+ */
 export function deviceFrom(raw: PairedDevice): PairedDevice {
-  return { ...raw, linkKey: typeof raw.linkKey === "string" ? raw.linkKey : null };
+  return {
+    ...raw,
+    linkKey: typeof raw.linkKey === "string" ? raw.linkKey : null,
+    listVersion: typeof raw.listVersion === "number" ? raw.listVersion : null,
+  };
 }
 
 /**
@@ -90,12 +97,6 @@ export function deviceLine(d: PairedDevice, peers: readonly LinkPeer[]): string 
   return `${line}  link ${keyPrefix(d.linkKey)} (${path})`;
 }
 
-/** Whether `relay` is one of n0's public relays. */
-function isN0Relay(relay: string): boolean {
-  const host = new URL(relay).hostname;
-  return host.endsWith(".relay.n0.iroh.link.") || host.endsWith(".relay.n0.iroh.link");
-}
-
 /** What `status` says about the link: kleio-link-host's state, and the host's key. */
 export function linkStatusLines(read: LinkStateRead, publicKey: string | null): string[] {
   const key = publicKey === null ? "no key yet" : `key ${keyPrefix(publicKey)}`;
@@ -111,7 +112,7 @@ export function linkStatusLines(read: LinkStateRead, publicKey: string | null): 
     case "running": {
       const s = read.state;
       const relay =
-        s.relay === null ? "on no relay" : `on ${s.relay}${isN0Relay(s.relay) ? " (n0's)" : ""}`;
+        s.relay === null ? "on no relay" : `on ${s.relay}${isN0RelayUrl(s.relay) ? " (n0's)" : ""}`;
       return [
         `link: running, ${relay}${s.rateLimited ? ", slowed by its relay" : ""}; ${key}`,
         `      ${s.connections} connection(s); direct addresses: ${s.addrs.join(", ") || "none"}`,

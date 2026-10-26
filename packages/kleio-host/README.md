@@ -288,8 +288,8 @@ replacing your pairing with the mini. To try pairing, use `--app` (below).
   sandbox and goes with it.
 
 > **Warning:** in an app started this way, don't use **Forget host** or **Pair**. Forget host
-> (`kleio_forget`) deletes the real `~/.kleio/remote.json` and the mini's Keychain items, whatever
-> the environment says, and Pair replaces them.
+> (`kleio_forget`) asks the mini to remove this Mac, then deletes the real `~/.kleio/remote.json`
+> and the mini's Keychain items, whatever the environment says, and Pair replaces them.
 
 ### Open the desktop app as a new user (`--app`)
 
@@ -403,6 +403,29 @@ what was missed (persisted ring, survives a host restart).
 - whether a relay is slowing it down;
 - whether kleio-link-host is running.
 
+The host keeps the list version each device got this way.
+
+#### Changing the relay list
+
+`GET /kleio/link/relays` gives any paired device the list, with each relay's state from
+kleio-link-host (`home`, `connecting`, `standby`, `unreachable`, `untested`, or `unknown` while it
+isn't running). An admin changes it (`src/link-relays.ts`):
+
+- `PUT /kleio/link/relays` with `{"listVersion": <the version now>, "relays": [...]}`: 1 to 4
+  https relay addresses (`https://<host>[:<port>]/`) or `"n0"`, none twice.
+  - A wrong list gets 400, with what's wrong in words.
+  - A list changed since gets 409, with the version now.
+  - Each relay being added is asked `GET /ping` first. One that doesn't answer as a relay does
+    gets 422, with what each said. Send `"force": true` to save it anyway.
+- Phones find the host only through relays they know, so a new list reaches devices first:
+  - until every device on the link seen in the last 30 days has it, `link/config.json`'s
+    `relays` (kleio-link-host's order) keeps the host on relays they know;
+  - `list` holds the new list, which devices get, and `promoted` the last one they all had;
+  - then the new list is used as it is.
+- `POST /kleio/link/relays/use-now` with `{"listVersion": <n>}` uses a waiting list at once. A
+  device without it pairs again if the host moves to a relay it doesn't know.
+- Admins also see which devices a list waits for (`waitingFor`).
+
 ### Connect over your own network
 
 A device pairs over [Kleio's link](#kleios-link) by default, and needs nothing else. It can also
@@ -488,8 +511,10 @@ on the Mac, and on the iPhone the app's own, where they can be read once the pho
 unlocked after starting and stay on that phone. The non-secret record goes to
 `~/.kleio/remote.json`. Admin actions in the pane's
 **Devices** tab (list, revoke, mint a code) ask for Touch ID once per 15 minutes and
-refuse without it. **Forget host** + restart returns to local mode. Env override for
-development: `KLEIO_HOST_URL` + `KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
+refuse without it. **Forget host** asks the host to remove this device
+(`DELETE /kleio/devices/self`), then forgets the pairing here even if the host can't be reached,
+and a restart returns to local mode. Env override for development: `KLEIO_HOST_URL` +
+`KLEIO_DEVICE_TOKEN` (+ `KLEIO_CONTROL_CREDENTIAL`).
 
 ### Routines (`/schedule`) run here
 

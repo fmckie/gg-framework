@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { boundedSize, fitsVisualBudget, shrinkToFit } from "./image.js";
+import {
+  appToolImages,
+  SCREEN_PREVIEW_MAX,
+  screenPreview,
+  boundedSize,
+  fitsVisualBudget,
+  previewForApp,
+  shrinkToFit,
+  withAppImagePreviews,
+} from "./image.js";
 
 const PATCH = 28;
 const MAX_PATCHES = 1568;
@@ -155,5 +164,123 @@ describe("shrinkToFit", () => {
     expect(mediaType).toBe("image/png");
     const meta = await sharp(buffer).metadata();
     expect(meta.hasAlpha).toBe(true);
+  });
+});
+
+/** A screenshot-sized PNG. */
+function screenshotPng(width = 1400, height = 900): Promise<Buffer> {
+  return sharp({
+    create: { width, height, channels: 3, background: { r: 210, g: 40, b: 40 } },
+  })
+    .png()
+    .toBuffer();
+}
+
+describe("previewForApp", () => {
+  it("narrows a wide image to 480 px, as WebP", async () => {
+    const out = await previewForApp(await screenshotPng(), "image/png");
+    const meta = await sharp(out.buffer).metadata();
+    expect([out.mediaType, meta.format, meta.width]).toEqual(["image/webp", "webp", 480]);
+  });
+
+  it("keeps a narrow image's size, as WebP", async () => {
+    const out = await previewForApp(await screenshotPng(300, 200), "image/png");
+    const meta = await sharp(out.buffer).metadata();
+    expect([out.mediaType, meta.width, meta.height]).toEqual(["image/webp", 300, 200]);
+  });
+
+  it("gives back what it can't read, as it was", async () => {
+    const junk = Buffer.from("not an image");
+    expect(await previewForApp(junk, "image/png")).toEqual({
+      buffer: junk,
+      mediaType: "image/png",
+    });
+  });
+});
+
+describe("withAppImagePreviews", () => {
+  it("makes each image preview the app's, and keeps the rest", async () => {
+    const png = (await screenshotPng()).toString("base64");
+    const details = {
+      outPath: "/shots/a.png",
+      imagePreviews: [{ base64: png, mediaType: "image/png", path: "/shots/a.png" }],
+    };
+    const out = (await withAppImagePreviews(details)) as typeof details;
+    const [preview] = out.imagePreviews;
+    expect(out.outPath).toBe("/shots/a.png");
+    expect([preview?.mediaType, preview?.path]).toEqual(["image/webp", "/shots/a.png"]);
+    const meta = await sharp(Buffer.from(preview?.base64 ?? "", "base64")).metadata();
+    expect([meta.format, meta.width]).toEqual(["webp", 480]);
+    // The tool's own details are untouched.
+    expect(details.imagePreviews[0]?.mediaType).toBe("image/png");
+  });
+
+  it("gives back details with no image previews as they are", async () => {
+    const plain = { diff: "x" };
+    const none = { imagePreviews: [] };
+    for (const details of [undefined, "text", plain, none]) {
+      expect(await withAppImagePreviews(details)).toBe(details);
+    }
+  });
+});
+
+describe("appToolImages", () => {
+  it("gives each image as a WebP data URL 480 px wide, with the file's path", async () => {
+    const data = (await screenshotPng()).toString("base64");
+    const [image] = await appToolImages([{ data, mediaType: "image/png" }], "/shots/a.png");
+    const prefix = "data:image/webp;base64,";
+    expect(image?.src.startsWith(prefix)).toBe(true);
+    expect(image?.path).toBe("/shots/a.png");
+    const meta = await sharp(
+      Buffer.from(image?.src.slice(prefix.length) ?? "", "base64"),
+    ).metadata();
+    expect([meta.format, meta.width]).toEqual(["webp", 480]);
+  });
+
+  it("gives an image it can't read as it was", async () => {
+    const data = Buffer.from("not an image").toString("base64");
+    expect(await appToolImages([{ data, mediaType: "image/png" }], undefined)).toEqual([
+      { src: `data:image/png;base64,${data}` },
+    ]);
+  });
+});
+
+describe("screenPreview", () => {
+  /** A poster-like PNG: smooth gradients, as a generated image has. */
+  async function poster(width: number, height: number): Promise<Buffer> {
+    const raw = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 3;
+        raw[i] = (x * 255) / width;
+        raw[i + 1] = (y * 255) / height;
+        raw[i + 2] = ((x + y) * 127) / (width + height);
+      }
+    }
+    return sharp(raw, { raw: { width, height, channels: 3 } })
+      .png()
+      .toBuffer();
+  }
+
+  it("makes a big picture fit 2048 px, as a smaller WebP", async () => {
+    const big = await poster(3000, 2000);
+    const out = await screenPreview(big);
+    const meta = await sharp(out ?? Buffer.alloc(0)).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(["webp", SCREEN_PREVIEW_MAX, 1365]);
+    expect(out?.length).toBeLessThan(big.length);
+  });
+
+  it("leaves a picture its WebP wouldn't make smaller", async () => {
+    // A small WebP already: made again, it comes out no smaller.
+    const small = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .webp({ quality: 80, effort: 2 })
+      .toBuffer();
+    expect(await screenPreview(small)).toBeNull();
+  });
+
+  it("leaves what it can't read", async () => {
+    expect(await screenPreview(Buffer.from("not an image"))).toBeNull();
   });
 });

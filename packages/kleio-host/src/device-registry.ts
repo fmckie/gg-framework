@@ -36,6 +36,11 @@ export interface PairedDevice {
    * paired over the link. Null for a device paired over its own network.
    */
   readonly linkKey: string | null;
+  /**
+   * The link's relay list version this device last got (GET /kleio/link), or
+   * null if it hasn't (link-relays.ts).
+   */
+  readonly listVersion: number | null;
 }
 
 export interface PushRegistration {
@@ -61,6 +66,8 @@ interface DeviceRecord {
   liveStart?: PushRegistration | null;
   /** The device's link key. Absent for devices paired over their own network. */
   readonly linkKey?: string;
+  /** The relay list version it last got. Absent until it has got one. */
+  listVersion?: number;
 }
 
 interface StoreDocument {
@@ -145,6 +152,11 @@ export interface DeviceRegistry {
   revoke(deviceId: string): Promise<Result<PairedDevice[], RegistryError>>;
   /** Best-effort lastSeen update; never throws. Rate-limited by the caller. */
   touch(deviceId: string): Promise<void>;
+  /**
+   * Best-effort: the relay list version a device got. Writes only when it
+   * changes; never throws.
+   */
+  setListVersion(deviceId: string, listVersion: number): Promise<void>;
   /** Set (or clear with null) a device's APNs registration. */
   setPush(
     deviceId: string,
@@ -190,7 +202,9 @@ function isDeviceRecord(value: unknown): value is DeviceRecord {
     typeof record.revoked === "boolean" &&
     typeof record.encToken === "string" &&
     (record.admin === undefined || typeof record.admin === "boolean") &&
-    (record.linkKey === undefined || isLinkKey(record.linkKey))
+    (record.linkKey === undefined || isLinkKey(record.linkKey)) &&
+    (record.listVersion === undefined ||
+      (Number.isSafeInteger(record.listVersion) && (record.listVersion as number) >= 0))
   );
 }
 
@@ -205,6 +219,7 @@ function toPaired(record: DeviceRecord): PairedDevice {
     push: record.push ?? null,
     liveStart: record.liveStart ?? null,
     linkKey: record.linkKey ?? null,
+    listVersion: record.listVersion ?? null,
   };
 }
 
@@ -480,6 +495,19 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     }
   }
 
+  async function setListVersion(deviceId: string, listVersion: number): Promise<void> {
+    const record = records.find((r) => r.deviceId === deviceId);
+    if (!record || record.listVersion === listVersion) return;
+    const was = record.listVersion;
+    record.listVersion = listVersion;
+    try {
+      await persistStore();
+    } catch (e) {
+      record.listVersion = was;
+      log(`[registry] failed to persist the relay list version for ${deviceId}: ${messageOf(e)}`);
+    }
+  }
+
   function authenticate(token: string): PairedDevice | null {
     if (typeof token !== "string" || token.length === 0 || token.length > 512) return null;
     const presented = Buffer.from(token, "utf8");
@@ -495,7 +523,18 @@ export function createDeviceRegistry(deps: DeviceRegistryDeps): DeviceRegistry {
     return match ? toPaired(match) : null;
   }
 
-  return { init, list, setPush, setLiveStart, get, mint, revoke, touch, authenticate };
+  return {
+    init,
+    list,
+    setPush,
+    setLiveStart,
+    get,
+    mint,
+    revoke,
+    touch,
+    setListVersion,
+    authenticate,
+  };
 }
 
 function messageOf(e: unknown): string {

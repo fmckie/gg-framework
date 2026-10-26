@@ -26,12 +26,13 @@ use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::CertificateDer;
 
 /// How long an end waits on a connection it hears nothing on before it drops
-/// it: QUIC's idle timeout. Neither end sets a transport config, so both take
-/// iroh's default (`QuicTransportConfig::default`), which keeps noq's 30 s
-/// `max_idle_timeout` (RFC 9308 § 3.2), and a connection runs on the smaller
-/// of the two ends' values. A phone suspended for longer can't tell that the
-/// host has dropped the connection. A test checks this against iroh's
-/// default.
+/// it: QUIC's idle timeout. Both ends take iroh's default transport
+/// (`QuicTransportConfig::default`), the host with only its congestion
+/// control changed (`host::transport`), and it keeps noq's 30 s
+/// `max_idle_timeout` (RFC 9308 § 3.2). A connection runs on the smaller of
+/// the two ends' values. A phone suspended for longer can't tell that the
+/// host has dropped the connection. Tests check this against iroh's default,
+/// and the host's.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Whether an end may take a direct path: for tests and the `client` dev
@@ -205,8 +206,7 @@ mod tests {
 
     use super::*;
 
-    /// Neither end sets a transport config, so the idle timeout is the one in
-    /// iroh's default.
+    /// The phone's idle timeout is the one in iroh's default.
     #[test]
     fn the_idle_timeout_is_iroh_s_default() {
         let config = format!("{:?}", QuicTransportConfig::default());

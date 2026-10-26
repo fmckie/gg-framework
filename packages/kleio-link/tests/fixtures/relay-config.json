@@ -1,0 +1,10 @@
+{
+  "about": "link/config.json while a new relay list waits for every device: kleio-host's link-relays.ts writes it (linkConfigText), and kleio-link-host's relays.rs reads `relays`, the host's order. `list` is the new list devices get, and `promoted` the last one every device had.",
+  "waiting": {
+    "version": 1,
+    "listVersion": 4,
+    "relays": ["n0", "https://relay.example.com/"],
+    "list": ["https://relay.example.com/"],
+    "promoted": ["n0"]
+  }
+}
