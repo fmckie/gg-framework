@@ -2408,6 +2408,20 @@ html.platform-ios .conn-disclosure-summary {
   align-items: center;
   gap: 6px;
 }
+/* Relays: the address being added fills its row, beside Add. */
+.conn-relay-add .modal-input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+/* The relays that didn't answer /ping, listed under the words. */
+.conn-relay-unanswered p,
+.conn-relay-unanswered ul {
+  margin: 0;
+}
+.conn-relay-unanswered ul {
+  padding-left: 18px;
+}
+
 /* The Host card's Forget host…: its confirm's words get a line of their own,
    with Keep and Forget host under them. */
 .conn-forget-hint {

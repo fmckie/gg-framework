@@ -11,6 +11,8 @@ import { forgetHint } from "./ForgetHost";
 import { RESTART_HOST, RESTART_LINK, START_HOST } from "./connectionDiagnosis";
 import { hostHealth, KleioApiError, notificationSettings, setQuoteText } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
+import { adoptRelayList, relayList, setRelayList, type RelayList } from "./kleioRelays";
+import type * as KleioRelays from "./kleioRelays";
 import type { LinkStatus } from "./kleioLink";
 import { noTicketWords } from "./PairingOffer";
 import { pairTicket } from "./pairTicket";
@@ -47,6 +49,12 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   hostHealth: vi.fn(),
   notificationSettings: vi.fn(),
   setQuoteText: vi.fn(),
+}));
+vi.mock("./kleioRelays", async (importOriginal) => ({
+  ...(await importOriginal<typeof KleioRelays>()),
+  relayList: vi.fn(),
+  setRelayList: vi.fn(),
+  adoptRelayList: vi.fn(),
 }));
 vi.mock("./useKleioRemote", async (importOriginal) => {
   const real = await importOriginal<typeof KleioRemote>();
@@ -140,10 +148,20 @@ function linkRoutes(map: Record<string, (args?: Record<string, unknown>) => unkn
   });
 }
 
+/** The relay list as the host gives it: n0's alone, in use. */
+const N0_LIST: RelayList = {
+  listVersion: 0,
+  relays: [{ entry: "n0", state: "home", new: false }],
+  inUse: true,
+  hostRelay: "https://euc1-1.relay.n0.iroh.link./",
+  waiting: 0,
+};
+
 beforeEach(() => {
   remote.status = BY_ADDRESS;
   vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
   vi.mocked(notificationSettings).mockResolvedValue({ quoteText: true });
+  vi.mocked(relayList).mockResolvedValue(N0_LIST);
   vi.mocked(kleio.tailscale).mockResolvedValue(net());
   linkRoutes({});
 });
@@ -1263,5 +1281,184 @@ describe("wording", () => {
   it("reads latency in plain words", () => {
     expect(formatLatency(38)).toBe("38 ms");
     expect(formatLatency(1250)).toBe("1.3 s");
+  });
+});
+
+describe("ConnectionPage — relays", () => {
+  const OWN = "https://relay.example.com/";
+
+  async function relaysCard(): Promise<HTMLElement> {
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Relays" });
+    await within(card).findByRole("list", { name: "Relays, in order" });
+    return card;
+  }
+
+  function rows(card: HTMLElement): string[] {
+    return within(within(card).getByRole("list", { name: "Relays, in order" }))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+  }
+
+  it("shows the relays in order, and which the host is on", async () => {
+    const card = await relaysCard();
+    expect(rows(card)).toEqual(["n0's public relaysIn useThe host is on one of them"]);
+  });
+
+  it("lets an admin add a relay ahead of n0's, and says the host moves once devices have it", async () => {
+    vi.mocked(setRelayList).mockResolvedValue({
+      list: {
+        listVersion: 1,
+        relays: [
+          { entry: OWN, state: "untested", new: true },
+          { entry: "n0", state: "home", new: false },
+        ],
+        inUse: false,
+        hostRelay: "https://euc1-1.relay.n0.iroh.link./",
+        waiting: 2,
+        waitingFor: [
+          { deviceId: "p", label: "iPhone", lastSeen: null },
+          { deviceId: "q", label: "iPad", lastSeen: null },
+        ],
+      },
+      pings: [{ relay: OWN, kind: "relay", ms: 40 }],
+    });
+    const card = await relaysCard();
+    fireEvent.change(within(card).getByLabelText("A relay's address"), {
+      target: { value: "relay.example.com" },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+    expect(rows(card)[0]).toBe("relay.example.comNewNot saved yet");
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save" }));
+    });
+    expect(setRelayList).toHaveBeenCalledWith(0, [OWN, "n0"], false);
+    expect(toast).toHaveBeenCalledWith(
+      "Relays saved. The host moves once 2 devices have the new list.",
+      "success",
+    );
+    expect(within(card).getByRole("status").textContent).toBe(
+      "The host stays on relays every device knows until 2 devices have the new list: iPhone, iPad. A device opens Kleio to get it.",
+    );
+    expect(within(card).getByRole("button", { name: "Use it now…" })).toBeTruthy();
+  });
+
+  it("says which relays didn't answer, and saves them only when asked to anyway", async () => {
+    const refused = new KleioApiError(422, "relay_unreachable", undefined, undefined, {
+      error: "relay_unreachable",
+      pings: [{ relay: OWN, kind: "no_answer", detail: "no answer in 5 s" }],
+    });
+    vi.mocked(setRelayList)
+      .mockRejectedValueOnce(refused)
+      .mockResolvedValueOnce({ list: { ...N0_LIST, listVersion: 1 }, pings: [] });
+    const card = await relaysCard();
+    fireEvent.change(within(card).getByLabelText("A relay's address"), {
+      target: { value: OWN },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save" }));
+    });
+    expect(within(card).getByRole("alert").textContent).toBe(
+      "This relay doesn't answer as a relay does:relay.example.com: no answer in 5 s.",
+    );
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Save anyway" }));
+    });
+    expect(vi.mocked(setRelayList).mock.calls).toEqual([
+      [0, [OWN, "n0"], false],
+      [0, [OWN, "n0"], true],
+    ]);
+  });
+
+  it("turns away an address that isn't a relay's, and one already listed", async () => {
+    const card = await relaysCard();
+    const field = within(card).getByLabelText("A relay's address");
+    for (const [typed, words] of [
+      [
+        "http://relay.example.com/",
+        "Type a relay's https address, such as https://relay.example.com/.",
+      ],
+      [
+        "https://relay.example.com/path",
+        "Type a relay's https address, such as https://relay.example.com/.",
+      ],
+      ["n0", "n0's public relays is in the list already."],
+    ]) {
+      fireEvent.change(field, { target: { value: typed } });
+      fireEvent.click(within(card).getByRole("button", { name: "Add" }));
+      expect(within(card).getByRole("alert").textContent).toBe(words);
+    }
+    expect(setRelayList).not.toHaveBeenCalled();
+  });
+
+  it("moves a relay up, and removes one, but never the last", async () => {
+    vi.mocked(relayList).mockResolvedValue({
+      ...N0_LIST,
+      relays: [
+        { entry: "n0", state: "home", new: false },
+        { entry: OWN, state: "standby", new: false },
+      ],
+    });
+    const card = await relaysCard();
+    fireEvent.click(within(card).getByRole("button", { name: "Move up: relay.example.com" }));
+    expect(rows(card).map((r) => r.slice(0, 17))).toEqual([
+      "relay.example.com",
+      "n0's public relay",
+    ]);
+    fireEvent.click(within(card).getByRole("button", { name: "Remove: n0's public relays" }));
+    expect(rows(card)).toHaveLength(1);
+    expect(
+      (within(card).getByRole("button", { name: "Remove: relay.example.com" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    fireEvent.click(within(card).getByRole("button", { name: "Undo" }));
+    expect(rows(card)).toHaveLength(2);
+  });
+
+  it("uses a waiting list now when an admin says so", async () => {
+    vi.mocked(relayList).mockResolvedValue({
+      ...N0_LIST,
+      listVersion: 2,
+      inUse: false,
+      waiting: 1,
+    });
+    vi.mocked(adoptRelayList).mockResolvedValue({ ...N0_LIST, listVersion: 2 });
+    const card = await relaysCard();
+    // It asks first: a device without the new list pairs again.
+    fireEvent.click(within(card).getByRole("button", { name: "Use it now…" }));
+    expect(
+      within(card).getByText(
+        "The host moves at once. A device without the new list then pairs again.",
+      ),
+    ).toBeTruthy();
+    expect(adoptRelayList).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole("button", { name: "Keep waiting" }));
+    fireEvent.click(within(card).getByRole("button", { name: "Use it now…" }));
+    await act(async () => {
+      fireEvent.click(within(card).getByRole("button", { name: "Use it now" }));
+    });
+    expect(adoptRelayList).toHaveBeenCalledOnce();
+    expect(adoptRelayList).toHaveBeenCalledWith(2);
+    expect(toast).toHaveBeenCalledWith("The host uses the new relays now.", "success");
+    expect(within(card).queryByRole("button", { name: /Use it now/ })).toBeNull();
+  });
+
+  it("shows a device that isn't an admin the list, and nothing to change it with", async () => {
+    remote.status = { ...BY_ADDRESS, active: { ...BY_ADDRESS.active!, admin: false } };
+    const card = await relaysCard();
+    expect(within(card).queryByRole("button", { name: /Move up|Remove|Add|Save/ })).toBeNull();
+    expect(within(card).getByText("Only an admin device can change the relays.")).toBeTruthy();
+  });
+
+  it("says when the host is too old to change its relays", async () => {
+    vi.mocked(relayList).mockRejectedValue(new KleioApiError(404, "not found"));
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Relays" });
+    expect(
+      await within(card).findByText(
+        "Kleio on mac-mini-1 can't change its relays yet. Update it to choose.",
+      ),
+    ).toBeTruthy();
   });
 });

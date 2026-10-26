@@ -908,7 +908,16 @@ fn check_route(method: &str, path: &str, session: Option<&str>) -> Result<bool, 
             ["kleio", "voice", "show", id] => method == "GET" && super::show::valid_show_id(id),
             _ => false,
         };
-    let product = product || show;
+    // The link's relay list (kleio-host link-relays.ts): any device reads it,
+    // an admin device changes it or uses a waiting one now. Each route with
+    // its own methods, and no query.
+    let relays = q.is_none()
+        && match segs.as_slice() {
+            ["kleio", "link", "relays"] => matches!(method, "GET" | "PUT"),
+            ["kleio", "link", "relays", "use-now"] => method == "POST",
+            _ => false,
+        };
+    let product = product || show || relays;
     // Answering an `ask_user` band: POST /ask/ask-<n>, nothing else under /ask.
     let ask = method == "POST"
         && q.is_none()
@@ -1802,6 +1811,31 @@ mod tests {
         }
         assert!(check_route("POST", "/kleio/voice/show", Some("sess-1")).is_err());
         assert!(check_route("GET", &format!("/kleio/voice/show/{id}"), Some("sess-1")).is_err());
+    }
+
+    #[test]
+    fn kleio_api_reads_and_changes_the_relay_list_and_nothing_near_it() {
+        assert_eq!(check_route("GET", "/kleio/link/relays", None), Ok(false));
+        assert_eq!(check_route("PUT", "/kleio/link/relays", None), Ok(false));
+        assert_eq!(
+            check_route("POST", "/kleio/link/relays/use-now", None),
+            Ok(false)
+        );
+        for (m, p) in [
+            ("POST", "/kleio/link/relays"),
+            ("DELETE", "/kleio/link/relays"),
+            ("PATCH", "/kleio/link/relays"),
+            ("GET", "/kleio/link/relays/use-now"),
+            ("PUT", "/kleio/link/relays/use-now"),
+            ("GET", "/kleio/link/relays?x=1"),
+            ("POST", "/kleio/link/relays/use-now?listVersion=1"),
+            ("GET", "/kleio/link/relays/other"),
+            ("GET", "/kleio/link/relayz"),
+            ("GET", "/kleio/link/relays/"),
+        ] {
+            assert!(check_route(m, p, None).is_err(), "{m} {p}");
+        }
+        assert!(check_route("GET", "/kleio/link/relays", Some("sess-1")).is_err());
     }
 
     #[test]

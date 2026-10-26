@@ -318,7 +318,7 @@ export interface ThreadState {
 
 // ─── transport ──────────────────────────────────────────────────────────────
 
-type Method = "GET" | "POST" | "PATCH" | "DELETE";
+type Method = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
 
 interface RawResponse {
   status: number;
@@ -358,7 +358,7 @@ function errorFrom(status: number, body: unknown): KleioApiError {
 }
 
 /** `timeoutMs`: give up sooner than an ordinary call's minute (a reachability check). */
-async function call<T>(
+export async function call<T>(
   method: Method,
   path: string,
   body?: unknown,
