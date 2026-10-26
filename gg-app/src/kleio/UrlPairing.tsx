@@ -2,7 +2,8 @@
 // `kleio-host pair` (Rust: `kleio_pair`). The pairing pane shows these fields
 // to a device that isn't paired; Settings → Connection keeps them under
 // "Advanced: connect over your own network", for a host this device reaches
-// over Tailscale, another VPN or its own network. A pairing takes effect on
+// over Tailscale, another VPN or its own network, at any https address
+// (`typed_base_in` in kleio/commands.rs). A pairing takes effect on
 // the next launch (RestartNotice), except an iPhone's first, which switches
 // on in place.
 
@@ -43,7 +44,7 @@ export function UrlPairFields({
           id={`${id}-url`}
           className="modal-input"
           data-modal-initial-focus={initialFocus ? "" : undefined}
-          placeholder="https://mac-mini-1.your-tailnet.ts.net:8443"
+          placeholder="https://mac-mini.your-network.example:8443"
           value={baseUrl}
           onChange={(e) => onBaseUrl(e.target.value)}
           autoCapitalize="off"

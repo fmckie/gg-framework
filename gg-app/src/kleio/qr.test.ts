@@ -107,6 +107,26 @@ describe("pairTicket", () => {
   it("refuses a code that isn't six characters", () => {
     expect(pairTicket("https://mini.tail0000.ts.net", "ABC-DE").ok).toBe(false);
   });
+
+  // Step 48: the typed "Connect over your own network" form takes any https
+  // host (kleio/commands.rs, typed_base_in), but a QR code stays Tailscale's.
+  it.each([
+    "https://kleio.example.com:8443",
+    "https://mac-mini.home.arpa",
+    "https://my-vpn-host:8443",
+    "https://mini.tail0000.ts.net.evil.example",
+  ])("draws no QR code for %s, which only the typed form takes", (baseUrl) => {
+    expect(pairTicket(baseUrl, "ABC-DEF")).toEqual({
+      ok: false,
+      error: "The iPhone app only pairs with a Tailscale (.ts.net) address.",
+    });
+    expect(
+      readTicket(JSON.stringify({ v: 2, type: "kleio-pair", baseUrl, code: "ABC-DEF" })),
+    ).toEqual({
+      kind: "invalid",
+      error: TAILSCALE_TICKET_INCOMPLETE,
+    });
+  });
 });
 
 describe("readTicket", () => {

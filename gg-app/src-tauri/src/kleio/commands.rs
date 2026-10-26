@@ -132,18 +132,85 @@ fn compact_code(raw: &str) -> Result<String, String> {
     Ok(c.to_ascii_uppercase())
 }
 
+/// The address typed into "Connect over your own network" (`kleio_pair`), as
+/// the base every request goes to: `https://<host>[:<port>]`, lower-case, with
+/// a trailing slash dropped. Any https host passes, on the Mac and the iPhone:
+/// Tailscale, another VPN or a home network's TLS proxy. Refused, each with
+/// why: http (but, in a debug build, exactly `http://127.0.0.1:<port>`, a host
+/// on this Mac), a username or password, a path, query or fragment, and an
+/// empty, IP-literal or odd host name. A pairing QR code's address stays
+/// Tailscale's only (`tailnetBase` in `src/kleio/pairTicket.ts`).
+///
+/// The certificate isn't checked here: the TLS handshake checks it, against the
+/// system's trust store, and nothing in Kleio accepts one that isn't publicly
+/// trusted. A proxy with a self-signed certificate fails at the first request.
 fn normalize_base(raw: &str) -> Result<String, String> {
-    let b = raw.trim().trim_end_matches('/').to_string();
-    if !super::host_url_allowed(&b) {
-        return Err("Host URL must start with https:// (Tailscale Serve terminates TLS).".into());
+    typed_base_in(raw, cfg!(debug_assertions))
+}
+
+fn typed_base_in(raw: &str, debug_build: bool) -> Result<String, String> {
+    let typed = raw.trim();
+    let b = typed.strip_suffix('/').unwrap_or(typed);
+    if debug_build && super::is_loopback_http(b) {
+        return Ok(b.to_string());
     }
-    // A loopback base (debug builds) is already exactly scheme, host and port.
-    if b.starts_with("https://")
-        && (b.len() < "https://x".len() || b["https://".len()..].contains('/'))
-    {
-        return Err("Host URL should be just scheme, host and port — no path.".into());
+    let Some(rest) = b.strip_prefix("https://") else {
+        return Err(if b.to_ascii_lowercase().starts_with("http://") {
+            "Use an https:// address: Kleio doesn't send your device's token over plain http."
+        } else {
+            "The host's address starts with https://, such as https://mac-mini.your-tailnet.ts.net:8443."
+        }
+        .into());
+    };
+    if rest.contains(['/', '?', '#', '\\']) {
+        return Err("Just the host's address and port, with nothing after it, such as https://mac-mini.example.com:8443.".into());
     }
-    Ok(b)
+    if rest.contains('@') {
+        return Err("The address can't hold a username or password.".into());
+    }
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (rest, None),
+    };
+    if let Some(port) = port {
+        let plain = !port.is_empty()
+            && !port.starts_with('0')
+            && port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u16>().is_ok();
+        if !plain {
+            return Err("The port is a number from 1 to 65535.".into());
+        }
+    }
+    if !is_host_name(host) {
+        return Err(
+            "That isn't a host name Kleio can pair with, such as mac-mini.your-tailnet.ts.net."
+                .into(),
+        );
+    }
+    let host = host.to_ascii_lowercase();
+    Ok(match port {
+        Some(p) => format!("https://{host}:{p}"),
+        None => format!("https://{host}"),
+    })
+}
+
+/// A DNS host name: dot-separated labels of letters, digits and hyphens, each
+/// 1-63 long and not starting or ending with a hyphen, at most 253 in all, with
+/// a letter somewhere so it isn't an IP address. One trailing dot is allowed.
+fn is_host_name(host: &str) -> bool {
+    let h = host.strip_suffix('.').unwrap_or(host);
+    !h.is_empty()
+        && h.len() <= 253
+        && h.bytes().any(|b| b.is_ascii_alphabetic())
+        && h.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -380,8 +447,13 @@ fn admin_remote() -> Result<&'static super::Remote, AdminError> {
 /// same way: a link pairing's over the link's socket, which only this process
 /// can use ([`super::LINK_BASE`] names the host, and is never looked up), and
 /// anything else at its URL.
+///
+/// No redirect is followed: the host never sends one, and a request carrying
+/// this device's token, or its control credential, never goes on to anywhere
+/// else. reqwest strips only standard credentials (`Authorization` and
+/// cookies) on a redirect to another origin, not Kleio's own headers.
 pub(crate) fn host_client(transport: &super::Transport) -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder();
+    let builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
     match transport {
         super::Transport::Url => builder,
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1074,6 +1146,164 @@ mod tests {
         );
         assert!(normalize_base("http://127.0.0.1:52714/kleio").is_err());
         assert!(normalize_base("http://localhost:52714").is_err());
+    }
+
+    /// The typed address's accepted shapes: any https host, a port or not, a
+    /// trailing slash dropped, lower-cased, on the Mac and the iPhone alike.
+    #[test]
+    fn the_typed_address_takes_any_https_host_with_a_port_or_not() {
+        for debug_build in [false, true] {
+            for (typed, base) in [
+                (
+                    "https://mac-mini-1.taila6c237.ts.net:8443",
+                    "https://mac-mini-1.taila6c237.ts.net:8443",
+                ),
+                (
+                    "https://mac-mini-1.taila6c237.ts.net:8443/",
+                    "https://mac-mini-1.taila6c237.ts.net:8443",
+                ),
+                ("  https://kleio.example.com  ", "https://kleio.example.com"),
+                ("https://kleio.example.com/", "https://kleio.example.com"),
+                (
+                    "https://Mac-Mini.Example.COM:8443",
+                    "https://mac-mini.example.com:8443",
+                ),
+                ("https://kleio.home.arpa:443", "https://kleio.home.arpa:443"),
+                ("https://my-vpn-host:65535", "https://my-vpn-host:65535"),
+                (
+                    "https://1.mini.example.org:1",
+                    "https://1.mini.example.org:1",
+                ),
+                ("https://host.example.com.", "https://host.example.com."),
+            ] {
+                assert_eq!(
+                    typed_base_in(typed, debug_build).as_deref(),
+                    Ok(base),
+                    "{typed}"
+                );
+            }
+        }
+    }
+
+    /// Each refusal, with words that say what to type instead. None depends on
+    /// the build but the loopback host a debug build takes.
+    #[test]
+    fn the_typed_address_refuses_http_credentials_paths_and_odd_hosts() {
+        // A host name with a non-ASCII letter, as a lookalike would be.
+        let non_ascii = format!("https://mini.ex{}mple.com", '\u{e4}');
+        let refusals: Vec<(&str, &str)> = vec![
+            // http, anywhere but the debug build's loopback host.
+            ("http://kleio.example.com", "Use an https:// address"),
+            ("HTTP://kleio.example.com", "Use an https:// address"),
+            ("http://mac-mini-1.x.ts.net:8443", "Use an https:// address"),
+            ("http://localhost:52714", "Use an https:// address"),
+            ("http://127.0.0.2:52714", "Use an https:// address"),
+            // No scheme, or another.
+            ("kleio.example.com:8443", "starts with https://"),
+            ("ftp://kleio.example.com", "starts with https://"),
+            ("HTTPS://kleio.example.com", "starts with https://"),
+            ("", "starts with https://"),
+            // A username or password.
+            ("https://user@kleio.example.com", "username or password"),
+            (
+                "https://user:pass@kleio.example.com:8443",
+                "username or password",
+            ),
+            // A path, query or fragment, or a backslash.
+            ("https://kleio.example.com/kleio", "nothing after it"),
+            ("https://kleio.example.com:8443/kleio/", "nothing after it"),
+            ("https://kleio.example.com?x=1", "nothing after it"),
+            ("https://kleio.example.com#x", "nothing after it"),
+            (
+                "https://kleio.example.com\\evil.example",
+                "nothing after it",
+            ),
+            ("https://kleio.example.com//", "nothing after it"),
+            // A port that isn't one.
+            ("https://kleio.example.com:", "The port is a number"),
+            ("https://kleio.example.com:0", "The port is a number"),
+            ("https://kleio.example.com:080", "The port is a number"),
+            ("https://kleio.example.com:65536", "The port is a number"),
+            ("https://kleio.example.com:+80", "The port is a number"),
+            ("https://kleio.example.com:http", "The port is a number"),
+            ("https://kleio.example.com:8443:1", "That isn't a host name"),
+            // An empty, IP-literal or odd host. (A bare `https://` is
+            // `https:` once its trailing slash goes: no address at all.)
+            ("https://", "starts with https://"),
+            ("https://:8443", "That isn't a host name"),
+            ("https://192.168.1.20:8443", "That isn't a host name"),
+            ("https://[::1]:8443", "That isn't a host name"),
+            ("https://-mini.example.com", "That isn't a host name"),
+            ("https://mini-.example.com", "That isn't a host name"),
+            ("https://mini..example.com", "That isn't a host name"),
+            ("https://.example.com", "That isn't a host name"),
+            ("https://mini_1.example.com", "That isn't a host name"),
+            ("https://mini example.com", "That isn't a host name"),
+            (non_ascii.as_str(), "That isn't a host name"),
+        ];
+        for debug_build in [false, true] {
+            for (typed, words) in &refusals {
+                let refused = typed_base_in(typed, debug_build)
+                    .expect_err(&format!("{typed:?} should be refused"));
+                assert!(refused.contains(words), "{typed:?}: {refused}");
+            }
+        }
+        let long_label = format!("https://{}.example.com", "a".repeat(64));
+        let long_name = format!("https://{}.com", vec!["a".repeat(63); 4].join("."));
+        for typed in [long_label, long_name] {
+            assert!(typed_base_in(&typed, false).is_err(), "{typed}");
+        }
+        assert!(typed_base_in(&format!("https://{}.com", "a".repeat(63)), false).is_ok());
+    }
+
+    #[test]
+    fn a_debug_build_also_takes_the_loopback_dev_host_and_a_release_build_doesnt() {
+        assert_eq!(
+            typed_base_in("http://127.0.0.1:52714/", true).as_deref(),
+            Ok("http://127.0.0.1:52714")
+        );
+        assert!(typed_base_in("http://127.0.0.1:52714", false).is_err());
+        assert!(typed_base_in("http://127.0.0.1:52714/kleio", true).is_err());
+    }
+
+    /// A request carrying the device token never follows a redirect, so the
+    /// token can't go on to another origin.
+    #[test]
+    fn a_host_client_follows_no_redirect_so_the_token_stays_with_the_host() {
+        use std::io::{Read, Write};
+        crate::install_rustls_provider();
+        let elsewhere = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let elsewhere_addr = elsewhere.local_addr().unwrap();
+        elsewhere.set_nonblocking(true).unwrap();
+        let host = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host_addr = host.local_addr().unwrap();
+        let answer = std::thread::spawn(move || {
+            let (mut s, _) = host.accept().unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf);
+            let reply = format!(
+                "HTTP/1.1 302 Found\r\nlocation: http://{elsewhere_addr}/stolen\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+            );
+            s.write_all(reply.as_bytes()).unwrap();
+        });
+        let res = tauri::async_runtime::block_on(async {
+            let client = host_client(&super::super::Transport::Url)
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap();
+            client
+                .get(format!("http://{host_addr}/kleio/health"))
+                .header(DEVICE_TOKEN_HEADER, "the-device-token")
+                .send()
+                .await
+        })
+        .expect("an answer");
+        answer.join().unwrap();
+        // The redirect itself comes back, unfollowed...
+        assert_eq!(res.status(), 302);
+        // ...and nothing reached the other origin.
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(elsewhere.accept().is_err(), "the redirect was followed");
     }
 
     #[test]
