@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import {
   appToolImages,
+  SCREEN_PREVIEW_MAX,
+  screenPreview,
   boundedSize,
   fitsVisualBudget,
   previewForApp,
@@ -240,5 +242,45 @@ describe("appToolImages", () => {
     expect(await appToolImages([{ data, mediaType: "image/png" }], undefined)).toEqual([
       { src: `data:image/png;base64,${data}` },
     ]);
+  });
+});
+
+describe("screenPreview", () => {
+  /** A poster-like PNG: smooth gradients, as a generated image has. */
+  async function poster(width: number, height: number): Promise<Buffer> {
+    const raw = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 3;
+        raw[i] = (x * 255) / width;
+        raw[i + 1] = (y * 255) / height;
+        raw[i + 2] = ((x + y) * 127) / (width + height);
+      }
+    }
+    return sharp(raw, { raw: { width, height, channels: 3 } })
+      .png()
+      .toBuffer();
+  }
+
+  it("makes a big picture fit 2048 px, as a smaller WebP", async () => {
+    const big = await poster(3000, 2000);
+    const out = await screenPreview(big);
+    const meta = await sharp(out ?? Buffer.alloc(0)).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(["webp", SCREEN_PREVIEW_MAX, 1365]);
+    expect(out?.length).toBeLessThan(big.length);
+  });
+
+  it("leaves a picture its WebP wouldn't make smaller", async () => {
+    // A small WebP already: made again, it comes out no smaller.
+    const small = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .webp({ quality: 80, effort: 2 })
+      .toBuffer();
+    expect(await screenPreview(small)).toBeNull();
+  });
+
+  it("leaves what it can't read", async () => {
+    expect(await screenPreview(Buffer.from("not an image"))).toBeNull();
   });
 });

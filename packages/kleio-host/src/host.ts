@@ -563,6 +563,13 @@ function textFailure(f: FilesFailure): ShowFailure {
 }
 
 /** The headers every part of a show carries: nothing in it runs, sniffs or is kept. */
+/** A picture shown at screen size when it's bigger than this: 512 KiB. */
+const SCREEN_IMAGE_FROM_BYTES = 512 * 1024;
+/** The largest picture made screen-sized; a bigger one goes as it is. */
+const SCREEN_IMAGE_MAX_BYTES = 64 * 1024 * 1024;
+/** How long the sidecar has to make one. */
+const SCREEN_IMAGE_TIMEOUT_MS = 15_000;
+
 const SHOW_PART_HEADERS: Readonly<Record<string, string>> = {
   "x-content-type-options": "nosniff",
   "content-security-policy": "sandbox; default-src 'none'",
@@ -1519,6 +1526,46 @@ export function createHost(options: HostOptions): Host {
     });
   }
 
+  /**
+   * An image made screen-sized by the sidecar (`POST /image-preview`), or null
+   * when the original should go as it is: the sidecar answered 204 (it's as
+   * small already, or it can't read it), or it's down or slow.
+   */
+  async function sidecarImage(bytes: Buffer): Promise<Buffer | null> {
+    const ep = await endpoint();
+    if (!ep) return null;
+    return new Promise((resolve) => {
+      const req = httpRequest(
+        {
+          host: "127.0.0.1",
+          port: ep.port,
+          path: "/image-preview",
+          method: "POST",
+          headers: {
+            host: `127.0.0.1:${ep.port}`,
+            "x-gg-token": ep.token,
+            "content-type": "application/octet-stream",
+            "content-length": String(bytes.length),
+          },
+          timeout: SCREEN_IMAGE_TIMEOUT_MS,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (c: Buffer) => chunks.push(c));
+          res.on("end", () => {
+            const body = Buffer.concat(chunks);
+            const webp = res.statusCode === 200 && res.headers["content-type"] === "image/webp";
+            resolve(webp && body.length > 0 ? body : null);
+          });
+          res.on("error", () => resolve(null));
+        },
+      );
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(null));
+      req.end(bytes);
+    });
+  }
+
   async function trackRoutineSessions(): Promise<void> {
     if (stopped) return;
     const ep = await endpoint();
@@ -2390,6 +2437,23 @@ export function createHost(options: HostOptions): Host {
       }
       case "image": {
         if (part.kind !== "image") return noSuchPart();
+        // A big picture goes screen-sized, as the phone shows it: an original
+        // of up to 14 MB took half a minute through n0's relay. A small one,
+        // or one the sidecar can't make smaller, goes as it is.
+        if (file.size > SCREEN_IMAGE_FROM_BYTES && file.size <= SCREEN_IMAGE_MAX_BYTES) {
+          const original = await readHead(file, SCREEN_IMAGE_MAX_BYTES);
+          if (original === null) return failWith(res, { status: 404, error: "not_found" });
+          const smaller = await sidecarImage(original);
+          if (smaller) {
+            res.writeHead(200, {
+              ...SHOW_PART_HEADERS,
+              "content-type": "image/webp",
+              "content-length": smaller.length,
+            });
+            res.end(smaller);
+            return 200;
+          }
+        }
         const [status] = await sendFile(res, file, {
           headers: { ...SHOW_PART_HEADERS, "content-type": what.type },
           missing: (r) => void failWith(r, { status: 404, error: "not_found" }),

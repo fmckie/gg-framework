@@ -224,6 +224,7 @@ import {
   appToolImageRefs,
   appToolImages,
   historyImageRef,
+  screenPreview,
   shrinkToFit,
   validateVisionImage,
   withAppImagePreviews,
@@ -1753,6 +1754,35 @@ async function main(): Promise<void> {
       return;
     }
 
+    // An image the phone opens full size, made screen-sized (kleio-host's
+    // voice show): a WebP of at most 2048 px, or 204 when the original is as
+    // small already or can't be read, and goes as it is.
+    if (method === "POST" && url === "/image-preview") {
+      const started = Date.now();
+      void readCappedBodyBuffer(req, res, IMAGE_PREVIEW_MAX_BODY_BYTES, {
+        error: "too_large",
+      }).then(async (bytes) => {
+        if (bytes === null) return;
+        const preview = await screenPreview(bytes);
+        log("INFO", "app-sidecar", "image preview", {
+          bytes: String(bytes.length),
+          out: preview ? String(preview.length) : "-",
+          ms: String(Date.now() - started),
+        });
+        if (!preview) {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "image/webp",
+          "content-length": String(preview.length),
+        });
+        res.end(preview);
+      });
+      return;
+    }
+
     // Progress is daemon-level so the Home screen can paint before a project
     // session exists; per-session callers still work through the same endpoint.
     if (method === "GET" && url === "/progress") {
@@ -2189,6 +2219,9 @@ type WorkspaceMode = "code" | "chat" | "motion";
 function parseWorkspaceMode(value: unknown): WorkspaceMode {
   return value === "chat" || value === "motion" ? value : "code";
 }
+
+/** The largest image `POST /image-preview` takes: 64 MiB. */
+const IMAGE_PREVIEW_MAX_BODY_BYTES = 64 * 1024 * 1024;
 
 /** The most image refs one `GET /history-images` asks for. */
 const HISTORY_IMAGES_MAX = 8;

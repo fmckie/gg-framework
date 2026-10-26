@@ -600,6 +600,33 @@ export async function withAppImagePreviews(details: unknown): Promise<unknown> {
   return { ...details, imagePreviews: made };
 }
 
+/** The longest side of an image the app opens full size on a phone. */
+export const SCREEN_PREVIEW_MAX = 2048;
+/** WebP quality for an image opened full size, at screen size. */
+const SCREEN_PREVIEW_QUALITY = 80;
+
+/**
+ * An image opened full size, made screen-sized for the phone that asked: at
+ * most SCREEN_PREVIEW_MAX on its longest side, as WebP. Null when it's small
+ * enough already (it fits, and is no bigger than its WebP would be), or when
+ * sharp can't read it: then the original goes as it is.
+ */
+export async function screenPreview(buffer: Buffer): Promise<Buffer | null> {
+  try {
+    const sharp = await loadSharp();
+    const { width, height } = await sharp(buffer).metadata();
+    if (!width || !height) return null;
+    const webp = await sharp(buffer)
+      .rotate()
+      .resize(SCREEN_PREVIEW_MAX, SCREEN_PREVIEW_MAX, { fit: "inside", withoutEnlargement: true })
+      .webp({ quality: SCREEN_PREVIEW_QUALITY, effort: APP_PREVIEW_EFFORT })
+      .toBuffer();
+    return webp.length < buffer.length ? webp : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A stored image's id in a chat's history: the SHA-256 of its base64 data. */
 export function historyImageRef(data: string): string {
   return createHash("sha256").update(data).digest("hex");

@@ -71,6 +71,12 @@ export interface FakeSidecar {
   fileText: { status: number; body: unknown | null };
   fileTextCalls: { name: string | null; type: string | undefined; bytes: Buffer }[];
   /**
+   * POST /image-preview answers 200 with these bytes as image/webp, or 204
+   * when null. Every call's body lands in imagePreviewCalls.
+   */
+  imagePreview: Buffer | null;
+  imagePreviewCalls: Buffer[];
+  /**
    * GET /dictation answers this status and body. POST /dictation/prepare
    * first moves the body to `dictationPrepared` (when set), like a run that
    * started, then answers the same way. Each call lands in dictationCalls.
@@ -292,6 +298,24 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "POST" && url.pathname === "/image-preview") {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        api.imagePreviewCalls.push(Buffer.concat(chunks));
+        if (api.imagePreview === null) {
+          res.writeHead(204);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": "image/webp",
+          "content-length": String(api.imagePreview.length),
+        });
+        res.end(api.imagePreview);
+      });
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/file-text") {
       const chunks: Buffer[] = [];
       req.on("data", (c: Buffer) => chunks.push(c));
@@ -372,6 +396,8 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     storedCalls: [],
     fileText: { status: 200, body: null },
     fileTextCalls: [],
+    imagePreview: null,
+    imagePreviewCalls: [],
     dictation: { status: 200, body: { state: "absent", bytes: 138_853_314 } },
     dictationPrepared: undefined,
     dictationCalls: [],

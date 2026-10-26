@@ -25,6 +25,41 @@ let daemon: ChildProcessByStdio<null, Readable, Readable> | undefined;
 let port = 0;
 let token = "";
 
+/** POSTs raw bytes to the daemon: its status, content type and body. */
+function postBytes(
+  urlPath: string,
+  bytes: Buffer,
+): Promise<{ status: number; type: string | undefined; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: urlPath,
+        method: "POST",
+        headers: {
+          "x-gg-token": token,
+          "content-type": "application/octet-stream",
+          "content-length": String(bytes.length),
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            type: res.headers["content-type"],
+            body: Buffer.concat(chunks),
+          }),
+        );
+      },
+    );
+    req.on("error", reject);
+    req.end(bytes);
+  });
+}
+
 function request(
   method: string,
   urlPath: string,
@@ -294,5 +329,24 @@ describe("a chat's images loaded as they're scrolled to", () => {
       });
       expect(res.status, refs).toBe(400);
     }
+  }, 30_000);
+});
+
+describe("POST /image-preview", () => {
+  it("makes a big picture a WebP that fits 2048 px", async () => {
+    const big = await sharp({
+      create: { width: 4000, height: 3000, channels: 3, background: { r: 30, g: 90, b: 160 } },
+    })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    const res = await postBytes("/image-preview", big);
+    expect([res.status, res.type]).toEqual([200, "image/webp"]);
+    const meta = await sharp(res.body).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(["webp", 2048, 1536]);
+  }, 30_000);
+
+  it("answers 204 for what it can't read, so the original goes as it is", async () => {
+    const res = await postBytes("/image-preview", Buffer.from("not an image"));
+    expect([res.status, res.body.length]).toEqual([204, 0]);
   }, 30_000);
 });
