@@ -64,6 +64,9 @@ vi.mock("./useKleioRemote", async (importOriginal) => {
     kleio: {
       tailscale: vi.fn(),
       offer: vi.fn(),
+      adminState: vi.fn(),
+      pairState: vi.fn(),
+      cancelOffer: vi.fn(),
       devices: vi.fn(),
       revoke: vi.fn(),
       pair: vi.fn(),
@@ -163,6 +166,14 @@ beforeEach(() => {
   vi.mocked(notificationSettings).mockResolvedValue({ quoteText: true });
   vi.mocked(relayList).mockResolvedValue(N0_LIST);
   vi.mocked(kleio.tailscale).mockResolvedValue(net());
+  vi.mocked(kleio.adminState).mockResolvedValue({
+    unlocked: true,
+    expiresAt: Date.now() + 15 * 60_000,
+    available: true,
+  });
+  // No host answer about a shown code unless a test gives one.
+  vi.mocked(kleio.pairState).mockReturnValue(new Promise(() => {}));
+  vi.mocked(kleio.cancelOffer).mockResolvedValue(undefined);
   linkRoutes({});
 });
 afterEach(() => {
@@ -298,6 +309,48 @@ describe("ConnectionPage", () => {
     });
     expect(hostHealth).toHaveBeenCalledTimes(2);
     expect(within(card).getByRole("button", { name: "Show pairing QR" })).toBeTruthy();
+  });
+
+  it("leaving the page with a code on show takes the code away; leaving after Done takes none", async () => {
+    const shown = {
+      display: "ABC-DEF",
+      expiresAt: Date.now() + 5 * 60_000,
+      admin: false,
+      ticket: TICKET,
+      ticketError: null,
+    };
+    const live = {
+      active: true,
+      expiresAt: shown.expiresAt,
+      redeemed: false,
+      admin: false,
+      claim: null,
+    };
+    vi.mocked(kleio.offer).mockResolvedValue(shown);
+    vi.mocked(kleio.pairState).mockResolvedValue(live);
+    await renderPage();
+    const card = screen.getByRole("region", { name: "Pair a device" });
+    fireEvent.click(within(card).getByRole("button", { name: "Show pairing QR" }));
+    await within(card).findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+    // Leaving the page unmounts it.
+    cleanup();
+    await waitFor(() => expect(kleio.cancelOffer).toHaveBeenCalledTimes(1));
+
+    vi.mocked(kleio.cancelOffer).mockClear();
+    await renderPage();
+    const card2 = screen.getByRole("region", { name: "Pair a device" });
+    fireEvent.click(within(card2).getByRole("button", { name: "Show pairing QR" }));
+    await within(card2).findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+    await act(async () => {
+      fireEvent.click(within(card2).getByRole("button", { name: "Done" }));
+    });
+    // Done took it away; leaving after takes nothing more.
+    await waitFor(() => expect(kleio.cancelOffer).toHaveBeenCalledTimes(1));
+    cleanup();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(kleio.cancelOffer).toHaveBeenCalledTimes(1);
   });
 
   it("with no link ticket, Pair a device says why, and draws today's Tailscale QR code to go with the address", async () => {

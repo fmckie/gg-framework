@@ -2346,6 +2346,86 @@ html.platform-ios .conn-disclosure-summary {
   flex-wrap: wrap;
   gap: 4px 10px;
 }
+/* "New device paired" (NewPairingNotice.tsx): a toast's card that stays, over
+   every view at the window's top right, clear of the toasts at the bottom and
+   of the message box. Above Kleio's pages over a chat (z 60), under any dialog.
+   Its shield is its one spot of warning colour. */
+.pairing-notice {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: var(--z-overlay);
+  align-items: flex-start;
+  width: min(360px, calc(100vw - 32px));
+  max-width: none;
+  box-sizing: border-box;
+  animation: pairing-notice-in 200ms var(--ease-out) both;
+}
+@keyframes pairing-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pairing-notice {
+    animation-name: fade-in;
+  }
+}
+.pairing-notice-icon {
+  flex: 0 0 auto;
+  color: var(--warning);
+}
+.pairing-notice-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.pairing-notice-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text);
+}
+.pairing-notice-text {
+  margin: 0;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.pairing-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 6px;
+}
+.pairing-notice-ask {
+  color: var(--text-secondary);
+}
+.pairing-notice-done {
+  margin-left: auto;
+}
+
+/* A device waiting on the code: who it says it is, its device code, and
+   Allow or Deny. */
+.conn-pair-ask {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.conn-pair-ask-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
 .conn-devices {
   list-style: none;
   margin: 0;

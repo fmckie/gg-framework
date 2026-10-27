@@ -9,6 +9,12 @@
  *   - mints an admin pairing code to redeem with curl;
  *   - prints the line that starts the app against the host.
  *
+ * Its codes pair over loopback, at once. Over Kleio's link a device pairs
+ * only once an admin allows it (docs/adr/0003), and none of dev-host's codes
+ * can go that way: a device pairs over the link from a QR code, which carries
+ * the code, and dev-host shows none. The banner says how: `kleio-host pair`
+ * in a terminal shows the QR code and asks, as does the app's Pair a device.
+ *
  * With --app (macOS) it opens the desktop app itself instead, as a new user,
  * for its real first run. It builds the debug app (cargo build), uses
  * gg-app's Vite on http://localhost:1420 or starts it, starts the host, mints
@@ -248,6 +254,12 @@ async function api(base, method, path, { token, body } = {}) {
   }
   return { status: res.status, body: json };
 }
+
+/** The banner's word on pairing over Kleio's link, under Another code. */
+const LINK_ALLOW_NOTE = [
+  "Over Kleio's link a device pairs only once an admin allows it. Another code, run in a",
+  "terminal, shows its QR code (with kleio-link-host running) and asks you.",
+];
 
 /** A pair offer, minted with the host's own admin token (as `kleio-host pair` does). */
 async function offer(base, adminToken, admin) {
@@ -1325,6 +1337,7 @@ Kleio dev host, and the desktop app as a new user: in a sandbox, on loopback HTT
   Pair code   ${admin.display}   admin, one use, expires ${new Date(admin.expiresAt).toLocaleTimeString()}
               Type these into the app: Pair with your host, then Host URL, Pair code, Pair, Restart now.
               Another code: KLEIO_HOST_HOME=${env.KLEIO_HOST_HOME} KLEIO_HOST_PORT=${env.KLEIO_HOST_PORT} node ${shown(CLI)} pair --admin
+              ${[...LINK_ALLOW_NOTE, "Once paired, Pair a device in the app asks you too."].join("\n              ")}
   Pair it with this host only: pairing a real host from it would register a throwaway device there.
   The sandbox has no AI provider signed in; sign in from the app to chat.
 
@@ -1358,6 +1371,7 @@ Kleio dev host: in a sandbox, on loopback HTTP only.
   Admin code  ${admin.display}   one use, expires ${new Date(admin.expiresAt).toLocaleTimeString()}. Redeem it with:
               curl -s ${base}/kleio/pair/redeem -H 'content-type: application/json' -d '{"code":"${admin.code}","redemptionNonce":"'"$(openssl rand -hex 16)"'","label":"curl"}'
               Another code: KLEIO_HOST_HOME=${env.KLEIO_HOST_HOME} KLEIO_HOST_PORT=${env.KLEIO_HOST_PORT} node ${shown(CLI)} pair --admin
+              ${LINK_ALLOW_NOTE.join("\n              ")}
 
   Start the desktop app against it (${app.reused ? "the device paired last time" : "a new ordinary device"}, so Setup's key forms show status only):
     ${line}

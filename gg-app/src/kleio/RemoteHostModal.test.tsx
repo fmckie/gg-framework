@@ -584,6 +584,7 @@ describe("RemoteHostModal — admin", () => {
 
   it("lists live devices, cannot revoke itself, revokes another after confirm, mints a code", async () => {
     let devices = DEVICES;
+    let mintedAt = 0;
     routes({
       kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
       kleio_admin_state: () => ({
@@ -600,14 +601,23 @@ describe("RemoteHostModal — admin", () => {
       kleio_offer: (args) => {
         expect(args).toEqual({ admin: true });
         // Epoch ms, as the host sends it (Rust passes it through as a u64).
+        mintedAt = Date.now() + 5 * 60_000;
         return {
           display: "ABC-DEF",
-          expiresAt: Date.now() + 5 * 60_000,
+          expiresAt: mintedAt,
           admin: true,
           ticket: TICKET,
           ticketError: null,
         };
       },
+      kleio_pair_state: () => ({
+        active: true,
+        expiresAt: mintedAt,
+        redeemed: false,
+        admin: true,
+        claim: null,
+      }),
+      kleio_pair_cancel: () => null,
     });
     render(<RemoteHostModal onClose={() => {}} />);
     fireEvent.click(await screen.findByRole("tab", { name: "Devices" }));
@@ -646,6 +656,80 @@ describe("RemoteHostModal — admin", () => {
     expect(screen.getByText("Pair code ABC-DEF is ready.").getAttribute("role")).toBe("status");
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("img", { name: /^Pairing QR code/ })).toBeNull();
+    // Done takes the code away on the host, so no device waits on it.
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.map(([cmd]) => cmd)).toContain("kleio_pair_cancel"),
+    );
+  });
+
+  describe("a code on show is taken away", () => {
+    /** Routes for an unlocked admin whose live code is the one minted, and
+     *  the order the code was taken away and the admin locked in. */
+    function minted(): { said: string[] } {
+      const said: string[] = [];
+      let expiresAt = 0;
+      routes({
+        kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
+        kleio_admin_state: () => ({
+          unlocked: true,
+          expiresAt: Date.now() + 60_000,
+          available: true,
+        }),
+        kleio_devices: () => DEVICES,
+        kleio_offer: () => {
+          expiresAt = Date.now() + 5 * 60_000;
+          return { display: "ABC-DEF", expiresAt, admin: false, ticket: TICKET, ticketError: null };
+        },
+        kleio_pair_state: () => ({
+          active: true,
+          expiresAt,
+          redeemed: false,
+          admin: false,
+          claim: null,
+        }),
+        kleio_pair_cancel: () => {
+          said.push("cancel");
+          return null;
+        },
+        kleio_admin_lock: () => {
+          said.push("lock");
+          return null;
+        },
+      });
+      return { said };
+    }
+
+    async function showCode(): Promise<void> {
+      fireEvent.click(await screen.findByRole("tab", { name: "Devices" }));
+      await screen.findByText("Phone");
+      fireEvent.click(screen.getByRole("button", { name: "New pair code" }));
+      await screen.findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+    }
+
+    it("by Lock, before the admin locks", async () => {
+      const { said } = minted();
+      render(<RemoteHostModal onClose={() => {}} />);
+      await showCode();
+      fireEvent.click(screen.getByRole("button", { name: "Lock" }));
+      await waitFor(() => expect(said).toEqual(["cancel", "lock"]));
+      expect(screen.queryByRole("img", { name: /^Pairing QR code/ })).toBeNull();
+    });
+
+    it("by leaving the Devices tab", async () => {
+      const { said } = minted();
+      render(<RemoteHostModal onClose={() => {}} />);
+      await showCode();
+      fireEvent.click(screen.getByRole("tab", { name: "Host" }));
+      await waitFor(() => expect(said).toEqual(["cancel"]));
+    });
+
+    it("by closing the pane", async () => {
+      const { said } = minted();
+      const view = render(<RemoteHostModal onClose={() => {}} />);
+      await showCode();
+      view.unmount();
+      await waitFor(() => expect(said).toEqual(["cancel"]));
+    });
   });
 
   it("marks a device paired this week New, but never itself", async () => {
@@ -697,6 +781,21 @@ describe("RemoteHostModal — admin", () => {
     expect(within(row("Phone")).queryByText("New")).toBeNull();
     expect(within(row("Laptop")).queryByText("New")).toBeNull();
     expect(within(row("Laptop")).getByText("This Mac")).toBeDefined();
+  });
+
+  it("opens on Devices when asked, as New device paired's Review devices does", async () => {
+    routes({
+      kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
+      kleio_admin_state: () => ({
+        unlocked: true,
+        expiresAt: Date.now() + 60_000,
+        available: true,
+      }),
+      kleio_devices: () => DEVICES,
+    });
+    render(<RemoteHostModal initialTab="devices" onClose={() => {}} />);
+    await screen.findByText("Phone");
+    expect(screen.getByRole("tab", { name: "Devices" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("explains a Touch ID refusal instead of a raw error", async () => {

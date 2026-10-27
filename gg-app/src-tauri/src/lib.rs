@@ -6054,6 +6054,8 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_pair,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
+            kleio::link::kleio_link_pair_cancel,
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::link::kleio_link_status,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::switch::kleio_switch_status,
@@ -6065,6 +6067,10 @@ pub fn run() {
             kleio::commands::kleio_devices,
             kleio::commands::kleio_revoke,
             kleio::commands::kleio_offer,
+            kleio::commands::kleio_pair_state,
+            kleio::commands::kleio_pair_decide,
+            kleio::commands::kleio_pair_cancel,
+            kleio::commands::kleio_recent_pairings,
             kleio::commands::kleio_admin_state,
             kleio::commands::kleio_admin_lock,
             kleio::commands::kleio_api,

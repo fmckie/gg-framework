@@ -4,7 +4,9 @@
 //   kleio-host init                      create state dir, keys, first admin token (prints it once)
 //   kleio-host sidecar                   run the sidecar supervisor (launchd job 1)
 //   kleio-host serve                     run the HTTP host (launchd job 2)
-//   kleio-host pair [--admin] [--label]  mint a pair code: the code, its QR code and pairing text
+//   kleio-host pair [--admin] [--label]  mint a pair code: the code, its QR code and pairing text;
+//                                        then, in a terminal, ask to allow the device that brings
+//                                        it over the link
 //   kleio-host devices                   list devices, with each link key's prefix and last path
 //   kleio-host revoke <deviceId|key>     revoke a device, by ID or a prefix of its link key
 //   kleio-host status                    health, and the link's
@@ -17,6 +19,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { request } from "node:http";
 import { homedir, hostname } from "node:os";
 import { join } from "node:path";
+import { createInterface, type Interface } from "node:readline/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createSecretLock, type SecretLock } from "./acl.js";
 import { createDeviceRegistry, type PairedDevice } from "./device-registry.js";
@@ -36,16 +40,25 @@ import {
   type LinkStateRead,
 } from "./link.js";
 import {
+  askLines,
+  askQuestion,
+  decidedText,
   deviceFrom,
   deviceLine,
+  isYes,
   linkHostBin,
   linkStatusLines,
+  NO_TERMINAL_LINES,
   noTicketText,
+  PAIR_WATCH_INTERVAL_MS,
+  pairWatch,
   revokeTarget,
+  stillAsks,
+  watchText,
 } from "./link-cli.js";
 import { readLinkPublicKey } from "./link-secrets.js";
 import { settleNodeId, type NodeIdSource } from "./node-id.js";
-import { createPairOfferStore } from "./pair-offer.js";
+import { createPairOfferStore, type PairClaimState, type PairOfferState } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
 import { ensureLinkSecrets, ensureSecure, lockFailureMessage, lockSecrets } from "./secure-dir.js";
 import { createRingStore } from "./sse-ring.js";
@@ -346,6 +359,127 @@ async function listDevices(p: HostPaths): Promise<PairedDevice[]> {
   return (r.body as { devices: PairedDevice[] }).devices.map(deviceFrom);
 }
 
+/** The live code's state (GET /kleio/pair): never the code, nor a device's nonce or whole key. */
+async function pairState(p: HostPaths): Promise<PairOfferState> {
+  const r = await adminCall(p, "GET", "/kleio/pair");
+  if (r.status !== 200) throw new Error(`pair state failed: ${r.status} ${JSON.stringify(r.body)}`);
+  return r.body as PairOfferState;
+}
+
+/** What came of asking whether to allow a device. */
+type Asked =
+  | { readonly kind: "answer"; readonly text: string }
+  /** The code moved on from what was asked: another device tried it, or the device stopped waiting. */
+  | { readonly kind: "moved" }
+  /** The terminal's input ended (Ctrl-D): nothing can be asked any more. */
+  | { readonly kind: "closed" };
+
+/**
+ * Ask whether to allow `claim`, checking all the while (`still`) that the
+ * code still waits on that question, so the question is never answered
+ * about a device other than the one shown.
+ */
+async function askAllow(
+  rl: Interface,
+  inputEnded: AbortSignal,
+  claim: PairClaimState,
+  admin: boolean,
+  still: () => Promise<boolean>,
+): Promise<Asked> {
+  if (inputEnded.aborted) return { kind: "closed" };
+  const lines = askLines(claim, admin).map((line) => `  ${line}\n`);
+  process.stdout.write(`\n${lines.join("")}`);
+  const moved = new AbortController();
+  const watching = (async (): Promise<{ readonly error: unknown } | null> => {
+    try {
+      while (!moved.signal.aborted) {
+        await sleep(PAIR_WATCH_INTERVAL_MS, undefined, { signal: moved.signal });
+        if (!(await still())) moved.abort();
+      }
+      return null;
+    } catch (error) {
+      if (moved.signal.aborted) return null;
+      moved.abort();
+      return { error };
+    }
+  })();
+  let asked: Asked;
+  try {
+    const text = await rl.question(`  ${askQuestion(claim)}`, {
+      signal: AbortSignal.any([moved.signal, inputEnded]),
+    });
+    asked = { kind: "answer", text };
+  } catch (error) {
+    if (!moved.signal.aborted && !inputEnded.aborted) {
+      moved.abort();
+      await watching;
+      throw error;
+    }
+    // readline ends the question's line itself.
+    asked = inputEnded.aborted ? { kind: "closed" } : { kind: "moved" };
+  }
+  moved.abort();
+  const failed = await watching;
+  if (failed) throw failed.error;
+  return asked;
+}
+
+/**
+ * In a terminal, `pair` stays with the code it showed. A device that brings
+ * it over the link waits for an admin's Allow, so this asks for one, showing
+ * the device's name and device code. True once the code pairs a device.
+ */
+async function watchPairing(p: HostPaths, expiresAt: number, admin: boolean): Promise<boolean> {
+  // Not a terminal of its own (no raw mode), so Ctrl-C stops `pair` as before.
+  // Reading all along drops anything typed before a question: an answer
+  // typed ahead can't allow a device nobody has seen.
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+  const inputEnded = new AbortController();
+  rl.once("close", () => inputEnded.abort());
+  let said: string | null = null;
+  const say = (text: string): void => {
+    if (text !== said) process.stdout.write(`  ${text}\n`);
+    said = text;
+  };
+  const watch = async (): Promise<ReturnType<typeof pairWatch>> =>
+    pairWatch(await pairState(p), expiresAt, Date.now());
+  try {
+    for (;;) {
+      const w = await watch();
+      if (w.kind !== "ask") {
+        const text = watchText(w);
+        if (text !== null) say(text);
+        if (w.kind === "paired") return true;
+        if (w.kind === "gone") return false;
+        await sleep(PAIR_WATCH_INTERVAL_MS);
+        continue;
+      }
+      const asked = await askAllow(rl, inputEnded.signal, w.claim, admin, async () =>
+        stillAsks(await watch(), w.claim),
+      );
+      if (asked.kind === "closed") {
+        say("No answer: the terminal's input ended. Nothing was allowed.");
+        return false;
+      }
+      if (asked.kind === "moved") continue;
+      const allow = isYes(asked.text);
+      const decided = decidedText(
+        allow,
+        w.claim,
+        await adminCall(p, "POST", "/kleio/pair/decide", {
+          allow,
+          deviceCode: w.claim.deviceCode,
+        }),
+      );
+      if (!decided.ok) throw new Error(decided.error);
+      say(decided.value.text);
+      if (decided.value.done) return false;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 /**
  * The pairing QR code, drawn by kleio-link-host (`qr` reads the ticket on
  * stdin, never from its arguments, which other users can see), then the
@@ -406,6 +540,11 @@ async function main(): Promise<void> {
       if (typeof b.ticket === "string") await showTicket(b.ticket);
       else
         process.stdout.write(`  No QR code: ${noTicketText(b.ticketError ?? null, p.linkDir)}\n\n`);
+      if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        process.stdout.write(`${NO_TERMINAL_LINES.map((line) => `  ${line}\n`).join("")}\n`);
+        return;
+      }
+      if (!(await watchPairing(p, b.expiresAt, b.admin))) process.exitCode = 1;
       return;
     }
     case "devices": {

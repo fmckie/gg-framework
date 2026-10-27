@@ -86,6 +86,47 @@ export interface AdminState {
   available: boolean;
 }
 
+/** The device waiting on the live pairing code over the link (`PairClaim`
+ *  in commands.rs): the one Pair a device asks the admin to allow. */
+export interface PairClaim {
+  /** The name it asked to be listed under; `null` if it gave none. */
+  label: string | null;
+  /** Its device code, "3F9 AC2", which the device shows too. */
+  deviceCode: string;
+  /** When it first brought the code, in epoch milliseconds. */
+  at: number;
+  /** Another device has brought the code since. */
+  contested: boolean;
+  /** An admin allowed it, and it's finishing on the device. */
+  allowed: boolean;
+}
+
+/** The live pairing code, as the host tells an admin (`kleio_pair_state`). */
+export interface PairState {
+  active: boolean;
+  expiresAt: number | null;
+  /** The code has paired a device. */
+  redeemed: boolean;
+  admin: boolean;
+  claim: PairClaim | null;
+}
+
+/** The device an admin's Allow or Deny applied to. */
+export interface Decided {
+  label: string | null;
+  deviceCode: string;
+}
+
+/** A device paired in the last week, for the "New device paired" notice
+ *  (`kleio_recent_pairings`): not revoked, and not this one. */
+export interface RecentPairing {
+  deviceId: string;
+  label: string;
+  /** When it paired (ISO 8601). */
+  created: string;
+  admin: boolean;
+}
+
 export const kleio = {
   status: () => invoke<RemoteStatus>("kleio_remote_status"),
   pair: (baseUrl: string, code: string, label: string) =>
@@ -97,6 +138,18 @@ export const kleio = {
   devices: () => invoke<Device[]>("kleio_devices"),
   revoke: (deviceId: string) => invoke<Device[]>("kleio_revoke", { deviceId }),
   offer: (admin: boolean) => invoke<PairOffer>("kleio_offer", { admin }),
+  /** Who's waiting on the live pairing code. Touch ID once, then not while
+   *  the admin unlock is open. */
+  pairState: () => invoke<PairState>("kleio_pair_state"),
+  /** Allow or Deny the device waiting with `deviceCode`, and only that one:
+   *  an error of kind "changed" if another took its place, "none_waiting" if
+   *  none is waiting. */
+  decide: (allow: boolean, deviceCode: string) =>
+    invoke<Decided>("kleio_pair_decide", { allow, deviceCode }),
+  /** Takes the live pairing code away. A device waiting on it is denied. */
+  cancelOffer: () => invoke<void>("kleio_pair_cancel"),
+  /** The devices paired in the last week, newest first. No Touch ID. */
+  recentPairings: () => invoke<RecentPairing[]>("kleio_recent_pairings"),
   adminState: () => invoke<AdminState>("kleio_admin_state"),
   adminLock: () => invoke<void>("kleio_admin_lock"),
   tailscale: () => invoke<TailscaleStatus>("kleio_tailscale_status"),

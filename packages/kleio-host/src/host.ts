@@ -24,7 +24,8 @@
 // port, so its own browser origin. It serves only GET /p/<token>/<path>,
 // sandboxed, and never reads a device token or reaches this API.
 //   - admin (device is admin OR a valid control macaroon): /kleio/devices,
-//     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke.
+//     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke,
+//     /kleio/pair/decide.
 //
 // The sidecar's Host allowlist is satisfied because we always send
 // `127.0.0.1:<port>`.
@@ -52,7 +53,13 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, join, resolve as resolvePath, sep } from "node:path";
 import { createSecretLock, type SecretLock } from "./acl.js";
 import { atomicWrite } from "./device-registry.js";
-import { formatPairCode, PAIR_REDEEM_MAX_BODY_BYTES, type PairingPayload } from "./pair-code.js";
+import {
+  formatDeviceCode,
+  formatPairCode,
+  PAIR_REDEEM_MAX_BODY_BYTES,
+  type PairingPayload,
+  type PairRedeemResponse,
+} from "./pair-code.js";
 import type { PairOfferStore, PayloadMinter, RedeemVia } from "./pair-offer.js";
 import type { DeviceRegistry, PairedDevice, PushRegistration } from "./device-registry.js";
 import type { ApnsPusher, Nudge } from "./apns.js";
@@ -891,13 +898,19 @@ export function createHost(options: HostOptions): Host {
   }
 
   function mintPayloadFor(admin: boolean): PayloadMinter {
-    return async (label, via: RedeemVia) => {
+    return async (label, via: RedeemVia, allowedBy) => {
       const minted = await registry.mint(label ?? (admin ? "Admin device" : "Device"), {
         admin,
         // Paired over the link: bound to its key from the start.
         ...(via.linkKey !== null ? { linkKey: via.linkKey } : {}),
       });
       if (!minted.ok) throw new Error(minted.error.message);
+      // Every pairing is on the record, with who allowed one over the link.
+      log(
+        via.linkKey !== null
+          ? `[pair] ${minted.value.device.label} paired over the link (device code ${formatDeviceCode(via.linkKey)}, admin=${admin}, allowed by ${allowedBy ?? "nobody"})`
+          : `[pair] ${minted.value.device.label} paired off the link (admin=${admin})`,
+      );
       void background(announcePairing(minted.value.device));
       // The same phone paired again: its older pairings are revoked with it.
       for (const old of minted.value.superseded) {
@@ -2625,10 +2638,30 @@ export function createHost(options: HostOptions): Host {
       } catch {
         return json(res, 400, { ok: false, error: "bad_request" });
       }
-      const outcome = await offers.redeem(parsed.code, parsed.redemptionNonce, parsed.label, {
-        linkKey: linkKeyOf(req),
-      });
-      if (outcome.ok) return json(res, 200, { ok: true, payload: outcome.payload });
+      // Over the link, this holds the request a few seconds while the device
+      // waits for an admin's Allow (pair-offer.ts).
+      const outcome = await offers.redeem(
+        parsed.code,
+        parsed.redemptionNonce,
+        parsed.label,
+        { linkKey: linkKeyOf(req) },
+        parsed.waits,
+      );
+      if (outcome.ok) {
+        return json(res, 200, {
+          ok: true,
+          payload: outcome.payload,
+        } satisfies PairRedeemResponse);
+      }
+      // 202 Accepted: the device waits for an admin, and asks again.
+      if (outcome.reason === "pending") {
+        return json(res, 202, {
+          ok: false,
+          error: "pending",
+          retryAfterMs: outcome.retryAfterMs,
+          expiresAt: outcome.expiresAt,
+        } satisfies PairRedeemResponse);
+      }
       // 410 Gone: a code that was live, and why it no longer is (pair-offer.ts).
       const status =
         outcome.reason === "bad_request"
@@ -2637,8 +2670,12 @@ export function createHost(options: HostOptions): Host {
             ? 404
             : outcome.reason === "unauthorized"
               ? 401
-              : 410;
-      return json(res, status, { ok: false, error: outcome.reason });
+              : outcome.reason === "claimed"
+                ? 409
+                : outcome.reason === "update_required"
+                  ? 426
+                  : 410;
+      return json(res, status, { ok: false, error: outcome.reason } satisfies PairRedeemResponse);
     }
 
     const auth = authenticate(req);
@@ -3706,6 +3743,34 @@ export function createHost(options: HostOptions): Host {
       if (req.method === "POST" && path === "/kleio/pair/revoke") {
         offers.revoke();
         return json(res, 200, { ok: true });
+      }
+      // An admin's Allow or Deny for the device waiting on the live code over
+      // the link. With `deviceCode`, only if that's the device still waiting.
+      if (req.method === "POST" && path === "/kleio/pair/decide") {
+        const body = await readBody(req, 1024);
+        if (body === null) return json(res, 413, { error: "bad_request" });
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body.toString("utf8"));
+        } catch {
+          return json(res, 400, { error: "bad_request" });
+        }
+        const { allow, deviceCode } =
+          typeof parsed === "object" && parsed !== null
+            ? (parsed as { allow?: unknown; deviceCode?: unknown })
+            : {};
+        if (
+          typeof allow !== "boolean" ||
+          (deviceCode !== undefined && (typeof deviceCode !== "string" || deviceCode.length > 16))
+        ) {
+          return json(res, 400, { error: "bad_request" });
+        }
+        const decided = offers.decide(allow, auth.device.label, deviceCode);
+        if (!decided.ok) return json(res, 409, { ok: false, error: decided.reason });
+        log(
+          `[admin] ${auth.device.label} ${allow ? "allowed" : "denied"} ${decided.label ?? "a device"} (${decided.deviceCode})`,
+        );
+        return json(res, 200, { ok: true, label: decided.label, deviceCode: decided.deviceCode });
       }
       if (req.method === "GET" && path === "/kleio/pair") return json(res, 200, offers.peek());
       return json(res, 404, { error: "not found" });

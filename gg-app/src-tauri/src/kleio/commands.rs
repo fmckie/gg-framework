@@ -14,6 +14,11 @@
 //!     GET  /kleio/devices                → {devices:[...]}
 //!     POST /kleio/devices/:id/revoke     → {devices:[...]}
 //!     POST /kleio/pair/offer {admin?}    → {code, display, expiresAt, admin}
+//!     GET  /kleio/pair                   → {active, expiresAt, redeemed, admin, claim}
+//!     POST /kleio/pair/decide {allow, deviceCode}
+//!                                        → {ok:true, label, deviceCode}
+//!                                          409 {ok:false, error: none_waiting|changed}
+//!     POST /kleio/pair/revoke            → {ok:true}
 
 use super::biometric::{reason_for, BiometricGate, Denied};
 use super::{keychain, store, CONTROL_HEADER, DEVICE_TOKEN_HEADER};
@@ -241,6 +246,56 @@ pub(super) fn now_iso() -> String {
         (rem % 3600) / 60,
         rem % 60
     )
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Seconds since the epoch at `iso`, a time as the host writes one
+/// (`Date.toISOString()`, `2026-10-27T14:07:07.123Z`), or None if it isn't
+/// one.
+fn iso_secs(iso: &str) -> Option<u64> {
+    let (date, time) = iso.strip_suffix('Z')?.split_once('T')?;
+    let number = |part: Option<&str>| {
+        part.filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))?
+            .parse::<u64>()
+            .ok()
+    };
+    let mut date = date.split('-');
+    let (y, m, d) = (
+        number(date.next())?,
+        number(date.next())?,
+        number(date.next())?,
+    );
+    let whole = time.split_once('.').map_or(time, |(whole, _)| whole);
+    let mut time = whole.split(':');
+    let (h, min, s) = (
+        number(time.next())?,
+        number(time.next())?,
+        number(time.next())?,
+    );
+    let in_range = (1..=12).contains(&m) && (1..=31).contains(&d) && h < 24 && min < 60 && s < 61;
+    if date.next().is_some() || time.next().is_some() || !in_range {
+        return None;
+    }
+    let days = u64::try_from(days_from_civil(i64::try_from(y).ok()?, m as u32, d as u32)).ok()?;
+    days.checked_mul(86_400)?
+        .checked_add(h * 3600 + min * 60 + s)
+}
+
+/// Howard Hinnant's civil→days: [`civil_from_days`] the other way.
+fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let mp = u64::from(if m > 2 { m - 3 } else { m + 9 });
+    let doy = (153 * mp + 2) / 5 + u64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe as i64 - 719_468
 }
 
 /// Howard Hinnant's days→civil; exact for the proleptic Gregorian calendar.
@@ -632,29 +687,43 @@ fn admin_client(r: &super::Remote) -> Result<reqwest::Client, AdminError> {
 }
 
 async fn admin_json(req: reqwest::RequestBuilder) -> Result<serde_json::Value, AdminError> {
+    let (status, body) = admin_answer(req).await?;
+    if !status.is_success() {
+        return Err(admin_error(status, &body));
+    }
+    Ok(body)
+}
+
+/// The host's answer to `req`: its status and its JSON body (`null` if it
+/// had none).
+async fn admin_answer(
+    req: reqwest::RequestBuilder,
+) -> Result<(reqwest::StatusCode, serde_json::Value), AdminError> {
     let res = req.send().await.map_err(|e| AdminError {
         kind: "network",
         message: root_cause(&e),
     })?;
     let status = res.status();
     let body: serde_json::Value = res.json().await.unwrap_or_default();
-    if !status.is_success() {
-        let msg = body
-            .get("error")
-            .and_then(|e| e.as_str())
-            .unwrap_or("request failed");
-        return Err(AdminError {
-            kind: if status == 403 {
-                "forbidden"
-            } else if status == 401 {
-                "unauthorized"
-            } else {
-                "host"
-            },
-            message: format!("{msg} (HTTP {status})"),
-        });
+    Ok((status, body))
+}
+
+/// The error for an answer that isn't a success.
+fn admin_error(status: reqwest::StatusCode, body: &serde_json::Value) -> AdminError {
+    let msg = body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("request failed");
+    AdminError {
+        kind: if status == 403 {
+            "forbidden"
+        } else if status == 401 {
+            "unauthorized"
+        } else {
+            "host"
+        },
+        message: format!("{msg} (HTTP {status})"),
     }
-    Ok(body)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -768,6 +837,222 @@ pub async fn kleio_offer(gate: State<'_, BiometricGate>, admin: bool) -> Result<
     )
     .await?;
     Ok(offer_from(&body))
+}
+
+/// The most of a label from the host that's kept: as much as kleio-host lets
+/// a device give.
+const MAX_LABEL_CHARS: usize = 64;
+
+fn clip_label(label: &str) -> String {
+    label.chars().take(MAX_LABEL_CHARS).collect()
+}
+
+/// Whether `code` is a device code as kleio-host writes one
+/// (`formatDeviceCode` in pair-code.ts): six capital hex characters in two
+/// groups, `3F9 AC2`.
+fn is_device_code(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    bytes.len() == 7
+        && bytes.iter().enumerate().all(|(i, b)| match i {
+            3 => *b == b' ',
+            _ => matches!(b, b'0'..=b'9' | b'A'..=b'F'),
+        })
+}
+
+/// The device waiting on the live pairing code over the link, as
+/// `GET /kleio/pair` shows it (`PairClaimState` in pair-offer.ts): the one
+/// Pair a device asks the admin to allow.
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PairClaim {
+    /// The name it asked to be listed under; None if it gave none.
+    pub label: Option<String>,
+    /// Its device code, `3F9 AC2`, which the device shows too.
+    pub device_code: String,
+    /// When it first brought the code, in ms since the epoch.
+    pub at: u64,
+    /// Another device has brought the code since.
+    pub contested: bool,
+    /// An admin allowed it, and it's finishing on the device.
+    pub allowed: bool,
+}
+
+/// The live pairing code, as `GET /kleio/pair` shows it (`PairOfferState`
+/// in pair-offer.ts).
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PairState {
+    pub active: bool,
+    pub expires_at: Option<u64>,
+    /// The code has paired a device.
+    pub redeemed: bool,
+    pub admin: bool,
+    pub claim: Option<PairClaim>,
+}
+
+/// The pairing code's state, as `GET /kleio/pair` answers it. A claim whose
+/// device code isn't one is no claim: there'd be nothing to check it by.
+fn pair_state_from(body: &serde_json::Value) -> PairState {
+    let flag =
+        |v: &serde_json::Value, key: &str| v.get(key).and_then(|v| v.as_bool()) == Some(true);
+    let claim = body.get("claim").and_then(|claim| {
+        let device_code = claim.get("deviceCode")?.as_str()?;
+        is_device_code(device_code).then(|| PairClaim {
+            label: claim.get("label").and_then(|v| v.as_str()).map(clip_label),
+            device_code: device_code.to_string(),
+            at: claim.get("at").and_then(|v| v.as_u64()).unwrap_or(0),
+            contested: flag(claim, "contested"),
+            allowed: flag(claim, "allowed"),
+        })
+    });
+    PairState {
+        active: flag(body, "active"),
+        expires_at: body.get("expiresAt").and_then(|v| v.as_u64()),
+        redeemed: flag(body, "redeemed"),
+        admin: flag(body, "admin"),
+        claim,
+    }
+}
+
+/// Who's waiting on the live pairing code, for Pair a device to ask about.
+/// Touch ID once, then not while the admin unlock is open.
+#[tauri::command]
+pub async fn kleio_pair_state(gate: State<'_, BiometricGate>) -> Result<PairState, AdminError> {
+    let r = admin_remote()?;
+    gated(&gate, "see who's pairing")?;
+    let body = admin_json(admin_client(r)?.get(format!("{}/kleio/pair", r.base))).await?;
+    Ok(pair_state_from(&body))
+}
+
+/// The device an admin's Allow or Deny applied to.
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Decided {
+    pub label: Option<String>,
+    pub device_code: String,
+}
+
+/// What `POST /kleio/pair/decide` answered: the device decided on, or why
+/// not, in words for Pair a device.
+fn decided_from(
+    status: reqwest::StatusCode,
+    body: &serde_json::Value,
+) -> Result<Decided, AdminError> {
+    if status.is_success() {
+        return Ok(Decided {
+            label: body.get("label").and_then(|v| v.as_str()).map(clip_label),
+            device_code: body
+                .get("deviceCode")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        });
+    }
+    let refused = |kind, message: &str| AdminError {
+        kind,
+        message: message.into(),
+    };
+    match (status.as_u16(), body.get("error").and_then(|e| e.as_str())) {
+        (409, Some("changed")) => Err(refused(
+            "changed",
+            "Another device is waiting on this code now. Check its device code, then decide again.",
+        )),
+        (409, Some("none_waiting")) => Err(refused(
+            "none_waiting",
+            "No device is waiting on this code any more.",
+        )),
+        _ => Err(admin_error(status, body)),
+    }
+}
+
+/// An admin's Allow or Deny for the device waiting with `device_code`: only
+/// that device, so one that took its place isn't let in by mistake.
+#[tauri::command]
+pub async fn kleio_pair_decide(
+    gate: State<'_, BiometricGate>,
+    allow: bool,
+    device_code: String,
+) -> Result<Decided, AdminError> {
+    let r = admin_remote()?;
+    if !is_device_code(&device_code) {
+        return Err(AdminError {
+            kind: "bad_request",
+            message: "malformed device code".into(),
+        });
+    }
+    gated(
+        &gate,
+        if allow {
+            "allow a device to pair"
+        } else {
+            "deny a device"
+        },
+    )?;
+    let (status, body) = admin_answer(
+        admin_client(r)?
+            .post(format!("{}/kleio/pair/decide", r.base))
+            .json(&serde_json::json!({ "allow": allow, "deviceCode": device_code })),
+    )
+    .await?;
+    decided_from(status, &body)
+}
+
+/// Takes the live pairing code away, as Done and closing Pair a device do.
+/// A device waiting on it is denied.
+#[tauri::command]
+pub async fn kleio_pair_cancel(gate: State<'_, BiometricGate>) -> Result<(), AdminError> {
+    let r = admin_remote()?;
+    gated(&gate, "cancel a pair code")?;
+    admin_json(admin_client(r)?.post(format!("{}/kleio/pair/revoke", r.base))).await?;
+    Ok(())
+}
+
+/// How far back the "New device paired" notice looks.
+const RECENT_PAIRING_DAYS: u64 = 7;
+
+/// A device paired lately, for the "New device paired" notice.
+#[derive(serde::Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentPairing {
+    pub device_id: String,
+    pub label: String,
+    /// When it paired, as the host wrote it.
+    pub created: String,
+    pub admin: bool,
+}
+
+/// The devices paired in the [`RECENT_PAIRING_DAYS`] days to `now`
+/// (seconds since the epoch) that aren't revoked and aren't this one,
+/// newest first.
+fn recent_pairings(devices: Vec<Device>, now: u64) -> Vec<RecentPairing> {
+    let since = now.saturating_sub(RECENT_PAIRING_DAYS * 86_400);
+    let mut recent: Vec<(u64, RecentPairing)> = devices
+        .into_iter()
+        .filter(|d| !d.revoked && !d.this_device)
+        .filter_map(|d| {
+            let at = iso_secs(&d.created).filter(|at| *at >= since)?;
+            let pairing = RecentPairing {
+                device_id: d.device_id,
+                label: clip_label(&d.label),
+                created: d.created,
+                admin: d.admin,
+            };
+            Some((at, pairing))
+        })
+        .collect();
+    recent.sort_by(|(a, x), (b, y)| b.cmp(a).then_with(|| x.device_id.cmp(&y.device_id)));
+    recent.into_iter().map(|(_, pairing)| pairing).collect()
+}
+
+/// The devices paired lately, for the "New device paired" notice on an
+/// admin device. Unlike `kleio_devices`, no Touch ID: the notice reads only
+/// names and times, and revoking one still asks for it.
+#[tauri::command]
+pub async fn kleio_recent_pairings() -> Result<Vec<RecentPairing>, AdminError> {
+    let r = admin_remote()?;
+    let body = admin_json(admin_client(r)?.get(format!("{}/kleio/devices", r.base))).await?;
+    let devices = devices_from(&body, &r.device_id)?;
+    Ok(recent_pairings(devices, now_secs()))
 }
 
 #[tauri::command]
@@ -1944,6 +2229,210 @@ mod tests {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(19_723), (2024, 1, 1));
         assert_eq!(civil_from_days(20_718), (2026, 9, 22));
+    }
+
+    #[test]
+    fn days_from_civil_is_civil_from_days_the_other_way() {
+        for days in [0, 59, 60, 19_723, 20_718, 20_753, 36_524, 47_541] {
+            let (y, m, d) = civil_from_days(days);
+            assert_eq!(days_from_civil(y, m, d), days, "{y}-{m}-{d}");
+        }
+    }
+
+    #[test]
+    fn reads_the_times_the_host_writes() {
+        // 2026-10-27 is day 20,753.
+        let day = 20_753 * 86_400;
+        assert_eq!(
+            iso_secs("2026-10-27T14:07:07.123Z"),
+            Some(day + 14 * 3600 + 7 * 60 + 7)
+        );
+        assert_eq!(iso_secs("2026-10-27T00:00:00Z"), Some(day));
+        assert_eq!(iso_secs("1970-01-01T00:00:00.000Z"), Some(0));
+        for not in [
+            "",
+            "2026-10-27",
+            "2026-10-27T14:07:07",
+            "2026-10-27T14:07:07+01:00",
+            "2026-13-01T00:00:00Z",
+            "2026-10-27T24:00:00Z",
+            "2026-10-27T14:07Z",
+            "2026-10-27T14:07:07:07Z",
+            "+2026-10-27T14:07:07Z",
+            "2026-1x-27T14:07:07Z",
+        ] {
+            assert_eq!(iso_secs(not), None, "{not}");
+        }
+    }
+
+    #[test]
+    fn a_device_code_is_six_capital_hex_characters_in_two_groups() {
+        assert!(is_device_code("3F9 AC2"));
+        assert!(is_device_code("EA4 A6C"));
+        for not in [
+            "", "3F9AC2", "3f9 ac2", "3F9-AC2", "3F9 AC2 ", "3F9 AG2", "3F9  AC2",
+        ] {
+            assert!(!is_device_code(not), "{not:?}");
+        }
+    }
+
+    /// Who's waiting on the code, as Pair a device reads it: never the nonce
+    /// or the whole key, which the host doesn't send.
+    #[test]
+    fn the_pairing_state_names_the_device_waiting_by_its_code() {
+        let waiting = pair_state_from(&serde_json::json!({
+            "active": true,
+            "expiresAt": 1_792_000_300_000_u64,
+            "attemptsRemaining": 5,
+            "redeemed": false,
+            "admin": false,
+            "claim": {
+                "label": "Finn's iPhone",
+                "deviceCode": "3F9 AC2",
+                "at": 1_792_000_000_000_u64,
+                "contested": true,
+                "allowed": false,
+            },
+        }));
+        assert_eq!(
+            serde_json::to_value(&waiting).expect("serializes"),
+            serde_json::json!({
+                "active": true,
+                "expiresAt": 1_792_000_300_000_u64,
+                "redeemed": false,
+                "admin": false,
+                "claim": {
+                    "label": "Finn's iPhone",
+                    "deviceCode": "3F9 AC2",
+                    "at": 1_792_000_000_000_u64,
+                    "contested": true,
+                    "allowed": false,
+                },
+            })
+        );
+
+        let idle = pair_state_from(&serde_json::json!({
+            "active": false, "expiresAt": null, "attemptsRemaining": 0,
+            "redeemed": false, "admin": false, "claim": null,
+        }));
+        assert_eq!(
+            idle,
+            PairState {
+                active: false,
+                expires_at: None,
+                redeemed: false,
+                admin: false,
+                claim: None,
+            }
+        );
+
+        // A claim without a device code to check it by is none; a long
+        // label is kept to what a device may give.
+        let odd = pair_state_from(&serde_json::json!({
+            "active": true,
+            "claim": {"label": "x".repeat(200), "deviceCode": "anything", "at": 1},
+        }));
+        assert_eq!(odd.claim, None);
+        let long = pair_state_from(&serde_json::json!({
+            "active": true,
+            "claim": {"label": "x".repeat(200), "deviceCode": "3F9 AC2", "at": 1},
+        }));
+        let claim = long.claim.expect("a claim");
+        assert_eq!(
+            claim.label.map(|l| l.chars().count()),
+            Some(MAX_LABEL_CHARS)
+        );
+        assert!(!claim.contested && !claim.allowed);
+    }
+
+    #[test]
+    fn a_decision_says_which_device_it_applied_to_or_why_none() {
+        use reqwest::StatusCode;
+        let decided = decided_from(
+            StatusCode::OK,
+            &serde_json::json!({"ok": true, "label": "Finn's iPhone", "deviceCode": "3F9 AC2"}),
+        );
+        assert_eq!(
+            decided.ok(),
+            Some(Decided {
+                label: Some("Finn's iPhone".into()),
+                device_code: "3F9 AC2".into(),
+            })
+        );
+        let kind = |status, body: serde_json::Value| match decided_from(status, &body) {
+            Err(e) => e.kind,
+            Ok(d) => panic!("decided {d:?}"),
+        };
+        let conflict = StatusCode::CONFLICT;
+        assert_eq!(
+            kind(
+                conflict,
+                serde_json::json!({"ok": false, "error": "changed"})
+            ),
+            "changed"
+        );
+        assert_eq!(
+            kind(
+                conflict,
+                serde_json::json!({"ok": false, "error": "none_waiting"})
+            ),
+            "none_waiting"
+        );
+        assert_eq!(
+            kind(conflict, serde_json::json!({"ok": false, "error": "other"})),
+            "host"
+        );
+        assert_eq!(
+            kind(
+                StatusCode::FORBIDDEN,
+                serde_json::json!({"error": "forbidden"})
+            ),
+            "forbidden"
+        );
+        assert_eq!(
+            kind(StatusCode::UNAUTHORIZED, serde_json::Value::Null),
+            "unauthorized"
+        );
+    }
+
+    fn device(id: &str, created: &str, revoked: bool, this_device: bool) -> Device {
+        Device {
+            device_id: id.into(),
+            label: format!("{id}'s phone"),
+            created: created.into(),
+            last_seen: None,
+            revoked,
+            admin: id == "admin",
+            this_device,
+        }
+    }
+
+    /// The notice tells of devices paired in the last 7 days, newest first:
+    /// not revoked ones, not this one, and not one whose time can't be read.
+    #[test]
+    fn recent_pairings_are_the_last_weeks_still_paired_others() {
+        let now = iso_secs("2026-10-27T12:00:00Z").expect("a time");
+        let devices = vec![
+            device("old", "2026-10-20T11:59:59.000Z", false, false),
+            device("week", "2026-10-20T12:00:00.000Z", false, false),
+            device("admin", "2026-10-27T11:00:00.000Z", false, false),
+            device("today", "2026-10-27T09:30:00.000Z", false, false),
+            device("revoked", "2026-10-26T09:30:00.000Z", true, false),
+            device("me", "2026-10-26T09:30:00.000Z", false, true),
+            device("unreadable", "yesterday", false, false),
+        ];
+        let recent = recent_pairings(devices, now);
+        let ids: Vec<&str> = recent.iter().map(|r| r.device_id.as_str()).collect();
+        assert_eq!(ids, ["admin", "today", "week"]);
+        assert_eq!(
+            serde_json::to_value(&recent[0]).expect("serializes"),
+            serde_json::json!({
+                "deviceId": "admin",
+                "label": "admin's phone",
+                "created": "2026-10-27T11:00:00.000Z",
+                "admin": true,
+            })
+        );
     }
 }
 

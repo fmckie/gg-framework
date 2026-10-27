@@ -85,8 +85,12 @@ export interface LinkStatus {
   debugBuild: boolean;
 }
 
-/** The step a pairing is on, as it begins (PairStage in packages/kleio-link). */
-export type PairStage = "relay" | "host" | "pairing";
+/**
+ * The step a pairing is on, as it begins (PairStage in packages/kleio-link):
+ * its three steps by name, then the wait for an admin's Allow on the host,
+ * with this device's code, which the admin is asked about too.
+ */
+export type PairStage = "relay" | "host" | "pairing" | { waiting: { deviceCode: string } };
 
 /** What the confirm step shows for a link ticket. */
 export interface TicketCheck {
@@ -125,13 +129,19 @@ export const kleioLink = {
   checkTicket: (ticket: string) => invoke<TicketCheck>("kleio_link_check_ticket", { ticket }),
   /**
    * Pairs and switches the pairing on, as `pair` then `activatePairing` do,
-   * telling `onStage` each step as it begins.
+   * telling `onStage` each step as it begins, then the wait for an admin's
+   * Allow.
    */
   pair: (ticket: string, label: string, onStage?: (stage: PairStage) => void) =>
     invoke<HostRecord>(
       "kleio_link_pair",
       onStage ? { ticket, label, onStage: new Channel<PairStage>(onStage) } : { ticket, label },
     ),
+  /**
+   * Stops the pairing under way (Cancel on its wait): `pair` then fails with
+   * "Pairing was cancelled." and saves nothing.
+   */
+  cancelPair: () => invoke<void>("kleio_link_pair_cancel"),
 };
 
 /**

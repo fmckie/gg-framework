@@ -4,12 +4,13 @@
     "Each case has words of its own: gg-app/src/kleio/LinkPairing.test.tsx checks no two are the same.",
     "`from` names what says it: the link's PairError (src/pair.rs) or TicketError (src/ticket.rs), or a file in gg-app/src/kleio. Each one's tests check its words against these.",
     "{host}, {device} and {relay} stand for the host's name, this device (iPhone or Mac) and the relay's host name.",
-    "`stages` are the three steps pairing shows while it runs, by PairStage."
+    "`stages` are what pairing shows while it runs, by PairStage: its three steps, then the wait for an admin's Allow, which shows the device code beside its words. The link says \"this device\" for {device}."
   ],
   "stages": {
     "relay": "Reaching the relay…",
     "host": "Finding your host…",
-    "pairing": "Pairing…"
+    "pairing": "Pairing…",
+    "waiting": "Waiting for your host to allow this {device}…"
   },
   "cases": [
     {
@@ -101,6 +102,30 @@
       "case": "A relay that can't be reached",
       "from": ["pair.rs"],
       "message": "Kleio can't reach the relay in this QR code ({relay}). Check this device is online, or try another network."
+    },
+    {
+      "id": "denied",
+      "case": "An admin's Deny, or the QR code closed or run out while the device waited",
+      "from": ["pair.rs"],
+      "message": "Your host didn't allow this device. To try again, show a new QR code on your host and scan that."
+    },
+    {
+      "id": "claimed",
+      "case": "A QR code another device is already waiting on",
+      "from": ["pair.rs"],
+      "message": "Another device is already waiting to pair with this QR code. Show a new QR code on your host and scan that."
+    },
+    {
+      "id": "not-allowed-in-time",
+      "case": "No admin's Allow within 2 minutes",
+      "from": ["pair.rs"],
+      "message": "Nobody allowed this device on your host within 2 minutes. Show a new QR code on your host, scan it, then allow the device there."
+    },
+    {
+      "id": "update-required",
+      "case": "A host whose kleio-link-host is older than its kleio-host, so the device's wait isn't passed on",
+      "from": ["pair.rs"],
+      "message": "Part of Kleio on your host is out of date, so it can't pair this device. Update Kleio on your host, then show a new QR code."
     },
     {
       "id": "prototype",
