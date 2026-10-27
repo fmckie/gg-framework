@@ -9,6 +9,7 @@ import {
   SdkHttpError,
   StreamableHTTPClientTransport,
   SSEClientTransport,
+  SseError,
   UnauthorizedError,
 } from "@modelcontextprotocol/client";
 import type { ElicitRequest, ElicitResult } from "@modelcontextprotocol/client";
@@ -387,7 +388,9 @@ export class MCPClientManager {
         return { name, ok: true, toolCount: result.value.length, tools: result.value };
       }
       const requiresAuth = isUnauthorized(result.reason);
-      const error = requiresAuth ? "Requires login." : formatConnectError(result.reason);
+      const error = requiresAuth
+        ? "Requires login."
+        : formatConnectError(result.reason, enabled[i].url);
       log("WARN", "mcp", `Failed to connect to MCP server "${name}"`, { error });
       return { name, ok: false, toolCount: 0, tools: [], error, requiresAuth };
     });
@@ -425,7 +428,7 @@ export class MCPClientManager {
       return { name: config.name, ok: true, toolCount: tools.length, tools };
     } catch (err) {
       const requiresAuth = isUnauthorized(err);
-      const error = requiresAuth ? "Requires login." : formatConnectError(err);
+      const error = requiresAuth ? "Requires login." : formatConnectError(err, config.url);
       return { name: config.name, ok: false, toolCount: 0, tools: [], error, requiresAuth };
     }
   }
@@ -559,7 +562,7 @@ export class MCPClientManager {
       await verifyClient.close().catch(() => {});
       return { ok: true, toolCount: tools.length };
     } catch (err) {
-      return { ok: false, toolCount: 0, error: formatConnectError(err) };
+      return { ok: false, toolCount: 0, error: formatConnectError(err, url) };
     } finally {
       clearTimeout(overallTimeout);
       server.close();
@@ -741,7 +744,7 @@ export class MCPClientManager {
                 await this.reconnectServer(config);
                 if (!context?.signal?.aborted) return await callOnce();
               } catch (retryErr) {
-                return `MCP tool error: ${formatConnectError(retryErr)}`;
+                return `MCP tool error: ${formatConnectError(retryErr, config.url)}`;
               }
             }
             const msg = err instanceof Error ? err.message : String(err);
@@ -874,7 +877,14 @@ export class MCPClientManager {
       });
       const transport = sseTransport();
       const client = this.createClient(config.name, negotiate);
-      await client.connect(transport, connectOptions);
+      try {
+        await client.connect(transport, connectOptions);
+      } catch (sseErr) {
+        // A refused redirect names where the server has moved. The SSE attempt
+        // at the same URL can fail some other way (its GET may follow a
+        // same-origin redirect to an endpoint that won't stream), hiding that.
+        throw describeRefusedRedirect(streamableErr) ? streamableErr : sseErr;
+      }
       return { client, transport };
     }
   }
@@ -927,9 +937,12 @@ export class MCPClientManager {
  * crossed the wire) and `SdkError` (a purely local failure: timeout, closed
  * connection, HTTP status). Matching the typed classes gives far better wording
  * than sniffing message text, which survives only as the fallback for errors
- * thrown before the SDK's machinery engages (raw fetch failures).
+ * thrown before the SDK's machinery engages (raw fetch failures). `serverUrl`,
+ * when known, lets a refused redirect say that it left the server's origin.
  */
-function formatConnectError(reason: unknown): string {
+function formatConnectError(reason: unknown, serverUrl?: string | URL): string {
+  const redirect = describeRefusedRedirect(reason, serverUrl);
+  if (redirect) return redirect;
   if (SdkHttpError.isInstance(reason)) {
     if (reason.status === 429) return "Rate limited (429) — try again in a moment.";
     const statusText = reason.statusText ? ` ${reason.statusText}` : "";
@@ -952,6 +965,55 @@ function formatConnectError(reason: unknown): string {
     return "Rate limited (429) — try again in a moment.";
   }
   return msg;
+}
+
+/** Statuses whose response can carry a redirect the SDK declined to follow. */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/** The 3xx status a failed HTTP or SSE request carries, if it carries one. */
+function redirectStatus(reason: unknown): number | undefined {
+  let status: number | undefined;
+  if (SdkHttpError.isInstance(reason)) status = reason.status;
+  else if (SseError.isInstance(reason)) status = reason.code;
+  return status !== undefined && REDIRECT_STATUSES.has(status) ? status : undefined;
+}
+
+/**
+ * A clear message for a redirect the SDK refused to follow, or undefined if
+ * `reason` isn't one. Since SDK 2.3 the HTTP transports follow a redirect only
+ * when it stays on the request's origin and keeps its method (`redirectPolicy:
+ * 'same-origin'`, the default). This client keeps that default, so a server
+ * can't send the configured headers or tokens to another origin. The SDK fails
+ * the request with the 3xx status and names the target, without credentials,
+ * query or fragment, only in the error's text, so it is read from there. A
+ * target that isn't an http(s) URL is not repeated.
+ */
+function describeRefusedRedirect(reason: unknown, serverUrl?: string | URL): string | undefined {
+  if (redirectStatus(reason) === undefined || !(reason instanceof Error)) return undefined;
+  // An https endpoint redirected to plain http: the SDK names the https form.
+  const httpsForm = httpUrl(/try (\S+) as the endpoint/.exec(reason.message)?.[1]);
+  if (httpsForm) {
+    return `Server redirected from https to plain http, so the redirect wasn't followed. If the server answers at ${httpsForm.href}, use that URL instead.`;
+  }
+  const target = httpUrl(/Redirect to (\S+) not followed/.exec(reason.message)?.[1]);
+  if (!target) return undefined;
+  const server = httpUrl(serverUrl);
+  const outcome =
+    server && server.origin !== target.origin
+      ? "a different origin, so the redirect wasn't followed"
+      : "which wasn't followed";
+  return `Server redirected to ${target.href}, ${outcome}. If that is the right server, use that URL instead.`;
+}
+
+/** `value` as an http or https URL, or undefined if it isn't one. */
+function httpUrl(value: string | URL | undefined): URL | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -999,6 +1061,9 @@ function isSessionExpired(reason: unknown): boolean {
  */
 function isUnauthorized(reason: unknown): boolean {
   if (UnauthorizedError.isInstance(reason)) return true;
+  // A redirect is never a login prompt, even when its target's text holds
+  // "401" (in a port or a path) for the string check below to find.
+  if (redirectStatus(reason) !== undefined) return false;
   if (SdkHttpError.isInstance(reason)) return reason.status === 401;
   // Token/grant/client codes mean "log in again"; the rest (server_error,
   // temporarily_unavailable, …) are transient, not an auth gap.

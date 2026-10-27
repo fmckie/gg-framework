@@ -1,3 +1,4 @@
+import http from "node:http";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KLEIO_PRODUCT_PROFILE } from "@kleio/core";
 import { MCPClientManager, resolveMcpClientName } from "./client.js";
@@ -149,5 +150,111 @@ describe("MCPClientManager client identity wiring", () => {
       name: "ggcoder",
       version: "1.0.0",
     });
+  });
+});
+
+/** A local HTTP server on a free port, and its origin. */
+async function listen(
+  handler: http.RequestListener,
+): Promise<{ origin: string; close: () => Promise<void> }> {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("Server has no port.");
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/**
+ * Builds the SDK's real transports from the options the manager passes, and
+ * connects a real client over the latest one, so a test runs the SDK's own
+ * redirect handling on the manager's own settings.
+ */
+async function useRealTransports(): Promise<void> {
+  const sdk = await vi.importActual<typeof McpClient>("@modelcontextprotocol/client");
+  let connect = (): Promise<void> => Promise.reject(new Error("No transport was built."));
+  const over = (transport: McpClient.Transport) => () =>
+    new sdk.Client({ name: "test", version: "1.0.0" }).connect(transport);
+  sdkMocks.streamableTransport.mockImplementation(
+    (url: URL, options: McpClient.StreamableHTTPClientTransportOptions) => {
+      connect = over(new sdk.StreamableHTTPClientTransport(url, options));
+    },
+  );
+  sdkMocks.sseTransport.mockImplementation(
+    (url: URL, options: McpClient.SSEClientTransportOptions) => {
+      connect = over(new sdk.SSEClientTransport(url, options));
+    },
+  );
+  sdkMocks.connect.mockImplementation(() => connect());
+}
+
+describe("MCPClientManager redirects", () => {
+  it.each([
+    { transport: undefined, over: "Streamable HTTP, then SSE" },
+    { transport: "sse" as const, over: "SSE" },
+  ])(
+    "refuses one to another origin over $over, sends it nothing, and names it",
+    async ({ transport }) => {
+      await useRealTransports();
+      const reached: string[] = [];
+      const elsewhere = await listen((req, res) => {
+        reached.push(`${req.method} ${req.url}`);
+        res.writeHead(404).end();
+      });
+      // The 401 in the path: a text match on "401" must not take this for a login prompt.
+      const moved = `${elsewhere.origin}/moved/401/mcp`;
+      const server = await listen((_req, res) => {
+        res.writeHead(307, { Location: `${moved}?key=secret` }).end();
+      });
+      try {
+        const manager = new MCPClientManager({ environment: {} });
+        const [result] = await manager.connectAllDetailed([
+          {
+            name: "moved",
+            url: `${server.origin}/mcp`,
+            transport,
+            headers: { Authorization: "Bearer token" },
+          },
+        ]);
+
+        expect(result).toMatchObject({
+          ok: false,
+          requiresAuth: false,
+          error: `Server redirected to ${moved}, a different origin, so the redirect wasn't followed. If that is the right server, use that URL instead.`,
+        });
+        expect(reached).toEqual([]);
+      } finally {
+        await Promise.all([server.close(), elsewhere.close()]);
+      }
+    },
+  );
+
+  it("reports a same-origin redirect it refused, not what the SSE fallback met next", async () => {
+    await useRealTransports();
+    // A POST redirected with 301 would turn into a GET, so the SDK refuses it
+    // even on the same origin; the SSE fallback's GET follows it, then fails.
+    const server = await listen((req, res) => {
+      if (req.url === "/mcp") res.writeHead(301, { Location: "/mcp/" }).end();
+      else res.writeHead(405).end();
+    });
+    try {
+      const manager = new MCPClientManager({ environment: {} });
+      const [result] = await manager.connectAllDetailed([
+        { name: "slash", url: `${server.origin}/mcp` },
+      ]);
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: `Server redirected to ${server.origin}/mcp/, which wasn't followed. If that is the right server, use that URL instead.`,
+      });
+    } finally {
+      await server.close();
+    }
   });
 });
