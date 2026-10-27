@@ -11,9 +11,10 @@
 //!   connection, the stream gets a 502 that says so.
 //! - Each `kleio/pair/0` connection carries one redeem request, which goes to
 //!   kleio-host's `POST /kleio/pair/redeem` the same way, so kleio-host binds
-//!   the new device to the phone's key. At most 10 a minute, one at a time,
-//!   and at most [`MAX_UNPAIRED`] connections not yet known to be paired at
-//!   once.
+//!   the new device to the phone's key once an admin allows it. A phone
+//!   waiting for that asks again on a new connection. At most 10 a minute,
+//!   one at a time, and at most [`MAX_UNPAIRED`] connections not yet known to
+//!   be paired at once.
 //! - Once a second, housekeeping (report.rs): the allow-list and the secret
 //!   read again when they change, connections from keys taken off the list
 //!   closed, and `link/state.json` written for kleio-host.
@@ -326,7 +327,7 @@ mod tests {
     use super::*;
     use crate::forward::Forward;
     use crate::link::Link;
-    use crate::pair::{redeem, PairError, Refusal};
+    use crate::pair::{redeem, PairError, Refusal, ALLOW_WAIT};
     use crate::testing::{
         loopback_addr, loopback_endpoint, mode, on_loopback, within_30_s, TempDir,
     };
@@ -682,7 +683,7 @@ mod tests {
             let rig = start_host_with(tmp, upstream, MAX_UNPAIRED).await;
             let phone = loopback_endpoint(2, &[]).await;
 
-            let payload = redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone")
+            let payload = redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
                 .await
                 .expect("pairs");
             assert_eq!(payload["deviceId"], "d1");
@@ -696,7 +697,8 @@ mod tests {
             assert_eq!(sent["code"], "ABCDEF");
             assert_eq!(sent["label"], "Test iPhone");
             assert_eq!(sent["redemptionNonce"].as_str().map(str::len), Some(32));
-            assert_eq!(sent.as_object().map(|fields| fields.len()), Some(3));
+            assert_eq!(sent["waits"], true);
+            assert_eq!(sent.as_object().map(|fields| fields.len()), Some(4));
 
             // The list kleio-host wrote was read before the phone got its
             // answer, so its HTTP gets through at once.
@@ -718,7 +720,7 @@ mod tests {
             let (upstream, _requests) = fake_kleio_host(Some(paired), None).await;
             let rig = start_host("host-pair-unwritten", upstream).await;
             let phone = loopback_endpoint(2, &[]).await;
-            redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone")
+            redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
                 .await
                 .expect("pairs");
             assert!(rig.allow.contains(&phone.id()));
@@ -734,7 +736,15 @@ mod tests {
             let rig = start_host("host-pair-refused", upstream).await;
             let phone = loopback_endpoint(2, &[]).await;
 
-            let outcome = redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone").await;
+            let outcome = redeem(
+                &phone,
+                loopback_addr(&rig.host),
+                "ABC-DEF",
+                "Test iPhone",
+                ALLOW_WAIT,
+                |_| {},
+            )
+            .await;
             assert_eq!(outcome, Err(PairError::Refused(Refusal::Used)));
             assert!(!rig.allow.contains(&phone.id()));
         })
@@ -749,8 +759,9 @@ mod tests {
             let rig = start_host("host-pair-busy", upstream).await;
             let first = loopback_endpoint(2, &[]).await;
             let addr = loopback_addr(&rig.host);
-            let pending =
-                tokio::spawn(async move { redeem(&first, addr, "ABC-DEF", "First").await });
+            let pending = tokio::spawn(async move {
+                redeem(&first, addr, "ABC-DEF", "First", ALLOW_WAIT, |_| {}).await
+            });
             // Once its request reaches kleio-host, the first pairing has the turn.
             requests.recv().await.expect("the first request");
 
@@ -775,8 +786,9 @@ mod tests {
             let rig = start_host_with(TempDir::new("host-unpaired-cap"), upstream, 1).await;
             let first = loopback_endpoint(2, &[]).await;
             let addr = loopback_addr(&rig.host);
-            let pending =
-                tokio::spawn(async move { redeem(&first, addr, "ABC-DEF", "First").await });
+            let pending = tokio::spawn(async move {
+                redeem(&first, addr, "ABC-DEF", "First", ALLOW_WAIT, |_| {}).await
+            });
             requests.recv().await.expect("the first request");
 
             // Refused outright, not closed by the budget after a handshake.

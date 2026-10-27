@@ -4,8 +4,10 @@
 //! the path log.
 //!
 //! - **Its own pairing.** `kleio_link_pair` redeems a scanned or pasted v4
-//!   ticket's code on `kleio/pair/0`, in the library's three steps, which it
-//!   tells the webview as each begins, each failure in its own words. It's
+//!   ticket's code on `kleio/pair/0`, in the library's three steps, then
+//!   waits for an admin's Allow on the host. It tells the webview each step
+//!   as it begins, the wait with this device's code, and each failure in its
+//!   own words. `kleio_link_pair_cancel` stops the wait. It's
 //!   kept apart from the Tailscale pairing: `link.json`
 //!   beside `remote.json` holds the host's key, the relay it was reached
 //!   through, and its relay list and direct addresses, and the Keychain
@@ -59,7 +61,7 @@ use kleio_link::endpoint::{bind_client, EndpointOptions, IDLE_TIMEOUT};
 use kleio_link::forward::Forward;
 use kleio_link::iroh::{Endpoint, EndpointId, RelayUrl, SecretKey};
 use kleio_link::link::{Link, LinkError, Route, Unreached};
-use kleio_link::pair::{pair, PairStage};
+use kleio_link::pair::{pair_until, PairStage};
 use kleio_link::paths::{PathEvents, PathLine};
 use kleio_link::probe::HttpsProbe;
 use kleio_link::relays::{
@@ -834,6 +836,7 @@ pub fn setup(app: &AppHandle) {
     // Fails only if a subscriber is set already, which then keeps the lines.
     let _ = tracing::subscriber::set_global_default(LogBridge);
     app.manage(LinkRuntime::default());
+    app.manage(PairCancel::default());
     // The pairing QR's scanner: only the iPhone build has the plugin. Without
     // the grant, a scan fails and the pairing form says so.
     #[cfg(target_os = "ios")]
@@ -1172,11 +1175,54 @@ fn parse_ticket(raw: &str) -> Result<Ticket, String> {
     raw.trim().parse::<Ticket>().map_err(|e| e.to_string())
 }
 
+/// What `kleio_link_pair` ends with once `kleio_link_pair_cancel` stopped
+/// it. The waiting screen's Cancel asked for that, so it shows nothing more.
+pub const PAIRING_CANCELLED: &str = "Pairing was cancelled.";
+
+/// Cancel on the phone's waiting screen (Tauri state): a link pairing under
+/// way stops when `kleio_link_pair_cancel` bumps this.
+pub struct PairCancel(tokio::sync::watch::Sender<u64>);
+
+impl Default for PairCancel {
+    fn default() -> Self {
+        Self(tokio::sync::watch::channel(0).0)
+    }
+}
+
+impl PairCancel {
+    /// Completes at the next cancel, so one before a pairing starts doesn't
+    /// stop it.
+    fn stopped(&self) -> impl Future<Output = ()> + Send + 'static {
+        let mut cancels = self.0.subscribe();
+        async move {
+            // An error means the state is gone, and the app with it.
+            let _ = cancels.changed().await;
+        }
+    }
+
+    fn cancel(&self) {
+        self.0
+            .send_modify(|cancels| *cancels = cancels.wrapping_add(1));
+    }
+}
+
+/// Stops the link pairing under way, if one is: Cancel on its waiting
+/// screen. `kleio_link_pair` then asks the host no more, saves nothing and
+/// ends with [`PAIRING_CANCELLED`].
+#[tauri::command]
+pub fn kleio_link_pair_cancel(cancel: State<'_, PairCancel>) {
+    log::info!("kleio-link: cancelling the pairing under way");
+    cancel.cancel();
+}
+
 /// Pairs over the link with the host a ticket names: reaches the ticket's
 /// relay, dials the host's key on `kleio/pair/0` and redeems the ticket's
-/// code with a new key for this device, telling `on_stage` each of those
-/// steps as it begins, if the webview gave a channel. Each way that can fail
-/// has its own error (`PairError`). It saves the pairing apart from the
+/// code with a new key for this device, then waits for an admin's Allow on
+/// the host. It tells `on_stage` each of those steps as it begins, if the
+/// webview gave a channel: the wait with this device's code, which the
+/// admin is asked about too. Each way that can fail has its own error
+/// (`PairError`), and `kleio_link_pair_cancel` stops it with
+/// [`PAIRING_CANCELLED`]. It saves the pairing apart from the
 /// Tailscale one. Then it switches the pairing on as
 /// `kleio_activate_pairing` does after `kleio_pair` (`super::activate_paired`):
 /// in place on an iPhone that wasn't paired, at the next launch otherwise.
@@ -1205,7 +1251,20 @@ pub async fn kleio_link_pair(
             let _ = stages.send(stage);
         }
     };
-    let answer = pair(key.clone(), &ticket, &label, &options, &probe, stage).await;
+    let stopped = app.state::<PairCancel>().stopped();
+    let pairing = pair_until(
+        key.clone(),
+        &ticket,
+        &label,
+        &options,
+        &probe,
+        stage,
+        stopped,
+    );
+    let Some(answer) = pairing.await else {
+        log::info!("kleio-link: pairing cancelled");
+        return Err(PAIRING_CANCELLED.to_string());
+    };
     let payload = commands::checked_link_payload(answer.map_err(|e| e.to_string())?)?;
     let account = keychain_host(&payload.host);
     commands::keep_secrets(&account, &payload)?;
@@ -1554,6 +1613,17 @@ mod tests {
             paired_at: "2026-10-17T00:00:00Z".into(),
             preview_origin: Some("https://mac-mini-1.x.ts.net:8444".into()),
         }
+    }
+
+    #[test]
+    fn cancel_stops_a_pairing_under_way_but_not_one_started_after() {
+        let cancel = PairCancel::default();
+        let ms = Duration::from_millis;
+        assert!(block_on_within(ms(20), cancel.stopped()).is_err());
+        let under_way = cancel.stopped();
+        cancel.cancel();
+        assert_eq!(block_on_within(Duration::from_secs(5), under_way), Ok(()));
+        assert!(block_on_within(ms(20), cancel.stopped()).is_err());
     }
 
     #[test]

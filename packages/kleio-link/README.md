@@ -63,8 +63,20 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   - It travels only inside the encrypted connection to the key the QR code names, so only that
     host sees it.
   - The QR code never holds a token.
-  - Anyone with a photo of a live QR code can still pair within its 5 minutes. So kleio-host
-    pushes an alert about every new pairing to each admin device.
+- **A device pairs only once an admin allows it**
+  ([ADR 0003](../../docs/adr/0003-link-pairing-needs-approval.md)), so a photo of a live QR code
+  isn't enough:
+  - the first device to bring the code holds it, by its key and nonce, and any other gets
+    `claimed`;
+  - the admin is shown its name and its **device code**, the first 6 hex characters of its key in
+    capitals (`3F9 AC2`), which the app shows too, and answers **Allow** or **Deny**;
+  - the app makes a new key for each pairing, so nobody can have one ready with a chosen code;
+  - kleio-host still tells admins about each new pairing, with a push alert where push is set up
+    and a notice in the app.
+- **The phone waits for the Allow, for up to 2 minutes.** kleio-host holds each request up to 5 s,
+  inside the forwarder's 10 s, then answers `pending`. The phone asks again with the same request,
+  on a new connection, after the `retryAfterMs` it's given (3 s). Each ask is one pairing in the
+  budget above. While it waits, `PAIR_BUSY` and a failed connection are asked again too.
 - **A device token is no use without its device's key:**
   - on the link, a token works only from the key its device paired with;
   - a device paired over the link isn't let in on kleio-host's API port (8443, Tailscale Serve's);
@@ -366,6 +378,8 @@ kleio-link-host help                     # all of it, with the test options
 - **`kleio-host pair` runs `qr` itself.** It looks for the binary in `bin/` beside its `dist/`, or
   at `KLEIO_LINK_HOST_BIN`. `qr` reads the ticket on stdin, so the code never shows in a process
   list.
+- **`client --pair` waits for an admin's Allow,** as a phone does. Its device code is the start of
+  the `client key` it logs: `client key 3f9ac2b1d4` is `3F9 AC2`.
 - **The test client's requests need the link's `Host`.** kleio-host refuses `Host: 127.0.0.1:<port>`
   on the link, so through `client`, use
   `curl -H 'Host: link.kleio.invalid' http://127.0.0.1:<port>/kleio/health`.
@@ -477,11 +491,12 @@ cargo test --locked --features host --test end_to_end -- --ignored
 ```
 
 - **`tests/relayed.rs`** runs with relays in the test process and a stand-in for kleio-host, so it
-  needs no network. It covers pairing (and a used, wrong or expired code), telling a missing relay
-  from a missing host, the codes a stranger and a revoked device get, a revoke within 2 s, the 502,
-  failover, and a relay's rate limit.
+  needs no network. It covers pairing (and a used, wrong or expired code), a phone stopped while
+  it waits for an Allow, telling a missing relay from a missing host, the codes a stranger and a
+  revoked device get, a revoke within 2 s, the 502, failover, and a relay's rate limit.
 - **`tests/end_to_end.rs`** runs the real kleio-host and kleio-link-host, with a relay and a phone
-  in the test process. CI runs it on Linux, macOS and Windows.
+  in the test process. An admin allows the phone through `POST /kleio/pair/decide`, by the device
+  code it shows, and denies a second phone. CI runs it on Linux, macOS and Windows.
 - **`tests/pacing.rs`** sends a 45 MiB answer through a relay limited to 1 MiB/s, with a request
   alongside it each second. Each must take under 1 s, and the answer must come at 90% of the limit
   or better. It takes about 50 s.

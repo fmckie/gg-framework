@@ -88,12 +88,19 @@ function ScanOverlay(): React.ReactElement {
   );
 }
 
-/** What each pairing step shows while it runs (PairStage::text in pair.rs). */
-export const PAIR_STAGE_TEXT: Record<PairStage, string> = {
+/** What each of pairing's three steps shows while it runs (PairStage::text in pair.rs). */
+export const PAIR_STAGE_TEXT: Record<Extract<PairStage, string>, string> = {
   relay: "Reaching the relay…",
   host: "Finding your host…",
   pairing: "Pairing…",
 };
+
+/** What pairing shows on `stage`, on this device: one of its steps, or the wait for an Allow. */
+export function pairStageText(stage: PairStage, device: "iPhone" | "Mac"): string {
+  return typeof stage === "string"
+    ? PAIR_STAGE_TEXT[stage]
+    : `Waiting for your host to allow this ${device}…`;
+}
 
 /** What pairing says on a device with no network at all. */
 export function pairingOffline(device: "iPhone" | "Mac"): string {
@@ -172,10 +179,12 @@ export function TicketPaste({
 
 /**
  * A link ticket's confirm step: the host it names, then Pair over the link,
- * which shows each step as it begins and says why if it fails. A device with
- * no network at all doesn't dial. `onPaired` gets the link's status after
- * pairing (`null` if it couldn't be read): `active` says the pairing switched
- * on in place.
+ * which shows each step as it begins and says why if it fails. Then it waits
+ * for an admin's Allow on the host, showing this device's code, which the
+ * admin is asked about too; Cancel stops the wait and goes back. A device
+ * with no network at all doesn't dial. `onPaired` gets the link's status
+ * after pairing (`null` if it couldn't be read): `active` says the pairing
+ * switched on in place.
  */
 export function LinkConfirm({
   ticket,
@@ -196,12 +205,22 @@ export function LinkConfirm({
   const [stage, setStage] = useState<PairStage>("relay");
   const [error, setError] = useState<string | null>(null);
   const backRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // Cancel was pressed on the wait, so the pairing's failure is no failure.
+  const cancelled = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
   const device = isPhone() ? "iPhone" : "Mac";
+  // This device's code while it waits for an admin's Allow.
+  const waitingCode = busy && typeof stage === "object" ? stage.waiting.deviceCode : null;
 
   // The step replaces the focused button: focus the safe choice.
   useEffect(() => {
     backRef.current?.focus();
   }, []);
+  // The wait replaces Pair, which had focus: focus its way out.
+  useEffect(() => {
+    if (waitingCode !== null) cancelRef.current?.focus();
+  }, [waitingCode]);
 
   const pair = useCallback(async () => {
     setError(null);
@@ -210,19 +229,46 @@ export function LinkConfirm({
       setError(pairingOffline(device));
       return;
     }
+    cancelled.current = false;
     setBusy(true);
     setStage("relay");
+    let paired = false;
     try {
       // Pairs and switches the pairing on, as pair + activatePairing do.
       await kleioLink.pair(ticket, label, setStage);
+      paired = true;
       await onPaired(await kleioLink.status().catch(() => null));
     } catch (e) {
+      if (!paired && cancelled.current) {
+        // Cancel on the wait: nothing went wrong. The host keeps this QR code
+        // for the device that waited, so trying it again here would be turned
+        // away: back, for a new one.
+        onBack();
+        return;
+      }
       // Gone offline on the way: that's why it failed, whatever the link saw.
       setError(navigator.onLine ? explainError(e) : pairingOffline(device));
     } finally {
       setBusy(false);
+      setCancelling(false);
     }
-  }, [ticket, label, onPaired, device]);
+  }, [ticket, label, onPaired, onBack, device]);
+
+  const cancel = (): void => {
+    cancelled.current = true;
+    setCancelling(true);
+    kleioLink.cancelPair().catch((e: unknown) => {
+      // Still waiting: say why it couldn't stop.
+      cancelled.current = false;
+      setCancelling(false);
+      setError(explainError(e));
+    });
+  };
+  const spoken = !busy
+    ? ""
+    : waitingCode === null
+      ? pairStageText(stage, device)
+      : `${pairStageText(stage, device)} Device code ${waitingCode}.`;
 
   return (
     <form
@@ -263,6 +309,16 @@ export function LinkConfirm({
         maxLength={64}
         disabled={busy}
       />
+      {waitingCode !== null && (
+        <div className="kleio-pair-wait">
+          <p>{pairStageText(stage, device)}</p>
+          <p className="conn-pair-codeline">
+            <span className="conn-pair-label">Device code</span>{" "}
+            <code className="conn-pair-code">{waitingCode}</code>
+          </p>
+          <p className="modal-hint">Allow it on your host only if your host shows the same code.</p>
+        </div>
+      )}
       {error && (
         <p className="modal-error" role="alert">
           {error}
@@ -270,15 +326,29 @@ export function LinkConfirm({
       )}
       {/* There before it speaks, so a screen reader hears each step. */}
       <p className="sr-only" role="status">
-        {busy ? PAIR_STAGE_TEXT[stage] : ""}
+        {spoken}
       </p>
       <div className="modal-actions">
-        <button ref={backRef} type="button" className="btn" disabled={busy} onClick={onBack}>
-          Back
-        </button>
-        <button type="submit" className="btn btn-primary" disabled={busy}>
-          {busy ? PAIR_STAGE_TEXT[stage] : "Pair"}
-        </button>
+        {waitingCode !== null ? (
+          <button
+            ref={cancelRef}
+            type="button"
+            className="btn"
+            disabled={cancelling}
+            onClick={cancel}
+          >
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        ) : (
+          <>
+            <button ref={backRef} type="button" className="btn" disabled={busy} onClick={onBack}>
+              Back
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={busy}>
+              {busy ? pairStageText(stage, device) : "Pair"}
+            </button>
+          </>
+        )}
       </div>
     </form>
   );

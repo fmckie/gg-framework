@@ -182,6 +182,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
+import { NewPairingNotice } from "./kleio/LazyNewPairingNotice";
 import { talkToKleio } from "./kleio/VoiceMode";
 import {
   useOpenFromHost,
@@ -2961,6 +2962,9 @@ function App(): React.ReactElement {
         )}
         {/* At the bottom of home and Kleio's pages too, not only in a chat. */}
         <UpdateBanner update={appUpdate} />
+        {/* kleio: "New device paired" over every view. The one key keeps a
+            single instance across them (NewPairingNotice.tsx). */}
+        <NewPairingNotice key="new-pairing-notice" active={kleioRemote.status?.active ?? null} />
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
         {showKleioRemote && <RemoteHostModal onClose={() => setShowKleioRemote(false)} />}
         {/* ⌘⇧L works from Home and Settings too, not only over a workspace. */}
@@ -3003,6 +3007,7 @@ function App(): React.ReactElement {
           <ProjectPicker initialProjectPath={state?.cwd ?? null} {...pickerProps} />
         )}
         <UpdateBanner update={appUpdate} />
+        <NewPairingNotice key="new-pairing-notice" active={kleioRemote.status?.active ?? null} />
         {showTraySettings && <SettingsModal onClose={closeTraySettings} />}
       </div>
     );
@@ -3749,6 +3754,7 @@ function App(): React.ReactElement {
       </div>
 
       <UpdateBanner update={appUpdate} />
+      <NewPairingNotice key="new-pairing-notice" active={kleioRemote.status?.active ?? null} />
 
       {workspaceMode === "code" && showInitGit && (
         <InitGitModal

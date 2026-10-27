@@ -24,9 +24,15 @@ import {
   type LinkListener,
   type TicketInput,
 } from "../src/link.js";
-import { newRedemptionNonce, PAIR_MAX_ATTEMPTS, type PairingPayload } from "../src/pair-code.js";
+import {
+  formatDeviceCode,
+  newRedemptionNonce,
+  PAIR_MAX_ATTEMPTS,
+  PAIR_RETRY_AFTER_MS,
+  type PairingPayload,
+} from "../src/pair-code.js";
 import type { RelayPing } from "../src/link-relays.js";
-import { createPairOfferStore } from "../src/pair-offer.js";
+import { createPairOfferStore, type PairOfferStoreDeps } from "../src/pair-offer.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
@@ -395,6 +401,8 @@ describe("the link in the host", () => {
       port?: number;
       publicUrl?: boolean;
       pingRelay?: (relay: string) => Promise<RelayPing>;
+      /** How a waiting phone's request is held; by default it isn't, and hears `pending` at once. */
+      hold?: PairOfferStoreDeps["hold"];
     } = {},
   ): Promise<{
     host: Host;
@@ -426,7 +434,7 @@ describe("the link in the host", () => {
       ...(link.publicUrl ? { publicBaseUrl: PUBLIC_URL } : {}),
       nodeId: NODE_ID,
       registry,
-      offers: createPairOfferStore(),
+      offers: createPairOfferStore({ hold: link.hold ?? (async () => {}) }),
       rings: createRingStore({ directory: join(scratch, "rings"), maxFrames: 50 }),
       sidecarEndpointPath: join(scratch, "sidecar.json"),
       controlRootKey: "control-root-key-for-tests-0123456789",
@@ -481,8 +489,57 @@ describe("the link in the host", () => {
     };
   }
 
-  const redeemBody = (code: string, label: string): string =>
-    JSON.stringify({ code, redemptionNonce: newRedemptionNonce(), label });
+  /** A redemption as the app sends it: it waits for an admin's Allow, unless `waits` is false. */
+  const redeemBody = (
+    code: string,
+    label: string,
+    options: { nonce?: string; waits?: boolean } = {},
+  ): string =>
+    JSON.stringify({
+      code,
+      redemptionNonce: options.nonce ?? newRedemptionNonce(),
+      label,
+      ...(options.waits === false ? {} : { waits: true }),
+    });
+
+  /** An admin's Allow or Deny, on the host's own listener. */
+  const decide = (
+    apiPort: number,
+    adminToken: string,
+    body: unknown,
+  ): Promise<{ status: number; body: string }> =>
+    apiRequest(apiPort, {
+      method: "POST",
+      path: "/kleio/pair/decide",
+      token: adminToken,
+      body: JSON.stringify(body),
+    });
+
+  /** The admin's view of the live code. */
+  const pairState = async (apiPort: number, adminToken: string): Promise<string> =>
+    (await apiRequest(apiPort, { path: "/kleio/pair", token: adminToken })).body;
+
+  /** A phone's redemption over the link, asked as often as the test likes. */
+  const asker =
+    (linkPort: number, key: string, body: string) =>
+    (): Promise<{ status: number; body: string }> =>
+      linkRequest(linkPort, key, { method: "POST", path: "/kleio/pair/redeem", body });
+
+  /**
+   * A phone pairing over the link as the app does it: it hears `pending`, an
+   * admin allows it, and the same request again pairs it.
+   */
+  async function pairOverLink(
+    ports: { apiPort: number; linkPort: number },
+    adminToken: string,
+    code: string,
+    label = "iPhone",
+  ): Promise<{ status: number; body: string }> {
+    const ask = asker(ports.linkPort, KEY_A, redeemBody(code, label));
+    expect((await ask()).status).toBe(202);
+    expect((await decide(ports.apiPort, adminToken, { allow: true })).status).toBe(200);
+    return ask();
+  }
 
   const payloadOf = (body: string): PairingPayload =>
     (JSON.parse(body) as { payload: PairingPayload }).payload;
@@ -747,11 +804,7 @@ describe("the link in the host", () => {
     const { registry, apiPort, linkPort, logs } = await linkHost({ publicUrl: true });
     const admin = await mint(registry, "Admin", undefined, true);
     const { code } = await offer(apiPort, admin.token);
-    const redeem = await linkRequest(linkPort, KEY_A, {
-      method: "POST",
-      path: "/kleio/pair/redeem",
-      body: redeemBody(code, "iPhone"),
-    });
+    const redeem = await pairOverLink({ apiPort, linkPort }, admin.token, code);
     expect(redeem.status).toBe(200);
     const payload = payloadOf(redeem.body);
     expect(payload).not.toHaveProperty("baseUrl");
@@ -771,18 +824,20 @@ describe("the link in the host", () => {
   });
 
   it("pairs on the host's own listener with no key, and gives that device its address", async () => {
-    const { registry, apiPort } = await linkHost({ publicUrl: true });
+    const { registry, apiPort, logs } = await linkHost({ publicUrl: true });
     const admin = await mint(registry, "Admin", undefined, true);
     const { code } = await offer(apiPort, admin.token);
+    // At once, as an app that doesn't wait still may off the link.
     const redeem = await apiRequest(apiPort, {
       method: "POST",
       path: "/kleio/pair/redeem",
-      body: redeemBody(code, "Laptop"),
+      body: redeemBody(code, "Laptop", { waits: false }),
     });
     expect(redeem.status).toBe(200);
     const payload = payloadOf(redeem.body);
     expect(payload.baseUrl).toBe(PUBLIC_URL);
     expect(registry.get(payload.deviceId)?.linkKey).toBeNull();
+    expect(logs).toContain("[pair] Laptop paired off the link (admin=false)");
   });
 
   it("pairing the same phone again replaces its older pairing", async () => {
@@ -790,11 +845,7 @@ describe("the link in the host", () => {
     const admin = await mint(registry, "Admin", undefined, true);
     const pair = async (): Promise<PairingPayload> => {
       const { code } = await offer(apiPort, admin.token);
-      const r = await linkRequest(linkPort, KEY_A, {
-        method: "POST",
-        path: "/kleio/pair/redeem",
-        body: redeemBody(code, "iPhone"),
-      });
+      const r = await pairOverLink({ apiPort, linkPort }, admin.token, code);
       expect(r.status).toBe(200);
       return payloadOf(r.body);
     };
@@ -808,6 +859,171 @@ describe("the link in the host", () => {
     expect(logs.some((l) => l.includes(`replaces ${first.deviceId}, paired with the same`))).toBe(
       true,
     );
+  });
+
+  it("keeps a phone over the link waiting (202) till an admin allows it, and makes nothing meanwhile", async () => {
+    const { registry, apiPort, linkPort, logs } = await linkHost();
+    const admin = await mint(registry, "Admin", undefined, true);
+    const { code } = await offer(apiPort, admin.token);
+    const nonce = newRedemptionNonce();
+    const ask = asker(linkPort, KEY_A, redeemBody(code, "iPhone", { nonce }));
+    const waiting = await ask();
+    expect(waiting.status).toBe(202);
+    expect(JSON.parse(waiting.body)).toEqual({
+      ok: false,
+      error: "pending",
+      retryAfterMs: PAIR_RETRY_AFTER_MS,
+      expiresAt: expect.any(Number),
+    });
+    expect((await ask()).status).toBe(202);
+    expect(registry.list().map((d) => d.label)).toEqual(["Admin"]);
+
+    // The admin sees who's waiting: its name and device code, never its
+    // nonce or whole key. The open health route says only that a code is live.
+    const deviceCode = formatDeviceCode(KEY_A);
+    const state = await pairState(apiPort, admin.token);
+    expect(JSON.parse(state)).toMatchObject({
+      active: true,
+      claim: { label: "iPhone", deviceCode, contested: false, allowed: false },
+    });
+    expect(state).not.toContain(nonce);
+    expect(state).not.toContain(KEY_A);
+    const health = (await apiRequest(apiPort, { path: "/kleio/health" })).body;
+    expect(JSON.parse(health)).toMatchObject({ offer: true });
+    expect(health).not.toContain("iPhone");
+    expect(health).not.toContain(deviceCode);
+
+    const allowed = await decide(apiPort, admin.token, { allow: true, deviceCode });
+    expect(allowed).toMatchObject({
+      status: 200,
+      body: JSON.stringify({ ok: true, label: "iPhone", deviceCode }),
+    });
+    const paired = await ask();
+    expect(paired.status).toBe(200);
+    expect(payloadOf(paired.body)).toMatchObject({ label: "iPhone" });
+    expect(await ask()).toEqual(paired);
+    expect(registry.list().map((d) => d.label)).toEqual(["Admin", "iPhone"]);
+    expect(logs).toContain(`[admin] Admin allowed iPhone (${deviceCode})`);
+    expect(logs).toContain(
+      `[pair] iPhone paired over the link (device code ${deviceCode}, admin=false, allowed by Admin)`,
+    );
+  });
+
+  it("answers a phone the moment an admin allows it, while its request is held", async () => {
+    const { registry, apiPort, linkPort } = await linkHost({
+      // Held until a decision, however long that takes.
+      hold: (_ms, signal) =>
+        new Promise((resolve) => signal.addEventListener("abort", () => resolve())),
+    });
+    const admin = await mint(registry, "Admin", undefined, true);
+    const { code } = await offer(apiPort, admin.token);
+    const held = asker(linkPort, KEY_A, redeemBody(code, "iPhone"))();
+    await expect
+      .poll(async () => JSON.parse(await pairState(apiPort, admin.token)).claim?.label)
+      .toBe("iPhone");
+    expect((await decide(apiPort, admin.token, { allow: true })).status).toBe(200);
+    const paired = await held;
+    expect(paired.status).toBe(200);
+    expect(payloadOf(paired.body)).toMatchObject({ label: "iPhone" });
+  });
+
+  it("turns away another device with the code (409 claimed), at no try's cost, and tells the admin", async () => {
+    const { registry, apiPort, linkPort } = await linkHost();
+    const admin = await mint(registry, "Admin", undefined, true);
+    const { code } = await offer(apiPort, admin.token);
+    expect((await asker(linkPort, KEY_A, redeemBody(code, "iPhone"))()).status).toBe(202);
+    const claimed = { status: 409, body: JSON.stringify({ ok: false, error: "claimed" }) };
+    expect(await asker(linkPort, KEY_B, redeemBody(code, "Stranger"))()).toEqual(claimed);
+    // Off the link too: the code is the waiting phone's now.
+    expect(
+      await apiRequest(apiPort, {
+        method: "POST",
+        path: "/kleio/pair/redeem",
+        body: redeemBody(code, "Laptop"),
+      }),
+    ).toMatchObject(claimed);
+    expect(JSON.parse(await pairState(apiPort, admin.token))).toMatchObject({
+      attemptsRemaining: PAIR_MAX_ATTEMPTS,
+      claim: { label: "iPhone", contested: true },
+    });
+    expect(registry.list().map((d) => d.label)).toEqual(["Admin"]);
+  });
+
+  it("turns a waiting phone down (410 denied) on Deny, or when the code is closed", async () => {
+    const { registry, apiPort, linkPort, logs } = await linkHost();
+    const admin = await mint(registry, "Admin", undefined, true);
+    const turnDown = [
+      (): Promise<{ status: number }> => decide(apiPort, admin.token, { allow: false }),
+      (): Promise<{ status: number }> =>
+        apiRequest(apiPort, { method: "POST", path: "/kleio/pair/revoke", token: admin.token }),
+    ];
+    for (const down of turnDown) {
+      const { code } = await offer(apiPort, admin.token);
+      const ask = asker(linkPort, KEY_A, redeemBody(code, "iPhone"));
+      expect((await ask()).status).toBe(202);
+      expect((await down()).status).toBe(200);
+      expect(await ask()).toEqual({
+        status: 410,
+        body: JSON.stringify({ ok: false, error: "denied" }),
+      });
+    }
+    expect(registry.list().map((d) => d.label)).toEqual(["Admin"]);
+    expect(logs).toContain(`[admin] Admin denied iPhone (${formatDeviceCode(KEY_A)})`);
+  });
+
+  it("refuses an app too old to wait (426 update_required), at no try's cost", async () => {
+    const { registry, apiPort, linkPort } = await linkHost();
+    const admin = await mint(registry, "Admin", undefined, true);
+    const { code } = await offer(apiPort, admin.token);
+    expect(await asker(linkPort, KEY_A, redeemBody(code, "iPhone", { waits: false }))()).toEqual({
+      status: 426,
+      body: JSON.stringify({ ok: false, error: "update_required" }),
+    });
+    expect(JSON.parse(await pairState(apiPort, admin.token))).toMatchObject({
+      active: true,
+      attemptsRemaining: PAIR_MAX_ATTEMPTS,
+      claim: null,
+    });
+    expect(registry.list().map((d) => d.label)).toEqual(["Admin"]);
+  });
+
+  it("decides only on a device that's waiting, and the one the admin was shown", async () => {
+    const { registry, apiPort, linkPort } = await linkHost();
+    const admin = await mint(registry, "Admin", undefined, true);
+    const noneWaiting = { status: 409, body: JSON.stringify({ ok: false, error: "none_waiting" }) };
+    expect(await decide(apiPort, admin.token, { allow: true })).toMatchObject(noneWaiting);
+    const { code } = await offer(apiPort, admin.token);
+    expect(await decide(apiPort, admin.token, { allow: false })).toMatchObject(noneWaiting);
+    const ask = asker(linkPort, KEY_A, redeemBody(code, "iPhone"));
+    expect((await ask()).status).toBe(202);
+    expect(
+      await decide(apiPort, admin.token, { allow: true, deviceCode: formatDeviceCode(KEY_B) }),
+    ).toMatchObject({ status: 409, body: JSON.stringify({ ok: false, error: "changed" }) });
+    expect((await ask()).status).toBe(202);
+    for (const body of [
+      "",
+      "null",
+      "[]",
+      "{}",
+      '{"allow":"yes"}',
+      '{"allow":true,"deviceCode":5}',
+    ]) {
+      const bad = await apiRequest(apiPort, {
+        method: "POST",
+        path: "/kleio/pair/decide",
+        token: admin.token,
+        body,
+      });
+      expect(bad.status).toBe(400);
+    }
+    expect(
+      (await decide(apiPort, admin.token, { allow: true, deviceCode: "A".repeat(17) })).status,
+    ).toBe(400);
+    // The device code as typed: any case, any spacing.
+    expect((await decide(apiPort, admin.token, { allow: true, deviceCode: "aaaaaa" })).status).toBe(
+      200,
+    );
+    expect((await ask()).status).toBe(200);
   });
 
   it("gives each pair offer the link's ticket while the link can pair", async () => {

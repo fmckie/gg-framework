@@ -3,14 +3,23 @@ import { describe, expect, it } from "vitest";
 import type { PairedDevice } from "../src/device-registry.js";
 import type { LinkState } from "../src/link.js";
 import {
+  askLines,
+  askQuestion,
+  decidedText,
   deviceFrom,
   deviceLine,
+  isYes,
   linkHostBin,
   linkStatusLines,
   MIN_KEY_PREFIX,
+  NO_TERMINAL_LINES,
   noTicketText,
+  pairWatch,
   revokeTarget,
+  stillAsks,
+  watchText,
 } from "../src/link-cli.js";
+import type { PairClaimState, PairOfferState } from "../src/pair-offer.js";
 
 const KEY_A = `a1b2c3d4e5${"0".repeat(54)}`;
 const KEY_B = `a1b2c3d4ff${"0".repeat(54)}`;
@@ -162,5 +171,154 @@ describe("status's link lines", () => {
     expect(linkStatusLines({ kind: "invalid", message: "state.json: no pid" }, KEY_A)).toEqual([
       "link: state.json: no pid",
     ]);
+  });
+});
+
+describe("pair's question", () => {
+  const EXPIRES = 1_000_000;
+  const claim: PairClaimState = {
+    label: "iPhone",
+    deviceCode: "3F9 AC2",
+    at: EXPIRES - 60_000,
+    contested: false,
+    allowed: false,
+  };
+  const live = (over: Partial<PairOfferState> = {}): PairOfferState => ({
+    active: true,
+    expiresAt: EXPIRES,
+    attemptsRemaining: 5,
+    redeemed: false,
+    admin: false,
+    claim: null,
+    ...over,
+  });
+  const IDLE: PairOfferState = {
+    active: false,
+    expiresAt: null,
+    attemptsRemaining: 0,
+    redeemed: false,
+    admin: false,
+    claim: null,
+  };
+
+  it("follows the code it showed: waiting, asking, allowed, then paired", () => {
+    const now = EXPIRES - 10_000;
+    expect(pairWatch(live(), EXPIRES, now)).toEqual({ kind: "waiting" });
+    expect(pairWatch(live({ claim }), EXPIRES, now)).toEqual({ kind: "ask", claim });
+    const allowed = { ...claim, allowed: true };
+    expect(pairWatch(live({ claim: allowed }), EXPIRES, now)).toEqual({
+      kind: "allowed",
+      claim: allowed,
+    });
+    expect(pairWatch(live({ claim: allowed, redeemed: true }), EXPIRES, now)).toEqual({
+      kind: "paired",
+      claim: allowed,
+    });
+    // Off the link, a code pairs at once, with no device waiting on it.
+    expect(pairWatch(live({ redeemed: true }), EXPIRES, now)).toEqual({
+      kind: "paired",
+      claim: null,
+    });
+  });
+
+  it("knows when the code has gone: expired, replaced, or ended from an admin device", () => {
+    expect(pairWatch(IDLE, EXPIRES, EXPIRES)).toEqual({ kind: "gone", why: "expired" });
+    expect(pairWatch(IDLE, EXPIRES, EXPIRES - 1)).toEqual({ kind: "gone", why: "ended" });
+    // A code minted since, with a device of its own waiting, isn't asked about.
+    expect(pairWatch(live({ expiresAt: EXPIRES + 5, claim }), EXPIRES, EXPIRES - 1)).toEqual({
+      kind: "gone",
+      why: "replaced",
+    });
+  });
+
+  it("asks with the device's name and device code, and says when another device tried", () => {
+    expect(askLines(claim, false)).toEqual([
+      "iPhone wants to pair.",
+      "Device code 3F9 AC2: allow it only if the device shows the same.",
+    ]);
+    expect(askLines({ ...claim, label: null, contested: true }, true)).toEqual([
+      "A device with no name wants to pair, as an admin device.",
+      "Device code 3F9 AC2: allow it only if the device shows the same.",
+      "Another device also tried this code.",
+    ]);
+    expect(askQuestion(claim)).toBe("Allow iPhone (device code 3F9 AC2)? [y/N] ");
+    expect(askQuestion({ ...claim, label: null })).toBe(
+      "Allow this device (device code 3F9 AC2)? [y/N] ",
+    );
+  });
+
+  it("takes only y or yes as Yes; Enter alone, or anything else, is No", () => {
+    for (const yes of ["y", "Y", "yes", "YES", " y ", "Yes\r"]) expect(isYes(yes)).toBe(true);
+    for (const no of ["", "n", "no", "yy", "yes please", "allow", "ye"]) {
+      expect(isYes(no)).toBe(false);
+    }
+  });
+
+  it("asks again when another device tries the code, or the device stops waiting", () => {
+    expect(stillAsks({ kind: "ask", claim }, claim)).toBe(true);
+    expect(stillAsks({ kind: "ask", claim: { ...claim, contested: true } }, claim)).toBe(false);
+    expect(stillAsks({ kind: "ask", claim: { ...claim, deviceCode: "000 000" } }, claim)).toBe(
+      false,
+    );
+    expect(stillAsks({ kind: "allowed", claim: { ...claim, allowed: true } }, claim)).toBe(false);
+    expect(stillAsks({ kind: "gone", why: "ended" }, claim)).toBe(false);
+  });
+
+  it("says what came of an Allow or a Deny, and goes on only after an Allow", () => {
+    expect(decidedText(true, claim, { status: 200, body: { ok: true } })).toEqual({
+      ok: true,
+      value: { text: "Allowed iPhone. Finishing on the device…", done: false },
+    });
+    expect(decidedText(false, claim, { status: 200, body: { ok: true } })).toEqual({
+      ok: true,
+      value: { text: "Denied iPhone. The code no longer works.", done: true },
+    });
+    expect(
+      decidedText(true, claim, { status: 409, body: { ok: false, error: "changed" } }),
+    ).toEqual({
+      ok: true,
+      value: {
+        text: "A different device is waiting now, not iPhone (device code 3F9 AC2).",
+        done: false,
+      },
+    });
+    expect(
+      decidedText(true, claim, { status: 409, body: { ok: false, error: "none_waiting" } }),
+    ).toEqual({ ok: true, value: { text: "No device is waiting any more.", done: false } });
+    expect(decidedText(true, claim, { status: 403, body: { error: "admin only" } })).toEqual({
+      ok: false,
+      error: 'decide failed: 403 {"error":"admin only"}',
+    });
+  });
+
+  it("says where the code has got to", () => {
+    const allowed = { ...claim, allowed: true };
+    expect(watchText({ kind: "waiting" })).toBe(
+      "Waiting for a device to use the code (Ctrl-C to stop).",
+    );
+    expect(watchText({ kind: "ask", claim })).toBeNull();
+    // The same words as decidedText's Allow, so `pair` says them once.
+    expect(watchText({ kind: "allowed", claim: allowed })).toBe(
+      "Allowed iPhone. Finishing on the device…",
+    );
+    expect(watchText({ kind: "paired", claim: allowed })).toBe("Paired iPhone.");
+    expect(watchText({ kind: "paired", claim: { ...allowed, label: null } })).toBe(
+      "Paired the device.",
+    );
+    expect(watchText({ kind: "paired", claim: null })).toBe("Paired a device off the link.");
+    expect(watchText({ kind: "gone", why: "expired" })).toBe(
+      "The code expired. Run kleio-host pair for a new one.",
+    );
+    expect(watchText({ kind: "gone", why: "replaced" })).toBe(
+      "A newer pair code, shown since, replaced this one.",
+    );
+    expect(watchText({ kind: "gone", why: "ended" })).toBe(
+      "An admin device took the code away, or denied the device.",
+    );
+  });
+
+  it("without a terminal, says how to pair over the link from an admin device", () => {
+    expect(NO_TERMINAL_LINES.join(" ")).toContain("Pair a device in Kleio on an admin device");
+    expect(NO_TERMINAL_LINES.join(" ")).toContain("kleio-host pair in a terminal");
   });
 });

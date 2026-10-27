@@ -18,7 +18,9 @@
 //   admin device changes it).
 // - Tailscale (a Mac paired by address): the private network's details.
 // - Pair a device: a one-time pairing QR code an iPhone scans, with its
-//   pairing text for a Mac (admin; PairingOffer.tsx).
+//   pairing text for a Mac, and Allow or Deny for the device that uses it
+//   over the link (admin; PairingOffer.tsx). Leaving the page takes the code
+//   away, as Done does.
 // - Devices: every paired device, with the ones paired this week marked New,
 //   and Revoke this device (admin).
 //
@@ -87,7 +89,7 @@ import {
   type TicketCheck,
 } from "./kleioLink";
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
-import { noTicketWords, PairingOffer } from "./PairingOffer";
+import { noTicketWords, PairingOffer, useWithdrawOnClose } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import { ForgetHost } from "./ForgetHost";
@@ -1757,6 +1759,8 @@ function PairDeviceCard({
   const [offer, setOffer] = useState<PairOffer | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Leaving the page with a code on show takes it away, as Done does.
+  useWithdrawOnClose(offer);
 
   const done = useCallback(() => {
     setOffer(null);

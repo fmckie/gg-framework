@@ -25,6 +25,19 @@ export const PAIR_MAX_ATTEMPTS = 5;
  */
 export const PAIR_RETRY_WINDOW_MS = 60_000;
 
+/**
+ * How long the host holds a link pairing's request for an admin's Allow or
+ * Deny before it answers `pending`: well inside the 10 s kleio-link-host gives
+ * kleio-host to answer (packages/kleio-link/src/host/pairing.rs).
+ */
+export const PAIR_HOLD_MS = 5_000;
+
+/** How long a device waits after `pending` before it asks again. */
+export const PAIR_RETRY_AFTER_MS = 3_000;
+
+/** How many of a link key's hex characters its device code shows. */
+export const DEVICE_CODE_LENGTH = 6;
+
 /** Bytes of client-generated randomness in a redemption nonce (hex on the wire). */
 export const REDEMPTION_NONCE_BYTES = 16;
 /** Hex length of a redemption nonce. */
@@ -75,25 +88,44 @@ export interface PairRedeemRequest {
   readonly redemptionNonce: string;
   /** Optional friendly label for the device being paired. */
   readonly label?: string;
+  /**
+   * The device waits for an admin's Allow, asking again after `pending`, as
+   * a pairing over the link must. One over the link without it is refused as
+   * `update_required`.
+   */
+  readonly waits?: boolean;
 }
 
 /**
  * Why a code that was live is no longer: it paired a device, ran out of time,
- * was replaced by a newer one, or met too many wrong tries. The host says so
- * only to a code exactly as it retired it (pair-offer.ts), so only someone
- * who has the code learns it, and only once the code is no use.
+ * was replaced by a newer one, met too many wrong tries, or the device waiting
+ * on it wasn't allowed (an admin's Deny, or the code closed or ran out while
+ * it waited). The host says so only to a code exactly as it retired it
+ * (pair-offer.ts), so only someone who has the code learns it, and only once
+ * the code is no use.
  */
-export type PairRetiredCode = "used" | "expired" | "replaced" | "locked";
+export type PairRetiredCode = "used" | "expired" | "replaced" | "locked" | "denied";
 
 /**
  * The failure vocabulary. `unauthorized` is the uniform answer to any code
  * that isn't the live one or a retired one, and to a correct one that loses
- * a race, so the body never tells a guesser anything.
+ * a race, so the body never tells a guesser anything. `claimed`: another
+ * device is waiting on this code. `update_required`: a pairing over the link
+ * that doesn't wait for an admin's Allow, from an app too old to.
  */
-export type PairRedeemErrorCode = "not_found" | "unauthorized" | "bad_request" | PairRetiredCode;
+export type PairRedeemErrorCode =
+  "not_found" | "unauthorized" | "bad_request" | "claimed" | "update_required" | PairRetiredCode;
 
 export type PairRedeemResponse =
   | { readonly ok: true; readonly payload: PairingPayload }
+  | {
+      /** No admin has allowed the device yet: ask again after `retryAfterMs`. */
+      readonly ok: false;
+      readonly error: "pending";
+      readonly retryAfterMs: number;
+      /** When the code runs out. */
+      readonly expiresAt: number;
+    }
   | { readonly ok: false; readonly error: PairRedeemErrorCode };
 
 const CONFUSABLES: Readonly<Record<string, string>> = {
@@ -125,6 +157,18 @@ export function normalizePairCode(raw: unknown): string | null {
 export function formatPairCode(code: string): string {
   const half = Math.ceil(code.length / 2);
   return `${code.slice(0, half)}-${code.slice(half)}`;
+}
+
+/**
+ * A device's code, which the admin allowing it and the device itself both
+ * show: the first DEVICE_CODE_LENGTH hex characters of its link key, in
+ * capitals, in two groups with a space, `3F9 AC2`. It's in a style of its own,
+ * so it isn't taken for the pair code (`ABC-DEF`).
+ */
+export function formatDeviceCode(linkKey: string): string {
+  const hex = linkKey.slice(0, DEVICE_CODE_LENGTH).toUpperCase();
+  const half = Math.ceil(hex.length / 2);
+  return `${hex.slice(0, half)} ${hex.slice(half)}`;
 }
 
 /** True for a well-formed redemption nonce (lowercase hex, exact length). */
@@ -192,10 +236,13 @@ const ERROR_CODES: readonly string[] = [
   "not_found",
   "unauthorized",
   "bad_request",
+  "claimed",
+  "update_required",
   "used",
   "expired",
   "replaced",
   "locked",
+  "denied",
 ];
 
 /** Type guard for a redeem response arriving over the network. */
@@ -203,6 +250,9 @@ export function isPairRedeemResponse(value: unknown): value is PairRedeemRespons
   if (typeof value !== "object" || value === null) return false;
   const r = value as Record<string, unknown>;
   if (r.ok === true) return isPairingPayload(r.payload);
-  if (r.ok === false) return ERROR_CODES.includes(r.error as string);
-  return false;
+  if (r.ok !== false) return false;
+  if (r.error === "pending") {
+    return Number.isFinite(r.retryAfterMs) && Number.isFinite(r.expiresAt);
+  }
+  return ERROR_CODES.includes(r.error as string);
 }

@@ -7,20 +7,107 @@
 // the code, so the person can check it's this one. Only a ticket a device
 // would read as a link ticket is drawn (readTicket).
 //
+// A device that pairs with it over the link waits for an admin's Allow (ADR
+// 0003). While the code shows, the view asks the host who's waiting (GET
+// /kleio/pair) and puts that device's name and device code, which the device
+// shows too, in the QR code's place, with Allow and Deny. It closes once the
+// device has paired, the admin denied it, or the code is gone. Done takes
+// the code away (withdrawOffer), and so does the view going away first
+// (useWithdrawOnClose), so no device waits on a code nobody is watching:
+// never one a device the admin allowed is finishing with, though.
+//
 // A host without the link, or whose link can't pair now, gives no ticket.
 // Then the view says why. A device that reaches the host at a tailnet address
 // draws today's Tailscale ticket instead (pairTicket), for a device on the
 // tailnet; anything else shows the code, for pairing by the host's address.
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { toast } from "../toast";
 import { pairTicket, readTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath, type QrCode } from "./qr";
-import type { PairOffer } from "./useKleioRemote";
+import {
+  explainError,
+  kleio,
+  type PairClaim,
+  type PairOffer,
+  type PairState,
+} from "./useKleioRemote";
 
 /** The light margin round a QR code that scanners need. */
 const QR_QUIET_ZONE = 4;
+
+/** How often a shown code's view asks the host who's waiting on it. */
+export const PAIR_STATE_POLL_MS = 1_500;
+
+/**
+ * Why a shown code's view closed. Only after `done`, Done, may the code still
+ * work, so whoever shows it takes it away (`withdrawOffer`). The rest settled
+ * on the host: a device paired with it, the admin denied the device waiting
+ * on it, it expired, or it's gone (taken away, or replaced by a newer code,
+ * elsewhere).
+ */
+export type OfferEnd = "done" | "paired" | "denied" | "expired" | "gone";
+
+/** The admin errors after which asking again would only fail again, or ask
+ *  for Touch ID again: the view stops asking until Check again. */
+const STOPS_CHECKING: ReadonlySet<string> = new Set([
+  "denied",
+  "unavailable",
+  "forbidden",
+  "unauthorized",
+  "not_remote",
+]);
+
+/** The kind of an admin command's error (Rust `AdminError`), if it is one. */
+function errorKind(e: unknown): string | null {
+  return typeof e === "object" && e !== null && "kind" in e && typeof e.kind === "string"
+    ? e.kind
+    : null;
+}
+
+/**
+ * Takes `offer` away on the host (`kleio.cancelOffer`), so a device waiting
+ * on it is denied, and says so if it couldn't. Not if it's no longer the
+ * live code (used, gone, or replaced by a newer one, which taking it away
+ * would take), nor while a device the admin allowed is finishing with it.
+ * Nor without the admin unlock: it would ask for Touch ID out of the blue,
+ * and the code lets no device in without an Allow anyway, until it expires.
+ */
+export async function withdrawOffer(offer: PairOffer): Promise<void> {
+  try {
+    if (!(await kleio.adminState()).unlocked) return;
+    const state = await kleio.pairState();
+    if (!state.active || state.redeemed || state.expiresAt !== offer.expiresAt) return;
+    if (state.claim?.allowed) return;
+    await kleio.cancelOffer();
+  } catch (e) {
+    toast(
+      `Couldn't take the pair code away, so it works until it expires. ${explainError(e)}`,
+      "error",
+    );
+  }
+}
+
+/**
+ * Takes the pair code on show away when the view showing it goes away (a
+ * page left, a pane closed), as Done does (`withdrawOffer`). `offer` is the
+ * one on show, null if none: the latest when the view goes away counts.
+ */
+export function useWithdrawOnClose(offer: PairOffer | null): void {
+  const shown = useRef(offer);
+  useEffect(() => {
+    shown.current = offer;
+  }, [offer]);
+  useEffect(() => {
+    // The ref itself, read in the cleanup: the code on show when the view
+    // goes away, not the one when it came.
+    const latest = shown;
+    return () => {
+      if (latest.current) void withdrawOffer(latest.current);
+    };
+  }, []);
+}
 
 /** How an offer is shown. */
 export type OfferShown =
@@ -73,35 +160,137 @@ function countdown(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/**
- * A minted offer, shown until Done or until it expires, `onDone` either way.
- * `baseUrl` is as for `offerShown`.
- */
-export function PairingOffer({
-  offer,
-  baseUrl,
-  onDone,
-}: {
+interface OfferProps {
   offer: PairOffer;
+  /** As for `offerShown`. */
   baseUrl: string | null;
-  onDone: () => void;
-}): React.ReactElement {
+  /** Once, with why the view closed. */
+  onDone: (end: OfferEnd) => void;
+}
+
+/**
+ * A minted offer, shown until Done, until it expires, or until it settles on
+ * the host: a device paired with it, the admin denied the device waiting on
+ * it, or it's gone. `onDone` says which.
+ */
+export function PairingOffer(props: OfferProps): React.ReactElement {
+  // A new code is a new view: nothing about the last one's device carries over.
+  return <ShownOffer key={`${props.offer.display}@${props.offer.expiresAt}`} {...props} />;
+}
+
+function ShownOffer({ offer, baseUrl, onDone }: OfferProps): React.ReactElement {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  // onDone once, however the view ends, and the latest one: the checks below
+  // outlive a render.
+  const latestOnDone = useRef(onDone);
+  useEffect(() => {
+    latestOnDone.current = onDone;
+  }, [onDone]);
+  const ended = useRef(false);
+  const end = useCallback((how: OfferEnd, said?: string) => {
+    if (ended.current) return;
+    ended.current = true;
+    if (said) toast(said, how === "paired" ? "success" : "info");
+    latestOnDone.current(how);
+  }, []);
+
   const expired = offer.expiresAt <= now;
   useEffect(() => {
-    if (expired) onDone();
-  }, [expired, onDone]);
+    if (expired) end("expired");
+  }, [expired, end]);
+
+  // Who's waiting on the code, as the host last said.
+  const [claim, setClaim] = useState<PairClaim | null>(null);
+  const [trouble, setTrouble] = useState<{ message: string; stopped: boolean } | null>(null);
+  const [checks, setChecks] = useState(0);
+  // Bumped as a decision starts and ends: a check that spans one may answer
+  // from before it, so it's asked again.
+  const decisions = useRef(0);
+  useEffect(() => {
+    let closed = false;
+    let timer: number | undefined;
+    const next = (ms: number): void => {
+      timer = window.setTimeout(() => void check(), ms);
+    };
+    const check = async (): Promise<void> => {
+      const asked = decisions.current;
+      let state: PairState;
+      try {
+        state = await kleio.pairState();
+      } catch (e) {
+        if (closed) return;
+        const stopped = STOPS_CHECKING.has(errorKind(e) ?? "");
+        setTrouble({ message: explainError(e), stopped });
+        if (!stopped) next(PAIR_STATE_POLL_MS);
+        return;
+      }
+      if (closed) return;
+      setTrouble(null);
+      if (asked !== decisions.current) {
+        next(0);
+      } else if (!state.active || state.expiresAt !== offer.expiresAt) {
+        end("gone", "This pair code no longer works.");
+      } else if (state.redeemed) {
+        end("paired", `${state.claim?.label ?? "A device"} is paired.`);
+      } else {
+        setClaim(state.claim);
+        next(PAIR_STATE_POLL_MS);
+      }
+    };
+    // The first check waits a beat: no device has had time to use a new code.
+    next(checks === 0 ? PAIR_STATE_POLL_MS : 0);
+    return () => {
+      closed = true;
+      window.clearTimeout(timer);
+    };
+  }, [offer.expiresAt, checks, end]);
+
+  const [deciding, setDeciding] = useState<"allow" | "deny" | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  const decide = async (allow: boolean, waiting: PairClaim): Promise<void> => {
+    decisions.current += 1;
+    setDeciding(allow ? "allow" : "deny");
+    setRefused(null);
+    try {
+      // This device and no other: one in its place isn't let in by mistake.
+      const decided = await kleio.decide(allow, waiting.deviceCode);
+      if (allow) setClaim({ ...waiting, allowed: true });
+      else end("denied", `${decided.label ?? "The device"} was denied.`);
+    } catch (e) {
+      setRefused(explainError(e));
+      const kind = errorKind(e);
+      // Another device in its place, or none: see who's waiting now.
+      if (kind === "changed" || kind === "none_waiting") setChecks((n) => n + 1);
+    } finally {
+      decisions.current += 1;
+      setDeciding(null);
+    }
+  };
 
   const shown = useMemo(() => offerShown(offer, baseUrl), [offer, baseUrl]);
   return (
     <div className="conn-pair">
-      {shown.kind !== "code" && <OfferQr qr={shown.qr} code={offer.display} />}
+      {claim === null && shown.kind !== "code" && <OfferQr qr={shown.qr} code={offer.display} />}
       <div className="conn-pair-text">
-        {shown.kind === "link" ? (
+        {claim !== null ? (
+          claim.allowed ? (
+            <p className="conn-pair-note">
+              Allowed {claim.label ?? "the device"}. Finishing on the device…
+            </p>
+          ) : (
+            <AllowAsk
+              claim={claim}
+              admin={offer.admin}
+              deciding={deciding}
+              onDecide={(allow) => void decide(allow, claim)}
+            />
+          )
+        ) : shown.kind === "link" ? (
           <>
             <ul className="conn-pair-how">
               <li>
@@ -153,12 +342,102 @@ export function PairingOffer({
             )}
           </>
         )}
+        {refused && (
+          <p className="conn-pair-note is-why" role="alert">
+            {refused}
+          </p>
+        )}
+        {trouble && (
+          <p className="conn-pair-note is-why" role="status">
+            Kleio can't see who's using this code. {trouble.message}
+          </p>
+        )}
+        {trouble?.stopped && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              setTrouble(null);
+              setChecks((n) => n + 1);
+            }}
+          >
+            Check again
+          </button>
+        )}
         <p className="conn-expiry">
           Works once{offer.admin ? " · pairs an admin" : ""} · expires in{" "}
           {countdown(offer.expiresAt - now)}
         </p>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => {
+            void withdrawOffer(offer);
+            end("done");
+          }}
+        >
           Done
+        </button>
+      </div>
+      {/* There before it speaks, so a screen reader hears a device arrive. */}
+      <p className="sr-only" role="status">
+        {claim === null
+          ? ""
+          : claim.allowed
+            ? `Allowed ${claim.label ?? "the device"}. Finishing on the device.`
+            : `${claim.label ?? "A device"} wants to pair. Device code ${claim.deviceCode}.`}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A device waiting on the code: who it says it is, whether it would be an
+ * admin, its device code to check against the one it shows, and Allow or
+ * Deny. A name can be copied, so the device code is what to go by.
+ */
+function AllowAsk({
+  claim,
+  admin,
+  deciding,
+  onDecide,
+}: {
+  claim: PairClaim;
+  admin: boolean;
+  deciding: "allow" | "deny" | null;
+  onDecide: (allow: boolean) => void;
+}): React.ReactElement {
+  const titleId = useId();
+  return (
+    <div className="conn-pair-ask" role="group" aria-labelledby={titleId}>
+      <p id={titleId} className="conn-pair-ask-title">
+        {claim.label === null ? "A device" : <strong>{claim.label}</strong>} wants to pair
+        {admin ? " as an admin" : ""}.
+      </p>
+      <p className="conn-pair-codeline">
+        <span className="conn-pair-label">Device code</span>{" "}
+        <code className="conn-pair-code">{claim.deviceCode}</code>
+      </p>
+      <p className="conn-pair-note">Allow it only if the device shows the same code.</p>
+      {claim.contested && (
+        <p className="conn-pair-note is-why">Another device also tried this code.</p>
+      )}
+      <div className="conn-inline-confirm">
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={deciding !== null}
+          onClick={() => onDecide(false)}
+        >
+          {deciding === "deny" ? "Denying…" : "Deny"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={deciding !== null}
+          onClick={() => onDecide(true)}
+        >
+          {deciding === "allow" ? "Allowing…" : "Allow"}
         </button>
       </div>
     </div>

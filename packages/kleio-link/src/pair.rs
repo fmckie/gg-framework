@@ -1,5 +1,6 @@
 //! Pairing over [`ALPN_PAIR`], in three steps, each of which the app shows
-//! ([`PairStage`]), [`PAIR_TIMEOUT`] at most in all:
+//! ([`PairStage`]), [`PAIR_TIMEOUT`] at most in all, then a wait for an
+//! admin's Allow if kleio-host asks for one:
 //!
 //! 1. **Reaching the relay**: the one the ticket names first, and only that
 //!    one. The pairing endpoint has it as its only relay, so it's the home
@@ -13,12 +14,21 @@
 //!    code. Finding it there means the QR code's relay was changed.
 //! 3. **Pairing**: one request on one stream, the answer on the same stream,
 //!    then the phone closes the connection. The request is kleio-host's
-//!    redeem body, `{code, redemptionNonce, label}`, at most
+//!    redeem body, `{code, redemptionNonce, label, waits}`, at most
 //!    [`MAX_PAIR_REQUEST_BYTES`]. The host's forwarder passes it to
 //!    `POST /kleio/pair/redeem` and sends back kleio-host's answer as it is,
 //!    at most [`MAX_PAIR_ANSWER_BYTES`]: `{"ok":true,"payload":{…}}` or
 //!    `{"ok":false,"error":"…"}`. kleio-host decides, by code, expiry and the
-//!    five tries.
+//!    five tries, and holds the request a few seconds for an admin's Allow.
+//! 4. **Waiting for an Allow**: an admin is asked about this device's code
+//!    ([`device_code`]) as soon as kleio-host has the request, so the app
+//!    shows it too once kleio-host has held the request for
+//!    [`SHOW_WAIT_AFTER`], or answers `pending`: no admin has allowed the
+//!    device yet. Then the phone asks again with the same request on a new
+//!    connection, after the `retryAfterMs` kleio-host gives, until it has the
+//!    payload or a refusal, or [`ALLOW_WAIT`] is up, or the app stops it
+//!    ([`pair_until`]). Meanwhile a busy host and a connection that fails
+//!    are asked again too.
 //!
 //! Each way it can fail has its own [`PairError`], in words a person can act
 //! on. Nothing here logs the code, the nonce or the answer, which carries the
@@ -26,14 +36,17 @@
 
 use std::error::Error;
 use std::fmt;
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use iroh::endpoint::{
     ConnectError, ConnectingError, Connection, ConnectionError, ReadToEndError, VarInt,
 };
-use iroh::{Endpoint, EndpointAddr, RelayUrl, SecretKey, TransportAddr, Watcher};
+use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 use crate::endpoint::{bind_client, EndpointOptions};
@@ -50,7 +63,8 @@ pub const MAX_PAIR_REQUEST_BYTES: usize = 2 * 1024;
 /// The most the phone reads of an answer.
 pub const MAX_PAIR_ANSWER_BYTES: usize = 16 * 1024;
 
-/// The whole of [`pair`], every step included.
+/// [`pair`]'s first three steps together, and each time it asks again while
+/// it waits for an Allow.
 pub const PAIR_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How long the ticket's relay gets to connect.
@@ -61,6 +75,32 @@ pub const HOST_STEP: Duration = DIAL_TIMEOUT;
 
 /// How long the look on n0's other relays gets.
 pub const ELSEWHERE_STEP: Duration = Duration::from_secs(4);
+
+/// How long the phone waits for an admin's Allow, from kleio-host's first
+/// `pending`. It asks no more after that.
+pub const ALLOW_WAIT: Duration = Duration::from_secs(120);
+
+/// How long the first request may go unanswered before the app shows the
+/// wait, with this device's code. kleio-host holds a request up to 5 s for
+/// an admin's Allow (`PAIR_HOLD_MS` in packages/kleio-host/src/pair-code.ts),
+/// and the admin is shown the code at once. A host that answers sooner, with
+/// the payload or a refusal, shows no wait.
+pub const SHOW_WAIT_AFTER: Duration = Duration::from_secs(1);
+
+/// How long the phone waits to ask again after a busy host or a failed
+/// connection, while it waits for an Allow (`PAIR_RETRY_AFTER_MS` in
+/// packages/kleio-host/src/pair-code.ts).
+const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(3);
+
+/// The least and the most of kleio-host's `retryAfterMs` the phone waits
+/// before asking again: a host can't have it ask in a tight loop, or hold
+/// off asking for long after an admin's Allow.
+const MIN_RETRY_AFTER: Duration = Duration::from_millis(250);
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(10);
+
+/// How many of a key's hex characters its device code shows
+/// (`DEVICE_CODE_LENGTH` in packages/kleio-host/src/pair-code.ts).
+const DEVICE_CODE_LENGTH: usize = 6;
 
 /// Random bytes in a redemption nonce (`REDEMPTION_NONCE_BYTES` in
 /// packages/kleio-host/src/pair-code.ts).
@@ -77,26 +117,54 @@ pub struct PairRequest {
     pub redemption_nonce: String,
     /// The name the host lists the device under.
     pub label: String,
+    /// The phone waits for an admin's Allow, asking again after `pending`, as
+    /// kleio-host has a pairing over the link do. The app always sends
+    /// `true`. A request from an app too old to send it reads as `false`, is
+    /// passed on so, and kleio-host refuses it as `update_required`.
+    #[serde(default)]
+    pub waits: bool,
 }
 
-/// The step [`pair`] is on, for the app to show.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// The step [`pair`] is on, for the app to show. The first three go to the
+/// app as their names, `"relay"`; the wait as
+/// `{"waiting":{"deviceCode":"3F9 AC2"}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PairStage {
     Relay,
     Host,
     Pairing,
+    /// Waiting for an admin's Allow. The admin is asked about the same
+    /// device code ([`device_code`]).
+    #[serde(rename_all = "camelCase")]
+    Waiting {
+        device_code: String,
+    },
 }
 
 impl PairStage {
-    /// What the app shows while it's on this step.
-    pub fn text(self) -> &'static str {
+    /// What the app shows while it's on this step. Where this says "this
+    /// device", the app names it ("this iPhone"), and shows the device code
+    /// beside the wait's words.
+    pub fn text(&self) -> &'static str {
         match self {
             Self::Relay => "Reaching the relay…",
             Self::Host => "Finding your host…",
             Self::Pairing => "Pairing…",
+            Self::Waiting { .. } => "Waiting for your host to allow this device…",
         }
     }
+}
+
+/// A device's code, which the app shows while it waits for an Allow, and the
+/// admin asked to allow it sees too: the first six hex characters of its key,
+/// in capitals, in two groups, such as `3F9 AC2` (`formatDeviceCode` in
+/// packages/kleio-host/src/pair-code.ts). The app makes a new key for each
+/// pairing, so the code is new each time too.
+pub fn device_code(key: &EndpointId) -> String {
+    let hex = key.to_string()[..DEVICE_CODE_LENGTH].to_ascii_uppercase();
+    let (first, second) = hex.split_at(DEVICE_CODE_LENGTH / 2);
+    format!("{first} {second}")
 }
 
 /// Why kleio-host turned a code away: its redeem answer's `error`.
@@ -183,6 +251,18 @@ pub enum PairError {
     Unreadable,
     /// kleio-host turned the code away.
     Refused(Refusal),
+    /// The device wasn't allowed: an admin's Deny, or the code closed or ran
+    /// out while it waited (`denied`).
+    Denied,
+    /// Another device is waiting on this code (`claimed`).
+    Claimed,
+    /// No admin allowed the device within [`ALLOW_WAIT`].
+    NotAllowedInTime,
+    /// kleio-host refused a request that doesn't wait for an Allow
+    /// (`update_required`). This app always waits, so the host's
+    /// kleio-link-host, which passes the request on, is older than its
+    /// kleio-host.
+    UpdateRequired,
 }
 
 impl fmt::Display for PairError {
@@ -246,13 +326,39 @@ impl fmt::Display for PairError {
                 ),
                 Refusal::Other(code) => write!(f, "Your host refused the code ({code})."),
             },
+            Self::Denied => f.write_str(
+                "Your host didn't allow this device. To try again, show a new QR code on your host and scan that.",
+            ),
+            Self::Claimed => write!(
+                f,
+                "Another device is already waiting to pair with this QR code. {NEW_QR}"
+            ),
+            Self::NotAllowedInTime => write!(
+                f,
+                "Nobody allowed this device on your host within {} minutes. Show a new QR code on your host, scan it, then allow the device there.",
+                ALLOW_WAIT.as_secs() / 60
+            ),
+            Self::UpdateRequired => f.write_str(
+                "Part of Kleio on your host is out of date, so it can't pair this device. Update Kleio on your host, then show a new QR code.",
+            ),
         }
     }
 }
 
 impl Error for PairError {}
 
-/// Pairs with the host `ticket` names, as `key`: the three steps above, with
+impl PairError {
+    /// Whether it may pass: a busy host, or a connection that failed or took
+    /// too long. While the phone waits for an Allow, it asks again after one.
+    fn passes(&self) -> bool {
+        matches!(
+            self,
+            Self::Busy | Self::HostFailed | Self::Request(_) | Self::TimedOut
+        )
+    }
+}
+
+/// Pairs with the host `ticket` names, as `key`: the steps above, with
 /// `stage` told as each begins, from endpoints built with `options` (the
 /// app's are the defaults). Returns kleio-host's pairing payload, which
 /// carries the device token: the caller checks it, stores it and never logs
@@ -269,20 +375,81 @@ where
     P: Probe,
     F: Fn(PairStage) + Sync,
 {
-    let body = request_body(ticket.code(), &nonce()?, label)?;
-    let relay = std::slice::from_ref(ticket.relay());
-    let endpoint = bind_client(key, relay, options)
+    let unstopped = std::future::pending();
+    pair_until(key, ticket, label, options, probe, stage, unstopped)
         .await
-        .map_err(|err| PairError::Endpoint(error_chain(&err)))?;
+        .expect("a pairing nothing stops ends with its outcome")
+}
+
+/// [`pair`], unless `stop` completes first, as the app's Cancel does while
+/// the phone waits for an Allow: then `None`, and the phone asks no more.
+/// Its endpoint is closed either way, so an Allow after that pairs nothing
+/// here. An ask under way is dropped with it, so kleio-host may list a
+/// device whose Allow came just as the phone stopped.
+pub async fn pair_until<P, F, S>(
+    key: SecretKey,
+    ticket: &Ticket,
+    label: &str,
+    options: &EndpointOptions,
+    probe: &P,
+    stage: F,
+    stop: S,
+) -> Option<Result<Value, PairError>>
+where
+    P: Probe,
+    F: Fn(PairStage) + Sync,
+    S: Future<Output = ()>,
+{
+    // One nonce for every ask: kleio-host knows the device by it and its key.
+    let body = match nonce().and_then(|nonce| request_body(ticket.code(), &nonce, label)) {
+        Ok(body) => body,
+        Err(err) => return Some(Err(err)),
+    };
+    let code = device_code(&key.public());
+    let relay = std::slice::from_ref(ticket.relay());
+    let endpoint = match bind_client(key, relay, options).await {
+        Ok(endpoint) => endpoint,
+        Err(err) => return Some(Err(PairError::Endpoint(error_chain(&err)))),
+    };
     let peer = ticket.key().fmt_short();
     info!("pairing with {peer} through {}", ticket.relay());
-    let steps = steps(&endpoint, ticket, &body, options, probe, &stage);
-    let outcome = tokio::time::timeout(PAIR_TIMEOUT, steps)
-        .await
-        .unwrap_or(Err(PairError::TimedOut));
+    let waiting = once(|| {
+        info!("waiting for {peer} to allow device {code}");
+        stage(PairStage::Waiting {
+            device_code: code.clone(),
+        });
+    });
+    let pairing = async {
+        let steps = steps(&endpoint, ticket, &body, options, probe, &stage, &waiting);
+        let first = tokio::time::timeout(PAIR_TIMEOUT, steps)
+            .await
+            .unwrap_or(Err(PairError::TimedOut));
+        let host = host_addr(ticket);
+        settle(first, &endpoint, host, &body, &waiting, ALLOW_WAIT).await
+    };
+    let outcome = tokio::select! {
+        // A stop wins over an answer that comes with it.
+        biased;
+        () = stop => None,
+        outcome = pairing => Some(outcome),
+    };
     endpoint.close().await;
-    log_outcome(&peer.to_string(), &outcome);
+    match &outcome {
+        Some(outcome) => log_outcome(&peer.to_string(), outcome),
+        None => info!("pairing with {peer} stopped"),
+    }
     outcome
+}
+
+/// `tell`, the first time only: the wait shows once, though both a held
+/// first request and a `pending` begin it.
+fn once(tell: impl Fn()) -> impl Fn() {
+    let told = AtomicBool::new(false);
+    move || {
+        if !told.swap(true, Ordering::Relaxed) {
+            tell();
+        }
+    }
 }
 
 async fn steps<P: Probe>(
@@ -292,22 +459,102 @@ async fn steps<P: Probe>(
     options: &EndpointOptions,
     probe: &P,
     stage: &(impl Fn(PairStage) + Sync),
-) -> Result<Value, PairError> {
+    waiting: &(impl Fn() + Sync),
+) -> Result<Answer, PairError> {
     stage(PairStage::Relay);
     reach_relay(endpoint, ticket.relay(), probe).await?;
     stage(PairStage::Host);
-    let host = EndpointAddr::from_parts(
-        ticket.key(),
-        ticket.addrs().iter().copied().map(TransportAddr::Ip),
-    )
-    .with_relay_url(ticket.relay().clone());
-    let conn = match tokio::time::timeout(HOST_STEP, endpoint.connect(host, ALPN_PAIR)).await {
+    let conn = match tokio::time::timeout(HOST_STEP, endpoint.connect(host_addr(ticket), ALPN_PAIR))
+        .await
+    {
         Ok(Ok(conn)) => conn,
         Ok(Err(err)) => return Err(connect_failure(&err)),
         Err(_) => return Err(look_elsewhere(ticket, options).await),
     };
     stage(PairStage::Pairing);
+    first_exchange(&conn, body, waiting).await
+}
+
+/// The host as the ticket names it: its key, through the ticket's relay and
+/// at its direct addresses.
+fn host_addr(ticket: &Ticket) -> EndpointAddr {
+    EndpointAddr::from_parts(
+        ticket.key(),
+        ticket.addrs().iter().copied().map(TransportAddr::Ip),
+    )
+    .with_relay_url(ticket.relay().clone())
+}
+
+/// What the first answer comes to: the payload or a refusal, or, after
+/// `pending`, what asking again comes to. `waiting` is told as the wait
+/// begins, unless the first ask told it already ([`once`]). After `limit`
+/// it asks no more, though an ask under way gets its answer: an Allow just
+/// in time still pairs.
+async fn settle(
+    first: Result<Answer, PairError>,
+    endpoint: &Endpoint,
+    host: EndpointAddr,
+    body: &[u8],
+    waiting: &(impl Fn() + Sync),
+    limit: Duration,
+) -> Result<Value, PairError> {
+    let mut retry_after = match first? {
+        Answer::Paired(payload) => return Ok(payload),
+        Answer::Pending(retry_after) => retry_after,
+    };
+    waiting();
+    let deadline = Instant::now() + limit;
+    loop {
+        tokio::time::sleep_until(deadline.min(Instant::now() + retry_after)).await;
+        if Instant::now() >= deadline {
+            return Err(PairError::NotAllowedInTime);
+        }
+        let asked = tokio::time::timeout(PAIR_TIMEOUT, ask(endpoint, host.clone(), body))
+            .await
+            .unwrap_or(Err(PairError::TimedOut));
+        retry_after = match asked {
+            Ok(Answer::Paired(payload)) => return Ok(payload),
+            Ok(Answer::Pending(next)) => next,
+            Err(err) if err.passes() => {
+                // Debug escapes whatever text the host sent.
+                info!("asking {} again after {err:?}", host.id.fmt_short());
+                RETRY_AFTER_FAILURE
+            }
+            Err(err) => return Err(err),
+        };
+    }
+}
+
+/// The request again, on a new connection to the host the first ask found.
+async fn ask(endpoint: &Endpoint, host: EndpointAddr, body: &[u8]) -> Result<Answer, PairError> {
+    let conn = dial(endpoint, host).await?;
     exchange(&conn, body).await
+}
+
+/// A new pairing connection to `host`, within [`HOST_STEP`].
+async fn dial(endpoint: &Endpoint, host: EndpointAddr) -> Result<Connection, PairError> {
+    match tokio::time::timeout(HOST_STEP, endpoint.connect(host, ALPN_PAIR)).await {
+        Ok(Ok(conn)) => Ok(conn),
+        Ok(Err(err)) => Err(connect_failure(&err)),
+        Err(_) => Err(PairError::TimedOut),
+    }
+}
+
+/// [`exchange`], telling `waiting` if the answer takes longer than
+/// [`SHOW_WAIT_AFTER`]: kleio-host is holding the request for an admin's
+/// Allow, and has shown the admin this device's code.
+async fn first_exchange(
+    conn: &Connection,
+    body: &[u8],
+    waiting: &(impl Fn() + Sync),
+) -> Result<Answer, PairError> {
+    let answer = exchange(conn, body);
+    tokio::pin!(answer);
+    if let Ok(answer) = tokio::time::timeout(SHOW_WAIT_AFTER, &mut answer).await {
+        return answer;
+    }
+    waiting();
+    answer.await
 }
 
 /// Waits up to [`RELAY_STEP`] for the endpoint's home relay, `relay`, to
@@ -423,27 +670,33 @@ async fn look_elsewhere(ticket: &Ticket, options: &EndpointOptions) -> PairError
     }
 }
 
-/// [`pair`]'s last step on its own, to any address, without the relay and
-/// host steps: for tests that dial a loopback address.
+/// [`pair`]'s last steps on their own, to any address, without the relay and
+/// host steps, waiting for an Allow up to `limit`: for tests that dial a
+/// loopback address.
 #[cfg(test)]
 pub(crate) async fn redeem(
     endpoint: &Endpoint,
     host: EndpointAddr,
     code: &str,
     label: &str,
+    limit: Duration,
+    stage: impl Fn(PairStage) + Sync,
 ) -> Result<Value, PairError> {
     let body = request_body(code, &nonce()?, label)?;
     let peer = host.id.fmt_short().to_string();
-    let call = async {
-        let conn = endpoint
-            .connect(host, ALPN_PAIR)
-            .await
-            .map_err(|err| connect_failure(&err))?;
-        exchange(&conn, &body).await
+    let waiting = once(|| {
+        stage(PairStage::Waiting {
+            device_code: device_code(&endpoint.id()),
+        })
+    });
+    let first = async {
+        let conn = dial(endpoint, host.clone()).await?;
+        first_exchange(&conn, &body, &waiting).await
     };
-    let outcome = tokio::time::timeout(PAIR_TIMEOUT, call)
+    let first = tokio::time::timeout(PAIR_TIMEOUT, first)
         .await
         .unwrap_or(Err(PairError::TimedOut));
+    let outcome = settle(first, endpoint, host, &body, &waiting, limit).await;
     log_outcome(&peer, &outcome);
     outcome
 }
@@ -457,7 +710,7 @@ fn log_outcome(peer: &str, outcome: &Result<Value, PairError>) {
 }
 
 /// Sends `body`, finishes, and reads the answer to its end.
-async fn exchange(conn: &Connection, body: &[u8]) -> Result<Value, PairError> {
+async fn exchange(conn: &Connection, body: &[u8]) -> Result<Answer, PairError> {
     let sent = async {
         let (mut send, mut recv) = conn.open_bi().await.map_err(|err| failed(&err))?;
         send.write_all(body).await.map_err(|err| failed(&err))?;
@@ -528,6 +781,7 @@ fn request_body(code: &str, nonce: &str, label: &str) -> Result<Vec<u8>, PairErr
         code: code.replace('-', ""),
         redemption_nonce: nonce.to_string(),
         label: label.to_string(),
+        waits: true,
     };
     let body = serde_json::to_vec(&request).map_err(|err| failed(&err))?;
     if body.len() > MAX_PAIR_REQUEST_BYTES {
@@ -544,32 +798,78 @@ fn nonce() -> Result<String, PairError> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// kleio-host's answer to a redeem request, short of a refusal.
+pub(crate) enum Answer {
+    /// Paired: kleio-host's pairing payload, which carries the device token.
+    Paired(Value),
+    /// No admin has allowed the device yet: ask again after this long.
+    Pending(Duration),
+}
+
+impl fmt::Debug for Answer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            // The payload carries the device token: never shown.
+            Self::Paired(_) => f.write_str("Paired(…)"),
+            Self::Pending(after) => f.debug_tuple("Pending").field(after).finish(),
+        }
+    }
+}
+
 /// kleio-host's answer, read as `isPairRedeemResponse` reads it: a payload
-/// object with `ok: true`, an error code with `ok: false`.
-pub(crate) fn read_answer(answer: &[u8]) -> Result<Value, PairError> {
+/// object with `ok: true`; with `ok: false`, `pending` with when to ask again
+/// and when the code runs out, or why it was refused.
+pub(crate) fn read_answer(answer: &[u8]) -> Result<Answer, PairError> {
     #[derive(Deserialize)]
-    struct Answer {
+    #[serde(rename_all = "camelCase")]
+    struct Raw {
         ok: bool,
         payload: Option<Value>,
         error: Option<String>,
+        retry_after_ms: Option<Value>,
+        expires_at: Option<Value>,
     }
-    match serde_json::from_slice::<Answer>(answer) {
-        Ok(Answer {
+    let refused = match serde_json::from_slice::<Raw>(answer) {
+        Ok(Raw {
             ok: true,
             payload: Some(payload @ Value::Object(_)),
             ..
-        }) => Ok(payload),
-        Ok(Answer {
+        }) => return Ok(Answer::Paired(payload)),
+        Ok(Raw {
             ok: false,
             error: Some(code),
+            retry_after_ms,
+            expires_at,
             ..
-        }) => Err(PairError::Refused(Refusal::from_code(&code))),
-        _ => Err(PairError::Unreadable),
-    }
+        }) => match code.as_str() {
+            "pending" => {
+                let after = retry_after_ms.as_ref().and_then(Value::as_u64);
+                let runs_out = expires_at.as_ref().is_some_and(Value::is_number);
+                return match after {
+                    Some(ms) if runs_out => Ok(Answer::Pending(retry_after(ms))),
+                    _ => Err(PairError::Unreadable),
+                };
+            }
+            "denied" => PairError::Denied,
+            "claimed" => PairError::Claimed,
+            "update_required" => PairError::UpdateRequired,
+            code => PairError::Refused(Refusal::from_code(code)),
+        },
+        _ => PairError::Unreadable,
+    };
+    Err(refused)
+}
+
+/// How long to wait before asking again, from kleio-host's `retryAfterMs`:
+/// at least [`MIN_RETRY_AFTER`], at most [`MAX_RETRY_AFTER`].
+fn retry_after(ms: u64) -> Duration {
+    Duration::from_millis(ms).clamp(MIN_RETRY_AFTER, MAX_RETRY_AFTER)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use serde_json::json;
 
     use super::*;
@@ -585,8 +885,18 @@ mod tests {
         let sent: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
             sent,
-            json!({"code": "ABCDEF", "redemptionNonce": NONCE, "label": "Finn's iPhone"})
+            json!({"code": "ABCDEF", "redemptionNonce": NONCE, "label": "Finn's iPhone", "waits": true})
         );
+    }
+
+    #[test]
+    fn an_older_apps_request_reads_as_one_that_doesnt_wait() {
+        let old = json!({"code": "ABCDEF", "redemptionNonce": NONCE, "label": "Old iPhone"});
+        let request: PairRequest = serde_json::from_value(old).unwrap();
+        assert!(!request.waits);
+        // Passed on so, kleio-host refuses it as update_required.
+        let passed = serde_json::to_value(&request).unwrap();
+        assert_eq!(passed["waits"], false);
     }
 
     #[test]
@@ -613,11 +923,37 @@ mod tests {
         }
     }
 
+    /// The key kleio-host's preamble test names
+    /// (`names_the_key_as_kleio_host_reads_it` in host/upstream.rs), whose
+    /// hex begins `ea4a6c`.
+    #[test]
+    fn a_device_code_is_its_keys_first_six_hex_characters_in_two_groups() {
+        let key = SecretKey::from_bytes(&[7; 32]).public();
+        assert!(key.to_string().starts_with("ea4a6c"));
+        assert_eq!(device_code(&key), "EA4 A6C");
+        let other = SecretKey::from_bytes(&[8; 32]).public();
+        assert_ne!(device_code(&other), device_code(&key));
+    }
+
+    fn paired(answer: Result<Answer, PairError>) -> Value {
+        match answer {
+            Ok(Answer::Paired(payload)) => payload,
+            other => panic!("not paired: {other:?}"),
+        }
+    }
+
     #[test]
     fn reads_a_paired_answer() {
-        let payload =
-            read_answer(br#"{"ok":true,"payload":{"host":"mini","token":"t0k3n"}}"#).unwrap();
+        let payload = paired(read_answer(
+            br#"{"ok":true,"payload":{"host":"mini","token":"t0k3n"}}"#,
+        ));
         assert_eq!(payload, json!({"host": "mini", "token": "t0k3n"}));
+    }
+
+    #[test]
+    fn never_shows_a_paired_answers_payload() {
+        let answer = read_answer(br#"{"ok":true,"payload":{"token":"t0k3n"}}"#);
+        assert_eq!(format!("{answer:?}"), "Ok(Paired(…))");
     }
 
     #[test]
@@ -638,6 +974,44 @@ mod tests {
         }
     }
 
+    #[test]
+    fn reads_a_wait_for_an_allow_and_how_one_ends() {
+        let pending = |retry: Value| {
+            let answer = json!({"ok": false, "error": "pending", "retryAfterMs": retry, "expiresAt": 1_700_000_300_000_u64});
+            read_answer(answer.to_string().as_bytes())
+        };
+        let ms = Duration::from_millis;
+        for (retry, after) in [
+            (json!(3000), ms(3000)),
+            // Not in a tight loop, nor long after an Allow.
+            (json!(0), MIN_RETRY_AFTER),
+            (json!(600_000), MAX_RETRY_AFTER),
+        ] {
+            match pending(retry.clone()) {
+                Ok(Answer::Pending(got)) => assert_eq!(got, after, "{retry}"),
+                other => panic!("{retry}: {other:?}"),
+            }
+        }
+        for retry in [json!(-1), json!(1.5), json!("3000"), Value::Null] {
+            assert!(
+                matches!(pending(retry.clone()), Err(PairError::Unreadable)),
+                "{retry}"
+            );
+        }
+        // kleio-host always says when the code runs out.
+        let no_end = br#"{"ok":false,"error":"pending","retryAfterMs":3000}"#;
+        assert!(matches!(read_answer(no_end), Err(PairError::Unreadable)));
+
+        for (code, err) in [
+            ("denied", PairError::Denied),
+            ("claimed", PairError::Claimed),
+            ("update_required", PairError::UpdateRequired),
+        ] {
+            let answer = json!({"ok": false, "error": code}).to_string();
+            assert_eq!(read_answer(answer.as_bytes()).unwrap_err(), err, "{code}");
+        }
+    }
+
     /// The plan's pairing cases each have their own words: these are the
     /// table's (tests/fixtures/pairing-messages.json), whose words the app's
     /// tests check are all different, and no two errors here share words.
@@ -645,7 +1019,7 @@ mod tests {
     fn says_each_case_in_its_own_words() {
         let relay = || "example.com".to_string();
         let rows = pairing_messages("pair.rs");
-        assert_eq!(rows.len(), 11, "the table's cases from pair.rs");
+        assert_eq!(rows.len(), 15, "the table's cases from pair.rs");
         for (id, words) in &rows {
             let err = match id.as_str() {
                 "used" => PairError::Refused(Refusal::Used),
@@ -665,6 +1039,10 @@ mod tests {
                     why: "dns error".into(),
                 },
                 "busy" => PairError::Busy,
+                "denied" => PairError::Denied,
+                "claimed" => PairError::Claimed,
+                "not-allowed-in-time" => PairError::NotAllowedInTime,
+                "update-required" => PairError::UpdateRequired,
                 other => panic!("the table has {other} from pair.rs, which says no such thing"),
             };
             assert_eq!(err.to_string(), *words, "{id}");
@@ -695,27 +1073,54 @@ mod tests {
             PairError::Refused(Refusal::Locked),
             PairError::Refused(Refusal::Replaced),
             PairError::Refused(Refusal::Other("bad_request".into())),
+            PairError::Denied,
+            PairError::Claimed,
+            PairError::NotAllowedInTime,
+            PairError::UpdateRequired,
         ];
         let texts: std::collections::BTreeSet<String> =
             all.iter().map(ToString::to_string).collect();
         assert_eq!(texts.len(), all.len(), "two cases share words");
     }
 
-    /// Each step in the table's words, sent to the app by the name the
-    /// table files them under.
+    /// Each step in the table's words, with "this device" where the app names
+    /// it, sent to the app by the name the table files them under: the wait
+    /// with its device code.
     #[test]
     fn names_each_step() {
         let stages = &pairing_table()["stages"];
-        let steps = [PairStage::Relay, PairStage::Host, PairStage::Pairing];
-        for step in steps {
-            let name = serde_json::to_value(step).unwrap();
-            let name = name.as_str().expect("a step's name");
-            assert_eq!(step.text(), stages[name], "{name}");
+        let waiting = PairStage::Waiting {
+            device_code: "3F9 AC2".into(),
+        };
+        let steps = [
+            PairStage::Relay,
+            PairStage::Host,
+            PairStage::Pairing,
+            waiting.clone(),
+        ];
+        for step in &steps {
+            let sent = serde_json::to_value(step).unwrap();
+            let name = match &sent {
+                Value::String(name) => name.clone(),
+                Value::Object(fields) => fields.keys().next().expect("a step's name").clone(),
+                other => panic!("{other}"),
+            };
+            let words = stages[&name].as_str().expect("the table's words");
+            assert_eq!(step.text(), words.replace("{device}", "device"), "{name}");
         }
         assert_eq!(stages.as_object().map(|s| s.len()), Some(steps.len()));
         assert_eq!(
-            steps.map(PairStage::text),
-            ["Reaching the relay…", "Finding your host…", "Pairing…"]
+            serde_json::to_value(&waiting).unwrap(),
+            json!({"waiting": {"deviceCode": "3F9 AC2"}})
+        );
+        assert_eq!(
+            steps.each_ref().map(PairStage::text),
+            [
+                "Reaching the relay…",
+                "Finding your host…",
+                "Pairing…",
+                "Waiting for your host to allow this device…"
+            ]
         );
     }
 
@@ -785,31 +1190,102 @@ mod tests {
             r#"{"ok":false}"#,
             r#"{"ok":false,"error":3}"#,
             r#"{"ok":"true","payload":{}}"#,
+            r#"{"ok":false,"error":"pending"}"#,
         ] {
-            assert_eq!(
-                read_answer(answer.as_bytes()),
-                Err(PairError::Unreadable),
+            assert!(
+                matches!(read_answer(answer.as_bytes()), Err(PairError::Unreadable)),
                 "{answer:?}"
             );
         }
     }
 
-    /// A host that answers one pairing request with `answer`, then hands back
-    /// what it was sent.
-    async fn pair_host(endpoint: Endpoint, answer: Vec<u8>) -> Value {
-        let incoming = endpoint.accept().await.expect("a connection");
-        let conn = incoming.await.expect("a handshake");
-        assert_eq!(conn.alpn(), ALPN_PAIR);
-        let (mut send, mut recv) = conn.accept_bi().await.expect("a stream");
-        let request = recv
-            .read_to_end(MAX_PAIR_REQUEST_BYTES)
-            .await
-            .expect("a request within 2 KiB");
-        send.write_all(&answer).await.expect("answers");
-        send.finish().expect("finishes");
-        // The phone closes the connection once it has the answer.
-        conn.closed().await;
-        serde_json::from_slice(&request).expect("the request is JSON")
+    /// Only a busy host and a connection that failed or took too long are
+    /// asked again while the phone waits for an Allow.
+    #[test]
+    fn asks_again_only_after_what_may_pass() {
+        for err in [
+            PairError::Busy,
+            PairError::HostFailed,
+            PairError::Request("reset".into()),
+            PairError::TimedOut,
+        ] {
+            assert!(err.passes(), "{err:?}");
+        }
+        for err in [
+            PairError::Denied,
+            PairError::Claimed,
+            PairError::UpdateRequired,
+            PairError::NotSupported,
+            PairError::Unreadable,
+            PairError::Refused(Refusal::Expired),
+            PairError::Refused(Refusal::NotFound),
+        ] {
+            assert!(!err.passes(), "{err:?}");
+        }
+    }
+
+    /// What the host does with one pairing connection.
+    enum Reply {
+        /// Answers the request with this.
+        Answer(Vec<u8>),
+        /// Holds the request this long, as kleio-host does while it waits
+        /// for an admin's Allow, then answers with this.
+        Held(Duration, Vec<u8>),
+        /// Closes the connection as busy, as kleio-link-host does when another
+        /// pairing is in flight.
+        Busy,
+    }
+
+    fn pending_body(retry_after_ms: u64) -> Vec<u8> {
+        let answer = json!({"ok": false, "error": "pending", "retryAfterMs": retry_after_ms, "expiresAt": 1_700_000_300_000_u64});
+        answer.to_string().into_bytes()
+    }
+
+    fn pending_answer(retry_after_ms: u64) -> Reply {
+        Reply::Answer(pending_body(retry_after_ms))
+    }
+
+    const PAIRED: &[u8] = br#"{"ok":true,"payload":{"host":"mini","token":"t0k3n"}}"#;
+
+    /// A host that deals with one pairing connection after another as
+    /// `replies` say, then hands back each request it was sent.
+    async fn pair_host(endpoint: Endpoint, replies: Vec<Reply>) -> Vec<Value> {
+        let mut requests = Vec::new();
+        for reply in replies {
+            let incoming = endpoint.accept().await.expect("a connection");
+            let conn = incoming.await.expect("a handshake");
+            assert_eq!(conn.alpn(), ALPN_PAIR);
+            let (held, answer) = match reply {
+                Reply::Answer(answer) => (Duration::ZERO, answer),
+                Reply::Held(held, answer) => (held, answer),
+                Reply::Busy => {
+                    conn.close(VarInt::from_u32(close::PAIR_BUSY), b"busy");
+                    continue;
+                }
+            };
+            let (mut send, mut recv) = conn.accept_bi().await.expect("a stream");
+            let request = recv
+                .read_to_end(MAX_PAIR_REQUEST_BYTES)
+                .await
+                .expect("a request within 2 KiB");
+            tokio::time::sleep(held).await;
+            send.write_all(&answer).await.expect("answers");
+            send.finish().expect("finishes");
+            // The phone closes the connection once it has the answer.
+            conn.closed().await;
+            requests.push(serde_json::from_slice(&request).expect("the request is JSON"));
+        }
+        requests
+    }
+
+    /// The steps `redeem` told, and a way to tell them.
+    fn told() -> (Arc<Mutex<Vec<PairStage>>>, impl Fn(PairStage)) {
+        let stages = Arc::new(Mutex::new(Vec::new()));
+        let tell = {
+            let stages = Arc::clone(&stages);
+            move |stage| stages.lock().expect("not poisoned").push(stage)
+        };
+        (stages, tell)
     }
 
     #[tokio::test]
@@ -818,15 +1294,19 @@ mod tests {
             let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
             let phone = loopback_endpoint(2, &[]).await;
             let addr = loopback_addr(&host);
-            let answer = br#"{"ok":true,"payload":{"host":"mini","token":"t0k3n"}}"#;
-            let host_task = tokio::spawn(pair_host(host, answer.to_vec()));
+            let host_task = tokio::spawn(pair_host(host, vec![Reply::Answer(PAIRED.to_vec())]));
+            let (stages, tell) = told();
 
-            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone").await;
+            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, tell).await;
             assert_eq!(payload, Ok(json!({"host": "mini", "token": "t0k3n"})));
             let sent = host_task.await.expect("the host finished");
-            assert_eq!(sent["code"], "ABCDEF");
-            assert_eq!(sent["label"], "Test iPhone");
-            assert_eq!(sent["redemptionNonce"].as_str().map(str::len), Some(32));
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0]["code"], "ABCDEF");
+            assert_eq!(sent[0]["label"], "Test iPhone");
+            assert_eq!(sent[0]["redemptionNonce"].as_str().map(str::len), Some(32));
+            assert_eq!(sent[0]["waits"], true);
+            // Allowed at once: no wait to show.
+            assert!(stages.lock().expect("not poisoned").is_empty());
         })
         .await;
     }
@@ -838,11 +1318,175 @@ mod tests {
             let phone = loopback_endpoint(2, &[]).await;
             let addr = loopback_addr(&host);
             let answer = vec![b' '; MAX_PAIR_ANSWER_BYTES + 1];
-            let host_task = tokio::spawn(pair_host(host, answer));
+            let host_task = tokio::spawn(pair_host(host, vec![Reply::Answer(answer)]));
 
-            let outcome = redeem(&phone, addr, "ABC-DEF", "Test iPhone").await;
+            let outcome = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {}).await;
             assert_eq!(outcome, Err(PairError::Unreadable));
             host_task.await.expect("the host finished");
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn waits_for_an_allow_asking_again_with_the_same_request() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let replies = vec![
+                pending_answer(50),
+                pending_answer(50),
+                Reply::Answer(PAIRED.to_vec()),
+            ];
+            let host_task = tokio::spawn(pair_host(host, replies));
+            let (stages, tell) = told();
+
+            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, tell).await;
+            assert_eq!(payload, Ok(json!({"host": "mini", "token": "t0k3n"})));
+            let sent = host_task.await.expect("the host finished");
+            assert_eq!(sent.len(), 3);
+            // The same nonce each time: kleio-host knows the device by it.
+            assert!(sent.iter().all(|request| *request == sent[0]), "{sent:?}");
+            // The wait shows once, with this device's code.
+            assert_eq!(
+                *stages.lock().expect("not poisoned"),
+                [PairStage::Waiting {
+                    device_code: device_code(&phone.id())
+                }]
+            );
+        })
+        .await;
+    }
+
+    /// An admin's prompt shows the device code at once: the phone shows it
+    /// too while kleio-host holds its request, and an Allow within the hold
+    /// pairs.
+    #[tokio::test]
+    async fn shows_the_wait_while_the_host_holds_the_request() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let held = SHOW_WAIT_AFTER + Duration::from_millis(500);
+            let replies = vec![Reply::Held(held, PAIRED.to_vec())];
+            let host_task = tokio::spawn(pair_host(host, replies));
+            let (stages, tell) = told();
+
+            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, tell).await;
+            assert_eq!(payload, Ok(json!({"host": "mini", "token": "t0k3n"})));
+            assert_eq!(host_task.await.expect("the host finished").len(), 1);
+            assert_eq!(
+                *stages.lock().expect("not poisoned"),
+                [PairStage::Waiting {
+                    device_code: device_code(&phone.id())
+                }]
+            );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn shows_the_wait_once_though_a_held_request_then_waits() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let held = SHOW_WAIT_AFTER + Duration::from_millis(500);
+            let replies = vec![
+                Reply::Held(held, pending_body(50)),
+                Reply::Answer(PAIRED.to_vec()),
+            ];
+            let host_task = tokio::spawn(pair_host(host, replies));
+            let (stages, tell) = told();
+
+            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, tell).await;
+            assert_eq!(payload, Ok(json!({"host": "mini", "token": "t0k3n"})));
+            assert_eq!(host_task.await.expect("the host finished").len(), 2);
+            assert_eq!(
+                *stages.lock().expect("not poisoned"),
+                [PairStage::Waiting {
+                    device_code: device_code(&phone.id())
+                }]
+            );
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_deny_while_waiting_ends_it() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let denied = br#"{"ok":false,"error":"denied"}"#.to_vec();
+            let replies = vec![pending_answer(50), Reply::Answer(denied)];
+            let host_task = tokio::spawn(pair_host(host, replies));
+
+            let outcome = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {}).await;
+            assert_eq!(outcome, Err(PairError::Denied));
+            assert_eq!(host_task.await.expect("the host finished").len(), 2);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_refusal_at_first_ends_it_with_no_wait() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let claimed = br#"{"ok":false,"error":"claimed"}"#.to_vec();
+            let host_task = tokio::spawn(pair_host(host, vec![Reply::Answer(claimed)]));
+            let (stages, tell) = told();
+
+            let outcome = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, tell).await;
+            assert_eq!(outcome, Err(PairError::Claimed));
+            host_task.await.expect("the host finished");
+            assert!(stages.lock().expect("not poisoned").is_empty());
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn a_busy_host_while_waiting_is_asked_again() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let replies = vec![
+                pending_answer(50),
+                Reply::Busy,
+                Reply::Answer(PAIRED.to_vec()),
+            ];
+            let host_task = tokio::spawn(pair_host(host, replies));
+
+            let payload = redeem(&phone, addr, "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {}).await;
+            assert_eq!(payload, Ok(json!({"host": "mini", "token": "t0k3n"})));
+            // The busy connection had no request to hand back.
+            assert_eq!(host_task.await.expect("the host finished").len(), 2);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn asks_no_more_once_the_wait_is_up() {
+        within_30_s(async {
+            let host = loopback_endpoint(1, &[ALPN_PAIR]).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            let addr = loopback_addr(&host);
+            let replies = (0..10).map(|_| pending_answer(50)).collect();
+            let host_task = tokio::spawn(pair_host(host, replies));
+
+            let limit = Duration::from_millis(600);
+            let started = Instant::now();
+            let outcome = redeem(&phone, addr, "ABC-DEF", "Test iPhone", limit, |_| {}).await;
+            assert_eq!(outcome, Err(PairError::NotAllowedInTime));
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "{:?}",
+                started.elapsed()
+            );
+            host_task.abort();
         })
         .await;
     }

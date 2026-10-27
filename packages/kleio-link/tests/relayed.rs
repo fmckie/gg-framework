@@ -1,6 +1,7 @@
 //! Kleio's link through relays in the test process, with a stand-in for
 //! kleio-host's link listener: kleio-link-host's `serve` as it runs, and
-//! the phone's side as the app uses it. Pairing and how it fails, the gate's
+//! the phone's side as the app uses it. Pairing, how it fails and how the
+//! app stops a phone that waits for an Allow, the gate's
 //! close codes, revoking, the 502, failing over to the next relay, a
 //! relay's rate limit, and why a phone didn't reach its host.
 
@@ -18,9 +19,10 @@ use kleio_link::close;
 use kleio_link::host::{self, FAILOVER_AFTER};
 use kleio_link::iroh::{RelayUrl, SecretKey, Watcher};
 use kleio_link::link::{LinkError, Route, Unreached};
-use kleio_link::pair::{pair, PairError, PairStage, Refusal};
+use kleio_link::pair::{pair, pair_until, PairError, PairStage, Refusal};
 use kleio_link::probe::HttpsProbe;
 use serde_json::json;
+use tokio::sync::mpsc;
 
 /// kleio-host's answer to a code that pairs.
 const PAIRED: &str = r#"{"ok":true,"payload":{"host":"Test host","token":"t0k3n","label":"Test iPhone","deviceId":"d1"}}"#;
@@ -151,6 +153,62 @@ async fn refuses_a_used_wrong_or_expired_code_and_lets_no_key_in() {
             requests.try_recv().is_err(),
             "nothing else reached kleio-host"
         );
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_told_to_stop_while_it_waits_asks_no_more() {
+    within(Duration::from_secs(60), async {
+        let relay = TestRelay::start().await;
+        let home = HostHome::new("stops");
+        home.relays(&[&relay.url]);
+        // kleio-host with no admin to allow the phone.
+        let (upstream, mut requests) = stub_kleio_host(|_| {
+            let body = json!({"ok": false, "error": "pending", "retryAfterMs": 250, "expiresAt": 1_700_000_300_000_u64});
+            Some(http_answer("202 Accepted", body.to_string().as_bytes()))
+        })
+        .await;
+        let options = relay_only(&[&relay]);
+        tokio::spawn(host::serve(home.config(upstream, options.clone())));
+        home.state_when(|state| state["relay"] == relay.url.as_str())
+            .await;
+        let probe = HttpsProbe::new(&options.trust).expect("a probe");
+
+        // Cancel, as the waiting screen has it, once the phone waits.
+        let key = SecretKey::generate();
+        let ticket = ticket(home.id(), &[&relay.url], "ABC-DEF");
+        let (told, mut stages) = mpsc::unbounded_channel();
+        let cancel = async move {
+            while let Some(stage) = stages.recv().await {
+                if matches!(stage, PairStage::Waiting { .. }) {
+                    return;
+                }
+            }
+        };
+        let tell = move |stage| {
+            let _ = told.send(stage);
+        };
+        let outcome = pair_until(
+            key.clone(),
+            &ticket,
+            "Test iPhone",
+            &options,
+            &probe,
+            tell,
+            cancel,
+        )
+        .await;
+        assert_eq!(outcome, None);
+        requests.recv().await.expect("the first ask");
+        // It would have asked again within 250 ms.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(
+            requests.try_recv().is_err(),
+            "the phone asked again after it stopped"
+        );
+        let link = phone(key, Route::from_ticket(&ticket), &options).await;
+        assert_eq!(turned_away(&link).await, LinkError::NotPaired);
     })
     .await;
 }

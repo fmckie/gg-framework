@@ -115,6 +115,15 @@ html.platform-ios.bottom-covered .kleio-overlay {
   padding-bottom: 0;
 }
 
+/* "New device paired" spans the screen under the status bar, as an iOS banner
+   does. */
+html.platform-ios .pairing-notice {
+  top: calc(var(--safe-top) + 8px);
+  right: calc(var(--safe-right) + 12px);
+  left: calc(var(--safe-left) + 12px);
+  width: auto;
+}
+
 /* The connect screen sits outside `.app`. */
 html.platform-ios .kleio-gate {
   padding: calc(var(--safe-top) + 24px) calc(var(--safe-right) + 24px)

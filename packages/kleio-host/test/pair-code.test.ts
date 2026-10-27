@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPairingPayload, isPairRedeemResponse } from "../src/pair-code.js";
+import {
+  DEVICE_CODE_LENGTH,
+  formatDeviceCode,
+  formatPairCode,
+  isPairingPayload,
+  isPairRedeemResponse,
+} from "../src/pair-code.js";
 
 /** What a host reached over the link only hands a device: no baseUrl. */
 const LINK_ONLY = { host: "kleio-ea4a6c63e29c520a", token: "t", label: "Phone", deviceId: "d1" };
@@ -60,5 +66,31 @@ describe("isPairRedeemResponse", () => {
     }
     expect(isPairRedeemResponse({ ok: false, error: "revoked" })).toBe(false);
     expect(isPairRedeemResponse({ ok: false })).toBe(false);
+  });
+});
+
+describe("waiting for an admin's Allow", () => {
+  it("takes the refusals a waiting device can get, and pending only with when to ask again", () => {
+    for (const error of ["claimed", "update_required", "denied"]) {
+      expect(isPairRedeemResponse({ ok: false, error }), error).toBe(true);
+    }
+    expect(
+      isPairRedeemResponse({ ok: false, error: "pending", retryAfterMs: 3000, expiresAt: 1 }),
+    ).toBe(true);
+    for (const wrong of [
+      { ok: false, error: "pending" },
+      { ok: false, error: "pending", retryAfterMs: "3000", expiresAt: 1 },
+      { ok: false, error: "pending", retryAfterMs: 3000 },
+    ]) {
+      expect(isPairRedeemResponse(wrong), JSON.stringify(wrong)).toBe(false);
+    }
+  });
+
+  it("shows a device code as its key's first six hex characters, in a style of its own", () => {
+    expect(formatDeviceCode(`3f9ac2${"0".repeat(58)}`)).toBe("3F9 AC2");
+    expect(formatDeviceCode("a".repeat(64))).toBe("AAA AAA");
+    expect(formatDeviceCode("3f9ac2").length).toBe(DEVICE_CODE_LENGTH + 1);
+    // Not a pair code's style, which has a dash.
+    expect(formatDeviceCode("3f9ac2")).not.toBe(formatPairCode("3F9AC2"));
   });
 });

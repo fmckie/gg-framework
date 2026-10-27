@@ -535,6 +535,50 @@ describe("host: pairing", () => {
       (await call("POST", "/kleio/pair/redeem", { body: { code: "x".repeat(5000) } })).status,
     ).toBe(413);
   });
+
+  it("lets only an admin allow or deny a pairing: /kleio/pair/decide answers 403 to anyone else", async () => {
+    const admin = await pairAdmin();
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint failed");
+    await call("POST", "/kleio/pair/offer", { headers: { [DEVICE_TOKEN_HEADER]: admin.token } });
+    for (const allow of [true, false]) {
+      const r = await call("POST", "/kleio/pair/decide", {
+        headers: { [DEVICE_TOKEN_HEADER]: phone.value.token },
+        body: { allow },
+      });
+      expect(r).toMatchObject({ status: 403, body: { error: "forbidden" } });
+    }
+    expect((await call("POST", "/kleio/pair/decide", { body: { allow: true } })).status).toBe(401);
+    // The code is untouched.
+    const state = await call("GET", "/kleio/pair", {
+      headers: { [DEVICE_TOKEN_HEADER]: admin.token },
+    });
+    expect(state.body).toMatchObject({ active: true, attemptsRemaining: 5, claim: null });
+  });
+
+  it("off the link, a code pairs at once: no device waits, and decide says so (409)", async () => {
+    const admin = await pairAdmin();
+    const asAdmin = { [DEVICE_TOKEN_HEADER]: admin.token };
+    const offer = await call("POST", "/kleio/pair/offer", { headers: asAdmin });
+    expect(
+      await call("POST", "/kleio/pair/decide", { headers: asAdmin, body: { allow: true } }),
+    ).toMatchObject({ status: 409, body: { ok: false, error: "none_waiting" } });
+    for (const body of [null, [], {}, { allow: "yes" }, { allow: true, deviceCode: 5 }]) {
+      expect((await call("POST", "/kleio/pair/decide", { headers: asAdmin, body })).status).toBe(
+        400,
+      );
+    }
+    // Asked with `waits`, as the app now always does: off the link, it isn't held.
+    const redeem = await call("POST", "/kleio/pair/redeem", {
+      body: {
+        code: offer.body.code,
+        redemptionNonce: newRedemptionNonce(),
+        label: "Laptop",
+        waits: true,
+      },
+    });
+    expect(redeem.status).toBe(200);
+  });
 });
 
 describe("host: listeners", () => {

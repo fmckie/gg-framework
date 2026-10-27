@@ -2,14 +2,17 @@
 //! `POST /kleio/pair/redeem` through its link listener, which names the
 //! phone's key, and kleio-host's answer passed back as it is.
 //!
-//! kleio-host decides, by code, expiry and the five tries, and binds the new
-//! device to the key. The forwarder reads at most 2 KiB of request and
-//! 16 KiB of answer, and sends kleio-host only `{code, redemptionNonce,
-//! label}`. kleio-host writes its allow-list before it answers, so on
-//! `ok: true` the forwarder reads the list again before the phone gets the
-//! answer, and the phone's next connection gets in. Nothing here logs the
-//! request or the answer: they carry the code, the nonce and the device
-//! token.
+//! kleio-host decides, by code, expiry, the five tries and an admin's Allow,
+//! and binds the new device to the key. The forwarder reads at most 2 KiB of
+//! request and 16 KiB of answer, and sends kleio-host only `{code,
+//! redemptionNonce, label, waits}`. Until an admin allows the device,
+//! kleio-host holds each request up to 5 s and answers `pending`, and the
+//! phone asks again on a new connection with the same request: each is an
+//! exchange of its own here. kleio-host writes its allow-list before it
+//! answers with the device's token, so on `ok: true` the forwarder reads the
+//! list again before the phone gets the answer, and the phone's next
+//! connection gets in. Nothing here logs the request or the answer: they
+//! carry the code, the nonce and the device token.
 
 use std::fmt;
 use std::io;
@@ -25,7 +28,7 @@ use super::budget::PairBudget;
 use super::gate::{AllowList, Device};
 use super::upstream::Upstream;
 use crate::pair::{
-    read_answer, PairError, PairRequest, MAX_PAIR_ANSWER_BYTES, MAX_PAIR_REQUEST_BYTES,
+    read_answer, Answer, PairError, PairRequest, MAX_PAIR_ANSWER_BYTES, MAX_PAIR_REQUEST_BYTES,
 };
 use crate::{close, LINK_HOST};
 
@@ -120,9 +123,8 @@ async fn exchange(
     let phone = |err: &dyn fmt::Display| Failure::Phone(err.to_string());
     let (mut send, mut recv) = conn.accept_bi().await.map_err(|err| phone(&err))?;
     let answer = match recv.read_to_end(MAX_PAIR_REQUEST_BYTES).await {
-        Ok(request) => match serde_json::from_slice::<PairRequest>(&request) {
-            Ok(request) => {
-                let body = serde_json::to_vec(&request).expect("a request of strings serializes");
+        Ok(request) => match redeem_body(&request) {
+            Some(body) => {
                 let answer =
                     tokio::time::timeout(UPSTREAM_TIMEOUT, post_redeem(upstream, &key, &body))
                         .await
@@ -131,7 +133,7 @@ async fn exchange(
                 record_outcome(key, &answer, allow);
                 answer
             }
-            Err(_) => {
+            None => {
                 warn!("{peer} pairing refused: not a redeem request");
                 BAD_REQUEST.to_vec()
             }
@@ -149,12 +151,20 @@ async fn exchange(
     Ok(())
 }
 
+/// The body kleio-host gets for the phone's `request`: the redeem request
+/// rebuilt from its fields, `waits` included, and nothing else. `None` if it
+/// isn't a redeem request.
+fn redeem_body(request: &[u8]) -> Option<Vec<u8>> {
+    let request = serde_json::from_slice::<PairRequest>(request).ok()?;
+    Some(serde_json::to_vec(&request).expect("a request of strings and a flag serializes"))
+}
+
 /// Reads the allow-list again if kleio-host paired the key, so its next
 /// connection gets in, and logs the outcome.
 fn record_outcome(key: EndpointId, answer: &[u8], allow: &AllowList) {
     let peer = key.fmt_short();
     match read_answer(answer) {
-        Ok(payload) => {
+        Ok(Answer::Paired(payload)) => {
             let device = Device::from_payload(&payload);
             let label = device.label.clone().unwrap_or_default();
             // kleio-host wrote its allow-list before it answered.
@@ -173,6 +183,18 @@ fn record_outcome(key: EndpointId, answer: &[u8], allow: &AllowList) {
                 );
             }
         }
+        Ok(Answer::Pending(_)) => {
+            info!("{peer} pairing waits for an admin to allow it on kleio-host")
+        }
+        Err(PairError::Denied) => info!(
+            "{peer} pairing denied by kleio-host: an admin denied it, or its code ended before anyone allowed it"
+        ),
+        Err(PairError::Claimed) => warn!(
+            "{peer} pairing refused by kleio-host: another device is already waiting with this code"
+        ),
+        Err(PairError::UpdateRequired) => warn!(
+            "{peer} pairing refused by kleio-host: the phone's Kleio is too old to wait for an admin's Allow"
+        ),
         Err(PairError::Refused(code)) => info!("{peer} pairing refused by kleio-host ({code:?})"),
         Err(_) => {
             warn!("{peer} pairing: kleio-host's answer isn't a redeem answer; passed on as it is")
@@ -271,6 +293,8 @@ fn answer_body(response: &[u8]) -> Result<Vec<u8>, UpstreamError> {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{json, Value};
+
     use super::*;
 
     fn response(head: &str, body: &str) -> Vec<u8> {
@@ -327,5 +351,43 @@ mod tests {
             answer_body(&response("HTTP/1.1 200 OK", &over)),
             Err(UpstreamError::TooLong)
         ));
+    }
+
+    fn rebuilt(request: &str) -> Value {
+        let body = redeem_body(request.as_bytes()).expect("a redeem request");
+        serde_json::from_slice(&body).expect("JSON")
+    }
+
+    #[test]
+    fn passes_on_that_the_phone_waits_and_nothing_it_adds() {
+        let request = r#"{"code":"ABCDEF","redemptionNonce":"00112233445566778899aabbccddeeff","label":"iPhone","waits":true,"admin":true}"#;
+        assert_eq!(
+            rebuilt(request),
+            json!({
+                "code": "ABCDEF",
+                "redemptionNonce": "00112233445566778899aabbccddeeff",
+                "label": "iPhone",
+                "waits": true,
+            })
+        );
+    }
+
+    #[test]
+    fn passes_on_an_older_apps_request_as_one_that_doesnt_wait() {
+        // kleio-host refuses it as update_required.
+        let request = r#"{"code":"ABCDEF","redemptionNonce":"00112233445566778899aabbccddeeff","label":"iPhone"}"#;
+        assert_eq!(rebuilt(request)["waits"], false);
+    }
+
+    #[test]
+    fn passes_on_no_request_that_isnt_a_redeem_request() {
+        for request in [
+            "",
+            "not JSON",
+            r#"{"code":"ABCDEF","label":"iPhone","waits":true}"#,
+            r#"{"code":"ABCDEF","redemptionNonce":"00112233445566778899aabbccddeeff","label":"iPhone","waits":"yes"}"#,
+        ] {
+            assert!(redeem_body(request.as_bytes()).is_none(), "{request}");
+        }
     }
 }

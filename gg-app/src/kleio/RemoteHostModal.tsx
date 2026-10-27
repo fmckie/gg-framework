@@ -3,7 +3,10 @@
 //   paired      → where you are, forget host
 //   paired admin→ + Devices tab: list (New marks a device paired this week) /
 //                  Revoke this device / a pair code for another device, with its
-//                  QR code and pairing text (PairingOffer.tsx)
+//                  QR code and pairing text, and Allow or Deny for the device
+//                  that uses it over the link (PairingOffer.tsx). Closing the
+//                  pane, leaving the tab or Lock takes the code away, as Done
+//                  does. New device paired's Review devices opens it here.
 // Pairing and forgetting take effect on the next launch: the host base URL and
 // auth headers are baked into the shared HTTP client at boot, the same way an
 // update is applied — so the pane offers the same Restart button. The iPhone
@@ -26,7 +29,7 @@ import { theme } from "../theme";
 import { kleioLink, useKleioLink, type TicketCheck } from "./kleioLink";
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
 import { ForgetHost } from "./ForgetHost";
-import { PairingOffer } from "./PairingOffer";
+import { PairingOffer, useWithdrawOnClose, withdrawOffer } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import { RestartNotice, UrlPairFields } from "./UrlPairing";
@@ -44,9 +47,16 @@ import {
 
 type Tab = "host" | "devices";
 
-export function RemoteHostModal({ onClose }: { onClose: () => void }): React.ReactElement {
+export function RemoteHostModal({
+  onClose,
+  initialTab = "host",
+}: {
+  onClose: () => void;
+  /** Where it opens. Devices shows only to an admin; anyone else gets Host. */
+  initialTab?: Tab;
+}): React.ReactElement {
   const { status, refresh } = useKleioRemote();
-  const [tab, setTab] = useState<Tab>("host");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const paired = status?.paired ?? null;
   const active = status?.active ?? null;
   const canAdmin = Boolean(active?.admin);
@@ -290,6 +300,9 @@ function DevicesPanel({
   const [readAt, setReadAt] = useState(0);
   const [admin, setAdmin] = useState<AdminState | null>(null);
   const [offer, setOffer] = useState<PairOffer | null>(null);
+  // Closing the pane or leaving the tab with a code on show takes it away,
+  // as Done does.
+  useWithdrawOnClose(offer);
   const [offerAdmin, setOfferAdmin] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -356,6 +369,8 @@ function DevicesPanel({
 
   const lock = () =>
     run("lock", async () => {
+      // First, while the unlock lasts: after it, that would ask for Touch ID.
+      if (offer) await withdrawOffer(offer);
       await kleio.adminLock();
       setDevices(null);
       setOffer(null);

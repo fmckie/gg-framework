@@ -76,6 +76,8 @@ security model, the relays, and what a relay sees.
 - **Only paired keys get in.** kleio-link-host lets in the keys in `secure/link-allow.json`, which
   the device registry writes on every pairing and revoke. Pairing is open to any key, within a
   budget: 10 a minute, one at a time.
+- **A device pairs over the link only once an admin allows it.** See
+  [Pair a device](#pair-a-device).
 - **The link listener takes only kleio-link-host.** Each connection opens with
   `KLEIO-LINK/1 <device key> <secret>`. The secret is `secure/link-upstream.token`, compared in
   constant time. The connection is closed before anything else is read if that line is garbled,
@@ -249,7 +251,9 @@ It prints:
 
 - the host's URL, `http://127.0.0.1:<port>`;
 - an admin pairing code (single use, 5 minutes), the `curl` that redeems it, and the command for
-  another;
+  another. Its codes pair over loopback, at once. Run in a terminal, the command for another shows
+  the QR code too (with kleio-link-host running), and asks you to allow a device that pairs over
+  the link;
 - the line that starts the app against the host (below);
 - the sandbox folder, the app's token file (`app.env`, 0600), the logs and the process ids.
 
@@ -336,7 +340,8 @@ exit.
 ## Pair a device
 
 ```sh
-kleio-host pair            # the code (ABC-DEF; 5 min, single use), its QR code and pairing text
+kleio-host pair            # the code (ABC-DEF; 5 min, single use), its QR code and pairing text,
+                           # then asks you to allow the device that uses it over the link
 kleio-host pair --admin    # also grants a control macaroon
 kleio-host devices         # each device, with its link key's prefix and last path
 kleio-host revoke <deviceId | link key prefix>
@@ -356,31 +361,78 @@ one it's on first), up to two direct addresses, and the code, but never a token.
   pane's Devices tab. Without a ticket it says why, and a device paired by a tailnet address draws
   a Tailscale QR code instead.
 
-**Redeeming:** the device POSTs `{ code, redemptionNonce, label }` to `/kleio/pair/redeem`, and
-receives `{ baseUrl?, host, token, label, deviceId, controlCredential?, previewOrigin? }`.
+**Allowing a device.** Over the link, a device pairs only once an admin allows it
+([ADR 0003](../../docs/adr/0003-link-pairing-needs-approval.md)), so a photo of a live QR code
+isn't enough.
+
+- The device sends the code, then waits. It shows its **device code**: the first 6 hex characters
+  of the key it pairs from, such as `3F9 AC2`. The app makes a new key for each pairing, so nobody
+  can have one ready with a chosen code.
+- The admin is shown the device's name and its device code, and allows it only if the device shows
+  the same:
+  - `pair`, in a terminal, stays with its code and asks `Allow iPhone (device code 3F9 AC2)? [y/N]`.
+    Enter alone is No. Without a terminal, it says how to allow the device from an admin device.
+  - An admin device asks on the screen that shows the code (**Pair a device**, or the ⌘⇧K pane's
+    Devices tab), with **Allow** and **Deny**.
+- **Allow** pairs the device: its next request gets the token, as before.
+- **Deny** retires the code as `denied`. So does taking the code away while a device waits
+  (**Done**, or leaving the screen that shows it), or the code expiring before an Allow. A device
+  turned down never got a token or a place on the allow-list.
+- **One device per code.** Another device that brings the same live code is turned away as
+  `claimed`, which uses none of the code's tries, and the admin is warned: "Another device also
+  tried this code."
+- **The device waits up to 2 minutes.** kleio-host holds each request up to 5 s for the Allow, then
+  answers `pending`, and the device asks again 3 s later on a new connection. Each ask is one of
+  the link's 10 pairings a minute.
+- A device that pairs again from the same key needs an Allow too. Off the link (by address or over
+  Tailscale), a code pairs at once, as before.
+
+The admin routes behind it:
+
+- `GET /kleio/pair` gives the code's state: `{ active, expiresAt, attemptsRemaining, redeemed,
+  admin, claim }`. `claim` is the device waiting, `{ label, deviceCode, at, contested, allowed }`,
+  or `null`. It never holds the code, the nonce or the whole key.
+- `POST /kleio/pair/decide` with `{ allow, deviceCode? }` allows or denies the device waiting. With
+  `deviceCode`, it acts only on that device, so an answer is never about one nobody saw. It answers
+  200 `{ ok: true, label, deviceCode }`, or 409 with `none_waiting` (no device waits) or `changed`
+  (a different device waits now).
+- `POST /kleio/pair/revoke` takes the code away, and turns down a device waiting on it.
+
+**Redeeming:** the device POSTs `{ code, redemptionNonce, label, waits }` to `/kleio/pair/redeem`,
+and receives `{ baseUrl?, host, token, label, deviceId, controlCredential?, previewOrigin? }`.
 `previewOrigin` is where the host's site previews open, such as
 `https://mini.tailnet.ts.net:8444`. It's absent on a host without previews.
 
 - **Over the link,** the request goes through kleio-link-host, and the new device is bound to the
   phone's link key. There's no `baseUrl`, since the token is good only on the link. A phone that
-  pairs again from the same key replaces its older pairings, which are revoked.
+  pairs again from the same key replaces its older pairings, which are revoked. The request must
+  say `waits: true`, and the phone asks again with the same nonce, from the same key, until an
+  admin decides.
 - **Over Tailscale,** the request goes to 8443, and `baseUrl` is `KLEIO_PUBLIC_URL`.
 
 **Redeem answers:**
 
-| Status | Body `error`                              | When                                                            |
-| ------ | ----------------------------------------- | --------------------------------------------------------------- |
-| 200    | (the payload)                             | The code was right.                                             |
-| 400    | `bad_request`                             | The body isn't a code and a nonce.                              |
-| 401    | `unauthorized`                            | A wrong code. The fifth wrong try locks the code.               |
-| 404    | `not_found`                               | No code is waiting.                                             |
-| 410    | `used`, `expired`, `replaced` or `locked` | That exact code was live and isn't any more. Given for an hour. |
+| Status | Body `error`                                        | When                                                                 |
+| ------ | --------------------------------------------------- | -------------------------------------------------------------------- |
+| 200    | (the payload)                                       | The code was right, and over the link an admin allowed the device.   |
+| 202    | `pending`                                           | Over the link, no admin has allowed the device yet. Ask again.       |
+| 400    | `bad_request`                                       | The body isn't a code and a nonce.                                   |
+| 401    | `unauthorized`                                      | A wrong code. The fifth wrong try locks the code.                    |
+| 404    | `not_found`                                         | No code is waiting.                                                  |
+| 409    | `claimed`                                           | The right code, but another device waits on it. Uses no try.         |
+| 410    | `used`, `expired`, `replaced`, `locked` or `denied` | That exact code was live and isn't any more. Given for an hour.      |
+| 426    | `update_required`                                   | Over the link without `waits`: an app too old to wait. Uses nothing. |
 
 A wrong code always gets the same 401, so a guess learns nothing. The 410s let a phone scanning an
-old QR code say what to do.
+old QR code say what to do. `denied` means an admin denied the device, or the code went before an
+Allow. A `pending` body adds `retryAfterMs`, when to ask again, and `expiresAt`, the code's.
 
 **Admins are told.** Each new pairing pushes an alert to every admin device but the new one, such
-as "It can now use Kleio on mac-mini-1. If you didn't pair it, revoke it."
+as "It can now use Kleio on mac-mini-1. If you didn't pair it, revoke it." Where push isn't set
+up too, the app on each admin device says so over whatever is on screen, until someone taps
+**Got it**: "iPhone was paired with mac-mini-1 3 min ago. Not one of yours? Review devices." The
+host's log has a line for each pairing, and for each Allow and Deny, such as
+`[pair] iPhone paired over the link (device code 3F9 AC2, admin=false, allowed by Will's Mac)`.
 
 Every later request carries `x-kleio-device-token` (admin devices add `x-kleio-control`).
 `GET /events?session=…` frames carry `id:`; reconnect with `Last-Event-ID` and the host replays
@@ -504,7 +556,8 @@ release builds take `https://` only.
 Kleio on the iPhone and the Mac pairs over the link instead, with no URL and no Tailscale. The
 iPhone scans the QR code `kleio-host pair` shows, and the Mac takes its pairing text pasted in
 ("Paste pairing text"). An iPhone debug build takes the pasted text too, as the simulator has no
-camera.
+camera. Either then waits for your Allow, in `kleio-host pair`'s terminal or on an admin device,
+which shows the same device code.
 
 The token and control credential go to the Keychain (`com.kleio.gg-app`): the login Keychain
 on the Mac, and on the iPhone the app's own, where they can be read once the phone has been
