@@ -165,9 +165,11 @@ jobs:
   app:
     name: app · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # 30 not 15: the Windows leg compiles the Tauri tree and builds/launches
-    # an MSI (~12 min warm; the Rust compile is much slower cold-cache).
-    timeout-minutes: 30
+    # 45 not 30: the Windows leg compiles the Tauri tree and builds/launches
+    # an MSI, taking 16-26 min with a warm Rust cache. Cold, it ran past 30
+    # min, and a job cut off at its limit never saves the cache, so every
+    # later run started cold again.
+    timeout-minutes: 45
     defaults:
       run:
         shell: node "${{ github.workspace }}/control/scripts/verify-ci-candidate.mjs" shell bash {0}
