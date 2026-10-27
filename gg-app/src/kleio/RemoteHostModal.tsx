@@ -29,7 +29,7 @@ import { theme } from "../theme";
 import { kleioLink, useKleioLink, type TicketCheck } from "./kleioLink";
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
 import { ForgetHost } from "./ForgetHost";
-import { PairingOffer, useWithdrawOnClose, withdrawOffer } from "./PairingOffer";
+import { type OfferEnd, PairingOffer, useWithdrawOnClose, withdrawOffer } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import { RestartNotice, UrlPairFields } from "./UrlPairing";
@@ -365,7 +365,16 @@ function DevicesPanel({
     run("offer", async () => {
       setOffer(await kleio.offer(offerAdmin));
     });
-  const offerDone = useCallback(() => setOffer(null), []);
+  // A device that paired joins the list now, not when the pane next opens.
+  // Its pairing was seen by a check that needs the admin unlock, so the
+  // list comes without asking for Touch ID.
+  const offerDone = useCallback(
+    (how: OfferEnd) => {
+      setOffer(null);
+      if (how === "paired") void load();
+    },
+    [load],
+  );
 
   const lock = () =>
     run("lock", async () => {

@@ -89,7 +89,7 @@ import {
   type TicketCheck,
 } from "./kleioLink";
 import { LinkConfirm, takesPairingText, TicketPaste, TicketScan } from "./LinkPairing";
-import { noTicketWords, PairingOffer, useWithdrawOnClose } from "./PairingOffer";
+import { noTicketWords, type OfferEnd, PairingOffer, useWithdrawOnClose } from "./PairingOffer";
 import { readTicket } from "./pairTicket";
 import { relTime } from "./relTime";
 import { ForgetHost } from "./ForgetHost";
@@ -170,6 +170,8 @@ export function ConnectionPage(): React.ReactElement {
   const overLink = link === undefined ? undefined : link?.active === true;
   const [checks, setChecks] = useState<Checks | null>(null);
   const [checking, setChecking] = useState(false);
+  // The devices Pair a device has paired here: each joins the Devices list.
+  const [pairings, setPairings] = useState(0);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -361,11 +363,15 @@ export function ConnectionPage(): React.ReactElement {
           <PairDeviceCard
             baseUrl={active?.base ?? null}
             admin={active?.admin ?? false}
-            onPaired={() => void check()}
+            onDone={(how) => {
+              void check();
+              if (how === "paired") setPairings((n) => n + 1);
+            }}
           />
           <DevicesCard
             admin={active?.admin ?? false}
             selfId={active?.deviceId ?? null}
+            pairings={pairings}
             onChanged={() => {
               void refreshRemote();
               void check();
@@ -1748,13 +1754,14 @@ function waitingWords(n: number): string {
 function PairDeviceCard({
   baseUrl,
   admin,
-  onPaired,
+  onDone,
 }: {
   /** The address this device reaches the host at, for a Tailscale QR code
    *  when the host gives no link ticket. */
   baseUrl: string | null;
   admin: boolean;
-  onPaired: () => void;
+  /** Once the code on show closes, with why (PairingOffer's `onDone`). */
+  onDone: (how: OfferEnd) => void;
 }): React.ReactElement {
   const [offer, setOffer] = useState<PairOffer | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1762,10 +1769,13 @@ function PairDeviceCard({
   // Leaving the page with a code on show takes it away, as Done does.
   useWithdrawOnClose(offer);
 
-  const done = useCallback(() => {
-    setOffer(null);
-    onPaired();
-  }, [onPaired]);
+  const done = useCallback(
+    (how: OfferEnd) => {
+      setOffer(null);
+      onDone(how);
+    },
+    [onDone],
+  );
 
   async function mint(): Promise<void> {
     if (busy) return;
@@ -1824,10 +1834,13 @@ function PairDeviceCard({
 function DevicesCard({
   admin,
   selfId,
+  pairings,
   onChanged,
 }: {
   admin: boolean;
   selfId: string | null;
+  /** How many devices Pair a device has paired on this page. */
+  pairings: number;
   onChanged: () => void;
 }): React.ReactElement {
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
@@ -1849,6 +1862,16 @@ function DevicesCard({
       setBusy(false);
     }
   }, []);
+
+  // A device Pair a device pairs joins the list, if the list is on show.
+  // One not on show stays so: Show devices is what asks for Touch ID.
+  const shown = devices !== null;
+  const listedPairings = useRef(pairings);
+  useEffect(() => {
+    if (pairings === listedPairings.current) return;
+    listedPairings.current = pairings;
+    if (shown) void load();
+  }, [pairings, shown, load]);
 
   async function revoke(device: PairedDevice): Promise<void> {
     setBusy(true);
