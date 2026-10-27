@@ -125,11 +125,28 @@ jobs:
       # when a tool is absent.
       - name: Ensure FFmpeg and ffprobe for Motion media tests
         run: |
+          # A slow mirror has held apt-get for 20-30 min. Each try has a time limit
+          # and apt's own fetch retries and timeouts; each command gets 3 tries. At
+          # worst that's ~21 min, under verify-ci-candidate.mjs's 30-min step limit.
+          apt_get() {
+            limit=$1
+            shift
+            for try in 1 2 3; do
+              if sudo timeout -k 20s "$limit" apt-get -o Acquire::Retries=3 \
+                -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 "$@"; then
+                return 0
+              fi
+              echo "::warning::apt-get $1 failed or ran past $limit (try $try of 3)"
+              sudo dpkg --configure -a
+              sleep 10
+            done
+            return 1
+          }
           if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
             case "$RUNNER_OS" in
               Linux)
-                sudo apt-get update
-                sudo apt-get install -y --no-install-recommends ffmpeg
+                apt_get 2m update
+                apt_get 4m install -y --no-install-recommends ffmpeg
                 ;;
               macOS) HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg ;;
               Windows) choco install ffmpeg --version=8.0.1 -y --no-progress ;;
@@ -242,8 +259,25 @@ jobs:
       - name: Linux system deps (tauri)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
+          # A slow mirror has held apt-get for 20-30 min. Each try has a time limit
+          # and apt's own fetch retries and timeouts; each command gets 3 tries. At
+          # worst that's ~21 min, under verify-ci-candidate.mjs's 30-min step limit.
+          apt_get() {
+            limit=$1
+            shift
+            for try in 1 2 3; do
+              if sudo timeout -k 20s "$limit" apt-get -o Acquire::Retries=3 \
+                -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 "$@"; then
+                return 0
+              fi
+              echo "::warning::apt-get $1 failed or ran past $limit (try $try of 3)"
+              sudo dpkg --configure -a
+              sleep 10
+            done
+            return 1
+          }
+          apt_get 2m update
+          apt_get 4m install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev
 
       - name: Install
         run: pnpm install --frozen-lockfile
