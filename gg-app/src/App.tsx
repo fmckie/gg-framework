@@ -182,7 +182,7 @@ import type { KleioScreenTab } from "./kleio/KleioScreen";
 import { KleioHome } from "./kleio/KleioHome";
 import { KleioBadge } from "./kleio/KleioBadge";
 import { useKleioRemote } from "./kleio/useKleioRemote";
-import { NewPairingNotice } from "./kleio/NewPairingNotice";
+import { NewPairingNotice } from "./kleio/LazyNewPairingNotice";
 import { talkToKleio } from "./kleio/VoiceMode";
 import {
   useOpenFromHost,

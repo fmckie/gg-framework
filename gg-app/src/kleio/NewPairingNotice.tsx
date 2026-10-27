@@ -15,7 +15,8 @@
 //
 // App.tsx mounts it in each of its views under one key, so React keeps a single
 // instance across them: going from a chat to home neither looks again nor
-// announces it again.
+// announces it again. It mounts it through LazyNewPairingNotice.tsx, which loads
+// this only on an admin device.
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ShieldWarningIcon } from "@phosphor-icons/react";
