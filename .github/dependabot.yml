@@ -20,26 +20,25 @@ updates:
       minor-and-patch:
         update-types: ["minor", "patch"]
 
-  # Tauri desktop app (gg-app). Its link, packages/kleio-link, pins iroh, so
-  # iroh, its sub-crates and noq move together, in this group and the same
-  # group on the link's own entry below. One iroh release can still open a
-  # pull request per directory: scripts/check-link-locks.mjs fails CI until
-  # both lockfiles name the same iroh and noq versions (run `cargo update -p
-  # iroh` in the other directory on the same branch).
+  # Rust: the Tauri desktop app (gg-app) and Kleio's link and kleio-link-host
+  # (packages/kleio-link), each with its own lockfile. gg-app builds the link
+  # by path, and the link pins iroh, iroh-relay and noq-proto exactly, so
+  # iroh, its sub-crates and noq (noq-* takes in noq-proto) must move together
+  # in both lockfiles. One entry lists both directories, so each group below
+  # is a single pull request across them: dependabot-core merges a group's
+  # changes over an entry's `directories`. The second group does the same for
+  # security updates. scripts/check-link-locks.mjs still fails CI if the two
+  # lockfiles ever name different iroh or noq versions. Other crates get a
+  # pull request each, per directory, as before.
   - package-ecosystem: cargo
-    directory: /gg-app/src-tauri
+    directories:
+      - /gg-app/src-tauri
+      - /packages/kleio-link
     schedule:
       interval: weekly
     groups:
       iroh:
         patterns: ["iroh", "iroh-*", "noq", "noq-*"]
-
-  # Kleio's link and kleio-link-host (packages/kleio-link), with its own
-  # lockfile.
-  - package-ecosystem: cargo
-    directory: /packages/kleio-link
-    schedule:
-      interval: weekly
-    groups:
-      iroh:
+      iroh-security:
+        applies-to: security-updates
         patterns: ["iroh", "iroh-*", "noq", "noq-*"]
