@@ -50,6 +50,23 @@ function workflowInvariants(source) {
   const sections = [jobs.slice(0, jobs.indexOf("\n  app:")), jobs.slice(jobs.indexOf("\n  app:"))];
   const trustedTests =
     'node --test "$KLEIO_CONTROL_ROOT/scripts/upstream-sync.test.mjs" "$KLEIO_CONTROL_ROOT/scripts/identity-audit.test.mjs" "$KLEIO_CONTROL_ROOT/scripts/consumer-contract.test.mjs" "$KLEIO_CONTROL_ROOT/scripts/verify-ci-candidate.test.mjs"';
+  // Both apt-get steps share this wrapper, so a slow mirror can't hold a job.
+  const aptGet = [
+    "apt_get() {",
+    "limit=$1",
+    "shift",
+    "for try in 1 2 3; do",
+    'if sudo timeout -k 20s "$limit" apt-get -o Acquire::Retries=3 \\',
+    '-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 "$@"; then',
+    "return 0",
+    "fi",
+    'echo "::warning::apt-get $1 failed or ran past $limit (try $try of 3)"',
+    "sudo dpkg --configure -a",
+    "sleep 10",
+    "done",
+    "return 1",
+    "}",
+  ];
   const runs = [
     [
       "node scripts/verify-ci-candidate.mjs materialize",
@@ -60,11 +77,12 @@ function workflowInvariants(source) {
       "node bench/size-gate.mjs --only dist:ggcoder\nnode bench/startup-gate.mjs",
       "pnpm -r check",
       [
+        ...aptGet,
         'if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then',
         'case "$RUNNER_OS" in',
         "Linux)",
-        "sudo apt-get update",
-        "sudo apt-get install -y --no-install-recommends ffmpeg",
+        "apt_get 2m update",
+        "apt_get 4m install -y --no-install-recommends ffmpeg",
         ";;",
         "macOS) HOMEBREW_NO_AUTO_UPDATE=1 brew install ffmpeg ;;",
         "Windows) choco install ffmpeg --version=8.0.1 -y --no-progress ;;",
@@ -82,7 +100,11 @@ function workflowInvariants(source) {
       "node scripts/verify-ci-candidate.mjs materialize",
       "node --test scripts/check-link-locks.test.mjs\nnode scripts/check-link-locks.mjs",
       "cargo fmt --check\ncargo clippy --locked --all-targets --features host -- -D warnings\ncargo test --locked --features host",
-      "sudo apt-get update\nsudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev",
+      [
+        ...aptGet,
+        "apt_get 2m update",
+        "apt_get 4m install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libayatana-appindicator3-dev",
+      ].join("\n"),
       "pnpm install --frozen-lockfile",
       "pnpm --filter @kleio/coder... build",
       "pnpm --filter @kleio/host build\ncargo test --locked --features host --manifest-path packages/kleio-link/Cargo.toml --test end_to_end -- --ignored",
@@ -212,6 +234,7 @@ test("focused CI regression checks reject meaningful workflow mutations", () => 
     ["pnpm -r test", "pnpm -r test || true"],
     ["timeout-minutes: 30", "timeout-minutes: 60"],
     ["timeout-minutes: 45", "timeout-minutes: 60"],
+    ['sudo timeout -k 20s "$limit" apt-get', "sudo apt-get"],
     ["fail-fast: false", "fail-fast: true"],
     ["ref: ${{ github.sha }}", "ref: main"],
     ["persist-credentials: false", "persist-credentials: true"],
