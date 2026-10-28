@@ -99,6 +99,7 @@ async function startHost(
     publicUrl?: false;
     /** Site previews, on this public base. */
     previewBaseUrl?: string;
+    log?: (line: string) => void;
   } = {},
 ): Promise<Host> {
   const h = (overrides.create ?? createHost)({
@@ -115,6 +116,7 @@ async function startHost(
     routinePollMs: 200,
     homeCwd: join(home, "Kleio"),
     ...(overrides.workspaceRoots ? { workspaceRoots: overrides.workspaceRoots } : {}),
+    ...(overrides.log ? { log: overrides.log } : {}),
     ...(overrides.previewBaseUrl
       ? { previewPort: 0, previewBaseUrl: overrides.previewBaseUrl }
       : {}),
@@ -254,6 +256,19 @@ async function pairAdmin(): Promise<PairingPayload> {
   };
 }
 
+// A device paired with an admin offer, so it holds the control credential made for it.
+async function pairByAdminOffer(adminToken: string, label: string): Promise<PairingPayload> {
+  const offer = await call("POST", "/kleio/pair/offer", {
+    headers: { [DEVICE_TOKEN_HEADER]: adminToken },
+    body: { admin: true },
+  });
+  const redeem = await call("POST", "/kleio/pair/redeem", {
+    body: { code: offer.body.code, redemptionNonce: newRedemptionNonce(), label },
+  });
+  if (redeem.status !== 200) throw new Error(`pairing ${label}: ${redeem.status}`);
+  return redeem.body.payload as PairingPayload;
+}
+
 // ---------------------------------------------------------------- tests
 
 describe("host: auth boundary", () => {
@@ -359,6 +374,46 @@ describe("host: auth boundary", () => {
       (await call("GET", "/kleio/devices", { headers: { ...H, [CONTROL_HEADER]: expired } }))
         .status,
     ).toBe(403);
+  });
+
+  it("a control credential made for another device doesn't make a device admin", async () => {
+    await host.stop();
+    const logs: string[] = [];
+    host = await startHost({ log: (line) => logs.push(line) });
+    const boot = await pairAdmin();
+    const laptop = await pairByAdminOffer(boot.token, "Laptop");
+    const cred = laptop.controlCredential;
+    if (cred === undefined) throw new Error("the admin offer gave no control credential");
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const H = { [DEVICE_TOKEN_HEADER]: phone.value.token, [CONTROL_HEADER]: cred };
+    expect((await call("GET", "/kleio/devices", { headers: H })).status).toBe(403);
+    // Still a device, just not an admin one.
+    expect((await call("GET", "/state", { headers: H })).status).toBe(200);
+    expect(logs).toContain(
+      `[admin] refused a control credential from Phone: it was made for another device (${laptop.deviceId})`,
+    );
+    expect(logs.join("\n")).not.toContain(cred);
+  });
+
+  it("revoking an admin device ends its control credential, whoever sends it", async () => {
+    const boot = await pairAdmin();
+    const laptop = await pairByAdminOffer(boot.token, "Laptop");
+    const cred = laptop.controlCredential;
+    if (cred === undefined) throw new Error("the admin offer gave no control credential");
+    const phone = await registry.mint("Phone");
+    if (!phone.ok) throw new Error("mint");
+    const asLaptop = { [DEVICE_TOKEN_HEADER]: laptop.token, [CONTROL_HEADER]: cred };
+    const asPhone = { [DEVICE_TOKEN_HEADER]: phone.value.token, [CONTROL_HEADER]: cred };
+    expect((await call("GET", "/kleio/devices", { headers: asLaptop })).status).toBe(200);
+    const rev = await call("POST", `/kleio/devices/${laptop.deviceId}/revoke`, {
+      headers: { [DEVICE_TOKEN_HEADER]: boot.token },
+    });
+    expect(rev.status).toBe(200);
+    // The credential itself still verifies (a year's expiry): only its tie to the device ends it.
+    expect(macaroon.verify(ROOT, cred, { now: new Date(), nodeId: NODE })).toEqual({ ok: true });
+    expect((await call("GET", "/kleio/devices", { headers: asLaptop })).status).toBe(401);
+    expect((await call("GET", "/kleio/devices", { headers: asPhone })).status).toBe(403);
   });
 });
 
