@@ -1,6 +1,7 @@
 # ADR 0004: No device learns the host's addresses before an admin's Allow
 
-**Status:** Accepted, 2026-10-28
+**Status:** Accepted, 2026-10-28. Amended by
+[ADR 0005](0005-link-connections-start-through-the-relay.md).
 
 ## Context
 

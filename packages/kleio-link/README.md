@@ -34,7 +34,8 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
 - The host has two keys, each an endpoint of its own, both on the same relay:
   - its **link key** takes `kleio/http/0`, HTTP to kleio-host: each connection the app's HTTP
     client makes to the link's local end becomes one QUIC stream;
-  - its **pairing key** takes `kleio/pair/0`, pairing: one redeem request per connection. It's
+  - its **pairing key** takes `kleio/pair/0`, pairing: one redeem request per connection. It
+    also takes `kleio/standing/0`, which tells a device the link key refused where it stands. It's
     reached through the relay alone.
 - kleio-link-host passes each stream to kleio-host's link listener on 127.0.0.1:8445. kleio-host
   still checks the device token on every request.
@@ -51,11 +52,14 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   upstream secret is missing, if the two keys are the same, or if anyone else can read or write
   them or their folder.
 - **`kleio/http/0` takes only keys on kleio-host's allow-list.** That's `secure/link-allow.json`,
-  which kleio-host's device registry writes on every pairing and revoke. Before any stream is
-  opened:
-  - a key that was never paired is refused before its handshake when a relay brings it, and
-    closed with code 1, `NOT_PAIRED`, when it comes direct;
-  - a revoked device's key is closed with code 5, `REVOKED`.
+  which kleio-host's device registry writes on every pairing and revoke.
+  - Through a relay, which names the key, a key that was never paired or was revoked is refused
+    before its handshake.
+  - A direct dial names no key. While the link endpoint is on a relay, it gets no answer at all.
+    While the endpoint is on none, it gets its handshake, and the gate then closes it before any
+    stream: with code 1, `NOT_PAIRED`, for a key that was never paired, and code 5, `REVOKED`, for
+    a revoked device's.
+  - An open connection whose device is revoked is closed with code 5, `REVOKED`.
 - **Revoking takes about 2 s.** kleio-link-host checks the list every second, and closes any open
   connection whose key has left it.
 - **`kleio/pair/0`, on the pairing key, takes any key,** since a new phone isn't paired yet, but
@@ -63,6 +67,10 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   - at most 10 pairings a minute, one at a time (code 2, `PAIR_BUSY`, otherwise);
   - at most 32 connections open at once that aren't known to be paired;
   - one redeem request per connection, passed to kleio-host's `POST /kleio/pair/redeem`.
+- **`kleio/standing/0`, on the pairing key, tells any key where it stands.** It answers right
+  after the handshake, with no stream, by the code it closes with: 6, `PAIRED`; 5, `REVOKED`; or
+  1, `NOT_PAIRED`. It shares the limit above on connections not yet known to be paired. The app
+  asks it when the link key refuses a dial before its handshake, which says nothing of why.
 - **kleio-host binds each new device to the key it paired from.**
 - **The pairing code works as it always has:** single-use, for 5 minutes, with 5 wrong tries.
   - It travels only inside the encrypted connection to the pairing key the QR code names, so
@@ -78,20 +86,22 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   - the app makes a new key for each pairing, so nobody can have one ready with a chosen code;
   - kleio-host still tells admins about each new pairing, with a push alert where push is set up
     and a notice in the app.
-- **A device learns none of the host's addresses until an admin allows it**
-  ([ADR 0004](../../docs/adr/0004-no-host-address-before-allow.md)). iroh gives a connection the
-  endpoint's direct addresses once its handshake is done, before the gate decides, so:
+- **A device learns none of the host's addresses until an admin allows it, or once it's
+  revoked** ([ADR 0004](../../docs/adr/0004-no-host-address-before-allow.md),
+  [ADR 0005](../../docs/adr/0005-link-connections-start-through-the-relay.md)). iroh gives a
+  connection the endpoint's direct addresses once its handshake is done, before the gate decides,
+  so:
   - the QR code (ticket v5) holds the host's name, its two keys, its relays and the code, and no
     address;
   - the pairing endpoint binds no socket, so it has no address to give, and pairing goes through
     the relay alone;
-  - the link endpoint refuses a key it doesn't know before its handshake when a relay brings it.
-    A revoked key still gets its handshake, so it can be told it was removed;
-  - once allowed, the app connects to the link key through the relay, then goes direct when it
-    can;
-  - not covered: someone who already knows one of the host's addresses, from an older (v4) QR
-    code say, can dial it directly and see the others before the gate turns them away. So can a
-    revoked device, before it's told.
+  - the link endpoint gives a handshake through a relay only to a paired key. While it's on a
+    relay, it doesn't answer a direct dial, which names no key. A phone's dial goes through the
+    relay too, and that copy names its key;
+  - the app connects to the link key through the relay, then goes direct when it can;
+  - not covered: while the host is on no relay (an outage, or just after it starts), a direct
+    dial gets its handshake as before. So someone who can reach one of the host's addresses, from
+    an older (v4) QR code say, then sees the others before the gate turns them away.
 - **The phone waits for the Allow, for up to 2 minutes.** kleio-host holds each request up to 5 s,
   inside the forwarder's 10 s, then answers `pending`. The phone asks again with the same request,
   on a new connection, after the `retryAfterMs` it's given (3 s). Each ask is one pairing in the
@@ -209,20 +219,25 @@ and names that relay first.
 
 ### How the app dials
 
-A dial (`Route`, in `src/link.rs`) has the host's key, its relay list, the relay it was last
-reached through, and its last direct addresses. It goes in two stages:
+A dial (`Route`, in `src/link.rs`) has the host's key, its pairing key, its relay list, the relay
+it was last reached through, and its last direct addresses. It goes in two stages:
 
-1. **For up to 4 s:** the host's last relay and its last direct addresses.
-2. **Then, until 10 s:** every relay in the list as well.
+1. **For up to 4 s:** the host's last relay. Its last direct addresses too, but only while this
+   device is on no relay, as just after launch or with the internet down: the host may be on none
+   either.
+2. **Then, until 10 s:** every relay in the list, and the direct addresses, as well.
+
+While the host is on a relay it doesn't answer a direct dial, so a new connection starts through
+the relay and goes direct once it can.
 
 The relay that worked becomes the app's only relay. So with a list without `"n0"`, the app never
 contacts n0's relays either.
 
 **After each new connection,** the app asks the host for `GET /kleio/link`: its relay list, its
-direct addresses, and whether a relay is rate-limiting it. The next dial uses them, and `link.json`
-keeps them for the next launch. It takes them only from the host it dialled, and only a list a
-pairing QR code could carry. A device that has just paired has no address of the host until then,
-so its first connection starts through the relay.
+direct addresses, its pairing key, and whether a relay is rate-limiting it. The next dial uses
+them, and `link.json` keeps them for the next launch. It takes them only from the host it dialled,
+and only a list a pairing QR code could carry. A device that has just paired has no address of the
+host until then.
 
 **When a dial finds no host,** the link works out why:
 
@@ -238,6 +253,12 @@ The app's words for each case, and the restart steps for the host's OS, are in `
 (`gg-app/src/kleio/connectionDiagnosis.ts`). While the app is on screen, it checks again after 1,
 2, 5 and 10 s, then every 30 s, and at once when the network or the app comes back. It doesn't
 check in the background.
+
+**When the host refuses a dial before its handshake,** which says nothing of why, the app asks
+the pairing key on `kleio/standing/0`, through the route's relays, for up to 4 s. Code 5 or 1 is
+the host turning the app's key away. Code 6, no answer, or a host without the protocol fails as a
+dial that found no host does. A device paired before the pairing key has it once `GET /kleio/link`
+gives it.
 
 **Once the host turns the app's key away** (code 1 or 5), the link never dials it again: every
 request fails at once with that answer, until the app pairs again with a new key, or is opened

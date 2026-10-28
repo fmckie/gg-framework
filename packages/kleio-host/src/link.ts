@@ -20,7 +20,9 @@
 // - `buildTicket`: the v5 pairing ticket a QR code carries, which names no
 //   address of the host's (docs/adr/0004-no-host-address-before-allow.md).
 // - `readLinkInfo`: GET /kleio/link's answer, what a paired device needs to
-//   find the host again.
+//   find the host again, and the pairing endpoint's key, which it asks where
+//   it stands when the host refuses it
+//   (docs/adr/0005-link-connections-start-through-the-relay.md).
 //
 // Two files in link/ (paths.ts) say where the link is:
 //
@@ -678,6 +680,8 @@ export async function readLinkConfig(dir: string): Promise<Result<LinkConfig, st
 export interface LinkInfo {
   /** The host's key. */
   readonly key: string;
+  /** Its pairing endpoint's key, which a device the host refused asks where it stands. */
+  readonly pairKey: string;
   /** The host's relay list, in order. */
   readonly relays: readonly string[];
   readonly listVersion: number;
@@ -705,6 +709,7 @@ export async function readLinkInfo(
   const state = read.kind === "running" || read.kind === "stale" ? read.state : null;
   return ok({
     key: link.publicKey,
+    pairKey: link.pairKey,
     relays: config.value.relays,
     listVersion: config.value.listVersion,
     running: read.kind === "running",

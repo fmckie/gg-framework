@@ -161,6 +161,12 @@ pub struct LinkRecord {
     /// Allow (`GET /kleio/link`). A v5 ticket gives none; a v4 one did.
     #[serde(default)]
     pub addrs: Vec<String>,
+    /// The host's pairing endpoint's key, from a v5 ticket or
+    /// `GET /kleio/link` since: a dial the host refuses asks it where this
+    /// device stands (docs/adr/0005-link-connections-start-through-the-relay.md).
+    /// Absent from a pairing from before, till the host gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_key: Option<String>,
     /// The host's name, as it reports it.
     pub host: String,
     pub device_id: String,
@@ -222,8 +228,8 @@ fn load(home: &Path) -> Option<Loaded> {
 }
 
 /// The route to the host, if the record names one the app can dial. A list
-/// entry or address it can't read is left out: the relay alone still reaches
-/// the host, and a list that leaves nothing is the relay alone.
+/// entry, address or pairing key it can't read is left out: the relay alone
+/// still reaches the host, and a list that leaves nothing is the relay alone.
 fn dialled(record: &LinkRecord) -> Option<Route> {
     let key: EndpointId = record.host_key.parse().ok()?;
     let relay = check_relay_url(&record.relay)?;
@@ -241,7 +247,17 @@ fn dialled(record: &LinkRecord) -> Option<Route> {
         .iter()
         .filter_map(|addr| check_direct_addr(addr))
         .collect();
-    named.then(|| Route::new(key, Some(relay), addrs, relays))
+    let pair = record
+        .pair_key
+        .as_deref()
+        .and_then(|pair| pair.parse::<EndpointId>().ok());
+    named.then(|| {
+        let route = Route::new(key, Some(relay), addrs, relays);
+        match pair {
+            Some(pair) => route.with_pair_key(pair),
+            None => route,
+        }
+    })
 }
 
 /// Write-then-rename, as `store::save` does, so a crash mid-write never
@@ -1009,6 +1025,9 @@ pub async fn through_relay(app: &AppHandle) -> bool {
 #[serde(rename_all = "camelCase")]
 struct LinkInfo {
     key: String,
+    /// A host from before ADR 0005 sends none.
+    #[serde(default)]
+    pair_key: Option<String>,
     relays: Vec<String>,
     addrs: Vec<String>,
     rate_limited: bool,
@@ -1019,13 +1038,16 @@ struct LinkInfo {
 struct HostRoute {
     relays: Vec<RelayEntry>,
     addrs: Vec<SocketAddr>,
+    /// The host's pairing endpoint's key, if it gave a good one.
+    pair: Option<EndpointId>,
     rate_limited: bool,
 }
 
-/// The host's relay list and direct addresses, for the next dial, and
-/// whether its relay is rate-limiting it: only from the host the link
-/// dials, `host`, and only a list that passes the checks a ticket's does.
-/// An address that doesn't is left out.
+/// The host's relay list, direct addresses and pairing key, for the next
+/// dial, and whether its relay is rate-limiting it: only from the host the
+/// link dials, `host`, and only a list that passes the checks a ticket's
+/// does. An address or pairing key that doesn't is left out, as is the link
+/// key named as the pairing key.
 fn read_link_info(info: &LinkInfo, host: EndpointId) -> Result<HostRoute, String> {
     let key: EndpointId = info
         .key
@@ -1041,16 +1063,23 @@ fn read_link_info(info: &LinkInfo, host: EndpointId) -> Result<HostRoute, String
         .iter()
         .filter_map(|addr| check_direct_addr(addr))
         .collect();
+    let pair = info
+        .pair_key
+        .as_deref()
+        .and_then(|pair| pair.parse::<EndpointId>().ok())
+        .filter(|pair| *pair != host);
     Ok(HostRoute {
         relays,
         addrs,
+        pair,
         rate_limited: info.rate_limited,
     })
 }
 
-/// `record` with the route's relay, list and addresses, if any differs, for
-/// the next launch. `None` when nothing has changed, or the record is for
-/// another host, as after pairing again during this launch.
+/// `record` with the route's relay, list, addresses and pairing key, if any
+/// differs, for the next launch. `None` when nothing has changed, or the
+/// record is for another host, as after pairing again during this launch.
+/// A route without a relay or pairing key keeps the record's.
 fn refreshed(record: &LinkRecord, route: &Route) -> Option<LinkRecord> {
     if record.host_key != route.key().to_string() {
         return None;
@@ -1065,12 +1094,15 @@ fn refreshed(record: &LinkRecord, route: &Route) -> Option<LinkRecord> {
         .map(|entry| entry.as_str().to_string())
         .collect();
     next.addrs = route.addrs().iter().map(ToString::to_string).collect();
+    if let Some(pair) = route.pair_key() {
+        next.pair_key = Some(pair.to_string());
+    }
     (next != *record).then_some(next)
 }
 
-/// After each new connection: the host's relay list, direct addresses and
-/// rate-limit word, from `GET /kleio/link`, for the next dial and for
-/// `link.json`. A host from before the route answers 404. A failure is
+/// After each new connection: the host's relay list, direct addresses,
+/// pairing key and rate-limit word, from `GET /kleio/link`, for the next
+/// dial and for `link.json`. A host from before the route answers 404. A failure is
 /// logged, and changes nothing. Only for the host boot chose: in the app it
 /// has by now (`setup` asks first), and a test's link has none.
 async fn refresh_route(link: &Link, throttle: &Throttle) {
@@ -1098,7 +1130,7 @@ async fn refresh_route(link: &Link, throttle: &Throttle) {
         }
     };
     throttle.host.store(host.rate_limited, Ordering::Release);
-    link.refresh(host.relays, host.addrs);
+    link.refresh(host.relays, host.addrs, host.pair);
     let home = crate::home_dir();
     let Some(Loaded { record, .. }) = load(&home) else {
         return;
@@ -1269,6 +1301,7 @@ pub async fn kleio_link_pair(
     let account = keychain_host(&payload.host);
     commands::keep_secrets(&account, &payload)?;
     keychain::put(&account, keychain::Secret::IrohKey, &encode_key(&key))?;
+    let route = Route::from_ticket(&ticket);
     let record = LinkRecord {
         host_key: ticket.key().to_string(),
         relay: ticket.relay().to_string(),
@@ -1278,6 +1311,8 @@ pub async fn kleio_link_pair(
             .map(|entry| entry.as_str().to_string())
             .collect(),
         addrs: ticket.addrs().iter().map(ToString::to_string).collect(),
+        // A v5 ticket's; a v4 one has none.
+        pair_key: route.pair_key().map(|pair| pair.to_string()),
         preview_origin: payload.kept_preview_origin(),
         host: payload.host,
         device_id: payload.device_id,
@@ -1301,7 +1336,7 @@ pub async fn kleio_link_pair(
     // up first. `kleio_activate_pairing` switches in place exactly then.
     if cfg!(mobile) && super::remote().is_none() {
         app.state::<LinkRuntime>()
-            .start(key, Route::from_ticket(&ticket), socket_path(&home), None)
+            .start(key, route, socket_path(&home), None)
             .await
             .map_err(|e| format!("Paired, but {e}."))?;
     }
@@ -1611,6 +1646,7 @@ mod tests {
             relay: RELAY.into(),
             relays: vec![RELAY.into(), "n0".into()],
             addrs: vec!["192.168.1.20:52043".into()],
+            pair_key: None,
             host: "mac-mini-1.x.ts.net".into(),
             device_id: "dev-1".into(),
             label: "iPhone".into(),
@@ -1660,6 +1696,7 @@ mod tests {
     fn link_info(key: &str, relays: &[&str], addrs: &[&str], rate_limited: bool) -> LinkInfo {
         LinkInfo {
             key: key.to_string(),
+            pair_key: None,
             relays: relays.iter().map(ToString::to_string).collect(),
             addrs: addrs.iter().map(ToString::to_string).collect(),
             rate_limited,
@@ -1685,10 +1722,11 @@ mod tests {
     #[test]
     fn takes_the_hosts_relays_only_from_the_host_it_dials() {
         let host = host_key().to_string();
+        let pair = pair_key().to_string();
         // kleio-host's answer as it is (link.ts `readLinkInfo`).
         let answer = format!(
-            r#"{{"key":"{host}","relays":["https://relay.example.com/","n0"],"listVersion":3,
-                "running":true,"relay":"https://relay.example.com/",
+            r#"{{"key":"{host}","pairKey":"{pair}","relays":["https://relay.example.com/","n0"],
+                "listVersion":3,"running":true,"relay":"https://relay.example.com/",
                 "addrs":["203.0.113.7:7842","not an address","127.0.0.1:7842"],
                 "rateLimited":true,"updatedAt":"2026-10-23T12:00:00.000Z"}}"#
         );
@@ -1701,6 +1739,7 @@ mod tests {
                     RelayEntry::N0
                 ],
                 addrs: vec!["203.0.113.7:7842".parse().unwrap()],
+                pair: Some(pair_key()),
                 rate_limited: true,
             })
         );
@@ -1726,29 +1765,63 @@ mod tests {
     }
 
     #[test]
+    fn takes_the_hosts_pairing_key_unless_its_bad_or_the_link_key() {
+        let host = host_key().to_string();
+        let pair_of = |pair: Option<String>| {
+            let info = LinkInfo {
+                pair_key: pair,
+                ..link_info(&host, &["n0"], &[], false)
+            };
+            read_link_info(&info, host_key()).expect("reads").pair
+        };
+        assert_eq!(pair_of(Some(pair_key().to_string())), Some(pair_key()));
+        // A host from before ADR 0005 sends none, and its answer still reads.
+        let before =
+            format!(r#"{{"key":"{host}","relays":["n0"],"addrs":[],"rateLimited":false}}"#);
+        let info: LinkInfo = serde_json::from_str(&before).expect("reads");
+        assert_eq!(info.pair_key, None);
+        assert_eq!(pair_of(None), None);
+        // A key it can't read, or the link key, is left out; the rest is
+        // still taken.
+        assert_eq!(pair_of(Some("not a key".into())), None);
+        assert_eq!(pair_of(Some(host.clone())), None);
+    }
+
+    #[test]
     fn keeps_what_the_host_said_for_the_next_launch() {
         let record = record();
         let route = dialled(&record).expect("dials");
         assert_eq!(refreshed(&record, &route), None, "nothing new");
 
         let moved: RelayUrl = "https://relay.example.com/".parse().unwrap();
-        let route = Route::new(
+        let unkeyed = Route::new(
             host_key(),
             Some(moved.clone()),
             vec!["203.0.113.7:7842".parse().unwrap()],
             vec![RelayEntry::Url(moved.clone()), RelayEntry::N0],
         );
+        let route = unkeyed.clone().with_pair_key(pair_key());
         let next = refreshed(&record, &route).expect("something changed");
         assert_eq!(next.relay, "https://relay.example.com/");
         assert_eq!(next.relays, ["https://relay.example.com/", "n0"]);
         assert_eq!(next.addrs, ["203.0.113.7:7842"]);
+        assert_eq!(next.pair_key, Some(pair_key().to_string()));
         let rest = LinkRecord {
             relay: record.relay.clone(),
             relays: record.relays.clone(),
             addrs: record.addrs.clone(),
-            ..next
+            pair_key: record.pair_key.clone(),
+            ..next.clone()
         };
         assert_eq!(rest, record, "and nothing else");
+        // The pairing key alone is news; a route without one keeps the
+        // record's.
+        let keyed = dialled(&record).expect("dials").with_pair_key(pair_key());
+        assert_eq!(
+            refreshed(&record, &keyed).map(|next| next.pair_key),
+            Some(Some(pair_key().to_string()))
+        );
+        assert_eq!(refreshed(&next, &unkeyed), None);
 
         // A pairing to another host, as after pairing again during this
         // launch, is left alone.
@@ -1990,6 +2063,45 @@ mod tests {
             assert_eq!(route.relays(), [RelayEntry::Url(relay.clone())]);
             assert_eq!(route.addrs(), []);
             assert_eq!(route.relay(), Some(&relay));
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A pairing from before ADR 0005 has no pairing key, and loads as it
+    /// was; one with it keeps it, and dials with it.
+    #[test]
+    fn keeps_the_hosts_pairing_key_and_loads_a_record_without_one() {
+        let home = tmp_home();
+        assert!(serde_json::to_value(record())
+            .unwrap()
+            .get("pairKey")
+            .is_none());
+        save(&home, &record()).unwrap();
+        let loaded = load(&home).expect("loads");
+        assert_eq!(loaded.record, record());
+        assert_eq!(loaded.route.pair_key(), None);
+
+        let keyed = LinkRecord {
+            pair_key: Some(pair_key().to_string()),
+            ..record()
+        };
+        save(&home, &keyed).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path(&home)).unwrap()).unwrap();
+        assert_eq!(written["pairKey"], pair_key().to_string());
+        let loaded = load(&home).expect("loads");
+        assert_eq!(loaded.record, keyed);
+        assert_eq!(loaded.route.pair_key(), Some(pair_key()));
+
+        // One it can't read, or the host's own key, is left out of the
+        // route, and the pairing stays.
+        for bad in ["not a key".to_string(), host_key().to_string()] {
+            let record = LinkRecord {
+                pair_key: Some(bad),
+                ..record()
+            };
+            save(&home, &record).unwrap();
+            assert_eq!(load(&home).expect("loads").route.pair_key(), None);
         }
         let _ = std::fs::remove_dir_all(&home);
     }
