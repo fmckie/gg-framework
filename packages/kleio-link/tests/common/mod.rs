@@ -26,8 +26,10 @@ use iroh_relay::server::{
 };
 use kleio_link::endpoint::{bind_client, EndpointOptions, Mode, RelayTrust};
 use kleio_link::host::Config;
-use kleio_link::iroh::endpoint::{Connection, ConnectionError};
-use kleio_link::iroh::{EndpointId, RelayUrl, SecretKey};
+use kleio_link::iroh::endpoint::{
+    ConnectError, ConnectingError, Connection, ConnectionError, TransportErrorCode,
+};
+use kleio_link::iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey, Watcher};
 use kleio_link::link::{Link, LinkError, Route};
 use kleio_link::paths::PathEvents;
 use kleio_link::probe::HttpsProbe;
@@ -244,19 +246,80 @@ pub async fn closed_with(conn: &Connection) -> Option<u64> {
     }
 }
 
-/// How the host turns away a key it doesn't know that comes through a
-/// relay: before the handshake, so the dial fails and the link holds no
-/// refusal of the host's. The dial's error.
-pub async fn refused_before_handshake(link: &Link) -> String {
-    let err = link
+/// How the host turns away a key it doesn't allow that comes through a
+/// relay while it's on one: it refuses the dial before the handshake, and
+/// the link, whose route has the pairing key, asks the host's pairing
+/// endpoint why and holds its answer. That answer.
+pub async fn refused_before_handshake(link: &Link) -> LinkError {
+    let refused = link
         .connection()
         .await
+        .expect_err("the host turned the link away");
+    assert_eq!(link.refusal(), Some(refused.clone()), "{refused}");
+    // The link endpoint itself never got as far as a handshake.
+    let route = link.route();
+    let relay = route.relay().expect("the route names a relay").clone();
+    let addr = EndpointAddr::from(route.key()).with_relay_url(relay);
+    let err = link
+        .endpoint()
+        .connect(addr, ALPN_HTTP)
+        .await
         .expect_err("the host refused the dial");
-    assert_eq!(link.refusal(), None, "{err}");
-    match err {
-        LinkError::Dial(why) if why.contains("refused") => why,
-        other => panic!("not refused before the handshake: {other:?}"),
+    assert!(
+        refused_outright(&err),
+        "not refused before the handshake: {err}"
+    );
+    refused
+}
+
+/// Whether `err` is the host refusing the connection before its handshake:
+/// QUIC's CONNECTION_REFUSED, with no close code of the host's.
+pub fn refused_outright(err: &ConnectError) -> bool {
+    matches!(
+        closed_while_dialling(err),
+        Some(ConnectionError::ConnectionClosed(close))
+            if close.error_code == TransportErrorCode::CONNECTION_REFUSED
+    )
+}
+
+/// The code the host closed a dialled connection with: just after the
+/// handshake, so usually once the dial has finished, and sometimes before.
+pub async fn dial_closed_with(dialled: Result<Connection, ConnectError>) -> Option<u64> {
+    match dialled {
+        Ok(conn) => closed_with(&conn).await,
+        Err(err) => match closed_while_dialling(&err)? {
+            ConnectionError::ApplicationClosed(closed) => Some(closed.error_code.into_inner()),
+            _ => None,
+        },
     }
+}
+
+/// Why the connection closed while `err`'s dial was under way, if it did.
+fn closed_while_dialling(err: &ConnectError) -> Option<&ConnectionError> {
+    match err {
+        ConnectError::Connection { source, .. }
+        | ConnectError::Connecting {
+            source: ConnectingError::ConnectionError { source, .. },
+            ..
+        } => Some(source),
+        _ => None,
+    }
+}
+
+/// The host's address on `link`'s direct path, once it has one, as the app
+/// keeps it.
+pub async fn host_addr(link: &Link) -> SocketAddr {
+    let path = until(|| link.path().filter(|path| path.direct)).await;
+    path.addr.parse().expect("the direct path's ip:port")
+}
+
+/// Whether `endpoint` has a relay connection now.
+pub fn on_a_relay(endpoint: &Endpoint) -> bool {
+    endpoint
+        .home_relay_status()
+        .get()
+        .iter()
+        .any(|status| status.is_connected())
 }
 
 /// How the host turns `link`'s key away: just after the handshake, so

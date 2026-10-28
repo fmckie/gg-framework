@@ -3,7 +3,13 @@
 //!
 //! - `kleio/http/0`: only keys on the allow-list. A revoked device's key is
 //!   closed with [`close::REVOKED`], any other with [`close::NOT_PAIRED`].
+//!   The link endpoint refuses or ignores most of those before their
+//!   handshake (`admit`, in host/mod.rs), so this is for a direct dial while
+//!   the host is on no relay.
 //! - `kleio/pair/0`: any key (the pairing budget limits them).
+//! - `kleio/standing/0`, on the pairing endpoint: any key, told where it
+//!   stands by the close alone, with no stream: [`close::PAIRED`],
+//!   [`close::REVOKED`] or [`close::NOT_PAIRED`].
 //! - Anything else: closed with [`close::UNKNOWN_ALPN`].
 //!
 //! The allow-list is kleio-host's `secure/link-allow.json`, which its device
@@ -35,7 +41,7 @@ use tracing::{info, warn};
 
 use super::state::{signature, Signature};
 use super::{file_error, HostError};
-use crate::{close, ALPN_HTTP, ALPN_PAIR};
+use crate::{close, ALPN_HTTP, ALPN_PAIR, ALPN_STANDING};
 
 /// The allow-list's version this reads.
 const ALLOW_VERSION: u64 = 1;
@@ -254,6 +260,8 @@ pub(crate) enum Verdict {
     Accept,
     NotPaired,
     Revoked,
+    /// `kleio/standing/0`: the key is told where it stands, by the close.
+    Told(Standing),
     UnknownAlpn,
 }
 
@@ -280,6 +288,8 @@ impl Gate {
             }
         } else if alpn == ALPN_PAIR {
             Verdict::Accept
+        } else if alpn == ALPN_STANDING {
+            Verdict::Told(self.allow.standing(key))
         } else {
             Verdict::UnknownAlpn
         }
@@ -310,12 +320,31 @@ impl EndpointHooks for Gate {
                 warn!("{peer} on {alpn}: turned away, revoked");
                 reject(close::REVOKED, b"this device was revoked")
             }
+            Verdict::Told(standing) => {
+                let (code, reason, word) = told(standing);
+                info!("{peer} on {alpn}: told it's {word}");
+                reject(code, reason)
+            }
             Verdict::UnknownAlpn => {
                 warn!("{peer} on {alpn:?}: turned away, unknown protocol");
                 reject(close::UNKNOWN_ALPN, b"unknown protocol")
             }
         };
         ready(outcome)
+    }
+}
+
+/// The close that tells a key where it stands: its code, its reason, and
+/// the word for the log.
+fn told(standing: Standing) -> (u32, &'static [u8], &'static str) {
+    match standing {
+        Standing::Paired => (close::PAIRED, b"paired with this host", "paired"),
+        Standing::Revoked => (close::REVOKED, b"this device was revoked", "revoked"),
+        Standing::Unknown => (
+            close::NOT_PAIRED,
+            b"not paired with this host",
+            "not paired",
+        ),
     }
 }
 
@@ -367,6 +396,24 @@ mod tests {
         assert_eq!(verdict(&stranger, ALPN_PAIR), Verdict::Accept);
         assert_eq!(verdict(&revoked, ALPN_PAIR), Verdict::Accept);
         assert_eq!(verdict(&paired, b"kleio/http/1"), Verdict::UnknownAlpn);
+    }
+
+    #[test]
+    fn tells_any_key_where_it_stands_on_the_standing_protocol() {
+        let tmp = TempDir::new("gate-standing");
+        let path = tmp.path().join("link-allow.json");
+        let (paired, revoked, stranger) = (key(1), key(2), key(3));
+        fs::write(&path, allow_doc(&[(paired, "Phone")], &[revoked])).expect("written");
+        let gate = Gate::new(Arc::new(AllowList::load(path).expect("loads")));
+
+        let verdict = |key: &EndpointId| gate.verdict(Side::Server, key, ALPN_STANDING);
+        assert_eq!(verdict(&paired), Verdict::Told(Standing::Paired));
+        assert_eq!(verdict(&revoked), Verdict::Told(Standing::Revoked));
+        assert_eq!(verdict(&stranger), Verdict::Told(Standing::Unknown));
+        let code = |standing| told(standing).0;
+        assert_eq!(code(Standing::Paired), close::PAIRED);
+        assert_eq!(code(Standing::Revoked), close::REVOKED);
+        assert_eq!(code(Standing::Unknown), close::NOT_PAIRED);
     }
 
     #[test]
