@@ -288,6 +288,8 @@ describe("the list's status", () => {
       pid: 1,
       key: "k".repeat(64),
       relay: N0_EU,
+      pairKey: "p".repeat(64),
+      pairRelay: N0_EU,
       addrs: [],
       rateLimited: false,
       connections: 1,

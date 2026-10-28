@@ -30,6 +30,7 @@ use tracing::{error, info, warn};
 
 use super::state::{signature, Signature};
 use super::HostError;
+use crate::endpoint::switch_relay;
 use crate::probe::{ping_all, Ping, Probe};
 use crate::relays::{every_relay, n0_relays, LinkConfig, RelayEntry};
 
@@ -372,9 +373,12 @@ fn join(relays: &[RelayUrl]) -> String {
         .join(", ")
 }
 
-/// Keeps the endpoint pinned to the right relay, until it closes.
+/// Keeps the host's endpoints pinned to the right relay, until the link
+/// endpoint closes. The pairing endpoint moves with it, so a QR code's relay
+/// is where the link was too.
 pub(crate) struct Pinner<P> {
     endpoint: Endpoint,
+    pairing: Endpoint,
     probe: P,
     pinning: Pinning,
     board: RelayBoard,
@@ -389,7 +393,7 @@ pub(crate) struct Pinner<P> {
 
 impl<P: Probe> Pinner<P> {
     pub(crate) fn new(
-        endpoint: Endpoint,
+        (endpoint, pairing): (Endpoint, Endpoint),
         probe: P,
         pinning: Pinning,
         board: RelayBoard,
@@ -398,6 +402,7 @@ impl<P: Probe> Pinner<P> {
     ) -> Self {
         Self {
             endpoint,
+            pairing,
             probe,
             pinning,
             board,
@@ -480,9 +485,9 @@ impl<P: Probe> Pinner<P> {
             step.to,
             step.why.text()
         );
-        let config = Arc::new(iroh::RelayConfig::from(step.to.clone()));
-        self.endpoint.insert_relay(step.to.clone(), config).await;
-        self.endpoint.remove_relay(&from).await;
+        for endpoint in [&self.endpoint, &self.pairing] {
+            switch_relay(endpoint, &step.to, Some(&from)).await;
+        }
         self.pinning.moved(step.to, Instant::now());
         self.last_failover_probe = None;
     }

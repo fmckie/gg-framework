@@ -157,8 +157,8 @@ pub struct LinkRecord {
     /// from before lists.
     #[serde(default)]
     pub relays: Vec<String>,
-    /// The host's direct addresses, as its ticket gave them and the host has
-    /// given them since.
+    /// The host's direct addresses, as the host has given them since the
+    /// Allow (`GET /kleio/link`). A v5 ticket gives none; a v4 one did.
     #[serde(default)]
     pub addrs: Vec<String>,
     /// The host's name, as it reports it.
@@ -1216,9 +1216,9 @@ pub fn kleio_link_pair_cancel(cancel: State<'_, PairCancel>) {
 }
 
 /// Pairs over the link with the host a ticket names: reaches the ticket's
-/// relay, dials the host's key on `kleio/pair/0` and redeems the ticket's
-/// code with a new key for this device, then waits for an admin's Allow on
-/// the host. It tells `on_stage` each of those steps as it begins, if the
+/// relay, dials the host's pairing key on `kleio/pair/0` and redeems the
+/// ticket's code with a new key for this device, then waits for an admin's
+/// Allow on the host. It tells `on_stage` each of those steps as it begins, if the
 /// webview gave a channel: the wait with this device's code, which the
 /// admin is asked about too. Each way that can fail has its own error
 /// (`PairError`), and `kleio_link_pair_cancel` stops it with
@@ -1598,6 +1598,11 @@ mod tests {
 
     fn host_key() -> EndpointId {
         SecretKey::from_bytes(&[7; 32]).public()
+    }
+
+    /// The host's pairing key, which a v5 ticket carries beside its key.
+    fn pair_key() -> EndpointId {
+        SecretKey::from_bytes(&[8; 32]).public()
     }
 
     fn record() -> LinkRecord {
@@ -2033,6 +2038,25 @@ mod tests {
     #[test]
     fn a_ticket_check_shows_what_the_confirm_step_needs() {
         let ticket = serde_json::json!({
+            "v": 5,
+            "type": "kleio-pair",
+            "name": "mac-mini-1",
+            "key": host_key().to_string(),
+            "pair": pair_key().to_string(),
+            "relays": [RELAY, "n0"],
+            "code": "ABC-DEF",
+        });
+        // The host's key, not the pairing key: the one `kleio-host status`
+        // shows, and the one this device reaches once allowed.
+        let shown = || TicketCheck {
+            name: "mac-mini-1".into(),
+            key_prefix: host_key().to_string()[..10].to_string(),
+            relay_host: "euc1-1.relay.n0.iroh.link.".into(),
+            code: "ABC-DEF".into(),
+        };
+        assert_eq!(kleio_link_check_ticket(format!(" {ticket}\n")), Ok(shown()));
+        // A host not yet updated makes v4 tickets, with addresses.
+        let v4 = serde_json::json!({
             "v": 4,
             "type": "kleio-pair",
             "name": "mac-mini-1",
@@ -2041,15 +2065,7 @@ mod tests {
             "addrs": ["192.168.1.20:52043"],
             "code": "ABC-DEF",
         });
-        assert_eq!(
-            kleio_link_check_ticket(format!(" {ticket}\n")),
-            Ok(TicketCheck {
-                name: "mac-mini-1".into(),
-                key_prefix: host_key().to_string()[..10].to_string(),
-                relay_host: "euc1-1.relay.n0.iroh.link.".into(),
-                code: "ABC-DEF".into(),
-            })
-        );
+        assert_eq!(kleio_link_check_ticket(v4.to_string()), Ok(shown()));
         assert_eq!(
             kleio_link_check_ticket("{}".into()),
             Err("That isn't a Kleio pairing code.".to_string())

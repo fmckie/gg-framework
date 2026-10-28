@@ -17,7 +17,8 @@
 //   key.
 // - The binding check: a device token is good on the link only from the key
 //   its device paired with, and off the link only for a device without one.
-// - `buildTicket`: the v4 pairing ticket a QR code carries.
+// - `buildTicket`: the v5 pairing ticket a QR code carries, which names no
+//   address of the host's (docs/adr/0004-no-host-address-before-allow.md).
 // - `readLinkInfo`: GET /kleio/link's answer, what a paired device needs to
 //   find the host again.
 //
@@ -28,14 +29,17 @@
 //                means it isn't running.
 //                {"version":1,"updatedAt":"<ISO 8601>","pid":1234,
 //                 "key":"<64 hex>","relay":"https://<relay>/" or null,
+//                 "pairKey":"<64 hex>","pairRelay":"https://<relay>/" or null,
 //                 "addrs":["192.0.2.1:7842","[2001:db8::1]:7842"],
 //                 "rateLimited":false,"connections":0,
 //                 "peers":[{"key":"<64 hex>","path":"direct","at":"<ISO 8601>"}],
 //                 "relays":[{"url":"https://<relay>/","state":"…"}]}
-//                `relay` is the relay it's on now, `addrs` its direct
-//                addresses, best first, `peers` the path each device's
-//                connection last took ("direct" or "relay"), latest first,
-//                and `relays` each relay's health.
+//                `relay` is the relay it's on now, `pairKey` and `pairRelay`
+//                its pairing endpoint's key and relay, which a ticket names,
+//                `addrs` its direct addresses, best first, which only a
+//                paired device gets (GET /kleio/link), `peers` the path each
+//                device's connection last took ("direct" or "relay"), latest
+//                first, and `relays` each relay's health.
 //   config.json  kleio-host's: the relay list, in order, where "n0" stands
 //                for n0's public relays. Without the file, n0's alone.
 //                {"version":1,"listVersion":0,"relays":["n0"]}
@@ -89,14 +93,11 @@ export const MAX_RELAYS = 4;
 export const MAX_RELAY_URL_LENGTH = 200;
 
 /** The pairing ticket's version and type (v2 is the Tailscale one, pairTicket.ts in the app). */
-export const TICKET_VERSION = 4;
+export const TICKET_VERSION = 5;
 export const TICKET_TYPE = "kleio-pair";
 
 /** The longest ticket. The default one is under 300 bytes, for an 80-column terminal's QR code. */
 export const MAX_TICKET_BYTES = 512;
-
-/** Direct addresses in a ticket. */
-export const MAX_TICKET_ADDRS = 2;
 
 /** Direct addresses in GET /kleio/link. */
 export const MAX_INFO_ADDRS = 8;
@@ -125,6 +126,8 @@ export interface LinkOptions {
   readonly upstreamToken: string;
   /** The host's key on the link: secure/link.key's public half, 64 hex. */
   readonly publicKey: string;
+  /** The key a QR code's ticket pairs with: secure/link-pair.key's public half, 64 hex. */
+  readonly pairKey: string;
   /** link/, with kleio-link-host's state.json and the relay list's config.json. */
   readonly dir: string;
   /** This host's name in pairing tickets (`ticketName`). */
@@ -411,55 +414,57 @@ export function ticketName(raw: string): string {
 export interface TicketInput {
   /** This host's name, as `ticketName` gives it. */
   readonly name: string;
-  /** The host's key on the link, 64 hex. */
+  /** The host's key on the link, 64 hex: the one a paired device dials. */
   readonly key: string;
-  /** The relay the host is on now: the phone pairs through this one. */
+  /** kleio-link-host's pairing endpoint's key, 64 hex: the one a phone pairs with. */
+  readonly pair: string;
+  /** The relay the pairing endpoint is on now: the phone pairs through this one. */
   readonly relay: string;
   /** The host's relay list, in order. */
   readonly relays: readonly string[];
-  /** The host's direct addresses, best first. */
-  readonly addrs: readonly string[];
   /** The pair code, in any form `normalizePairCode` takes. */
   readonly code: string;
 }
 
-export type TicketError = "name" | "key" | "relay" | "relays" | "addrs" | "code" | "too_long";
+export type TicketError = "name" | "key" | "pair" | "relay" | "relays" | "code" | "too_long";
 
 /**
- * The v4 pairing ticket:
+ * The v5 pairing ticket:
  *
- *   {"v":4,"type":"kleio-pair","name":"mac-mini-1","key":"<64 hex>",
- *    "relays":["https://euc1-1.relay.n0.iroh.link./","n0"],
- *    "addrs":["192.168.1.20:7842"],"code":"ABC-DEF"}
+ *   {"v":5,"type":"kleio-pair","name":"mac-mini-1","key":"<64 hex>",
+ *    "pair":"<64 hex>","relays":["https://euc1-1.relay.n0.iroh.link./","n0"],
+ *    "code":"ABC-DEF"}
  *
- * `relays` starts with the relay the host is on now, which pairing uses, and
- * goes on with the host's list, up to MAX_RELAYS. `addrs` has up to two
- * direct addresses. Like v2 and v3, it never carries a token. One that would
- * be over MAX_TICKET_BYTES loses addresses, then relays after the first.
+ * `key` is the host's on the link, which a paired device dials and the
+ * phone's confirm step shows; `pair` is the pairing endpoint's, which the
+ * phone pairs with, through the relay alone. `relays` starts with the relay
+ * the pairing endpoint is on now and goes on with the host's list, up to
+ * MAX_RELAYS. It names no address of the host's, so a device learns none
+ * before an admin allows it, and like v2 to v4, never carries a token. One
+ * that would be over MAX_TICKET_BYTES loses relays after the first.
  */
 export function buildTicket(input: TicketInput): Result<string, TicketError> {
   if (ticketName(input.name) !== input.name) return err("name");
   if (!isLinkKey(input.key)) return err("key");
+  // A relay keeps one connection a key, so the two endpoints can't share one.
+  if (!isLinkKey(input.pair) || input.pair === input.key) return err("pair");
   if (!isRelayUrl(input.relay)) return err("relay");
   if (!input.relays.every(isRelayEntry)) return err("relays");
-  if (!input.addrs.every(isDirectAddr)) return err("addrs");
   const code = normalizePairCode(input.code);
   if (code === null) return err("code");
   let relays = [...new Set([input.relay, ...input.relays])].slice(0, MAX_RELAYS);
-  let addrs = [...new Set(input.addrs)].slice(0, MAX_TICKET_ADDRS);
   for (;;) {
     const ticket = JSON.stringify({
       v: TICKET_VERSION,
       type: TICKET_TYPE,
       name: input.name,
       key: input.key,
+      pair: input.pair,
       relays,
-      addrs,
       code: formatPairCode(code),
     });
     if (Buffer.byteLength(ticket, "utf8") <= MAX_TICKET_BYTES) return ok(ticket);
-    if (addrs.length > 0) addrs = addrs.slice(0, -1);
-    else if (relays.length > 1) relays = relays.slice(0, -1);
+    if (relays.length > 1) relays = relays.slice(0, -1);
     else return err("too_long");
   }
 }
@@ -489,7 +494,11 @@ export interface LinkState {
   readonly key: string;
   /** The relay it's on now; null while it's on none. */
   readonly relay: string | null;
-  /** Its direct addresses a phone could use, best first. */
+  /** Its pairing endpoint's key: secure/link-pair.key's public half. */
+  readonly pairKey: string;
+  /** The relay its pairing endpoint is on now; null while it's on none. */
+  readonly pairRelay: string | null;
+  /** Its direct addresses a phone could use, best first: for paired devices only. */
   readonly addrs: readonly string[];
   readonly rateLimited: boolean;
   readonly connections: number;
@@ -566,12 +575,14 @@ async function readJsonFile(path: string): Promise<Result<unknown, string> | nul
 
 /**
  * kleio-link-host's state, if it has written any. Unknown fields are left
- * for later versions; a state file naming a key other than `hostKey` is
- * invalid, since it isn't this host's link.
+ * for later versions; a state file naming a key other than `hostKey`, or a
+ * pairing key other than `pairKey`, is invalid, since it isn't this host's
+ * link.
  */
 export async function readLinkState(
   dir: string,
   hostKey: string,
+  pairKey: string,
   now: Date,
 ): Promise<LinkStateRead> {
   const path = join(dir, LINK_STATE_FILE);
@@ -582,11 +593,21 @@ export async function readLinkState(
   const invalid = (why: string): LinkStateRead => ({ kind: "invalid", message: `${path}: ${why}` });
   if (!isRecord(doc) || doc.version !== 1) return invalid("not a version 1 state file");
   const { updatedAt, pid, key, relay, addrs, rateLimited, connections, relays, peers } = doc;
+  const { pairKey: pair, pairRelay } = doc;
   const at = typeof updatedAt === "string" ? Date.parse(updatedAt) : Number.NaN;
   if (typeof updatedAt !== "string" || Number.isNaN(at)) return invalid("no updatedAt time");
   if (!isCount(pid) || pid === 0) return invalid("no pid");
   if (key !== hostKey) return invalid("it names another key than secure/link.key's");
+  if (pair === undefined) {
+    return invalid("it names no pairing key: kleio-link-host is older than kleio-host");
+  }
+  if (pair !== pairKey) {
+    return invalid("it names another pairing key than secure/link-pair.key's");
+  }
   if (relay !== null && !isRelayUrl(relay)) return invalid("relay isn't a relay's address");
+  if (pairRelay !== null && !isRelayUrl(pairRelay)) {
+    return invalid("pairRelay isn't a relay's address");
+  }
   if (!Array.isArray(addrs)) return invalid("addrs isn't a list");
   if (typeof rateLimited !== "boolean") return invalid("rateLimited isn't true or false");
   if (!isCount(connections)) return invalid("connections isn't a count");
@@ -597,6 +618,8 @@ export async function readLinkState(
     pid,
     key,
     relay,
+    pairKey: pair,
+    pairRelay,
     // Addresses a phone couldn't use, or in another form, are left out.
     addrs: [...new Set(addrs.filter(isDirectAddr))],
     rateLimited,
@@ -671,13 +694,13 @@ export interface LinkInfo {
 }
 
 export async function readLinkInfo(
-  link: Pick<LinkOptions, "dir" | "publicKey">,
+  link: Pick<LinkOptions, "dir" | "publicKey" | "pairKey">,
   now: Date,
   log: (msg: string) => void,
 ): Promise<Result<LinkInfo, string>> {
   const config = await readLinkConfig(link.dir);
   if (!config.ok) return config;
-  const read = await readLinkState(link.dir, link.publicKey, now);
+  const read = await readLinkState(link.dir, link.publicKey, link.pairKey, now);
   if (read.kind === "invalid") log(`[link] ${read.message}; answering without it`);
   const state = read.kind === "running" || read.kind === "stale" ? read.state : null;
   return ok({
@@ -700,16 +723,18 @@ export type LinkTicketError =
 
 /**
  * The ticket for pair code `code`, from the link as it is now. None while
- * kleio-link-host isn't running or is on no relay: a phone couldn't pair.
+ * kleio-link-host isn't running or its pairing endpoint is on no relay: a
+ * phone couldn't pair. Whatever kleio-link-host reports, it names no address
+ * of the host's.
  */
 export async function linkTicket(
-  link: Pick<LinkOptions, "dir" | "publicKey" | "name">,
+  link: Pick<LinkOptions, "dir" | "publicKey" | "pairKey" | "name">,
   code: string,
   now: Date,
 ): Promise<Result<string, LinkTicketError>> {
   const config = await readLinkConfig(link.dir);
   if (!config.ok) return err({ kind: "config", message: config.error });
-  const read = await readLinkState(link.dir, link.publicKey, now);
+  const read = await readLinkState(link.dir, link.publicKey, link.pairKey, now);
   if (read.kind === "invalid") return err({ kind: "link_down", message: read.message });
   if (read.kind === "missing") {
     return err({ kind: "link_down", message: "kleio-link-host hasn't written its state" });
@@ -720,15 +745,15 @@ export async function linkTicket(
       message: `kleio-link-host's state is from ${read.state.updatedAt}; it isn't running`,
     });
   }
-  if (read.state.relay === null) {
-    return err({ kind: "link_down", message: "kleio-link-host isn't on a relay" });
+  if (read.state.pairRelay === null) {
+    return err({ kind: "link_down", message: "kleio-link-host's pairing isn't on a relay" });
   }
   const ticket = buildTicket({
     name: link.name,
     key: link.publicKey,
-    relay: read.state.relay,
+    pair: link.pairKey,
+    relay: read.state.pairRelay,
     relays: config.value.relays,
-    addrs: read.state.addrs,
     code,
   });
   return ticket.ok ? ticket : err({ kind: "ticket", error: ticket.error });

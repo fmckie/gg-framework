@@ -7,11 +7,16 @@
 //!    relay, and iroh says when it's connected. If it isn't within
 //!    [`RELAY_STEP`], one `GET /ping` (crate::probe) says whether nothing
 //!    answers there or something that isn't a relay does.
-//! 2. **Finding your host**: a dial of the ticket's key through that relay and
-//!    the ticket's direct addresses, for up to [`HOST_STEP`]. If no host
-//!    answers and the ticket names n0's relays, a throwaway key looks for the
-//!    host on n0's other relays: a handshake and nothing more, never the
-//!    code. Finding it there means the QR code's relay was changed.
+//! 2. **Finding your host**: a dial of the ticket's pairing key through that
+//!    relay, for up to [`HOST_STEP`]. The pairing endpoint is on the relay
+//!    only and a v5 ticket names no direct address, so the phone learns
+//!    none of the host's addresses before an Allow
+//!    (docs/adr/0004-no-host-address-before-allow.md). A v4 ticket, from a
+//!    host not yet updated, has one key and its direct addresses, dialled as
+//!    before. If no host answers and the ticket names n0's relays, a
+//!    throwaway key looks for the host on n0's other relays: a handshake and
+//!    nothing more, never the code. Finding it there means the QR code's
+//!    relay was changed.
 //! 3. **Pairing**: one request on one stream, the answer on the same stream,
 //!    then the phone closes the connection. The request is kleio-host's
 //!    redeem body, `{code, redemptionNonce, label, waits}`, at most
@@ -227,8 +232,8 @@ pub enum PairError {
     /// Something answered at the ticket's relay address, but not as a relay
     /// does, or it turned down the relay handshake.
     NotARelay { relay: String, why: String },
-    /// The relay answered, but no host with the ticket's key did, through it
-    /// or on n0's other relays.
+    /// The relay answered, but no host with the ticket's pairing key did,
+    /// through it or on n0's other relays.
     HostMissing,
     /// The relay answered without the host, but the key answers on another of
     /// n0's relays: the QR code's relay was changed.
@@ -475,11 +480,11 @@ async fn steps<P: Probe>(
     first_exchange(&conn, body, waiting).await
 }
 
-/// The host as the ticket names it: its key, through the ticket's relay and
-/// at its direct addresses.
+/// The host's pairing endpoint as the ticket names it: its key, through the
+/// ticket's relay, and a v4 ticket's direct addresses (a v5 one has none).
 fn host_addr(ticket: &Ticket) -> EndpointAddr {
     EndpointAddr::from_parts(
-        ticket.key(),
+        ticket.pair_key(),
         ticket.addrs().iter().copied().map(TransportAddr::Ip),
     )
     .with_relay_url(ticket.relay().clone())
@@ -647,10 +652,13 @@ async fn look_elsewhere(ticket: &Ticket, options: &EndpointOptions) -> PairError
     };
     info!(
         "{} isn't on {}: looking on n0's other relays",
-        ticket.key().fmt_short(),
+        ticket.pair_key().fmt_short(),
         ticket.relay()
     );
-    let host = EndpointAddr::from_parts(ticket.key(), others.into_iter().map(TransportAddr::Relay));
+    let host = EndpointAddr::from_parts(
+        ticket.pair_key(),
+        others.into_iter().map(TransportAddr::Relay),
+    );
     let found = match tokio::time::timeout(ELSEWHERE_STEP, endpoint.connect(host, ALPN_PAIR)).await
     {
         Ok(Ok(conn)) => {

@@ -57,6 +57,7 @@ async function ensureSecrets(
 function linkSecrets(p: HostPaths): readonly (readonly [string, () => Buffer | string])[] {
   return [
     [p.linkKey, newLinkKey],
+    [p.linkPairKey, newLinkKey],
     [p.linkUpstreamToken, newUpstreamToken],
   ];
 }
@@ -85,9 +86,9 @@ export async function ensureSecure(
 }
 
 /**
- * The link's key and upstream token (link-secrets.ts), for `serve`: a host
- * set up before the link has a locked `secure/` without them. Each missing
- * one is written inside it, then locked.
+ * The link's keys and upstream token (link-secrets.ts), for `serve`: a host
+ * set up before the link, or before its pairing key, has a locked `secure/`
+ * without them. Each missing one is written inside it, then locked.
  */
 export async function ensureLinkSecrets(
   p: HostPaths,

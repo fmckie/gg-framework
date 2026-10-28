@@ -188,12 +188,12 @@ describe("RemoteHostModal — pairing over the Kleio link (connection prototype)
   };
   const LINK_REC = { ...REC, baseUrl: "http://link.kleio.invalid" };
   const TICKET = JSON.stringify({
-    v: 4,
+    v: 5,
     type: "kleio-pair",
     name: "mac-mini-1",
     key: "ab12cd34ef".padEnd(64, "0"),
+    pair: "cd34ef56ab".padEnd(64, "0"),
     relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
-    addrs: ["192.168.1.20:52043"],
     code: "ABC-DEF",
   });
   const CHECKED = {

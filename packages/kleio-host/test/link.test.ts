@@ -32,12 +32,18 @@ import {
   type PairingPayload,
 } from "../src/pair-code.js";
 import type { RelayPing } from "../src/link-relays.js";
+import { readLinkPublicKey, readPairPublicKey } from "../src/link-secrets.js";
 import { createPairOfferStore, type PairOfferStoreDeps } from "../src/pair-offer.js";
+import { hostPaths } from "../src/paths.js";
+import { ok } from "../src/result.js";
+import { ensureLinkSecrets } from "../src/secure-dir.js";
 import { createRingStore } from "../src/sse-ring.js";
 import { fakeSidecar, type FakeSidecar } from "./fake-sidecar.js";
 
 /** SecretKey::from_bytes(&[7; 32])'s public half, as in the shared ticket vectors. */
 const HOST_KEY = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+/** SecretKey::from_bytes(&[8; 32])'s public half: the shared vectors' pairing key. */
+const PAIR_KEY = "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca";
 const KEY_A = "a".repeat(64);
 const KEY_B = "b".repeat(64);
 const SECRET = "Sx3_".repeat(10) + "abc";
@@ -217,6 +223,8 @@ function writeState(dir: string, over: Record<string, unknown> = {}): void {
       pid: 4242,
       key: HOST_KEY,
       relay: N0_EU,
+      pairKey: PAIR_KEY,
+      pairRelay: N0_EU,
       addrs: ["192.168.1.20:52043"],
       rateLimited: false,
       connections: 1,
@@ -403,6 +411,8 @@ describe("the link in the host", () => {
       pingRelay?: (relay: string) => Promise<RelayPing>;
       /** How a waiting phone's request is held; by default it isn't, and hears `pending` at once. */
       hold?: PairOfferStoreDeps["hold"];
+      /** The link's key and pairing key; by default the shared ticket vectors'. */
+      keys?: { readonly link: string; readonly pair: string };
     } = {},
   ): Promise<{
     host: Host;
@@ -444,7 +454,8 @@ describe("the link in the host", () => {
       link: {
         port: link.port ?? 0,
         upstreamToken: SECRET,
-        publicKey: HOST_KEY,
+        publicKey: link.keys?.link ?? HOST_KEY,
+        pairKey: link.keys?.pair ?? PAIR_KEY,
         dir,
         name: "test-host",
         preambleTimeoutMs: 300,
@@ -1037,14 +1048,44 @@ describe("the link in the host", () => {
     const up = await offer(apiPort, admin.token);
     expect(up.ticketError).toBeNull();
     expect(JSON.parse(up.ticket ?? "null")).toEqual({
-      v: 4,
+      v: 5,
       type: "kleio-pair",
       name: "test-host",
       key: HOST_KEY,
+      pair: PAIR_KEY,
       relays: [N0_EU, "n0"],
-      addrs: ["192.168.1.20:52043"],
       code: up.display,
     });
+  });
+
+  it("never puts the host's addresses in a pair offer's ticket, whatever kleio-link-host reports", async () => {
+    // The keys as `serve` makes and reads them.
+    const p = hostPaths(join(scratch, "host"));
+    mkdirSync(p.secureDir, { recursive: true, mode: 0o700 });
+    expect(await ensureLinkSecrets(p, { lock: async () => ok(undefined) })).toEqual(ok(undefined));
+    const key = await readLinkPublicKey(p.linkKey);
+    const pair = await readPairPublicKey(p.linkPairKey);
+    if (!key.ok || !pair.ok) throw new Error("serve couldn't read the link's keys");
+    expect(pair.value).not.toBe(key.value);
+
+    const { registry, apiPort, dir } = await linkHost({
+      keys: { link: key.value, pair: pair.value },
+    });
+    const admin = await mint(registry, "Admin", undefined, true);
+    writeState(dir, {
+      key: key.value,
+      pairKey: pair.value,
+      addrs: ["203.0.113.7:52043", "192.168.1.20:52043", "[2001:db8::7]:52043"],
+    });
+    const up = await offer(apiPort, admin.token);
+    expect(up.ticketError).toBeNull();
+    const ticket = up.ticket ?? "";
+    const fields = JSON.parse(ticket) as Record<string, unknown>;
+    expect(Object.keys(fields)).toEqual(["v", "type", "name", "key", "pair", "relays", "code"]);
+    expect(fields).toMatchObject({ v: 5, key: key.value, pair: pair.value });
+    for (const ip of ["203.0.113.7", "192.168.1.20", "2001:db8::7"]) {
+      expect(ticket).not.toContain(ip);
+    }
   });
 
   it("lets a device remove itself, and nothing else", async () => {
@@ -1241,7 +1282,7 @@ describe("addresses in a ticket", () => {
   });
 });
 
-describe("the v4 pairing ticket", () => {
+describe("the v5 pairing ticket", () => {
   it.each(vectors.map((v) => [v.about, v] as const))("%s", (_about, vector) => {
     expect(buildTicket(vector.build)).toEqual({ ok: true, value: vector.ticket });
   });
@@ -1255,9 +1296,9 @@ describe("the v4 pairing ticket", () => {
   const base: TicketInput = {
     name: "mac-mini-1",
     key: HOST_KEY,
+    pair: PAIR_KEY,
     relay: N0_EU,
     relays: ["n0"],
-    addrs: ["192.168.1.20:52043"],
     code: "ABC-DEF",
   };
 
@@ -1267,10 +1308,13 @@ describe("the v4 pairing ticket", () => {
       [{ name: "bidi\u202Ename" }, "name"],
       [{ name: "x".repeat(33) }, "name"],
       [{ key: HOST_KEY.toUpperCase() }, "key"],
+      [{ pair: PAIR_KEY.toUpperCase() }, "pair"],
+      [{ pair: PAIR_KEY.slice(1) }, "pair"],
+      // One endpoint can't both pair and serve the link: a relay keeps one connection a key.
+      [{ pair: HOST_KEY }, "pair"],
       [{ relay: "n0" }, "relay"],
       [{ relay: "http://relay.example.com/" }, "relay"],
       [{ relays: ["n1"] }, "relays"],
-      [{ addrs: ["127.0.0.1:1"] }, "addrs"],
       [{ code: "ABCDE" }, "code"],
       [{ code: "ABU-DEF" }, "code"],
     ];
@@ -1284,20 +1328,18 @@ describe("the v4 pairing ticket", () => {
       ...base,
       relay: OWN,
       relays: ["https://a.example/", OWN, "https://b.example/", "https://c.example/", "n0"],
-      addrs: ["192.168.1.20:52043", "192.168.1.21:52043", "192.168.1.22:52043"],
     });
     if (!r.ok) throw new Error(r.error);
-    const ticket = JSON.parse(r.value) as { relays: string[]; addrs: string[] };
+    const ticket = JSON.parse(r.value) as { relays: string[] };
     expect(ticket.relays).toEqual([
       OWN,
       "https://a.example/",
       "https://b.example/",
       "https://c.example/",
     ]);
-    expect(ticket.addrs).toEqual(["192.168.1.20:52043", "192.168.1.21:52043"]);
   });
 
-  it("keeps a long one to 512 bytes: addresses go first, then relays after the first", () => {
+  it("keeps a long one to 512 bytes by dropping relays after the first", () => {
     const long = (c: string): string =>
       `https://${c.repeat(63)}.${"e".repeat(63)}.${"l".repeat(50)}.example/`;
     const relays = [long("p"), long("q"), long("s")];
@@ -1305,13 +1347,12 @@ describe("the v4 pairing ticket", () => {
       ...base,
       relay: long("r"),
       relays,
-      addrs: ["192.168.1.20:52043", "[2a02:c7c8:aaaa:bbbb:cccc:dddd:eeee:ffff]:65535"],
     });
     if (!r.ok) throw new Error(r.error);
     expect(Buffer.byteLength(r.value, "utf8")).toBeLessThanOrEqual(MAX_TICKET_BYTES);
-    const ticket = JSON.parse(r.value) as { relays: string[]; addrs: string[] };
+    const ticket = JSON.parse(r.value) as { relays: string[]; pair: string };
     expect(ticket.relays).toEqual([long("r")]);
-    expect(ticket.addrs).toEqual([]);
+    expect(ticket.pair).toBe(PAIR_KEY);
   });
 });
 
@@ -1321,7 +1362,7 @@ describe("the link's files", () => {
 
   it("reads kleio-link-host's state: running while it's fresh, stale after", async () => {
     const dir = join(scratch, "link");
-    expect(await readLinkState(dir, HOST_KEY, now)).toEqual({ kind: "missing" });
+    expect(await readLinkState(dir, HOST_KEY, PAIR_KEY, now)).toEqual({ kind: "missing" });
     writeState(dir, {
       updatedAt: at(LINK_STATE_FRESH_MS),
       addrs: ["192.168.1.20:52043", "127.0.0.1:1", "192.168.1.20:52043", 7],
@@ -1333,13 +1374,15 @@ describe("the link's files", () => {
         { key: KEY_B, path: "relay", at: "whenever" },
       ],
     });
-    expect(await readLinkState(dir, HOST_KEY, now)).toEqual({
+    expect(await readLinkState(dir, HOST_KEY, PAIR_KEY, now)).toEqual({
       kind: "running",
       state: {
         updatedAt: at(LINK_STATE_FRESH_MS),
         pid: 4242,
         key: HOST_KEY,
         relay: N0_EU,
+        pairKey: PAIR_KEY,
+        pairRelay: N0_EU,
         addrs: ["192.168.1.20:52043"],
         rateLimited: false,
         connections: 1,
@@ -1348,17 +1391,28 @@ describe("the link's files", () => {
       },
     });
     writeState(dir, { updatedAt: at(LINK_STATE_FRESH_MS + 1) });
-    expect((await readLinkState(dir, HOST_KEY, now)).kind).toBe("stale");
+    expect((await readLinkState(dir, HOST_KEY, PAIR_KEY, now)).kind).toBe("stale");
+    // Each endpoint may be on no relay for a while.
+    writeState(dir, { updatedAt: at(0), relay: null, pairRelay: null });
+    expect(await readLinkState(dir, HOST_KEY, PAIR_KEY, now)).toMatchObject({
+      kind: "running",
+      state: { relay: null, pairRelay: null },
+    });
   });
 
   it("calls a state file invalid when it isn't this host's, or isn't one", async () => {
     const dir = join(scratch, "link");
     const cases: [Record<string, unknown> | string, string][] = [
       [{ key: KEY_A }, "another key"],
+      [{ pairKey: KEY_A }, "another pairing key"],
+      [{ pairKey: HOST_KEY }, "another pairing key"],
+      [{ pairKey: undefined }, "no pairing key"],
       [{ version: 2 }, "not a version 1 state file"],
       [{ updatedAt: "yesterday" }, "no updatedAt"],
       [{ pid: 0 }, "no pid"],
       [{ relay: "http://relay.example.com/" }, "relay isn't"],
+      [{ pairRelay: "http://relay.example.com/" }, "pairRelay isn't"],
+      [{ pairRelay: undefined }, "pairRelay isn't"],
       [{ addrs: "192.168.1.20:52043" }, "addrs isn't a list"],
       [{ rateLimited: "no" }, "rateLimited"],
       [{ connections: -1 }, "connections"],
@@ -1372,7 +1426,7 @@ describe("the link's files", () => {
       } else {
         writeState(dir, { updatedAt: at(0), ...over });
       }
-      const read = await readLinkState(dir, HOST_KEY, now);
+      const read = await readLinkState(dir, HOST_KEY, PAIR_KEY, now);
       expect(read.kind, why).toBe("invalid");
       expect(read.kind === "invalid" ? read.message : "", why).toContain(why);
     }
@@ -1412,7 +1466,7 @@ describe("the link's files", () => {
 
   it("makes a ticket only while kleio-link-host is running on a relay", async () => {
     const dir = join(scratch, "link");
-    const link = { dir, publicKey: HOST_KEY, name: "test-host" };
+    const link = { dir, publicKey: HOST_KEY, pairKey: PAIR_KEY, name: "test-host" };
     const kind = async (): Promise<string> => {
       const r = await linkTicket(link, "ABCDEF", now);
       return r.ok ? "ticket" : r.error.kind;
@@ -1420,20 +1474,27 @@ describe("the link's files", () => {
     expect(await kind()).toBe("link_down");
     writeState(dir, { updatedAt: at(LINK_STATE_FRESH_MS + 1) });
     expect(await kind()).toBe("link_down");
-    writeState(dir, { updatedAt: at(0), relay: null });
+    writeState(dir, { updatedAt: at(0), pairRelay: null });
     expect(await kind()).toBe("link_down");
     writeState(dir, { updatedAt: at(0), key: KEY_A });
     expect(await kind()).toBe("link_down");
+    writeState(dir, { updatedAt: at(0), pairKey: KEY_A });
+    expect(await kind()).toBe("link_down");
+    // An older kleio-link-host, which pairs on the link's own endpoint.
+    writeState(dir, { updatedAt: at(0), pairKey: undefined, pairRelay: undefined });
+    expect(await kind()).toBe("link_down");
 
-    writeState(dir, { updatedAt: at(0), addrs: ["192.168.1.20:52043"] });
+    // On the pairing endpoint's relay, and with no address of the host's.
+    const US = "https://use1-1.relay.n0.iroh.link./";
+    writeState(dir, { updatedAt: at(0), pairRelay: US, addrs: ["192.168.1.20:52043"] });
     const r = await linkTicket(link, "abc def", now);
     expect(r).toEqual(
       buildTicket({
         name: "test-host",
         key: HOST_KEY,
-        relay: N0_EU,
+        pair: PAIR_KEY,
+        relay: US,
         relays: ["n0"],
-        addrs: ["192.168.1.20:52043"],
         code: "ABCDEF",
       }),
     );

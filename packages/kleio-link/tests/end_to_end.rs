@@ -18,8 +18,8 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use common::{
-    get, json_body, phone, relay_only, status_and_body, turned_away, until, within, TempDir,
-    TestRelay, TOKEN_HEADER,
+    get, json_body, phone, refused_before_handshake, relay_only, status_and_body, until, within,
+    TempDir, TestRelay, TOKEN_HEADER,
 };
 use kleio_link::iroh::SecretKey;
 use kleio_link::link::{LinkError, Route};
@@ -278,9 +278,10 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
         let link_log = tmp.path().join("kleio-link-host.log");
         let _link_host = Running::start("kleio-link-host serve", &mut link_host, link_log.clone());
         let state_path = kleio.home.join("link/state.json");
-        let state =
-            until(|| read_json(&state_path).filter(|state| state["relay"] == relay.url.as_str()))
-                .await;
+        let on_relay = |state: &Value| {
+            state["relay"] == relay.url.as_str() && state["pairRelay"] == relay.url.as_str()
+        };
+        let state = until(|| read_json(&state_path).filter(on_relay)).await;
 
         // An admin asks for a pairing code, as "Pair a device" does.
         let admin = fs::read_to_string(kleio.home.join("secure/admin.token"))
@@ -297,6 +298,11 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
             Some(ticket.key().to_string().as_str()),
             state["key"].as_str()
         );
+        assert_eq!(
+            Some(ticket.pair_key().to_string().as_str()),
+            state["pairKey"].as_str()
+        );
+        assert!(ticket.addrs().is_empty(), "no address before an Allow");
         assert_eq!(ticket.relay(), &relay.url);
 
         // The phone pairs through the relay. kleio-host holds its request
@@ -358,9 +364,10 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
         let (status, _) = call(kleio.api, "GET", "/kleio/link", Some(&token)).await;
         assert_eq!(status, 401);
 
-        // A key that never paired gets no further than kleio-link-host.
+        // A key that never paired gets no further than kleio-link-host,
+        // which refuses it before its handshake.
         let stranger = phone(SecretKey::generate(), Route::from_ticket(&ticket), &options).await;
-        assert_eq!(turned_away(&stranger).await, LinkError::NotPaired);
+        refused_before_handshake(&stranger).await;
 
         // An admin revokes the phone: its open connection is closed as
         // revoked, within 2 s of kleio-host's answer (3 s allows for a slow
@@ -408,7 +415,7 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
         let (status, offer) = call(kleio.api, "GET", "/kleio/pair", Some(admin)).await;
         assert_eq!((status, &offer["active"]), (200, &json!(false)));
         let denied = phone(key, Route::from_ticket(&ticket), &options).await;
-        assert_eq!(turned_away(&denied).await, LinkError::NotPaired);
+        refused_before_handshake(&denied).await;
     })
     .await;
 }

@@ -1066,12 +1066,12 @@ describe("ConnectionPage — Kleio's link", () => {
 
   it("a device paired by address pairs over the link from the card, by pasted pairing text on the Mac", async () => {
     const TICKET = JSON.stringify({
-      v: 4,
+      v: 5,
       type: "kleio-pair",
       name: "mac-mini-1",
       key: "ab12cd34ef".padEnd(64, "0"),
+      pair: "cd34ef56ab".padEnd(64, "0"),
       relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
-      addrs: [],
       code: "ABC-DEF",
     });
     let paired = false;
@@ -1117,12 +1117,12 @@ describe("ConnectionPage — Kleio's link", () => {
 
   describe("switching from Tailscale to the link", () => {
     const TICKET = JSON.stringify({
-      v: 4,
+      v: 5,
       type: "kleio-pair",
       name: "mac-mini-1",
       key: "ab12cd34ef".padEnd(64, "0"),
+      pair: "cd34ef56ab".padEnd(64, "0"),
       relays: ["https://euc1-1.relay.n0.iroh.link./", "n0"],
-      addrs: [],
       code: "ADM-123",
     });
     const OFFER = {

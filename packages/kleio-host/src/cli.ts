@@ -56,7 +56,7 @@ import {
   stillAsks,
   watchText,
 } from "./link-cli.js";
-import { readLinkPublicKey } from "./link-secrets.js";
+import { readLinkPublicKey, readPairPublicKey } from "./link-secrets.js";
 import { settleNodeId, type NodeIdSource } from "./node-id.js";
 import { createPairOfferStore, type PairClaimState, type PairOfferState } from "./pair-offer.js";
 import { hostPaths, type HostPaths } from "./paths.js";
@@ -118,7 +118,7 @@ function linkPort(): number {
 }
 
 /** The link as `serve` runs it: its secrets are made by now (ensureLinkSecrets). */
-function linkOptions(p: HostPaths, publicKey: string): LinkOptions {
+function linkOptions(p: HostPaths, publicKey: string, pairKey: string): LinkOptions {
   const upstreamToken = readFileSync(p.linkUpstreamToken, "utf8").trim();
   if (!isUpstreamToken(upstreamToken)) {
     throw new Error(
@@ -129,6 +129,7 @@ function linkOptions(p: HostPaths, publicKey: string): LinkOptions {
     port: linkPort(),
     upstreamToken,
     publicKey,
+    pairKey,
     dir: p.linkDir,
     // The machine's name as people know it: "Wills-Mac-mini.local" is "Wills-Mac-mini".
     name: ticketName(hostname().split(".")[0] ?? ""),
@@ -226,7 +227,9 @@ async function serve(p: HostPaths, lock: SecretLock): Promise<void> {
   const publicUrl = publicBase();
   const linkKey = await readLinkPublicKey(p.linkKey);
   if (!linkKey.ok) throw new Error(linkKey.error);
-  const link = linkOptions(p, linkKey.value);
+  const pairKey = await readPairPublicKey(p.linkPairKey);
+  if (!pairKey.ok) throw new Error(pairKey.error);
+  const link = linkOptions(p, linkKey.value, pairKey.value);
   const node = await settleNodeId({
     path: p.nodeId,
     ...(publicUrl !== undefined ? { publicUrl } : {}),
@@ -343,7 +346,11 @@ function adminCall(
 async function linkState(p: HostPaths): Promise<{ read: LinkStateRead; key: string | null }> {
   const key = await readLinkPublicKey(p.linkKey);
   if (!key.ok) return { read: { kind: "missing" }, key: null };
-  return { read: await readLinkState(p.linkDir, key.value, new Date()), key: key.value };
+  // kleio-link-host doesn't start without it: `serve` makes it.
+  const pairKey = await readPairPublicKey(p.linkPairKey);
+  if (!pairKey.ok) return { read: { kind: "missing" }, key: key.value };
+  const read = await readLinkState(p.linkDir, key.value, pairKey.value, new Date());
+  return { read, key: key.value };
 }
 
 /** The paths each device's link connection last took. */

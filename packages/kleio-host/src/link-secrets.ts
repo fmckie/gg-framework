@@ -1,4 +1,4 @@
-// The link's two secrets, kept in secure/ (paths.ts) and made by `init` and
+// The link's three secrets, kept in secure/ (paths.ts) and made by `init` and
 // `serve` (secure-dir.ts), never replaced once made:
 //
 //   link.key             32 random bytes: the Ed25519 secret key
@@ -6,6 +6,12 @@
 //                        SecretKey::from_bytes). Its public half is the key
 //                        every pairing QR code names, and phones check it in
 //                        the handshake, so a new one cuts off every phone.
+//   link-pair.key        32 random bytes too: the key of kleio-link-host's
+//                        pairing endpoint, which a QR code's ticket pairs
+//                        with, through a relay alone, so a device learns no
+//                        address of the host's before an admin allows it
+//                        (docs/adr/0004-no-host-address-before-allow.md). A
+//                        new one only stops the QR codes shown before it.
 //   link-upstream.token  The secret kleio-link-host shows on kleio-host's link
 //                        listener before any of a phone's bytes.
 
@@ -47,6 +53,21 @@ export function linkPublicKey(secret: Buffer): Result<string, "not_a_key"> {
 
 /** Read link.key and give its public half, or say why not (the file is left alone). */
 export async function readLinkPublicKey(path: string): Promise<Result<string, string>> {
+  return readPublicKey(
+    path,
+    `isn't a link key (a link key is ${LINK_KEY_BYTES} bytes). Moving it aside makes a new one, which gives the host a new key: every phone then has to pair again.`,
+  );
+}
+
+/** Read link-pair.key and give its public half, or say why not (the file is left alone). */
+export async function readPairPublicKey(path: string): Promise<Result<string, string>> {
+  return readPublicKey(
+    path,
+    `isn't a pairing key (a pairing key is ${LINK_KEY_BYTES} bytes). Moving it aside makes a new one: QR codes shown before then stop working.`,
+  );
+}
+
+async function readPublicKey(path: string, notAKey: string): Promise<Result<string, string>> {
   let secret: Buffer;
   try {
     secret = await readFile(path);
@@ -55,9 +76,5 @@ export async function readLinkPublicKey(path: string): Promise<Result<string, st
     return err(`${path} can't be read (${code}); kleio-host init or serve makes it`);
   }
   const key = linkPublicKey(secret);
-  return key.ok
-    ? key
-    : err(
-        `${path} isn't a link key (a link key is ${LINK_KEY_BYTES} bytes). Moving it aside makes a new one, which gives the host a new key: every phone then has to pair again.`,
-      );
+  return key.ok ? key : err(`${path} ${notAKey}`);
 }

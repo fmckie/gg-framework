@@ -1,5 +1,27 @@
-//! The v4 pairing ticket: what a pairing QR code carries, as kleio-host's
+//! The v5 pairing ticket: what a pairing QR code carries, as kleio-host's
 //! `buildTicket` writes it (packages/kleio-host/src/link.ts).
+//!
+//! ```text
+//! {"v":5,"type":"kleio-pair","name":"mac-mini-1","key":"<64 hex>",
+//!  "pair":"<64 hex>","relays":["https://euc1-1.relay.n0.iroh.link./","n0"],
+//!  "code":"ABC-DEF"}
+//! ```
+//!
+//! - `key` is the host's link key: the phone uses the link through it once an
+//!   admin allows it, and the confirm step shows it.
+//! - `pair` is the key of the host's pairing endpoint, which has no direct
+//!   address. The phone asks to pair through it, over the relay, and uses it
+//!   for nothing else.
+//! - `relays` starts with the relay the pairing endpoint is on now, which
+//!   pairing goes through, and goes on with the host's relay list, where `n0`
+//!   stands for n0's relays (crate::relays): up to [`MAX_RELAYS`] entries.
+//!
+//! So a ticket carries none of the host's addresses, and pairing reaches none:
+//! a device learns them only once it's allowed
+//! (docs/adr/0004-no-host-address-before-allow.md).
+//!
+//! A v4 ticket, from a host not yet updated, is still read. It has one key for
+//! both, and up to [`MAX_TICKET_ADDRS`] of the host's direct addresses:
 //!
 //! ```text
 //! {"v":4,"type":"kleio-pair","name":"mac-mini-1","key":"<64 hex>",
@@ -7,19 +29,14 @@
 //!  "addrs":["192.168.1.20:52043"],"code":"ABC-DEF"}
 //! ```
 //!
-//! - `relays` starts with the relay the host is on now, which pairing goes
-//!   through, and goes on with the host's relay list, where `n0` stands for
-//!   n0's relays (crate::relays): up to [`MAX_RELAYS`] entries.
-//! - `addrs` holds up to [`MAX_TICKET_ADDRS`] of the host's direct addresses.
-//!
 //! Anyone can print a QR code, so a ticket is untrusted input. The check is
 //! offline: nothing is dialled until the person confirms what it shows. It
-//! takes exactly these seven fields in a JSON object, each only in the one
-//! form kleio-host writes, so what the confirm step shows is what the phone
-//! dials. Like v2, a ticket never carries a token: the code is single-use and
-//! expires in five minutes, and kleio-host still decides by code, expiry and
-//! the five tries. tests/fixtures/tickets.json holds the test vectors
-//! kleio-host's and the app's tests share.
+//! takes exactly its version's seven fields in a JSON object, each only in the
+//! one form kleio-host writes, so what the confirm step shows is what the
+//! phone dials. Like v2, a ticket never carries a token: the code is
+//! single-use and expires in five minutes, and kleio-host still decides by
+//! code, expiry and the five tries. tests/fixtures/tickets.json holds the test
+//! vectors kleio-host's and the app's tests share.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -31,8 +48,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::relays::{check_relay_list, RelayEntry, MAX_RELAYS};
 
-/// The version this module reads.
-pub const TICKET_VERSION: u64 = 4;
+/// The version kleio-host writes, which this module reads.
+pub const TICKET_VERSION: u64 = 5;
+
+/// The version a host not yet updated writes, which this module still reads.
+pub const V4_TICKET_VERSION: u64 = 4;
 
 /// The Tailscale pairing ticket's version (gg-app/src/kleio/pairTicket.ts),
 /// which the pairing form reads, not this.
@@ -49,7 +69,7 @@ pub const TICKET_TYPE: &str = "kleio-pair";
 /// terminal's QR code.
 pub const MAX_TICKET_BYTES: usize = 512;
 
-/// Direct addresses in a ticket (`MAX_TICKET_ADDRS`).
+/// Direct addresses in a v4 ticket. A v5 ticket has none.
 pub const MAX_TICKET_ADDRS: usize = 2;
 
 /// The longest host name, in UTF-8 bytes (`MAX_NAME_BYTES`).
@@ -84,17 +104,19 @@ pub enum TicketError {
     Prototype,
     /// A version newer than this build reads.
     Newer(u64),
-    /// A v4 ticket with a field missing, added, repeated or of the wrong type.
+    /// A v5 or v4 ticket with a field missing, added, repeated or of the wrong
+    /// type: a v5 ticket with `addrs`, say.
     Fields,
     /// `name` isn't 1 to 32 bytes of text as kleio-host's `ticketName` leaves
     /// it.
     Name,
-    /// `key` isn't 64 lowercase hex characters naming an Ed25519 public key.
+    /// `key` or `pair` isn't 64 lowercase hex characters naming an Ed25519
+    /// public key, or they name the same one.
     Key,
     /// `relays` isn't 1 to 4 relay addresses or `n0`, none twice, with the
     /// relay the host is on first.
     Relays,
-    /// `addrs` isn't up to two direct addresses, none twice.
+    /// A v4 ticket's `addrs` isn't up to two direct addresses, none twice.
     Addrs,
     /// `code` isn't `ABC-DEF`, from the pair alphabet.
     Code,
@@ -135,8 +157,17 @@ pub struct Ticket {
     /// `relays[0]`: the relay the host was on, which pairing goes through.
     relay: RelayUrl,
     relays: Vec<RelayEntry>,
-    addrs: Vec<SocketAddr>,
     code: String,
+    form: Form,
+}
+
+/// What a ticket has besides the fields every version has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Form {
+    /// v5: the pairing endpoint's key, and no address.
+    V5 { pair: EndpointId },
+    /// v4: the host's direct addresses, and one key for both.
+    V4 { addrs: Vec<SocketAddr> },
 }
 
 impl Ticket {
@@ -146,9 +177,19 @@ impl Ticket {
         &self.name
     }
 
-    /// The host's key: the phone dials this, and iroh's handshake proves it.
+    /// The host's link key: once the phone is allowed, it dials this, and
+    /// iroh's handshake proves it. The confirm step shows it.
     pub fn key(&self) -> EndpointId {
         self.key
+    }
+
+    /// The key the phone asks to pair through: the host's pairing
+    /// endpoint's, or a v4 ticket's one key.
+    pub fn pair_key(&self) -> EndpointId {
+        match &self.form {
+            Form::V5 { pair } => *pair,
+            Form::V4 { .. } => self.key,
+        }
     }
 
     /// The relay the host was on when it made the ticket: pairing goes
@@ -167,9 +208,13 @@ impl Ticket {
         self.relays.contains(&RelayEntry::N0)
     }
 
-    /// The host's direct addresses, best first.
+    /// A v4 ticket's direct addresses for the host, best first. A v5 ticket
+    /// has none.
     pub fn addrs(&self) -> &[SocketAddr] {
-        &self.addrs
+        match &self.form {
+            Form::V5 { .. } => &[],
+            Form::V4 { addrs } => addrs,
+        }
     }
 
     /// The pair code, `ABC-DEF`.
@@ -189,18 +234,32 @@ impl Ticket {
         self.relay.host_str().unwrap_or_default()
     }
 
-    /// The ticket as JSON, as kleio-host writes it, byte for byte.
+    /// The ticket as JSON in its own version, as kleio-host wrote it, byte for
+    /// byte.
     pub fn to_json(&self) -> String {
-        let wire = WireOut {
-            v: TICKET_VERSION,
-            kind: TICKET_TYPE,
-            name: &self.name,
-            key: self.key.to_string(),
-            relays: self.relays.iter().map(RelayEntry::as_str).collect(),
-            addrs: self.addrs.iter().map(ToString::to_string).collect(),
-            code: &self.code,
+        let key = self.key.to_string();
+        let relays = self.relays.iter().map(RelayEntry::as_str).collect();
+        let json = match &self.form {
+            Form::V5 { pair } => serde_json::to_string(&WireOut {
+                v: TICKET_VERSION,
+                kind: TICKET_TYPE,
+                name: &self.name,
+                key,
+                pair: pair.to_string(),
+                relays,
+                code: &self.code,
+            }),
+            Form::V4 { addrs } => serde_json::to_string(&WireOutV4 {
+                v: V4_TICKET_VERSION,
+                kind: TICKET_TYPE,
+                name: &self.name,
+                key,
+                relays,
+                addrs: addrs.iter().map(ToString::to_string).collect(),
+                code: &self.code,
+            }),
         };
-        serde_json::to_string(&wire).expect("a ticket of strings and a number serializes")
+        json.expect("a ticket of strings and a number serializes")
     }
 }
 
@@ -217,28 +276,51 @@ impl FromStr for Ticket {
             return Err(TicketError::NotKleio);
         }
         // The version and type first, so other versions are told apart from
-        // a broken v4. serde refuses a repeated `v` or `type` here.
+        // a broken one. serde refuses a repeated `v` or `type` here.
         let header: Header = serde_json::from_str(s).map_err(|_| TicketError::NotKleio)?;
         if header.kind != TICKET_TYPE {
             return Err(TicketError::NotKleio);
         }
         match header.v {
-            TICKET_VERSION => {}
-            PROTOTYPE_TICKET_VERSION => return Err(TicketError::Prototype),
-            TAILSCALE_TICKET_VERSION => return Err(TicketError::Tailscale),
-            v if v > TICKET_VERSION => return Err(TicketError::Newer(v)),
-            _ => return Err(TicketError::NotKleio),
+            TICKET_VERSION => {
+                let wire: WireIn = serde_json::from_str(s).map_err(|_| TicketError::Fields)?;
+                let (relay, relays) = check_relays(&wire.relays)?;
+                let name = check_name(&wire.name)?;
+                let key = check_key(&wire.key)?;
+                let pair = check_key(&wire.pair)?;
+                // The pairing endpoint has a key of its own: with the link
+                // key, the phone would ask to pair where nothing answers.
+                if pair == key {
+                    return Err(TicketError::Key);
+                }
+                Ok(Self {
+                    name,
+                    key,
+                    relay,
+                    relays,
+                    code: check_code(&wire.code)?,
+                    form: Form::V5 { pair },
+                })
+            }
+            V4_TICKET_VERSION => {
+                let wire: WireInV4 = serde_json::from_str(s).map_err(|_| TicketError::Fields)?;
+                let (relay, relays) = check_relays(&wire.relays)?;
+                Ok(Self {
+                    name: check_name(&wire.name)?,
+                    key: check_key(&wire.key)?,
+                    relay,
+                    relays,
+                    form: Form::V4 {
+                        addrs: check_addrs(&wire.addrs)?,
+                    },
+                    code: check_code(&wire.code)?,
+                })
+            }
+            PROTOTYPE_TICKET_VERSION => Err(TicketError::Prototype),
+            TAILSCALE_TICKET_VERSION => Err(TicketError::Tailscale),
+            v if v > TICKET_VERSION => Err(TicketError::Newer(v)),
+            _ => Err(TicketError::NotKleio),
         }
-        let wire: WireIn = serde_json::from_str(s).map_err(|_| TicketError::Fields)?;
-        let (relay, relays) = check_relays(&wire.relays)?;
-        Ok(Self {
-            name: check_name(&wire.name)?,
-            key: check_key(&wire.key)?,
-            relay,
-            relays,
-            addrs: check_addrs(&wire.addrs)?,
-            code: check_code(&wire.code)?,
-        })
     }
 }
 
@@ -250,11 +332,40 @@ struct Header {
     kind: String,
 }
 
-/// A v4 ticket as read: exactly seven fields, each once.
+/// A v5 ticket as read: exactly seven fields, each once.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireIn {
     // Read only so that `deny_unknown_fields` allows them; `Header` checked them.
+    #[allow(dead_code)]
+    v: u64,
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    kind: String,
+    name: String,
+    key: String,
+    pair: String,
+    relays: Vec<String>,
+    code: String,
+}
+
+/// A v5 ticket as written: the fields in `buildTicket`'s order.
+#[derive(Serialize)]
+struct WireOut<'a> {
+    v: u64,
+    #[serde(rename = "type")]
+    kind: &'a str,
+    name: &'a str,
+    key: String,
+    pair: String,
+    relays: Vec<&'a str>,
+    code: &'a str,
+}
+
+/// A v4 ticket as read: exactly seven fields, each once.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireInV4 {
     #[allow(dead_code)]
     v: u64,
     #[serde(rename = "type")]
@@ -267,9 +378,9 @@ struct WireIn {
     code: String,
 }
 
-/// A v4 ticket as written: the fields in `buildTicket`'s order.
+/// A v4 ticket as a host not yet updated writes it.
 #[derive(Serialize)]
-struct WireOut<'a> {
+struct WireOutV4<'a> {
     v: u64,
     #[serde(rename = "type")]
     kind: &'a str,
@@ -347,7 +458,7 @@ fn check_relays(entries: &[String]) -> Result<(RelayUrl, Vec<RelayEntry>), Ticke
     }
 }
 
-/// Up to [`MAX_TICKET_ADDRS`] direct addresses, none twice.
+/// A v4 ticket's addresses: up to [`MAX_TICKET_ADDRS`], none twice.
 fn check_addrs(addrs: &[String]) -> Result<Vec<SocketAddr>, TicketError> {
     if addrs.len() > MAX_TICKET_ADDRS {
         return Err(TicketError::Addrs);
@@ -418,11 +529,29 @@ mod tests {
         SecretKey::from_bytes(&[7; 32]).public()
     }
 
+    /// The host's pairing endpoint's key.
+    fn pairing_key() -> EndpointId {
+        SecretKey::from_bytes(&[8; 32]).public()
+    }
+
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     fn good() -> Value {
+        json!({
+            "v": 5,
+            "type": "kleio-pair",
+            "name": "mac-mini-1",
+            "key": host_key().to_string(),
+            "pair": pairing_key().to_string(),
+            "relays": [RELAY, "n0"],
+            "code": "ABC-DEF",
+        })
+    }
+
+    /// The v4 ticket a host not yet updated writes.
+    fn good_v4() -> Value {
         json!({
             "v": 4,
             "type": "kleio-pair",
@@ -434,84 +563,124 @@ mod tests {
         })
     }
 
-    /// `good()` with one field set to `value`.
-    fn with(field: &str, value: Value) -> String {
-        let mut ticket = good();
+    /// `ticket` with one field set to `value`.
+    fn set(mut ticket: Value, field: &str, value: Value) -> String {
         ticket[field] = value;
         ticket.to_string()
     }
 
-    /// `good()` without one field.
-    fn without(field: &str) -> String {
-        let mut ticket = good();
+    /// `ticket` without one field.
+    fn unset(mut ticket: Value, field: &str) -> String {
         ticket.as_object_mut().unwrap().remove(field);
         ticket.to_string()
+    }
+
+    /// `good()` with one field set to `value`.
+    fn with(field: &str, value: Value) -> String {
+        set(good(), field, value)
+    }
+
+    /// `good()` without one field.
+    fn without(field: &str) -> String {
+        unset(good(), field)
     }
 
     fn parse(s: &str) -> Result<Ticket, TicketError> {
         s.parse()
     }
 
-    /// The vectors kleio-host's `buildTicket` makes (its tests check that).
-    fn vectors() -> Vec<Value> {
+    /// A list of the vectors: `good`, those kleio-host's `buildTicket` makes
+    /// (its tests check that), or `v4`, those a host not yet updated made.
+    fn vectors(list: &str) -> Vec<Value> {
         let file: Value = serde_json::from_str(include_str!("../tests/fixtures/tickets.json"))
             .expect("the vectors are JSON");
-        file["good"].as_array().expect("good vectors").clone()
+        let vectors = file[list].as_array().expect("a list of vectors").clone();
+        assert!(vectors.len() >= 6, "{} {list} vectors", vectors.len());
+        vectors
+    }
+
+    /// Reads a vector's ticket and checks what every version has against the
+    /// fields it was built from.
+    fn read_vector(vector: &Value) -> Ticket {
+        let about = vector["about"].as_str().expect("about");
+        let text = vector["ticket"].as_str().expect("a ticket");
+        let build = &vector["build"];
+        let ticket = parse(text).unwrap_or_else(|err| panic!("{about}: {err:?}"));
+        assert_eq!(
+            ticket.to_json(),
+            text,
+            "{about}: writes it back byte for byte"
+        );
+        assert_eq!(ticket.name(), build["name"], "{about}");
+        assert_eq!(ticket.key().to_string(), build["key"], "{about}");
+        assert_eq!(ticket.relay().as_str(), build["relay"], "{about}");
+        // The relay it's on, then the list, each once, at most four.
+        let mut expected: Vec<&str> = vec![build["relay"].as_str().expect("relay")];
+        for entry in build["relays"].as_array().expect("relays") {
+            let entry = entry.as_str().expect("an entry");
+            if !expected.contains(&entry) {
+                expected.push(entry);
+            }
+        }
+        expected.truncate(MAX_RELAYS);
+        let relays: Vec<&str> = ticket.relays().iter().map(RelayEntry::as_str).collect();
+        assert_eq!(relays, expected, "{about}");
+        assert_eq!(
+            ticket.names_n0(),
+            expected.contains(&"n0"),
+            "{about}: names n0"
+        );
+        let code: String = build["code"]
+            .as_str()
+            .expect("code")
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .collect();
+        assert_eq!(
+            ticket.code(),
+            format!("{}-{}", &code[..3], &code[3..]),
+            "{about}"
+        );
+        ticket
     }
 
     #[test]
     fn reads_every_ticket_kleio_host_writes_as_it_was_built() {
-        let vectors = vectors();
-        assert!(vectors.len() >= 6, "{} vectors", vectors.len());
-        for vector in vectors {
+        for vector in vectors("good") {
             let about = vector["about"].as_str().expect("about");
-            let text = vector["ticket"].as_str().expect("a ticket");
-            let build = &vector["build"];
-            let ticket = parse(text).unwrap_or_else(|err| panic!("{about}: {err:?}"));
+            let ticket = read_vector(&vector);
             assert_eq!(
-                ticket.to_json(),
-                text,
-                "{about}: writes it back byte for byte"
-            );
-            assert_eq!(ticket.name(), build["name"], "{about}");
-            assert_eq!(ticket.key().to_string(), build["key"], "{about}");
-            assert_eq!(ticket.relay().as_str(), build["relay"], "{about}");
-            // The relay it's on, then the list, each once, at most four.
-            let mut expected: Vec<&str> = vec![build["relay"].as_str().expect("relay")];
-            for entry in build["relays"].as_array().expect("relays") {
-                let entry = entry.as_str().expect("an entry");
-                if !expected.contains(&entry) {
-                    expected.push(entry);
-                }
-            }
-            expected.truncate(MAX_RELAYS);
-            let relays: Vec<&str> = ticket.relays().iter().map(RelayEntry::as_str).collect();
-            assert_eq!(relays, expected, "{about}");
-            assert_eq!(
-                ticket.names_n0(),
-                expected.contains(&"n0"),
-                "{about}: names n0"
-            );
-            let addrs: Vec<String> = ticket.addrs().iter().map(ToString::to_string).collect();
-            assert_eq!(Value::from(addrs), build["addrs"], "{about}");
-            let code: String = build["code"]
-                .as_str()
-                .expect("code")
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .map(|c| c.to_ascii_uppercase())
-                .collect();
-            assert_eq!(
-                ticket.code(),
-                format!("{}-{}", &code[..3], &code[3..]),
+                ticket.pair_key().to_string(),
+                vector["build"]["pair"],
                 "{about}"
             );
+            assert_ne!(ticket.pair_key(), ticket.key(), "{about}");
+            assert_eq!(ticket.addrs(), [], "{about}: no address");
+            let text = vector["ticket"].as_str().expect("a ticket");
+            assert!(!text.contains("addrs"), "{about}");
         }
     }
 
     #[test]
+    fn a_v4_ticket_pairs_with_its_one_key() {
+        for vector in vectors("v4") {
+            let about = vector["about"].as_str().expect("about");
+            let ticket = read_vector(&vector);
+            assert_eq!(ticket.pair_key(), ticket.key(), "{about}");
+            let addrs: Vec<String> = ticket.addrs().iter().map(ToString::to_string).collect();
+            assert_eq!(Value::from(addrs), vector["build"]["addrs"], "{about}");
+        }
+        let ticket = parse(&good_v4().to_string()).unwrap();
+        assert_eq!(ticket.key(), host_key());
+        assert_eq!(ticket.pair_key(), host_key());
+        let addr: SocketAddr = "192.168.1.20:52043".parse().unwrap();
+        assert_eq!(ticket.addrs(), [addr]);
+    }
+
+    #[test]
     fn the_default_ticket_fits_an_80_column_terminals_qr_code() {
-        let longest = vectors()
+        let longest = vectors("good")
             .into_iter()
             .find(|v| {
                 v["about"]
@@ -527,6 +696,8 @@ mod tests {
         let ticket = parse(&good().to_string()).unwrap();
         assert_eq!(ticket.name(), "mac-mini-1");
         assert_eq!(ticket.key(), host_key());
+        assert_eq!(ticket.pair_key(), pairing_key());
+        assert_eq!(ticket.addrs(), []);
         assert_eq!(ticket.key_prefix(), host_key().fmt_short().to_string());
         assert_eq!(ticket.key_prefix().len(), KEY_PREFIX_LENGTH);
         assert_eq!(ticket.relay().as_str(), RELAY);
@@ -548,7 +719,7 @@ mod tests {
     #[test]
     fn refuses_what_isnt_a_kleio_ticket() {
         let trailing = format!("{}x", good());
-        let as_array = format!(r#"[4,"kleio-pair","{}"]"#, host_key());
+        let as_array = format!(r#"[5,"kleio-pair","{}"]"#, host_key());
         for s in [
             "",
             "not json",
@@ -585,10 +756,18 @@ mod tests {
     fn tells_other_versions_apart() {
         assert_eq!(parse(&with("v", json!(2))), Err(TicketError::Tailscale));
         assert_eq!(parse(&with("v", json!(3))), Err(TicketError::Prototype));
-        assert_eq!(parse(&with("v", json!(5))), Err(TicketError::Newer(5)));
+        assert_eq!(parse(&with("v", json!(6))), Err(TicketError::Newer(6)));
         for v in [0, 1] {
             assert_eq!(parse(&with("v", json!(v))), Err(TicketError::NotKleio));
         }
+        // A host not yet updated writes v4, which is still read. A v5 ticket
+        // called v4, or a v4 one called v5, is broken.
+        assert!(parse(&good_v4().to_string()).is_ok());
+        assert_eq!(parse(&with("v", json!(4))), Err(TicketError::Fields));
+        assert_eq!(
+            parse(&set(good_v4(), "v", json!(5))),
+            Err(TicketError::Fields)
+        );
         // Today's v2 ticket, as gg-app/src/kleio/pairTicket.ts writes it.
         let v2 = r#"{"v":2,"type":"kleio-pair","baseUrl":"https://mini.example.ts.net:8443","code":"ABC-DEF"}"#;
         assert_eq!(parse(v2), Err(TicketError::Tailscale));
@@ -602,7 +781,7 @@ mod tests {
 
     #[test]
     fn refuses_a_version_that_isnt_a_whole_number() {
-        for v in [json!("4"), json!(4.0), json!(-4), json!(4.5), Value::Null] {
+        for v in [json!("5"), json!(5.0), json!(-5), json!(5.5), Value::Null] {
             assert_eq!(
                 parse(&with("v", v.clone())),
                 Err(TicketError::NotKleio),
@@ -614,7 +793,7 @@ mod tests {
 
     #[test]
     fn refuses_missing_extra_or_repeated_fields() {
-        for field in ["name", "key", "relays", "addrs", "code"] {
+        for field in ["name", "key", "pair", "relays", "code"] {
             assert_eq!(
                 parse(&without(field)),
                 Err(TicketError::Fields),
@@ -630,13 +809,25 @@ mod tests {
             ("token", json!("t0k3n")),
             ("relay", json!(RELAY)),
             ("baseUrl", json!("https://x.ts.net/")),
+            // A v5 ticket carries no address, not even an empty list.
+            ("addrs", json!(["192.168.1.20:52043"])),
+            ("addrs", json!([])),
         ] {
             assert_eq!(
-                parse(&with(field, value)),
+                parse(&with(field, value.clone())),
                 Err(TicketError::Fields),
-                "{field}"
+                "{field}: {value}"
             );
         }
+        for field in ["name", "key", "relays", "addrs", "code"] {
+            assert_eq!(
+                parse(&unset(good_v4(), field)),
+                Err(TicketError::Fields),
+                "v4 without {field}"
+            );
+        }
+        let v4_with_pair = set(good_v4(), "pair", json!(pairing_key().to_string()));
+        assert_eq!(parse(&v4_with_pair), Err(TicketError::Fields));
         assert_eq!(
             parse(&with("relays", json!([RELAY, 4]))),
             Err(TicketError::Fields)
@@ -647,7 +838,7 @@ mod tests {
             r#""code":"ABC-DEF","code":"XYZ-123""#,
         );
         assert_eq!(parse(&repeated_code), Err(TicketError::Fields));
-        let repeated_v = good.replace(r#""v":4"#, r#""v":4,"v":4"#);
+        let repeated_v = good.replace(r#""v":5"#, r#""v":5,"v":5"#);
         assert_eq!(parse(&repeated_v), Err(TicketError::NotKleio));
     }
 
@@ -724,13 +915,21 @@ mod tests {
             base32(key.as_bytes()),
             not_a_point,
         ];
-        for k in bad {
-            assert_eq!(
-                parse(&with("key", json!(k))),
-                Err(TicketError::Key),
-                "{k:?}"
-            );
+        for field in ["key", "pair"] {
+            for k in &bad {
+                assert_eq!(
+                    parse(&with(field, json!(k))),
+                    Err(TicketError::Key),
+                    "{field}: {k:?}"
+                );
+            }
         }
+        // The pairing endpoint has a key of its own.
+        assert_eq!(parse(&with("pair", json!(good_hex))), Err(TicketError::Key));
+        assert_eq!(
+            parse(&set(good_v4(), "key", json!(good_hex.to_uppercase()))),
+            Err(TicketError::Key)
+        );
     }
 
     #[test]
@@ -800,7 +999,7 @@ mod tests {
     }
 
     #[test]
-    fn takes_up_to_two_direct_addresses_as_rust_writes_them() {
+    fn a_v4_ticket_takes_up_to_two_direct_addresses_as_rust_writes_them() {
         for addrs in [
             json!([]),
             json!(["192.168.1.20:52043"]),
@@ -810,15 +1009,15 @@ mod tests {
             ]),
             json!(["[2001:db8::7]:7842", "10.0.0.2:1"]),
         ] {
-            let ticket =
-                parse(&with("addrs", addrs.clone())).unwrap_or_else(|e| panic!("{addrs}: {e}"));
+            let ticket = parse(&set(good_v4(), "addrs", addrs.clone()))
+                .unwrap_or_else(|e| panic!("{addrs}: {e}"));
             let written: Vec<String> = ticket.addrs().iter().map(ToString::to_string).collect();
             assert_eq!(Value::from(written), addrs);
         }
     }
 
     #[test]
-    fn refuses_bad_direct_addresses() {
+    fn a_v4_ticket_refuses_bad_direct_addresses() {
         for addr in [
             "192.168.1.20",
             "192.168.1.20:0",
@@ -838,15 +1037,21 @@ mod tests {
             " 192.168.1.20:52043",
         ] {
             assert_eq!(
-                parse(&with("addrs", json!([addr]))),
+                parse(&set(good_v4(), "addrs", json!([addr]))),
                 Err(TicketError::Addrs),
                 "{addr:?}"
             );
         }
         let three = json!(["10.0.0.1:1", "10.0.0.2:1", "10.0.0.3:1"]);
-        assert_eq!(parse(&with("addrs", three)), Err(TicketError::Addrs));
+        assert_eq!(
+            parse(&set(good_v4(), "addrs", three)),
+            Err(TicketError::Addrs)
+        );
         let twice = json!(["10.0.0.1:1", "10.0.0.1:1"]);
-        assert_eq!(parse(&with("addrs", twice)), Err(TicketError::Addrs));
+        assert_eq!(
+            parse(&set(good_v4(), "addrs", twice)),
+            Err(TicketError::Addrs)
+        );
     }
 
     #[test]
@@ -870,7 +1075,7 @@ mod tests {
             TicketError::NotKleio,
             TicketError::Tailscale,
             TicketError::Prototype,
-            TicketError::Newer(5),
+            TicketError::Newer(6),
             TicketError::Fields,
             TicketError::Name,
             TicketError::Key,

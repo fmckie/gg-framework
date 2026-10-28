@@ -2,9 +2,10 @@
 //! kleio-host's state folder with its secrets, a stand-in for kleio-host's
 //! link listener, a phone, and HTTP over its link.
 //!
-//! Every end goes through relays only, so none binds a UDP socket, and the
-//! relays listen on 127.0.0.1: nothing leaves this machine, and macOS's
-//! firewall has nothing to ask about.
+//! Most ends go through relays only, so they bind no UDP socket; one that
+//! goes direct ([`loopback_direct`]) binds on loopback only. The relays listen
+//! on 127.0.0.1: nothing leaves this machine, and macOS's firewall has
+//! nothing to ask about.
 
 // Each test file uses some of it.
 #![allow(dead_code)]
@@ -155,20 +156,35 @@ impl TestRelay {
 pub fn relay_only(relays: &[&TestRelay]) -> EndpointOptions {
     EndpointOptions {
         mode: Mode::RelayOnly,
-        trust: RelayTrust::with_roots(relays.iter().flat_map(|relay| relay.certs.iter().cloned())),
+        trust: trusting(relays),
     }
 }
 
-/// A v4 ticket for `host` through `relays`, as kleio-host builds one.
-pub fn ticket(host: EndpointId, relays: &[&RelayUrl], code: &str) -> Ticket {
+/// An end that goes direct once it can, with its sockets on loopback only,
+/// trusting `relays`' certificates: it has direct addresses to give out, and
+/// none leads off this machine.
+pub fn loopback_direct(relays: &[&TestRelay]) -> EndpointOptions {
+    EndpointOptions {
+        mode: Mode::Loopback,
+        trust: trusting(relays),
+    }
+}
+
+fn trusting(relays: &[&TestRelay]) -> RelayTrust {
+    RelayTrust::with_roots(relays.iter().flat_map(|relay| relay.certs.iter().cloned()))
+}
+
+/// A v5 ticket for the host with link key `host` and pairing key `pairing`
+/// through `relays`, as kleio-host builds one: no address.
+pub fn ticket(host: EndpointId, pairing: EndpointId, relays: &[&RelayUrl], code: &str) -> Ticket {
     let relays: Vec<&str> = relays.iter().map(|relay| relay.as_str()).collect();
     json!({
-        "v": 4,
+        "v": 5,
         "type": "kleio-pair",
         "name": "Test host",
         "key": host.to_string(),
+        "pair": pairing.to_string(),
         "relays": relays,
-        "addrs": [],
         "code": code,
     })
     .to_string()
@@ -228,6 +244,21 @@ pub async fn closed_with(conn: &Connection) -> Option<u64> {
     }
 }
 
+/// How the host turns away a key it doesn't know that comes through a
+/// relay: before the handshake, so the dial fails and the link holds no
+/// refusal of the host's. The dial's error.
+pub async fn refused_before_handshake(link: &Link) -> String {
+    let err = link
+        .connection()
+        .await
+        .expect_err("the host refused the dial");
+    assert_eq!(link.refusal(), None, "{err}");
+    match err {
+        LinkError::Dial(why) if why.contains("refused") => why,
+        other => panic!("not refused before the handshake: {other:?}"),
+    }
+}
+
 /// How the host turns `link`'s key away: just after the handshake, so
 /// usually once the dial has finished, and sometimes before.
 pub async fn turned_away(link: &Link) -> LinkError {
@@ -274,11 +305,12 @@ fn head_end(bytes: &[u8]) -> Option<usize> {
 }
 
 /// kleio-host's state folder as it leaves it for kleio-link-host: the link
-/// key and secret in a `secure/` that's this user's alone, an allow-list,
-/// and the relay list.
+/// and pairing keys and the secret in a `secure/` that's this user's alone,
+/// an allow-list, and the relay list.
 pub struct HostHome {
     tmp: TempDir,
     key: SecretKey,
+    pair_key: SecretKey,
     pub secret: String,
 }
 
@@ -287,12 +319,14 @@ impl HostHome {
         let home = Self {
             tmp: TempDir::new(name),
             key: SecretKey::generate(),
+            pair_key: SecretKey::generate(),
             secret: random_hex(32),
         };
         let secure = home.secure();
         fs::create_dir_all(&secure).expect("made");
         lock_to_user(&secure, true);
         put_secret(&secure.join("link.key"), &home.key.to_bytes());
+        put_secret(&secure.join("link-pair.key"), &home.pair_key.to_bytes());
         put_secret(&secure.join("link-upstream.token"), home.secret.as_bytes());
         home.allow(&[], &[]);
         fs::create_dir_all(home.path().join("link")).expect("made");
@@ -307,9 +341,14 @@ impl HostHome {
         self.path().join("secure")
     }
 
-    /// The host's key.
+    /// The host's key: its link endpoint's.
     pub fn id(&self) -> EndpointId {
         self.key.public()
+    }
+
+    /// The host's pairing endpoint's key.
+    pub fn pair_id(&self) -> EndpointId {
+        self.pair_key.public()
     }
 
     pub fn allow_path(&self) -> PathBuf {
@@ -336,6 +375,14 @@ impl HostHome {
             relay: None,
             options,
         }
+    }
+
+    /// kleio-link-host's state file once both its endpoints are on `relay`.
+    pub async fn on_relay(&self, relay: &RelayUrl) -> Value {
+        self.state_when(|state| {
+            state["relay"] == relay.as_str() && state["pairRelay"] == relay.as_str()
+        })
+        .await
     }
 
     /// kleio-link-host's state file, once `ready` says it is.

@@ -139,6 +139,8 @@ describe("status's link lines", () => {
     pid: 4242,
     key: KEY_A,
     relay: N0_EU,
+    pairKey: KEY_B,
+    pairRelay: N0_EU,
     addrs: ["192.168.1.20:52043"],
     rateLimited: false,
     connections: 2,

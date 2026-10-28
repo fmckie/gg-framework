@@ -195,6 +195,7 @@ async function startHost(
             port: 0,
             upstreamToken: LINK_SECRET,
             publicKey: "e".repeat(64),
+            pairKey: "f".repeat(64),
             dir: join(home, "link"),
             name: "mini",
           },
