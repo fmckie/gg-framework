@@ -81,6 +81,7 @@ describe("hostPaths", () => {
       adminToken: join(home, "secure", "admin.token"),
       registry: join(home, "secure", "device-registry.json"),
       linkKey: join(home, "secure", "link.key"),
+      linkPairKey: join(home, "secure", "link-pair.key"),
       linkUpstreamToken: join(home, "secure", "link-upstream.token"),
       linkAllow: join(home, "secure", "link-allow.json"),
       nodeId: join(home, "node-id"),

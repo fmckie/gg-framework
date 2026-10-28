@@ -9,6 +9,7 @@
 //   │   ├── headless-master.key    0600, 32 random bytes; locked on Windows
 //   │   ├── control-root.key       0600, macaroon root; locked on Windows
 //   │   ├── link.key               0600, the link's secret key (link-secrets.ts); locked on Windows
+//   │   ├── link-pair.key          0600, the link's pairing key (link-secrets.ts); locked on Windows
 //   │   ├── link-upstream.token    0600, kleio-link-host's secret for the link listener; locked on Windows
 //   │   ├── link-allow.json        0600, the paired devices' link keys; locked on Windows
 //   │   ├── admin.token            0600, from `init`; locked on Windows
@@ -36,6 +37,8 @@ export interface HostPaths {
   readonly registry: string;
   /** The link's secret key (link-secrets.ts). */
   readonly linkKey: string;
+  /** The secret key a QR code's ticket pairs with (link-secrets.ts). */
+  readonly linkPairKey: string;
   /** The secret kleio-link-host shows on the link listener (link-secrets.ts). */
   readonly linkUpstreamToken: string;
   /** The link's allow-list: each paired device's link key. */
@@ -95,6 +98,7 @@ export function hostPaths(
     adminToken: join(secureDir, "admin.token"),
     registry: join(secureDir, "device-registry.json"),
     linkKey: join(secureDir, "link.key"),
+    linkPairKey: join(secureDir, "link-pair.key"),
     linkUpstreamToken: join(secureDir, "link-upstream.token"),
     linkAllow: join(secureDir, "link-allow.json"),
     nodeId: join(home, "node-id"),

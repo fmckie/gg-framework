@@ -8,10 +8,11 @@
 // six-character code. A ticket the phone would refuse is never drawn.
 //
 // `readTicket` is the reading side, for a scanned or pasted ticket. A v2
-// ticket fills the pairing form, and one that isn't whole says so; a v4
-// ticket (Kleio's link: the host's name, key, relays, addresses and the code)
-// goes to the link's confirm step, where Rust's check of it
-// (packages/kleio-link, ticket.rs) decides. So do v3 (the connection
+// ticket fills the pairing form, and one that isn't whole says so; a v5
+// ticket (Kleio's link: the host's name, its key and pairing key, relays and
+// the code, but no address of the host) goes to the link's confirm step,
+// where Rust's check of it (packages/kleio-link, ticket.rs) decides. So do
+// v4 (a host not yet updated's, with addresses), v3 (the connection
 // prototype's) and later versions, which that check names. Its words for a
 // refused ticket are the pairing messages table's
 // (packages/kleio-link/tests/fixtures/pairing-messages.json), as Rust's are.

@@ -9,10 +9,16 @@
 //! ```json
 //! {"version":1,"updatedAt":"2026-10-23T12:03:04.567Z","pid":1234,
 //!  "key":"<64 hex>","relay":"https://<relay>/" or null,
+//!  "pairKey":"<64 hex>","pairRelay":"https://<relay>/" or null,
 //!  "addrs":["192.0.2.1:7842"],"rateLimited":false,"connections":1,
 //!  "relays":[{"url":"https://<relay>/","state":"home"}],
 //!  "peers":[{"key":"<64 hex>","path":"direct","at":"<ISO 8601>"}]}
 //! ```
+//!
+//! `key`, `relay`, `addrs` and the rest are the link endpoint's; `pairKey`
+//! and `pairRelay` the pairing endpoint's, which has no address. kleio-host
+//! puts those two in a QR code's ticket, and `addrs` only in what an
+//! allowed device can ask for.
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -51,6 +57,8 @@ const MAX_PEERS: usize = 64;
 struct Report {
     key: String,
     relay: Option<String>,
+    pair_key: String,
+    pair_relay: Option<String>,
     addrs: Vec<String>,
     rate_limited: bool,
     connections: usize,
@@ -96,6 +104,7 @@ struct Seen {
 
 pub(crate) struct Housekeeper {
     endpoint: Endpoint,
+    pairing: Endpoint,
     dir: HostDir,
     allow: Arc<AllowList>,
     upstream: Arc<Upstream>,
@@ -112,7 +121,7 @@ pub(crate) struct Housekeeper {
 
 impl Housekeeper {
     pub(crate) fn new(
-        endpoint: Endpoint,
+        (endpoint, pairing): (Endpoint, Endpoint),
         dir: HostDir,
         allow: Arc<AllowList>,
         upstream: Arc<Upstream>,
@@ -121,6 +130,7 @@ impl Housekeeper {
         let token_read = signature(&dir.token_path()).ok().flatten();
         Self {
             endpoint,
+            pairing,
             dir,
             allow,
             upstream,
@@ -140,16 +150,18 @@ impl Housekeeper {
         self
     }
 
-    /// Runs until the endpoint closes.
+    /// Runs until either endpoint closes.
     pub(crate) async fn run(mut self) {
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let endpoint = self.endpoint.clone();
+        let (endpoint, pairing) = (self.endpoint.clone(), self.pairing.clone());
         let closed = endpoint.closed();
-        tokio::pin!(closed);
+        let pairing_closed = pairing.closed();
+        tokio::pin!(closed, pairing_closed);
         loop {
             tokio::select! {
                 _ = &mut closed => return,
+                _ = &mut pairing_closed => return,
                 _ = tick.tick() => self.tick(Instant::now(), SystemTime::now()),
             }
         }
@@ -216,6 +228,7 @@ impl Housekeeper {
             .iter()
             .find(|status| status.is_connected())
             .map(|status| status.url().to_string());
+        let pair_relay = home_relay(&self.pairing);
         let relays = match &self.board {
             Some(board) => board
                 .get()
@@ -266,6 +279,8 @@ impl Housekeeper {
         Report {
             key: self.endpoint.id().to_string(),
             relay,
+            pair_key: self.pairing.id().to_string(),
+            pair_relay,
             addrs: ranked_addrs(self.endpoint.addr().ip_addrs().copied()),
             rate_limited,
             connections: live.len(),
@@ -291,6 +306,16 @@ impl Housekeeper {
     fn clear(&mut self, kind: &'static str) {
         self.errors.remove(kind);
     }
+}
+
+/// The relay `endpoint` is connected to, if any.
+fn home_relay(endpoint: &Endpoint) -> Option<String> {
+    endpoint
+        .home_relay_status()
+        .get()
+        .iter()
+        .find(|status| status.is_connected())
+        .map(|status| status.url().to_string())
 }
 
 /// The addresses a phone could dial, best first: public IPv4, then private

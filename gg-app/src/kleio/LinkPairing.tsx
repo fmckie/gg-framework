@@ -141,7 +141,7 @@ export function TicketPaste({
         id="kleio-ticket"
         className="modal-input kleio-ticket"
         rows={3}
-        placeholder='{"v":4,"type":"kleio-pair",…}'
+        placeholder='{"v":5,"type":"kleio-pair",…}'
         value={text}
         onChange={(e) => setText(e.target.value)}
         autoCapitalize="off"

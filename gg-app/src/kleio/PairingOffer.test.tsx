@@ -148,7 +148,7 @@ describe("offerShown", () => {
   });
 
   it("never draws a ticket a device wouldn't take as a link ticket", () => {
-    const tooLong = JSON.stringify({ v: 4, type: "kleio-pair", name: "x".repeat(600) });
+    const tooLong = JSON.stringify({ v: 5, type: "kleio-pair", name: "x".repeat(600) });
     for (const ticket of ["not a ticket", v2Ticket(TAILNET, "ABC-DEF"), tooLong]) {
       expect(offerShown(offer({ ticket }), null)).toEqual({
         kind: "code",

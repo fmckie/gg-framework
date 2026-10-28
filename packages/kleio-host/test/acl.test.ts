@@ -412,18 +412,22 @@ describe("ensureSecure and lockSecrets (fake lock)", () => {
       [p.masterKey, "file", true],
       [p.controlRootKey, "file", true],
       [p.linkKey, "file", true],
+      [p.linkPairKey, "file", true],
       [p.linkUpstreamToken, "file", true],
     ]);
     for (const dir of [p.rings, p.work, p.logs]) expect(statSync(dir).isDirectory()).toBe(true);
     expect(readFileSync(p.linkKey)).toHaveLength(32);
+    expect(readFileSync(p.linkPairKey)).toHaveLength(32);
+    expect(readFileSync(p.linkPairKey).equals(readFileSync(p.linkKey))).toBe(false);
     expect(readFileSync(p.linkUpstreamToken, "utf8")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     // Run again, it keeps the keys it made.
-    const kept = [p.masterKey, p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f));
+    const files = [p.masterKey, p.linkKey, p.linkPairKey, p.linkUpstreamToken];
+    const kept = files.map((f) => readFileSync(f));
     expect(await ensureSecure(p, lock)).toEqual(ok(undefined));
-    expect([p.masterKey, p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f))).toEqual(kept);
+    expect(files.map((f) => readFileSync(f))).toEqual(kept);
   });
 
-  it("ensureLinkSecrets adds the link's two secrets to a host set up before the link, once", async () => {
+  it("ensureLinkSecrets adds the link's three secrets to a host set up before the link, once", async () => {
     const p = hostPaths(join(home, "host"));
     mkdirSync(p.secureDir, { recursive: true });
     writeFileSync(p.masterKey, "master");
@@ -431,17 +435,37 @@ describe("ensureSecure and lockSecrets (fake lock)", () => {
     expect(await ensureLinkSecrets(p, lock)).toEqual(ok(undefined));
     expect(seen).toEqual([
       [p.linkKey, "file"],
+      [p.linkPairKey, "file"],
       [p.linkUpstreamToken, "file"],
     ]);
+    const files = [p.linkKey, p.linkPairKey, p.linkUpstreamToken];
     if (process.platform !== "win32") {
-      for (const f of [p.linkKey, p.linkUpstreamToken]) {
+      for (const f of files) {
         expect(statSync(f).mode & 0o777).toBe(0o600);
       }
     }
-    const kept = [p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f));
+    const kept = files.map((f) => readFileSync(f));
     expect(await ensureLinkSecrets(p, lock)).toEqual(ok(undefined));
-    expect([p.linkKey, p.linkUpstreamToken].map((f) => readFileSync(f))).toEqual(kept);
+    expect(files.map((f) => readFileSync(f))).toEqual(kept);
     expect(readFileSync(p.masterKey, "utf8")).toBe("master");
+  });
+
+  it("ensureLinkSecrets adds the pairing key to a host whose link came before it, keeping link.key", async () => {
+    const p = hostPaths(join(home, "host"));
+    mkdirSync(p.secureDir, { recursive: true });
+    const linkKey = Buffer.alloc(32, 7);
+    writeFileSync(p.linkKey, linkKey, { mode: 0o600 });
+    writeFileSync(p.linkUpstreamToken, "t".repeat(43), { mode: 0o600 });
+    const { lock, seen } = recordingLock();
+    expect(await ensureLinkSecrets(p, lock)).toEqual(ok(undefined));
+    expect(seen.map(([f]) => f)).toContain(p.linkPairKey);
+    expect(readFileSync(p.linkKey)).toEqual(linkKey);
+    expect(readFileSync(p.linkUpstreamToken, "utf8")).toBe("t".repeat(43));
+    expect(readFileSync(p.linkPairKey)).toHaveLength(32);
+    expect(readFileSync(p.linkPairKey).equals(linkKey)).toBe(false);
+    if (process.platform !== "win32") {
+      expect(statSync(p.linkPairKey).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("ensureLinkSecrets stops at the first secret it can't lock", async () => {
@@ -457,7 +481,13 @@ describe("ensureSecure and lockSecrets (fake lock)", () => {
     const p = hostPaths(join(home, "host"));
     const r = await ensureSecure(p, recordingLock(() => true).lock);
     expect(r.ok ? null : r.error.path).toBe(p.secureDir);
-    for (const key of [p.masterKey, p.controlRootKey, p.linkKey, p.linkUpstreamToken]) {
+    for (const key of [
+      p.masterKey,
+      p.controlRootKey,
+      p.linkKey,
+      p.linkPairKey,
+      p.linkUpstreamToken,
+    ]) {
       expect(existsSync(key)).toBe(false);
     }
   });

@@ -22,18 +22,20 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
 
 ## How it connects
 
-- The app dials the host by its public key. The key, the host's relays and its direct addresses
-  come from the pairing QR code, and later from `GET /kleio/link`.
+- The app dials the host by its public key. The key and the host's relays come from the pairing QR
+  code. The host's direct addresses come only once an admin has allowed the device, from
+  `GET /kleio/link`, which also keeps the relays up to date.
 - **There's no address lookup.** Nothing asks n0's DNS (`dns.iroh.link`) or pkarr where the host
   is, and nothing asks the router to open a port (no UPnP, NAT-PMP or PCP). Both ends build from
   iroh's `presets::Minimal`, with lookup cleared and port mapping off (`src/endpoint.rs`).
 - Connections are QUIC: TLS 1.3 with raw public keys, end-to-end between the app's key and the
   host's. They start through a relay. Once iroh finds a direct UDP path, the packets go straight
   between the two.
-- Two protocols:
-  - `kleio/http/0`, HTTP to kleio-host: each connection the app's HTTP client makes to the
-    link's local end becomes one QUIC stream;
-  - `kleio/pair/0`, pairing: one redeem request per connection.
+- The host has two keys, each an endpoint of its own, both on the same relay:
+  - its **link key** takes `kleio/http/0`, HTTP to kleio-host: each connection the app's HTTP
+    client makes to the link's local end becomes one QUIC stream;
+  - its **pairing key** takes `kleio/pair/0`, pairing: one redeem request per connection. It's
+    reached through the relay alone.
 - kleio-link-host passes each stream to kleio-host's link listener on 127.0.0.1:8445. kleio-host
   still checks the device token on every request.
 - If kleio-host is stopped, each request gets a 502, `{"error":"kleio_down"}`, so the app can say
@@ -43,25 +45,28 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
 
 ### Who gets in
 
-- **The host's key** is 32 random bytes in `secure/link.key`, which kleio-host makes: 0600 in a
-  0700 folder, or locked to the host's user on Windows. kleio-link-host never makes one. It won't
-  start if the key or the upstream secret is missing, or if anyone else can read or write it or
-  its folder.
+- **The host's keys** are 32 random bytes each: the link key in `secure/link.key`, and the
+  pairing key in `secure/link-pair.key`. kleio-host makes them: 0600 in a 0700 folder, or locked
+  to the host's user on Windows. kleio-link-host never makes one. It won't start if a key or the
+  upstream secret is missing, if the two keys are the same, or if anyone else can read or write
+  them or their folder.
 - **`kleio/http/0` takes only keys on kleio-host's allow-list.** That's `secure/link-allow.json`,
   which kleio-host's device registry writes on every pairing and revoke. Before any stream is
   opened:
-  - a key that was never paired is closed with code 1, `NOT_PAIRED`;
+  - a key that was never paired is refused before its handshake when a relay brings it, and
+    closed with code 1, `NOT_PAIRED`, when it comes direct;
   - a revoked device's key is closed with code 5, `REVOKED`.
 - **Revoking takes about 2 s.** kleio-link-host checks the list every second, and closes any open
   connection whose key has left it.
-- **`kleio/pair/0` takes any key,** since a new phone isn't paired yet, but within a budget:
+- **`kleio/pair/0`, on the pairing key, takes any key,** since a new phone isn't paired yet, but
+  within a budget:
   - at most 10 pairings a minute, one at a time (code 2, `PAIR_BUSY`, otherwise);
   - at most 32 connections open at once that aren't known to be paired;
   - one redeem request per connection, passed to kleio-host's `POST /kleio/pair/redeem`.
 - **kleio-host binds each new device to the key it paired from.**
 - **The pairing code works as it always has:** single-use, for 5 minutes, with 5 wrong tries.
-  - It travels only inside the encrypted connection to the key the QR code names, so only that
-    host sees it.
+  - It travels only inside the encrypted connection to the pairing key the QR code names, so
+    only that host sees it.
   - The QR code never holds a token.
 - **A device pairs only once an admin allows it**
   ([ADR 0003](../../docs/adr/0003-link-pairing-needs-approval.md)), so a photo of a live QR code
@@ -73,6 +78,20 @@ Kleio app ──QUIC, end-to-end (iroh)──▶ a relay, or direct ──▶ kl
   - the app makes a new key for each pairing, so nobody can have one ready with a chosen code;
   - kleio-host still tells admins about each new pairing, with a push alert where push is set up
     and a notice in the app.
+- **A device learns none of the host's addresses until an admin allows it**
+  ([ADR 0004](../../docs/adr/0004-no-host-address-before-allow.md)). iroh gives a connection the
+  endpoint's direct addresses once its handshake is done, before the gate decides, so:
+  - the QR code (ticket v5) holds the host's name, its two keys, its relays and the code, and no
+    address;
+  - the pairing endpoint binds no socket, so it has no address to give, and pairing goes through
+    the relay alone;
+  - the link endpoint refuses a key it doesn't know before its handshake when a relay brings it.
+    A revoked key still gets its handshake, so it can be told it was removed;
+  - once allowed, the app connects to the link key through the relay, then goes direct when it
+    can;
+  - not covered: someone who already knows one of the host's addresses, from an older (v4) QR
+    code say, can dial it directly and see the others before the gate turns them away. So can a
+    revoked device, before it's told.
 - **The phone waits for the Allow, for up to 2 minutes.** kleio-host holds each request up to 5 s,
   inside the forwarder's 10 s, then answers `pending`. The phone asks again with the same request,
   on a new connection, after the `retryAfterMs` it's given (3 s). Each ask is one pairing in the
@@ -171,9 +190,9 @@ kleio-host keeps the relay list in `link/config.json`, in its state folder:
 
 ### Which relay the host is on
 
-The host is on exactly one relay at a time, pinned as its home relay. With no address lookup, a
-phone finds the host only on relays it knows. And a relay drops packets for a key that isn't
-connected to it.
+The host is on exactly one relay at a time, pinned as its home relay. Its two endpoints are both
+on it, and move together. With no address lookup, a phone finds the host only on relays it knows.
+And a relay drops packets for a key that isn't connected to it.
 
 - **It starts** on the first relay in the order that answers `GET /ping`. n0's entry counts as its
   relays, fastest first.
@@ -185,7 +204,8 @@ connected to it.
 - **`serve --relay <url>`** pins one relay for good, and the list isn't read.
 
 It writes where it is to `link/state.json`. kleio-host reads that for tickets, `GET /kleio/link`
-and `kleio-host status`.
+and `kleio-host status`. kleio-host makes a ticket only while the pairing endpoint is on a relay,
+and names that relay first.
 
 ### How the app dials
 
@@ -201,7 +221,8 @@ contacts n0's relays either.
 **After each new connection,** the app asks the host for `GET /kleio/link`: its relay list, its
 direct addresses, and whether a relay is rate-limiting it. The next dial uses them, and `link.json`
 keeps them for the next launch. It takes them only from the host it dialled, and only a list a
-pairing QR code could carry.
+pairing QR code could carry. A device that has just paired has no address of the host until then,
+so its first connection starts through the relay.
 
 **When a dial finds no host,** the link works out why:
 
@@ -327,13 +348,16 @@ devices' packets mean anything. To let in only your host and devices, list their
 
 ```toml
 access.allowlist = [
-  "<the host's key: kleio-link-host id>",
+  "<the host's link key: kleio-link-host id>",
+  "<the host's pairing key: pairKey in link/state.json>",
   "<each device's key: link-allow.json>",
 ]
 ```
 
-- The host's key is what `kleio-link-host id` prints. Each paired device's is in the state
-  folder's `secure/link-allow.json`, under `devices`, as `key`.
+- The host's link key is what `kleio-link-host id` prints. Its pairing key is `pairKey` in the
+  state folder's `link/state.json`: without it on the list, the host can't pair a device through
+  the relay. Each paired device's key is in the state folder's `secure/link-allow.json`, under
+  `devices`, as `key`.
 - The list doesn't reload: restart iroh-relay after changing it.
 - **A new device isn't on it yet when it pairs,** so it finds the host through the next relay in
   the list. Keep `n0` in the list, and add the new device's key after pairing.
@@ -350,11 +374,12 @@ They're in kleio-host's state folder, the same one for both programs:
 
 | File                         | Written by                                        | What it holds                                                                   |
 | ---------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `secure/link.key`            | kleio-host (`init`, and `serve` on an older host) | The host's secret key, 32 bytes.                                                |
+| `secure/link.key`            | kleio-host (`init`, and `serve` on an older host) | The host's link key, its secret half, 32 bytes.                                 |
+| `secure/link-pair.key`       | kleio-host, likewise                              | The host's pairing key, its secret half, 32 bytes.                              |
 | `secure/link-upstream.token` | kleio-host, likewise                              | The secret kleio-link-host opens each connection to the link listener with.     |
 | `secure/link-allow.json`     | kleio-host's device registry                      | Paired devices' keys, and revoked ones.                                         |
 | `link/config.json`           | kleio-host                                        | The relay list (above).                                                         |
-| `link/state.json`            | kleio-link-host                                   | Its key, relay, direct addresses, each relay's health, connections, last paths. |
+| `link/state.json`            | kleio-link-host                                   | Its keys and relays, direct addresses, each relay's health, connections, paths. |
 
 - kleio-link-host reads the allow-list and the secret again whenever they change.
 - It rewrites `link/state.json` on any change, and at least every 30 s. kleio-host takes a file
@@ -365,7 +390,7 @@ They're in kleio-host's state folder, the same one for both programs:
 ```sh
 kleio-link-host serve [--state-dir <dir>] [--upstream 127.0.0.1:8445] [--relay <url>]
 kleio-link-host qr [--color]             # the ticket on stdin as a terminal QR code
-kleio-link-host id [--state-dir <dir>]   # this host's public key
+kleio-link-host id [--state-dir <dir>]   # this host's link key, its public half
 kleio-link-host client --ticket <file> --listen 127.0.0.1:<port> [--pair]   # a test client
 kleio-link-host help                     # all of it, with the test options
 ```
@@ -492,8 +517,10 @@ cargo test --locked --features host --test end_to_end -- --ignored
 
 - **`tests/relayed.rs`** runs with relays in the test process and a stand-in for kleio-host, so it
   needs no network. It covers pairing (and a used, wrong or expired code), a phone stopped while
-  it waits for an Allow, telling a missing relay from a missing host, the codes a stranger and a
-  revoked device get, a revoke within 2 s, the 502, failover, and a relay's rate limit.
+  it waits for an Allow, telling a missing relay from a missing host, what a stranger and a
+  revoked device get, a revoke within 2 s, the 502, failover, and a relay's rate limit. Two of its
+  tests give the host loopback addresses, and check that neither a waiting phone nor a stranger
+  with a ticket learns one before the Allow.
 - **`tests/end_to_end.rs`** runs the real kleio-host and kleio-link-host, with a relay and a phone
   in the test process. An admin allows the phone through `POST /kleio/pair/decide`, by the device
   code it shows, and denies a second phone. CI runs it on Linux, macOS and Windows.

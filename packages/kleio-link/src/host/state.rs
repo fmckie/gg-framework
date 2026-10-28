@@ -3,13 +3,14 @@
 //!
 //! ```text
 //! secure/link.key             the host's secret key, 32 bytes, which kleio-host makes
+//! secure/link-pair.key        the pairing endpoint's secret key, 32 bytes, which kleio-host makes
 //! secure/link-upstream.token  the secret each connection to kleio-host's link listener opens with
 //! secure/link-allow.json      the paired keys, which kleio-host's device registry writes
 //! link/config.json            the relay list, kleio-host's
 //! link/state.json             where the link is, which this writes for kleio-host
 //! ```
 //!
-//! The two secrets must be this user's alone: a file anyone else can read or
+//! The three secrets must be this user's alone: a file anyone else can read or
 //! write, or in a folder anyone else can write, is refused, and so is one
 //! that's missing (kleio-host makes them when it starts). Where there are
 //! POSIX modes, that's 0600 files in a folder no one else can write. On
@@ -88,6 +89,10 @@ impl HostDir {
         self.home.join("secure").join("link.key")
     }
 
+    pub(crate) fn pair_key_path(&self) -> PathBuf {
+        self.home.join("secure").join("link-pair.key")
+    }
+
     pub(crate) fn token_path(&self) -> PathBuf {
         self.home.join("secure").join("link-upstream.token")
     }
@@ -112,15 +117,20 @@ impl HostDir {
     /// The host's secret key. kleio-host makes it; kleio-link-host never
     /// does, so the key in every ticket is the one kleio-host knows.
     pub fn secret_key(&self) -> Result<SecretKey, HostError> {
-        let path = self.key_path();
-        let bytes = read_secret(&path)?;
-        let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
-            HostError::new(format!(
-                "{}: not a key (a key is 32 bytes). kleio-host makes it; don't replace it, or every paired device must pair again.",
-                path.display()
-            ))
-        })?;
-        Ok(SecretKey::from_bytes(&bytes))
+        read_key(
+            &self.key_path(),
+            "kleio-host makes it; don't replace it, or every paired device must pair again.",
+        )
+    }
+
+    /// The pairing endpoint's secret key: the endpoint only `kleio/pair/0`
+    /// reaches, on a relay alone (docs/adr/0004-no-host-address-before-allow.md).
+    /// kleio-host makes it, as it does `link.key`.
+    pub fn pair_secret_key(&self) -> Result<SecretKey, HostError> {
+        read_key(
+            &self.pair_key_path(),
+            "kleio-host makes it: move it aside and start kleio-host to make a new one. Only the QR codes shown before then stop working.",
+        )
     }
 
     /// The secret each connection to kleio-host's link listener opens with.
@@ -154,6 +164,17 @@ impl HostDir {
         let path = self.state_path();
         write_atomically(&path, bytes).map_err(|err| file_error(&path, err))
     }
+}
+
+/// A secret key file's key, or why not, ending with `what_to_do`.
+fn read_key(path: &Path, what_to_do: &str) -> Result<SecretKey, HostError> {
+    let bytes: [u8; 32] = read_secret(path)?.try_into().map_err(|_| {
+        HostError::new(format!(
+            "{}: not a key (a key is 32 bytes). {what_to_do}",
+            path.display()
+        ))
+    })?;
+    Ok(SecretKey::from_bytes(&bytes))
 }
 
 /// What a token looks like, as kleio-host's `newUpstreamToken` makes one
@@ -754,6 +775,52 @@ mod tests {
         }
 
         #[test]
+        fn reads_the_pairing_key_kleio_host_made_as_it_reads_the_link_key() {
+            let tmp = TempDir::new("state-pair-key");
+            let dir = host_dir(&tmp);
+            put(&dir.key_path(), &[7; 32], 0o600);
+            let missing = dir.pair_secret_key().expect_err("no pairing key yet");
+            assert!(
+                missing.to_string().contains("link-pair.key: missing")
+                    && missing.to_string().contains("start kleio-host"),
+                "{missing}"
+            );
+            assert!(!dir.pair_key_path().exists());
+
+            put(&dir.pair_key_path(), &[8; 32], 0o600);
+            assert_eq!(
+                dir.pair_secret_key().expect("a key").public(),
+                SecretKey::from_bytes(&[8; 32]).public()
+            );
+            assert_eq!(
+                dir.secret_key().expect("a key").public(),
+                SecretKey::from_bytes(&[7; 32]).public()
+            );
+
+            put(&dir.pair_key_path(), &[8; 31], 0o600);
+            let short = dir.pair_secret_key().expect_err("31 bytes");
+            assert!(short.to_string().contains("not a key"), "{short}");
+            assert_eq!(fs::read(dir.pair_key_path()).expect("left alone"), [8; 31]);
+
+            for mode in [0o644, 0o604, 0o660] {
+                put(&dir.pair_key_path(), &[8; 32], mode);
+                let refused = dir.pair_secret_key().expect_err("refused");
+                assert!(
+                    refused.to_string().contains("other users"),
+                    "{mode:o}: {refused}"
+                );
+            }
+            put(&dir.pair_key_path(), &[8; 32], 0o600);
+            let secure = dir.path().join("secure");
+            fs::set_permissions(&secure, fs::Permissions::from_mode(0o770)).expect("set");
+            let refused = dir
+                .pair_secret_key()
+                .expect_err("a folder others can write");
+            assert!(refused.to_string().contains("this folder"), "{refused}");
+            fs::set_permissions(&secure, fs::Permissions::from_mode(0o700)).expect("set");
+        }
+
+        #[test]
         fn refuses_secrets_other_users_can_reach() {
             let tmp = TempDir::new("state-modes");
             let dir = host_dir(&tmp);
@@ -866,10 +933,16 @@ mod tests {
                 SecretKey::from_bytes(&[7; 32]).public()
             );
 
-            // A token made in the locked folder takes its one entry.
+            // A token and a pairing key made in the locked folder take its
+            // one entry.
             let token = "Sx3_".repeat(10) + "abc";
             fs::write(dir.token_path(), &token).expect("written");
             assert_eq!(dir.upstream_token().expect("a token"), token);
+            fs::write(dir.pair_key_path(), [8; 32]).expect("written");
+            assert_eq!(
+                dir.pair_secret_key().expect("a key").public(),
+                SecretKey::from_bytes(&[8; 32]).public()
+            );
         }
 
         #[test]

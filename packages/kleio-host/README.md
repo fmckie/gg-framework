@@ -57,9 +57,9 @@ otherwise it is the OS's own place:
 | Linux and the rest | `$XDG_STATE_HOME/kleio/host`; `~/.local/state/kleio/host` when that is unset or not absolute      |
 
 The secrets in it are `secure/` (the master key, control root key, `admin.token`, device registry,
-and the link's `link.key`, `link-upstream.token` and `link-allow.json`), the API key files beside
-it (`composio.key`, `typesafe.key`, `openai.key`) and `sidecar.json`. On macOS and Linux they are
-0700 and 0600. On Windows they are locked to the host's user instead (see
+and the link's `link.key`, `link-pair.key`, `link-upstream.token` and `link-allow.json`), the API
+key files beside it (`composio.key`, `typesafe.key`, `openai.key`) and `sidecar.json`. On macOS and
+Linux they are 0700 and 0600. On Windows they are locked to the host's user instead (see
 [Windows: secrets and stopping](#windows-secrets-and-stopping)). Two more sit beside them, and
 aren't secret:
 
@@ -87,10 +87,16 @@ security model, the relays, and what a relay sees.
   on the link.
 - **It keeps running while kleio-host restarts.** It reads the secret and the allow-list again
   when they change. While kleio-host is down, phones get a 502, `{"error":"kleio_down"}`.
-- **`init` makes the link's key and secret.** `serve` makes any that are missing on a host set up
-  before the link. kleio-link-host only reads them.
-- **It reports where it is** in `link/state.json`: its relay, its direct addresses, each relay's
-  health, and each device's last path. `kleio-host status`, `devices` and `pair` read it.
+- **`init` makes the link's two keys and its secret.** `link.key` is the key paired devices
+  connect to, and `link-pair.key` the key new devices pair with. `serve` makes any that are missing
+  on a host set up before them. kleio-link-host only reads them.
+- **No device learns the host's addresses before an admin allows it**
+  ([ADR 0004](../../docs/adr/0004-no-host-address-before-allow.md)). A device pairs with the
+  pairing key, which kleio-link-host keeps on its relay alone with no address, and the QR code
+  holds none.
+- **It reports where it is** in `link/state.json`: its relay and its pairing endpoint's, its
+  direct addresses, each relay's health, and each device's last path. `kleio-host status`,
+  `devices` and `pair` read it.
 
 ## Install on the mini
 
@@ -168,7 +174,8 @@ By hand, on the mini, and only when the state itself is damaged. Everything sinc
 goes: devices paired since must pair again, and **a device revoked since works again** until you
 revoke it again. Restoring `gg/` too also drops the chats and sign-ins since. A snapshot from
 before Kleio's link has no link key, so `serve` makes a new one, and every phone paired over the
-link must pair again.
+link must pair again. One from before the pairing key has no `link-pair.key`, so `serve` makes one
+too, but no paired phone uses it.
 
 ```sh
 # mini
@@ -349,13 +356,15 @@ kleio-host status          # health, and the link: running, its relay, its key's
 ssh mini 'zsh -lc "kleio-host devices"'   # from the laptop
 ```
 
-**The QR code** carries the pairing ticket. That's the host's name, its link key, its relays (the
-one it's on first), up to two direct addresses, and the code, but never a token.
+**The QR code** carries the pairing ticket (v5). That's the host's name, its link key, its
+pairing key, its relays (the one it's on first) and the code. It never holds a token, or any of
+the host's addresses: a device learns those from `GET /kleio/link` once it's allowed.
 
 - `pair` draws it with `kleio-link-host qr`. kleio-host finds that in `bin/` beside `dist/`, or at
   `KLEIO_LINK_HOST_BIN`.
 - `pair` also prints the ticket as text, for "Paste pairing text" on a Mac.
-- While kleio-link-host is down or on no relay, there's no ticket, and `pair` says why.
+- While kleio-link-host is down, or its pairing endpoint is on no relay, there's no ticket, and
+  `pair` says why.
 - `POST /kleio/pair/offer` gives the same: `ticket`, or `null` with a `ticketError`.
 - An admin device shows them too, in Settings → Connection → **Pair a device** and in the ⌘⇧K
   pane's Devices tab. Without a ticket it says why, and a device paired by a tailnet address draws
@@ -368,6 +377,8 @@ isn't enough.
 - The device sends the code, then waits. It shows its **device code**: the first 6 hex characters
   of the key it pairs from, such as `3F9 AC2`. The app makes a new key for each pairing, so nobody
   can have one ready with a chosen code.
+- While it waits, it learns none of the host's addresses. None of the answers below carries one,
+  and the pairing key it talks to has none.
 - The admin is shown the device's name and its device code, and allows it only if the device shows
   the same:
   - `pair`, in a terminal, stays with its code and asks `Allow iPhone (device code 3F9 AC2)? [y/N]`.

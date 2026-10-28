@@ -3,26 +3,40 @@
 //! the phone's side as the app uses it. Pairing, how it fails and how the
 //! app stops a phone that waits for an Allow, the gate's
 //! close codes, revoking, the 502, failing over to the next relay, a
-//! relay's rate limit, and why a phone didn't reach its host.
+//! relay's rate limit, why a phone didn't reach its host, and that no device
+//! learns the host's addresses before an admin allows it.
 
 mod common;
 
+use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::{
-    closed_port, closed_with, get, http_answer, json_body, phone, relay_only, status_and_body,
-    stub_kleio_host, ticket, turned_away, until, watched_phone, within, write_allow, HostHome,
-    Request, TestRelay,
+    closed_port, closed_with, get, http_answer, json_body, loopback_direct, phone,
+    refused_before_handshake, relay_only, status_and_body, stub_kleio_host, ticket, turned_away,
+    until, watched_phone, within, write_allow, HostHome, Request, TestRelay,
 };
-use kleio_link::close;
+use futures_util::StreamExt;
+use kleio_link::endpoint::bind_client;
 use kleio_link::host::{self, FAILOVER_AFTER};
-use kleio_link::iroh::{RelayUrl, SecretKey, Watcher};
+use kleio_link::iroh::endpoint::{
+    ConnectError, ConnectingError, Connection, ConnectionError, PathEvent, TransportErrorCode,
+    VarInt,
+};
+use kleio_link::iroh::{
+    Endpoint, EndpointAddr, EndpointId, RelayUrl, SecretKey, TransportAddr, Watcher,
+};
 use kleio_link::link::{LinkError, Route, Unreached};
-use kleio_link::pair::{pair, pair_until, PairError, PairStage, Refusal};
+use kleio_link::pair::{
+    pair, pair_until, PairError, PairRequest, PairStage, Refusal, MAX_PAIR_ANSWER_BYTES,
+};
 use kleio_link::probe::HttpsProbe;
-use serde_json::json;
+use kleio_link::{close, ALPN_HTTP, ALPN_PAIR};
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 /// kleio-host's answer to a code that pairs.
 const PAIRED: &str = r#"{"ok":true,"payload":{"host":"Test host","token":"t0k3n","label":"Test iPhone","deviceId":"d1"}}"#;
@@ -53,10 +67,9 @@ async fn pairs_through_a_relay_then_forwards_the_phones_requests() {
         let (upstream, mut requests) = stub_kleio_host(kleio_host(home.allow_path())).await;
         let options = relay_only(&[&relay]);
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
+        home.on_relay(&relay.url).await;
 
-        let ticket = ticket(home.id(), &[&relay.url], "ABC-DEF");
+        let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF");
         let key = SecretKey::generate();
         let stages = Arc::new(Mutex::new(Vec::new()));
         let told = Arc::clone(&stages);
@@ -122,8 +135,7 @@ async fn refuses_a_used_wrong_or_expired_code_and_lets_no_key_in() {
         .await;
         let options = relay_only(&[&relay]);
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
+        home.on_relay(&relay.url).await;
         let probe = HttpsProbe::new(&options.trust).expect("a probe");
 
         for (code, refusal) in [
@@ -132,7 +144,7 @@ async fn refuses_a_used_wrong_or_expired_code_and_lets_no_key_in() {
             ("CCC-333", Refusal::Expired),
         ] {
             let key = SecretKey::generate();
-            let ticket = ticket(home.id(), &[&relay.url], code);
+            let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], code);
             let outcome = pair(
                 key.clone(),
                 &ticket,
@@ -145,9 +157,10 @@ async fn refuses_a_used_wrong_or_expired_code_and_lets_no_key_in() {
             assert_eq!(outcome, Err(PairError::Refused(refusal)), "{code}");
             requests.recv().await.expect("the redeem request");
 
-            // The key it tried with gets no further than the gate.
+            // The key it tried with isn't paired: refused before its
+            // handshake, as it comes through the relay.
             let link = phone(key, Route::from_ticket(&ticket), &options).await;
-            assert_eq!(turned_away(&link).await, LinkError::NotPaired);
+            refused_before_handshake(&link).await;
         }
         assert!(
             requests.try_recv().is_err(),
@@ -171,13 +184,12 @@ async fn a_phone_told_to_stop_while_it_waits_asks_no_more() {
         .await;
         let options = relay_only(&[&relay]);
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
+        home.on_relay(&relay.url).await;
         let probe = HttpsProbe::new(&options.trust).expect("a probe");
 
         // Cancel, as the waiting screen has it, once the phone waits.
         let key = SecretKey::generate();
-        let ticket = ticket(home.id(), &[&relay.url], "ABC-DEF");
+        let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF");
         let (told, mut stages) = mpsc::unbounded_channel();
         let cancel = async move {
             while let Some(stage) = stages.recv().await {
@@ -208,7 +220,7 @@ async fn a_phone_told_to_stop_while_it_waits_asks_no_more() {
             "the phone asked again after it stopped"
         );
         let link = phone(key, Route::from_ticket(&ticket), &options).await;
-        assert_eq!(turned_away(&link).await, LinkError::NotPaired);
+        refused_before_handshake(&link).await;
     })
     .await;
 }
@@ -220,11 +232,12 @@ async fn says_whether_the_relay_or_the_host_is_missing() {
         let options = relay_only(&[&relay]);
         let probe = HttpsProbe::new(&options.trust).expect("a probe");
         let no_host = SecretKey::generate().public();
+        let no_pairing = SecretKey::generate().public();
 
         // A relay that isn't there: nothing answers at its address.
         let gone = closed_port().await;
         let nowhere = format!("https://{gone}/").parse().expect("a relay address");
-        let ticket_nowhere = ticket(no_host, &[&nowhere], "ABC-DEF");
+        let ticket_nowhere = ticket(no_host, no_pairing, &[&nowhere], "ABC-DEF");
         let started = Instant::now();
         let outcome = pair(
             SecretKey::generate(),
@@ -245,8 +258,8 @@ async fn says_whether_the_relay_or_the_host_is_missing() {
             started.elapsed()
         );
 
-        // The relay is there, and no host with the ticket's key is on it.
-        let ticket_no_host = ticket(no_host, &[&relay.url], "ABC-DEF");
+        // The relay is there, and no host with the ticket's keys is on it.
+        let ticket_no_host = ticket(no_host, no_pairing, &[&relay.url], "ABC-DEF");
         let outcome = pair(
             SecretKey::generate(),
             &ticket_no_host,
@@ -277,17 +290,16 @@ async fn tells_a_stranger_and_a_revoked_device_apart_and_revokes_within_2_s() {
         );
         home.allow(&[paired.public(), other.public()], &[revoked.public()]);
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
-        let route = || Route::from_ticket(&ticket(home.id(), &[&relay.url], "ABC-DEF"));
+        home.on_relay(&relay.url).await;
+        let route =
+            || Route::from_ticket(&ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF"));
 
-        for (key, refusal) in [
-            (stranger, LinkError::NotPaired),
-            (revoked, LinkError::Revoked),
-        ] {
-            let link = phone(key, route(), &options).await;
-            assert_eq!(turned_away(&link).await, refusal);
-        }
+        // A key the host doesn't know is refused before its handshake, as it
+        // comes through the relay; a revoked one is told so after it.
+        let link = phone(stranger, route(), &options).await;
+        refused_before_handshake(&link).await;
+        let link = phone(revoked, route(), &options).await;
+        assert_eq!(turned_away(&link).await, LinkError::Revoked);
         assert!(requests.try_recv().is_err(), "nothing reached kleio-host");
 
         // A paired phone with a connection open, and another device.
@@ -336,12 +348,11 @@ async fn answers_502_through_the_relay_when_kleio_host_is_down() {
         tokio::spawn(host::serve(
             home.config(closed_port().await, options.clone()),
         ));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
+        home.on_relay(&relay.url).await;
 
         let link = phone(
             key,
-            Route::from_ticket(&ticket(home.id(), &[&relay.url], "ABC-DEF")),
+            Route::from_ticket(&ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF")),
             &options,
         )
         .await;
@@ -371,7 +382,12 @@ async fn fails_over_to_the_next_relay_where_the_phone_finds_it() {
         assert_eq!(state["relays"][1]["state"], "standby");
 
         // The phone knows the host's list, and that it was on the first.
-        let route = Route::from_ticket(&ticket(home.id(), &[&first.url, &second.url], "ABC-DEF"));
+        let route = Route::from_ticket(&ticket(
+            home.id(),
+            home.pair_id(),
+            &[&first.url, &second.url],
+            "ABC-DEF",
+        ));
         let link = phone(key, route, &options).await;
         get(&link, "/kleio/health", None).await.expect("an answer");
 
@@ -428,7 +444,7 @@ async fn says_when_the_relay_is_rate_limiting_the_host() {
         // A download the relay slows: the host is told, and says so.
         let link = phone(
             key,
-            Route::from_ticket(&ticket(home.id(), &[&relay.url], "ABC-DEF")),
+            Route::from_ticket(&ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF")),
             &options,
         )
         .await;
@@ -451,11 +467,10 @@ async fn says_when_the_relay_is_rate_limiting_this_device() {
         let key = SecretKey::generate();
         home.allow(&[key.public()], &[]);
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
-        home.state_when(|state| state["relay"] == relay.url.as_str())
-            .await;
+        home.on_relay(&relay.url).await;
         let link = watched_phone(
             key,
-            Route::from_ticket(&ticket(home.id(), &[&relay.url], "ABC-DEF")),
+            Route::from_ticket(&ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF")),
             &options,
         )
         .await;
@@ -480,9 +495,10 @@ async fn says_whether_the_host_or_the_relay_wasnt_there() {
         let relay = TestRelay::start().await;
         let options = relay_only(&[&relay]);
         let no_host = SecretKey::generate().public();
+        let no_pairing = SecretKey::generate().public();
 
         // The relay answers; no host with the key is on it.
-        let route = Route::from_ticket(&ticket(no_host, &[&relay.url], "ABC-DEF"));
+        let route = Route::from_ticket(&ticket(no_host, no_pairing, &[&relay.url], "ABC-DEF"));
         let link = watched_phone(SecretKey::generate(), route, &options).await;
         assert_eq!(link.unreached(), None, "nothing dialled yet");
         assert!(link.connection().await.is_err(), "no host answers");
@@ -493,7 +509,7 @@ async fn says_whether_the_host_or_the_relay_wasnt_there() {
         // relays are asked, and none answers.
         let gone = closed_port().await;
         let nowhere: RelayUrl = format!("https://{gone}/").parse().expect("a relay address");
-        let route = Route::from_ticket(&ticket(no_host, &[&nowhere], "ABC-DEF"));
+        let route = Route::from_ticket(&ticket(no_host, no_pairing, &[&nowhere], "ABC-DEF"));
         let link = watched_phone(SecretKey::generate(), route, &options).await;
         assert!(link.connection().await.is_err(), "no relay answers");
         let why = until(|| link.unreached()).await;
@@ -503,6 +519,263 @@ async fn says_whether_the_host_or_the_relay_wasnt_there() {
                 tried: vec![nowhere]
             }
         );
+    })
+    .await;
+}
+
+/// How long a phone here keeps a pairing connection open once it has its
+/// answer: time for a host to tell it its addresses, and for the phone to
+/// try them.
+const HOLD: Duration = Duration::from_secs(3);
+
+/// kleio-host's answer while no admin has allowed the device.
+const PENDING: &str =
+    r#"{"ok":false,"error":"pending","retryAfterMs":250,"expiresAt":1700000300000}"#;
+
+/// The redeem body the app sends, with `code`.
+fn redeem_request(code: &str) -> Vec<u8> {
+    serde_json::to_vec(&PairRequest {
+        code: code.replace('-', ""),
+        redemption_nonce: "00112233445566778899aabbccddeeff".into(),
+        label: "Test iPhone".into(),
+        waits: true,
+    })
+    .expect("a redeem body")
+}
+
+/// What a phone got from one pairing ask.
+struct Asked {
+    /// kleio-host's answer.
+    answer: Value,
+    /// The remote address of each path the connection had.
+    paths: Vec<TransportAddr>,
+    /// The IP addresses the phone's endpoint knew for the host's keys at the
+    /// end of the hold.
+    known: Vec<SocketAddr>,
+}
+
+impl Asked {
+    /// Whether the phone learnt none of the host's IP addresses.
+    fn learnt_no_address(&self) -> bool {
+        self.known.is_empty()
+            && !self
+                .paths
+                .iter()
+                .any(|addr| matches!(addr, TransportAddr::Ip(_)))
+    }
+}
+
+/// One pairing ask from `phone` to `host` through `relay` only, as the app
+/// makes it: `body` on one stream and the answer to its end, then the
+/// connection held for [`HOLD`] before the phone closes it. `keys` are the
+/// host's keys the phone's endpoint is asked about then.
+async fn ask_holding(
+    phone: &Endpoint,
+    host: EndpointId,
+    relay: &RelayUrl,
+    body: &[u8],
+    keys: &[EndpointId],
+) -> Asked {
+    let addr = EndpointAddr::from(host).with_relay_url(relay.clone());
+    let conn = phone
+        .connect(addr, ALPN_PAIR)
+        .await
+        .expect("the host answers");
+    let paths = watch_paths(&conn);
+    let (mut send, mut recv) = conn.open_bi().await.expect("a stream");
+    send.write_all(body).await.expect("sent");
+    send.finish().expect("finished");
+    let answer = recv
+        .read_to_end(MAX_PAIR_ANSWER_BYTES)
+        .await
+        .expect("the answer");
+    tokio::time::sleep(HOLD).await;
+    let mut known = Vec::new();
+    for key in keys {
+        known.extend(known_ips(phone, *key).await);
+    }
+    conn.close(VarInt::from_u32(close::DONE), b"done");
+    Asked {
+        answer: serde_json::from_slice(&answer).expect("a JSON answer"),
+        paths: paths.await.expect("watched"),
+        known,
+    }
+}
+
+/// The remote address of each path `conn` has, from now until it closes.
+fn watch_paths(conn: &Connection) -> JoinHandle<Vec<TransportAddr>> {
+    let mut seen: Vec<TransportAddr> = conn
+        .paths()
+        .iter()
+        .map(|path| path.remote_addr().clone())
+        .collect();
+    let events = conn.path_events();
+    let closed = conn.weak_handle().closed();
+    tokio::spawn(async move {
+        tokio::pin!(closed, events);
+        loop {
+            tokio::select! {
+                _ = &mut closed => return seen,
+                event = events.next() => match event {
+                    Some(
+                        PathEvent::Opened { remote_addr, .. }
+                        | PathEvent::Selected { remote_addr, .. },
+                    ) => seen.push(remote_addr),
+                    // A path it missed could have been direct.
+                    Some(PathEvent::Lagged { .. }) => panic!("missed path events"),
+                    Some(_) => {}
+                    None => return seen,
+                },
+            }
+        }
+    })
+}
+
+/// Whether `err` is the host refusing the connection before its handshake:
+/// QUIC's CONNECTION_REFUSED, with no close code of the host's.
+fn refused_outright(err: &ConnectError) -> bool {
+    let reason = match err {
+        ConnectError::Connection { source, .. }
+        | ConnectError::Connecting {
+            source: ConnectingError::ConnectionError { source, .. },
+            ..
+        } => source,
+        _ => return false,
+    };
+    matches!(
+        reason,
+        ConnectionError::ConnectionClosed(close)
+            if close.error_code == TransportErrorCode::CONNECTION_REFUSED
+    )
+}
+
+/// The IP addresses `phone`'s endpoint knows for `key`.
+async fn known_ips(phone: &Endpoint, key: EndpointId) -> Vec<SocketAddr> {
+    let Some(info) = phone.remote_info(key).await else {
+        return Vec::new();
+    };
+    info.addrs()
+        .filter_map(|known| match known.addr() {
+            TransportAddr::Ip(addr) => Some(*addr),
+            _ => None,
+        })
+        .collect()
+}
+
+/// BP-002: a phone that waits for an admin's Allow, asking again and again,
+/// learns none of the host's addresses, though the host has some, and gives
+/// them once the phone is allowed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_waiting_phone_learns_no_address_of_the_host_till_its_allowed() {
+    within(Duration::from_secs(90), async {
+        let relay = TestRelay::start().await;
+        let home = HostHome::new("waiting-no-address");
+        home.relays(&[&relay.url]);
+        // kleio-host: `pending` twice, then an admin allows the phone.
+        let allow = home.allow_path();
+        let asks = AtomicUsize::new(0);
+        let (upstream, mut requests) = stub_kleio_host(move |request| {
+            if !request.line.starts_with("POST /kleio/pair/redeem ") {
+                return Some(http_answer("200 OK", HEALTH.as_bytes()));
+            }
+            if asks.fetch_add(1, Ordering::SeqCst) < 2 {
+                return Some(http_answer("202 Accepted", PENDING.as_bytes()));
+            }
+            write_allow(&allow, &[request.device()], &[]);
+            Some(http_answer("200 OK", PAIRED.as_bytes()))
+        })
+        .await;
+        // Both ends go direct where they can, on loopback.
+        let options = loopback_direct(&[&relay]);
+        tokio::spawn(host::serve(home.config(upstream, options.clone())));
+        home.on_relay(&relay.url).await;
+        let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF");
+        let keys = [ticket.key(), ticket.pair_key()];
+
+        let key = SecretKey::generate();
+        let relays = std::slice::from_ref(ticket.relay());
+        let waiting = bind_client(key.clone(), relays, &options)
+            .await
+            .expect("the phone's endpoint binds");
+        let body = redeem_request(ticket.code());
+        for ask in 1..=3 {
+            let asked =
+                ask_holding(&waiting, ticket.pair_key(), ticket.relay(), &body, &keys).await;
+            requests.recv().await.expect("the redeem request");
+            assert_eq!(asked.answer["ok"], ask == 3, "ask {ask}: {}", asked.answer);
+            assert!(
+                asked.learnt_no_address(),
+                "ask {ask}: the phone learnt the host's addresses: paths {:?}, known {:?}",
+                asked.paths,
+                asked.known
+            );
+        }
+        waiting.close().await;
+
+        // Allowed, the phone goes direct: what the asks were checked for.
+        let link = phone(key, Route::from_ticket(&ticket), &options).await;
+        let answer = get(&link, "/kleio/health", Some("t0k3n"))
+            .await
+            .expect("an answer");
+        assert_eq!(status_and_body(&answer).0, 200);
+        until(|| link.path().filter(|path| path.direct)).await;
+    })
+    .await;
+}
+
+/// BP-002: a key the host doesn't know, with a ticket's keys and relay,
+/// learns none of the host's addresses: not with a wrong code on the
+/// pairing endpoint, nor by dialling the link endpoint, which refuses it
+/// before its handshake.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stranger_with_a_ticket_learns_no_address_of_the_host() {
+    within(Duration::from_secs(60), async {
+        let relay = TestRelay::start().await;
+        let home = HostHome::new("stranger-no-address");
+        home.relays(&[&relay.url]);
+        let (upstream, mut requests) = stub_kleio_host(|_| {
+            let body = br#"{"ok":false,"error":"unauthorized"}"#;
+            Some(http_answer("401 Unauthorized", body))
+        })
+        .await;
+        let options = loopback_direct(&[&relay]);
+        tokio::spawn(host::serve(home.config(upstream, options.clone())));
+        home.on_relay(&relay.url).await;
+        let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF");
+        let keys = [ticket.key(), ticket.pair_key()];
+        let relays = std::slice::from_ref(ticket.relay());
+        let stranger = bind_client(SecretKey::generate(), relays, &options)
+            .await
+            .expect("the stranger's endpoint binds");
+
+        // A wrong code on kleio/pair/0.
+        let body = redeem_request("XYZ-123");
+        let asked = ask_holding(&stranger, ticket.pair_key(), ticket.relay(), &body, &keys).await;
+        requests.recv().await.expect("the redeem request");
+        assert_eq!(asked.answer, json!({"ok": false, "error": "unauthorized"}));
+        assert!(
+            asked.learnt_no_address(),
+            "a wrong code learnt the host's addresses: paths {:?}, known {:?}",
+            asked.paths,
+            asked.known
+        );
+
+        // The link's key on kleio/http/0, through the relay.
+        let addr = EndpointAddr::from(ticket.key()).with_relay_url(ticket.relay().clone());
+        let err = stranger
+            .connect(addr, ALPN_HTTP)
+            .await
+            .expect_err("the link endpoint refuses a stranger");
+        assert!(refused_outright(&err), "{err}");
+        for key in keys {
+            let known = known_ips(&stranger, key).await;
+            assert!(known.is_empty(), "the stranger learnt {known:?}");
+        }
+        assert!(
+            requests.try_recv().is_err(),
+            "nothing more reached kleio-host"
+        );
+        stranger.close().await;
     })
     .await;
 }

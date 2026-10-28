@@ -143,7 +143,7 @@ describe("readTicket", () => {
   });
   const [first] = vectors.good;
   if (first === undefined) throw new Error("no ticket vectors");
-  const V4 = first.ticket;
+  const V5 = first.ticket;
 
   it("reads the v2 ticket pairTicket writes, to fill the pairing form", () => {
     const written = pairTicket(`${BASE}/`, "abc def");
@@ -154,8 +154,17 @@ describe("readTicket", () => {
     });
   });
 
-  it("sends a v4 ticket, whole and trimmed, to the link's confirm step", () => {
-    expect(readTicket(`  ${V4}\n`)).toEqual({ kind: "link", ticket: V4 });
+  it("sends a v5 ticket, whole and trimmed, to the link's confirm step", () => {
+    expect(readTicket(`  ${V5}\n`)).toEqual({ kind: "link", ticket: V5 });
+  });
+
+  it("sends a v4 ticket, a host not yet updated's, to the link too", () => {
+    for (const vector of vectors.v4) {
+      expect(readTicket(vector.ticket), vector.about).toEqual({
+        kind: "link",
+        ticket: vector.ticket,
+      });
+    }
   });
 
   it("sends every ticket kleio-host writes to the link (the shared vectors)", () => {
@@ -169,8 +178,8 @@ describe("readTicket", () => {
 
   it("sends a v3 or a newer ticket to the link too, which says what it is", () => {
     expect(readTicket(V3)).toEqual({ kind: "link", ticket: V3 });
-    const v5 = JSON.stringify({ ...JSON.parse(V4), v: 5 });
-    expect(readTicket(v5)).toEqual({ kind: "link", ticket: v5 });
+    const v6 = JSON.stringify({ ...JSON.parse(V5), v: 6 });
+    expect(readTicket(v6)).toEqual({ kind: "link", ticket: v6 });
   });
 
   it.each([
@@ -179,13 +188,13 @@ describe("readTicket", () => {
     ["a JSON string", JSON.stringify("kleio-pair")],
     ["a JSON array", JSON.stringify([2, "kleio-pair"])],
     ["another type", v2({ type: "wifi" })],
-    ["a link ticket of another type", JSON.stringify({ ...JSON.parse(V4), type: "wifi" })],
+    ["a link ticket of another type", JSON.stringify({ ...JSON.parse(V5), type: "wifi" })],
     ["a version before v2", v2({ v: 1 })],
     ["a version that isn't whole", v2({ v: 3.5 })],
     ["a version written as text", v2({ v: "3" })],
     [
       "a link ticket over 512 bytes",
-      JSON.stringify({ v: 4, type: "kleio-pair", pad: "x".repeat(500) }),
+      JSON.stringify({ v: 5, type: "kleio-pair", pad: "x".repeat(500) }),
     ],
   ])("refuses %s as no Kleio ticket, so nothing is filled", (_label, text) => {
     expect(readTicket(text)).toEqual({ kind: "invalid", error: NOT_A_TICKET });
@@ -194,7 +203,7 @@ describe("readTicket", () => {
   // A v2 ticket the pairing form can't use says it's Tailscale's, as Rust's
   // check does (TicketError::Tailscale).
   it.each([
-    ["a link ticket with its version changed to 2", JSON.stringify({ ...JSON.parse(V4), v: 2 })],
+    ["a link ticket with its version changed to 2", JSON.stringify({ ...JSON.parse(V5), v: 2 })],
     ["an extra field", v2({ token: "secret" })],
     ["a missing code", JSON.stringify({ v: 2, type: "kleio-pair", baseUrl: BASE })],
     ["a code outside the pair alphabet", v2({ code: "ABI-DEF" })],

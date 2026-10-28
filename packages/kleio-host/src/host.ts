@@ -773,7 +773,8 @@ export function createHost(options: HostOptions): Host {
       log(`[link] the relay list: ${config.error}`);
       return null;
     }
-    const read = await readLinkState(options.link.dir, options.link.publicKey, now());
+    const { dir, publicKey, pairKey } = options.link;
+    const read = await readLinkState(dir, publicKey, pairKey, now());
     return { ...relayListStatus(config.value, read, registry.list(), now(), admin) };
   }
 

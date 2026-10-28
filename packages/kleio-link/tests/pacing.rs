@@ -57,8 +57,8 @@ async fn a_request_alongside_a_big_answer_through_a_rate_limited_relay_takes_und
         tokio::spawn(host::serve(home.config(upstream, options.clone())));
         home.state_when(|state| state["relay"] == relay.url.as_str())
             .await;
-        let route = Route::from_ticket(&ticket(home.id(), &[&relay.url], "ABC-DEF"));
-        let link = phone(key, route, &options).await;
+        let ticket = ticket(home.id(), home.pair_id(), &[&relay.url], "ABC-DEF");
+        let link = phone(key, Route::from_ticket(&ticket), &options).await;
         get(&link, "/kleio/health", None).await.expect("an answer");
 
         // A request each second while the answer comes.

@@ -8,11 +8,13 @@ import {
   newLinkKey,
   newUpstreamToken,
   readLinkPublicKey,
+  readPairPublicKey,
 } from "../src/link-secrets.js";
 
 // Ed25519 secret keys and their public halves: RFC 8032 section 7.1's tests 1
-// and 2, and the key the link crate's ticket tests use
-// (SecretKey::from_bytes(&[7; 32]) in iroh 1.4.1, read from kleio-link-host).
+// and 2, and the two keys the link crate's ticket tests use, the host's and
+// its pairing endpoint's (SecretKey::from_bytes(&[7; 32]) and &[8; 32] in
+// iroh 1.4.1, read from kleio-link-host).
 const VECTORS: readonly (readonly [Buffer, string])[] = [
   [
     Buffer.from("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "hex"),
@@ -23,6 +25,7 @@ const VECTORS: readonly (readonly [Buffer, string])[] = [
     "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
   ],
   [Buffer.alloc(32, 7), "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c"],
+  [Buffer.alloc(32, 8), "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca"],
 ];
 
 let dir: string;
@@ -76,5 +79,23 @@ describe("readLinkPublicKey", () => {
     writeFileSync(path, "not a key\n");
     const damaged = await readLinkPublicKey(path);
     expect(damaged.ok ? null : damaged.error).toMatch(/isn't a link key .*pair again/);
+  });
+});
+
+describe("readPairPublicKey", () => {
+  it("reads link-pair.key's public half", async () => {
+    const path = join(dir, "link-pair.key");
+    writeFileSync(path, VECTORS[3]![0]);
+    expect(await readPairPublicKey(path)).toEqual({ ok: true, value: VECTORS[3]![1] });
+  });
+
+  it("says why when the file is missing or isn't a key, and leaves it alone", async () => {
+    const missing = await readPairPublicKey(join(dir, "none.key"));
+    expect(missing.ok ? null : missing.error).toMatch(/can't be read \(ENOENT\).*serve makes it/);
+
+    const path = join(dir, "link-pair.key");
+    writeFileSync(path, "not a key\n");
+    const damaged = await readPairPublicKey(path);
+    expect(damaged.ok ? null : damaged.error).toMatch(/isn't a pairing key .*QR codes/);
   });
 });

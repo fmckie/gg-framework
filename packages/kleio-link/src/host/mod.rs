@@ -1,10 +1,18 @@
 //! The host's side, feature `host`: `kleio-link-host serve`, the forwarder
 //! that runs next to kleio-host (docs/adr/0002-kleio-link-replaces-tailscale.md).
 //!
-//! - The gate, an `after_handshake` hook, decides who gets in before any
-//!   stream: `kleio/http/0` only from keys on kleio-host's allow-list (a
+//! - Two endpoints, on the same relay. The link endpoint (`secure/link.key`)
+//!   takes `kleio/http/0` only, and goes direct once it can. The pairing
+//!   endpoint (`secure/link-pair.key`) takes `kleio/pair/0` only, through the
+//!   relay alone: it binds no socket and has no address, so a device that
+//!   isn't allowed yet learns none of the host's addresses
+//!   (docs/adr/0004-no-host-address-before-allow.md).
+//! - The gate, an `after_handshake` hook on both, decides who gets in before
+//!   any stream: `kleio/http/0` only from keys on kleio-host's allow-list (a
 //!   revoked device's key is told so), `kleio/pair/0` from any key, and
-//!   nothing else.
+//!   nothing else. iroh gives a connection the endpoint's addresses before
+//!   the gate runs, so the link endpoint refuses a key it doesn't know before
+//!   its handshake when a relay brings it, which names the key.
 //! - Each stream of an allowed `kleio/http/0` connection is copied both ways
 //!   to kleio-host's link listener, which the connection's first line tells
 //!   whose bytes they are (upstream.rs). When kleio-host doesn't take the
@@ -42,17 +50,17 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iroh::endpoint::{Builder, Incoming, QuicTransportConfig, VarInt};
+use iroh::endpoint::{Builder, Incoming, IncomingAddr, QuicTransportConfig, VarInt};
 use iroh::{Endpoint, RelayMap, RelayMode, RelayUrl, SecretKey, Watcher};
 use noq_proto::congestion::Bbr3Config;
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
-use crate::endpoint::{builder, EndpointOptions};
+use crate::endpoint::{builder, EndpointOptions, Mode};
 use crate::probe::HttpsProbe;
 use crate::{close, error_chain, paths, ALPN_HTTP, ALPN_PAIR};
 use budget::PairBudget;
-use gate::{AllowList, Gate};
+use gate::{AllowList, Gate, Standing};
 use open::OpenLinks;
 use relays::{Pinner, RelayBoard};
 pub use relays::{FAILBACK_AFTER, FAILOVER_AFTER};
@@ -61,8 +69,9 @@ pub use state::{save_private_json, HostDir};
 use upstream::Upstream;
 pub use upstream::DEFAULT_UPSTREAM;
 
-/// The most connections not yet known to be paired, open at once: those in
-/// their handshake, and pairings. One more is refused before its handshake.
+/// The most connections not yet known to be paired, open at once on the two
+/// endpoints: those in their handshake, and pairings. One more is refused
+/// before its handshake.
 pub const MAX_UNPAIRED: usize = 32;
 
 /// What `serve` forwards to, from where, and through which relay.
@@ -103,7 +112,7 @@ fn file_error(path: &Path, err: io::Error) -> HostError {
     HostError::new(format!("{}: {err}", path.display()))
 }
 
-/// Runs the forwarder until its endpoint closes.
+/// Runs the forwarder until either of its endpoints closes.
 pub async fn serve(config: Config) -> Result<(), HostError> {
     if !config.upstream.ip().is_loopback() {
         return Err(HostError::new(format!(
@@ -113,6 +122,15 @@ pub async fn serve(config: Config) -> Result<(), HostError> {
     }
     let dir = HostDir::new(&config.home);
     let secret_key = dir.secret_key()?;
+    let pair_key = dir.pair_secret_key()?;
+    if pair_key.public() == secret_key.public() {
+        // The relay would keep only one of two connections with one key.
+        return Err(HostError::new(format!(
+            "{} is the key in {}; the pairing endpoint needs one of its own. Move it aside and start kleio-host to make a new one.",
+            dir.pair_key_path().display(),
+            dir.key_path().display()
+        )));
+    }
     let upstream = Arc::new(Upstream::new(config.upstream, dir.upstream_token()?));
     let allow = Arc::new(AllowList::load(dir.allow_path())?);
     dir.make_link_dir()?;
@@ -127,37 +145,54 @@ pub async fn serve(config: Config) -> Result<(), HostError> {
             Some((list, probe, pinning))
         }
     };
-    let relay_mode = match (&config.relay, &pinner) {
+    // A map of its own for each endpoint: a RelayMap's clones share one.
+    let relay_mode = || match (&config.relay, &pinner) {
         (Some(relay), _) => RelayMode::custom([relay.clone()]),
         (None, Some((_, _, pinning))) => {
             RelayMode::Custom(RelayMap::from(pinning.current().clone()))
         }
         (None, None) => unreachable!("without --relay there's a pinning"),
     };
-    let endpoint = host_builder(secret_key, relay_mode, &config.options, Arc::clone(&allow))
+    let failed = |which: &str, err: iroh::endpoint::BindError| {
+        HostError::new(format!(
+            "Can't start the {which} endpoint: {}",
+            error_chain(&err)
+        ))
+    };
+    let endpoint = host_builder(
+        secret_key,
+        relay_mode(),
+        &config.options,
+        Arc::clone(&allow),
+    )
+    .bind()
+    .await
+    .map_err(|err| failed("link", err))?;
+    let pairing = pair_builder(pair_key, relay_mode(), &config.options, Arc::clone(&allow))
         .bind()
         .await
-        .map_err(|err| {
-            HostError::new(format!("Can't start the endpoint: {}", error_chain(&err)))
-        })?;
+        .map_err(|err| failed("pairing", err))?;
     info!(
-        "serving as {}, for kleio-host at {} from {}; {} keys on the allow-list",
+        "serving as {}, and pairing as {} through the relay alone, for kleio-host at {} from {}; {} keys on the allow-list",
         endpoint.id(),
+        pairing.id(),
         config.upstream,
         dir.path().display(),
         allow.len()
     );
     let open = OpenLinks::default();
-    tokio::spawn(watch_relay(endpoint.clone(), config.relay.is_some()));
     let pinned = pinner.is_none();
+    tokio::spawn(watch_relay(endpoint.clone(), Door::Link, pinned));
+    tokio::spawn(watch_relay(pairing.clone(), Door::Pairing, pinned));
     if let Some((list, probe, pinning)) = pinner {
         let path = dir.config_path();
-        let pinner = Pinner::new(endpoint.clone(), probe, pinning, board.clone(), path, list);
+        let endpoints = (endpoint.clone(), pairing.clone());
+        let pinner = Pinner::new(endpoints, probe, pinning, board.clone(), path, list);
         tokio::spawn(pinner.run());
     }
     tokio::spawn(
         Housekeeper::new(
-            endpoint.clone(),
+            (endpoint.clone(), pairing.clone()),
             dir,
             Arc::clone(&allow),
             Arc::clone(&upstream),
@@ -166,14 +201,27 @@ pub async fn serve(config: Config) -> Result<(), HostError> {
         .with_relays((!pinned).then_some(board))
         .run(),
     );
-    Server::new(upstream, allow, open, MAX_UNPAIRED)
-        .run(endpoint)
-        .await;
+    // One server for both, so they share the pairing budget and the cap on
+    // connections not yet known to be paired.
+    let server = Server::new(upstream, allow, open, MAX_UNPAIRED);
+    tokio::select! {
+        () = server.clone().run(endpoint, Door::Link) => {}
+        () = server.run(pairing, Door::Pairing) => {}
+    }
     Ok(())
 }
 
-/// The host's endpoint: the shared builder, with the two ALPNs, the gate
-/// and its congestion control ([`transport`]).
+/// Which of the host's two endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Door {
+    /// `link.key`'s: `kleio/http/0`, direct once it can.
+    Link,
+    /// `link-pair.key`'s: `kleio/pair/0`, through the relay alone.
+    Pairing,
+}
+
+/// The link endpoint: the shared builder, with `kleio/http/0`, the gate and
+/// its congestion control ([`transport`]).
 fn host_builder(
     secret_key: SecretKey,
     relay_mode: RelayMode,
@@ -181,7 +229,27 @@ fn host_builder(
     allow: Arc<AllowList>,
 ) -> Builder {
     builder(secret_key, relay_mode, options)
-        .alpns(vec![ALPN_HTTP.to_vec(), ALPN_PAIR.to_vec()])
+        .alpns(vec![ALPN_HTTP.to_vec()])
+        .hooks(Gate::new(allow))
+        .transport_config(transport())
+}
+
+/// The pairing endpoint: [`host_builder`]'s with `kleio/pair/0` instead and,
+/// whatever `options`' mode, no IP transports. So it binds no socket, finds
+/// no address of the host's and gives none out: a device reaches it through
+/// the relay alone.
+fn pair_builder(
+    secret_key: SecretKey,
+    relay_mode: RelayMode,
+    options: &EndpointOptions,
+    allow: Arc<AllowList>,
+) -> Builder {
+    let relay_only = EndpointOptions {
+        mode: Mode::RelayOnly,
+        trust: options.trust.clone(),
+    };
+    builder(secret_key, relay_mode, &relay_only)
+        .alpns(vec![ALPN_PAIR.to_vec()])
         .hooks(Gate::new(allow))
         .transport_config(transport())
 }
@@ -210,8 +278,13 @@ fn transport() -> QuicTransportConfig {
         .build()
 }
 
-/// Logs the relay the host is reached through each time it changes.
-async fn watch_relay(endpoint: Endpoint, pinned: bool) {
+/// Logs the relay an endpoint of the host's is reached through each time it
+/// changes.
+async fn watch_relay(endpoint: Endpoint, door: Door, pinned: bool) {
+    let which = match door {
+        Door::Link => "",
+        Door::Pairing => " (pairing)",
+    };
     let mut statuses = endpoint.home_relay_status();
     let mut current: Option<RelayUrl> = None;
     loop {
@@ -222,15 +295,17 @@ async fn watch_relay(endpoint: Endpoint, pinned: bool) {
             .map(|status| status.url().clone());
         if connected != current {
             match &connected {
-                Some(relay) if pinned => info!("relay: connected to {relay}, pinned by --relay"),
-                Some(relay) => info!("relay: connected to {relay}"),
+                Some(relay) if pinned => {
+                    info!("relay{which}: connected to {relay}, pinned by --relay")
+                }
+                Some(relay) => info!("relay{which}: connected to {relay}"),
                 None => {
                     let why = now
                         .iter()
                         .find_map(|status| status.last_error())
                         .map(|err| err.to_string())
                         .unwrap_or_else(|| "no error given".into());
-                    warn!("relay: not connected: {why}");
+                    warn!("relay{which}: not connected: {why}");
                 }
             }
             current = connected;
@@ -267,14 +342,24 @@ impl Server {
         }
     }
 
-    /// Serves connections until the endpoint closes.
-    async fn run(self, endpoint: Endpoint) {
+    /// Serves `door`'s connections until its endpoint closes.
+    async fn run(self, endpoint: Endpoint, door: Door) {
         while let Some(incoming) = endpoint.accept().await {
-            tokio::spawn(self.clone().handle(incoming));
+            tokio::spawn(self.clone().handle(incoming, door));
         }
     }
 
-    async fn handle(self, incoming: Incoming) {
+    async fn handle(self, incoming: Incoming, door: Door) {
+        if door == Door::Link {
+            if let Some(stranger) = self.stranger_through_a_relay(&incoming) {
+                warn!(
+                    "{} through a relay: refused before its handshake, not paired",
+                    stranger.fmt_short()
+                );
+                incoming.refuse();
+                return;
+            }
+        }
         // Held until the connection is known to be paired, or for the whole
         // of a pairing.
         let Ok(unpaired) = Arc::clone(&self.unpaired).try_acquire_owned() else {
@@ -302,6 +387,22 @@ impl Server {
         } else {
             // The gate turns these away first.
             conn.close(VarInt::from_u32(close::UNKNOWN_ALPN), b"unknown protocol");
+        }
+    }
+
+    /// The key of a connection a relay brings, if it's neither paired nor
+    /// revoked. iroh would give it the endpoint's addresses once its
+    /// handshake was done, before the gate turned it away. The relay names
+    /// the key it got the connection from, and the gate still checks the
+    /// handshake's; a revoked key gets its handshake, to be told so.
+    fn stranger_through_a_relay(&self, incoming: &Incoming) -> Option<iroh::EndpointId> {
+        match incoming.remote_addr() {
+            IncomingAddr::Relay { endpoint_id, .. }
+                if self.allow.standing(&endpoint_id) == Standing::Unknown =>
+            {
+                Some(endpoint_id)
+            }
+            _ => None,
         }
     }
 }
@@ -438,6 +539,7 @@ mod tests {
 
     struct Rig {
         host: Endpoint,
+        pairing: Endpoint,
         allow: Arc<AllowList>,
         dir: HostDir,
         _tmp: TempDir,
@@ -467,6 +569,17 @@ mod tests {
         .bind()
         .await
         .expect("binds");
+        // On loopback too, which only a test can do, so a phone reaches it
+        // with no relay (tests/relayed.rs has it on the relay alone).
+        let pairing = on_loopback(pair_builder(
+            SecretKey::from_bytes(&[5; 32]),
+            RelayMode::Disabled,
+            &EndpointOptions::default(),
+            Arc::clone(&allow),
+        ))
+        .bind()
+        .await
+        .expect("binds");
         let upstream = Arc::new(Upstream::new(upstream, SECRET.into()));
         let open = OpenLinks::default();
         dir.make_link_dir().expect("made");
@@ -476,9 +589,10 @@ mod tests {
             open.clone(),
             max_unpaired,
         );
-        tokio::spawn(server.run(host.clone()));
+        tokio::spawn(server.clone().run(host.clone(), Door::Link));
+        tokio::spawn(server.run(pairing.clone(), Door::Pairing));
         let housekeeper = Housekeeper::new(
-            host.clone(),
+            (host.clone(), pairing.clone()),
             dir.clone(),
             Arc::clone(&allow),
             upstream,
@@ -487,6 +601,7 @@ mod tests {
         tokio::spawn(housekeeper.run());
         Rig {
             host,
+            pairing,
             allow,
             dir,
             _tmp: tmp,
@@ -569,8 +684,28 @@ mod tests {
     async fn the_host_has_no_address_lookup() {
         within_30_s(async {
             let rig = start_host("host-no-lookup", closed_port().await).await;
-            let lookup = rig.host.address_lookup().expect("open");
-            assert!(lookup.is_empty(), "no address lookup");
+            for endpoint in [&rig.host, &rig.pairing] {
+                let lookup = endpoint.address_lookup().expect("open");
+                assert!(lookup.is_empty(), "no address lookup");
+            }
+        })
+        .await;
+    }
+
+    /// The link endpoint takes no pairing and the pairing endpoint no HTTP:
+    /// the handshake fails, so the gate never sees them.
+    #[tokio::test]
+    async fn each_endpoint_takes_its_one_protocol() {
+        within_30_s(async {
+            let (upstream, mut requests) = fake_kleio_host(None, None).await;
+            let rig = start_host("host-one-protocol", upstream).await;
+            let phone = loopback_endpoint(2, &[]).await;
+            rig.pair(&[phone.id()], &[]);
+            for (endpoint, alpn) in [(&rig.host, ALPN_PAIR), (&rig.pairing, ALPN_HTTP)] {
+                let dialled = phone.connect(loopback_addr(endpoint), alpn).await;
+                assert!(dialled.is_err(), "{}", String::from_utf8_lossy(alpn));
+            }
+            assert!(requests.try_recv().is_err(), "a request reached kleio-host");
         })
         .await;
     }
@@ -683,7 +818,7 @@ mod tests {
             let rig = start_host_with(tmp, upstream, MAX_UNPAIRED).await;
             let phone = loopback_endpoint(2, &[]).await;
 
-            let payload = redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
+            let payload = redeem(&phone, loopback_addr(&rig.pairing), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
                 .await
                 .expect("pairs");
             assert_eq!(payload["deviceId"], "d1");
@@ -720,7 +855,7 @@ mod tests {
             let (upstream, _requests) = fake_kleio_host(Some(paired), None).await;
             let rig = start_host("host-pair-unwritten", upstream).await;
             let phone = loopback_endpoint(2, &[]).await;
-            redeem(&phone, loopback_addr(&rig.host), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
+            redeem(&phone, loopback_addr(&rig.pairing), "ABC-DEF", "Test iPhone", ALLOW_WAIT, |_| {})
                 .await
                 .expect("pairs");
             assert!(rig.allow.contains(&phone.id()));
@@ -738,7 +873,7 @@ mod tests {
 
             let outcome = redeem(
                 &phone,
-                loopback_addr(&rig.host),
+                loopback_addr(&rig.pairing),
                 "ABC-DEF",
                 "Test iPhone",
                 ALLOW_WAIT,
@@ -758,7 +893,7 @@ mod tests {
             let (upstream, mut requests) = fake_kleio_host(None, None).await;
             let rig = start_host("host-pair-busy", upstream).await;
             let first = loopback_endpoint(2, &[]).await;
-            let addr = loopback_addr(&rig.host);
+            let addr = loopback_addr(&rig.pairing);
             let pending = tokio::spawn(async move {
                 redeem(&first, addr, "ABC-DEF", "First", ALLOW_WAIT, |_| {}).await
             });
@@ -767,7 +902,7 @@ mod tests {
 
             let second = loopback_endpoint(3, &[]).await;
             assert_eq!(
-                close_code(&second, &rig.host, ALPN_PAIR).await,
+                close_code(&second, &rig.pairing, ALPN_PAIR).await,
                 Some(close::PAIR_BUSY.into())
             );
             assert!(
@@ -785,15 +920,17 @@ mod tests {
             let (upstream, mut requests) = fake_kleio_host(None, None).await;
             let rig = start_host_with(TempDir::new("host-unpaired-cap"), upstream, 1).await;
             let first = loopback_endpoint(2, &[]).await;
-            let addr = loopback_addr(&rig.host);
+            let addr = loopback_addr(&rig.pairing);
             let pending = tokio::spawn(async move {
                 redeem(&first, addr, "ABC-DEF", "First", ALLOW_WAIT, |_| {}).await
             });
             requests.recv().await.expect("the first request");
 
-            // Refused outright, not closed by the budget after a handshake.
+            // Refused outright, not closed by the budget after a handshake,
+            // on either endpoint.
             let second = loopback_endpoint(3, &[]).await;
-            assert_eq!(close_code(&second, &rig.host, ALPN_PAIR).await, None);
+            assert_eq!(close_code(&second, &rig.pairing, ALPN_PAIR).await, None);
+            assert_eq!(close_code(&second, &rig.host, ALPN_HTTP).await, None);
             pending.abort();
         })
         .await;
@@ -810,6 +947,9 @@ mod tests {
             assert_eq!(state["pid"], std::process::id());
             assert_eq!(state["key"], rig.host.id().to_string());
             assert_eq!(state["relay"], Value::Null, "no relay in the tests");
+            assert_eq!(state["pairKey"], rig.pairing.id().to_string());
+            assert_ne!(state["pairKey"], state["key"]);
+            assert_eq!(state["pairRelay"], Value::Null);
             assert_eq!(state["rateLimited"], false);
             assert_eq!(state["connections"], 0);
             assert!(state["updatedAt"]
@@ -853,6 +993,84 @@ mod tests {
             round_trip(forward, REQUEST).await;
             let (line, _) = requests.recv().await.expect("a request");
             assert_eq!(line, format!("KLEIO-LINK/1 {} {fresh}\r\n", phone.id()));
+        })
+        .await;
+    }
+}
+
+/// The pairing endpoint on its own: no state folder, so on every OS.
+#[cfg(test)]
+mod pairing_endpoint_tests {
+    use super::*;
+    use crate::testing::{within_30_s, TempDir};
+
+    fn allow_list(tmp: &TempDir) -> Arc<AllowList> {
+        Arc::new(AllowList::load(tmp.path().join("link-allow.json")).expect("an empty list"))
+    }
+
+    /// iroh won't bind an endpoint with no transport at all, so the pairing
+    /// endpoint's relay is a closed port on loopback: no network needed.
+    fn nowhere() -> RelayMode {
+        RelayMode::custom(["https://127.0.0.1:1/"
+            .parse::<RelayUrl>()
+            .expect("a relay URL")])
+    }
+
+    /// Built from the host's own options, in the mode the app's host runs, it
+    /// still has no socket for a direct path and no address to give out.
+    #[tokio::test]
+    async fn the_pairing_endpoint_binds_no_socket_and_has_no_address_whatever_the_mode() {
+        within_30_s(async {
+            let tmp = TempDir::new("pairing-endpoint");
+            let allow = allow_list(&tmp);
+            let with = |mode| EndpointOptions {
+                mode,
+                ..EndpointOptions::default()
+            };
+            for mode in [Mode::Auto, Mode::RelayOnly] {
+                let pairing = pair_builder(
+                    SecretKey::from_bytes(&[5; 32]),
+                    nowhere(),
+                    &with(mode),
+                    Arc::clone(&allow),
+                )
+                .bind()
+                .await
+                .expect("binds");
+                assert_eq!(pairing.bound_sockets(), [], "{mode:?}");
+                assert_eq!(pairing.addr().ip_addrs().count(), 0, "{mode:?}");
+                pairing.close().await;
+            }
+
+            // Bound beside a link endpoint, which finds its loopback
+            // addresses: by then the pairing endpoint has had as long to
+            // find any.
+            let link = host_builder(
+                SecretKey::from_bytes(&[1; 32]),
+                RelayMode::Disabled,
+                &with(Mode::Loopback),
+                Arc::clone(&allow),
+            )
+            .bind()
+            .await
+            .expect("binds");
+            let pairing = pair_builder(
+                SecretKey::from_bytes(&[5; 32]),
+                nowhere(),
+                &with(Mode::Loopback),
+                Arc::clone(&allow),
+            )
+            .bind()
+            .await
+            .expect("binds");
+            let mut addr = link.watch_addr();
+            while addr.get().ip_addrs().next().is_none() {
+                addr.updated().await.expect("the endpoint is open");
+            }
+            assert_eq!(pairing.bound_sockets(), []);
+            assert_eq!(pairing.addr().ip_addrs().count(), 0);
+            link.close().await;
+            pairing.close().await;
         })
         .await;
     }

@@ -1,11 +1,86 @@
 {
   "about": [
-    "Kleio's v4 pairing tickets, what a pairing QR code carries (docs/adr/0002-kleio-link-replaces-tailscale.md).",
-    "kleio-host's buildTicket makes each ticket from its build fields (packages/kleio-host/test/link.test.ts).",
-    "The link's Rust reads them too. Every ticket here is one a phone must accept.",
-    "The key is SecretKey::from_bytes(&[7; 32])'s public half."
+    "Kleio's pairing tickets, what a pairing QR code carries (docs/adr/0002-kleio-link-replaces-tailscale.md, docs/adr/0004-no-host-address-before-allow.md).",
+    "good: the v5 tickets kleio-host's buildTicket makes from each one's build fields (packages/kleio-host/test/link.test.ts). They carry no address of the host.",
+    "v4: the tickets a host not yet updated makes, which the link's Rust still reads.",
+    "The link's Rust reads them all. Every ticket here is one a phone must accept.",
+    "The key is SecretKey::from_bytes(&[7; 32])'s public half, and the pairing key (pair) SecretKey::from_bytes(&[8; 32])'s."
   ],
   "good": [
+    {
+      "about": "the default: on one of n0's relays, n0's list",
+      "build": {
+        "name": "mac-mini-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://euc1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "code": "ABC-DEF"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"mac-mini-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://euc1-1.relay.n0.iroh.link./\",\"n0\"],\"code\":\"ABC-DEF\"}"
+    },
+    {
+      "about": "the longest default: a 32-byte name, still under 300 bytes",
+      "build": {
+        "name": "Wills-Mac-mini-in-the-office-123",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://use1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "code": "7kq m2x"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"Wills-Mac-mini-in-the-office-123\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://use1-1.relay.n0.iroh.link./\",\"n0\"],\"code\":\"7KQ-M2X\"}"
+    },
+    {
+      "about": "a relay of your own first, n0 behind it",
+      "build": {
+        "name": "vps-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://relay.example.com/",
+        "relays": ["https://relay.example.com/", "n0"],
+        "code": "Q4R-9ZT"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"vps-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://relay.example.com/\",\"n0\"],\"code\":\"Q4R-9ZT\"}"
+    },
+    {
+      "about": "failed over to n0 while your own relay is down: the relay it's on, then the list",
+      "build": {
+        "name": "vps-1",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://aps1-1.relay.n0.iroh.link./",
+        "relays": ["https://relay.example.com/", "n0"],
+        "code": "Q4R-9ZT"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"vps-1\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://aps1-1.relay.n0.iroh.link./\",\"https://relay.example.com/\",\"n0\"],\"code\":\"Q4R-9ZT\"}"
+    },
+    {
+      "about": "a list without n0, on its second relay, which has a port",
+      "build": {
+        "name": "home-server",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://relay2.example.net:8443/",
+        "relays": ["https://relay1.example.net/", "https://relay2.example.net:8443/"],
+        "code": "HJK-MNP"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"home-server\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://relay2.example.net:8443/\",\"https://relay1.example.net/\"],\"code\":\"HJK-MNP\"}"
+    },
+    {
+      "about": "a name that isn't ASCII, written as itself",
+      "build": {
+        "name": "Will’s Mac mini",
+        "key": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+        "pair": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+        "relay": "https://usw1-1.relay.n0.iroh.link./",
+        "relays": ["n0"],
+        "code": "0WX-YZ1"
+      },
+      "ticket": "{\"v\":5,\"type\":\"kleio-pair\",\"name\":\"Will’s Mac mini\",\"key\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"pair\":\"1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca\",\"relays\":[\"https://usw1-1.relay.n0.iroh.link./\",\"n0\"],\"code\":\"0WX-YZ1\"}"
+    }
+  ],
+  "v4": [
     {
       "about": "the default: on one of n0's relays, n0's list, one address",
       "build": {

@@ -16,6 +16,7 @@
 //! [`EndpointOptions`] carries both settings an end can have: its [`Mode`]
 //! and its [`RelayTrust`]. The app's are the defaults.
 
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -46,6 +47,10 @@ pub enum Mode {
     /// Through the relay only. The endpoint has no IP transports, so no
     /// direct path can open, and it binds no UDP socket.
     RelayOnly,
+    /// As [`Mode::Auto`], with its UDP sockets on 127.0.0.1 and [::1] only:
+    /// for tests, which need ends that have direct addresses while nothing
+    /// leaves the machine (and the macOS firewall has nothing to ask).
+    Loopback,
 }
 
 impl Mode {
@@ -53,7 +58,7 @@ impl Mode {
     /// needs.
     pub fn keeps_ip_transports(self) -> bool {
         match self {
-            Self::Auto => true,
+            Self::Auto | Self::Loopback => true,
             Self::RelayOnly => false,
         }
     }
@@ -121,7 +126,8 @@ pub struct EndpointOptions {
 
 /// The builder both ends start from: `presets::Minimal` with `secret_key` and
 /// `relay_mode`, no address lookup, no port mapping, the relay certificates
-/// `options` trusts and, in [`Mode::RelayOnly`], no IP transports.
+/// `options` trusts and, in [`Mode::RelayOnly`], no IP transports (in
+/// [`Mode::Loopback`], loopback ones only).
 pub fn builder(secret_key: SecretKey, relay_mode: RelayMode, options: &EndpointOptions) -> Builder {
     let mut builder = Endpoint::builder(presets::Minimal)
         .secret_key(secret_key)
@@ -132,10 +138,20 @@ pub fn builder(secret_key: SecretKey, relay_mode: RelayMode, options: &EndpointO
     if !options.trust.is_built_in() {
         builder = builder.ca_tls_config(options.trust.ca_tls_config());
     }
-    if options.mode.keeps_ip_transports() {
-        builder
-    } else {
-        builder.clear_ip_transports()
+    match options.mode {
+        Mode::Auto => builder,
+        Mode::RelayOnly => builder.clear_ip_transports(),
+        Mode::Loopback => {
+            let v4 = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+            let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, 0));
+            // Only a second default socket of a family is refused, and the
+            // defaults are cleared first.
+            builder
+                .clear_ip_transports()
+                .bind_addr(v4)
+                .and_then(|builder| builder.bind_addr(v6))
+                .expect("one loopback socket of each family")
+        }
     }
 }
 
@@ -202,7 +218,7 @@ pub async fn switch_relay(endpoint: &Endpoint, to: &RelayUrl, from: Option<&Rela
 #[cfg(test)]
 mod tests {
     use iroh::endpoint::QuicTransportConfig;
-    use iroh::RelayUrl;
+    use iroh::{RelayUrl, Watcher};
 
     use super::*;
 
@@ -231,7 +247,43 @@ mod tests {
     fn auto_is_the_default_and_only_relay_only_drops_ip() {
         assert_eq!(Mode::default(), Mode::Auto);
         assert!(Mode::Auto.keeps_ip_transports());
+        assert!(Mode::Loopback.keeps_ip_transports());
         assert!(!Mode::RelayOnly.keeps_ip_transports());
+    }
+
+    /// Loopback binds its UDP sockets on 127.0.0.1 and [::1] only, so the
+    /// direct addresses an end gives out never lead off the machine.
+    #[tokio::test]
+    async fn loopback_mode_binds_loopback_only() {
+        let options = EndpointOptions {
+            mode: Mode::Loopback,
+            ..EndpointOptions::default()
+        };
+        let endpoint = builder(
+            SecretKey::from_bytes(&[6; 32]),
+            RelayMode::Disabled,
+            &options,
+        )
+        .bind()
+        .await
+        .expect("binds");
+        let sockets = endpoint.bound_sockets();
+        assert!(sockets.iter().any(SocketAddr::is_ipv4), "{sockets:?}");
+        assert!(sockets.iter().all(|s| s.ip().is_loopback()), "{sockets:?}");
+        let mut addr = endpoint.watch_addr();
+        let direct = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let direct: Vec<SocketAddr> = addr.get().ip_addrs().copied().collect();
+                if !direct.is_empty() {
+                    return direct;
+                }
+                addr.updated().await.expect("the endpoint is open");
+            }
+        })
+        .await
+        .expect("direct addresses within 10 s");
+        assert!(direct.iter().all(|a| a.ip().is_loopback()), "{direct:?}");
+        endpoint.close().await;
     }
 
     fn relay_only() -> EndpointOptions {
