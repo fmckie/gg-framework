@@ -2019,7 +2019,8 @@ mod tests {
             |p| seen.push(p),
         ))
         .expect("it all came");
-        assert!(started.elapsed() > Duration::from_secs(1));
+        let took = started.elapsed();
+        assert!(took > Duration::from_secs(1));
         assert_eq!(
             fetched,
             Fetched::Body {
@@ -2036,8 +2037,14 @@ mod tests {
         assert_eq!((last.received, last.total), (10_000, Some(10_000)));
         assert_eq!(last.seconds_left, Some(0));
         assert!(seen.windows(2).all(|w| w[0].received <= w[1].received));
-        // At most one report each quarter second, and the two ends.
-        assert!(seen.len() <= 9, "{} reports", seen.len());
+        // At most the two ends and one report each quarter second it took: a
+        // slow machine stretches the waits, and so the reports due.
+        let most = 2 + took.as_millis() / PROGRESS_EVERY.as_millis();
+        assert!(
+            seen.len() as u128 <= most,
+            "{} reports in {took:?}",
+            seen.len()
+        );
     }
 
     #[test]
