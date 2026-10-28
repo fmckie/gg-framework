@@ -14,7 +14,7 @@ import type * as KleioApi from "./kleioApi";
 import { adoptRelayList, relayList, setRelayList, type RelayList } from "./kleioRelays";
 import type * as KleioRelays from "./kleioRelays";
 import type { LinkStatus } from "./kleioLink";
-import { noTicketWords } from "./PairingOffer";
+import { noTicketWords, PAIR_STATE_POLL_MS } from "./PairingOffer";
 import { pairTicket } from "./pairTicket";
 import { encodeQr, qrSvgPath } from "./qr";
 import {
@@ -178,6 +178,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
   document.documentElement.classList.remove("platform-ios");
   localStorage.clear();
@@ -443,6 +444,97 @@ describe("ConnectionPage", () => {
     fireEvent.click(within(sam).getByRole("button", { name: "Revoke" }));
     await waitFor(() => expect(kleio.revoke).toHaveBeenCalledWith("p1"));
     await waitFor(() => expect(toast).toHaveBeenCalledWith("Sam's iPhone revoked.", "success"));
+  });
+
+  describe("a device paired with Pair a device", () => {
+    const LAPTOP = {
+      deviceId: "self",
+      label: "Laptop",
+      created: "2026-10-01T09:00:00Z",
+      lastSeen: null,
+      revoked: false,
+      admin: true,
+    };
+
+    /**
+     * A code Sam's iPhone pairs with, on a clock the test moves, and the
+     * host's device list, with the phone in it once it has paired. `pair`
+     * shows the code, and the phone pairs: the code's next check sees it.
+     */
+    function pairing(): { pair: () => Promise<void> } {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const shown = {
+        display: "ABC-DEF",
+        expiresAt: Date.now() + 5 * 60_000,
+        admin: false,
+        ticket: TICKET,
+        ticketError: null,
+      };
+      let paired = false;
+      vi.mocked(kleio.offer).mockResolvedValue(shown);
+      vi.mocked(kleio.pairState).mockImplementation(async () => ({
+        active: true,
+        expiresAt: shown.expiresAt,
+        redeemed: paired,
+        admin: false,
+        claim: paired
+          ? {
+              label: "Sam's iPhone",
+              deviceCode: "3F9 AC2",
+              at: Date.now(),
+              contested: false,
+              allowed: true,
+            }
+          : null,
+      }));
+      vi.mocked(kleio.devices).mockImplementation(async () =>
+        paired
+          ? [
+              LAPTOP,
+              {
+                ...LAPTOP,
+                deviceId: "p1",
+                label: "Sam's iPhone",
+                created: new Date().toISOString(),
+                admin: false,
+              },
+            ]
+          : [LAPTOP],
+      );
+      return {
+        pair: async () => {
+          const card = screen.getByRole("region", { name: "Pair a device" });
+          fireEvent.click(within(card).getByRole("button", { name: "Show pairing QR" }));
+          await within(card).findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+          paired = true;
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(PAIR_STATE_POLL_MS);
+          });
+          expect(toast).toHaveBeenCalledWith("Sam's iPhone is paired.", "success");
+          expect(within(card).getByRole("button", { name: "Show pairing QR" })).toBeTruthy();
+        },
+      };
+    }
+
+    it("joins the Devices list on show at once", async () => {
+      const { pair } = pairing();
+      await renderPage();
+      fireEvent.click(screen.getByRole("button", { name: "Show devices" }));
+      const devices = screen.getByRole("region", { name: "Devices" });
+      await within(devices).findByText("Laptop");
+      expect(within(devices).queryByText("Sam's iPhone")).toBeNull();
+      await pair();
+      expect(await within(devices).findByText("Sam's iPhone")).toBeTruthy();
+      expect(kleio.devices).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves a list not on show unshown, as showing it asks for Touch ID", async () => {
+      const { pair } = pairing();
+      await renderPage();
+      await pair();
+      expect(kleio.devices).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Show devices" })).toBeTruthy();
+    });
   });
 });
 

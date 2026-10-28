@@ -11,6 +11,7 @@ import { relTime } from "./relTime";
 import { KleioBadge } from "./KleioBadge";
 import type { LinkStatus } from "./kleioLink";
 import { NOT_A_TICKET } from "./pairTicket";
+import { PAIR_STATE_POLL_MS } from "./PairingOffer";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -62,7 +63,10 @@ beforeEach(() => {
   invokeMock.mockReset();
   vi.mocked(relaunch).mockClear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("KleioBadge", () => {
   it("renders nothing in local mode and a short host name when remote", () => {
@@ -730,6 +734,64 @@ describe("RemoteHostModal — admin", () => {
       view.unmount();
       await waitFor(() => expect(said).toEqual(["cancel"]));
     });
+  });
+
+  it("lists a device that pairs from New pair code at once, with no reopening the pane", async () => {
+    // The code's checks run on a clock the test moves.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const SAM = {
+      deviceId: "dev-sam",
+      label: "Sam's iPhone",
+      created: new Date().toISOString(),
+      lastSeen: null,
+      revoked: false,
+      admin: false,
+    };
+    let paired = false;
+    let expiresAt = 0;
+    routes({
+      kleio_remote_status: () => ({ active: ADMIN_ACTIVE, paired: ADMIN_REC }),
+      kleio_admin_state: () => ({
+        unlocked: true,
+        expiresAt: Date.now() + 60_000,
+        available: true,
+      }),
+      kleio_devices: () => (paired ? [...DEVICES, SAM] : DEVICES),
+      kleio_offer: () => {
+        expiresAt = Date.now() + 5 * 60_000;
+        return { display: "ABC-DEF", expiresAt, admin: false, ticket: TICKET, ticketError: null };
+      },
+      kleio_pair_state: () => ({
+        active: true,
+        expiresAt,
+        redeemed: paired,
+        admin: false,
+        claim: paired
+          ? {
+              label: "Sam's iPhone",
+              deviceCode: "3F9 AC2",
+              at: Date.now(),
+              contested: false,
+              allowed: true,
+            }
+          : null,
+      }),
+    });
+    render(<RemoteHostModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole("tab", { name: "Devices" }));
+    await screen.findByText("Phone");
+    fireEvent.click(screen.getByRole("button", { name: "New pair code" }));
+    await screen.findByRole("img", { name: "Pairing QR code for pair code ABC-DEF" });
+    expect(screen.queryByText("Sam's iPhone")).toBeNull();
+    // Sam's iPhone pairs with the code, and the code's next check sees it.
+    paired = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PAIR_STATE_POLL_MS);
+    });
+    expect(await screen.findByText("Sam's iPhone")).toBeDefined();
+    expect(screen.queryByRole("img", { name: /^Pairing QR code/ })).toBeNull();
+    // The list was asked for twice: when the tab opened, and after the pairing.
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "kleio_devices")).toHaveLength(2);
   });
 
   it("marks a device paired this week New, but never itself", async () => {
