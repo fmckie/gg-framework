@@ -23,7 +23,7 @@
 // The preview origin (preview.ts) is a second loopback listener on its own
 // port, so its own browser origin. It serves only GET /p/<token>/<path>,
 // sandboxed, and never reads a device token or reaches this API.
-//   - admin (device is admin OR a valid control macaroon): /kleio/devices,
+//   - admin (device is admin OR sends the control macaroon made for it): /kleio/devices,
 //     /kleio/devices/:id/revoke, /kleio/pair/offer, /kleio/pair/revoke,
 //     /kleio/pair/decide.
 //
@@ -864,7 +864,14 @@ export function createHost(options: HostOptions): Host {
           now: now(),
           nodeId: options.nodeId,
         });
-        admin = verdict.ok;
+        // Good only from the device it was made for, so revoking that device ends it too.
+        const madeFor = verdict.ok ? macaroon.macaroonId(cred) : null;
+        admin = madeFor === device.deviceId;
+        if (madeFor !== null && !admin) {
+          log(
+            `[admin] refused a control credential from ${device.label}: it was made for another device (${madeFor})`,
+          );
+        }
       }
     }
     // lastSeen at most once a minute per device; never on the request path.

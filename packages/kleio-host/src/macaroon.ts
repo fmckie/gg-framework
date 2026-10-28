@@ -190,3 +190,8 @@ export function verify(rootKey: string, serialized: string, ctx: MacaroonContext
   }
   return { ok: true };
 }
+
+// The id a macaroon names; trust it only once verify() has passed on the same string.
+export function macaroonId(serialized: string): string | null {
+  return decode(serialized)?.id ?? null;
+}
