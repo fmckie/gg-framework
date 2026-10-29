@@ -122,11 +122,13 @@ at `005a94e3` on 2026-09-30; all six CI jobs passed on `221ff255` (run
 is `3f2bb6bc`. Neither `5.64.1-kleio.1` nor `5.66.2-kleio.1` has been published:
 npm's `latest` and `kleio` tags still point at `5.60.2-kleio.1`.
 
-## Selective import through upstream 988f920e (2026-10-29)
+## Selective import through upstream 988f920e (merged)
 
 - Upstream tip reviewed: `988f920ef6aad72e2a2196eb16ce6ac1b9096ea3` (engine **5.87.2**,
   desktop **0.97.5**), 245 commits after `3f2bb6bc`
 - Branch: `sync/upstream-selective-20261029`, based on `main` at `3562294b`
+- PR: [#66](https://github.com/fmckie/gg-framework/pull/66), merged at `36f01139` on
+  2026-10-29; all six CI jobs passed on `125f9b31` (run **40889421051**)
 - `upstream.lastImportedCommit` stays `3f2bb6bc`, because the fork does not contain
   everything up to any later upstream commit. A later full sync must treat the commits
   below as already applied: picks carry `cherry picked from commit <sha>` and ports
@@ -177,7 +179,8 @@ Not taken:
 
 The rest of `3f2bb6bc..988f920e` (features, the module split, branding, release, CI
 and version commits) is not imported. Changesets for `@kleio/ai`, `agent`, `core`
-and `coder` describe the fixes for the next release on engine 5.66.2.
+and `coder` describe the fixes for the next release on engine 5.66.2. These fixes are
+not published yet: npm's `latest` and `kleio` tags still point at `5.60.2-kleio.1`.
 
 ## Original imported baseline
 

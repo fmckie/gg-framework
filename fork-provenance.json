@@ -69,7 +69,10 @@
     "baseCommit": "3562294b",
     "kind": "selective",
     "upstreamTip": "988f920ef6aad72e2a2196eb16ce6ac1b9096ea3",
-    "status": "pending",
+    "status": "merged",
+    "pullRequest": "https://github.com/fmckie/gg-framework/pull/66",
+    "mergeCommit": "36f01139",
+    "published": false,
     "preservedProjects": [
       "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",
       "packages/gg-pixel", "packages/gg-pixel-go", "packages/gg-pixel-py",
@@ -87,7 +90,9 @@
       "upstreamTipDesktopVersion": "0.97.5",
       "reviewedCommits": 245,
       "importedAt": "2026-10-29",
-      "status": "pending",
+      "status": "merged",
+      "pullRequest": "https://github.com/fmckie/gg-framework/pull/66",
+      "mergeCommit": "36f011394fef4ad60e1af7a7b892563e023f20e4",
       "rule": "upstream.lastImportedCommit stays 3f2bb6bc because the fork does not contain everything up to any later upstream commit; a later full sync must treat these commits as already applied",
       "picked": [
         {"upstream": "946c45979c27151c4a1e5ce72747fe138a2a8eeb", "downstream": "ee2b9037e34370e1f2659336f734b658b66a15cb"},
