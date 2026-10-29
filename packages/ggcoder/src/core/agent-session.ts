@@ -3727,6 +3727,16 @@ export class AgentSession {
     return this.processManager.stop(id);
   }
 
+  /**
+   * Force-stop every background process tree, synchronously. Background
+   * commands run in their own process group, so the daemon's group kill on
+   * quit never reaches them: this is the only thing that does. Callers on a
+   * shutdown deadline run it before awaiting anything that can hang.
+   */
+  stopBackgroundProcesses(): void {
+    this.processManager?.shutdownAll();
+  }
+
   /** Replace a host-owned system prompt in place without resetting conversation history. */
   setCustomSystemPrompt(systemPrompt: string, promptCacheKeyPrefix?: string): void {
     this.customSystemPrompt = systemPrompt;
@@ -4433,6 +4443,9 @@ export class AgentSession {
   }
 
   async dispose(): Promise<void> {
+    // First and synchronous: nothing below may delay this, or a hung teardown
+    // step leaves background commands running after the app has quit.
+    this.stopBackgroundProcesses();
     // Quiesce any in-flight post-turn compaction BEFORE tearing down state:
     // the background compact() snapshots and replaces `this.messages`, so
     // letting it run past this point would checkpoint a near-empty history
@@ -4440,7 +4453,8 @@ export class AgentSession {
     if (this.postTurnCompaction) await this.postTurnCompaction;
     await this.diagnosticsRecorder?.finalize();
     this.managerAbortSignal?.removeEventListener("abort", this.managerAbortHandler);
-    this.processManager?.shutdownAll();
+    // Again, in case a turn racing teardown started one while we awaited.
+    this.stopBackgroundProcesses();
     this.lspManager?.shutdownAll();
     await Promise.all([this.subAgentManager?.shutdownAll(), this.mcpManager?.dispose()]);
     await this.extensionLoader.deactivateAll();
