@@ -6,9 +6,13 @@
  * first non-empty line carries the keyword; anything after is the payload.
  *
  *   PROMPT
- *   <runnable GG Coder prompt body, 1-3 lines>
+ *   <runnable GG Coder prompt body: a few lines, or a short bullet list>
  *
  *   ALL_CLEAR
+ *
+ *   ALL_CLEAR CORPUS_UNVERIFIED
+ *   (approval whose real-world cross-check was impossible; the flag rides on
+ *   the verdict line so it can't be lost the way a separate JSON reply was)
  *
  *   IGNORE
  *
@@ -76,22 +80,37 @@ function normalizeKeywordLine(line: string): string {
     .replace(/\s+/g, "_");
 }
 
+/** The flagged approval, e.g. `ALL_CLEAR CORPUS_UNVERIFIED` or
+ *  `all clear: corpus_unverified`, after {@link normalizeKeywordLine}. */
+const FLAGGED_ALL_CLEAR_RE = /^ALL_CLEAR[_:,-]*CORPUS_UNVERIFIED$/;
+
+/** The flag anywhere in an approval reply: on the verdict line, or drifted
+ *  below it (the benchmarked failure). Keeping a warning is always safe. */
+const CORPUS_FLAG_RE = /corpus_unverified/i;
+
+function allClear(flagged: boolean): AutopilotVerdict {
+  return flagged
+    ? { kind: "all_clear", evidenceLimitation: "corpus_unverified" }
+    : { kind: "all_clear" };
+}
+
 /**
  * Fallback for when Ken ignores the "keyword-first, nothing before it"
  * instruction and buries a bare ALL_CLEAR/IGNORE/SKIP line after a recap or
  * explanation (a real drift pattern models fall into despite the system
- * prompt). Only matches a line that is EXACTLY one of these bare keywords.
- * PROMPT/HUMAN carry payloads and get their own dedicated recovery passes in
- * parseAutopilotVerdict. Returns the LAST such line (the verdict
- * conventionally lands at the end of the drift), or null if none/ambiguous
- * multiple different keywords are present.
+ * prompt). Only matches a line that is EXACTLY one of these bare keywords (or
+ * the flagged approval). PROMPT/HUMAN carry payloads and get their own
+ * dedicated recovery passes in parseAutopilotVerdict. Returns the LAST such
+ * line (the verdict conventionally lands at the end of the drift), or null if
+ * none is present.
  */
-function findTrailingBareVerdict(lines: string[]): "all_clear" | "ignore" | null {
-  let found: "all_clear" | "ignore" | null = null;
+function findTrailingBareVerdict(lines: string[]): AutopilotVerdict | null {
+  let found: AutopilotVerdict | null = null;
   for (const line of lines) {
     const normalized = normalizeKeywordLine(line);
-    if (normalized === "ALL_CLEAR") found = "all_clear";
-    else if (normalized === "IGNORE" || normalized === "SKIP") found = "ignore";
+    if (normalized === "ALL_CLEAR") found = allClear(false);
+    else if (FLAGGED_ALL_CLEAR_RE.test(normalized)) found = allClear(true);
+    else if (normalized === "IGNORE" || normalized === "SKIP") found = { kind: "ignore" };
   }
   return found;
 }
@@ -151,7 +170,9 @@ export function parseAutopilotVerdict(reply: string): AutopilotVerdict {
     .trim();
 
   if (collapsed === "ALL_CLEAR" || collapsed.startsWith("ALL_CLEAR")) {
-    return { kind: "all_clear" };
+    // Lines before the keyword line are blank, so `raw` is the keyword line plus
+    // the rest: catches the flag on the verdict line and any later drift.
+    return allClear(CORPUS_FLAG_RE.test(raw));
   }
 
   // IGNORE / SKIP: the turn wasn't real work — nothing to say, nothing to show.
@@ -192,8 +213,7 @@ export function parseAutopilotVerdict(reply: string): AutopilotVerdict {
   // shape that used to leak raw commentary + "ALL_CLEAR" into a HUMAN bubble
   // instead of rendering the normal all-clear/ignore marker.
   const trailing = findTrailingBareVerdict(lines);
-  if (trailing === "all_clear") return { kind: "all_clear" };
-  if (trailing === "ignore") return { kind: "ignore" };
+  if (trailing) return trailing;
 
   // A buried bare HUMAN line (Ken wrote his reasoning first, THEN the verdict).
   // Take the lines after the LAST exact-"HUMAN" line as the reason and drop the

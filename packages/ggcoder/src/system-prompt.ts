@@ -6,7 +6,8 @@ import { formatSkillsForPrompt, type Skill } from "./core/skills.js";
 import { clampToBytes, CONTEXT_LIMITS, type ContextLimits } from "./core/context-limits.js";
 import { TOOL_PROMPT_HINTS, buildToolSteering, DEFAULT_TOOL_NAMES } from "./tools/prompt-hints.js";
 import type { LanguageId } from "./core/language-detector.js";
-import { stripBom } from "./utils/text.js";
+import { cleanInstructionText } from "./utils/text.js";
+import { log } from "./core/logger.js";
 import { resolveShell } from "./core/shell.js";
 import { renderStylePacksSection } from "./core/style-packs/index.js";
 import { detectVerifyCommands, renderVerifySection } from "./core/verify-commands.js";
@@ -234,7 +235,8 @@ function renderToolsSection(
  *
  * Walks from cwd up to the filesystem root picking at most ONE instruction
  * file per directory (CONTEXT_FILES priority order, first match wins), skips
- * empty files, strips BOMs, and renders root-first (broad → narrow) so the
+ * empty files, strips BOMs and invisible characters (a cloned repo controls
+ * these files), and renders root-first (broad → narrow) so the
  * nearest file lands last — where LLM recency bias weights it most. A 32 KiB
  * combined budget is filled nearest-first (the nearest instructions are the
  * most binding); files dropped by the cap are reported in a one-line note.
@@ -258,7 +260,19 @@ export async function collectProjectContext(
       } catch {
         continue; // File doesn't exist — try the next candidate name.
       }
-      const trimmed = stripBom(content).trim();
+      const cleaned = cleanInstructionText(content);
+      if (cleaned.stripped > 0) {
+        log(
+          "WARN",
+          "system-prompt",
+          "Stripped invisible characters from a project instruction file",
+          {
+            file: filePath,
+            stripped: cleaned.stripped,
+          },
+        );
+      }
+      const trimmed = cleaned.text.trim();
       const relPath = path.relative(cwd, filePath) || name;
       // Empty/whitespace-only files still claim the directory slot — an empty
       // AGENTS.override.md deliberately silences the directory's instructions.
@@ -318,8 +332,8 @@ export interface SystemPromptEnvironment {
 }
 
 function renderEnvironmentSection(cwd: string, environment?: SystemPromptEnvironment): string {
-  // Static per host, so it lives in the cached prompt body: which shell bash
-  // commands actually execute under (cmd.exe fallback on bash-less Windows).
+  // Which shell bash commands actually execute under (cmd.exe fallback on
+  // bash-less Windows).
   const shellLine = resolveShell("").isCmdFallback
     ? "- Shell: cmd.exe (no bash found)"
     : "- Shell: bash (POSIX)";
@@ -338,12 +352,22 @@ function renderEnvironmentSection(cwd: string, environment?: SystemPromptEnviron
   return `## Environment\n\n${lines.join("\n")}`;
 }
 
-function renderUncachedDateSuffix(): string {
+/**
+ * Everything after the uncached marker: the Environment section and the date.
+ *
+ * The working directory differs per checkout/worktree, so it stays out of the
+ * system block the provider caches on its own. Above the marker the prompt is
+ * then identical for every session of the same project rules, wherever it
+ * lives, and a new session reads that block from cache instead of writing it
+ * again. Within a session this tail still sits inside the cached conversation
+ * prefix, so it costs nothing per request.
+ */
+function renderUncachedTail(environmentSection: string): string {
   const today = new Date();
   const day = today.getDate();
   const month = today.toLocaleString("en-US", { month: "long" });
   const year = today.getFullYear();
-  return `${UNCACHED_MARKER}\nToday's date: ${day} ${month} ${year}`;
+  return `${UNCACHED_MARKER}\n${environmentSection}\n\nToday's date: ${day} ${month} ${year}`;
 }
 
 /**
@@ -428,12 +452,9 @@ export async function buildSubAgentSystemPrompt(
   }
 
   if ((opts.role ?? "subagent") === "subagent") sections.push(SUBAGENT_RETURN_CONTRACT);
-  sections.push(
-    // Environment + date stay last so the cached prefix matches the parent's
-    // layout: everything above is stable, the date suffix is the uncached tail.
-    renderEnvironmentSection(opts.cwd, opts.environment),
-    renderUncachedDateSuffix(),
-  );
+  // Environment + date stay last, behind the marker, matching the parent's
+  // layout: everything above is stable and cached.
+  sections.push(renderUncachedTail(renderEnvironmentSection(opts.cwd, opts.environment)));
 
   return enforcePromptCeiling(sections.join("\n\n"), limits.systemPromptCeilingBytes);
 }
@@ -510,7 +531,7 @@ export async function buildSystemPrompt(
   const platformClis = renderPlatformClisSection(detectPlatformClis(cwd));
   if (platformClis) sections.push(platformClis);
 
-  sections.push(renderEnvironmentSection(cwd, environment), renderUncachedDateSuffix());
+  sections.push(renderUncachedTail(renderEnvironmentSection(cwd, environment)));
 
   return enforcePromptCeiling(sections.join("\n\n"), limits.systemPromptCeilingBytes);
 }

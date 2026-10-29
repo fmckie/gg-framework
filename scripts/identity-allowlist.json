@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1465,
+        "tracked": 1517,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1506,
+        "tracked": 1509,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -704,7 +704,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 13,
+        "tracked": 14,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -4596,11 +4596,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\*   <runnable GG Coder prompt body, 1-3 lines>|\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
+        "regex": "(?:\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 3
+        "tracked": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4748,11 +4748,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\"ALL_CLEAR, IGNORE, or HUMAN, with the payload after\\. If GG Coder ended by \" \\+|\"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|\"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|\\* Ken never appears in GG Coder's transcript; on each question we read GG|\\* The build session \\(GG Coder\\) and Ken are two separate `AgentSession` objects\\.|`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{|`## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.`,|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;)",
+        "regex": "(?:\"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|\"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|\\* Ken never appears in GG Coder's transcript; on each question we read GG|\\* The build session \\(GG Coder\\) and Ken are two separate `AgentSession` objects\\.|`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 12
+        "tracked": 9
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4805,11 +4805,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`## What GG Coder can do\\\\n\\\\n` \\+|`- Otherwise default hard to ALL_CLEAR\\. GG Coder's work is done unless something ` \\+|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`|`PROMPT\\\\n<a runnable GG Coder prompt, 1-3 lines, terminology-correct, says what ` \\+|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`When you review what GG Coder did, your first instinct is doubt: did it ` \\+|`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`file\\. When GG Coder crams everything into one monster file, stop it and tell it ` \\+|`hand indexing to GG Coder, which must ask_user before add, then search and read again\\. ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`obvious bug\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`raw code to paste\\. One step's worth of work\\. Prefer prompts that tell GG Coder ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|`to do — include a why only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`when GG Coder itself needs it to do the job\\. Except for the structured corpus limitation ` \\+|function renderGGCoderCapabilities\\(\\): string \\{|renderGGCoderCapabilities\\(\\),)",
+        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`## What GG Coder can do\\\\n\\\\n` \\+|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|function renderGGCoderCapabilities\\(\\): string \\{|renderGGCoderCapabilities\\(\\),)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 33
+        "tracked": 28
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -4976,11 +4976,11 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* Which store this row came from\\. Absent means `ggcoder` — a session that is|\\* empty session list, because that only read GG Coder's own directory\\. These|/\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function maxGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderDir\\(|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{|const mtime = await maxGgcoderSessionMtime\\(dir\\);|discoverGgcoderProjects\\(\\),|export type ProjectSource = \"ggcoder\" \\| \"claude-code\" \\| \"codex\" \\| \"folder\";|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
+        "regex": "(?:\\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* Which store this row came from\\. Absent means `ggcoder` — a session that is|\\* empty session list, because that only read GG Coder's own directory\\. These|/\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function readFirstFromGgcoderDir\\(|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{|discoverGgcoderProjects\\(\\),|export type ProjectSource = \"ggcoder\" \\| \"claude-code\" \\| \"codex\" \\| \"folder\";|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 24
+        "tracked": 22
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
@@ -5622,11 +5622,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:        // forward-compatible with fields a newer ggcoder understands\\.|      \\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|      // For an `npx -y <pkg>` of a package that ships as a ggcoder dependency|      // product-owned write roots supplied by GG Coder\\.|      agentInfo: \\{ name: \\\\\"ggcoder\\\\\", title: \\\\\"GG Coder\\\\\", version: options\\.version \\},|      client_name: \\\\\"GG Coder\\\\\",|      sources: \\[\\\\\"ggcoder\\\\\"\\],|    // GG Coder alone can resolve its prompt-template and project commands\\.|    // GG Coder owns its command registry\\. Other agents start with an isolated|    const mtime = await maxGgcoderSessionMtime\\(dir\\);|    discoverGgcoderProjects\\(\\),|   \\* Bridge ggcoder's event bus onto `session/update` notifications\\.|   \\* Import a Claude Code / Codex / Cursor transcript as a resumable GG Coder|   \\* This is the answer to \\\\\"see everything that was on GG Coder\\\\\": the phone asks|   \\* Which store this row came from\\. Absent means `ggcoder` — a session that is|   \\* compact-on-load behavior for CLI resume/`ggcoder continue`\\.|   \\* model cannot move between states\\. GG Coder runs without approvals, so a|  /\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|  /\\*\\* Feed a PROMPT verdict's body to GG Coder as an injected run\\. \\*/|  /\\*\\* Inject GG Coder's model-specific subagent orchestration prompt\\. Defaults to true\\. \\*/|  /\\*\\* Load GG Coder extensions\\. Defaults to true\\. \\*/|  /\\*\\* Register GG Coder built-in/prompt/custom slash commands\\. Defaults to true\\. \\*/|  // 1\\) Local resolution \\(bundled next to the sidecar / ggcoder deps\\) — fastest,|  // Bundled defaults ship with GG Coder\\. Global and project definitions with|  // keeps prose like \\\\\"prompt the user\\\\\" or \\\\\"a prompt for GG Coder\\\\\" from ever|  // only — NEVER part of `messages` \\(GG Coder must not see them\\), but persisted|  \\\\\"GG Coder is still drafting a plan \\(plan mode is active with nothing submitted\\)\\. Finish or cancel the plan yourself; autopilot can't prompt a read-only session\\.\\\\\";|  \\\\\"\\[Autopilot\\] This turn was triggered by Ken, GG Coder's automated reviewer — \\\\\" \\+|  \\\\\"\\[Autopilot\\] This turn was triggered by Ken, GG Coder's automated reviewer\\\\\";|  const files = await collectGgcoderSessionFiles\\(dir, 1\\);|  const files = await collectGgcoderSessionFiles\\(dir, 2\\);| \\*   <runnable GG Coder prompt body, 1-3 lines>| \\*  - PLAN branch \\(planPending\\): GG Coder submitted a plan via exit_plan\\. Ken| \\*  \\\\\"implement it now\\\\\" run\\)\\. GG Coder otherwise can't tell an autopilot-injected| \\*  conversation is NOT part of the LLM message history \\(GG Coder never sees it\\),| \\*  message DAG \\(GG Coder never sees it\\) but survives resume/compaction and| \\* ACP has a closed set; ggcoder's `turn_end` carries whatever the provider| \\* ACP mode: expose GG Coder as an Agent Client Protocol agent over stdio\\.| \\* Agent definitions that ship with every ggcoder install\\.| \\* Best-effort decode of a ggcoder session directory name back to a cwd, used| \\* GG Coder messages so the thread can be resumed here\\.| \\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's| \\* Model and thinking come from ggcoder's own registry rather than anything| \\* Read a foreign transcript and write it out as a real GG Coder session, so it| \\* Reclaim agent files ggcoder seeded into the user agents dir in past versions\\.| \\* SHA-256 of every agent body ggcoder has ever seeded into `~/\\.gg/agents`\\.| \\* `GG_APP_PORT` set \\(even to \\\\\"0\\\\\"\\); the plain `ggcoder` CLI never sets it\\.| \\* are the standard protocol instead of ggcoder's bespoke one, so a client| \\* either from ggcoder's install \\(bundled/dep\\) OR from npx's on-demand cache| \\* empty session list, because that only read GG Coder's own directory\\. These| \\* ggcoder tool name → ACP `ToolKind`\\.| \\* memory of every connection\\. When the package ships as a ggcoder dependency we| \\* pew2- or Zed-specific, which is what lets a phone show GG Coder's real model| \\* written against the spec works with no ggcoder-specific code\\.|\",\"// Lives in @kleio/core — re-exported here so ggcoder call sites import|/\\*\\* Directory of this module — anchor for resolving ggcoder's own bundled deps\\. \\*/|// Project discovery \\(shared with gg-boss \\+ gg-app sidecar\\)|// ggcoder session files open with a `\\{\\\\\"type\\\\\":\\\\\"session\\\\\",\\.\\.\\.,\\\\\"cwd\\\\\":\\\\\"/abs\\\\\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function maxGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderDir\\(|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{)",
+        "regex": "(?:      \\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|      // For an `npx -y <pkg>` of a package that ships as a ggcoder dependency|      // product-owned write roots supplied by GG Coder\\.|      agentInfo: \\{ name: \\\\\"ggcoder\\\\\", title: \\\\\"GG Coder\\\\\", version: options\\.version \\},|      client_name: \\\\\"GG Coder\\\\\",|      sources: \\[\\\\\"ggcoder\\\\\"\\],|    // GG Coder alone can resolve its prompt-template and project commands\\.|    // GG Coder owns its command registry\\. Other agents start with an isolated|    discoverGgcoderProjects\\(\\),|   \\* Bridge ggcoder's event bus onto `session/update` notifications\\.|   \\* Import a Claude Code / Codex / Cursor transcript as a resumable GG Coder|   \\* This is the answer to \\\\\"see everything that was on GG Coder\\\\\": the phone asks|   \\* Which store this row came from\\. Absent means `ggcoder` — a session that is|   \\* compact-on-load behavior for CLI resume/`ggcoder continue`\\.|   \\* model cannot move between states\\. GG Coder runs without approvals, so a|  /\\*\\* Absolute resumable path to a plain or gzip GG Coder session\\. \\*/|  /\\*\\* Feed a PROMPT verdict's body to GG Coder as an injected run\\. \\*/|  /\\*\\* Inject GG Coder's model-specific subagent orchestration prompt\\. Defaults to true\\. \\*/|  /\\*\\* Load GG Coder extensions\\. Defaults to true\\. \\*/|  /\\*\\* Register GG Coder built-in/prompt/custom slash commands\\. Defaults to true\\. \\*/|  // 1\\) Local resolution \\(bundled next to the sidecar / ggcoder deps\\) — fastest,|  // Bundled defaults ship with GG Coder\\. Global and project definitions with|  // keeps prose like \\\\\"prompt the user\\\\\" or \\\\\"a prompt for GG Coder\\\\\" from ever|  // only — NEVER part of `messages` \\(GG Coder must not see them\\), but persisted|  \\\\\"GG Coder is still drafting a plan \\(plan mode is active with nothing submitted\\)\\. Finish or cancel the plan yourself; autopilot can't prompt a read-only session\\.\\\\\";|  \\\\\"\\[Autopilot\\] This turn was triggered by Ken, GG Coder's automated reviewer — \\\\\" \\+|  \\\\\"\\[Autopilot\\] This turn was triggered by Ken, GG Coder's automated reviewer\\\\\";|  const files = await collectGgcoderSessionFiles\\(dir, 1\\);|  const files = await collectGgcoderSessionFiles\\(dir, 2\\);| \\*  - PLAN branch \\(planPending\\): GG Coder submitted a plan via exit_plan\\. Ken| \\*  \\\\\"implement it now\\\\\" run\\)\\. GG Coder otherwise can't tell an autopilot-injected| \\*  conversation is NOT part of the LLM message history \\(GG Coder never sees it\\),| \\*  message DAG \\(GG Coder never sees it\\) but survives resume/compaction and| \\* ACP has a closed set; ggcoder's `turn_end` carries whatever the provider| \\* ACP mode: expose GG Coder as an Agent Client Protocol agent over stdio\\.| \\* Agent definitions that ship with every ggcoder install\\.| \\* Best-effort decode of a ggcoder session directory name back to a cwd, used| \\* GG Coder messages so the thread can be resumed here\\.| \\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's| \\* Model and thinking come from ggcoder's own registry rather than anything| \\* Read a foreign transcript and write it out as a real GG Coder session, so it| \\* Reclaim agent files ggcoder seeded into the user agents dir in past versions\\.| \\* SHA-256 of every agent body ggcoder has ever seeded into `~/\\.gg/agents`\\.| \\* `GG_APP_PORT` set \\(even to \\\\\"0\\\\\"\\); the plain `ggcoder` CLI never sets it\\.| \\* are the standard protocol instead of ggcoder's bespoke one, so a client| \\* either from ggcoder's install \\(bundled/dep\\) OR from npx's on-demand cache| \\* empty session list, because that only read GG Coder's own directory\\. These| \\* ggcoder tool name → ACP `ToolKind`\\.| \\* memory of every connection\\. When the package ships as a ggcoder dependency we| \\* pew2- or Zed-specific, which is what lets a phone show GG Coder's real model| \\* written against the spec works with no ggcoder-specific code\\.|\",\"// Lives in @kleio/core — re-exported here so ggcoder call sites import|/\\*\\* Directory of this module — anchor for resolving ggcoder's own bundled deps\\. \\*/|// Project discovery \\(shared with gg-boss \\+ gg-app sidecar\\)|// ggcoder session files open with a `\\{\\\\\"type\\\\\":\\\\\"session\\\\\",\\.\\.\\.,\\\\\"cwd\\\\\":\\\\\"/abs\\\\\"\\}` header|// ── Recent sessions \\(ggcoder\\) ──────────────────────────────|async function collectGgcoderSessionFiles\\(|async function discoverGgcoderProjects\\(\\): Promise<DiscoveredProject\\[\\]> \\{|async function readFirstFromGgcoderDir\\(|const ggcoderCwdExtractor: LineExtractor = \\(line\\) => \\{)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 66
+        "packed": 63
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6116,11 +6116,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:\\*   <runnable GG Coder prompt body, 1-3 lines>|\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's)",
+        "regex": "(?:\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 2
+        "packed": 1
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6135,11 +6135,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:\\*   <runnable GG Coder prompt body, 1-3 lines>|\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
+        "regex": "(?:\\* In autopilot mode Ken never talks to the user — he auto-reviews GG Coder's|// keeps prose like \"prompt the user\" or \"a prompt for GG Coder\" from ever)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 3
+        "packed": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6325,11 +6325,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:\"ALL_CLEAR, IGNORE, or HUMAN, with the payload after\\. If GG Coder ended by \" \\+|\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|export const AUTOPILOT_PLAN_REVIEW_INSTRUCTION = \"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|export const AUTOPILOT_REVIEW_INSTRUCTION = \"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;|sections\\.push\\(`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{renderedRecent\\.length > 0 \\? renderedRecent\\.join\\(\"\\\\n\\\\n\"\\) : \"\\(no conversation yet\\)\"\\}`\\);|sections\\.push\\(`## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.`\\);)",
+        "regex": "(?:\"safe for GG Coder to do without new information, use PROMPT with the next \" \\+|\\* Autopilot Ken doesn't answer a user — he reviews the just-finished GG Coder|export const AUTOPILOT_PLAN_REVIEW_INSTRUCTION = \"GG Coder submitted an implementation plan \\(the 'Plan under review' section \" \\+|export const AUTOPILOT_REVIEW_INSTRUCTION = \"GG Coder just finished a turn\\. Review its work against the user's original \" \\+|return msg\\.content\\.trim\\(\\) \\? `\\*\\*GG Coder:\\*\\* \\$\\{cap\\(msg\\.content\\)\\}` : null;|return segments\\.length > 0 \\? `\\*\\*GG Coder:\\*\\* \\$\\{segments\\.join\\(\" \"\\)\\}` : null;|sections\\.push\\(`## Recent activity \\(GG Coder and user\\)\\\\n\\$\\{renderedRecent\\.length > 0 \\? renderedRecent\\.join\\(\"\\\\n\\\\n\"\\) : \"\\(no conversation yet\\)\"\\}`\\);)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 10
+        "packed": 7
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6401,11 +6401,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`- Otherwise default hard to ALL_CLEAR\\. GG Coder's work is done unless something ` \\+|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`\\);|`PROMPT\\\\n<a runnable GG Coder prompt, 1-3 lines, terminology-correct, says what ` \\+|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`When you review what GG Coder did, your first instinct is doubt: did it ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`file\\. When GG Coder crams everything into one monster file, stop it and tell it ` \\+|`hand indexing to GG Coder, which must ask_user before add, then search and read again\\. ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`obvious bug\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`raw code to paste\\. One step's worth of work\\. Prefer prompts that tell GG Coder ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|`to do — include a why only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`when GG Coder itself needs it to do the job\\. Except for the structured corpus limitation ` \\+|function renderGGCoderCapabilities\\(\\) \\{|renderGGCoderCapabilities\\(\\),|return \\(`## What GG Coder can do\\\\n\\\\n` \\+|return \\(`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+)",
+        "regex": "(?:\\*  The webview special-cases ```prompt blocks into a \"Send to GG Coder\" button\\. \\*/|\\* Build Ken Kai's system prompt\\. No tool/work sections of the GG Coder coding|\\* Ken\\. He never talks to the user here; he auto-reviews GG Coder's work and|\\* The user talks to him with `@Ken <prompt>`\\. Ken understands what GG Coder is|\\* mentorship\\. Ken never writes code; he recommends, GG Coder executes\\.|\\* runnable prompts the user can fire into GG Coder, plus blunt, casual|/\\*\\* The fenced-block language Ken wraps every recommended GG Coder prompt in\\.|`GG Coder's tools are for the actual building\\. Check with your own eyes first — ` \\+|`Litmus test: if your answer is something the user could've told GG Coder ` \\+|`Never direct GG Coder to copy protected markup, computed styles, assets, branding, or product identity wholesale\\.`\\);|`RIGHT — keyword first, why \\(if any\\) inside the body for GG Coder's benefit:\\\\n` \\+|`The user can already talk to GG Coder directly, so you are not a second way to ` \\+|`When there's a real next step, hand over a runnable GG Coder prompt instead of ` \\+|`You are the second opinion that isn't invested in the work\\. GG Coder defends ` \\+|`You direct GG Coder, so you have to know its reach\\. It is a full coding agent ` \\+|`ask for work\\. You are what GG Coder structurally can't be: it is heads-down ` \\+|`don't send GG Coder off to find out something you could confirm faster ` \\+|`mentor inside the app\\. You are NOT the coding agent\\. GG Coder does the actual ` \\+|`one of those user-level decisions\\. If GG Coder merely asks permission to ` \\+|`product/taste choice the user must own\\. GG Coder asking the user a ` \\+|`recent GG Coder and user activity\\. Read it, then answer the actual question\\. If ` \\+|`reviewing GG Coder's just-finished turn directly, and your reply is read by a ` \\+|`the prompt body\\)\\. The app renders that block as a \"Send to GG Coder\" button, ` \\+|function renderGGCoderCapabilities\\(\\) \\{|renderGGCoderCapabilities\\(\\),|return \\(`## What GG Coder can do\\\\n\\\\n` \\+|return \\(`You are Ken Kai, the developer of GG Coder, sitting beside the user as their ` \\+)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 33
+        "packed": 28
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -6553,11 +6553,11 @@
         "packed"
       ],
       "match": {
-        "regex": "(?:\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* empty session list, because that only read GG Coder's own directory\\. These|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|async function collectGgcoderSessionFiles\\(dir, maxDepth\\) \\{|async function discoverGgcoderProjects\\(\\) \\{|async function maxGgcoderSessionMtime\\(dir\\) \\{|async function readFirstFromGgcoderDir\\(dir, extractor\\) \\{|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor = \\(line\\) => \\{|const mtime = await maxGgcoderSessionMtime\\(dir\\);|const rawCwd = \\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|discoverGgcoderProjects\\(\\),|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
+        "regex": "(?:\\* \\(e\\.g\\. \"gg-coder\"\\) collides with the separator\\. So we extract the cwd from|\\* Best-effort decode of a ggcoder session directory name back to a cwd, used|\\* List the most recent ggcoder conversations for a project cwd\\. Compaction|\\* Scan ggcoder \\+ Claude Code \\+ Codex session stores AND the user's project|\\* empty session list, because that only read GG Coder's own directory\\. These|// ggcoder session files open with a `\\{\"type\":\"session\",\\.\\.\\.,\"cwd\":\"/abs\"\\}` header|async function collectGgcoderSessionFiles\\(dir, maxDepth\\) \\{|async function discoverGgcoderProjects\\(\\) \\{|async function readFirstFromGgcoderDir\\(dir, extractor\\) \\{|const files = await collectGgcoderSessionFiles\\(dir, 1\\);|const files = await collectGgcoderSessionFiles\\(dir, 2\\);|const ggcoderCwdExtractor = \\(line\\) => \\{|const rawCwd = \\(await readFirstFromGgcoderDir\\(dir, ggcoderCwdExtractor\\)\\) \\?\\? fallbackUnderscoreDecode\\(entry\\);|discoverGgcoderProjects\\(\\),|ggcoder: 0,|sources: \\[\"ggcoder\"\\],)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "packed": 20
+        "packed": 18
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
@@ -7360,6 +7360,329 @@
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "upstream-20261029-09e156f193f6",
+      "path": "packages/ggcoder/src/core/project-discovery.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\* Last activity in a ggcoder session store, counting only sessions that|\\* Stream one ggcoder session file, plain or archived, and return the first|async function lastUsedGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderFile\\(|const ggcoderMessageExtractor: LineExtractor = \\(line\\) => \\{|const mtime = await lastUsedGgcoderSessionMtime\\(dir\\);|const value = await readFirstFromGgcoderFile\\(file\\.path, extractor\\);|if \\(await readFirstFromGgcoderFile\\(file\\.path, ggcoderMessageExtractor\\)\\) return file\\.mtime;)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 9
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream identifiers and comments naming the persisted ggcoder session store (the same contract as upstream-20260911-09e156f193f6). Imported by the 2026-10-29 selective upstream sync (32dee6ec).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-99a885855efc",
+      "path": "packages/ggcoder/src/core/autopilot-verdict.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\*   <runnable GG Coder prompt body: a few lines, or a short bullet list>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-fe069dd37abb",
+      "path": "packages/ggcoder/src/core/ken-context.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.\",|\"## Your role\\\\nYou are Ken Kai in autopilot, reviewing GG Coder's just-finished turn\\. No user is in this conversation; a machine parses your reply\\. Below is the work under review\\.\",|\"ALL_CLEAR, IGNORE, or HUMAN\\), with the payload after\\. If GG Coder ended by \" \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 4
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-87267067b3a2",
+      "path": "packages/ggcoder/src/core/ken-prompt.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:`PROMPT\\\\n<a runnable GG Coder prompt: a few lines, or a short bullet list when ` \\+|`known in-scope gap\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`what to do and why, never raw code to paste\\. One coherent unit of work\\. Prefer prompts that tell GG Coder ` \\+|`when GG Coder itself needs it to do the job\\. The parser reads the FIRST line ` \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Upstream Ken mentor wording edited upstream, kept as GG Coder so Ken's prompt names the coding agent consistently with the pinned upstream-20260911 Ken text (owner decision, 2026-10-29). Imported by the 2026-10-29 selective upstream sync (5789eabb).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20261029-974e64b40ee6",
+      "path": "packages/gg-ai/src/providers/xai.test.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:expect\\(requestOptions\\.headers\\?\\.\\[\"x-grok-conv-id\"\\]\\)\\.toBe\\(\"ggcoder:session-1\"\\);|promptCacheKey: \"ggcoder:session-1\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "The xAI conversation-id test uses the retained ggcoder:<session> prompt-cache key (LEGACY_CODER_PROMPT_CACHE_PREFIX), which routes requests and keeps cache continuity. Imported by the 2026-10-29 selective upstream sync (507281c5).",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "packed-20261029-988943721d31",
+      "path": "packages/gg-ai/dist/index.cjs.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:            \\\\\"x-grok-conv-id\\\\\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \\\\\"ggcoder\\\\\"\\),)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (507281c5): the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-708209338a34",
+      "path": "packages/gg-ai/dist/index.cjs",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"x-grok-conv-id\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \"ggcoder\"\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (507281c5): the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-08db94b1fd82",
+      "path": "packages/gg-ai/dist/index.js.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:            \\\\\"x-grok-conv-id\\\\\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \\\\\"ggcoder\\\\\"\\),)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (507281c5): the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-b545a0481bf2",
+      "path": "packages/gg-ai/dist/index.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"x-grok-conv-id\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \"ggcoder\"\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (507281c5): the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-0ae72e7d390a",
+      "path": "packages/gg-boss/dist/chunk-????????.js.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:            \\\\\"x-grok-conv-id\\\\\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \\\\\"ggcoder\\\\\"\\),|    const mtime = await lastUsedGgcoderSessionMtime\\(dir\\);|    const value = await readFirstFromGgcoderFile\\(file\\.path, extractor\\);|    if \\(await readFirstFromGgcoderFile\\(file\\.path, ggcoderMessageExtractor\\)\\) return file\\.mtime;| \\* Last activity in a ggcoder session store, counting only sessions that| \\* Stream one ggcoder session file, plain or archived, and return the first|async function lastUsedGgcoderSessionMtime\\(dir: string\\): Promise<number \\| null> \\{|async function readFirstFromGgcoderFile\\(|const ggcoderMessageExtractor: LineExtractor = \\(line\\) => \\{)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 10
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (32dee6ec, 507281c5): identifiers and comments naming the persisted ggcoder session store (the source contract of upstream-20261029-09e156f193f6); the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-067334588170",
+      "path": "packages/gg-boss/dist/chunk-????????.js.map",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?: \\*   <runnable GG Coder prompt body: a few lines, or a short bullet list>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (5789eabb): Ken mentor wording kept as GG Coder (owner decision, 2026-10-29). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-c9329b558ad3",
+      "path": "packages/gg-boss/dist/chunk-????????.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"x-grok-conv-id\": normalizePromptCacheKey\\(options\\.promptCacheKey \\?\\? \"ggcoder\"\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (507281c5): the x-grok-conv-id header, which falls back to the retained ggcoder prompt-cache key (classified in source by openai-provider-identity). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-91f8618b83fd",
+      "path": "packages/ggcoder/dist/core/autopilot-verdict.d.ts",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\*   <runnable GG Coder prompt body: a few lines, or a short bullet list>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (5789eabb): Ken mentor wording kept as GG Coder (owner decision, 2026-10-29). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-d52c2c4f5922",
+      "path": "packages/ggcoder/dist/core/autopilot-verdict.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\*   <runnable GG Coder prompt body: a few lines, or a short bullet list>)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (5789eabb): Ken mentor wording kept as GG Coder (owner decision, 2026-10-29). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-420b80b44765",
+      "path": "packages/ggcoder/dist/core/ken-context.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\"ALL_CLEAR, IGNORE, or HUMAN\\), with the payload after\\. If GG Coder ended by \" \\+|intro: \"## Who you are\\\\nYou are Ken Kai, mentoring the user inside GG Coder\\. Your persona is in your system prompt\\. Below is what GG Coder and the user are working on\\.\",|intro: \"## Your role\\\\nYou are Ken Kai in autopilot, reviewing GG Coder's just-finished turn\\. No user is in this conversation; a machine parses your reply\\. Below is the work under review\\.\",)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 4
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (5789eabb): Ken mentor wording kept as GG Coder (owner decision, 2026-10-29). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-debc0c2efeb6",
+      "path": "packages/ggcoder/dist/core/ken-prompt.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:`PROMPT\\\\n<a runnable GG Coder prompt: a few lines, or a short bullet list when ` \\+|`known in-scope gap\\. The prompt body should tell GG Coder to fix it AND prove it ` \\+|`only if GG Coder needs it to do the work>\\\\n\\\\n` \\+|`what to do and why, never raw code to paste\\. One coherent unit of work\\. Prefer prompts that tell GG Coder ` \\+|`when GG Coder itself needs it to do the job\\. The parser reads the FIRST line ` \\+)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 5
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (5789eabb): Ken mentor wording kept as GG Coder (owner decision, 2026-10-29). No allowance for new engine dependency names.",
+      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
+    },
+    {
+      "id": "packed-20261029-a8036109ece2",
+      "path": "packages/ggcoder/dist/core/project-discovery.js",
+      "scope": "content",
+      "targets": [
+        "packed"
+      ],
+      "match": {
+        "regex": "(?:\\* Last activity in a ggcoder session store, counting only sessions that|\\* Stream one ggcoder session file, plain or archived, and return the first|async function lastUsedGgcoderSessionMtime\\(dir\\) \\{|async function readFirstFromGgcoderFile\\(file, extractor\\) \\{|const ggcoderMessageExtractor = \\(line\\) => \\{|const mtime = await lastUsedGgcoderSessionMtime\\(dir\\);|const value = await readFirstFromGgcoderFile\\(file\\.path, extractor\\);|if \\(await readFirstFromGgcoderFile\\(file\\.path, ggcoderMessageExtractor\\)\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "packed": 9
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Emitted contexts of upstream text imported by the 2026-10-29 selective sync (32dee6ec): identifiers and comments naming the persisted ggcoder session store (the source contract of upstream-20261029-09e156f193f6). No allowance for new engine dependency names.",
       "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
     },
     {

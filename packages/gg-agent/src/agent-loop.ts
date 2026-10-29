@@ -3,6 +3,7 @@ import {
   stream,
   EventStream,
   GGAIError,
+  ResponseStalledError,
   type Message,
   type ToolCall,
   type ToolResult,
@@ -326,6 +327,9 @@ export function classifyOverload(
     statusCode === 503 ||
     statusCode === 504 ||
     statusCode === 507 ||
+    // Cloudflare edge errors (origin unreachable, timed out). api.anthropic.com
+    // returned a 520 HTML page mid-run in the 2026-10-09 arena; it is transient.
+    (statusCode !== undefined && statusCode >= 520 && statusCode <= 524) ||
     msg.includes("api_error") ||
     msg.includes("server_error") ||
     msg.includes("internal server error") ||
@@ -592,6 +596,16 @@ export async function* agentLoop(
   let overloadRetries = 0;
   let emptyResponseRetries = 0;
   let stallRetries = 0;
+  // Set once per logical turn when a stall killed a long-running tool call,
+  // so the replay asks for smaller pieces instead of regenerating the same
+  // oversized call (which dies the same way every time).
+  let splitToolCallHintAdded = false;
+  // Sticky across the stall retries of one logical turn: any attempt died while
+  // a tool call's input was still open. Feeds the exhausted-retries error.
+  let stalledInToolCall = false;
+  // Sticky across the same retries: some attempt received provider events, so
+  // the provider was reachable and the replies just never finished.
+  let stalledAfterConnecting = false;
   let runawayToolcallRetries = 0;
   let overflowCompactionAttempts = 0;
   let toolResultTruncationAttempted = false;
@@ -624,6 +638,12 @@ export async function* agentLoop(
     "[Your previous response was cut off by a connection failure. The text " +
     "above is what was already delivered to the user. Continue exactly from " +
     "where it stopped — do not repeat or restart it.]";
+  const SPLIT_TOOL_CALL_PROMPT =
+    "[Your previous response was cut off while you were still writing a tool " +
+    "call's arguments, after minutes without data from the provider. None of " +
+    "that call was applied. Do not resend it as one large call: split the " +
+    "work into smaller pieces (e.g. a shorter first version, then further " +
+    "edits, or one file per call).]";
   // Bounded auto-continue after the model hits its output-token limit
   // (stopReason "max_tokens" with no tool calls). The assistant partial is
   // already in history, so the continuation resumes exactly where the output
@@ -684,7 +704,9 @@ export async function* agentLoop(
   // planning turns were observed thinking silently for 3.5-4min and past 5min,
   // so 5min here aborted real work and replayed it from zero.
   const STREAM_THINKING_IDLE_TIMEOUT_MS = 600_000; // 10min idle after thinking
-  const STREAM_THINKING_HARD_TIMEOUT_MS = 900_000; // 15min hard cap with thinking
+  // A live stream (deltas or SSE pings) is never idle, so this cap alone ends it.
+  // A long think plus a big file write passes 15min; Claude Code's longest wait is 30min.
+  const STREAM_THINKING_HARD_TIMEOUT_MS = 1_800_000; // 30min hard cap with thinking
   // Non-streaming mode has no per-event idle -- the entire response arrives in
   // one HTTP round-trip. Use a single generous hard cap instead. This matches
   // Claude Code's v2.1.110/111 behaviour: cap non-streaming retries so API
@@ -692,9 +714,13 @@ export async function* agentLoop(
   // that slow-but-healthy backends get killed.
   const NON_STREAMING_HARD_TIMEOUT_MS = 300_000; // 5min for full non-streaming response
   // A thinking turn replayed non-streaming must still fit silent thinking plus
-  // the full visible output in one round-trip, so it gets the thinking cap.
+  // the full visible output in one round-trip. Nothing arrives until it's done,
+  // so a hung request can't be told apart from a slow one: keep this at 15min.
+  const NON_STREAMING_THINKING_HARD_TIMEOUT_MS = 900_000;
   const nonStreamingHardTimeoutMs =
-    options.thinking != null ? STREAM_THINKING_HARD_TIMEOUT_MS : NON_STREAMING_HARD_TIMEOUT_MS;
+    options.thinking != null
+      ? NON_STREAMING_THINKING_HARD_TIMEOUT_MS
+      : NON_STREAMING_HARD_TIMEOUT_MS;
   // A stall retry is announced when the failed attempt already kept the user
   // waiting this long; quick transient blips stay silent.
   const VISIBLE_STALL_AFTER_MS = 60_000;
@@ -707,8 +733,14 @@ export async function* agentLoop(
   // accounts or network paths repeatedly trip the 45s first-event / 90s hard
   // caps even though the model is still working. Once output starts flowing,
   // the normal mid-stream timeout takes over.
+  // xAI is in this set unconditionally: Grok 4.7 cannot disable reasoning, so
+  // even a thinking-off turn reasons first, and whether reasoning summaries
+  // stream while it does is not guaranteed on every route (the subscription
+  // CLI proxy is undocumented). xAI asks clients to allow >=900s per request.
   const usesSilentReasoningBudget =
-    options.provider === "sakana" || (options.provider === "openai" && options.thinking != null);
+    options.provider === "sakana" ||
+    options.provider === "xai" ||
+    (options.provider === "openai" && options.thinking != null);
   // A local backend (llama.cpp, vLLM, Ollama, LM Studio) can prefill a large
   // prompt for minutes before its first token. Aborting there guarantees a
   // retry that prefills from cold again, so the first-event watchdog is off for
@@ -722,7 +754,7 @@ export async function* agentLoop(
       : STREAM_FIRST_EVENT_TIMEOUT_MS; // 45s
   const baseHardTimeoutMs =
     localBackend || usesSilentReasoningBudget
-      ? STREAM_THINKING_HARD_TIMEOUT_MS // 10min absolute cap before output
+      ? STREAM_THINKING_HARD_TIMEOUT_MS // 30min absolute cap before output
       : STREAM_HARD_TIMEOUT_MS; // 90s
   // Runaway tool-call circuit breaker. When a model glitches mid-tool-call it
   // can emit tens of thousands of toolcall_delta events without ever closing.
@@ -1001,6 +1033,12 @@ export async function* agentLoop(
           clearToolUses: options.clearToolUses,
           userAgent: options.userAgent,
           defaultHeaders: options.defaultHeaders,
+          fetch: options.fetch,
+          // Raw bytes (incl. SSE pings) prove the connection is alive during
+          // silent thinking; only re-arm an armed timer, never mid-yield.
+          onTransportActivity: () => {
+            if (idleTimer && !streamController.signal.aborted) resetIdleTimer();
+          },
           // Flip to non-streaming fallback after repeated stream stalls.
           ...(useNonStreamingFallback ? { streaming: false } : {}),
         });
@@ -1065,7 +1103,13 @@ export async function* agentLoop(
           }
           // Track thinking events — extends idle timeout and hard timeout
           // so reasoning models aren't killed during thinking→output transition.
-          if (event.type === "thinking_delta" && !hasReceivedThinking) {
+          // Hidden reasoning (thinking display off on a model that always
+          // reasons) arrives as a flagged keepalive; it needs the same budget.
+          if (
+            (event.type === "thinking_delta" ||
+              (event.type === "keepalive" && event.reasoning === true)) &&
+            !hasReceivedThinking
+          ) {
             hasReceivedThinking = true;
             // Extend the hard timeout now that we know the model is reasoning
             if (hardTimer) clearTimeout(hardTimer);
@@ -1390,6 +1434,12 @@ export async function* agentLoop(
         const socketDrop = isTransportFailure(err);
         const transportFailure =
           (idleTimedOut || malformed || socketDrop) && !options.signal?.aborted;
+        const attemptMs = Date.now() - streamCallStart;
+        if (transportFailure && toolInputOpen) stalledInToolCall = true;
+        // The provider answered and then went quiet — as opposed to never
+        // answering at all. Non-streamed attempts carry no events, so this
+        // stays sticky from the streamed attempts that preceded them.
+        if (transportFailure && streamEventCount > 0) stalledAfterConnecting = true;
         if (transportFailure && stallRetries < MAX_STALL_RETRIES) {
           stallRetries++;
           const cause = malformed
@@ -1431,6 +1481,24 @@ export async function* agentLoop(
             });
             preservedChars = attemptText.length;
           }
+          // A tool call that stayed open for minutes before the stream died is
+          // almost always one oversized write: the replay regenerates the same
+          // call and hits the same wall. Ask for smaller pieces, once per turn.
+          // The partial call was never added to history, so only the hint lands.
+          let splitHint = false;
+          if (toolInputOpen && attemptMs >= VISIBLE_STALL_AFTER_MS && !splitToolCallHintAdded) {
+            splitToolCallHintAdded = true;
+            splitHint = true;
+            messages.push({
+              role: "user" as const,
+              content: SPLIT_TOOL_CALL_PROMPT,
+              provenance: {
+                source: "runtime" as const,
+                kind: "continuation" as const,
+                visibility: "hidden" as const,
+              },
+            });
+          }
           diag("retry", {
             reason: cause,
             attempt: stallRetries,
@@ -1439,6 +1507,7 @@ export async function* agentLoop(
             events: streamEventCount,
             nonStreaming: useNonStreamingFallback,
             preservedChars,
+            splitHint,
           });
           yield {
             type: "retry" as const,
@@ -1471,9 +1540,28 @@ export async function* agentLoop(
             eventTypes: eventTypeCounts,
             lastEventType,
             sinceLastEventMs: Date.now() - lastEventTime,
-            attemptDurationMs: Date.now() - streamCallStart,
+            attemptDurationMs: attemptMs,
             maxConsumerLagMs,
+            stalledAfterConnecting,
+            stalledInToolCall,
           });
+          if (stalledAfterConnecting) {
+            yield {
+              type: "error" as const,
+              error: new ResponseStalledError(
+                `The provider stopped sending data before the response finished, ` +
+                  `${MAX_STALL_RETRIES} automatic retries in a row. Your conversation is preserved.`,
+                {
+                  inToolCall: stalledInToolCall,
+                  hint: stalledInToolCall
+                    ? "The model was writing one very large tool call each time. Ask it to make the change in smaller pieces (shorter files or several edits), then retry."
+                    : "Retry once. If it keeps happening, choose another model or lower the thinking level, and disable any VPN or proxy that may buffer streamed responses.",
+                  cause: err,
+                },
+              ),
+            };
+            break;
+          }
           yield {
             type: "error" as const,
             error: new GGAIError(
@@ -1533,6 +1621,9 @@ export async function* agentLoop(
 
       overloadRetries = 0;
       stallRetries = 0;
+      splitToolCallHintAdded = false;
+      stalledInToolCall = false;
+      stalledAfterConnecting = false;
       runawayToolcallRetries = 0;
 
       // Detect empty/degenerate responses — the API occasionally returns 0 tokens
@@ -1799,6 +1890,7 @@ export async function* agentLoop(
         maxTurnToolResultChars: options.maxTurnToolResultChars,
         toolMap,
         invalidToolArgumentCounts,
+        countedInvalidArguments: new Set<string>(),
         markFatalToolArgumentError,
         seenToolCalls: new Set<string>(),
         transformToolDetails: options.transformToolDetails,
@@ -1983,6 +2075,13 @@ interface ToolBatchExecutionOptions {
   toolMap: Map<string, AgentTool>;
   invalidToolArgumentCounts: Map<string, number>;
   /**
+   * Invalid-argument failures already counted in this batch. One assistant
+   * response is one attempt: parallel calls failing the same way (Haiku 5.5
+   * once sent 10 broken `edit` calls at once) add a single strike, so the
+   * model always sees the error before the 3-attempt limit can end the run.
+   */
+  countedInvalidArguments: Set<string>;
+  /**
    * `recoverable` flags the case where the failing call's raw args were a
    * completely empty object -- the signature of a provider stream that cut
    * off before emitting any `input_json_delta` for the tool call, rather
@@ -2122,8 +2221,11 @@ async function executeSingleToolCall(
         // received Z" lines so the next call comes back with valid args.
         const prettyError = prettifyError(err);
         const failureKey = `${toolCall.name}:${prettyError}`;
-        const failureCount = (options.invalidToolArgumentCounts.get(failureKey) ?? 0) + 1;
+        const alreadyCounted = options.countedInvalidArguments.has(failureKey);
+        const failureCount =
+          (options.invalidToolArgumentCounts.get(failureKey) ?? 0) + (alreadyCounted ? 0 : 1);
         options.invalidToolArgumentCounts.set(failureKey, failureCount);
+        options.countedInvalidArguments.add(failureKey);
         invalidArgAttempt = failureCount;
         resultContent =
           `Invalid arguments for tool \`${toolCall.name}\`:\n` +

@@ -11,6 +11,7 @@ import { resolveShell } from "../core/shell.js";
 import { localOperations } from "./operations.js";
 import { existsSync } from "node:fs";
 import { useFakeHome } from "../test-support/fake-home.js";
+import { keepAliveWhileOwnerLives } from "../test-support/keep-alive.js";
 
 let restoreHome: (() => void) | undefined;
 let tmpHome: string;
@@ -297,6 +298,77 @@ describe.skipIf(process.platform === "win32")("createBashTool on a real POSIX sh
     expect(out).toContain("ok");
     expect(out).toContain("Exit code: 0");
   });
+
+  // `cmd &` leaves a process holding the shell's stdout/stderr, so the pipes
+  // stay open after the shell exits. The call must finish shortly after the
+  // shell does, not when the leftover exits or the timeout fires.
+  it("finishes shortly after the shell exits when a backgrounded child holds the output", async () => {
+    const tool = createBashTool(tmpHome, new ProcessManager());
+    const started = Date.now();
+    const out = String(
+      await tool.execute(
+        { command: 'sleep 30 & echo "leftover=$!"', timeout: 60_000 },
+        ctx("posix-leftover"),
+      ),
+    );
+
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(out).toContain("Exit code: 0");
+    expect(out).toContain("run_in_background");
+    const leftoverPid = Number(out.match(/leftover=(\d+)/)?.[1]);
+    expect(leftoverPid).toBeGreaterThan(0);
+    // The leftover is stopped rather than orphaned untracked.
+    for (let attempt = 0; attempt < 100 && isProcessAlive(leftoverPid); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(isProcessAlive(leftoverPid)).toBe(false);
+  });
+
+  it("keeps a short-lived child's trailing output", async () => {
+    const tool = createBashTool(tmpHome, new ProcessManager());
+    const out = String(
+      await tool.execute({ command: "(sleep 0.2; echo later) & echo now" }, ctx("posix-trailing")),
+    );
+
+    expect(out).toContain("now");
+    expect(out).toContain("later");
+    expect(out).not.toContain("run_in_background");
+  });
+
+  // Stop can land while the command is still being prepared (sandbox setup is
+  // async). A listener added to an already-aborted signal never fires, so
+  // without a check the command would start and run to the end.
+  describe("Stop pressed before the command starts", () => {
+    async function runCancelledDuringSetup(params: {
+      command: string;
+      persist?: boolean;
+      run_in_background?: boolean;
+    }): Promise<string> {
+      const manager = new ProcessManager();
+      const tool = createBashTool(tmpHome, manager);
+      const controller = new AbortController();
+      const pending = tool.execute(params, { signal: controller.signal, toolCallId: "stop" });
+      // execute() is now awaiting launch preparation.
+      controller.abort();
+      const out = String(await pending);
+      // Anything wrongly started gets time to act before the check below.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await shutdownAndWait(manager);
+      return out;
+    }
+
+    it.each([
+      ["a normal call", {}],
+      ["a persistent-shell call", { persist: true }],
+      ["a background call", { run_in_background: true }],
+    ])("does not run %s", async (_label, mode) => {
+      const marker = path.join(tmpHome, "ran.txt");
+      const out = await runCancelledDuringSetup({ command: `touch ${marker}`, ...mode });
+
+      expect(out).toContain("cancelled before it started");
+      expect(existsSync(marker)).toBe(false);
+    });
+  });
 });
 
 describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", () => {
@@ -372,7 +444,7 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
     // a backslash path inside a JS string inside a bash command means bash eats
     // the escapes (`\U`, `\b` → backspace) and the write lands somewhere else.
     const pidFile = path.join(tmpHome, "grandchild.pid").replaceAll("\\", "/");
-    const script = `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
+    const script = `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); ${keepAliveWhileOwnerLives()}`;
     const tool = createBashTool(tmpHome, newManager());
 
     const out = String(

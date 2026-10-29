@@ -331,7 +331,7 @@ describe("AgentSession stale tool-output pruning", () => {
     expect(compactMock).not.toHaveBeenCalled();
   });
 
-  it("discards the turn's provider usage after a prune so freed tokens defer compaction", async () => {
+  it("takes the freed tokens off the provider's count after a prune, never re-estimating the history", async () => {
     shouldCompactMock.mockReturnValue(false);
 
     agentLoopMock.mockImplementation(async function* (
@@ -373,8 +373,9 @@ describe("AgentSession stale tool-output pruning", () => {
         { role: "user", content: "turn 3" },
       );
       // Usage counted the soon-to-be-pruned 150k-char read. After the prune
-      // it must NOT reach shouldCompact — estimation on the pruned history
-      // takes over instead.
+      // the count must come down by the freed tokens, but stay anchored to
+      // the provider's figure: a whole-history estimate rides a shared
+      // chars-per-token ratio that once read a 234K MiMo context as ~400K.
       await options.transformContext!(messages, {
         usage: { inputTokens: 180_000, outputTokens: 500 },
         pendingMessages: [],
@@ -394,16 +395,20 @@ describe("AgentSession stale tool-output pruning", () => {
     await session.prompt("prune usage fallback");
     await session.dispose();
 
-    // No shouldCompact call may carry the stale 180k usage figure after the
-    // prune: the in-loop transform estimates the pruned history, and the
-    // post-turn background probe runs with no provider context at all. Every
-    // call that reports tokens must be far below the stale usage.
+    // The in-loop decision after the prune: below the stale 180,500 (the
+    // freed tokens defer compaction), but still the provider's count minus
+    // what was freed — at most 150k chars / 2 chars-per-token = 75k — not an
+    // estimate of the (tiny, synthetic) history, which would be far lower.
     const numericCalls = shouldCompactMock.mock.calls
       .map((call) => call[3])
       .filter((tokens): tokens is number => typeof tokens === "number");
     expect(numericCalls.length).toBeGreaterThan(0);
-    for (const actualTokens of numericCalls) {
-      expect(actualTokens).toBeLessThan(50_000);
+    const afterPrune = numericCalls[0] ?? 0;
+    expect(afterPrune).toBeLessThan(180_500);
+    expect(afterPrune).toBeGreaterThanOrEqual(180_500 - 75_000);
+    // The post-turn probe carries no stale figure either.
+    for (const actualTokens of numericCalls.slice(1)) {
+      expect(actualTokens).toBeLessThan(180_500);
     }
   });
 });
@@ -691,6 +696,54 @@ describe("AgentSession mid-turn compaction", () => {
       160_000, // policy.targetTokens: 0.8 × 200K window (anthropic carries no latency cap)
     );
     expect(compactMock.mock.calls.at(-1)?.[0]).toContainEqual(pendingMessage);
+  });
+
+  it("keeps the run's post-compaction messages when the run then fails", async () => {
+    shouldCompactMock.mockReturnValue(true);
+    // A fresh array per call, like the real compactor.
+    compactMock.mockImplementation(async () =>
+      compactionResult([
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "[compacted in-flight history]" },
+      ]),
+    );
+    const postCompaction: Message[] = [
+      { role: "assistant", content: [{ type: "tool_call", id: "t2", name: "read", args: {} }] },
+      { role: "tool", content: [{ type: "tool_result", toolCallId: "t2", content: "out" }] },
+    ];
+    agentLoopMock.mockImplementation(async function* (
+      messages: Message[],
+      options: {
+        transformContext?: (m: Message[], o: TransformContextOptions) => Promise<Message[]>;
+      },
+    ) {
+      // Mirrors agentLoop: adopt the compacted history in place, keep going, then fail.
+      const transformed = await options.transformContext!(messages, { pendingMessages: [] });
+      messages.length = 0;
+      messages.push(...transformed, ...postCompaction);
+      yield {
+        type: "turn_end",
+        turn: 1,
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+      throw new Error("provider rejected the request");
+    });
+
+    const { AgentSession } = await import("./agent-session.js");
+    const session = new AgentSession({
+      provider: "anthropic",
+      model: "claude-test",
+      cwd: tmpProject,
+      systemPrompt: "system prompt",
+      transient: true,
+    });
+    await session.initialize();
+    await expect(session.prompt("run a tool loop")).rejects.toThrow("provider rejected");
+    const history = session.getMessages();
+    await session.dispose();
+
+    expect(history.slice(-2)).toEqual(postCompaction);
   });
 
   it("reuses authoritative usage for the first context check of the next prompt", async () => {

@@ -30,6 +30,11 @@ import {
   isAdaptiveThinkingModel,
 } from "./transform.js";
 import { isJsonObject } from "../utils/json.js";
+import {
+  PROVIDER_TRANSPORT_TIMEOUT_MS,
+  providerFetch,
+  withBodyActivity,
+} from "../utils/provider-fetch.js";
 
 /** Frozen request identity required by Anthropic's Claude Code OAuth edge. */
 export const ANTHROPIC_OAUTH_TOKEN_PREFIX = "sk-ant-oat";
@@ -65,9 +70,11 @@ const anthropicClientCache = new Map<string, Anthropic>();
  * ceiling (~32K), so the fallback tripped this every time. The SDK only runs
  * that pre-flight check when the *client* carries no explicit `timeout`, so we
  * set one here to bypass it. The agent loop already bounds this call with its
- * own abort signal (NON_STREAMING_HARD_TIMEOUT_MS), so this is just a ceiling.
+ * own abort signal (up to 15min for thinking turns), so this is just a ceiling
+ * and must not undercut it: the whole reply is one response, so a 10min value
+ * here would abort a healthy long thinking turn.
  */
-const NON_STREAMING_REQUEST_TIMEOUT_MS = 600_000;
+const NON_STREAMING_REQUEST_TIMEOUT_MS = PROVIDER_TRANSPORT_TIMEOUT_MS;
 
 /**
  * Fine-grained (eager) tool-input streaming is OFF by default.
@@ -109,7 +116,8 @@ function createClient(options: StreamOptions): Anthropic {
       ? { apiKey: null as unknown as string, authToken: options.apiKey }
       : { apiKey: options.apiKey }),
     ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    // Default transport lifts undici's 300s header/body caps (see provider-fetch.ts).
+    fetch: options.fetch ?? providerFetch,
     maxRetries: 0,
     ...(isOAuth
       ? {
@@ -400,7 +408,11 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     // request before our async iterator attaches listeners, its iterator can miss
     // the already-emitted error/end event and wait forever. That surfaced as the
     // CLI sitting on "Working..." when an OAuth account ran out of usage.
-    const stream = (await client.messages.create(
+    const onActivity = options.onTransportActivity;
+    const streamClient = onActivity
+      ? client.withOptions({ fetch: withBodyActivity(options.fetch ?? providerFetch, onActivity) })
+      : client;
+    const stream = (await streamClient.messages.create(
       params as Anthropic.MessageCreateParamsStreaming,
       requestOptions,
     )) as AsyncIterable<Anthropic.MessageStreamEvent>;

@@ -104,7 +104,7 @@
     "verify:goal:e2e": "pnpm dlx tsx scripts/verify-goal-e2e.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.75",
+    "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@kenkaiiii/agent-home-sdk": "^0.3.8",
     "@kleio/agent": "workspace:*",

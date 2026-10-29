@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { findMotionBundle, type MotionBundle } from "../core/skills.js";
 import { createMotionCheckTool, spotSampleTimes } from "./motion-check-tool.js";
+import { keepAliveWhileOwnerLives } from "../test-support/keep-alive.js";
 
 const exec = promisify(execFile);
 // Each test spawns real FFmpeg, ffprobe and Node processes. On the Windows CI runner a
@@ -55,7 +56,7 @@ async function setRuntime(
   // Like the real launcher: on SIGTERM the CLI exits 0 without printing a report.
   const body = hang
     ? `process.on('SIGTERM', () => process.exit(0));
-setInterval(() => {}, 1000);`
+${keepAliveWhileOwnerLives()}`
     : `process.stderr.write(${JSON.stringify(stderr)});
 console.log(${JSON.stringify(JSON.stringify(report))});
 process.exitCode = ${exitCode};`;
