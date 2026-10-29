@@ -31,7 +31,7 @@
     "@anthropic-ai/sdk": "^0.124.0",
     "@bokuweb/zstd-wasm": "^0.0.27",
     "openai": "^7.13.0",
-    "undici": "7.29.1",
+    "undici": "7.30.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
