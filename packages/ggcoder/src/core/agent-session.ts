@@ -2836,6 +2836,12 @@ export class AgentSession {
         }
       } finally {
         this.activeLoopMessages = null;
+        // An in-flight compaction rebinds `this.messages` to the compacted array
+        // while the loop keeps appending to `loopMessages`. Resync on every exit
+        // — a failed or aborted run included — or the session silently drops
+        // this run's post-compaction messages (they are still on disk) and the
+        // next prompt replays a history the provider may reject.
+        this.messages = loopMessages;
       }
     };
 
