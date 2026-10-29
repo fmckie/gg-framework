@@ -17,26 +17,58 @@
     "lastImportedAt": "2026-09-30"
   },
   "previousIntegration": {
-    "branch": "sync/upstream-fdab3f18",
-    "baseCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
-    "upstreamCommits": 44,
-    "desktopVersion": "0.65.0",
-    "verification": "Local macOS build/check/test/lint/format, fixed versions, staged/packed identity, actual archives, negative checks, sidecar smoke, all size/startup gates, 515 app tests, 77 Rust tests and unsigned native production build passed; cross-platform results are tracked in PR #2 checks",
+    "branch": "sync/upstream-3f2bb6bc",
+    "baseCommit": "eddf755e",
+    "upstreamCommit": "3f2bb6bc716198dc223365520374363a56bff051",
+    "upstreamCommits": 40,
+    "engineVersion": "5.66.2",
+    "desktopVersion": "0.73.2",
+    "verification": "Local workspace check, all package tests, lint, format, fixed versions and identity audit passed (recorded in f9d55906); PR #14's six Linux/macOS/Windows CI jobs passed on 221ff255 (run 36754104760)",
     "status": "merged",
-    "pullRequest": "https://github.com/fmckie/gg-framework/pull/2",
-    "integrationCommit": "9972757d69935e8fe7041316646acac30e5b0942",
-    "mergeCommit": "99073ea3",
-    "published": true,
-    "publishedAs": "5.60.2-kleio.1",
-    "publishedTag": "v5.60.2-kleio.1",
-    "publishedCommit": "28c9162d",
-    "publishedAt": "2026-09-22"
+    "pullRequest": "https://github.com/fmckie/gg-framework/pull/14",
+    "integrationCommit": "f9d5590681e73bc9a727533132504cc74813db08",
+    "mergeCommit": "005a94e3",
+    "fixedVersion": "5.66.2-kleio.1",
+    "published": false
   },
+  "integrationHistory": [
+    {
+      "branch": "sync/upstream-fdab3f18",
+      "baseCommit": "2a4ba011806ba6795b44c96d2b76261cfd3c98b2",
+      "upstreamCommits": 44,
+      "desktopVersion": "0.65.0",
+      "verification": "Local macOS build/check/test/lint/format, fixed versions, staged/packed identity, actual archives, negative checks, sidecar smoke, all size/startup gates, 515 app tests, 77 Rust tests and unsigned native production build passed; cross-platform results are tracked in PR #2 checks",
+      "status": "merged",
+      "pullRequest": "https://github.com/fmckie/gg-framework/pull/2",
+      "integrationCommit": "9972757d69935e8fe7041316646acac30e5b0942",
+      "mergeCommit": "99073ea3",
+      "published": true,
+      "publishedAs": "5.60.2-kleio.1",
+      "publishedTag": "v5.60.2-kleio.1",
+      "publishedCommit": "28c9162d",
+      "publishedAt": "2026-09-22"
+    },
+    {
+      "branch": "sync/upstream-3d36e760",
+      "baseCommit": "fba4a4dc",
+      "upstreamCommit": "3d36e760b54f6268a3a01ec5546d2744c383ba12",
+      "upstreamCommits": 49,
+      "engineVersion": "5.64.1",
+      "desktopVersion": "0.70.3",
+      "status": "merged",
+      "pullRequest": "https://github.com/fmckie/gg-framework/pull/13",
+      "integrationCommit": "ae6e998900dc85aace53e2076dade20d505499b1",
+      "mergeCommit": "005a94e3",
+      "mergedVia": "https://github.com/fmckie/gg-framework/pull/14",
+      "fixedVersion": "5.64.1-kleio.1",
+      "published": false
+    }
+  ],
   "localIntegration": {
-    "branch": "sync/upstream-3d36e760",
-    "baseCommit": "fba4a4dc",
-    "upstreamCommits": 49,
-    "desktopVersion": "0.70.3",
+    "branch": "sync/upstream-selective-20261029",
+    "baseCommit": "3562294b",
+    "kind": "selective",
+    "upstreamTip": "988f920ef6aad72e2a2196eb16ce6ac1b9096ea3",
     "status": "pending",
     "preservedProjects": [
       "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",
@@ -46,6 +78,49 @@
       "Matey", "experiments"
     ]
   },
+  "selectiveImports": [
+    {
+      "branch": "sync/upstream-selective-20261029",
+      "baseCommit": "3562294bbd73b34d7f4ab152387f63e0ade49192",
+      "upstreamTip": "988f920ef6aad72e2a2196eb16ce6ac1b9096ea3",
+      "upstreamTipVersion": "5.87.2",
+      "upstreamTipDesktopVersion": "0.97.5",
+      "reviewedCommits": 245,
+      "importedAt": "2026-10-29",
+      "status": "pending",
+      "rule": "upstream.lastImportedCommit stays 3f2bb6bc because the fork does not contain everything up to any later upstream commit; a later full sync must treat these commits as already applied",
+      "picked": [
+        {"upstream": "946c45979c27151c4a1e5ce72747fe138a2a8eeb", "downstream": "ee2b9037e34370e1f2659336f734b658b66a15cb"},
+        {"upstream": "32dee6ec8542a1e8d2df44e02e3c781f9f0619f0", "downstream": "70aec92086d74ff8f67aac020b67c8f1641aba1e"},
+        {"upstream": "9510f2a7300ef86e600065a0b142e26f9844b7aa", "downstream": "d5256f0542edf6316675d450631bac4d41f24359"},
+        {"upstream": "5789eabb7aa8b94a01480b07747ffd7c5a445018", "downstream": "a0ba9818dc30bb336782fb63104b9a367252b51e"},
+        {"upstream": "c5018a4af12ab7a49d251650026e37f6f75779a7", "downstream": "b76dd3be258e0adff371715c359e31be27db4573"},
+        {"upstream": "1024122905b869ccda3e29f768b127db23e1891c", "downstream": "e4bb6ac8d563dcb0794699b71b5f106672b3c547"},
+        {"upstream": "182b4dfd32ed41b2e5158100e0a8a10a4194a68f", "downstream": "7124888d1f3e069b9f272e25d2eca1641f8a387e"},
+        {"upstream": "507281c5c4e4878573b4ee0930df8f030ad988df", "downstream": "a66e323d71237d1e76437b574d197cc186c6684a"},
+        {"upstream": "2a9e02d6f6f8375a53fcba578426b10fdd1b2613", "downstream": "0706016dad8865fd34de12bfc5a4859ef67252b9"},
+        {"upstream": "dd2c2e63c8a42a1d9d85fbb04a47bd8ea8b0682a", "downstream": "fb55a4fb820b9f40497d0837ccd2ca5c2f36d93f"},
+        {"upstream": "0954bed4fb1d8d0bc511a28ad1e417b39548700d", "downstream": "7c94db716bb5215cd664fc221ff130494f6bb874"},
+        {"upstream": "c44ae6ba84c846ccd55a2cf381c564ae6f76594d", "downstream": "54ca00a8cdafc9ff0d4dcecfb8c804da93dd7dcc"},
+        {"upstream": "db9903047999827eba17f618420897bbf06c79b7", "downstream": "a643f99e64cf56649ea785ce96410606d2540e0b"}
+      ],
+      "ported": [
+        {"upstream": "60a2495803fe89c6550eb53b61c00a8f6f93a293", "downstream": "d2e28a4a9c61ea434a265873540639f7aff6b700", "scope": "fetch passthrough only; embed(), rerank() and providerOptions not taken"},
+        {"upstream": "d493df831d3bfe5c7ef3fbda7169ba3e267e93ad", "downstream": "ef690ba31f38a8ec8ec8602d4bfdc371936db0f0", "scope": "fetch-cap half; Grok on the xAI Responses API and chat-error.ts not taken"},
+        {"upstream": "420b1ad3a0e6a2e3eb97cc159458080750e92682", "downstream": "bcec266c843b6909f69d2cc806b54f4afda4c972", "scope": "env-proxy half; verification-evidence and prompt changes not taken"},
+        {"upstream": "95615bde71dd64c615985f5c65fd0e22c55f34d0", "downstream": "cc641f201bd9f693ce26d44de2223a7a039fc7dc", "scope": "whole fix"},
+        {"upstream": "89e5af1787fd39e57cb48f1852f81aa1c739230d", "downstream": "b6a2d329ebf3d9440a2f0933caf64bd36f81843a", "scope": "whole fix; the fork's dispose() order kept"},
+        {"upstream": "0b9dbe96e6ba818d6119d50150c8c091dbf2b06a", "downstream": "73ab3385d118c1a10a5be9af9840e4c68b98b212", "scope": "lost-messages half; the deferred web_search fix needs c08602e9"},
+        {"upstream": "65e767393b19fd172a29a51f334c359aad35e817", "downstream": "e40ddd6b5f3d6bfa8645e8bca80e9571fc5c2779", "scope": "whole fix"},
+        {"upstream": "3cca7462707c7c47c8d18531354ff81a4efe9627", "downstream": "2eabe6e70946a86ca26698e992db29ab47cbf89a", "scope": "cache half; check-rule wording not taken"}
+      ],
+      "skipped": [
+        {"upstream": "7d010a4ac78eba04300d8b4592afa5e22f5c8735", "reason": "already fixed downstream by b9698ef8"},
+        {"upstream": "a359de2f864b3833427f9ff50322eae357d6b119", "reason": "fixes gg-app/src/WakeScreen.test.tsx, which only exists after upstream 3ec4e666"},
+        {"upstream": "c38df90ee1a352f9a8b9092e4b5e1868c7ba67cc", "reason": "the fork's catastrophic-command guard predates 3ec4e666 and already reads backslash paths literally"}
+      ]
+    }
+  ],
   "directRenameBaseline": {
     "commit": "ef12845",
     "version": "4.10.1",

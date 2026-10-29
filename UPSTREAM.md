@@ -105,6 +105,80 @@ comprehensive security review or a clean-audit claim.
 (prod 21 → 3, remaining three are Matey-only). Triage and accepted-risk list:
 [`docs/dependency-audit-2026-09-18.md`](docs/dependency-audit-2026-09-18.md).
 
+## Engine 5.64.1 and 5.66.2 integrations (merged)
+
+- `sync/upstream-3d36e760` ([#13](https://github.com/fmckie/gg-framework/pull/13)):
+  upstream `3d36e760b54f6268a3a01ec5546d2744c383ba12`, 49 commits, engine **5.64.1**,
+  desktop **0.70.3**. Base `fba4a4dc`, integration commit `ae6e9989`, fixed version
+  `5.64.1-kleio.1`.
+- `sync/upstream-3f2bb6bc`: upstream `3f2bb6bc716198dc223365520374363a56bff051`,
+  40 commits, engine **5.66.2**, desktop **0.73.2**. Built on the 3d36e760 branch
+  (`eddf755e`), integration commit `f9d55906`, fixed version `5.66.2-kleio.1`. It
+  also removed Matey from the tree (deleted upstream in `bbc5c7a8`).
+
+Both reached `main` through [#14](https://github.com/fmckie/gg-framework/pull/14)
+at `005a94e3` on 2026-09-30; all six CI jobs passed on `221ff255` (run
+**36754104760**), and GitHub then marked #13 merged. `upstream.lastImportedCommit`
+is `3f2bb6bc`. Neither `5.64.1-kleio.1` nor `5.66.2-kleio.1` has been published:
+npm's `latest` and `kleio` tags still point at `5.60.2-kleio.1`.
+
+## Selective import through upstream 988f920e (2026-10-29)
+
+- Upstream tip reviewed: `988f920ef6aad72e2a2196eb16ce6ac1b9096ea3` (engine **5.87.2**,
+  desktop **0.97.5**), 245 commits after `3f2bb6bc`
+- Branch: `sync/upstream-selective-20261029`, based on `main` at `3562294b`
+- `upstream.lastImportedCommit` stays `3f2bb6bc`, because the fork does not contain
+  everything up to any later upstream commit. A later full sync must treat the commits
+  below as already applied: picks carry `cherry picked from commit <sha>` and ports
+  carry `Ported from upstream <sha>`. `fork-provenance.json` `selectiveImports` holds
+  the full hashes.
+
+Picked with `git cherry-pick -x`. Conflicts were resolved against the fork's code,
+upstream changesets were dropped, and new upstream text got Kleio names or
+identity-allowlist entries:
+
+| Upstream   | Downstream | Fix                                                                                                                                                        |
+| ---------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `946c4597` | `ee2b9037` | URL passwords in redaction, cut-off ChatGPT replies, partial-read overwrites, `cmd &` bash hangs, hidden text in instruction files; sandbox-runtime 0.0.78 |
+| `32dee6ec` | `70aec920` | Project picker listing tool folders and never-used session folders                                                                                         |
+| `9510f2a7` | `d5256f05` | Window-layout menu opening behind the transcript on Windows and Linux                                                                                      |
+| `5789eabb` | `a0ba9818` | Ken autopilot review: changed files, corpus warning, user framing                                                                                          |
+| `c5018a4a` | `b76dd3be` | Cloudflare 520–524 retries; invalid tool arguments counted once per response                                                                               |
+| `10241229` | `e4bb6ac8` | Early compaction after a skewed token estimate                                                                                                             |
+| `182b4dfd` | `7124888d` | Per-provider compaction triggers instead of a flat 400K cap                                                                                                |
+| `507281c5` | `a66e323d` | `x-grok-conv-id`, so Grok reuses its prompt cache                                                                                                          |
+| `2a9e02d6` | `0706016d` | Gemini 3.1 Pro compacts under its 200K price line; the registry hunk edits a model the fork does not have                                                  |
+| `dd2c2e63` | `fb55a4fb` | Daemon log going dark; a rejected refresh wiping a newer login                                                                                             |
+| `0954bed4` | `7c94db71` | gg-app dev server reloading on Motion preview HTML                                                                                                         |
+| `c44ae6ba` | `54ca00a8` | Windows EBUSY in the dispose test                                                                                                                          |
+| `db990304` | `a643f99e` | Flaky Windows dispose test                                                                                                                                 |
+
+Ported by hand into the fork's single-file modules, because upstream's module split
+(`4f763ed2`) is not imported:
+
+| Upstream   | Downstream | Taken                                                                                               | Left out                                                            |
+| ---------- | ---------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `60a24958` | `d2e28a4a` | `AgentOptions.fetch` passthrough                                                                    | `embed()`, `rerank()`, `providerOptions`                            |
+| `d493df83` | `ef690ba3` | Provider fetch past Node's 300 s cap, `ResponseStalledError`, reasoning keepalives; `undici` 7.29.1 | Grok on xAI's Responses API, `chat-error.ts` copy                   |
+| `420b1ad3` | `bcec266c` | Env proxy kept by the provider fetch                                                                | Compound-command verification, bash note, reply-length prompt rules |
+| `95615bde` | `cc641f20` | SSE pings count as activity; 30-minute thinking cap                                                 | —                                                                   |
+| `89e5af17` | `b6a2d329` | Background commands stopped before async teardown                                                   | — (the fork's `dispose()` order is kept)                            |
+| `0b9dbe96` | `73ab3385` | Failed compacted runs keep their messages                                                           | Deferred `web_search` 400 fix, which needs `c08602e9`               |
+| `65e76739` | `e40ddd6b` | Anthropic tool-loop turns cached at 5 min, user messages at 1 h                                     | —                                                                   |
+| `3cca7462` | `2eabe6e7` | Working directory behind the uncached marker                                                        | Check-rule wording; the fork's prompt lacks those bullets           |
+
+Not taken:
+
+- `7d010a4a`: the sub-agent turn-record fix already landed downstream as `b9698ef8`.
+- `a359de2f`: fixes `gg-app/src/WakeScreen.test.tsx`, which only exists after
+  upstream `3ec4e666`.
+- `c38df90e`: the fork's catastrophic-command guard predates `3ec4e666`'s shell
+  walker and already reads `C:\Users\me` literally.
+
+The rest of `3f2bb6bc..988f920e` (features, the module split, branding, release, CI
+and version commits) is not imported. Changesets for `@kleio/ai`, `agent`, `core`
+and `coder` describe the fixes for the next release on engine 5.66.2.
+
 ## Original imported baseline
 
 - Upstream repository: `https://github.com/KenKaiii/gg-framework`
