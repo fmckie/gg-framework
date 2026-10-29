@@ -31,6 +31,7 @@ import {
 } from "./transform.js";
 import { parseToolArguments } from "../utils/json.js";
 import { readSseStream } from "../utils/sse.js";
+import { providerFetch } from "../utils/provider-fetch.js";
 import { extractRequestIdFromMessage } from "../utils/request-id.js";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";
@@ -235,7 +236,7 @@ async function* runStream(
     compressed: encodedRequest.compressed,
   });
 
-  const response = await fetch(url, {
+  const response = await providerFetch(url, {
     method: "POST",
     headers,
     body: encodedRequest.body,
@@ -465,6 +466,8 @@ async function* runStream(
     ) {
       const delta = event.delta as string;
       if (options.thinking) yield { type: "thinking_delta", text: delta };
+      // Hidden reasoning is still proof of life for the agent loop's watchdog.
+      else if (delta) yield { type: "keepalive", reasoning: true };
     }
 
     // Reasoning item started — the model has begun reasoning on the server.
@@ -478,8 +481,10 @@ async function* runStream(
       if (itemId && itemType) {
         outputItemTypes.set(itemId, itemType);
       }
-      if (itemType === "reasoning" && options.thinking) {
-        yield { type: "thinking_delta", text: "" };
+      if (itemType === "reasoning") {
+        yield options.thinking
+          ? { type: "thinking_delta", text: "" }
+          : { type: "keepalive", reasoning: true };
       }
       if (itemId && itemType) {
         const pending = [...pendingOutputTextByPart.entries()]

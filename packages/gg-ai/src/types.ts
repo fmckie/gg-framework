@@ -242,6 +242,12 @@ export interface ServerToolResultEvent {
 
 export interface KeepaliveEvent {
   type: "keepalive";
+  /**
+   * The model is reasoning, but the reasoning is hidden from the UI (thinking
+   * display off on a model that always reasons). Watchdogs treat it like a
+   * thinking delta; nothing is rendered.
+   */
+  reasoning?: true;
 }
 
 export type StreamEvent =

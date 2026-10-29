@@ -231,6 +231,9 @@ importers:
       openai:
         specifier: ^7.13.0
         version: 7.15.0(undici@7.29.1)(ws@8.21.3)(zod@4.5.4)
+      undici:
+        specifier: ^7.29.0
+        version: 7.29.1
       zod:
         specifier: 4.5.4
         version: 4.5.4

@@ -54,6 +54,7 @@ export {
   GGAIError,
   ImagesTooLargeError,
   ProviderError,
+  ResponseStalledError,
   formatError,
   formatErrorForDisplay,
   isUsageLimitError,

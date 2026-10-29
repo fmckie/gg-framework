@@ -39,6 +39,7 @@ import {
 } from "./reasoning-field.js";
 import { parseToolArguments } from "../utils/json.js";
 import { getEnvironment } from "../utils/env.js";
+import { PROVIDER_TRANSPORT_TIMEOUT_MS, providerFetch } from "../utils/provider-fetch.js";
 
 // Kimi K3's declared effort rungs (server-validated; anything else 400s).
 // Official alias mapping from Moonshot's K3 third-party-tools docs:
@@ -116,7 +117,8 @@ function createClient(options: StreamOptions): OpenAI {
   const client = new OpenAI({
     apiKey: options.apiKey,
     ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    // Default transport lifts undici's 300s header/body caps (see provider-fetch.ts).
+    fetch: options.fetch ?? providerFetch,
     ...(options.defaultHeaders ? { defaultHeaders: options.defaultHeaders } : {}),
   });
 
@@ -369,6 +371,9 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
       const completion = (await client.chat.completions.create(params, {
         signal: options.signal ?? undefined,
         ...requestHeaders,
+        // The whole reply arrives in one response, so the SDK's 10min default
+        // would undercut the agent loop's 15min thinking cap for this call.
+        timeout: PROVIDER_TRANSPORT_TIMEOUT_MS,
       })) as OpenAI.ChatCompletion;
       yield* synthesizeEventsFromCompletion(completion, !!options.thinking, endpointKey);
       return completionToResponse(completion, endpointKey);
@@ -438,6 +443,11 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
         thinkingAccum += reasoning.text;
         if (options.thinking) {
           yield { type: "thinking_delta", text: reasoning.text };
+        } else {
+          // Hidden reasoning is still proof of life. Without this, a model
+          // that always reasons (MiMo, Grok) looks silent to the agent loop's
+          // first-event watchdog while it thinks, and gets aborted mid-turn.
+          yield { type: "keepalive", reasoning: true };
         }
       }
 
