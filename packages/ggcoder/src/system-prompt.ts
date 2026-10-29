@@ -332,8 +332,8 @@ export interface SystemPromptEnvironment {
 }
 
 function renderEnvironmentSection(cwd: string, environment?: SystemPromptEnvironment): string {
-  // Static per host, so it lives in the cached prompt body: which shell bash
-  // commands actually execute under (cmd.exe fallback on bash-less Windows).
+  // Which shell bash commands actually execute under (cmd.exe fallback on
+  // bash-less Windows).
   const shellLine = resolveShell("").isCmdFallback
     ? "- Shell: cmd.exe (no bash found)"
     : "- Shell: bash (POSIX)";
@@ -352,12 +352,22 @@ function renderEnvironmentSection(cwd: string, environment?: SystemPromptEnviron
   return `## Environment\n\n${lines.join("\n")}`;
 }
 
-function renderUncachedDateSuffix(): string {
+/**
+ * Everything after the uncached marker: the Environment section and the date.
+ *
+ * The working directory differs per checkout/worktree, so it stays out of the
+ * system block the provider caches on its own. Above the marker the prompt is
+ * then identical for every session of the same project rules, wherever it
+ * lives, and a new session reads that block from cache instead of writing it
+ * again. Within a session this tail still sits inside the cached conversation
+ * prefix, so it costs nothing per request.
+ */
+function renderUncachedTail(environmentSection: string): string {
   const today = new Date();
   const day = today.getDate();
   const month = today.toLocaleString("en-US", { month: "long" });
   const year = today.getFullYear();
-  return `${UNCACHED_MARKER}\nToday's date: ${day} ${month} ${year}`;
+  return `${UNCACHED_MARKER}\n${environmentSection}\n\nToday's date: ${day} ${month} ${year}`;
 }
 
 /**
@@ -442,12 +452,9 @@ export async function buildSubAgentSystemPrompt(
   }
 
   if ((opts.role ?? "subagent") === "subagent") sections.push(SUBAGENT_RETURN_CONTRACT);
-  sections.push(
-    // Environment + date stay last so the cached prefix matches the parent's
-    // layout: everything above is stable, the date suffix is the uncached tail.
-    renderEnvironmentSection(opts.cwd, opts.environment),
-    renderUncachedDateSuffix(),
-  );
+  // Environment + date stay last, behind the marker, matching the parent's
+  // layout: everything above is stable and cached.
+  sections.push(renderUncachedTail(renderEnvironmentSection(opts.cwd, opts.environment)));
 
   return enforcePromptCeiling(sections.join("\n\n"), limits.systemPromptCeilingBytes);
 }
@@ -524,7 +531,7 @@ export async function buildSystemPrompt(
   const platformClis = renderPlatformClisSection(detectPlatformClis(cwd));
   if (platformClis) sections.push(platformClis);
 
-  sections.push(renderEnvironmentSection(cwd, environment), renderUncachedDateSuffix());
+  sections.push(renderUncachedTail(renderEnvironmentSection(cwd, environment)));
 
   return enforcePromptCeiling(sections.join("\n\n"), limits.systemPromptCeilingBytes);
 }

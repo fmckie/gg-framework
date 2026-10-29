@@ -40,13 +40,13 @@ Finish the requested task, not adjacent work.
 
 Prefer `edit` over `write` for changes to existing files. Use `find`/`grep` rather than `bash` to locate files and search content. Prefer `code_search` for “where/how is X implemented”; use `grep` for exact strings or unindexed file types. For “who calls this” / “where is this defined”, use `code_nav` — it resolves symbols exactly, across files; `grep` only matches text and misses renames, re-exports and shadowing. Batch independent read-only calls (read, grep, ls, find) into one turn — they run in parallel, so it's faster than one per turn; only serialize a call that depends on a previous result.
 
+<!-- uncached -->
 ## Environment
 
 - Working directory: <CWD>
 - Platform: <PLATFORM>
 - Shell: <SHELL>
 
-<!-- uncached -->
 Today's date: <DATE>
 
 ===== TOOL BLOCK =====
