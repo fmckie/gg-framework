@@ -346,6 +346,10 @@ export interface StreamOptions {
    *  stalls — broken SSE connections (transient CDN / proxy issues) often
    *  recover when the same request is issued over a plain HTTP request/response. */
   streaming?: boolean;
+  /** Called whenever response body bytes arrive, including SSE pings the SDK
+   *  swallows. Lets the agent loop's watchdog see a live connection while the
+   *  model thinks silently (Anthropic sends only a ping every 30s then). */
+  onTransportActivity?: () => void;
   /** Override the User-Agent sent with OAuth-authenticated Anthropic requests.
    *  Anthropic's OAuth edge rejects requests whose claude-cli version lags too
    *  far behind the real Claude Code release; callers that track the live

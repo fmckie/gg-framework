@@ -30,7 +30,11 @@ import {
   isAdaptiveThinkingModel,
 } from "./transform.js";
 import { isJsonObject } from "../utils/json.js";
-import { PROVIDER_TRANSPORT_TIMEOUT_MS, providerFetch } from "../utils/provider-fetch.js";
+import {
+  PROVIDER_TRANSPORT_TIMEOUT_MS,
+  providerFetch,
+  withBodyActivity,
+} from "../utils/provider-fetch.js";
 
 /** Frozen request identity required by Anthropic's Claude Code OAuth edge. */
 export const ANTHROPIC_OAUTH_TOKEN_PREFIX = "sk-ant-oat";
@@ -404,7 +408,11 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     // request before our async iterator attaches listeners, its iterator can miss
     // the already-emitted error/end event and wait forever. That surfaced as the
     // CLI sitting on "Working..." when an OAuth account ran out of usage.
-    const stream = (await client.messages.create(
+    const onActivity = options.onTransportActivity;
+    const streamClient = onActivity
+      ? client.withOptions({ fetch: withBodyActivity(options.fetch ?? providerFetch, onActivity) })
+      : client;
+    const stream = (await streamClient.messages.create(
       params as Anthropic.MessageCreateParamsStreaming,
       requestOptions,
     )) as AsyncIterable<Anthropic.MessageStreamEvent>;
