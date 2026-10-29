@@ -325,6 +325,8 @@ export interface AgentOptions {
   /** Extra HTTP headers attached to every model request (e.g. Kimi For Coding
    *  client-identity headers). Merged into the underlying SDK default headers. */
   defaultHeaders?: StreamOptions["defaultHeaders"];
+  /** Custom fetch implementation forwarded to the provider transport. */
+  fetch?: StreamOptions["fetch"];
   /** OpenAI service tier for latency-sensitive first-party API requests. */
   serviceTier?: StreamOptions["serviceTier"];
   /** Whether the target model supports image input. When false, image blocks

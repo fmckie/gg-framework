@@ -1004,6 +1004,7 @@ export async function* agentLoop(
           clearToolUses: options.clearToolUses,
           userAgent: options.userAgent,
           defaultHeaders: options.defaultHeaders,
+          fetch: options.fetch,
           // Flip to non-streaming fallback after repeated stream stalls.
           ...(useNonStreamingFallback ? { streaming: false } : {}),
         });

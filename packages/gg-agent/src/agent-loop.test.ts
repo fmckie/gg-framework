@@ -470,6 +470,19 @@ describe("agentLoop", () => {
     );
   });
 
+  it("forwards fetch to stream()", async () => {
+    mockStream.mockReturnValueOnce(mockOkResult("Done") as unknown as ReturnType<typeof stream>);
+    const customFetch = vi.fn() as unknown as typeof globalThis.fetch;
+
+    await collectLoop([{ role: "user", content: "test" }], {
+      provider: "openrouter",
+      model: "some/model",
+      fetch: customFetch,
+    });
+
+    expect(mockStream).toHaveBeenCalledWith(expect.objectContaining({ fetch: customFetch }));
+  });
+
   it("calls transformContext before each LLM call", async () => {
     mockStream.mockReturnValueOnce(mockOkResult("Done") as unknown as ReturnType<typeof stream>);
 
