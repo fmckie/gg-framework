@@ -1,5 +1,20 @@
 # @kleio/core
 
+## 5.66.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.66.2**; lockstep bump of the fixed `@kleio/*` group. See `@kleio/coder` for the release contents.
+
+- Fixes imported selectively from upstream engine releases after 5.66.2 ([#66](https://github.com/fmckie/gg-framework/pull/66)). The engine base stays 5.66.2; `UPSTREAM.md` lists the upstream commits.
+
+  - The file logger budgets bytes per process. A long-running daemon that starts next to a nearly full shared log no longer inherits its size, hits the cap within minutes and stops logging; when the shared file fills, it rotates to `.1` and keeps logging.
+  - A rejected token refresh re-reads the stored credentials before deleting them, so it no longer wipes a newer login another process saved meanwhile.
+
+- Dictation, exported from the package root. `createDictation` transcribes 16 kHz speech locally with Whisper base.en, prompted with project vocabulary (`DICTATION_VOCABULARY`), then strips filler words and fixes the spelling of known terms. Kleio downloads the speech model itself, from a pinned revision: each file is checked against its size and SHA-256, a stopped download resumes, and the model loads only from disk, so a restart works offline. `status()`, `prepare()` and `dispose()` report and drive the download, and a clip fails with `DictationUnavailableError` while the model can't be got.
+
+- Local models behind OpenAI-compatible gateways: a `/v1/models` entry's `context_window` is read when `max_model_len` is absent, an explicit `tool_calling: false` is honoured, `multimodal: true` means image input, and entries whose `type` isn't `chat` (audio, TTS, embeddings) are dropped.
+
 ## 5.60.2-kleio.1
 
 ### Patch Changes

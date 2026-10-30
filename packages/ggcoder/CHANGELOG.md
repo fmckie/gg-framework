@@ -1,5 +1,39 @@
 # @kleio/coder
 
+## 5.66.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.66.2**. Engine: everything upstream shipped from 5.60.3 to 5.66.2 (the upstream entries below; PRs [#13](https://github.com/fmckie/gg-framework/pull/13) and [#14](https://github.com/fmckie/gg-framework/pull/14); provenance in `UPSTREAM.md`), with the `@kleio/*` rename, Kleio branding and `SessionManager.list()` `firstPrompt` carried forward. `5.64.1-kleio.1`, the version set for the engine 5.64.1 import, was never published; its changes ship in this release.
+
+- Fixes imported selectively from upstream engine releases after 5.66.2 ([#66](https://github.com/fmckie/gg-framework/pull/66)). The engine base stays 5.66.2; `UPSTREAM.md` lists the upstream commits.
+
+  - `write` refuses to overwrite a file the model has only partly read (a read cut short by `offset`/`limit` or the size cap), so lines it never saw are not silently dropped. Paging through an unchanged file counts as reading all of it.
+  - `bash` no longer hangs until its timeout when a command leaves a process running (`cmd &`, `nohup cmd`) that holds its output pipes.
+  - Invisible Unicode is stripped from AGENTS.md, CLAUDE.md and `.gg` skills, agents and commands before they reach the model.
+  - `@anthropic-ai/sandbox-runtime` 0.0.78.
+  - The project picker no longer lists dot folders, tool folders, or folders whose sessions never recorded a message.
+  - Ken's autopilot review lists every file the turn changed, keeps the corpus warning on its verdict line, and reviews the transcript instead of answering a user.
+  - Compaction no longer triggers early after pruning: the freed tokens are subtracted from the provider's count instead of switching to a skewed character estimate. Each provider's trigger now follows cited evidence instead of a flat 400K cap, and Gemini 3.1 Pro compacts at 170K, under its 200K price line.
+  - A run that compacted and then failed or was aborted keeps its post-compaction messages, so the next prompt no longer replays a history the provider can reject.
+  - Background commands are stopped before any asynchronous teardown, through the new `AgentSession.stopBackgroundProcesses()`, so they no longer outlive the app.
+  - The Environment section, including the working directory, moved behind the system prompt's uncached marker, so every checkout and worktree of a project shares one cached system block.
+
+- Kleio changes since 5.60.2-kleio.1:
+
+  - Desktop sidecar: `POST /session` takes a persona and a model, and an unavailable model fails with 409 instead of falling back to another provider. `POST /complete` gives one-shot completions with no tools. A new session in a project pinned to a local model starts on that model, and saving the app settings no longer drops custom local endpoints. Routines run in the daemon (`GET`/`POST /routines`, `DELETE /routines/:id`), so they fire with no window open. `ask_user` questions are settled across devices: `ask_user_done` is broadcast when a question is answered, dismissed or times out, and `/state` lists the open ones in `pendingAsks`.
+  - Voice, Brain and dictation: voice calls share the Brain with text chat (`GET /brain`, `POST /brain/tool`) and can read saved chats, coding sessions and agents' files (`GET /stored-sessions`, `GET /stored-sessions/<id>`, `POST /file-text`, with text from PDF and Office files). `POST /sessions/delete` removes a chat. Brain entries can be added and edited (`POST /memories`, `PATCH /memories/:id`, `POST /jiwa`, `PATCH /jiwa/:id`). Dictation is transcribed on the host (`POST /transcribe`, `GET /dictation`, `POST /dictation/prepare`).
+  - Images: previews sent to the app are WebP at 480 px. A reopened chat's images load as they are scrolled to (`GET /history?images=refs`, `GET /history-images`), and a picture opened full size is sent at screen size (`POST /image-preview`). Sessions share loaded images by asset hash, which fixes the sidecar running out of memory on chats full of screenshots.
+  - Projects: an app embedding the sidecar can set its own settings file and projects folder (`GG_APP_SETTINGS_FILE`, `GG_APP_PROJECTS_DIR`) and list only the projects in its own folders (`GG_APP_PROJECTS_ONLY=1`). `GET /projects/folders` lists every folder in the project folders, hidden ones marked, for "Open existing" on a paired device. A headless macOS sidecar (`GG_APP_HEADLESS=1`) never touches Desktop, Documents or Downloads, so `/projects` no longer hangs on a privacy prompt nobody can answer. A chat working in a projects folder keeps the files it makes in a `Kleio Chat` folder, which the project list skips.
+  - MCP: the error for a refused redirect names its target, and is no longer read as a login prompt or hidden by the SSE fallback. `@modelcontextprotocol/client` 2.3.0.
+  - Image generation works on ChatGPT accounts again: `gpt-5.5` was retired there, so `gpt-6-luna` now calls the image tool.
+  - A sub-agent writes its turn record before announcing the turn, so the worker never finishes while the record is still being written.
+
+- Updated dependencies
+  - @kleio/ai@5.66.2-kleio.1
+  - @kleio/agent@5.66.2-kleio.1
+  - @kleio/core@5.66.2-kleio.1
+
 ## 5.60.2-kleio.1
 
 ### Patch Changes

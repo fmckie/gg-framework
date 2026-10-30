@@ -1,10 +1,11 @@
 # Kleio Framework
 
-## Current release — 5.60.2-kleio.1
+## Current release — 5.66.2-kleio.1
 
-`main` carries upstream engine **5.60.2** (`fdab3f18ff204fbae2846686a7a7a2a3e8e04d94`).
-The five fixed `@kleio/*` packages are versioned `<engine>-kleio.<n>`, currently
-**5.60.2-kleio.1**. Provenance and the import history are in [UPSTREAM.md](UPSTREAM.md).
+`main` carries upstream engine **5.66.2** (`3f2bb6bc716198dc223365520374363a56bff051`)
+plus selected fixes from later upstream releases. The five fixed `@kleio/*`
+packages are versioned `<engine>-kleio.<n>`, currently **5.66.2-kleio.1**.
+Provenance, the import history and the selected fixes are in [UPSTREAM.md](UPSTREAM.md).
 
 This fork maintains standalone **Kleio Manager**, Editor, the Premiere panel,
 Pixel and its language SDKs/server, Voice, Coder Eyes, Matey, and experiments,

@@ -1,5 +1,20 @@
 # @kleio/agent
 
+## 5.66.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.66.2**; lockstep bump of the fixed `@kleio/*` group. See `@kleio/coder` for the release contents.
+
+- Fixes imported selectively from upstream engine releases after 5.66.2 ([#66](https://github.com/fmckie/gg-framework/pull/66)). The engine base stays 5.66.2; `UPSTREAM.md` lists the upstream commits.
+
+  - `AgentOptions.fetch` is passed through to `stream()`, so a host's own fetch reaches the provider transport.
+  - Long thinking turns are no longer killed as stalled. Transport activity, including Anthropic's pings, re-arms the idle timer, and hidden-reasoning keepalives get the thinking budget. A live stream is ended only by the thinking hard cap, now 30 minutes; non-streaming fallbacks keep 15. xAI always gets the silent-reasoning budget for its first event.
+  - When stall retries run out after the provider had answered, the run fails with `ResponseStalledError` instead of a connection error. A stall that killed a long open tool call asks the model once for smaller pieces.
+  - Cloudflare 520–524 errors from a provider are retried, and parallel tool calls that fail with the same invalid arguments count as one strike per response.
+
+- New `AgentOptions.transformToolDetails`, which reshapes each tool's `details` before its `tool_call_end` event. Only the event changes: the tool result the model sees is untouched, and a transform that throws leaves the details as they were.
+
 ## 5.60.2-kleio.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @kleio/manager
 
+## 5.66.2-kleio.1
+
+### Patch Changes
+
+- First release on upstream engine **5.66.2**; lockstep bump of the fixed `@kleio/*` group. Kleio Manager's CLI bundles `@kleio/ai`, `@kleio/agent`, `@kleio/core` and `@kleio/coder`, so it ships their changes; see `@kleio/coder` for the release contents.
+
 ## 5.60.2-kleio.1
 
 ### Patch Changes
