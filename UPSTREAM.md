@@ -119,8 +119,9 @@ comprehensive security review or a clean-audit claim.
 Both reached `main` through [#14](https://github.com/fmckie/gg-framework/pull/14)
 at `005a94e3` on 2026-09-30; all six CI jobs passed on `221ff255` (run
 **36754104760**), and GitHub then marked #13 merged. `upstream.lastImportedCommit`
-is `3f2bb6bc`. Neither `5.64.1-kleio.1` nor `5.66.2-kleio.1` has been published:
-npm's `latest` and `kleio` tags still point at `5.60.2-kleio.1`.
+is `3f2bb6bc`. Both imports shipped in `5.66.2-kleio.1`, published on 2026-10-30
+(see [Published releases](#published-releases)); `5.64.1-kleio.1` itself was never
+published.
 
 ## Selective import through upstream 988f920e (merged)
 
@@ -178,9 +179,9 @@ Not taken:
   walker and already reads `C:\Users\me` literally.
 
 The rest of `3f2bb6bc..988f920e` (features, the module split, branding, release, CI
-and version commits) is not imported. Changesets for `@kleio/ai`, `agent`, `core`
-and `coder` describe the fixes for the next release on engine 5.66.2. These fixes are
-not published yet: npm's `latest` and `kleio` tags still point at `5.60.2-kleio.1`.
+and version commits) is not imported. The imported fixes shipped in `5.66.2-kleio.1`,
+published on 2026-10-30. Their changesets for `@kleio/ai`, `agent`, `core` and `coder`
+were moved by hand into those packages' `5.66.2-kleio.1` CHANGELOG entries.
 
 ## Original imported baseline
 
@@ -206,7 +207,8 @@ mechanical baseline; it must not be published.
 | Version          | Tag               | Commit     | Engine | npm dist-tags     | Date       |
 | ---------------- | ----------------- | ---------- | ------ | ----------------- | ---------- |
 | `4.10.1-kleio.1` | `v4.10.1-kleio.1` | `0c69b71e` | 4.10.1 | superseded        | 2026-08-28 |
-| `5.60.2-kleio.1` | `v5.60.2-kleio.1` | `28c9162d` | 5.60.2 | `latest`, `kleio` | 2026-09-22 |
+| `5.60.2-kleio.1` | `v5.60.2-kleio.1` | `28c9162d` | 5.60.2 | superseded        | 2026-09-22 |
+| `5.66.2-kleio.1` | `v5.66.2-kleio.1` | `cfa83ab7` | 5.66.2 | `latest`, `kleio` | 2026-10-30 |
 
 All five fixed packages are published together, by hand from `main` at the tagged
 commit, after `pnpm -r build`, `verify:fixed-versions` and `audit:identity:packed`.
@@ -226,6 +228,13 @@ a minute apart, eventually landed them (`E403` afterwards means "already
 published", which is the good outcome). Always confirm with the raw packument
 (`curl https://registry.npmjs.org/@kleio%2f<pkg>`) and a clean `npm i` into a
 temporary prefix rather than trusting the publish output.
+
+### Publishing note (2026-10-30)
+
+[npm/cli#9889](https://github.com/npm/cli/issues/9889) recurred with `5.66.2-kleio.1`.
+For `agent`, `coder` and `manager`, `npm publish` returned `E403`/`E409` "cannot
+publish over previously staged version", yet all three still landed in the registry
+within minutes. Checking the raw packument before each retry is what caught it.
 
 ## Package map
 
