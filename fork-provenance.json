@@ -29,7 +29,11 @@
     "integrationCommit": "f9d5590681e73bc9a727533132504cc74813db08",
     "mergeCommit": "005a94e3",
     "fixedVersion": "5.66.2-kleio.1",
-    "published": false
+    "published": true,
+    "publishedAs": "5.66.2-kleio.1",
+    "publishedTag": "v5.66.2-kleio.1",
+    "publishedCommit": "cfa83ab7",
+    "publishedAt": "2026-10-30"
   },
   "integrationHistory": [
     {
@@ -72,7 +76,11 @@
     "status": "merged",
     "pullRequest": "https://github.com/fmckie/gg-framework/pull/66",
     "mergeCommit": "36f01139",
-    "published": false,
+    "published": true,
+    "publishedAs": "5.66.2-kleio.1",
+    "publishedTag": "v5.66.2-kleio.1",
+    "publishedCommit": "cfa83ab7",
+    "publishedAt": "2026-10-30",
     "preservedProjects": [
       "packages/gg-boss", "packages/gg-editor", "packages/gg-editor-premiere-panel",
       "packages/gg-pixel", "packages/gg-pixel-go", "packages/gg-pixel-py",
