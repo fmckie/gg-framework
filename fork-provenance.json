@@ -142,6 +142,7 @@
       "reviewedCommits": 265,
       "importedAt": "2026-11-02",
       "status": "open",
+      "pullRequest": "https://github.com/fmckie/gg-framework/pull/74",
       "rule": "upstream.lastImportedCommit stays 3f2bb6bc because the fork does not contain everything up to any later upstream commit; a later full sync must treat these commits as already applied",
       "picked": [],
       "ported": [

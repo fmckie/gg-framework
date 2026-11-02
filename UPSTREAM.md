@@ -189,6 +189,8 @@ were moved by hand into those packages' `5.66.2-kleio.1` CHANGELOG entries.
   desktop **0.99.1**), 265 commits after `3f2bb6bc`. None of the 20 commits after
   `988f920e` is taken here.
 - Branch: `sync/upstream-split-4f763ed2`, based on `main` at `75e3ba68`
+- PR: [#74](https://github.com/fmckie/gg-framework/pull/74), opened as a draft on
+  2026-11-02
 - PR 1 of the 4 in `.gg/plans/upstream-selective-import-phased.md`. PRs 2–4 port
   upstream fixes, tools and Goals against the new paths.
 - `upstream.lastImportedCommit` stays `3f2bb6bc`, for the reason given in the previous
