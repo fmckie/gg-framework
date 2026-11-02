@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1517,
+        "tracked": 1519,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3376,18 +3376,113 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-724cc0c1512a",
-      "path": "gg-app/src-tauri/src/lib.rs",
+      "id": "upstream-20260911-98c3c8793bc4",
+      "path": "gg-app/src-tauri/src/auth.rs",
       "scope": "content",
       "targets": [
         "tracked"
       ],
       "match": {
-        "regex": "(?:\"Agent daemon stopped after repeated crashes\\. Restart GG Coder to try again\\.\";|\\.title\\(\"GG Coder\"\\)|\\.tooltip\\(\"GG Coder\"\\)|// This list mirrors packages/ggcoder/src/core/auth-providers\\.ts \\(AUTH_PROVIDERS\\)\\.|/// Command substrings that identify a GG Coder \\*sidecar\\* process itself\\.|/// GG Coder session\\. Returns the importer's typed result \\(`\\{ ok, \\.\\.\\. \\}`\\),|/// Mirrors `AuthMethodMeta` in packages/ggcoder/src/core/auth-providers\\.ts\\.|/// Proxy: cancel Ken's in-flight run \\(leaves GG Coder's run untouched\\)\\.|/// Proxy: discover known projects across ggcoder/Claude Code/Codex stores\\.|/// follows GG Coder's model again\\. `model: None` clears\\. Returns|/// packages/ggcoder/src/core/auth-providers\\.ts \\(AUTH_PROVIDERS\\) — keep in sync\\.|/// packages/ggcoder/src/core/auth-providers\\.ts\\.|11541     1 11541 /Applications/GG Coder\\.app/Contents/MacOS/gg-app\\\\n\\\\|11553 11541 11553 /Applications/GG Coder\\.app/Contents/MacOS/ggnode app-sidecar\\.mjs\";|6000\\|4\\|C:\\\\\\\\Program Files\\\\\\\\GG Coder\\\\\\\\gg-app\\.exe\\\\n\\\\|PathBuf::from\\(env!\\(\"CARGO_MANIFEST_DIR\"\\)\\)\\.join\\(\"\\.\\./\\.\\./packages/ggcoder/dist/app-sidecar\\.js\"\\)|proc\\(100, 1, \"/Applications/GG Coder\\.app/Contents/MacOS/gg-app\"\\),)",
+        "regex": "(?:// This list mirrors packages/ggcoder/src/core/auth-providers\\.ts \\(AUTH_PROVIDERS\\)\\.|/// Mirrors `AuthMethodMeta` in packages/ggcoder/src/core/auth-providers\\.ts\\.|/// packages/ggcoder/src/core/auth-providers\\.ts \\(AUTH_PROVIDERS\\) — keep in sync\\.|/// packages/ggcoder/src/core/auth-providers\\.ts\\.)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 15
+        "tracked": 4
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-7a483b81a75b",
+      "path": "gg-app/src-tauri/src/commands/agent.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:/// GG Coder session\\. Returns the importer's typed result \\(`\\{ ok, \\.\\.\\. \\}`\\),|/// Proxy: cancel Ken's in-flight run \\(leaves GG Coder's run untouched\\)\\.|/// follows GG Coder's model again\\. `model: None` clears\\. Returns)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 3
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-3e699d9a2459",
+      "path": "gg-app/src-tauri/src/commands/agent_admin.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:/// Proxy: discover known projects across ggcoder/Claude Code/Codex stores\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-30c3656bb95d",
+      "path": "gg-app/src-tauri/src/daemon.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\"Agent daemon stopped after repeated crashes\\. Restart GG Coder to try again\\.\";)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-b0e01e921d20",
+      "path": "gg-app/src-tauri/src/paths.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:PathBuf::from\\(env!\\(\"CARGO_MANIFEST_DIR\"\\)\\)\\.join\\(\"\\.\\./\\.\\./packages/ggcoder/dist/app-sidecar\\.js\"\\))",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-606a27777585",
+      "path": "gg-app/src-tauri/src/process.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:/// Command substrings that identify a GG Coder \\*sidecar\\* process itself\\.|11541     1 11541 /Applications/GG Coder\\.app/Contents/MacOS/gg-app\\\\n\\\\|11553 11541 11553 /Applications/GG Coder\\.app/Contents/MacOS/ggnode app-sidecar\\.mjs\";|6000\\|4\\|C:\\\\\\\\Program Files\\\\\\\\GG Coder\\\\\\\\gg-app\\.exe\\\\n\\\\|proc\\(100, 1, \"/Applications/GG Coder\\.app/Contents/MacOS/gg-app\"\\),)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
@@ -7750,11 +7845,30 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:\\/\\/\\/ that one belongs to GG Coder and the `ggcoder` CLI on the same Mac, and|\\/\\/ to sweep, and GG Coder's on this Mac are not ours to touch\\.)",
+        "regex": "(?:\\/\\/ to sweep, and GG Coder's on this Mac are not ours to touch\\.)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 3
+        "tracked": 1
+      },
+      "bucket": "compatibility",
+      "owner": "Kleio framework maintainers",
+      "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
+      "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
+    },
+    {
+      "id": "kleio-separation-gg-app-src-tauri-src-paths-rs",
+      "path": "gg-app/src-tauri/src/paths.rs",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:\\/\\/\\/ that one belongs to GG Coder and the `ggcoder` CLI on the same Mac, and)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 2
       },
       "bucket": "compatibility",
       "owner": "Kleio framework maintainers",
