@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1545,
+        "tracked": 1540,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -3516,11 +3516,68 @@
         "tracked"
       ],
       "match": {
-        "regex": "(?:// Click handler for the \"Send to GG Coder\" button on Ken's recommended prompts\\.|// Ken \"Send to GG Coder\" prompts: restore the shimmer label, not the|// Pin Ken to a model \\(or null → clear the pin, follow GG Coder\\)\\. The|// Pushes a shimmering \"Sent to GG Coder\" user bubble \\(the full prompt body went|// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// Thinking-tier color, mirroring the ggcoder TUI footer's getThinkingColor:|// True when this bubble came from clicking a \"Send to GG Coder\" button on|// `phase` selects the message: he prompted GG Coder \\(with the `body` he sent\\),|// fences into a \"Send to GG Coder\" button\\.|// full prompt body\\. The full body still went to GG Coder\\.|// in Ken's color so the transcript shows it went to the mentor, not GG Coder\\.|// of the full prompt body that was actually sent to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the|// read-only mentor agent — NOT GG Coder\\. Ken runs concurrently with any|// repeat the exact same sentence every time GG Coder's work checks out\\.|// streamed from the ken_\\* SSE events\\. Never mistaken for GG Coder\\.|// text\\), which is the ONLY differentiator from a normal GG Coder reply\\.|// to GG Coder, but the transcript shows the short Ken-colored label, like a|// ── Plan review actions \\(mirror the ggcoder CLI plan overlay\\) ──|: \"Ken follows GG Coder's model — click to pin one\"|: \"Sending GG Coder back in for another pass\\.\",|\\? `Sending GG Coder back in:\\\\n\\\\n\\$\\{item\\.body\\.trim\\(\\)\\}`|Sent to GG Coder|const fallbackTitle = workspaceMode === \"chat\" \\? \"GG Chat\" : \"GG Coder\";|title=\\{workspaceMode === \"chat\" \\? \"Switch GG's model\" : \"Switch GG Coder's model\"\\})",
+        "regex": "(?:// Click handler for the \"Send to GG Coder\" button on Ken's recommended prompts\\.|// Ken \"Send to GG Coder\" prompts: restore the shimmer label, not the|// Pin Ken to a model \\(or null → clear the pin, follow GG Coder\\)\\. The|// Pushes a shimmering \"Sent to GG Coder\" user bubble \\(the full prompt body went|// read-only mentor agent — NOT GG Coder\\. Ken runs concurrently with any|// repeat the exact same sentence every time GG Coder's work checks out\\.|// to GG Coder, but the transcript shows the short Ken-colored label, like a|// ── Plan review actions \\(mirror the ggcoder CLI plan overlay\\) ──)",
         "flags": "gu"
       },
       "expectedOccurrences": {
-        "tracked": 20
+        "tracked": 8
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-07c27fb329ef",
+      "path": "gg-app/src/AppFooter.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:// Thinking-tier color, mirroring the ggcoder TUI footer's getThinkingColor:)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 1
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-612f911eca42",
+      "path": "gg-app/src/TranscriptRow.tsx",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:// Sent from a Ken \"Send to GG Coder\" button: show a shimmering \"Sent to GG|// fences into a \"Send to GG Coder\" button\\.|// full prompt body\\. The full body still went to GG Coder\\.|// prose: for a PROMPT he shows what he sent GG Coder back to do; the|// text\\), which is the ONLY differentiator from a normal GG Coder reply\\.|Sent to GG Coder)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 6
+      },
+      "bucket": "provenance",
+      "owner": "Kleio framework maintainers",
+      "reason": "Pinned imported app labels, app-specific mentor wording, source references, and fixtures. The upstream app is distinct from Kleio Desktop; this exception does not cover engine package imports.",
+      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
+    },
+    {
+      "id": "upstream-20260911-fef2f2782edb",
+      "path": "gg-app/src/transcript-item.ts",
+      "scope": "content",
+      "targets": [
+        "tracked"
+      ],
+      "match": {
+        "regex": "(?:// True when this bubble came from clicking a \"Send to GG Coder\" button on|// `phase` selects the message: he prompted GG Coder \\(with the `body` he sent\\),|// in Ken's color so the transcript shows it went to the mentor, not GG Coder\\.|// of the full prompt body that was actually sent to GG Coder\\.|// streamed from the ken_\\* SSE events\\. Never mistaken for GG Coder\\.)",
+        "flags": "gu"
+      },
+      "expectedOccurrences": {
+        "tracked": 5
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
