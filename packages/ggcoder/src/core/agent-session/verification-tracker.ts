@@ -110,7 +110,16 @@ export class VerificationTracker {
         ]);
         if (call.sourceSnapshot === null)
           this.gate.requireFreshVerification(true, event.args.command);
-      } else {
+      } else if (
+        (classification.accepted && event.args.persist !== true) ||
+        (!classification.accepted && classification.mayMutate)
+      ) {
+        // Flag the workspace unknown only when tool_call_end can resolve
+        // it: a bounded check records pass/fail, a file-rewriting command
+        // bumps the revision. An unrecognized read-only check (`biome ci`)
+        // or a persistent-shell run records nothing at the end, so
+        // flagging it left verified work Unverified forever — and
+        // autopilot silently refused every later turn.
         this.gate.requireFreshVerification(
           !classification.accepted && classification.mayMutate,
           event.args.command,

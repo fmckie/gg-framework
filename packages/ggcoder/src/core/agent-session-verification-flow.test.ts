@@ -653,6 +653,25 @@ describe("verification gate flow", () => {
     expect(events.length).toBe(before);
   });
 
+  it.each([
+    ["an unrecognized check", { command: "npx biome ci ." }],
+    ["an unrecognized package check script", { command: "npm run check:local-discovery" }],
+    ["a persistent-shell check", { command: "pnpm test", persist: true }],
+  ])("does not re-open verified work when %s runs after a passing check", async (_label, args) => {
+    // The live incident: edit, `tsc --noEmit` passes, then `biome ci` runs
+    // last. Neither its start nor its end can produce evidence, yet the
+    // start flagged the workspace unknown and nothing ever cleared it — every
+    // later run ended Unverified and autopilot silently refused to review.
+    const { internal } = await makeSession();
+    await simulateToolCall(internal, "edit", { file_path: "src/a.ts" });
+    await simulateToolCall(internal, "bash", { command: "npx tsc --noEmit -p apps/web" });
+    expect(internal.getVerificationProblem()).toBeNull();
+
+    await simulateToolCall(internal, "bash", args);
+
+    expect(internal.getVerificationProblem()).toBeNull();
+  });
+
   it("records neither pass nor failure for persistent-shell checks, however they exit", async () => {
     const { internal } = await makeSession();
 
