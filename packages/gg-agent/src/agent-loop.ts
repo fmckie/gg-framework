@@ -27,6 +27,7 @@ import type {
   ToolExecuteResult,
   StructuredToolResult,
 } from "./types.js";
+import { firstEventHedgeDelayMs, hedgedStream } from "./hedged-stream.js";
 import { isLocalBackendUrl } from "./local-backend.js";
 import {
   clampOutputTokens,
@@ -620,6 +621,9 @@ export async function* agentLoop(
   const totalUsage: Usage = { inputTokens: 0, outputTokens: 0 };
   let latestProviderUsage: Usage | undefined;
   let usageAnchorIndex: number | undefined;
+  // When `latestProviderUsage` arrived — its cached prefix is only provably
+  // warm for a few minutes (gates the first-event hedge).
+  let latestProviderUsageAt = 0;
   let turn = 0;
   // Set when a turn executes tools and completes but the turn budget is now
   // exhausted — the loop is about to stop mid-task. Drives the terminal
@@ -1042,42 +1046,88 @@ export async function* agentLoop(
             });
           }
         }
-        const result = stream({
-          provider: options.provider,
-          model: options.model,
-          messages,
-          tools: options.tools,
-          serverTools: options.serverTools,
-          toolChoice: options.toolChoice,
-          webSearch: options.webSearch,
-          // Clamped to whatever ceiling this route has already rejected us for
-          // (identity when nothing has been learned).
-          maxTokens: clampOutputTokens(ceilingKey, options.maxTokens),
-          temperature: options.temperature,
-          thinking: options.thinking,
-          apiKey: liveApiKey,
-          baseUrl: options.baseUrl,
+        // Hedge a late first event with one duplicate request — only on the
+        // plain remote streaming path (local/silent-reasoning budgets are long
+        // by design; non-streaming has no first event) and only when the
+        // previous response proves the prompt prefix is warm in cache.
+        const hedgeAfterMs =
+          baseFirstEventTimeoutMs === STREAM_FIRST_EVENT_TIMEOUT_MS && !useNonStreamingFallback
+            ? firstEventHedgeDelayMs({
+                priorUsage: latestProviderUsage,
+                msSincePriorResponse: Date.now() - latestProviderUsageAt,
+                newPromptTokens: Math.ceil(
+                  countMessageChars(
+                    usageAnchorIndex === undefined
+                      ? messages
+                      : messages.slice(usageAnchorIndex + 1),
+                  ) / 3,
+                ),
+                firstEventTimeoutMs,
+                prefillMsPer1kTokens: PREFILL_TIMEOUT_MS_PER_1K_TOKENS,
+              })
+            : null;
+        const hedgeStartedAt = Date.now();
+        // The hedge must send the identical request; snapshot the history.
+        const requestMessages = hedgeAfterMs === null ? messages : messages.slice();
+        const result = hedgedStream({
           signal: streamController.signal,
-          accountId: liveAccountId,
-          transportSessionId: options.transportSessionId,
-          projectId: liveProjectId,
-          cacheRetention: options.cacheRetention,
-          promptCacheKey: options.promptCacheKey,
-          serviceTier: options.serviceTier,
-          supportsImages: options.supportsImages,
-          supportsVideo: options.supportsVideo,
-          compaction: options.compaction,
-          clearToolUses: options.clearToolUses,
-          userAgent: options.userAgent,
-          defaultHeaders: options.defaultHeaders,
-          fetch: options.fetch,
-          // Raw bytes (incl. SSE pings) prove the connection is alive during
-          // silent thinking; only re-arm an armed timer, never mid-yield.
-          onTransportActivity: () => {
-            if (idleTimer && !streamController.signal.aborted) resetIdleTimer();
+          hedgeAfterMs,
+          onHedgeStarted: () => {
+            diag("hedge_started", {
+              afterMs: Date.now() - hedgeStartedAt,
+              provider: options.provider,
+              model: options.model,
+            });
           },
-          // Flip to non-streaming fallback after repeated stream stalls.
-          ...(useNonStreamingFallback ? { streaming: false } : {}),
+          onSettled: (winner, hedged) => {
+            if (hedged) {
+              diag("hedge_settled", {
+                winner,
+                ttfMs: Date.now() - hedgeStartedAt,
+                provider: options.provider,
+                model: options.model,
+              });
+            }
+          },
+          start: (signal) =>
+            stream({
+              provider: options.provider,
+              model: options.model,
+              messages: requestMessages,
+              tools: options.tools,
+              serverTools: options.serverTools,
+              toolChoice: options.toolChoice,
+              webSearch: options.webSearch,
+              // Clamped to whatever ceiling this route has already rejected us for
+              // (identity when nothing has been learned).
+              maxTokens: clampOutputTokens(ceilingKey, options.maxTokens),
+              temperature: options.temperature,
+              thinking: options.thinking,
+              apiKey: liveApiKey,
+              baseUrl: options.baseUrl,
+              signal,
+              accountId: liveAccountId,
+              transportSessionId: options.transportSessionId,
+              projectId: liveProjectId,
+              cacheRetention: options.cacheRetention,
+              promptCacheKey: options.promptCacheKey,
+              serviceTier: options.serviceTier,
+              supportsImages: options.supportsImages,
+              supportsVideo: options.supportsVideo,
+              compaction: options.compaction,
+              clearToolUses: options.clearToolUses,
+              userAgent: options.userAgent,
+              defaultHeaders: options.defaultHeaders,
+              fetch: options.fetch,
+              // Raw bytes (incl. SSE pings) prove the connection is alive during
+              // silent thinking; only re-arm an armed timer, never mid-yield.
+              // Either arm's bytes count while a hedge is in flight.
+              onTransportActivity: () => {
+                if (idleTimer && !streamController.signal.aborted) resetIdleTimer();
+              },
+              // Flip to non-streaming fallback after repeated stream stalls.
+              ...(useNonStreamingFallback ? { streaming: false } : {}),
+            }),
         });
         diag("stream_created", { setupMs: Date.now() - streamCallStart });
 
@@ -1759,6 +1809,7 @@ export async function* agentLoop(
       if (!emptyExhausted) {
         messages.push(response.message);
         latestProviderUsage = response.usage;
+        latestProviderUsageAt = Date.now();
         usageAnchorIndex = messages.length - 1;
       }
 
@@ -2846,6 +2897,21 @@ function sanitizeOrphanedServerTools(messages: Message[]): void {
     }
     break;
   }
+}
+
+/** Text characters across messages (string content, text parts, string results). */
+function countMessageChars(messages: readonly Message[]): number {
+  let chars = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") chars += m.content.length;
+    else if (Array.isArray(m.content)) {
+      for (const p of m.content) {
+        if ("text" in p && typeof p.text === "string") chars += p.text.length;
+        if ("content" in p && typeof p.content === "string") chars += p.content.length;
+      }
+    }
+  }
+  return chars;
 }
 
 /**
