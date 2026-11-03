@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { AgentTool } from "@kleio/agent";
 import type { ProcessManager } from "../core/process-manager.js";
 import { killProcessTree } from "../utils/process.js";
-import { truncateTail, MAX_BYTES } from "./truncate.js";
+import { truncateTail, MAX_BYTES, describeCompressed } from "./truncate.js";
 import { compressToolOutput } from "./compress.js";
 import { writeOverflow } from "./overflow.js";
 import { localOperations, type ToolOperations } from "./operations.js";
@@ -85,7 +85,8 @@ export async function renderBashOutput(rawOutput: string): Promise<string> {
     ? ` Full output saved to ${overflowPath} — read it with offset/limit if needed.`
     : "";
   const c = compressToolOutput(rawOutput);
-  return `[${c.notice}${overflowNotice}]\n${c.content}`;
+  const what = describeCompressed(rawOutput, c.content);
+  return `[${c.notice}${what ? ` ${what}` : ""}${overflowNotice}]\n${c.content}`;
 }
 
 const BashParams = z.object({
@@ -319,9 +320,16 @@ export function createBashTool(
         const output = await renderBashOutput(res.output);
         const exitCode =
           res.exitCode === "TIMEOUT"
-            ? `TIMEOUT (${timeoutMs ?? DEFAULT_TIMEOUT}ms) — session shell was reset; cd/env state is gone`
+            ? `TIMEOUT (${timeoutMs ?? DEFAULT_TIMEOUT}ms)` +
+              (res.shellKept
+                ? " — the command was stopped; the session shell kept its cwd/env"
+                : "")
             : String(res.exitCode);
-        return annotateSandboxDenial(`Exit code: ${exitCode}\n${output}`, sessionSandboxed);
+        // The restart note sits right under the exit code so output truncation
+        // can never drop it.
+        const restartNote = sessionShell.takeRestartNote();
+        const note = restartNote ? `${restartNote}\n` : "";
+        return annotateSandboxDenial(`Exit code: ${exitCode}\n${note}${output}`, sessionSandboxed);
       }
       if (run_in_background) {
         let launch: SandboxLaunch;

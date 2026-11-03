@@ -3296,3 +3296,64 @@ describe("transformToolDetails", () => {
     expect(end).toMatchObject({ details: { imagePreviews: [{ base64: "png" }] }, isError: false });
   });
 });
+
+describe("transformToolResult", () => {
+  const usage = { inputTokens: 10, outputTokens: 5 };
+  const tool = (name: string, content: string): AgentTool<typeof emptyParams> => ({
+    name,
+    description: name,
+    parameters: emptyParams,
+    async execute() {
+      return content;
+    },
+  });
+
+  it("applies transformToolResult to a tool result before the next request", async () => {
+    mockStream.mockReset();
+    mockStream
+      .mockReturnValueOnce({
+        [Symbol.asyncIterator]: async function* () {
+          yield* [];
+        },
+        response: Promise.resolve({
+          message: {
+            role: "assistant" as const,
+            content: [
+              { type: "tool_call" as const, id: "w1", name: "web_fetch", args: {} },
+              { type: "tool_call" as const, id: "b1", name: "bash", args: {} },
+            ],
+          },
+          stopReason: "tool_use" as const,
+          usage,
+        }),
+      } as unknown as ReturnType<typeof stream>)
+      .mockReturnValueOnce(mockOkResult("done") as unknown as ReturnType<typeof stream>);
+    const consulted: string[] = [];
+
+    await collectLoop([{ role: "user", content: "go" }], {
+      provider: "anthropic",
+      model: "test",
+      tools: [tool("web_fetch", "page text"), tool("bash", "exit 0")],
+      // Flags only web content, the way the coder flags untrusted tool output.
+      transformToolResult: (call, content) => {
+        consulted.push(call.name);
+        return call.name === "web_fetch" && typeof content === "string"
+          ? `${content}\n[warning: instruction-like text]`
+          : content;
+      },
+    });
+
+    expect(consulted.sort()).toEqual(["bash", "web_fetch"]);
+    const next = mockStream.mock.calls[1]?.[0].messages ?? [];
+    const results = next.flatMap((m) =>
+      m.role === "tool" && Array.isArray(m.content) ? m.content : [],
+    );
+    expect(results).toEqual([
+      expect.objectContaining({
+        toolCallId: "w1",
+        content: "page text\n[warning: instruction-like text]",
+      }),
+      expect.objectContaining({ toolCallId: "b1", content: "exit 0" }),
+    ]);
+  });
+});

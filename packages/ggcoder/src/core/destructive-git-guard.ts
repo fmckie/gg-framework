@@ -1,7 +1,7 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BackgroundGitError, runBackgroundGit } from "../utils/git.js";
 import { log } from "./logger.js";
 
 /**
@@ -397,29 +397,59 @@ const SHELL_KEYWORDS: ReadonlySet<string> = new Set([
 ]);
 
 /** Basename of a command word, `.exe` stripped (`/usr/bin/git`, `git.exe`). */
-function commandName(word: string): string {
+export function commandName(word: string): string {
   return (word.split(/[\\/]/).pop() ?? word).replace(/\.exe$/i, "");
 }
 
-function expandHome(p: string): string {
-  return p.replace(/^~(?=[\\/]|$)/, os.homedir());
+/**
+ * Expand the home and working-directory forms a model writes in paths:
+ * `~`, `$HOME`/`${HOME}` (any case, which also covers PowerShell `$home`),
+ * `$env:USERPROFILE`/`$env:HOME`, cmd `%USERPROFILE%`, and `$PWD`/`${PWD}`. Other variables stay
+ * literal, so they resolve to a harmless relative path.
+ */
+export function expandShellPath(p: string, cwd: string): string {
+  return p
+    .replace(
+      /^(?:~|\$\{?home\}?|\$env:(?:userprofile|home)|%userprofile%)(?=[\\/]|$)/i,
+      os.homedir(),
+    )
+    .replace(/^\$\{?PWD\}?(?=[\\/]|$)/, cwd);
+}
+
+/** One simple command found in a shell string, after unwrapping. */
+export interface ShellInvocation {
+  /** {@link commandName} of the command word. */
+  name: string;
+  args: readonly string[];
+  /** Directory it would run in after any earlier `cd` in the same script. */
+  cwd: string;
+  /** Run by `xargs`, which appends operands read from stdin. */
+  viaXargs: boolean;
 }
 
 interface ScanContext {
   cwd: string;
   depth: number;
+  viaXargs: boolean;
+  wanted: (name: string) => boolean;
+  out: ShellInvocation[];
 }
 
-function analyzeScript(script: string, ctx: ScanContext, out: DestructiveGitMatch[]): void {
+function isPowerShell(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === "powershell" || lower === "pwsh";
+}
+
+function walkScript(script: string, ctx: ScanContext): void {
   const commands: string[][] = [];
   scanShell(script, ctx.depth, commands);
   // `cd` persists for later commands in the same script (approximation: a
   // subshell's cd leaks too, which only ever widens what gets checked).
-  const local: ScanContext = { cwd: ctx.cwd, depth: ctx.depth };
-  for (const words of commands) analyzeWords(words, local, out);
+  const local: ScanContext = { ...ctx };
+  for (const words of commands) walkWords(words, local);
 }
 
-function analyzeWords(input: string[], ctx: ScanContext, out: DestructiveGitMatch[]): void {
+function walkWords(input: string[], ctx: ScanContext): void {
   let words = input;
   while (
     words.length > 0 &&
@@ -434,26 +464,34 @@ function analyzeWords(input: string[], ctx: ScanContext, out: DestructiveGitMatc
 
   if (name === "cd" || name === "pushd") {
     const target = args.find((a) => !a.startsWith("-"));
-    if (target === undefined) ctx.cwd = os.homedir();
-    else ctx.cwd = path.resolve(ctx.cwd, expandHome(target));
+    // `cd -` goes somewhere we cannot know; keep the current guess.
+    if (target === undefined && !args.includes("-")) ctx.cwd = os.homedir();
+    else if (target !== undefined)
+      ctx.cwd = path.resolve(ctx.cwd, expandShellPath(target, ctx.cwd));
     return;
   }
-  if (name === "git") {
-    const match = analyzeGit(args, ctx.cwd);
-    if (match) out.push(match);
+  if (ctx.wanted(name)) {
+    ctx.out.push({ name, args, cwd: ctx.cwd, viaXargs: ctx.viaXargs });
     return;
   }
   if (ctx.depth >= MAX_DEPTH) return;
-  const deeper: ScanContext = { cwd: ctx.cwd, depth: ctx.depth + 1 };
+  const deeper: ScanContext = { ...ctx, depth: ctx.depth + 1 };
   if (SHELLS.has(name)) {
     // `bash -c 'script'`, also clustered (`-lc`, `-ec`).
     const flagIndex = args.findIndex((a) => /^-[A-Za-z]*c[A-Za-z]*$/.test(a));
     const script = flagIndex === -1 ? undefined : args[flagIndex + 1];
-    if (script !== undefined) analyzeScript(script, deeper, out);
+    if (script !== undefined) walkScript(script, deeper);
+    return;
+  }
+  if (isPowerShell(name)) {
+    // `pwsh -c '…'` / `powershell -Command "…"` (any unambiguous prefix).
+    const flagIndex = args.findIndex((a) => /^-c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?$/i.test(a));
+    const script = flagIndex === -1 ? undefined : args.slice(flagIndex + 1).join(" ");
+    if (script) walkScript(script, deeper);
     return;
   }
   if (name === "eval") {
-    analyzeScript(args.join(" "), deeper, out);
+    walkScript(args.join(" "), deeper);
     return;
   }
   if (EXEC_WRAPPERS.has(name)) {
@@ -463,21 +501,36 @@ function analyzeWords(input: string[], ctx: ScanContext, out: DestructiveGitMatc
     for (let index = 0; index < args.length; index += 1) {
       const candidate = commandName(args[index] ?? "");
       if (
-        candidate === "git" ||
+        ctx.wanted(candidate) ||
         candidate === "cd" ||
         candidate === "eval" ||
         SHELLS.has(candidate) ||
+        isPowerShell(candidate) ||
         EXEC_WRAPPERS.has(candidate)
       ) {
-        // xargs appends operands read from stdin; stand in "." (whole tree)
-        // so `… | xargs git checkout --` is checked rather than parsed as empty.
-        const child = args.slice(index);
-        analyzeWords(name === "xargs" ? [...child, "."] : child, deeper, out);
+        walkWords(args.slice(index), { ...deeper, viaXargs: ctx.viaXargs || name === "xargs" });
         return;
       }
       if (NON_EXEC_COMMANDS.has(candidate)) return;
     }
   }
+}
+
+/**
+ * Every simple command in `command` whose name satisfies `wanted`, in source
+ * order, after splitting on `&&`/`;`/`||`/pipes, entering subshells,
+ * substitutions and `if`/`for`/`while` bodies, unwrapping `bash -c`/`eval`/
+ * `pwsh -c` scripts and exec wrappers (`sudo`, `env`, `timeout`, `xargs`, …),
+ * and following `cd`. Pure: nothing is executed.
+ */
+export function walkShell(
+  command: string,
+  cwd: string,
+  wanted: (name: string) => boolean,
+): ShellInvocation[] {
+  const out: ShellInvocation[] = [];
+  walkScript(command, { cwd, depth: 0, viaXargs: false, wanted, out });
+  return out;
 }
 
 // ── git classification ─────────────────────────────────────
@@ -562,18 +615,18 @@ function analyzeGit(args: readonly string[], cwd: string): DestructiveGitMatch |
   while (i < args.length) {
     const arg = args[i] ?? "";
     if (arg === "-C") {
-      dir = path.resolve(dir, expandHome(args[i + 1] ?? "."));
+      dir = path.resolve(dir, expandShellPath(args[i + 1] ?? ".", dir));
       i += 2;
       continue;
     }
     if (arg === "--git-dir" || arg === "--work-tree") {
-      gitArgs.push(`${arg}=${path.resolve(dir, expandHome(args[i + 1] ?? "."))}`);
+      gitArgs.push(`${arg}=${path.resolve(dir, expandShellPath(args[i + 1] ?? ".", dir))}`);
       i += 2;
       continue;
     }
     const assigned = /^(--git-dir|--work-tree)=(.*)$/.exec(arg);
     if (assigned) {
-      gitArgs.push(`${assigned[1]}=${path.resolve(dir, expandHome(assigned[2] ?? "."))}`);
+      gitArgs.push(`${assigned[1]}=${path.resolve(dir, expandShellPath(assigned[2] ?? ".", dir))}`);
       i += 1;
       continue;
     }
@@ -705,7 +758,17 @@ function truncate(text: string, max = 120): string {
  */
 export function findDestructiveGitCommands(command: string, cwd: string): DestructiveGitMatch[] {
   const out: DestructiveGitMatch[] = [];
-  analyzeScript(command, { cwd, depth: 0 }, out);
+  for (const call of walkShell(command, cwd, (name) => name === "git")) {
+    // xargs appends operands read from stdin; stand in "." (whole tree)
+    // so `… | xargs git checkout --` is checked rather than parsed as empty.
+    const match = analyzeGit(call.viaXargs ? [...call.args, "."] : call.args, call.cwd);
+    if (!match) continue;
+    // A pathspec still holding a variable (`for f in …; do git checkout -- $f`)
+    // could name anything once expanded: check the whole tree instead of a
+    // literal `$f` that matches no file.
+    if (match.pathspecs.some((spec) => spec.includes("$"))) match.pathspecs = [];
+    out.push(match);
+  }
   return out;
 }
 
@@ -718,34 +781,34 @@ interface GitResult {
 
 class GuardError extends Error {}
 
-function runGit(dir: string, args: readonly string[]): Promise<GitResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      [...args],
-      {
-        cwd: dir,
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: 8 * 1024 * 1024,
-        windowsHide: true,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C", GIT_TERMINAL_PROMPT: "0" },
-      },
-      (error, stdout) => {
-        if (!error) {
-          resolve({ code: 0, stdout });
-          return;
-        }
-        // A numeric code is git's exit status; a string (ENOENT) or a kill
-        // (timeout) means the guard itself could not inspect the repo.
-        const code: unknown = error.code;
-        if (typeof code === "number" && !error.killed) {
-          resolve({ code, stdout });
-          return;
-        }
-        reject(new GuardError(`git ${args.join(" ")} failed: ${error.message}`));
-      },
-    );
-  });
+/**
+ * Run an inspection git command against the target repo with repo-config
+ * execution sinks (fsmonitor, hooks, filters, …) disabled — see
+ * runBackgroundGit. `gitArgs` are the command's own `--git-dir`/`--work-tree`.
+ */
+async function runGit(
+  dir: string,
+  gitArgs: readonly string[],
+  args: readonly string[],
+): Promise<GitResult> {
+  try {
+    const { stdout } = await runBackgroundGit(args, {
+      cwd: dir,
+      globalArgs: gitArgs,
+      timeoutMs: GIT_TIMEOUT_MS,
+      maxBuffer: 8 * 1024 * 1024,
+      env: { LC_ALL: "C" },
+    });
+    return { code: 0, stdout };
+  } catch (error) {
+    // A numeric code is git's exit status; a string (ENOENT) or a kill
+    // (timeout) means the guard itself could not inspect the repo.
+    if (error instanceof BackgroundGitError && typeof error.code === "number" && !error.killed) {
+      return { code: error.code, stdout: error.stdout };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    throw new GuardError(`git ${args.join(" ")} failed: ${message}`);
+  }
 }
 
 interface StatusEntry {
@@ -758,8 +821,7 @@ async function gitStatus(
   match: DestructiveGitMatch,
   extra: readonly string[],
 ): Promise<StatusEntry[] | null> {
-  const result = await runGit(match.dir, [
-    ...match.gitArgs,
+  const result = await runGit(match.dir, match.gitArgs, [
     "status",
     "--porcelain=v1",
     "-z",
@@ -830,8 +892,7 @@ async function evaluate(match: DestructiveGitMatch): Promise<string | null> {
     case "checkout-paths":
     case "restore-worktree": {
       if (match.maybeRef !== undefined) {
-        const ref = await runGit(match.dir, [
-          ...match.gitArgs,
+        const ref = await runGit(match.dir, match.gitArgs, [
           "rev-parse",
           "--verify",
           "--quiet",
@@ -877,7 +938,7 @@ async function evaluate(match: DestructiveGitMatch): Promise<string | null> {
 
     case "stash-drop":
     case "stash-clear": {
-      const list = await runGit(match.dir, [...match.gitArgs, "stash", "list"]);
+      const list = await runGit(match.dir, match.gitArgs, ["stash", "list"]);
       const entries = list.code === 0 ? list.stdout.split("\n").filter((l) => l.length > 0) : [];
       if (entries.length === 0) return null;
       const target =
@@ -896,8 +957,7 @@ async function evaluate(match: DestructiveGitMatch): Promise<string | null> {
       const losses: string[] = [];
       for (const branch of match.refs) {
         const ref = `refs/heads/${branch}`;
-        const result = await runGit(match.dir, [
-          ...match.gitArgs,
+        const result = await runGit(match.dir, match.gitArgs, [
           "rev-list",
           "--count",
           ref,

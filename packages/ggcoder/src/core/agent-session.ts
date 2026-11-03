@@ -20,6 +20,7 @@ import {
   type VideoContent,
 } from "@kleio/ai";
 import { EventBus } from "./event-bus.js";
+import { flagUntrustedToolResult } from "./injection-detect.js";
 import {
   COMPLETION_REVIEW_STATE_KIND,
   type CompletionReview,
@@ -494,6 +495,8 @@ export class AgentSession {
   // different message (or past the end) by the time the cancel arrives.
   private userQueue: Array<{ id: string; text: string; attachments: SessionAttachment[] }> = [];
   private queueSeq = 0;
+  /** Instant interrupt: the running loop's preempt listeners, fired on queueMessage. */
+  private steeringListeners = new Set<() => void>();
   private processManager?: ProcessManager;
   private lspManager?: LspManager;
   private subAgentManager?: SubAgentManager;
@@ -772,6 +775,7 @@ export class AgentSession {
         this.tools = core;
         this.deferredBuiltinToolNames = deferred.map((t) => t.name);
         this.mcp.addDeferred(deferred);
+        this.promoteWaitAgentAfterSpawn();
       }
     }
     this.rebuildReadTool = rebuildReadTool;
@@ -1038,6 +1042,29 @@ export class AgentSession {
     if (!this.opts.backgroundMcpConnect) return;
     if (this.opts.allowedTools || !this.settingsManager.get("deferredMcpTools")) return;
     await this.mcp.seedFromCache(servers);
+  }
+
+  /**
+   * `wait_agent` is deferred, yet nearly every `spawn_agent` is followed by it,
+   * so the model spent a whole turn on `tool_search` just to load it (bench 41:
+   * ~6 s per fan-out). Promote it as soon as a spawn succeeds instead: the tool
+   * list grows exactly as it would after that `tool_search`, one turn earlier,
+   * and sessions that never spawn keep the smaller prefix.
+   */
+  private promoteWaitAgentAfterSpawn(): void {
+    const index = this.tools.findIndex((t) => t.name === "spawn_agent");
+    const spawn = index >= 0 ? this.tools[index] : undefined;
+    if (!spawn) return;
+    this.tools[index] = {
+      ...spawn,
+      execute: async (args, context) => {
+        const result = await spawn.execute(args, context);
+        if (!this.tools.some((t) => t.name === "wait_agent")) {
+          this.tools.push(...this.mcp.promote(["wait_agent"]));
+        }
+        return result;
+      },
+    };
   }
 
   /**
@@ -2216,9 +2243,15 @@ export class AgentSession {
           this.provider,
           accountId,
         ),
+        // Warn when web/MCP output contains instruction-like text (see injection-detect.ts).
+        transformToolResult: flagUntrustedToolResult,
         // Self-correction hooks (same as the TUI): loop-break + re-grounding are
         // polled mid-loop; the ideal review is polled when the agent would stop.
         getSteeringMessages: () => this.getHookSteeringMessages(),
+        onSteeringAvailable: (listener) => {
+          this.steeringListeners.add(listener);
+          return () => this.steeringListeners.delete(listener);
+        },
         getFollowUpMessages: () => this.getHookFollowUpMessages(),
         onTurnBudgetExhausted: (ctx) => this.shouldExtendTurnBudget(ctx),
         // Check authoritative provider usage before every model/tool step.
@@ -3171,6 +3204,8 @@ export class AgentSession {
   queueMessage(text: string, attachments: SessionAttachment[] = []): number {
     this.queueSeq += 1;
     this.userQueue.push({ id: `q${this.queueSeq}`, text, attachments });
+    // Instant interrupt: preempt running tools so the steer lands right away.
+    for (const listener of [...this.steeringListeners]) listener();
     return this.userQueue.length;
   }
 

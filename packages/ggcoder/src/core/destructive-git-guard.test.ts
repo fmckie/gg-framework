@@ -165,6 +165,13 @@ describe("findDestructiveGitCommands (parse)", () => {
       findDestructiveGitCommands("git restore --source HEAD~2 src/x.ts", cwd)[0]?.pathspecs,
     ).toEqual(["src/x.ts"]);
   });
+
+  it("widens a pathspec holding an unexpanded variable to the whole tree", () => {
+    // `$f` matches no file literally, so a narrowed check would pass a dirty tree.
+    expect(
+      findDestructiveGitCommands("for f in .; do git checkout -- $f; done", cwd)[0]?.pathspecs,
+    ).toEqual([]);
+  });
 });
 
 describe("checkDestructiveGit (real repos)", () => {
