@@ -111,7 +111,7 @@ import { setEstimatorModel, calibrateEstimatorFromUsage } from "./compaction/tok
 import { calculateActiveContextTokens } from "./compaction/active-context.js";
 import { resolveCompactionPolicy } from "./compaction/policy.js";
 import { clampThinkingForPlanMode } from "./thinking-level.js";
-import { pruneStaleToolResults } from "./compaction/tool-result-pruner.js";
+import { pruneStaleToolResults, shouldPruneToolResults } from "./compaction/tool-result-pruner.js";
 import { discoverAgents } from "./agents.js";
 import { enhancePrompt, type EnhanceResult } from "../utils/prompt-enhancer.js";
 import { detectLanguages, detectProjectStack, type LanguageId } from "./language-detector.js";
@@ -2281,6 +2281,18 @@ export class AgentSession {
           if (!force) {
             if (!this.settingsManager.get("autoCompact")) return messages;
 
+            const contextWindow = getContextWindow(this.model, {
+              provider: this.provider,
+              accountId,
+            });
+            const policy = resolveCompactionPolicy({
+              provider: this.provider,
+              model: this.model,
+              contextWindow,
+              threshold: this.settingsManager.get("compactThreshold"),
+              accountId,
+              approvedPlanPath: this.approvedPlanPath,
+            });
             // Provider usage when there is some, else an estimate of the history.
             let usage = transformOpts.usage;
             let pendingMessages = transformOpts.pendingMessages;
@@ -2299,39 +2311,30 @@ export class AgentSession {
             });
 
             // Cheap stale-tool-output pruning before the expensive LLM
-            // compaction check. In-place mutation preserves anchors; drop the
-            // retained usage afterwards since it counted the pruned content.
-            const pruneResult = pruneStaleToolResults(messages);
-            if (pruneResult.pruned) {
-              this.providerContext = null;
-              log("INFO", "compaction", "Pruned stale tool outputs", {
-                prunedResults: String(pruneResult.prunedResults),
-                compactedToolCalls: String(pruneResult.compactedToolCalls),
-                freedTokens: String(pruneResult.freedTokens),
-              });
-              // The measured size counted the pruned content, so take the
-              // freed tokens off it. Never swap the provider's count for a
-              // whole-history estimate here: that estimate rides a shared
-              // chars-per-token ratio, and it once read a 234K-token MiMo
-              // context (23% of 1M) as ~400K and compacted it against a 340K
-              // trigger.
-              activeTokens = Math.max(0, activeTokens - pruneResult.freedTokens);
+            // compaction check, once the context is big enough for the freed
+            // tokens to be worth a cache rewrite. In-place mutation preserves
+            // anchors; drop the retained usage afterwards since it counted the
+            // pruned content.
+            if (shouldPruneToolResults(activeTokens, policy.targetTokens)) {
+              const pruneResult = pruneStaleToolResults(messages);
+              if (pruneResult.pruned) {
+                this.providerContext = null;
+                log("INFO", "compaction", "Pruned stale tool outputs", {
+                  prunedResults: String(pruneResult.prunedResults),
+                  compactedToolCalls: String(pruneResult.compactedToolCalls),
+                  freedTokens: String(pruneResult.freedTokens),
+                });
+                // The measured size counted the pruned content, so take the
+                // freed tokens off it. Never swap the provider's count for a
+                // whole-history estimate here: that estimate rides a shared
+                // chars-per-token ratio, and it once read a 234K-token MiMo
+                // context (23% of 1M) as ~400K and compacted it against a 340K
+                // trigger.
+                activeTokens = Math.max(0, activeTokens - pruneResult.freedTokens);
+              }
             }
 
             if (Date.now() < this.compactionRetryAfter) return messages;
-
-            const contextWindow = getContextWindow(this.model, {
-              provider: this.provider,
-              accountId,
-            });
-            const policy = resolveCompactionPolicy({
-              provider: this.provider,
-              model: this.model,
-              contextWindow,
-              threshold: this.settingsManager.get("compactThreshold"),
-              accountId,
-              approvedPlanPath: this.approvedPlanPath,
-            });
             log("INFO", "compaction", "In-flight compaction decision", {
               provider: this.provider,
               model: this.model,
@@ -3369,7 +3372,7 @@ export class AgentSession {
       return relative.startsWith("..") || path.isAbsolute(relative);
     });
     this.additionalRoots.push(resolved);
-    await this.rebuildSystemPromptInPlace();
+    await this.refreshPromptForRoots();
     return { ok: true, root: resolved };
   }
 
@@ -3384,8 +3387,19 @@ export class AgentSession {
     }
 
     this.additionalRoots.splice(index, 1);
-    await this.rebuildSystemPromptInPlace();
+    await this.refreshPromptForRoots();
     return { ok: true, root: resolved };
+  }
+
+  /**
+   * Name a root change in the prompt only while there is no conversation yet.
+   * Mid-conversation the env-delta note tells the model instead: the roots sit
+   * in the Environment section, and rewriting it would invalidate every cached
+   * message after it (a goal attaching a folder re-sent ~75k tokens).
+   */
+  private async refreshPromptForRoots(): Promise<void> {
+    if (this.messages.some((message) => message.role !== "system")) return;
+    await this.rebuildSystemPromptInPlace();
   }
 
   /**

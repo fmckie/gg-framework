@@ -93,6 +93,7 @@ export {
   toOpenAIMessages,
 } from "./providers/transform.js";
 export type { ToolCallNameRule } from "./providers/transform.js";
+export { continuesTurn, opensTurn } from "./utils/turn-continuation.js";
 
 // Cache pre-warming (Anthropic — fires a max_tokens:1 warm-up to prime the KV cache)
 export { prewarmAnthropicCache } from "./providers/anthropic.js";
