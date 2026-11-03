@@ -240,4 +240,20 @@ describe("ChatPicker", () => {
     expect(await screen.findByText("Plan my week")).toBeDefined();
     expect(screen.queryByRole("button", { name: /Remove chat/ })).toBeNull();
   });
+
+  it("titles an image-only chat Image, not the saved file's path", async () => {
+    getSettingsMock.mockResolvedValue({ projectsRoot: "/workspaces", configured: true });
+    waitForReadyMock.mockResolvedValue();
+    listSessionsMock.mockResolvedValue([
+      {
+        ...session,
+        preview: "[Image saved at /workspaces/.gg/uploads/mhj2k3l0-Screenshot_2026-11-03_at_10.15",
+      },
+    ]);
+
+    render(<ChatPicker onChosen={vi.fn()} />);
+
+    expect(await screen.findByText("Image")).toBeDefined();
+    expect(screen.queryByText(/Image saved at/)).toBeNull();
+  });
 });

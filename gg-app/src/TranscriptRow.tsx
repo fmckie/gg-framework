@@ -144,7 +144,7 @@ function TranscriptRowBody({
         return (
           <div className="user-msg command labelled user-ken-sent">
             <span className="command-shimmer" style={{ color: theme.ken }}>
-              Sent to GG Coder
+              Sent to Kleio
             </span>
           </div>
         );

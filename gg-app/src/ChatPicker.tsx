@@ -11,6 +11,7 @@ import {
   type RecentSession,
 } from "./agent";
 import { motionWorkspacePath } from "./motion-workspace";
+import { readableSessionTitle } from "./session-title";
 import { Badge } from "./Badge";
 import { BackButton } from "./BackButton";
 import { ListSkeleton } from "./Skeleton";
@@ -178,7 +179,7 @@ export function ChatPicker({
         {!loading && !error && sessions.length > 0 && (
           <div className="picker-reveal">
             {sessions.map((session) => {
-              const preview = session.preview || "(no preview)";
+              const preview = readableSessionTitle(session.preview) || "(no preview)";
               const confirming = confirmPath === session.path;
               const deleting = deletingPath === session.path;
               return (
