@@ -12,6 +12,7 @@ import { PersistentShell } from "../core/persistent-shell.js";
 import { isReadOnlyCommand, sleepOnlySeconds } from "./read-only-bash.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
 import { isCatastrophicCommand } from "../core/workspace-guard.js";
+import { checkDestructiveGit } from "../core/destructive-git-guard.js";
 import { checkCommandPolicy, type GetNetworkPolicy } from "../core/network-guard.js";
 import {
   prepareSandboxLaunch,
@@ -251,6 +252,20 @@ export function createBashTool(
       const catastrophic = isCatastrophicCommand(command, cwd);
       if (catastrophic) {
         return `Error: ${catastrophic}`;
+      }
+      // Destructive-git guard — refuses reset --hard / checkout -- / restore /
+      // clean -f / stash drop / branch -D / force push when work would be lost.
+      // A persist:true call runs wherever the session shell last cd'd to.
+      const liveShell = persist && process.platform !== "win32" ? sessionShell : null;
+      const gitBlocked = await checkDestructiveGit(command, {
+        cwd,
+        resolveCwd:
+          liveShell && !liveShell.isBusy
+            ? async () => (await liveShell.run("pwd", 2_000, context.signal)).output.trim() || null
+            : undefined,
+      });
+      if (gitBlocked) {
+        return `Error: ${gitBlocked}`;
       }
       // Network allowlist — defence in depth only. Recognises the common egress
       // command shapes; an unrecognised command is never blocked (see
