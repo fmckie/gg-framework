@@ -263,6 +263,8 @@ Local macOS checks, each compared with `main`:
   desktop **0.100.1**), 270 commits after `3f2bb6bc`. None of the 25 commits after
   `988f920e` is taken here.
 - Branch: `sync/upstream-engine-fixes`, based on `main` at `c2a1ea88`
+- PR: [#75](https://github.com/fmckie/gg-framework/pull/75), opened as a draft on
+  2026-11-03
 - PR 2 of the 4 in `.gg/plans/upstream-selective-import-phased.md`: engine fixes, ported
   at the paths the module split created.
 - `upstream.lastImportedCommit` stays `3f2bb6bc`, for the reason given in the 988f920e
