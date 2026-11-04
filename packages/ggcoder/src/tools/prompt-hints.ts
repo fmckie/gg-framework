@@ -79,7 +79,7 @@ export const TOOL_STEERING_CLAUSES: ReadonlyArray<{
     // A head-to-head against the pi agent found the strict
     // "rather than bash" wording split exploration into one ls/find per turn
     // (~50s per suite); one combined read-only bash command does it in one.
-    text: "Use `find`/`grep` to locate files and search content; when orienting in an unfamiliar tree, one read-only `bash` command that combines several lookups (`ls`, `find`, `rg`) is fine and saves turns.",
+    text: "Use `find`/`grep` to locate files and search content; when orienting in an unfamiliar tree, one read-only `bash` command that combines several lookups (`ls`, `find`, `rg`, `cat` of the small relevant files) is fine and saves turns — list and read in the same step rather than listing first and reading next turn.",
   },
   {
     needs: ["code_search", "grep", "read"],

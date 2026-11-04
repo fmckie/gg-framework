@@ -410,6 +410,51 @@ describe("verification gate flow", () => {
     expect(events.filter((e) => e === "hook:verification")).toHaveLength(1);
   });
 
+  it("tracks every file of a multi-file edit as needing verification", async () => {
+    const { internal } = await makeSession();
+
+    // The `files` form carries no top-level file_path; missing it would let a
+    // multi-file change skip verification entirely.
+    await simulateToolCall(internal, "edit", {
+      files: [
+        { file_path: "src/a.ts", edits: [] },
+        { file_path: "src/b.ts", edits: [] },
+      ],
+    });
+
+    expect(internal.getVerificationProblem()).toContain("Unverified");
+  });
+
+  it("flags only the file of a multi-file edit that added a suppression", async () => {
+    const { internal } = await makeSession();
+
+    // The edit tool joins one diff section per file.
+    const diff = [
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "+// eslint-disable-next-line no-console",
+      "--- a/src/b.ts",
+      "+++ b/src/b.ts",
+      "+export const b = 2;",
+    ].join("\n");
+    await simulateToolCall(
+      internal,
+      "edit",
+      {
+        files: [
+          { file_path: "src/a.ts", edits: [] },
+          { file_path: "src/b.ts", edits: [] },
+        ],
+      },
+      diff,
+    );
+    await simulateToolCall(internal, "bash", { command: "cd pkg && npm test" });
+
+    const review = String((await internal.getHookFollowUpMessages())?.[0]?.content ?? "");
+    expect(review).toContain("- src/a.ts — adds ESLint rule suppression");
+    expect(review).not.toContain("src/b.ts");
+  });
+
   it("stays silent end to end when the run verified its own edit", async () => {
     const { internal, events } = await makeSession();
 

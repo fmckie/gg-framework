@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AgentToolCallEndEvent, AgentToolCallStartEvent } from "@kleio/agent";
 import type { BackgroundProcess } from "../process-manager.js";
 import {
@@ -10,6 +11,28 @@ import {
 import { classifyVerificationCommand, extractStandaloneCheck } from "../verification-evidence.js";
 import { captureVerificationSnapshot } from "../verification-snapshot.js";
 import { autoBackgroundedId } from "../../tools/bash.js";
+import { editTargetPaths } from "../../tools/edit-targets.js";
+import { resolvePath, toPosixPath } from "../../tools/path-utils.js";
+
+/**
+ * One section per file of an edit diff, keyed by the cwd-relative POSIX path.
+ * A multi-file edit joins one `--- a/<path>` + `+++ b/<path>` section per file,
+ * so each file is checked only for the lines it added.
+ */
+function diffSectionsByFile(diff: string): Map<string, string> {
+  const lines = diff.split("\n");
+  const starts: Array<{ file: string; at: number }> = [];
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const file = /^--- a\/(.+)$/.exec(lines[i] ?? "")?.[1];
+    if (file !== undefined && lines[i + 1] === `+++ b/${file}`) starts.push({ file, at: i });
+  }
+  const sections = new Map<string, string>();
+  starts.forEach(({ file, at }, n) => {
+    const end = starts[n + 1]?.at ?? lines.length;
+    sections.set(toPosixPath(file), lines.slice(at, end).join("\n"));
+  });
+  return sections;
+}
 
 /** A tool call observed between its start and end events. */
 export interface TrackedToolCall {
@@ -187,19 +210,29 @@ export class VerificationTracker {
     let verificationChanged = false;
     if (!event.isError && args) {
       if (name === "edit" || name === "write") {
-        const filePath = String((args as { file_path?: unknown }).file_path ?? "");
+        const diff =
+          name === "edit"
+            ? ((event.details as { diff?: string } | undefined)?.diff ?? event.result)
+            : "";
+        const sections = name === "edit" ? diffSectionsByFile(diff) : undefined;
         // Check-owning files (tsconfig.json, pytest.ini, vitest.config.ts …)
         // are tracked even when they are not source code: editing one is how
-        // a red suite is turned green without fixing anything.
-        if (filePath && (isCodeFilePath(filePath) || isCheckOwnFile(filePath))) {
-          const addedText =
-            name === "write"
-              ? String((args as { content?: unknown }).content ?? "")
-              : extractAddedLines(
-                  (event.details as { diff?: string } | undefined)?.diff ?? event.result,
-                );
-          this.gate.recordMutation(filePath, addedText);
-          verificationChanged = true;
+        // a red suite is turned green without fixing anything. A multi-file
+        // edit records every file.
+        for (const filePath of editTargetPaths(args as Record<string, unknown>)) {
+          if (isCodeFilePath(filePath) || isCheckOwnFile(filePath)) {
+            // A path with no section of its own gets the whole diff: an added
+            // suppression is over-attributed rather than missed.
+            const section = sections?.get(
+              toPosixPath(path.relative(this.cwd, resolvePath(this.cwd, filePath))),
+            );
+            const addedText =
+              name === "write"
+                ? String((args as { content?: unknown }).content ?? "")
+                : extractAddedLines(section ?? diff);
+            this.gate.recordMutation(filePath, addedText);
+            verificationChanged = true;
+          }
         }
       }
     }

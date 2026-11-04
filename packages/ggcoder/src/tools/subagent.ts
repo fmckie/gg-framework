@@ -29,6 +29,7 @@ import {
   SUB_AGENT_MAX_TURNS,
   SUB_AGENT_TIMEOUT_MS,
 } from "./subagent-shared.js";
+import { editTargetLabel } from "./edit-targets.js";
 
 const SubAgentParams = z.object({
   task: z.string().describe("The task to delegate to the sub-agent"),
@@ -425,7 +426,7 @@ function formatToolActivity(name: string, args: Record<string, unknown>): string
     case "write":
       return `Writing ${shortenPath(String(args.file_path ?? ""))}`;
     case "edit":
-      return `Editing ${shortenPath(String(args.file_path ?? ""))}`;
+      return `Editing ${editTargetLabel(args, shortenPath)}`;
     case "grep": {
       const pat = String(args.pattern ?? "");
       return `Searching for "${truncateStr(pat, 30)}"`;

@@ -87,6 +87,18 @@ afterEach(async () => {
 });
 
 describe("buildSystemPrompt", () => {
+  it("tells the model instruction files are preloaded, whether or not any exist", async () => {
+    const empty = await buildSystemPrompt(await makeProject());
+    const withFile = await buildSystemPrompt(await makeProject({ "AGENTS.md": "Use tabs." }));
+
+    // Without the note, models hunt for AGENTS.md with `find ..` — a tool call
+    // that can walk the whole home directory.
+    expect(empty).toContain("## Project Context\n\nNo instruction files found.");
+    expect(empty).toContain("do not search for them");
+    expect(withFile).toContain("do not search for them");
+    expect(withFile).toContain("Use tabs.");
+  });
+
   it("renders deterministic section order and keeps Environment and the date after the marker", async () => {
     const cwd = await makeProject({
       "CLAUDE.md": "Project rules win.",
@@ -420,7 +432,7 @@ describe("buildSystemPrompt", () => {
       "use editing tools, not shell writes",
       // Replay-tested on gpt-6-astra against the pi agent: this pair
       // moved a 7-file refactor from one edit per turn to all 7 in one response.
-      "emit every `edit` call for that change in the SAME response",
+      "emit every edit for that change in the SAME response",
       "Run the project's tests after editing, not before",
       "Preserve user work and existing conventions, exports, tests, and toolchains",
       "Investigate factual uncertainty yourself",
@@ -449,7 +461,13 @@ describe("buildSystemPrompt", () => {
       "never revert or reset changes you did not make",
       "Do not delete data, install packages, or publish without the required user authorization",
       "Keep generated artifacts and secrets out of git",
-      "Reproduce bugs before fixing; rerun the reproduction afterward",
+      // Codex head-to-head: fix + regression test together when the cause is
+      // clear (7/8 in replay) instead of write → run → fix → re-run.
+      // "small focused case": replay cut the test from ~950 to ~270 chars of
+      // output (8/8 still added one), which was most of the bugfix gap.
+      "one small focused case in existing tests",
+      "send the fix and that case together",
+      "Reproduce first only when the cause is unclear; rerun the reproduction afterward",
       "After three failed fixes, re-diagnose instead of retrying",
       "For requested TDD, write and run the failing test first",
       "No placeholders, unrelated cleanup, blanket suppressions, skipped tests, or weakened assertions",
@@ -622,10 +640,15 @@ describe("buildSystemPrompt", () => {
     // Extreme workflow-only caps; response policy and safety floors are independently tested.
     // Normal 6,500 → 6,600 and full 10,000 → 10,100 for the replay-tested
     // edit-batching pair in How to Work (+~35 chars; it cut a 7-file refactor
-    // from 7 edit turns to 1).
-    expect(measurements.normal.characters).toBeLessThan(6_600);
-    expect(measurements.planMode.characters).toBeLessThan(8_000);
-    expect(measurements.typescriptProjectContextToolsSkills.characters).toBeLessThan(10_100);
+    // from 7 edit turns to 1). Then → 6,800 / 10,300 for the Project Context
+    // "instruction files are preloaded" note (+~170 chars), which stops the
+    // model spending a tool call on `find .. -name AGENTS.md` (2.5–5.4s each
+    // in the Codex head-to-head, unbounded in a large home directory).
+    // +200 each again for the Codex-style bug-fix line (fix + regression test
+    // in one response when the cause is clear; 7/8 in replay vs 0/8 before).
+    expect(measurements.normal.characters).toBeLessThan(7_000);
+    expect(measurements.planMode.characters).toBeLessThan(8_400); // +400: preloaded-instructions note, bug-fix line
+    expect(measurements.typescriptProjectContextToolsSkills.characters).toBeLessThan(10_600);
     expect(measurements.planMode.characters).toBeGreaterThan(measurements.normal.characters);
     expect(measurements.typescriptProjectContextToolsSkills.characters).toBeGreaterThan(
       measurements.normal.characters,
