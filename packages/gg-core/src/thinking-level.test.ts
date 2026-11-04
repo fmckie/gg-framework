@@ -87,6 +87,18 @@ describe("thinking-level helpers", () => {
     expect(isThinkingLevelSupported("anthropic", "claude-sonnet-5", "xhigh")).toBe(false);
   });
 
+  it("cycles Haiku 5.5 through the full adaptive ladder, including xhigh", () => {
+    expect(getSupportedThinkingLevels("anthropic", "claude-haiku-5-5")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+    expect(getNextThinkingLevel("anthropic", "claude-haiku-5-5", "high")).toBe("xhigh");
+    expect(getNextThinkingLevel("anthropic", "claude-haiku-5-5", "max")).toBeUndefined();
+  });
+
   it("cycles Claude Fable 5.1 through the adaptive ladder without xhigh", () => {
     expect(getSupportedThinkingLevels("anthropic", "claude-fable-5-1")).toEqual([
       "low",

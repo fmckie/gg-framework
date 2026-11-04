@@ -44,9 +44,9 @@ export interface ModelInfo {
    *   - OpenAI GPT-6 Astra / GPT-6.1 Sol: `ultra` (Codex orchestration preset above `max`)
    *   - OpenAI GPT-6 Luna: `max`
    *   - OpenAI Pro/Codex/old: clamped to what the model accepts
-   *   - Claude Fable 5.1 / Fable 5 / Mythos 5, Opus 5.5 and Sonnet 5.5: `max`
-   *     (the Fable / Mythos line uses always-on adaptive thinking, low→max)
-   *   - Claude Haiku 4.5: `high` (no adaptive `max` tier)
+   *   - Claude Fable 5.1 / Fable 5 / Mythos 5, Opus 5.5, Sonnet 5.5 and
+   *     Haiku 5.5: `max` (the Fable / Mythos line uses always-on adaptive
+   *     thinking, low→max)
    *   - Kimi K3: `max` (always-on reasoning; currently the only API effort)
    *   - xAI Grok 4.6: `xhigh` (new top rung; 4.5 caps at `high`)
    *   - GLM / Kimi K2.x / Xiaomi / MiniMax / Qwen: `high` — binary-thinking
@@ -147,16 +147,24 @@ export const MODELS: ModelInfo[] = [
     maxThinkingLevel: "max",
   },
   {
-    id: "claude-haiku-4-5-20251001",
-    name: "Claude Haiku 4.5",
+    // Released 2026-10-07 — replaces Haiku 4.5 at $0.10/$0.50 MTok (prompts
+    // up to 100K tokens; $0.50/$2.50 above). 1M context, 128K output, image
+    // input. Adaptive thinking with the full effort ladder (low→max, xhigh
+    // included; API default `medium`) — manual budget_tokens, non-default
+    // sampling params and assistant prefill all 400. No server-side refusal
+    // fallback: `fallbacks: "default"` is accepted but a refusal stays a
+    // refusal. Haiku 4.5 is retired here — a session that still has it saved
+    // falls back to the provider default on next start.
+    id: "claude-haiku-5-5",
+    name: "Claude Haiku 5.5",
     provider: "anthropic",
-    contextWindow: 200_000,
-    maxOutputTokens: 64_000,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
     supportsThinking: true,
     supportsImages: true,
     supportsVideo: false,
     costTier: "low",
-    maxThinkingLevel: "high",
+    maxThinkingLevel: "max",
   },
   // ── OpenAI (Codex) ─────────────────────────────────────
   {
@@ -833,8 +841,8 @@ export function getDefaultThinkingLevel(
  * never by model id, so adding, renaming or removing models needs no change
  * here: the first registered model of that provider carrying the tag wins.
  * Providers not listed summarize on the active model.
- * - Anthropic: "medium" (the Sonnet line) — Haiku's smaller window and
- *   shallower summaries cost more in lost memory than they save.
+ * - Anthropic: "medium" (the Sonnet line) — Haiku's shallower summaries
+ *   cost more in lost memory than they save.
  * - OpenAI, GLM, DeepSeek, Hugging Face: "low" (Luna, the Flash models,
  *   gpt-oss).
  */

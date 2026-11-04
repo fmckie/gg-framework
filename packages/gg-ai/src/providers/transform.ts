@@ -1127,14 +1127,14 @@ export function toAnthropicToolChoice(choice: ToolChoice): Anthropic.ToolChoice 
 
 /**
  * Anthropic models with built-in adaptive thinking (Fable 5.x, Mythos 5.x,
- * Opus 5.5/5, Opus 4.8/4.7/4.6, Sonnet 5.5/5). Matches both dashed (`opus-4-8`) and
+ * Opus 5.5/5, Opus 4.8/4.7/4.6, Sonnet 5.5/5, Haiku 5.5). Matches both dashed (`opus-4-8`) and
  * dotted (`opus-4.8`) forms so callers don't have to enumerate variants. These
  * models don't need the `interleaved-thinking` beta header — it's built in.
  * (`opus-5` can't false-match `claude-opus-4-5-…` — the `4-` breaks the literal;
- * it also covers `opus-5-5`.)
+ * it also covers `opus-5-5`; likewise `haiku-5` never matches `haiku-4-5`.)
  */
 export function isAdaptiveThinkingModel(model: string): boolean {
-  return /opus-5|opus-4[-.]8|opus-4[-.]7|opus-4[-.]6|sonnet-5|fable-5|mythos-5/.test(model);
+  return /opus-5|opus-4[-.]8|opus-4[-.]7|opus-4[-.]6|sonnet-5|haiku-5|fable-5|mythos-5/.test(model);
 }
 
 export function toAnthropicThinking(
@@ -1150,13 +1150,18 @@ export function toAnthropicThinking(
     // Adaptive thinking — model decides when/how much to think.
     // budget_tokens is deprecated on Opus 5.x / 4.8 / 4.7 / 4.6 and Sonnet 5.
     // Anthropic's output_config.effort accepts low, medium, high, xhigh, and max.
-    // xhigh is supported by Opus 5.x / 4.8 / 4.7 and Sonnet 5.5; all support max.
+    // xhigh is supported by Opus 5.x / 4.8 / 4.7, Sonnet 5.5 and Haiku 5.5;
+    // all support max.
     let effort: string = level;
-    if (effort === "xhigh" && !/opus-5|opus-4-8|opus-4-7|sonnet-5[-.]5/.test(model)) {
+    if (effort === "xhigh" && !/opus-5|opus-4-8|opus-4-7|sonnet-5[-.]5|haiku-5[-.]5/.test(model)) {
       effort = "high";
     }
     return {
-      thinking: { type: "adaptive" } as unknown as Anthropic.ThinkingConfigParam,
+      // `display` defaults to "omitted" on Fable/Mythos 5.x, Opus 5.x/4.8/4.7,
+      // Sonnet 5.x and Haiku 5.5: the model still thinks (and bills for it) but
+      // streams empty thinking blocks, so the app shows no reasoning at all.
+      // "summarized" opts back in; on Opus/Sonnet 4.6 it is already the default.
+      thinking: { type: "adaptive", display: "summarized" },
       maxTokens,
       outputConfig: { effort },
     };
@@ -1167,7 +1172,7 @@ export function toAnthropicThinking(
   // thinking `max_tokens` is the TOTAL response envelope (thinking + visible
   // output), so it must stay ≤ the ceiling and `budget_tokens` must be strictly
   // less than it. The previous code returned `maxTokens + budget`, which blew
-  // past the ceiling (e.g. Haiku 4.5: 64K + 64K = 128K) and could trip the
+  // past the ceiling (e.g. a 64K model: 64K + 64K = 128K) and could trip the
   // provider's `max_tokens > maximum allowed` rejection. Now the ceiling is the
   // envelope and the budget is a fraction of it with a reserved visible floor.
   const VISIBLE_FLOOR = 1024;

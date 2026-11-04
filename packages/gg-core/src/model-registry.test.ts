@@ -113,6 +113,27 @@ describe("Claude Sonnet 5.5", () => {
   });
 });
 
+describe("Claude Haiku 5.5", () => {
+  it("replaces Haiku 4.5 in the catalog", () => {
+    const model = getModel("claude-haiku-5-5");
+    expect(model).toEqual({
+      id: "claude-haiku-5-5",
+      name: "Claude Haiku 5.5",
+      provider: "anthropic",
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      supportsImages: true,
+      supportsVideo: false,
+      costTier: "low",
+      maxThinkingLevel: "max",
+    });
+    expect(getModelsForProvider("anthropic")).toContain(model);
+    expect(getModel("claude-haiku-4-5-20251001")).toBeUndefined();
+    expect(getModel("claude-haiku-4-5")).toBeUndefined();
+  });
+});
+
 describe("getSummaryModel when the catalog changes", () => {
   /**
    * Edit the real catalog for one assertion, then put it back exactly — the

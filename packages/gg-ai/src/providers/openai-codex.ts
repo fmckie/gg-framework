@@ -348,6 +348,9 @@ async function* runStream(
   let outputTokens = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
+  // Whether any visible reasoning text has streamed yet — a section break is
+  // only needed between sections, never before the first one.
+  let thinkingTextEmitted = false;
 
   // ── Diagnostic: log the first occurrence of each raw SSE event type with
   // timing, so we can see what Codex sends during the pre-reasoning window
@@ -463,6 +466,16 @@ async function* runStream(
       }
     }
 
+    // Each reasoning summary section (Codex sends a short bold headline per
+    // section) arrives as its own part with no separator in the text. Without a
+    // break they render glued together — "**A****B**" — which also breaks the
+    // markdown bold. Mirror the Codex CLI: a blank line between sections.
+    if (type === "response.reasoning_summary_part.added") {
+      if (options.thinking && thinkingTextEmitted) {
+        yield { type: "thinking_delta", text: "\n\n" };
+      }
+    }
+
     // Thinking delta
     if (
       type === "response.reasoning_summary_text.delta" ||
@@ -471,9 +484,13 @@ async function* runStream(
       type === "response.reasoning.delta"
     ) {
       const delta = event.delta as string;
-      if (options.thinking) yield { type: "thinking_delta", text: delta };
-      // Hidden reasoning is still proof of life for the agent loop's watchdog.
-      else if (delta) yield { type: "keepalive", reasoning: true };
+      if (options.thinking && delta) {
+        thinkingTextEmitted = true;
+        yield { type: "thinking_delta", text: delta };
+      } else if (delta) {
+        // Hidden reasoning is still proof of life for the agent loop's watchdog.
+        yield { type: "keepalive", reasoning: true };
+      }
     }
 
     // Reasoning item started — the model has begun reasoning on the server.

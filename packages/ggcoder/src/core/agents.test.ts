@@ -107,7 +107,7 @@ describe("parseAgentFile", () => {
         "---",
         "name: scout",
         "description: Recon",
-        "model: claude-haiku-4-5",
+        "model: claude-haiku-5-5",
         "context: sometimes",
         "---",
         "Scout.",
@@ -115,7 +115,7 @@ describe("parseAgentFile", () => {
       "project",
     );
 
-    expect(agent.model).toBe("claude-haiku-4-5");
+    expect(agent.model).toBe("claude-haiku-5-5");
     expect(agent.context).toBeUndefined();
   });
 });

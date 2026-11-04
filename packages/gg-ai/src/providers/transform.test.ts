@@ -881,17 +881,33 @@ describe("toAnthropicThinking", () => {
       for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
         const result = toAnthropicThinking(level, MAX_TOKENS, model);
         expect(result.outputConfig).toEqual({ effort: level });
-        expect((result.thinking as { type: string }).type).toBe("adaptive");
+        expect(result.thinking).toEqual({ type: "adaptive", display: "summarized" });
       }
     }
   });
 
-  it.each(["claude-sonnet-5-5", "claude-sonnet-5.5"])(
+  // These models default `display` to "omitted": without opting in, thinking
+  // blocks stream empty and the user never sees any reasoning.
+  it.each([
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-sonnet-5",
+    "claude-opus-5-5",
+    "claude-fable-5-1",
+    "claude-mythos-5",
+  ])("requests summarized thinking text from %s", (model) => {
+    expect(toAnthropicThinking("low", MAX_TOKENS, model).thinking).toEqual({
+      type: "adaptive",
+      display: "summarized",
+    });
+  });
+
+  it.each(["claude-sonnet-5-5", "claude-sonnet-5.5", "claude-haiku-5-5", "claude-haiku-5.5"])(
     "passes every adaptive effort through for %s",
     (model) => {
       for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
         expect(toAnthropicThinking(level, MAX_TOKENS, model)).toEqual({
-          thinking: { type: "adaptive" },
+          thinking: { type: "adaptive", display: "summarized" },
           maxTokens: MAX_TOKENS,
           outputConfig: { effort: level },
         });
@@ -920,13 +936,13 @@ describe("toAnthropicThinking", () => {
   });
 
   it("keeps budget-based max_tokens within the model ceiling (no doubling)", () => {
-    // Haiku 4.5 is a legacy budget model. max_tokens is the total response
+    // An older, non-adaptive id takes the legacy budget path. max_tokens is the total response
     // envelope and must stay ≤ the ceiling (64K here); budget_tokens must be
     // strictly less than max_tokens. Previously this returned maxTokens +
     // budget (128K), which exceeds the provider's output-token cap.
     const CEILING = 64_000;
     for (const level of ["low", "medium", "high", "xhigh", "max", "ultra"] as const) {
-      const result = toAnthropicThinking(level, CEILING, "claude-haiku-4-5");
+      const result = toAnthropicThinking(level, CEILING, "claude-retired-model");
       expect(result.maxTokens).toBeLessThanOrEqual(CEILING);
       const budget = (result.thinking as { budget_tokens?: number }).budget_tokens!;
       expect(budget).toBeGreaterThan(0);
