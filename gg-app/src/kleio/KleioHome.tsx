@@ -26,6 +26,19 @@ import { diagnosisText } from "./connectionDiagnosis";
 import { useHostReach, useHostReachWords } from "./hostReach";
 import { shortHost } from "./host-name";
 
+// Temporary: localStorage "kleio-home-buttons" picks a button style to compare (kleio-theme.css).
+const HOME_BUTTONS = ["instrument", "edge", "console"] as const;
+type HomeButtons = (typeof HOME_BUTTONS)[number];
+
+function savedHomeButtons(): HomeButtons {
+  try {
+    const saved = localStorage.getItem("kleio-home-buttons");
+    return HOME_BUTTONS.find((style) => style === saved) ?? "instrument";
+  } catch {
+    return "instrument";
+  }
+}
+
 interface Props {
   /** Chat with Kleio: upstream's Chat screen (the general agent), on the Mac mini. */
   onChat: () => void;
@@ -57,6 +70,7 @@ export function KleioHome({
   // Over Kleio's link, why it isn't (diagnoseLink's words).
   const words = useHostReachWords();
   const connected = Boolean(status?.active) && reach === "connected";
+  const [buttons] = useState(savedHomeButtons);
 
   useEffect(() => {
     void getVersion()
@@ -131,7 +145,7 @@ export function KleioHome({
         : { state: "is-down", text: words?.headline ?? `Disconnected from ${mini}` };
 
   return (
-    <div className="home kleio-home" data-tauri-drag-region>
+    <div className="home kleio-home" data-home-buttons={buttons} data-tauri-drag-region>
       {backgroundOn && (
         <HomeDither waveColor={KLEIO_WAVES} backgroundColor={KLEIO_BACKGROUND} paused={covered} />
       )}
@@ -173,14 +187,23 @@ export function KleioHome({
           <CodeIcon size={18} weight="bold" aria-hidden="true" />
           Code
         </button>
-        <button type="button" className="btn btn-ghost home-action" onClick={onBlobs}>
+        <button
+          type="button"
+          className="btn btn-ghost home-action"
+          aria-keyshortcuts="Meta+Shift+L"
+          onClick={onBlobs}
+        >
           <CirclesThreeIcon size={18} weight="bold" aria-hidden="true" />
           Specialists
+          <kbd className="home-kbd" aria-hidden="true">
+            ⌘⇧L
+          </kbd>
         </button>
       </div>
       <button
         type="button"
         className="home-brief"
+        aria-keyshortcuts="Meta+Shift+B"
         title={
           voiceReady
             ? "Talk to Kleio: ask what's happening, or plan something out (⌘⇧B)"
@@ -190,6 +213,9 @@ export function KleioHome({
       >
         <WaveformIcon size={16} weight="bold" aria-hidden="true" />
         {voiceReady ? "Talk to Kleio" : "Brief me"}
+        <kbd className="home-kbd" aria-hidden="true">
+          ⌘⇧B
+        </kbd>
       </button>
       <button
         type="button"
