@@ -87,6 +87,7 @@ import type { BackgroundProcess } from "./process-manager.js";
 import { formatImpactForVerification, type TestImpactIndex } from "./test-impact.js";
 import type { DebugManager } from "../tools/debug.js";
 import { buildProcessCompletionFollowUp } from "./process-gate.js";
+import { PLAN_SUBMISSION_NUDGE, shouldNudgePlanSubmission } from "./plan-submission-gate.js";
 import {
   buildSubAgentCompletionFollowUp,
   type SubAgentManager,
@@ -399,6 +400,10 @@ export interface AgentSessionOptions {
   toolDetails?: (details: unknown) => Promise<unknown>;
   /** Mode-owned completion policy; absent in Coder/chat/worker sessions. */
   completionReview?: CompletionReview;
+  /** Remind the agent to submit its plan (exit_plan) when a run is about to
+   *  stop still in plan mode. Desktop only: an unsubmitted plan there leaves
+   *  nothing to review. See plan-submission-gate.ts. */
+  planSubmissionGate?: boolean;
 }
 
 export {
@@ -490,6 +495,8 @@ export class AgentSession {
   private runStartedAt = 0;
   /** Gate injections spent this run, capped by MAX_PROCESS_GATE_INJECTIONS. */
   private processGateInjected = 0;
+  /** Plan-submission reminders spent this run (plan-submission-gate.ts). */
+  private planSubmissionNudges = 0;
   /** Verification gate: code edited this run, nothing proved it since. */
   private readonly verificationGate = new VerificationGate();
   /** Host-observed evidence (edited files, in-flight and background checks) feeding the gate. */
@@ -656,6 +663,7 @@ export class AgentSession {
       this.verificationGate,
       options.cwd,
       () => this.processManager?.list() ?? [],
+      () => this.planModeRef.current,
     );
     this.provider = options.provider;
     this.model = options.model;
@@ -1342,6 +1350,7 @@ export class AgentSession {
     this.independentReviewStarted = false;
     this.runStartedAt = Date.now();
     this.processGateInjected = 0;
+    this.planSubmissionNudges = 0;
     this.verificationGate.beginRun();
     const processes = new Set(this.processManager?.list().map((p) => p.id) ?? []);
     this.verificationTracker.pruneBackground(processes);
@@ -2022,6 +2031,25 @@ export class AgentSession {
     // Address real errors before review; unavailable checks share the existing
     // verification demand above instead of manufacturing a separate hook.
     if (diagnosticMessages.length > 0) return diagnosticMessages;
+
+    if (
+      shouldNudgePlanSubmission({
+        enabled: this.opts.planSubmissionGate === true,
+        planMode: this.planModeRef.current,
+        aborted: this.opts.signal?.aborted === true,
+        nudgesThisRun: this.planSubmissionNudges,
+      })
+    ) {
+      this.planSubmissionNudges += 1;
+      log("INFO", "plan-gate", "Run stopping in plan mode without a submitted plan; reminding");
+      return [
+        {
+          role: "user",
+          content: buildNotificationSteeringText([PLAN_SUBMISSION_NUDGE]),
+          provenance: { source: "runtime", kind: "notification", visibility: "hidden" },
+        },
+      ];
+    }
 
     if (this.opts.completionReview) {
       const followUp = await this.opts.completionReview.followUp(
@@ -3343,6 +3371,11 @@ export class AgentSession {
   }
 
   async newSession(preserveConversation = false): Promise<void> {
+    // A background post-turn compaction replaces `this.messages` when it
+    // lands. Letting it finish after the reset would swap the old history back
+    // into the fresh session (e.g. an accepted plan's build would inherit the
+    // whole planning conversation and lose the approved-plan prompt).
+    await this.settlePostTurnCompaction();
     this.cacheDiagnostics.reset();
     // Approved-plan execution is a clean checkpoint of the same conversation;
     // explicit new sessions reset the conversation identity.

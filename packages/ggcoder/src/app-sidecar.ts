@@ -25,6 +25,7 @@ import { setStreamDiagnostic } from "@kleio/agent";
 import { AgentSession } from "./core/agent-session.js";
 import { RunLifecycle } from "./core/run-lifecycle.js";
 import { RunClaim } from "./core/run-claim.js";
+import { shouldOfferPendingPlan } from "./core/plan-handoff.js";
 import {
   createChatAgent,
   createPersonaChatAgent,
@@ -997,6 +998,8 @@ async function createSession(
     session = new AgentSession({
       ...baseSessionOptions,
       additionalTools: [askUserTool],
+      // A run must not end mid-plan with nothing submitted: nobody could review it.
+      planSubmissionGate: true,
       // Plan mode belongs only to the coding agent.
       onEnterPlan: async (reason) => {
         deactivateApprovedPlan();
@@ -1536,6 +1539,51 @@ async function createSession(
     planGeneration++;
   }
 
+  // Plan feedback (Ken's or the user's) is revised back in read-only plan
+  // mode. exit_plan leaves plan mode, so without this a "revise the plan" run
+  // had full write access and could start implementing before any approval.
+  async function reenterPlanModeForRevision(): Promise<void> {
+    if (session.getPlanMode()) return;
+    deactivateApprovedPlan();
+    await session.setPlanMode(true);
+    broadcast("plan_mode", { active: true });
+    log("INFO", "app-sidecar", "plan mode re-entered for revision");
+  }
+
+  // Plan generation last handed to the human review box (-1: none yet).
+  let offeredPlanGeneration = -1;
+
+  // The plan the human review box should show right now, or null. Only once
+  // everything has settled — see shouldOfferPendingPlan.
+  function pendingPlanForHuman(
+    offeredGeneration: number,
+  ): { planPath: string; content: string } | null {
+    const offer = shouldOfferPendingPlan({
+      planPath: pendingPlanPath,
+      generation: planGeneration,
+      offeredGeneration,
+      running,
+      starting: runClaim.active,
+      autopilotActive,
+      queued: session.getQueuedCount(),
+    });
+    return offer && pendingPlanPath !== null
+      ? { planPath: pendingPlanPath, content: pendingPlanContent }
+      : null;
+  }
+
+  // Open the Accept / Feedback / Reject box once nothing else will act on the
+  // submitted plan. Called at every settle point (turn end, queue drain, task
+  // run end). Without it, a plan Ken didn't approve — handed back, review
+  // failed, capped, cancelled, or skipped — sat pending with no way to act.
+  function offerPendingPlan(): void {
+    const plan = pendingPlanForHuman(offeredPlanGeneration);
+    if (!plan) return;
+    offeredPlanGeneration = planGeneration;
+    log("INFO", "app-sidecar", "plan handed to user for review", { planPath: plan.planPath });
+    broadcast("plan_review", plan);
+  }
+
   // Workflow (prompt-template) commands: built-in + the project's custom
   // `.gg/commands/*.md`. Used to gate autopilot off command turns and to label
   // expanded templates in Ken's digests. Loaded fresh so a newly added custom
@@ -2012,6 +2060,8 @@ async function createSession(
       running = v;
     },
     deactivateApprovedPlan,
+    offerPendingPlan,
+    reenterPlanModeForRevision,
     get taskRunAll() {
       return taskRunAll;
     },
@@ -2346,6 +2396,9 @@ async function createSession(
     },
     CANCEL_TIMEOUT_MS,
     deactivateApprovedPlan,
+    offerPendingPlan,
+    reenterPlanModeForRevision,
+    pendingPlanForHuman,
     activateApprovedPlan,
     planProgressPayload,
     authStatusPayload,

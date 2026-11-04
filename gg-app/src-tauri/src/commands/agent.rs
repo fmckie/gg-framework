@@ -876,14 +876,37 @@ pub(crate) async fn agent_accept_plan(
 ) -> Result<(), String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
-    client
+    let res = client
         .post(format!("{}/plan/accept", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
         .json(&serde_json::json!({ "planPath": plan_path }))
         .send()
         .await
         .map_err(|e| e.to_string())?;
-    Ok(())
+    // A refused accept (409 while a run is still finishing, 500 when the plan
+    // can't be activated) must reach the webview; swallowing it made the app
+    // send "implement it now" into the planning session as if it had worked.
+    let status = res.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = res.text().await.unwrap_or_default();
+    Err(accept_plan_error(status, &body))
+}
+
+/// Human-readable failure for a refused `/plan/accept`: the sidecar's
+/// `{ "error": "..." }` message when present, else the HTTP status.
+fn accept_plan_error(status: reqwest::StatusCode, body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(|e| e.as_str())
+                .map(str::to_owned)
+        })
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or_else(|| format!("plan accept failed (HTTP {})", status.as_u16()))
 }
 
 pub(crate) fn parse_cancel_response(
@@ -1349,5 +1372,18 @@ mod tests {
         assert!(error.contains("cancel_failed"));
         assert!(error.contains("runState"));
         assert!(error.contains("running"));
+    }
+
+    #[test]
+    fn accept_plan_error_surfaces_sidecar_message_or_status() {
+        let body = r#"{"error":"cannot accept a plan while the agent is running"}"#;
+        assert_eq!(
+            accept_plan_error(reqwest::StatusCode::CONFLICT, body),
+            "cannot accept a plan while the agent is running"
+        );
+        assert_eq!(
+            accept_plan_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR, "<html>"),
+            "plan accept failed (HTTP 500)"
+        );
     }
 }

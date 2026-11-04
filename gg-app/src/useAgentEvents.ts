@@ -522,6 +522,21 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
     setIsThinking(false);
   }, [setThinkingAccumMs, setThinkingStartTs, setIsThinking]);
 
+  // Open the human plan-review box from a sidecar `{ planPath, content }`
+  // payload (plan_review, or ready.pendingPlan on reconnect). Anything else
+  // (null/absent) leaves the box as it is.
+  const openPlanReview = useCallback(
+    (value: unknown) => {
+      if (typeof value !== "object" || value === null) return;
+      const plan = value as Record<string, unknown>;
+      if (typeof plan.planPath !== "string" || typeof plan.content !== "string") return;
+      planReviewPathRef.current = plan.planPath;
+      planReviewContentRef.current = plan.content;
+      setPlanReview(plan.content);
+    },
+    [planReviewPathRef, planReviewContentRef, setPlanReview],
+  );
+
   const handleEvent = useCallback(
     (e: SidecarEvent) => {
       handleActivityEvent?.(e);
@@ -537,6 +552,9 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           const readyState = d as unknown as AgentState;
           setState(readyState);
           setRunning(readyState.running);
+          // A reconnecting window picks the review box back up for a plan the
+          // sidecar is still holding for the user.
+          openPlanReview(d.pendingPlan);
           setTasks((d.tasks as BackgroundTask[] | undefined) ?? []);
           setStatus(readyState.runState === "cancelling" ? "cancelling..." : "ready");
           break;
@@ -987,6 +1005,10 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
               : s,
           );
           break;
+        case "plan_mode":
+          // Back in plan mode to revise a plan (no new "entering plan" banner).
+          setState((s) => (s ? { ...s, planMode: d.active === true } : s));
+          break;
         case "plan_enter":
           setState((s) => (s ? { ...s, planMode: true } : s));
           pushItem({ kind: "plan", id: nextId(), reason: String(d.reason ?? "") });
@@ -1060,19 +1082,16 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // seed the plan-progress widget if Ken approves it, and manual accept
           // needs the path when autopilot is off.
           planReviewPathRef.current = typeof d.planPath === "string" ? d.planPath : null;
-          const content = String(d.content ?? "");
-          planReviewContentRef.current = content;
-          // Autopilot owns plan review when enabled. Showing the human overlay
-          // during the few seconds before Ken accepts/rejects is just visual
-          // noise, and users generally cannot act in time anyway. Non-autopilot
-          // stays unchanged: the modal opens for manual Accept/Feedback/Reject.
-          if (stateRef.current?.autopilot) {
-            setPlanReview(null);
-          } else {
-            setPlanReview(content);
-          }
+          planReviewContentRef.current = String(d.content ?? "");
+          // Don't open the box yet: the submitting run is still finishing (an
+          // Accept now is refused) and autopilot Ken may still decide. The
+          // sidecar sends plan_review once the plan is genuinely the user's.
+          setPlanReview(null);
           break;
         }
+        case "plan_review":
+          openPlanReview(d);
+          break;
         case "autopilot_plan_accepted":
           // Keep an approval-time fallback for older sidecars, close the review
           // modal, and render the approved marker. Current sidecars override this
@@ -1389,6 +1408,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
       planReviewPathRef,
       pendingPlanTotalRef,
       stickToBottomRef,
+      openPlanReview,
     ],
   );
 

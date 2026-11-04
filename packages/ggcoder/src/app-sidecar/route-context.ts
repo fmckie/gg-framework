@@ -99,6 +99,14 @@ export interface SessionRouteContext {
   pendingCancelDrain: { generation: number; text: string } | null;
   readonly CANCEL_TIMEOUT_MS: 5000;
   readonly deactivateApprovedPlan: () => void;
+  /** Open the human plan review box once everything has settled. */
+  readonly offerPendingPlan: () => void;
+  /** Put the session back in read-only plan mode before a plan revision. */
+  readonly reenterPlanModeForRevision: () => Promise<void>;
+  /** The plan the review box should show now (`-1`: ignore earlier offers). */
+  readonly pendingPlanForHuman: (
+    offeredGeneration: number,
+  ) => { planPath: string; content: string } | null;
   readonly activateApprovedPlan: (planPath: string | undefined) => Promise<number>;
   readonly planProgressPayload: () => { total: number; completed: number[] };
   readonly authStatusPayload: () => Promise<{

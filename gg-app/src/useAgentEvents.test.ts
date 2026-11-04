@@ -1037,27 +1037,45 @@ describe("useAgentEvents", () => {
     expect(getState()).toMatchObject({ kenModel: "claude-opus-5-5", kenModelOverride: false });
   });
 
-  it("plan_exit opens the human review modal when autopilot is off", () => {
-    const { hook, getPlanReview } = setup(() => false, { autopilot: false });
-    act(() => {
-      hook.result.current.handleEvent(
-        ev("plan_exit", { planPath: "/tmp/p.md", content: "# Plan" }),
-      );
-    });
-    expect(getPlanReview()).toBe("# Plan");
-  });
+  it.each([false, true])(
+    "plan_exit stashes the plan but waits for the sidecar to open the box (autopilot %s)",
+    (autopilot) => {
+      const { hook, getPlanReview, deps } = setup(() => false, { autopilot });
+      act(() => {
+        hook.result.current.handleEvent(
+          ev("plan_exit", { planPath: "/tmp/p.md", content: "# Plan" }),
+        );
+      });
+      // Opening here let Accept land while the submitting run was still
+      // finishing — the sidecar refused it and the plan sat in limbo.
+      expect(getPlanReview()).toBeNull();
+      expect(deps.planReviewPathRef.current).toBe("/tmp/p.md");
+    },
+  );
 
-  it("plan_exit hides the human review modal when autopilot is on", () => {
+  it("plan_review opens the human review box, even with autopilot on", () => {
     const { hook, getPlanReview, deps } = setup(() => false, { autopilot: true });
     act(() => {
       hook.result.current.handleEvent(
-        ev("plan_exit", { planPath: "/tmp/p.md", content: "# Plan" }),
+        ev("plan_review", { planPath: "/tmp/q.md", content: "# Plan Q" }),
       );
     });
-    // The content/path are still stashed for Ken auto-review + auto-accept step
-    // counting, but the human overlay stays hidden while autopilot owns review.
-    expect(getPlanReview()).toBeNull();
-    expect(deps.planReviewPathRef.current).toBe("/tmp/p.md");
+    expect(getPlanReview()).toBe("# Plan Q");
+    expect(deps.planReviewPathRef.current).toBe("/tmp/q.md");
+  });
+
+  it("ready re-opens the review box for a plan still waiting after a reconnect", () => {
+    const { hook, getPlanReview, deps } = setup();
+    act(() => {
+      hook.result.current.handleEvent(
+        ev("ready", {
+          running: false,
+          pendingPlan: { planPath: "/tmp/r.md", content: "# Plan R" },
+        }),
+      );
+    });
+    expect(getPlanReview()).toBe("# Plan R");
+    expect(deps.planReviewPathRef.current).toBe("/tmp/r.md");
   });
 
   it("autopilot_plan_accepted seeds the plan step count and pushes the marker", () => {
@@ -1108,7 +1126,7 @@ describe("useAgentEvents", () => {
     const { hook, getPlanReview } = setup();
     act(() => {
       hook.result.current.handleEvent(
-        ev("plan_exit", { planPath: "/tmp/p.md", content: "# Plan" }),
+        ev("plan_review", { planPath: "/tmp/p.md", content: "# Plan" }),
       );
     });
     expect(getPlanReview()).toBe("# Plan");

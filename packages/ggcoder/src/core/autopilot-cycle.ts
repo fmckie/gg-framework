@@ -108,8 +108,10 @@ export interface AutopilotCycleDeps {
   acceptPlan: (reason?: string) => Promise<boolean>;
   /** Run the "plan approved — implement it now" prompt on the fresh session. */
   runImplement: () => Promise<void>;
-  /** Feed a PROMPT verdict's body to GG Coder as an injected run. */
-  runPrompt: (body: string) => Promise<void>;
+  /** Feed a PROMPT verdict's body to the coder as an injected run.
+   *  `planRevision` marks a plan-feedback run: the host puts the session back
+   *  in read-only plan mode first, so revising can't start editing code. */
+  runPrompt: (body: string, opts?: { planRevision?: boolean }) => Promise<void>;
   /** Called BEFORE runPrompt: record the injected body (digest labeling) and
    *  broadcast the autopilot_prompted marker. */
   onInjected: (body: string, round: number) => void;
@@ -155,7 +157,7 @@ export async function driveAutopilotCycle(deps: AutopilotCycleDeps): Promise<voi
         // the run actually did.
         const body = buildPlanRevisionPrompt(verdict.body);
         deps.onInjected(body, round);
-        await deps.runPrompt(body);
+        await deps.runPrompt(body, { planRevision: true });
         continue;
       }
       // Only an explicit approval can authorize implementation of a plan.

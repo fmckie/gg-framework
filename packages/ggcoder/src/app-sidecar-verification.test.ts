@@ -20,3 +20,25 @@ describe("desktop verification settlement", () => {
     );
   });
 });
+
+// Plan hand-off end to end: app-sidecar-plan-handoff.test.ts (real daemon).
+// Task-list runs and the queued-message Stop reset have no scripted
+// end-to-end path there, so their wiring is pinned here. The fork keeps
+// runTasks and runStrandedQueue in app-sidecar/autopilot-runner.ts, where
+// daemon state is reached through `ctx`.
+const AUTOPILOT_RUNNER = new URL("./app-sidecar/autopilot-runner.ts", import.meta.url);
+
+describe("desktop plan hand-off", () => {
+  it("offers a plan submitted by a task-list run when the run finishes", async () => {
+    const source = await fs.readFile(AUTOPILOT_RUNNER, "utf8");
+    expect(source).toMatch(
+      /broadcast\("tasks_run_done", \{\}\);[\s\S]{0,200}offerPendingPlan\(\);/,
+    );
+  });
+
+  it("clears a stale Stop when a queued message drains as a fresh turn", async () => {
+    const source = await fs.readFile(AUTOPILOT_RUNNER, "utf8");
+    const drain = source.slice(source.indexOf("async function runStrandedQueue"));
+    expect(drain).toMatch(/ctx\.clearPendingPlan\(\);\s*ctx\.autopilotCancelled = false;/);
+  });
+});

@@ -79,6 +79,7 @@ export class VerificationTracker {
     private readonly gate: VerificationGate,
     private readonly cwd: string,
     private readonly listProcesses: () => BackgroundProcess[],
+    private readonly isPlanMode: () => boolean = () => false,
   ) {}
 
   recordFileMutated(relative: string): void {
@@ -208,7 +209,10 @@ export class VerificationTracker {
     const name = call?.name ?? "";
     const args = call?.args;
     let verificationChanged = false;
-    if (!event.isError && args) {
+    // In plan mode write/edit can only touch `.gg/plans/*.md`; a code-file
+    // write there was refused (refusals return text, not isError). Counting
+    // it as a change left "unverified" work that blocked plan approval.
+    if (!event.isError && args && !this.isPlanMode()) {
       if (name === "edit" || name === "write") {
         const diff =
           name === "edit"

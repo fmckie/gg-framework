@@ -406,8 +406,10 @@ describe("driveAutopilotCycle — plan branch", () => {
           pending.set(false);
           return true;
         },
-        runPrompt: async (body) => {
+        runPrompt: async (body, opts) => {
           expect(body).toBe(revisionBody);
+          // Revisions run back in read-only plan mode (sidecar re-enters it).
+          expect(opts).toEqual({ planRevision: true });
           // Sidecar: injecting a revision clears pending; the run resubmits
           // via exit_plan, which re-sets it.
           pending.set(true);

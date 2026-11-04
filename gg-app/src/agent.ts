@@ -739,6 +739,9 @@ export async function readDroppedFileAttachment(path: string): Promise<Attachmen
 export interface PromptMeta {
   kenSent?: boolean;
   enhancements?: PromptSegment[];
+  /** Plan feedback from the review box: the sidecar revises the plan back in
+   *  read-only plan mode instead of with full write access. */
+  planRevision?: boolean;
 }
 
 export async function sendPrompt(
@@ -875,11 +878,15 @@ export async function setAutopilot(enabled: boolean): Promise<boolean> {
  * activity bar's "Plan Steps n/total" widget reads). Call this BEFORE sending
  * the "implement it now" prompt. `planPath` comes from the `plan_exit` event.
  */
+/** Accept the pending plan. Rejects when the sidecar refused it (a run still
+ *  finishing, or the plan couldn't be activated) — the caller must NOT send
+ *  the "implement it now" prompt then. */
 export async function acceptPlan(planPath: string | null): Promise<void> {
   try {
     await invoke("agent_accept_plan", { planPath });
   } catch (e) {
     await logError(`agent_accept_plan failed: ${String(e)}`);
+    throw e;
   }
 }
 

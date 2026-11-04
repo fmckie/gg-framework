@@ -406,7 +406,7 @@ export function handleRunControlRoutes(
         json(res, 400, { error: "invalid JSON body" });
         return;
       }
-      if (ctx.running) {
+      if (ctx.running || ctx.runClaim.active) {
         json(res, 409, { error: "cannot accept a plan while the agent is running" });
         return;
       }
