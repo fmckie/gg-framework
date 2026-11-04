@@ -46,6 +46,7 @@ export type {
   StreamResponse,
   Usage,
   StreamOptions,
+  PreparedContext,
 } from "./types.js";
 
 // Classes

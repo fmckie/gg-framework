@@ -2432,6 +2432,8 @@ function App(): React.ReactElement {
         removeMentionChip={removeMentionChip}
         visibleQueuedMessages={visibleQueuedMessages}
         handleCancelQueued={handleCancelQueued}
+        cacheExpiry={state?.cacheExpiry}
+        onCompactFirst={() => void sendPrompt("/compact").catch(() => {})}
         fileInputRef={fileInputRef}
         addFiles={addFiles}
         phoneComposer={phoneComposer}

@@ -13,6 +13,7 @@ import {
 } from "./providers/transform.js";
 import { sanitizeMessagesForWire } from "./utils/well-formed.js";
 import { markContinuesTurn } from "./utils/turn-continuation.js";
+import { observePreparedContext } from "./utils/context-observation.js";
 
 /** Z.AI coding API endpoint — the primary endpoint for all GLM models. */
 const GLM_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4";
@@ -262,6 +263,21 @@ export function stream(options: StreamOptions): StreamResult {
     }),
   );
   const messages = clampProviderContextImages(replayable, options.provider, options.supportsImages);
+  if (options.onContextPrepared) {
+    try {
+      // Image accounting is index-aligned, so observe against the post-drop
+      // list (dropping a malformed call can remove whole messages).
+      options.onContextPrepared(
+        observePreparedContext(
+          replayable === sanitized ? wireMessages : replayable,
+          messages,
+          options.tools ?? [],
+        ),
+      );
+    } catch {
+      // Diagnostics must not change request behaviour or expose an exception containing prompts.
+    }
+  }
   return entry.stream(messages === options.messages ? options : { ...options, messages });
 }
 

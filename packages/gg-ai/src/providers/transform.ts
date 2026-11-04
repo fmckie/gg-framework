@@ -298,11 +298,29 @@ function countContextImages(messages: Message[]): number {
   return count;
 }
 
+/** Largest batch of oldest images dropped together once a conversation is over budget. */
+const IMAGE_DROP_BATCH = 30;
+
+/**
+ * Images to drop: the overflow rounded up to a whole batch. Dropping one image per new image
+ * rewrote the start of the conversation on every request and broke the prompt cache: a
+ * 125-image Motion session re-sent ~270k tokens on 7 of 16 turns. Rounded, the cut holds
+ * still until a batch of new images arrives. Batches stay under a third of the budget.
+ */
+export function providerImageDropCount(imageCount: number, budget: number): number {
+  const overflow = imageCount - budget;
+  if (overflow <= 0) return 0;
+  const batch = Math.max(1, Math.min(IMAGE_DROP_BATCH, Math.floor(budget / 3)));
+  return Math.min(imageCount, Math.ceil(overflow / batch) * batch);
+}
+
 /**
  * Cap historical images before provider dispatch, removing the oldest first:
- * first to the provider's image count, then to {@link PROVIDER_IMAGE_BYTE_BUDGET}
- * of image data. The persisted/live conversation is never mutated; only
- * modified messages and tool results are cloned for the outgoing request.
+ * first to the provider's image count, in batches so the cached conversation
+ * prefix stays byte-identical between requests, then to
+ * {@link PROVIDER_IMAGE_BYTE_BUDGET} of image data. The persisted/live
+ * conversation is never mutated; only modified messages and tool results are
+ * cloned for the outgoing request.
  */
 export function clampProviderContextImages(
   messages: Message[],
@@ -398,7 +416,7 @@ function clampContextImageBytes(messages: Message[]): Message[] {
 /** Caps the conversation at the provider's image count, removing the oldest first. */
 function clampContextImageCount(messages: Message[], provider: Provider): Message[] {
   const budget = PROVIDER_IMAGE_BUDGETS[provider] ?? 5;
-  let remainingToRemove = countContextImages(messages) - budget;
+  let remainingToRemove = providerImageDropCount(countContextImages(messages), budget);
   if (remainingToRemove <= 0) return messages;
 
   return messages.map((message): Message => {

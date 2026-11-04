@@ -351,6 +351,7 @@ export interface AgentOptions {
   transportSessionId?: StreamOptions["transportSessionId"];
   projectId?: StreamOptions["projectId"];
   cacheRetention?: StreamOptions["cacheRetention"];
+  onContextPrepared?: StreamOptions["onContextPrepared"];
   /** Stable per-session cache routing key for providers that support it. */
   promptCacheKey?: StreamOptions["promptCacheKey"];
   /** Override the User-Agent sent with OAuth-authenticated Anthropic requests. */

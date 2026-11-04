@@ -527,6 +527,35 @@ describe("useAgentEvents", () => {
     expect(setRunning).toHaveBeenLastCalledWith(false);
   });
 
+  it("applies live cache_expiry pushes, including null", () => {
+    const expired = {
+      sessionId: "old",
+      provider: "anthropic",
+      ttlMs: 300_000,
+      confidence: "expired",
+      ttlSource: "test",
+      lastRequestAt: 1,
+      expiresAt: 300_001,
+      expired: true,
+      reason: "idle",
+      prefixTokens: 358_000,
+      minTokens: 40_000,
+      notable: true,
+      estimatedExtraCostUsd: null,
+    } satisfies NonNullable<AgentState["cacheExpiry"]>;
+    const { hook, getState } = setup();
+
+    act(() =>
+      hook.result.current.handleEvent({ type: "cache_expiry", data: expired } as SidecarEvent),
+    );
+    expect(getState()?.cacheExpiry).toEqual(expired);
+
+    act(() =>
+      hook.result.current.handleEvent({ type: "cache_expiry", data: null } as SidecarEvent),
+    );
+    expect(getState()?.cacheExpiry).toBeNull();
+  });
+
   it("refreshes branch and uncommitted-file count from workspace extras", () => {
     const { hook, getState } = setup();
 

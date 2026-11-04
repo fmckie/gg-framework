@@ -198,6 +198,28 @@ export interface AgentState {
   kenModelOverride?: boolean;
   /** Live background tasks (footer indicator). */
   tasks?: BackgroundTask[];
+  /** Cold-prompt-cache status (sidecar /state + `cache_expiry` event). Null when
+   *  the route has no known cache TTL or the chat is empty; absent on older sidecars. */
+  cacheExpiry?: CacheExpiryStatus | null;
+}
+
+/** Mirrors coder `core/cache-expiry.ts` CacheExpiryStatus. */
+export interface CacheExpiryStatus {
+  sessionId?: string;
+  provider: string;
+  ttlMs: number;
+  confidence: "expired" | "may_be_cold";
+  ttlSource: string;
+  lastRequestAt: number | null;
+  expiresAt: number | null;
+  expired: boolean;
+  reason: "idle" | "age_unknown" | "identity_changed" | null;
+  /** Tokens the next request re-reads at full price. */
+  prefixTokens: number;
+  minTokens: number;
+  /** expired AND prefixTokens >= minTokens. */
+  notable: boolean;
+  estimatedExtraCostUsd: number | null;
 }
 
 /** A project task from the ~/.gg-tasks store (the agent's `tasks` tool). */

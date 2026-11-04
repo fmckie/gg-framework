@@ -1096,7 +1096,7 @@ export async function* agentLoop(
               });
             }
           },
-          start: (signal) =>
+          start: (signal, arm) =>
             stream({
               provider: options.provider,
               model: options.model,
@@ -1117,6 +1117,8 @@ export async function* agentLoop(
               transportSessionId: options.transportSessionId,
               projectId: liveProjectId,
               cacheRetention: options.cacheRetention,
+              // A hedge duplicates an already-observed request; observe it once.
+              onContextPrepared: arm === "primary" ? options.onContextPrepared : undefined,
               promptCacheKey: options.promptCacheKey,
               serviceTier: options.serviceTier,
               supportsImages: options.supportsImages,

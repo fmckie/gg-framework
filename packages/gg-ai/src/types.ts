@@ -287,8 +287,21 @@ export interface Usage {
 
 // ── Stream Options ─────────────────────────────────────────
 
+export interface PreparedContext {
+  /** Read-only observation after generic sanitization/image limiting, before provider encoding.
+   * Do not log or retain these messages: they may contain secrets and image data. */
+  messages: readonly Message[];
+  tools: readonly { name: string; description: string; parameters: Record<string, unknown> }[];
+  imagesBefore: number;
+  imagesAfter: number;
+  /** First message whose images were removed for this request, or null. */
+  firstImageDropMessage: number | null;
+}
+
 export interface StreamOptions {
   provider: Provider;
+  /** Optional, synchronous diagnostics observer. Exceptions cannot fail a model request. */
+  onContextPrepared?: (context: PreparedContext) => void;
   model: string;
   messages: Message[];
   tools?: Tool[];

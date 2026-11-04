@@ -25,6 +25,7 @@ export function handleSessionRoutes(
       supportedThinkingLevels: getSupportedThinkingLevels(st.provider, st.model),
       supportsVideo: getModel(st.model)?.supportsVideo ?? false,
       autopilot: ctx.autopilot,
+      cacheExpiry: ctx.session.getCacheExpiryStatus(),
       // `GET /history?images=refs` and `GET /history-images` are here: an
       // app may load a chat's images as they're scrolled to.
       historyImageRefs: true,
