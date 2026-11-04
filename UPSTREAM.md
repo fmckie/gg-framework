@@ -384,6 +384,8 @@ Local macOS checks, each compared with `main` at `c2a1ea88`:
 - Upstream tip reviewed: `af5b1df4a46a8a308a147afe17bd4a084e958fa7` (engine **5.91.1**,
   desktop **0.102.1**), 287 commits after `3f2bb6bc`.
 - Branch: `sync/upstream-agent-tools`, based on `main` at `9a89e75c`
+- PR: [#76](https://github.com/fmckie/gg-framework/pull/76), opened as a draft on
+  2026-11-04
 - PR 3a of the 4 in `.gg/plans/upstream-selective-import-phased.md`: agent tools and prompts,
   in upstream date order. PR 3b (models, providers, gg-safe and skills) follows from `main`
   once this merges.
