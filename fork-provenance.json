@@ -197,7 +197,8 @@
         {"upstream": "0108094070d1103dfe3710c8be07ca31aeea2c2c", "downstream": "6e81833e09c6beff7a6a4c54279cf2cd5c5024ba"},
         {"upstream": "bacbe7fcf4447812204b490f103dab0c80e468a1", "downstream": "853d9ed79a065a54e96c897350f8511e2bc563ed"},
         {"upstream": "5798596e8f475618890c2383ded91130d364f6f1", "downstream": "89b69fff3f7745bd7cf2045d228941862340d57c"},
-        {"upstream": "0b1db863b64645cfa2eaf66572eb06f9a03d59b1", "downstream": "203bdb873e755ce2e7c46fc5986e830d7ea48167"}
+        {"upstream": "0b1db863b64645cfa2eaf66572eb06f9a03d59b1", "downstream": "203bdb873e755ce2e7c46fc5986e830d7ea48167"},
+        {"upstream": "0509170429f4a6e589c547a3b7cd1c7aab724cbb", "downstream": "23ecd6496510e9982326eda2d511fe95f4c58bc5"}
       ],
       "ported": [
         {"upstream": "f6b906c489c66624bde687dfc88643633a0deab5", "downstream": "be4ff8142dfdf786aa80e559b4028c7f423083d8", "scope": "the rest after #75's destructive-git guard: keep-awake (a plain Settings checkbox), stream rules, ask_user soft deadlines, shell and package-install threat guards, plan-step compaction, the session summary index and Anthropic cache prewarm; the hyperframes patch, its workspace pins and the motion-agent hunks wait for PR 4; KeepAwakeButton.tsx and App.css not taken (the fork owns the desktop design)"},

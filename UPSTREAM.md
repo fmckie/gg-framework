@@ -396,8 +396,9 @@ Local macOS checks, each compared with `main` at `c2a1ea88`:
 - Every commit taken is an ancestor of `c1aa287b` (desktop v0.102.0), upstream's last
   release under MIT. See the licence note below.
 
-Picked with `git cherry-pick -x`. Three have the same patch as upstream. `5798596e`'s two
-`app-sidecar.ts` hunks land in the fork's `app-sidecar/json-mode.ts`:
+Picked with `git cherry-pick -x`. Four have the same patch as upstream. `5798596e`'s two
+`app-sidecar.ts` hunks land in the fork's `app-sidecar/json-mode.ts`. `05091704` comes
+last, out of date order, because #76's Windows CI failed without it:
 
 | Upstream   | Downstream | Fix                                                                                 |
 | ---------- | ---------- | ----------------------------------------------------------------------------------- |
@@ -405,6 +406,7 @@ Picked with `git cherry-pick -x`. Three have the same patch as upstream. `579859
 | `bacbe7fc` | `853d9ed7` | Debug breakpoints on Windows also bind by the exact script URL Node reports         |
 | `5798596e` | `89b69fff` | The sidecar JSON mode accepts `--thinking`, which fixes a desktop subagent crash    |
 | `0b1db863` | `203bdb87` | Windows checklist writes no longer fail while a released lock dir is pending delete |
+| `05091704` | `23ecd649` | The cat-read credit test from `223830dc` no longer hits `EBUSY` on Windows          |
 
 Ported by hand:
 
