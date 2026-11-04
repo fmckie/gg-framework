@@ -3,6 +3,7 @@ import type { AgentTool } from "@kleio/agent";
 import type { SubAgentManager } from "../core/subagent-manager.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
 import { renderAgentRoster } from "./subagent-shared.js";
+import { AcceptanceChecksParam } from "../core/acceptance-checks.js";
 import { ACTIVE_LIMIT, DEFAULT_WAIT_MS, MAX_WAIT_MS } from "../core/subagent-manager.js";
 
 const AgentId = z.string().min(1).describe("Eight-character agent ID returned by spawn_agent");
@@ -38,6 +39,7 @@ export function createSubAgentControlTools(
           "objective, the paths involved, and what to return.",
       ),
     agent: agentParam,
+    checks: AcceptanceChecksParam,
   });
   // A list, so one call starts every child: on models that send one tool call
   // per turn (GPT-6.x), a one-child-per-call shape cost a model turn per child
@@ -69,7 +71,11 @@ export function createSubAgentControlTools(
       // worker before its first await, so starting them together cannot
       // exceed ACTIVE_LIMIT or the per-model cap.
       const settled = await Promise.allSettled(
-        args.tasks.map((t) => manager.spawn(t.task_name, t.task, t.agent)),
+        args.tasks.map((t) =>
+          t.checks
+            ? manager.spawn(t.task_name, t.task, t.agent, { checks: t.checks })
+            : manager.spawn(t.task_name, t.task, t.agent),
+        ),
       );
       const results = settled.map((result, index) =>
         result.status === "fulfilled"
@@ -102,7 +108,11 @@ export function createSubAgentControlTools(
     },
   };
 
-  const followupParams = z.object({ agent_id: AgentId, task: z.string().min(1) });
+  const followupParams = z.object({
+    agent_id: AgentId,
+    task: z.string().min(1),
+    checks: AcceptanceChecksParam,
+  });
   const followupTool: AgentTool<typeof followupParams> = {
     name: "followup_task",
     description: "Start another turn in an idle child while preserving that child's context.",
@@ -110,7 +120,7 @@ export function createSubAgentControlTools(
     async execute(args) {
       const restriction = blocked("followup_task");
       if (restriction) return restriction;
-      return json(await manager.followup(args.agent_id, args.task));
+      return json(await manager.followup(args.agent_id, args.task, args.checks));
     },
   };
 

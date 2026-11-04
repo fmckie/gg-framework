@@ -239,7 +239,7 @@ Today's date: <DATE>
         "description": "The bash command to execute"
       },
       "timeout": {
-        "description": "Timeout in milliseconds (default: 120000)",
+        "description": "Stop the command after this many milliseconds. Without it, a command still running after 120000ms moves to the background instead of being stopped.",
         "type": "integer",
         "minimum": 1000,
         "maximum": 9007199254740991

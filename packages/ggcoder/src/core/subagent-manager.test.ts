@@ -3,11 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Provider } from "@kleio/ai";
 import type { AgentDefinition } from "./agents.js";
 import { buildSubAgentCompletionFollowUp, SubAgentManager } from "./subagent-manager.js";
 import { SubAgentStore, type PersistedSubAgentRecord } from "./subagent-store.js";
 import { readTurnRecord, writeTurnRecord } from "./subagent-turn-record.js";
 import { AgentNotificationQueue } from "./agent-notifications.js";
+import { getSupportedThinkingLevels } from "./thinking-level.js";
 
 const workerEntry = fileURLToPath(
   new URL("../tools/__fixtures__/fake-subagent-worker.mjs", import.meta.url),
@@ -17,7 +19,7 @@ const agents: AgentDefinition[] = [
     name: "fake",
     description: "Fake test worker",
     tools: ["read"],
-    // Explicit cheap tier — the only way an agent opts out of the parent model.
+    // Legacy `fast` now behaves exactly like `inherit`.
     model: "fast",
     systemPrompt: "fake",
     source: "bundled",
@@ -42,15 +44,16 @@ function manager(
     maxPerModel?: number;
     notifications?: AgentNotificationQueue;
     adoptionPollMs?: number;
+    provider?: Provider;
+    model?: string;
   } = {},
 ) {
   const instance = new SubAgentManager({
     notifications: options.notifications,
     cwd: options.cwd ?? process.cwd(),
     agents: options.agentDefs ?? agents,
-    getProvider: () => "openai",
-    getModel: () => "gpt-6.1-sol",
-    getThinkingLevel: () => "ultra",
+    getProvider: () => options.provider ?? "openai",
+    getModel: () => options.model ?? "gpt-6.1-sol",
     getCacheKey: () => "parent-cache",
     getMaxPerModel: () => options.maxPerModel,
     workerEntry,
@@ -87,7 +90,7 @@ describe("SubAgentManager", () => {
     );
 
     // The independent Ideal reviewer: read-only tools, forced ACTIVE model —
-    // agent-definition routing ("fake" would use the fast model) is bypassed —
+    // agent-definition routing is bypassed —
     // and its own shorter time limit, which the worker enforces.
     await instance.spawn("reviewer", "review the work", undefined, {
       model: "gpt-6.1-sol",
@@ -120,9 +123,67 @@ describe("SubAgentManager", () => {
     const initializeCall = requestSpy.mock.calls.find(([, command]) => command === "initialize");
     expect(initializeCall?.[2]).toMatchObject({
       options: {
-        model: "gpt-6-luna",
-        promptCacheKey: "parent-cache:subagent:gpt-6-luna:fake",
+        model: "gpt-6.1-sol",
+        promptCacheKey: "parent-cache:subagent:gpt-6.1-sol:fake",
       },
+    });
+  });
+
+  it.each([
+    ["legacy fast", "fake"],
+    ["inheriting", "inheritor"],
+    ["unnamed", undefined],
+  ])(
+    "runs the %s child on the parent model at its lowest thinking level",
+    async (_label, agentName) => {
+      // Regressions: `fast` swapped in a weaker model (gpt-6-luna), and other
+      // children copied the parent's level ("ultra" here, capped to "max").
+      const inheriting: AgentDefinition = {
+        name: "inheritor",
+        description: "Inherits everything",
+        tools: ["read"],
+        systemPrompt: "fake",
+        source: "bundled",
+      };
+      const instance = manager({ agentDefs: [...agents, inheriting] });
+      const requestSpy = vi.spyOn(
+        instance as unknown as {
+          request: (...args: unknown[]) => Promise<unknown>;
+        },
+        "request",
+      );
+
+      await instance.spawn("lowest-child", "fast", agentName);
+
+      const lowest = getSupportedThinkingLevels("openai", "gpt-6.1-sol")[0];
+      const initializeCall = requestSpy.mock.calls.find(([, command]) => command === "initialize");
+      expect(lowest).toBeDefined();
+      expect(initializeCall?.[2]).toMatchObject({
+        options: { model: "gpt-6.1-sol", fallbackModel: undefined, thinkingLevel: lowest },
+      });
+    },
+  );
+
+  it("uses the lowest thinking level of an overridden model, not the agent's own", async () => {
+    // The reviewer forces a model at spawn time; its rung must come from THAT
+    // model's ladder.
+    const instance = manager({ provider: "anthropic", model: "claude-opus-5-5" });
+    const requestSpy = vi.spyOn(
+      instance as unknown as {
+        request: (...args: unknown[]) => Promise<unknown>;
+      },
+      "request",
+    );
+
+    await instance.spawn("override-child", "fast", "fake", { model: "claude-haiku-4-5" });
+
+    const parentLowest = getSupportedThinkingLevels("anthropic", "claude-opus-5-5")[0];
+    const overrideLowest = getSupportedThinkingLevels("anthropic", "claude-haiku-4-5")[0];
+    // The ladders must differ, or this test could not tell the two apart.
+    expect(overrideLowest).not.toBe(parentLowest);
+    const initializeCall = requestSpy.mock.calls.find(([, command]) => command === "initialize");
+    expect(initializeCall?.[2]).toMatchObject({
+      options: { model: "claude-haiku-4-5", thinkingLevel: overrideLowest },
     });
   });
 
@@ -200,6 +261,25 @@ describe("SubAgentManager", () => {
     expect(drained[0]!.text.length).toBeLessThanOrEqual(512);
   });
 
+  it("sends acceptance checks with the turn and surfaces the verdict", async () => {
+    const notifications = new AgentNotificationQueue();
+    const instance = manager({ notifications });
+    const checks = [
+      { type: "file_exists" as const, target: "a.ts" },
+      { type: "command_passed" as const, target: "pnpm test" },
+    ];
+
+    const child = await instance.spawn("checked", "fast", "fake", { checks });
+    const agent = (await instance.wait([child.agent_id], "all", 1_000)).agents[0]!;
+    expect(agent.acceptance).toBe("0/2 passed");
+    expect(notifications.drain()[0]!.text).toContain("Acceptance checks: 0/2 passed.");
+
+    // A follow-up without checks clears the previous turn's verdict.
+    await instance.followup(child.agent_id, "fast");
+    const next = (await instance.wait([child.agent_id], "all", 1_000)).agents[0]!;
+    expect(next.acceptance).toBeUndefined();
+  });
+
   it("carries the child's receipt in wait() payloads, after a truncated output", async () => {
     const instance = manager();
     const child = await instance.spawn("receipt-child", "x".repeat(40_000), "fake");
@@ -232,8 +312,16 @@ describe("SubAgentManager", () => {
   });
 
   it("enforces the per-model cap against the resolved child model", async () => {
-    // The "fake" agent declares model: fast (gpt-6-luna); an agent with no
-    // model policy inherits the parent model (gpt-6.1-sol).
+    // The "pinned" agent declares its own model id (gpt-6-luna); an agent with
+    // no model policy inherits the parent model (gpt-6.1-sol).
+    const pinnedAgent: AgentDefinition = {
+      name: "pinned",
+      description: "Pinned to its own model",
+      tools: ["read"],
+      model: "gpt-6-luna",
+      systemPrompt: "fake",
+      source: "project",
+    };
     const shellAgent: AgentDefinition = {
       name: "sheller",
       description: "Shell-capable worker",
@@ -241,13 +329,13 @@ describe("SubAgentManager", () => {
       systemPrompt: "fake",
       source: "bundled",
     };
-    const instance = manager({ agentDefs: [...agents, shellAgent], maxPerModel: 1 });
+    const instance = manager({ agentDefs: [pinnedAgent, shellAgent], maxPerModel: 1 });
 
-    const first = await instance.spawn("first-luna", "slow", "fake");
+    const first = await instance.spawn("first-luna", "slow", "pinned");
     expect(first.model).toBe("gpt-6-luna");
 
     // Same resolved model at the cap → rejected with the setting named.
-    await expect(instance.spawn("second-luna", "slow", "fake")).rejects.toThrow(
+    await expect(instance.spawn("second-luna", "slow", "pinned")).rejects.toThrow(
       "At most 1 agents may run at once on model gpt-6-luna (subagentMaxPerModel)",
     );
 

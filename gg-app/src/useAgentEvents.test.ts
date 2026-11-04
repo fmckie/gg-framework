@@ -527,7 +527,7 @@ describe("useAgentEvents", () => {
     expect(setRunning).toHaveBeenLastCalledWith(false);
   });
 
-  it("applies live cache_expiry pushes, including null", () => {
+  describe("cold-cache notice status", () => {
     const expired = {
       sessionId: "old",
       provider: "anthropic",
@@ -543,17 +543,28 @@ describe("useAgentEvents", () => {
       notable: true,
       estimatedExtraCostUsd: null,
     } satisfies NonNullable<AgentState["cacheExpiry"]>;
-    const { hook, getState } = setup();
 
-    act(() =>
-      hook.result.current.handleEvent({ type: "cache_expiry", data: expired } as SidecarEvent),
-    );
-    expect(getState()?.cacheExpiry).toEqual(expired);
+    it("clears the previous chat's status when a fresh session starts", () => {
+      const { hook, getState } = setup(() => false, { cacheExpiry: expired });
 
-    act(() =>
-      hook.result.current.handleEvent({ type: "cache_expiry", data: null } as SidecarEvent),
-    );
-    expect(getState()?.cacheExpiry).toBeNull();
+      act(() => hook.result.current.handleEvent(ev("session_reset")));
+
+      expect(getState()?.cacheExpiry).toBeNull();
+    });
+
+    it("applies live cache_expiry pushes, including null", () => {
+      const { hook, getState } = setup();
+
+      act(() =>
+        hook.result.current.handleEvent({ type: "cache_expiry", data: expired } as SidecarEvent),
+      );
+      expect(getState()?.cacheExpiry).toEqual(expired);
+
+      act(() =>
+        hook.result.current.handleEvent({ type: "cache_expiry", data: null } as SidecarEvent),
+      );
+      expect(getState()?.cacheExpiry).toBeNull();
+    });
   });
 
   it("refreshes branch and uncommitted-file count from workspace extras", () => {

@@ -29,6 +29,7 @@ export const TOOL_PROMPT_HINTS: Record<string, string> = {
   task_stop: "Stop a background process by id.",
   screenshot:
     "Verify rendered UI with browser screenshots, click/type actions and viewport controls.",
+  debug: "Node.js breakpoints, stepping and live variables.",
   send_message: "Queue steering into a running child agent without starting another turn.",
   followup_task: "Start another turn in an idle child agent, preserving its context.",
   wait_agent:
@@ -112,6 +113,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   "bash",
   "code_nav",
   "code_search",
+  "debug",
   "edit",
   "enter_plan",
   "exit_plan",

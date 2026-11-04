@@ -1276,6 +1276,9 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           setTokens(0);
           setDoneStatus(null);
           setContextTokens(0);
+          // A fresh session has no history, so nothing to re-read: drop the
+          // previous chat's cold-cache notice instead of carrying it over.
+          setState((s) => (s ? { ...s, cacheExpiry: null } : s));
           setPlanReview(null);
           planReviewContentRef.current = null;
           {

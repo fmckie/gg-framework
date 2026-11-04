@@ -1,9 +1,11 @@
 import type { AgentTool } from "@kleio/agent";
-import type { Provider, ThinkingLevel } from "@kleio/ai";
+import type { Provider } from "@kleio/ai";
 import type { ContextLimits } from "../core/context-limits.js";
 import { SubAgentManager, type SubAgentSnapshot } from "../core/subagent-manager.js";
 import { ProcessManager } from "../core/process-manager.js";
 import { LspManager } from "../core/lsp/manager.js";
+import { TestImpactIndex } from "../core/test-impact.js";
+import { createDebugTool, DebugManager } from "./debug.js";
 import type { EditSource } from "../core/lsp/edit-telemetry.js";
 import { createReadTool } from "./read.js";
 import { getVideoByteLimit } from "../core/model-registry.js";
@@ -87,7 +89,6 @@ export interface CreateToolsOptions {
   /** Current parent provider/model, evaluated lazily when spawning a sub-agent. */
   getProvider?: () => Provider;
   getModel?: () => string;
-  getThinkingLevel?: () => ThinkingLevel | undefined;
   getBaseUrl?: () => string | undefined;
   /** Optional per-model subagent concurrency cap (subagentMaxPerModel). */
   getMaxPerModel?: () => number | undefined;
@@ -102,6 +103,12 @@ export interface CreateToolsOptions {
   lspDiagnostics?: boolean;
   /** Only hosts that drain diagnostics during steering and flush before completion may opt in. */
   deferLspDiagnostics?: boolean;
+  /**
+   * After each edit/write of a JS/TS file, name the tests that import it (with
+   * the command running exactly those) and importers left using a removed
+   * export. Local filesystem only. Default: true.
+   */
+  editImpact?: boolean;
   /**
    * Auth storage for conditional tool registration. When provided AND the user
    * has OpenAI connected, the `generate_image` tool is registered — letting the
@@ -166,6 +173,10 @@ export interface CreateToolsResult {
    * `shutdownAll()` into their exit/cleanup paths alongside processManager.
    */
   lspManager?: LspManager;
+  /** Import-graph index behind the edit-impact notes; absent when disabled or remote. */
+  testImpact?: TestImpactIndex;
+  /** Owner of the live `debug` session; callers `shutdown()` it on exit. Local only. */
+  debugManager?: DebugManager;
   subAgentManager?: SubAgentManager;
 }
 
@@ -183,12 +194,34 @@ export async function createTools(
   // don't exist here. Lazy: no server spawns until the first matching edit.
   const lspEnabled = (opts?.lspDiagnostics ?? true) && ops === localOperations;
   const lspManager = lspEnabled ? new LspManager(cwd) : undefined;
-  const getDiagnostics = lspManager
+  const lspDiagnostics = lspManager
     ? async (filePath: string, content: string, source?: EditSource): Promise<string> =>
         opts?.deferLspDiagnostics
           ? lspManager.queueDiagnosticsAfterWrite(filePath, content, source)
           : lspManager.diagnosticsAfterWrite(filePath, content, source)
     : undefined;
+  // Same local-only reasoning as LSP: the index reads the workspace from disk.
+  const testImpact =
+    (opts?.editImpact ?? true) && ops === localOperations ? new TestImpactIndex(cwd) : undefined;
+  const debugManager = ops === localOperations ? new DebugManager() : undefined;
+  const getDiagnostics =
+    lspDiagnostics || testImpact
+      ? async (filePath: string, content: string, source?: EditSource): Promise<string> => {
+          const [lspNote, impactNote] = await Promise.all([
+            lspDiagnostics?.(filePath, content, source) ?? "",
+            testImpact?.noteAfterWrite(filePath, content) ?? "",
+          ]);
+          return lspNote + impactNote;
+        }
+      : undefined;
+  // Snapshot exports before a tool overwrites a file, so a removed export can
+  // be traced to the importers it breaks.
+  const onPreFileMutation = testImpact
+    ? async (filePath: string): Promise<void> => {
+        await testImpact.beforeWrite(filePath);
+        await opts?.onPreFileMutation?.(filePath);
+      }
+    : opts?.onPreFileMutation;
 
   // Enable native video returns from the read tool for any video-capable model
   // (Kimi/Moonshot, Gemini, MiniMax), each with its own per-model byte cap that
@@ -203,7 +236,7 @@ export async function createTools(
       ops,
       planModeRef,
       opts?.onFileMutated,
-      opts?.onPreFileMutation,
+      onPreFileMutation,
       getDiagnostics,
       opts?.getWriteGuardSettings,
     ),
@@ -213,7 +246,7 @@ export async function createTools(
       ops,
       planModeRef,
       opts?.onFileMutated,
-      opts?.onPreFileMutation,
+      onPreFileMutation,
       getDiagnostics,
       opts?.getWriteGuardSettings,
     ),
@@ -238,6 +271,11 @@ export async function createTools(
     createTaskStopTool(processManager),
     createTasksTool(cwd),
     createScreenshotTool(cwd),
+    // The debugger connects to a loopback inspector port, so the program must
+    // run on this machine: local operations only, like LSP.
+    ...(debugManager
+      ? [createDebugTool(cwd, debugManager, ops, planModeRef, opts?.getSandboxPolicy)]
+      : []),
   ];
 
   // Local corpus of real repos; only when the CLI is actually on this machine.
@@ -272,7 +310,6 @@ export async function createTools(
       agents: opts.agents,
       getProvider: () => opts.getProvider?.() ?? opts.provider!,
       getModel: () => opts.getModel?.() ?? opts.model!,
-      getThinkingLevel: () => opts.getThinkingLevel?.(),
       getCacheKey: opts.getCacheKey,
       getBaseUrl: opts.getBaseUrl,
       getMaxPerModel: () => opts.getMaxPerModel?.(),
@@ -322,7 +359,7 @@ export async function createTools(
           adoptionOperations(cwd),
           planModeRef,
           opts?.onFileMutated,
-          opts?.onPreFileMutation,
+          onPreFileMutation,
           getDiagnostics,
           opts?.getWriteGuardSettings,
         ),
@@ -336,7 +373,16 @@ export async function createTools(
 
   const clearReadTracker = (): void => readFiles.clear();
 
-  return { tools, processManager, rebuildReadTool, clearReadTracker, lspManager, subAgentManager };
+  return {
+    tools,
+    processManager,
+    rebuildReadTool,
+    clearReadTracker,
+    lspManager,
+    ...(testImpact && { testImpact }),
+    ...(debugManager && { debugManager }),
+    subAgentManager,
+  };
 }
 
 export { createReadTool } from "./read.js";

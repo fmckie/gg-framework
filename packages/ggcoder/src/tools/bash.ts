@@ -32,6 +32,20 @@ function sandboxAwareEnv(sandboxed: boolean): Record<string, string> {
 }
 
 const DEFAULT_TIMEOUT = 120_000; // 120 seconds
+
+const AUTO_BACKGROUND_RE =
+  /^Still running after \d+(?:\.\d+)?s, so it was moved to the background\b/;
+
+/**
+ * Background process id when a bash result reports that a foreground command
+ * outlived its default budget and was handed to the process manager. Such a
+ * command has no exit code yet: its outcome arrives later, like an explicit
+ * `run_in_background` run, so callers must not read the result as a failure.
+ */
+export function autoBackgroundedId(result: string): string | undefined {
+  if (!AUTO_BACKGROUND_RE.test(result)) return undefined;
+  return /^ID:\s*(\S+)$/m.exec(result)?.[1];
+}
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10 MB — cap buffered output to prevent OOM
 /**
  * How long to keep collecting output after the shell exits while something it
@@ -98,7 +112,10 @@ const BashParams = z.object({
     .int()
     .min(1000)
     .optional()
-    .describe("Timeout in milliseconds (default: 120000)"),
+    .describe(
+      "Stop the command after this many milliseconds. Without it, a command still " +
+        "running after 120000ms moves to the background instead of being stopped.",
+    ),
   run_in_background: z
     .boolean()
     .optional()
@@ -156,6 +173,8 @@ export function createBashTool(
   shellOpts?: ResolveShellOpts,
   getNetworkPolicy?: GetNetworkPolicy,
   getSandboxPolicy?: () => SandboxPolicy,
+  /** Default foreground budget; injectable so tests need not wait 120s. */
+  defaultTimeoutMs: number = DEFAULT_TIMEOUT,
 ): AgentTool<typeof BashParams> {
   // Lazily created on the first persist:true call; one session per tool
   // instance (i.e. per agent session), killed when the process exits.
@@ -387,7 +406,7 @@ export function createBashTool(
         );
       }
 
-      const effectiveTimeout = timeoutMs ?? DEFAULT_TIMEOUT;
+      const effectiveTimeout = timeoutMs ?? defaultTimeoutMs;
 
       // Cross-platform shell: bash on macOS/Linux, Git Bash on Windows (or
       // cmd.exe fallback), wrapped by the OS sandbox before any child starts.
@@ -437,9 +456,52 @@ export function createBashTool(
 
         let killed = false;
         let timedOut = false;
+        let backgrounded = false;
+        const startedAt = Date.now();
+
+        /**
+         * Hand a still-running command to the process manager instead of
+         * killing it, so a slow build or test run keeps going (same process,
+         * same cwd) while the agent moves on. Only for the default budget: an
+         * explicit `timeout` is the model saying when to give up. Returns
+         * false when adoption is not possible, leaving the kill path to run.
+         */
+        const moveToBackground = (): boolean => {
+          // The shell already exited and only leftovers hold the pipes; the
+          // drain path owns that case.
+          if (timeoutMs !== undefined || child.exitCode !== null || !child.pid) return false;
+          child.stdout?.off("data", onData);
+          child.stderr?.off("data", onData);
+          let adopted: ReturnType<ProcessManager["adopt"]>;
+          try {
+            adopted = processManager.adopt(child, command, startedAt, Buffer.concat(chunks));
+          } catch {
+            child.stdout?.on("data", onData);
+            child.stderr?.on("data", onData);
+            return false;
+          }
+          backgrounded = true;
+          context.signal.removeEventListener("abort", onAbort);
+          void (async () => {
+            const soFar = await renderBashOutput(Buffer.concat(chunks).toString("utf-8"));
+            resolve(
+              `Still running after ${effectiveTimeout / 1000}s, so it was moved to the background ` +
+                `instead of being stopped. It keeps its working directory and output.\n` +
+                `ID: ${adopted.id}\n` +
+                `PID: ${adopted.pid}\n` +
+                `Log: ${adopted.logFile}\n` +
+                `You will be notified when it exits. Use task_output with id="${adopted.id}" ` +
+                `(wait_ms to block until it exits) to read output, task_stop to stop it. ` +
+                `Pass an explicit timeout to have a command stopped instead.\n` +
+                (soFar ? `Output so far:\n${soFar}` : "No output so far."),
+            );
+          })();
+          return true;
+        };
 
         // Timeout handling
         const timer = setTimeout(() => {
+          if (moveToBackground()) return;
           timedOut = true;
           killed = true;
           if (child.pid) killProcessTree(child.pid);
@@ -471,6 +533,8 @@ export function createBashTool(
           clearTimeout(timer);
           clearTimeout(drainTimer);
           context.signal.removeEventListener("abort", onAbort);
+          // The process manager owns an adopted command's exit.
+          if (backgrounded) return;
 
           const rawOutput = Buffer.concat(chunks).toString("utf-8");
           let output = await renderBashOutput(rawOutput);
@@ -511,6 +575,7 @@ export function createBashTool(
         });
 
         child.on("error", (err) => {
+          if (backgrounded) return;
           clearTimeout(timer);
           clearTimeout(drainTimer);
           context.signal.removeEventListener("abort", onAbort);

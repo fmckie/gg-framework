@@ -650,7 +650,6 @@ async function runInkTUI(opts: {
     checkpointRef.current?.recordPreMutation(filePath) ?? Promise.resolve();
   let activeProvider = provider;
   let activeModel = model;
-  let activeThinking = opts.thinkingLevel;
 
   const toolOptions: CreateToolsOptions = {
     agents,
@@ -671,7 +670,6 @@ async function runInkTUI(opts: {
       planToolCallbacks.onExitPlan?.(planPath) ?? Promise.resolve("Plan review is unavailable."),
     getProvider: () => activeProvider,
     getModel: () => activeModel,
-    getThinkingLevel: () => activeThinking,
     getMaxPerModel: () => opts.subagentMaxPerModel,
   };
   const initialToolSet = await createTools(cwd, toolOptions);
@@ -764,6 +762,7 @@ async function runInkTUI(opts: {
       runtime?.subAgentManager?.shutdownAllNow();
       runtime?.processManager?.shutdownAll();
       runtime?.lspManager?.shutdownAll();
+      runtime?.debugManager?.shutdown();
       runtime?.mcpManager?.dispose().catch(() => {});
     }
   });
@@ -1058,7 +1057,6 @@ async function runInkTUI(opts: {
     onRuntimeStateChange: (updates) => {
       if (updates.provider) activeProvider = updates.provider;
       if (updates.model) activeModel = updates.model;
-      if ("thinking" in updates) activeThinking = updates.thinking;
     },
   });
 

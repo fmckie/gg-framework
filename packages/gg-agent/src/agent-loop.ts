@@ -29,6 +29,7 @@ import type {
 } from "./types.js";
 import { firstEventHedgeDelayMs, hedgedStream } from "./hedged-stream.js";
 import { isLocalBackendUrl } from "./local-backend.js";
+import { argumentHints, unknownToolMessage } from "./tool-call-hints.js";
 import {
   clampOutputTokens,
   outputRouteKey,
@@ -2362,7 +2363,7 @@ async function executeSingleToolCall(
     options.seenToolCalls.add(signature);
   }
   if (!tool) {
-    resultContent = `Unknown tool: ${toolCall.name}`;
+    resultContent = unknownToolMessage(toolCall.name, [...options.toolMap.keys()]);
     isError = true;
   } else {
     try {
@@ -2442,9 +2443,11 @@ async function executeSingleToolCall(
         options.invalidToolArgumentCounts.set(failureKey, failureCount);
         options.countedInvalidArguments.add(failureKey);
         invalidArgAttempt = failureCount;
+        const hints = argumentHints(tool, toolCall.args);
         resultContent =
           `Invalid arguments for tool \`${toolCall.name}\`:\n` +
           prettyError +
+          (hints ? `\n${hints}` : "") +
           "\nRe-issue the call with each field as the correct type.";
         if (failureCount >= 3) {
           // Empty raw args (no fields at all) is the signature of a provider

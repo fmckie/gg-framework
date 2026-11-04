@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createBashTool, renderBashOutput } from "./bash.js";
+import { autoBackgroundedId, createBashTool, renderBashOutput } from "./bash.js";
 import { clearPackageThreatCache } from "../core/package-threats.js";
 import { getToolOutputRoot } from "./overflow.js";
 import { ProcessManager } from "../core/process-manager.js";
@@ -554,6 +554,84 @@ describe.skipIf(process.platform !== "win32")("createBashTool on real Windows", 
       throw new Error(`grandchild ${pid} survived the timeout kill`);
     }
   }, 40_000);
+});
+
+describe("auto-background on the default budget", () => {
+  // Prints, waits past the 400ms test budget, prints again, then exits 3 — so
+  // the log must hold output from both sides of the hand-over.
+  const SLOW_SCRIPT =
+    "console.log('first'); setTimeout(() => { console.log('second'); process.exit(3); }, 1500);";
+  const slowCommand = `node -e ${JSON.stringify(SLOW_SCRIPT)}`;
+  const makeTool = (manager: ProcessManager) =>
+    createBashTool(
+      tmpHome,
+      manager,
+      localOperations,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      400,
+    );
+
+  it("moves a still-running command to the background and keeps all its output", async () => {
+    const manager = new ProcessManager({ bgDir: path.join(tmpHome, "bg") });
+    try {
+      const controller = new AbortController();
+      const out = String(
+        await makeTool(manager).execute(
+          { command: slowCommand },
+          { signal: controller.signal, toolCallId: "auto-bg" },
+        ),
+      );
+      expect(out).toContain("moved to the background");
+      expect(out).not.toContain("TIMEOUT");
+      expect(out).toContain("first");
+      const id = out.match(/^ID: (\S+)$/m)?.[1];
+      expect(id).toBeTruthy();
+      // The session's verification tracking keys off this exact message.
+      expect(autoBackgroundedId(out)).toBe(id);
+
+      // Stopping the turn must not take the adopted process with it.
+      controller.abort();
+      expect(await manager.waitForExitOrWake(id ?? "", 10_000)).toBe("exited");
+      const read = await manager.readOutput(id ?? "", true);
+      expect(read.exitCode).toBe(3);
+      expect(read.output).toContain("first");
+      expect(read.output).toContain("second");
+    } finally {
+      await shutdownAndWait(manager);
+    }
+  });
+
+  it("still stops a command when the model set an explicit timeout", async () => {
+    const manager = new ProcessManager({ bgDir: path.join(tmpHome, "bg") });
+    try {
+      const out = String(
+        await makeTool(manager).execute(
+          { command: slowCommand, timeout: 1000 },
+          { signal: new AbortController().signal, toolCallId: "explicit-timeout" },
+        ),
+      );
+      expect(out).toContain("TIMEOUT (1000ms)");
+      expect(manager.list()).toHaveLength(0);
+    } finally {
+      await shutdownAndWait(manager);
+    }
+  });
+
+  it("returns normally when the command finishes inside the budget", async () => {
+    const manager = new ProcessManager({ bgDir: path.join(tmpHome, "bg") });
+    const out = String(
+      await makeTool(manager).execute(
+        { command: `node -e "console.log('quick')"` },
+        { signal: new AbortController().signal, toolCallId: "quick" },
+      ),
+    );
+    expect(out).toContain("Exit code: 0");
+    expect(out).toContain("quick");
+    expect(manager.list()).toHaveLength(0);
+  });
 });
 
 describe("guessed-sleep guard", () => {

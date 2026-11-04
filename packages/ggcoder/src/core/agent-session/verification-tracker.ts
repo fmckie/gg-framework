@@ -9,6 +9,7 @@ import {
 } from "../verification-gate.js";
 import { classifyVerificationCommand, extractStandaloneCheck } from "../verification-evidence.js";
 import { captureVerificationSnapshot } from "../verification-snapshot.js";
+import { autoBackgroundedId } from "../../tools/bash.js";
 
 /** A tool call observed between its start and end events. */
 export interface TrackedToolCall {
@@ -206,8 +207,15 @@ export class VerificationTracker {
       const command = typeof args.command === "string" ? args.command : "";
       const classification = classifyVerificationCommand(command);
       if (classification.accepted || classification.snapshotEligible) {
-        if (args.run_in_background === true && !event.isError && args.persist !== true) {
-          const id = /^ID:\s*(\S+)/m.exec(event.result)?.[1];
+        // A foreground check that outlived the default budget was moved to
+        // the background, not failed: track it to its real exit the same way.
+        const autoBackgroundId = event.isError ? undefined : autoBackgroundedId(event.result);
+        if (
+          (autoBackgroundId !== undefined || args.run_in_background === true) &&
+          !event.isError &&
+          args.persist !== true
+        ) {
+          const id = autoBackgroundId ?? /^ID:\s*(\S+)/m.exec(event.result)?.[1];
           // No parseable ID means the check cannot be tracked to a real exit
           // code — no evidence either way. Recording a FAILURE here made
           // every later green run of a different spelling look owed.

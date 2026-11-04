@@ -5,7 +5,13 @@ import type { AgentTool } from "@kleio/agent";
 import type { Provider } from "@kleio/ai";
 import { mcpServersForAgent, type AgentDefinition } from "../core/agents.js";
 import { log } from "../core/logger.js";
+import { isModelUnavailableError } from "../core/model-unavailable.js";
 import { ReceiptRecorder } from "../core/subagent-receipt.js";
+import {
+  AcceptanceChecksParam,
+  formatCheckResults,
+  verifyAcceptanceChecks,
+} from "../core/acceptance-checks.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
 import {
   boundSubAgentOutput,
@@ -16,6 +22,7 @@ import {
   resolveSubAgentCliEntry,
   selectSubAgent,
   subAgentCacheKey,
+  subAgentThinkingLevel,
   type SubAgentTokenUsage,
   SUB_AGENT_MAX_OUTPUT_CHARS,
   SUB_AGENT_MAX_STDERR_CHARS,
@@ -23,19 +30,13 @@ import {
   SUB_AGENT_TIMEOUT_MS,
 } from "./subagent-shared.js";
 
-/** Only retry errors that specifically mean the selected model cannot be used. */
-export function isModelUnavailableError(stderr: string): boolean {
-  return /does not recognize the requested model|requested model[^\n]*(?:not available|no access)|model[^\n]*(?:does not exist|not found|not available)/i.test(
-    stderr,
-  );
-}
-
 const SubAgentParams = z.object({
   task: z.string().describe("The task to delegate to the sub-agent"),
   agent: z
     .string()
     .optional()
     .describe("Named agent definition to use (from ~/.gg/agents/ or .gg/agents/)"),
+  checks: AcceptanceChecksParam,
 });
 
 export interface SubAgentUpdate {
@@ -115,6 +116,13 @@ export function createSubAgentTool(
         if (childCacheKey) {
           cliArgs.push("--prompt-cache-key", childCacheKey);
         }
+        // Without --thinking the child runs with reasoning OFF. Every child
+        // runs at the lowest rung of the model THIS attempt uses (the parent
+        // model on a retry), same as spawn_agent children.
+        const thinkingLevel = subAgentThinkingLevel(useProvider, model);
+        if (thinkingLevel) {
+          cliArgs.push("--thinking", thinkingLevel);
+        }
         if (agentDef?.systemPrompt) {
           // --agent-prompt, not --system-prompt: the definition body is composed
           // with the Tools/project-context/Environment scaffolding instead of
@@ -139,7 +147,7 @@ export function createSubAgentTool(
         return cliArgs;
       };
 
-      // Track progress across both attempts. The cheap-model attempt can only
+      // Track progress across both attempts. A pinned-model attempt can only
       // fall back before producing output or using a tool, so these totals remain
       // an accurate picture of the actual agent run.
       let toolUseCount = 0;
@@ -298,7 +306,7 @@ export function createSubAgentTool(
               !context.signal.aborted &&
               isModelUnavailableError(stderr);
             if (canFallback) {
-              log("WARN", "subagent", "Cheap sub-agent model unavailable; retrying parent", {
+              log("WARN", "subagent", "Pinned sub-agent model unavailable; retrying parent", {
                 provider: useProvider,
                 model,
                 fallbackModel: parentModel,
@@ -328,7 +336,10 @@ export function createSubAgentTool(
             });
 
             const body = boundSubAgentOutput(textOutput);
-            const receiptBlock = `\n\n${receipt.render(textOutput, cwd)}`;
+            const checksBlock = formatCheckResults(
+              verifyAcceptanceChecks(args.checks ?? [], receipt.snapshot(), cwd),
+            );
+            const receiptBlock = `\n\n${receipt.render(textOutput, cwd)}${checksBlock ? `\n${checksBlock}` : ""}`;
             if (code !== 0) {
               // A provider/process failure can happen AFTER the model has emitted
               // a progress sentence (for example: "I'll read both files now.").
@@ -359,7 +370,7 @@ export function createSubAgentTool(
                 // check: partial output or tool calls the child made.
                 content: textOutput
                   ? `Sub-agent failed (exit ${code}): ${error}\n\nPartial output before failure:\n${body}${receiptBlock}`
-                  : toolUseCount > 0
+                  : toolUseCount > 0 || checksBlock
                     ? `Sub-agent failed (exit ${code}): ${error}${receiptBlock}`
                     : `Sub-agent failed (exit ${code}): ${error}`,
                 details,
