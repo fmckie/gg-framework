@@ -190,8 +190,9 @@
       "upstreamTipDesktopVersion": "0.102.1",
       "reviewedCommits": 287,
       "importedAt": "2026-11-04",
-      "status": "open",
+      "status": "merged",
       "pullRequest": "https://github.com/fmckie/gg-framework/pull/76",
+      "mergeCommit": "bf32819684dba2781ac927317004cb421ce525fc",
       "rule": "upstream.lastImportedCommit stays 3f2bb6bc because the fork does not contain everything up to any later upstream commit; a later full sync must treat these commits as already applied",
       "picked": [
         {"upstream": "0108094070d1103dfe3710c8be07ca31aeea2c2c", "downstream": "6e81833e09c6beff7a6a4c54279cf2cd5c5024ba"},

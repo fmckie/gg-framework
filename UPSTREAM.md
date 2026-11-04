@@ -379,16 +379,19 @@ Local macOS checks, each compared with `main` at `c2a1ea88`:
   build output at 7318.5 KB. The bundled sidecar (8373.7 KB) and the initial frontend
   JavaScript (1017.0 KB) stay within their budgets.
 
-## Agent tools and prompts from upstream (open)
+## Agent tools and prompts from upstream (merged)
 
 - Upstream tip reviewed: `af5b1df4a46a8a308a147afe17bd4a084e958fa7` (engine **5.91.1**,
   desktop **0.102.1**), 287 commits after `3f2bb6bc`.
 - Branch: `sync/upstream-agent-tools`, based on `main` at `9a89e75c`
-- PR: [#76](https://github.com/fmckie/gg-framework/pull/76), opened as a draft on
-  2026-11-04
+- PR: [#76](https://github.com/fmckie/gg-framework/pull/76), merged at `bf328196` on
+  2026-11-04; all nine CI jobs passed on `082ad689` (run **41918584286**). GitHub
+  squashed the branch, so the downstream SHAs below are on
+  `sync/upstream-agent-tools`; the squash commit keeps all 28 trailers (23
+  `Ported from upstream`, 5 `cherry picked from commit`).
 - PR 3a of the 4 in `.gg/plans/upstream-selective-import-phased.md`: agent tools and prompts,
   in upstream date order. PR 3b (models, providers, gg-safe and skills) follows from `main`
-  once this merges.
+  at `bf328196`.
 - `upstream.lastImportedCommit` stays `3f2bb6bc`, for the reason given in the 988f920e
   section. Picks carry `cherry picked from commit <sha>`, ports carry
   `Ported from upstream <sha>`, and `fork-provenance.json` `selectiveImports` holds the
