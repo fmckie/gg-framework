@@ -617,6 +617,23 @@ export const MODELS: ModelInfo[] = [
   },
   // ── MiniMax ────────────────────────────────────────────
   {
+    // The only text model M Plan / Token Plan keys cover; MiniMax-M3 on those
+    // keys fails with "insufficient balance (1008)". Pay-as-you-go serves both.
+    // Always thinks (`thinking: disabled` 400s; omitted = on) with a real
+    // low→max effort ladder on output_config.effort, API default max.
+    id: "MiniMax-M3.1-Flash",
+    name: "MiniMax M3.1 Flash",
+    provider: "minimax",
+    contextWindow: 1_000_000,
+    maxOutputTokens: 131_072,
+    supportsThinking: true,
+    supportsImages: true,
+    supportsVideo: true,
+    maxVideoBytes: 50 * 1024 * 1024,
+    costTier: "low",
+    maxThinkingLevel: "max",
+  },
+  {
     id: "MiniMax-M3",
     name: "MiniMax M3",
     provider: "minimax",
@@ -903,7 +920,7 @@ export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "gemini") return MODELS.find((m) => m.id === "gemini-3.1-flash-lite")!;
   if (provider === "glm") return MODELS.find((m) => m.id === "glm-5.3")!;
   if (provider === "moonshot") return MODELS.find((m) => m.id === "kimi-k3")!;
-  if (provider === "minimax") return MODELS.find((m) => m.id === "MiniMax-M3")!;
+  if (provider === "minimax") return MODELS.find((m) => m.id === "MiniMax-M3.1-Flash")!;
   if (provider === "deepseek") return MODELS.find((m) => m.id === "deepseek-v4-pro")!;
   if (provider === "huggingface")
     return MODELS.find((m) => m.id === "Qwen/Qwen3-Coder-480B-A35B-Instruct")!;
