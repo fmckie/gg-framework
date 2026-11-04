@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024">
+<title>Kleio · Code · C · Paper</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="screen-code">
+<div class="window" id="still">
+  <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+  <header class="bar">
+    <button class="back" type="button"><svg class="i i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg><span>Back</span></button>
+    <div class="bar-title"><h1 class="title project">pantry</h1></div>
+    <div class="bar-actions">
+      <button class="new" type="button"><svg class="i i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New</span></button>
+      <details class="overflow">
+        <summary class="icon-btn more" aria-label="More"><svg class="i i-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg></summary>
+        <div class="menu" role="menu" aria-label="More">
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem"><svg class="i i-notes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3.5"/></svg><span class="mi-label">Notes</span></button>
+            <button class="mi" type="button" role="menuitem"><svg class="i i-tasks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5l1.5 1.5 3-3M4 12.5l1.5 1.5 3-3M4 18.5l1.5 1.5 3-3M12 7h8M12 13h8M12 19h8"/></svg><span class="mi-label">Tasks</span><span class="mi-hint">2 open</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitemcheckbox" aria-checked="false"><svg class="i i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10.2 8.8v6.4l5.3-3.2z"/></svg><span class="mi-label">Autopilot</span><span class="switch" aria-hidden="true"><i></i></span></button>
+            <button class="mi" type="button" role="menuitemcheckbox" aria-checked="false"><svg class="i i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="2"/><path d="M7.5 8l9-4"/><circle cx="15.5" cy="14" r="2.5"/><path d="M6.5 12.5h4M6.5 15.5h4"/></svg><span class="mi-label">Radio</span><span class="mi-hint">Off</span></button>
+            <button class="mi" type="button" role="menuitem"><svg class="i i-layout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M12 12h9"/></svg><span class="mi-label">Window layout</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem"><svg class="i i-commit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/></svg><span class="mi-label mono">/commit</span><span class="mi-hint">3 files changed</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem"><svg class="i i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.1-2.5 3.6"/><path d="M12 17.2v.1"/></svg><span class="mi-label">Help &amp; shortcuts</span></button>
+            <div class="mi mi-xp"><svg class="i i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2.5L4.5 13.5H11L10 21.5l8.5-11H12z"/></svg><span class="mi-label">Level 7 · 1,240 XP</span><span class="xp" aria-hidden="true"><i style="width: 62%"></i></span></div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </header>
+  <main class="transcript" aria-label="Conversation">
+    <div class="thread">
+      <section class="turn">
+        <div class="msg-user"><p>The shopping list doubles items when two recipes share an ingredient: 2 onions + 1 onion shows as two rows. Merge them.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Fixed. Items with the same name and unit now merge into one row and list the recipes they came from. Different units stay separate, so 200&#8239;g butter and 2&nbsp;tbsp butter aren’t added together.</p></div></div>
+        <div class="msg-assistant is-ken" aria-label="Ken’s review"><span class="dot" aria-hidden="true"></span><div class="text"><p>Looks right to me — ship it.</p><p>Keying on name and unit is right, and the two-onion test covers your bug.</p></div></div>
+      </section>
+      <section class="turn">
+        <div class="msg-user"><p>Let me paste a recipe link and add its ingredients to the list.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Most recipe sites publish schema.org Recipe data, so I’ll read that and fall back to the page’s ingredient list. Each line then goes through last week’s merge.</p></div></div>
+        <div class="step-done"><span class="step-check" aria-hidden="true">✓</span><span class="step-label">Step 1 completed</span></div>
+        <div class="step-done"><span class="step-check" aria-hidden="true">✓</span><span class="step-label">Step 2 completed</span></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Next I’ll test against real pages, so two agents are saving three of them as fixtures.</p></div></div>
+        <div class="subagents">
+          <div class="subagents-head is-done"><span class="dot" aria-hidden="true"></span><span class="subagents-title">2 agents done</span></div>
+          <ul class="subagents-list">
+            <li class="subagent"><span class="subagent-icon" aria-hidden="true">✓</span><span class="subagent-name">Agent 1</span><span class="subagent-tokens">↑ 12.4k · ↓ 1.3k</span><span class="subagent-summary">7 tools · 38s</span></li>
+            <li class="subagent"><span class="subagent-icon" aria-hidden="true">✓</span><span class="subagent-name">Agent 2</span><span class="subagent-tokens">↑ 9.8k · ↓ 1.1k</span><span class="subagent-summary">6 tools · 41s</span></li>
+          </ul>
+        </div>
+        <div class="msg-assistant is-hook"><span class="dot" aria-hidden="true"></span><div class="text"><p><span class="shimmer">Hook engaged. Breaking a stuck loop and rethinking the approach.</span></p></div></div>
+      </section>
+    </div>
+  </main>
+  <section class="liveregion" aria-label="What Kleio is doing">
+    <ol class="livetools" aria-label="Recent tool calls">
+      <li class="tool-row is-done"><span class="dot" aria-hidden="true"></span><span class="tool-line"><b>Updated</b> <span class="arg">parseIngredients.ts</span><span class="tool-sum"> · +6 −2</span></span></li>
+      <li class="tool-row is-done"><span class="dot" aria-hidden="true"></span><span class="tool-line"><b>Read</b> <span class="arg">serious-eats.html</span><span class="tool-sum"> · 412 lines</span></span></li>
+      <li class="tool-row is-running"><span class="dot blink" aria-hidden="true"></span><span class="tool-line"><b>Running</b> <span class="arg">pnpm vitest run src/import</span>…</span></li>
+    </ol>
+    <div class="activitybar">
+      <span class="act-status" role="status"><span class="orb" aria-hidden="true"><svg class="i i-orb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="4" r="1.9" fill="currentColor" stroke="none" opacity="1"/><circle cx="6.34" cy="6.34" r="1.9" fill="currentColor" stroke="none" opacity="0.86"/><circle cx="4" cy="12" r="1.9" fill="currentColor" stroke="none" opacity="0.72"/><circle cx="6.34" cy="17.66" r="1.9" fill="currentColor" stroke="none" opacity="0.58"/><circle cx="12" cy="20" r="1.9" fill="currentColor" stroke="none" opacity="0.46"/><circle cx="17.66" cy="17.66" r="1.9" fill="currentColor" stroke="none" opacity="0.35"/><circle cx="20" cy="12" r="1.9" fill="currentColor" stroke="none" opacity="0.26"/><circle cx="17.66" cy="6.34" r="1.9" fill="currentColor" stroke="none" opacity="0.18"/></svg></span><span class="act-label shimmer">Running checks…</span><span class="act-meta">3m 12s · 14.2k tok · thought for 21s</span></span>
+      <span class="act-plan">Plan 2/4</span>
+      <button class="tools-toggle" type="button" title="Hide tool panel" aria-label="Hide tool panel"><svg class="i i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9.5l6 6 6-6"/></svg></button>
+      <button class="stop" type="button" aria-label="Cancel agent run">Stop</button>
+    </div>
+  </section>
+  <footer class="composer">
+    <div class="field">
+      <button class="icon-btn" type="button" aria-label="Attach files"><svg class="i i-attach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 11.5l-8.3 8.3a5.3 5.3 0 0 1-7.5-7.5l8.6-8.6a3.5 3.5 0 0 1 5 5l-8.6 8.6a1.8 1.8 0 0 1-2.5-2.5l7.9-7.9"/></svg></button>
+      <textarea rows="1" aria-label="Message Kleio about pantry" placeholder="Describe a change, or ask about pantry…"></textarea>
+      <button class="icon-btn" type="button" aria-label="Dictate"><svg class="i i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
+      <button class="send" type="button" aria-label="Send"><svg class="i i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19.5v-15M6 10.5l6-6 6 6"/></svg></button>
+    </div>
+    <div class="meta">
+      <span class="meta-left"><svg class="i i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="7.5" r="2"/><path d="M6.5 7.5v9M17.5 9.5c0 3.5-2.5 5-6 5-2.5 0-4 .8-5 2"/></svg><span>main · 3 changed</span></span>
+      <span class="meta-right"><span>Thinking: high</span><span>Claude Sonnet 4.5</span><span class="ctx" title="Context used"><span class="ctx-ring" style="--pct: 34" aria-hidden="true"></span>34%</span></span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

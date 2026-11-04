@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024">
+<title>Kleio · Chat · {{DIRECTION}}</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="screen-chat">
+<div class="window" id="still">
+  <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+  <header class="bar">
+    <button class="back" type="button">{{icon:back}}<span>Back</span></button>
+    <div class="bar-title"><h1 class="title">Kleio</h1><span class="subtitle">Lisbon offsite</span></div>
+    <div class="bar-actions">
+      <button class="new" type="button">{{icon:plus}}<span>New</span></button>
+      <button class="icon-btn more" type="button" aria-label="More">{{icon:more}}</button>
+    </div>
+  </header>
+  <main class="transcript" aria-label="Conversation">
+    <div class="thread">
+      <section class="turn">
+        <div class="msg-user"><p>We’ve got the Lisbon offsite on the 14th. Can you work out what’s still open? Flights are booked.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text prose">
+          <p>Flights are done. Here’s what’s still open for Lisbon (Nov 14–16):</p>
+          <h3>This week</h3>
+          <ul>
+            <li>Book dinner for 12 on the 14th. Taberna do Largo only holds tables over 10 with a €100 deposit.</li>
+            <li>Send the agenda draft to Priya. She asked for it by Wednesday.</li>
+          </ul>
+          <h3>Next week</h3>
+          <ul>
+            <li>Arrange a transfer for the three people landing after 22:00 (Marta, Joel and Sam).</li>
+            <li>Print the workshop cards. You ordered 40 last time.</li>
+          </ul>
+          <p>Want me to draft the note to Priya now?</p>
+        </div></div>
+      </section>
+      <section class="turn">
+        <div class="msg-user"><p>Yes. Keep it short, and say the workshop moved to Saturday morning.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text">
+          <div class="prose"><p>Here’s a draft:</p></div>
+          <div class="email">
+            <dl class="email-head">
+              <div><dt>To</dt><dd>Priya Nair</dd></div>
+              <div><dt>Subject</dt><dd>Lisbon agenda (draft)</dd></div>
+            </dl>
+            <div class="email-body">
+              <p>Hi Priya, here’s the draft agenda for Lisbon. One change: the workshop is now Saturday, 10:00–12:30, which frees Friday afternoon for travel. Happy to adjust anything before Wednesday.</p>
+              <p>Alex</p>
+            </div>
+          </div>
+          <div class="options">
+            <button class="opt is-primary" type="button">{{icon:mail}}<span>Send from Gmail</span></button>
+            <button class="opt" type="button"><span>Make it warmer</span></button>
+          </div>
+        </div></div>
+      </section>
+    </div>
+  </main>
+  <footer class="composer">
+    <div class="field">
+      <button class="icon-btn" type="button" aria-label="Attach files">{{icon:attach}}</button>
+      <textarea rows="1" aria-label="Message Kleio" placeholder="Ask anything…"></textarea>
+      <button class="icon-btn" type="button" aria-label="Dictate">{{icon:mic}}</button>
+      <button class="send" type="button" aria-label="Send">{{icon:send}}</button>
+    </div>
+    <div class="meta">
+      <span class="meta-left"></span>
+      <span class="meta-right"><span>Thinking: medium</span><span>Claude Sonnet 4.5</span><span class="ctx" title="Context used"><span class="ctx-ring" style="--pct: 12" aria-hidden="true"></span>12%</span></span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

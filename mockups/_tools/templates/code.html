@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1024">
+<title>Kleio · Code · {{DIRECTION}}</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="screen-code">
+<div class="window" id="still">
+  <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+  <header class="bar">
+    <button class="back" type="button">{{icon:back}}<span>Back</span></button>
+    <div class="bar-title"><h1 class="title project">pantry</h1></div>
+    <div class="bar-actions">
+      <button class="new" type="button">{{icon:plus}}<span>New</span></button>
+      <details class="overflow">
+        <summary class="icon-btn more" aria-label="More">{{icon:more}}</summary>
+        <div class="menu" role="menu" aria-label="More">
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem">{{icon:notes}}<span class="mi-label">Notes</span></button>
+            <button class="mi" type="button" role="menuitem">{{icon:tasks}}<span class="mi-label">Tasks</span><span class="mi-hint">2 open</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitemcheckbox" aria-checked="false">{{icon:play}}<span class="mi-label">Autopilot</span><span class="switch" aria-hidden="true"><i></i></span></button>
+            <button class="mi" type="button" role="menuitemcheckbox" aria-checked="false">{{icon:radio}}<span class="mi-label">Radio</span><span class="mi-hint">Off</span></button>
+            <button class="mi" type="button" role="menuitem">{{icon:layout}}<span class="mi-label">Window layout</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem">{{icon:commit}}<span class="mi-label mono">/commit</span><span class="mi-hint">3 files changed</span></button>
+          </div>
+          <div class="menu-group">
+            <button class="mi" type="button" role="menuitem">{{icon:help}}<span class="mi-label">Help &amp; shortcuts</span></button>
+            <div class="mi mi-xp">{{icon:bolt}}<span class="mi-label">Level 7 · 1,240 XP</span><span class="xp" aria-hidden="true"><i style="width: 62%"></i></span></div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </header>
+  <main class="transcript" aria-label="Conversation">
+    <div class="thread">
+      <section class="turn">
+        <div class="msg-user"><p>The shopping list doubles items when two recipes share an ingredient: 2 onions + 1 onion shows as two rows. Merge them.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Fixed. Items with the same name and unit now merge into one row and list the recipes they came from. Different units stay separate, so 200&#8239;g butter and 2&nbsp;tbsp butter aren’t added together.</p></div></div>
+        <div class="msg-assistant is-ken" aria-label="Ken’s review"><span class="dot" aria-hidden="true"></span><div class="text"><p>Looks right to me — ship it.</p><p>Keying on name and unit is right, and the two-onion test covers your bug.</p></div></div>
+      </section>
+      <section class="turn">
+        <div class="msg-user"><p>Let me paste a recipe link and add its ingredients to the list.</p></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Most recipe sites publish schema.org Recipe data, so I’ll read that and fall back to the page’s ingredient list. Each line then goes through last week’s merge.</p></div></div>
+        <div class="step-done"><span class="step-check" aria-hidden="true">✓</span><span class="step-label">Step 1 completed</span></div>
+        <div class="step-done"><span class="step-check" aria-hidden="true">✓</span><span class="step-label">Step 2 completed</span></div>
+        <div class="msg-assistant"><span class="dot" aria-hidden="true"></span><div class="text"><p>Next I’ll test against real pages, so two agents are saving three of them as fixtures.</p></div></div>
+        <div class="subagents">
+          <div class="subagents-head is-done"><span class="dot" aria-hidden="true"></span><span class="subagents-title">2 agents done</span></div>
+          <ul class="subagents-list">
+            <li class="subagent"><span class="subagent-icon" aria-hidden="true">✓</span><span class="subagent-name">Agent 1</span><span class="subagent-tokens">↑ 12.4k · ↓ 1.3k</span><span class="subagent-summary">7 tools · 38s</span></li>
+            <li class="subagent"><span class="subagent-icon" aria-hidden="true">✓</span><span class="subagent-name">Agent 2</span><span class="subagent-tokens">↑ 9.8k · ↓ 1.1k</span><span class="subagent-summary">6 tools · 41s</span></li>
+          </ul>
+        </div>
+        <div class="msg-assistant is-hook"><span class="dot" aria-hidden="true"></span><div class="text"><p><span class="shimmer">Hook engaged. Breaking a stuck loop and rethinking the approach.</span></p></div></div>
+      </section>
+    </div>
+  </main>
+  <section class="liveregion" aria-label="What Kleio is doing">
+    <ol class="livetools" aria-label="Recent tool calls">
+      <li class="tool-row is-done"><span class="dot" aria-hidden="true"></span><span class="tool-line"><b>Updated</b> <span class="arg">parseIngredients.ts</span><span class="tool-sum"> · +6 −2</span></span></li>
+      <li class="tool-row is-done"><span class="dot" aria-hidden="true"></span><span class="tool-line"><b>Read</b> <span class="arg">serious-eats.html</span><span class="tool-sum"> · 412 lines</span></span></li>
+      <li class="tool-row is-running"><span class="dot blink" aria-hidden="true"></span><span class="tool-line"><b>Running</b> <span class="arg">pnpm vitest run src/import</span>…</span></li>
+    </ol>
+    <div class="activitybar">
+      <span class="act-status" role="status"><span class="orb" aria-hidden="true">{{icon:orb}}</span><span class="act-label shimmer">Running checks…</span><span class="act-meta">3m 12s · 14.2k tok · thought for 21s</span></span>
+      <span class="act-plan">Plan 2/4</span>
+      <button class="tools-toggle" type="button" title="Hide tool panel" aria-label="Hide tool panel">{{icon:chevron}}</button>
+      <button class="stop" type="button" aria-label="Cancel agent run">Stop</button>
+    </div>
+  </section>
+  <footer class="composer">
+    <div class="field">
+      <button class="icon-btn" type="button" aria-label="Attach files">{{icon:attach}}</button>
+      <textarea rows="1" aria-label="Message Kleio about pantry" placeholder="Describe a change, or ask about pantry…"></textarea>
+      <button class="icon-btn" type="button" aria-label="Dictate">{{icon:mic}}</button>
+      <button class="send" type="button" aria-label="Send">{{icon:send}}</button>
+    </div>
+    <div class="meta">
+      <span class="meta-left">{{icon:branch}}<span>main · 3 changed</span></span>
+      <span class="meta-right"><span>Thinking: high</span><span>Claude Sonnet 4.5</span><span class="ctx" title="Context used"><span class="ctx-ring" style="--pct: 34" aria-hidden="true"></span>34%</span></span>
+    </div>
+  </footer>
+</div>
+</body>
+</html>

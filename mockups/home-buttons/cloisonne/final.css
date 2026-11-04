@@ -1,0 +1,174 @@
+/* ═══ Kleio · Cloisonné: Crimson Reverse with domed enamel ═══
+   The locked look for Home's four ways in: Kleio, Code and Specialists, and Talk to Kleio as
+   .is-small. The status pill and Settings don't wear it; they stay black.
+
+     <button class="kleio-cloisonne"><svg …/>Specialists<kbd>⌘⇧L</kbd></button>
+
+   Two layers: a polished rim painted under the button's transparent 2px border, and ::before, the
+   crimson enamel inside the rim, domed by four gradients. Nothing moves at rest. Uses the app's
+   --sans and --mono.
+
+   Labels, WCAG 2 from the hex values: #f6f1f1 on #b31d30 is 5.99:1, on hover #c42638 5.10:1;
+   #f7e6e8 (Talk to Kleio, shortcuts) 5.56:1 and 4.74:1. Under the dome's crown, at the top edge of
+   the highest label, the lowest is 4.55:1 (Talk to Kleio's icon, hovered); the crown's peak
+   sits above the lettering. */
+
+.kleio-cloisonne {
+  /* The dome, locked: final.html's C, the brighter top. */
+  --dome-crown: 0.22; /* highlight at the top centre */
+  --dome-foot: 0.26; /* shade toward the bottom edge */
+  --dome-ends: 0.14; /* shade toward the two ends */
+  --dome-line: 0; /* a 1px catchlight along the top inner edge; 0 is none */
+
+  position: relative;
+  isolation: isolate; /* keeps the enamel's z-index -1 over the rim and under the label */
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  margin: 0;
+  padding: 0 22px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  /* The rim, seen only through the border. It rests at 100%; hover slides it to 0%, so the shine
+     crosses left to right. */
+  background: linear-gradient(
+      115deg,
+      #b6afb0,
+      #7d7475 4.5%,
+      #2c2526 20.5%,
+      #d9d2d2 38.5%,
+      #fbf8f8 50%,
+      #b3aaab 61.5%,
+      #625a5b 75.5%,
+      #2c2526 91.5%,
+      #574f50
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  /* Standing on the surface: a 2px contact edge, as deep as the press, over a soft shadow. */
+  box-shadow:
+    0 2px 0 rgb(0 0 0 / 0.6),
+    0 9px 16px -8px rgb(0 0 0 / 0.95);
+  color: #f6f1f1;
+  font: 600 15px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The enamel: crimson, a hair below the rim, domed. Layers top first: the edge catchlight (2px
+   down, just clear of the enamel's shadowed lip), the crown's highlight, shade toward the ends,
+   shade toward the foot. */
+.kleio-cloisonne::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background-color: #b31d30;
+  background-image:
+    linear-gradient(90deg, rgb(255 240 242 / 0) 3%, rgb(255 240 242 / var(--dome-line)) 22% 78%, rgb(255 240 242 / 0) 97%),
+    radial-gradient(64% 30% at 50% 4%, rgb(255 240 242 / var(--dome-crown)), rgb(255 240 242 / 0)),
+    radial-gradient(60% 150% at 50% 30%, rgb(0 0 0 / 0) 55%, rgb(0 0 0 / var(--dome-ends))),
+    linear-gradient(180deg, rgb(0 0 0 / 0) 46%, rgb(0 0 0 / var(--dome-foot)));
+  background-position: 0 2px, 0 0, 0 0, 0 0;
+  background-size: 100% 1px, 100% 100%, 100% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+.kleio-cloisonne > svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.kleio-cloisonne > kbd {
+  margin-left: 2px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: #f7e6e8;
+}
+
+/* Hover and keyboard focus: the shine crosses and the enamel brightens. */
+.kleio-cloisonne:is(:hover, :focus-visible):not(:disabled) {
+  background-position: 0% 0;
+  color: #f6f1f1;
+}
+.kleio-cloisonne:is(:hover, :focus-visible):not(:disabled)::before {
+  background-color: #c42638;
+}
+.kleio-cloisonne:focus {
+  outline: none;
+}
+.kleio-cloisonne:focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 3px;
+}
+
+/* Press: the face goes down 2px while the contact edge under it closes by the same 2px, so the
+   shadow holds still on the ground. Only transform and box-shadow move: nothing around it shifts. */
+.kleio-cloisonne:active:not(:disabled) {
+  transform: translateY(2px);
+  background-position: 40% 0;
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 7px 16px -8px rgb(0 0 0 / 0.95);
+}
+.kleio-cloisonne:active:not(:disabled)::before {
+  background-color: #9a1728;
+}
+
+/* Small (Talk to Kleio): 32px tall, a 1.5px rim, a 16px icon and 1.5px of press. */
+.kleio-cloisonne.is-small {
+  height: 32px;
+  padding: 0 15px;
+  border-width: 1.5px;
+  border-radius: 7px;
+  box-shadow:
+    0 1.5px 0 rgb(0 0 0 / 0.6),
+    0 6.5px 10px -6px rgb(0 0 0 / 0.95);
+  color: #f7e6e8;
+  font-size: 13px;
+}
+.kleio-cloisonne.is-small::before {
+  border-radius: 5.5px;
+}
+.kleio-cloisonne.is-small > svg {
+  width: 16px;
+  height: 16px;
+}
+.kleio-cloisonne.is-small:active:not(:disabled) {
+  transform: translateY(1.5px);
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 5px 10px -6px rgb(0 0 0 / 0.95);
+}
+
+/* Motion, only where it's welcome: the shine sweeps slowly; a press goes down in 70ms and comes
+   back up in 170ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-cloisonne {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 170ms cubic-bezier(0.3, 0.7, 0.4, 1),
+      transform 170ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  }
+  .kleio-cloisonne:active:not(:disabled) {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 70ms cubic-bezier(0.2, 0, 0.4, 1),
+      transform 70ms cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  .kleio-cloisonne::before {
+    transition: background-color 260ms ease;
+  }
+}

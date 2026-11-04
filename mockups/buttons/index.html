@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kleio buttons: ten concepts</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #060405;
+  --card: #0f0b0c;
+  --app: #0c090a;
+  --white: #f6f1f1;
+  --white-2: #d3c9ca;
+  --grey: #a69c9d;
+  --ring: #f6f1f1;
+  --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --didot: Didot, "Bodoni 72", serif;
+  --bodoni: "Bodoni 72", Didot, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --cols: 128px 128px 128px 80px 1px 128px 128px;
+  /* Velvet's pile: fine grey noise, blended soft-light into the colour. */
+  --nap: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--page);
+}
+body {
+  margin: 0;
+  /* 24px sides: two stages still fit beside a classic scrollbar at 1800px. */
+  padding: 44px 24px 72px;
+  color: var(--white);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page ── */
+.page-head {
+  max-width: 1724px;
+  margin: 0 auto 30px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 32px;
+}
+.eyebrow {
+  margin: 0 0 10px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.page-head h1 {
+  margin: 0;
+  font: 400 48px/1 var(--didot);
+  letter-spacing: 0.02em;
+}
+.lede {
+  margin: 14px 0 0;
+  max-width: 720px;
+  color: var(--white-2);
+  font-size: 15px;
+}
+.legend {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 16px;
+  align-items: baseline;
+}
+.legend dt {
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.legend dd {
+  margin: 0;
+  color: var(--white-2);
+  font-size: 13px;
+}
+.concepts {
+  max-width: 1724px;
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+.concept {
+  padding: 20px 22px 18px;
+  background: var(--card);
+  border: 1px solid rgb(246 241 241 / 0.07);
+  border-radius: 14px;
+}
+.concept-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+.num {
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--grey);
+}
+.concept-head h2 {
+  margin: 0;
+  font: 400 27px/1 var(--didot);
+  letter-spacing: 0.02em;
+}
+.why {
+  margin: 0;
+  color: var(--white-2);
+  font-size: 14px;
+}
+.stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 829px);
+  justify-content: space-between;
+  gap: 18px 20px;
+}
+.stage-tag {
+  margin: 0 0 8px;
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.band {
+  display: grid;
+  grid-template-columns: var(--cols);
+  column-gap: 12px;
+  align-items: center;
+  justify-items: center;
+  height: 112px;
+  padding: 0 18px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(246 241 241 / 0.07);
+}
+/* A strip of the real Home: mockups/home-buttons/instrument-default.png, y 0–148. */
+.band.on-home {
+  background: var(--app) url(assets/home-strip.png) no-repeat;
+  background-size: 970px 148px;
+  background-position: -141px -24px;
+}
+.band.on-app {
+  background: var(--app);
+}
+.band .rule {
+  width: 1px;
+  height: 56px;
+  background: rgb(246 241 241 / 0.14);
+}
+.captions {
+  display: grid;
+  grid-template-columns: var(--cols);
+  column-gap: 12px;
+  justify-items: center;
+  padding: 10px 18px 0;
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+/* ── The button skeleton every concept dresses ── */
+.k-btn {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-width: 116px;
+  margin: 0;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--white);
+  font: 600 14px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.k-btn.k-small {
+  height: 30px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 6px;
+}
+.k-btn:disabled {
+  cursor: not-allowed;
+}
+.k-btn:focus {
+  outline: none;
+}
+/* One ring for every concept: near-white, offset, so it reads on red and on black. */
+.k-btn:focus-visible,
+.k-btn.is-focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+/* The drawn samples hold their state; the pointer passes over them. */
+.k-btn.is-pressed,
+.k-btn.is-focus {
+  pointer-events: none;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .k-btn,
+  .k-btn::before,
+  .k-btn::after {
+    transition: none !important;
+  }
+}
+
+/* Ten dressings for the .k-btn skeleton in page.css; each card carries one .c-* class.
+   .k-pri / .k-sec are the variants. Every hover rule also matches keyboard focus and the
+   drawn .is-focus sample; every press rule also matches the drawn .is-pressed sample.
+   Box-shadow lists keep the same length per concept so state changes interpolate. */
+
+/* ── 01 Lacquer: red urushi built coat on coat, lit from inside ── */
+.c-lacquer .k-btn {
+  border-radius: 10px;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.5);
+  box-shadow:
+    inset 0 1px 0 rgb(255 238 240 / 0.24),
+    inset 0 -8px 14px -8px rgb(0 0 0 / 0.6),
+    0 0 0 1px rgb(0 0 0 / 0.7),
+    0 10px 20px -10px rgb(0 0 0 / 0.95);
+  transition:
+    box-shadow 280ms ease,
+    transform 120ms ease;
+}
+.c-lacquer .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(85% 90% at 50% 108%, rgb(222 54 72 / 0.9), rgb(222 54 72 / 0) 72%);
+  opacity: 0.3;
+  transition: opacity 340ms ease;
+}
+.c-lacquer .k-pri {
+  background:
+    linear-gradient(180deg, rgb(255 238 240 / 0.17), rgb(255 238 240 / 0.05) 36%, rgb(255 238 240 / 0) 52%),
+    radial-gradient(140% 130% at 50% 120%, #a3192b, #6e0d19 58%, #42070f);
+}
+.c-lacquer .k-sec {
+  background:
+    linear-gradient(180deg, rgb(255 238 240 / 0.14), rgb(255 238 240 / 0.04) 36%, rgb(255 238 240 / 0) 52%),
+    radial-gradient(140% 130% at 50% 120%, #221a1b, #110c0d 58%, #070405);
+}
+/* The black coat hides a red one; it shows only when touched. */
+.c-lacquer .k-sec::before {
+  background: radial-gradient(85% 90% at 50% 108%, rgb(150 22 38 / 0.8), rgb(150 22 38 / 0) 72%);
+  opacity: 0;
+}
+.c-lacquer .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+.c-lacquer .k-btn:is(:active, .is-pressed):not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 238 240 / 0.1),
+    inset 0 3px 8px 0 rgb(0 0 0 / 0.5),
+    0 0 0 1px rgb(0 0 0 / 0.7),
+    0 5px 10px -6px rgb(0 0 0 / 0.95);
+}
+.c-lacquer .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  opacity: 0.6;
+}
+.c-lacquer .k-btn:disabled {
+  color: #a19798;
+  text-shadow: none;
+  background: #1b1516;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.08),
+    inset 0 0 0 0 transparent,
+    0 0 0 1px rgb(0 0 0 / 0.5),
+    0 0 0 0 transparent;
+}
+.c-lacquer .k-btn:disabled::before {
+  opacity: 0;
+}
+
+/* ── 02 Inscribed: a stone tablet with its panel cut in; the primary's letters filled red ── */
+.c-inscribed .k-btn {
+  border-radius: 3px;
+  padding: 0 14px 0 calc(14px + 0.16em);
+  font: 400 13px/1 var(--bodoni);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #272122, #1a1516);
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.13),
+    inset 0 -1px 0 rgb(0 0 0 / 0.55),
+    0 1px 0 rgb(0 0 0 / 0.75),
+    0 8px 16px -8px rgb(0 0 0 / 0.9);
+  text-shadow:
+    0 -1px 0 rgb(0 0 0 / 0.9),
+    0 1px 0 rgb(246 241 241 / 0.12);
+  transition: color 240ms ease;
+}
+/* The cut panel. */
+.c-inscribed .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  z-index: -1;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #070505, #131011);
+  box-shadow:
+    inset 0 2px 3px rgb(0 0 0 / 0.9),
+    inset 0 -1px 0 rgb(246 241 241 / 0.08),
+    inset 0 0 0 0 rgb(246 241 241 / 0);
+  transition: box-shadow 260ms ease;
+}
+.c-inscribed .k-pri {
+  color: #ff5c69;
+}
+.c-inscribed .k-sec {
+  color: var(--white-2);
+}
+.c-inscribed .k-small {
+  padding: 0 10px 0 calc(10px + 0.16em);
+  font-size: 11px;
+}
+.c-inscribed .k-small::before {
+  inset: 3px;
+}
+/* Hover: light rakes into the cut. */
+.c-inscribed .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  box-shadow:
+    inset 0 2px 3px rgb(0 0 0 / 0.9),
+    inset 0 -1px 0 rgb(246 241 241 / 0.22),
+    inset 0 -16px 18px -12px rgb(246 241 241 / 0.09);
+}
+.c-inscribed .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  color: #ff7a85;
+}
+.c-inscribed .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  color: var(--white);
+}
+/* Press: the cut deepens. */
+.c-inscribed .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  box-shadow:
+    inset 0 4px 6px rgb(0 0 0 / 0.95),
+    inset 0 -1px 0 rgb(246 241 241 / 0.06),
+    inset 0 0 0 0 rgb(246 241 241 / 0);
+}
+.c-inscribed .k-btn:disabled {
+  color: #9a9091;
+  text-shadow: 0 -1px 0 rgb(0 0 0 / 0.6);
+  background: #1c1718;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.05),
+    inset 0 0 0 0 transparent,
+    0 0 0 0 transparent,
+    0 0 0 0 transparent;
+}
+.c-inscribed .k-btn:disabled::before {
+  background: #141011;
+  box-shadow:
+    inset 0 1px 1px rgb(0 0 0 / 0.5),
+    inset 0 0 0 0 transparent,
+    inset 0 0 0 0 transparent;
+}
+
+/* ── 03 Door Ajar: a shut black door with light under it; hover opens the gap ── */
+.c-door .k-btn {
+  --leak: 255 58 76;
+  --hot: 255 176 184;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #1a1516, #0c0909);
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.09),
+    inset 0 -12px 14px -14px rgb(var(--leak) / 0.45),
+    0 1px 0 rgb(0 0 0 / 0.8);
+  transition: box-shadow 320ms ease;
+}
+.c-door .k-sec {
+  --leak: 246 241 241;
+  --hot: 255 255 255;
+}
+/* The gap under the door. */
+.c-door .k-btn::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--leak) / 0),
+    rgb(var(--leak) / 0.9) 16%,
+    rgb(var(--hot)) 50%,
+    rgb(var(--leak) / 0.9) 84%,
+    rgb(var(--leak) / 0)
+  );
+  box-shadow: 0 0 7px 1px rgb(var(--leak) / 0.5);
+  transition:
+    height 320ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 320ms ease,
+    opacity 320ms ease;
+}
+/* The light it throws on the floor. */
+.c-door .k-btn::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 100%;
+  height: 26px;
+  z-index: -1;
+  background: radial-gradient(50% 100% at 50% 0%, rgb(var(--leak) / 0.4), rgb(var(--leak) / 0) 75%);
+  transform-origin: 50% 0;
+  transform: scaleY(0.45);
+  opacity: 0.8;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 320ms ease;
+}
+.c-door .k-sec::after {
+  opacity: 0.7;
+}
+.c-door .k-sec::before {
+  opacity: 0.45;
+}
+.c-door .k-small::after {
+  left: 6px;
+  right: 6px;
+  height: 1.5px;
+}
+.c-door .k-small::before {
+  height: 18px;
+}
+.c-door .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.12),
+    inset 0 -20px 18px -16px rgb(var(--leak) / 0.55),
+    0 1px 0 rgb(0 0 0 / 0.8);
+}
+.c-door .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  height: 5px;
+  opacity: 1;
+  box-shadow: 0 0 12px 2px rgb(var(--leak) / 0.6);
+}
+.c-door .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  transform: scaleY(1);
+  opacity: 1;
+}
+.c-door .k-small:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  height: 3px;
+}
+.c-door .k-btn:is(:active, .is-pressed):not(:disabled) {
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.12),
+    inset 0 -28px 22px -18px rgb(var(--leak) / 0.6),
+    0 1px 0 rgb(0 0 0 / 0.8);
+}
+.c-door .k-btn:is(:active, .is-pressed):not(:disabled)::after {
+  height: 8px;
+  opacity: 1;
+  box-shadow: 0 0 16px 3px rgb(var(--leak) / 0.7);
+}
+.c-door .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  transform: scaleY(1.3);
+  opacity: 1;
+}
+.c-door .k-small:is(:active, .is-pressed):not(:disabled)::after {
+  height: 4.5px;
+}
+.c-door .k-btn:disabled {
+  color: #9d9394;
+  background: #141011;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.07),
+    inset 0 0 0 0 transparent,
+    0 1px 0 rgb(0 0 0 / 0.6);
+}
+.c-door .k-btn:disabled::before,
+.c-door .k-btn:disabled::after {
+  display: none;
+}
+
+/* ── 04 Ember: a banked fire under the edge; the face stays dark ── */
+.c-ember .k-btn {
+  border-radius: 10px;
+  background: linear-gradient(180deg, #1c1617, #100c0d);
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.07),
+    inset 0 -1px 0 rgb(255 96 110 / 0.6),
+    0 4px 12px -4px rgb(214 46 64 / 0.55),
+    0 10px 26px -10px rgb(160 26 42 / 0.6),
+    0 1px 2px rgb(0 0 0 / 0.8);
+  transition:
+    box-shadow 450ms ease,
+    transform 120ms ease;
+}
+/* Heat rising into the face from below. */
+.c-ember .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(120% 95% at 50% 140%, rgb(214 46 64 / 0.75), rgb(214 46 64 / 0) 72%);
+  opacity: 0.45;
+  transition: opacity 450ms ease;
+}
+/* The secondary is cold ash until touched. */
+.c-ember .k-sec {
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.07),
+    inset 0 -1px 0 rgb(246 241 241 / 0.12),
+    0 4px 12px -4px rgb(214 46 64 / 0),
+    0 10px 26px -10px rgb(160 26 42 / 0),
+    0 1px 2px rgb(0 0 0 / 0.8);
+}
+.c-ember .k-sec::before {
+  opacity: 0;
+}
+.c-ember .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.08),
+    inset 0 -1px 0 rgb(255 122 133 / 0.85),
+    0 5px 16px -4px rgb(224 56 74 / 0.75),
+    0 14px 34px -10px rgb(180 30 46 / 0.7),
+    0 1px 2px rgb(0 0 0 / 0.8);
+}
+.c-ember .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.07),
+    inset 0 -1px 0 rgb(255 96 110 / 0.45),
+    0 4px 12px -4px rgb(214 46 64 / 0.4),
+    0 10px 26px -10px rgb(160 26 42 / 0.4),
+    0 1px 2px rgb(0 0 0 / 0.8);
+}
+.c-ember .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+.c-ember .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 0.55;
+}
+.c-ember .k-btn:is(:active, .is-pressed):not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgb(246 241 241 / 0.05),
+    inset 0 -1px 0 rgb(255 140 150 / 0.9),
+    0 2px 8px -2px rgb(235 64 82 / 0.85),
+    0 6px 18px -8px rgb(180 30 46 / 0.6),
+    0 1px 1px rgb(0 0 0 / 0.8);
+}
+.c-ember .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  opacity: 1;
+}
+.c-ember .k-btn:disabled {
+  color: #9d9394;
+  background: #171213;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.06),
+    inset 0 0 0 0 transparent,
+    0 0 0 0 transparent,
+    0 0 0 0 transparent,
+    0 1px 2px rgb(0 0 0 / 0.6);
+}
+.c-ember .k-btn:disabled::before {
+  opacity: 0;
+}
+
+/* ── 05 Fluted: the logo's column; faint flutes lit from the left ── */
+.c-fluted .k-btn {
+  overflow: hidden;
+  border-radius: 5px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.55);
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 242 / 0.14),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.35),
+    0 0 0 1px rgb(0 0 0 / 0.6),
+    0 8px 18px -9px rgb(0 0 0 / 0.95);
+  transition: box-shadow 260ms ease;
+}
+.c-fluted .k-pri {
+  background: linear-gradient(90deg, #b02436, #961a2b 40%, #7a1221 78%, #650e1b);
+}
+.c-fluted .k-sec {
+  background: linear-gradient(90deg, #2e2627, #1d1718 40%, #120e0f 78%, #0b0809);
+}
+/* Each flute: a fillet, then the shaded left wall, then the lit right wall. They stop
+   short of both ends, as a column's do. */
+.c-fluted .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(
+    90deg,
+    rgb(255 240 242 / 0.05) 0 2px,
+    rgb(0 0 0 / 0.22) 2px,
+    rgb(0 0 0 / 0.04) 6.5px,
+    rgb(255 240 242 / 0.1) 10.5px,
+    rgb(255 240 242 / 0.05) 12px
+  );
+  -webkit-mask: linear-gradient(180deg, transparent 3px, #000 8px calc(100% - 8px), transparent calc(100% - 3px));
+  mask: linear-gradient(180deg, transparent 3px, #000 8px calc(100% - 8px), transparent calc(100% - 3px));
+  opacity: 0.8;
+  transition: opacity 400ms ease;
+}
+/* The raking light that comes round on hover. */
+.c-fluted .k-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgb(255 236 238 / 0.11), rgb(255 236 238 / 0.04) 30%, rgb(255 236 238 / 0) 60%);
+  opacity: 0;
+  transform: translateX(-35%);
+  transition:
+    opacity 420ms ease,
+    transform 560ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.c-fluted .k-small::before {
+  -webkit-mask: linear-gradient(180deg, transparent 2px, #000 5px calc(100% - 5px), transparent calc(100% - 2px));
+  mask: linear-gradient(180deg, transparent 2px, #000 5px calc(100% - 5px), transparent calc(100% - 2px));
+}
+.c-fluted .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+.c-fluted .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  opacity: 1;
+  transform: none;
+}
+.c-fluted .k-btn:is(:active, .is-pressed):not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 242 / 0.05),
+    inset 0 3px 8px 0 rgb(0 0 0 / 0.45),
+    0 0 0 1px rgb(0 0 0 / 0.6),
+    0 4px 10px -6px rgb(0 0 0 / 0.95);
+}
+.c-fluted .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  opacity: 0.6;
+}
+.c-fluted .k-btn:disabled {
+  color: #a19798;
+  text-shadow: none;
+  background: #1c1718;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.07),
+    inset 0 0 0 0 transparent,
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 0 0 transparent;
+}
+.c-fluted .k-btn:disabled::before {
+  opacity: 0.3;
+}
+
+/* ── 06 Editorial: no box; Didot capitals between two hairline rules ── */
+.c-editorial .k-btn {
+  /* Tracking adds space after the last letter too; the extra left padding re-centres it. */
+  padding: 0 16px 0 calc(16px + 0.24em);
+  border-radius: 2px;
+  font: 400 13px/1 var(--didot);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  /* Clear space round the type: a soft pool of black that parts the Home dither, fading out before the edge. */
+  background: radial-gradient(closest-side, rgb(8 5 6 / 0.92) 66%, rgb(8 5 6 / 0));
+  transition: color 240ms ease;
+}
+.c-editorial .k-btn::before,
+.c-editorial .k-btn::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgb(255 92 105 / 0.75);
+  transition:
+    transform 300ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    background-color 300ms ease;
+}
+.c-editorial .k-btn::before {
+  top: 5px;
+}
+.c-editorial .k-btn::after {
+  bottom: 5px;
+}
+.c-editorial .k-sec {
+  color: var(--white-2);
+}
+.c-editorial .k-sec::before,
+.c-editorial .k-sec::after {
+  background: rgb(246 241 241 / 0.38);
+}
+.c-editorial .k-small {
+  min-width: 0;
+  padding: 0 14px 0 calc(14px + 0.2em);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+}
+.c-editorial .k-small::before {
+  top: 3px;
+}
+.c-editorial .k-small::after {
+  bottom: 3px;
+}
+.c-editorial .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  transform: translateY(5px) scaleX(0.9);
+  background: #ff7a85;
+}
+.c-editorial .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  transform: translateY(-5px) scaleX(0.9);
+  background: #ff7a85;
+}
+.c-editorial .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  color: var(--white);
+}
+.c-editorial .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before,
+.c-editorial .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  background: rgb(246 241 241 / 0.75);
+}
+.c-editorial .k-small:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  transform: translateY(3px) scaleX(0.9);
+}
+.c-editorial .k-small:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  transform: translateY(-3px) scaleX(0.9);
+}
+.c-editorial .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  transform: translateY(8px) scaleX(0.82);
+  background: #ff7a85;
+}
+.c-editorial .k-btn:is(:active, .is-pressed):not(:disabled)::after {
+  transform: translateY(-8px) scaleX(0.82);
+  background: #ff7a85;
+}
+.c-editorial .k-small:is(:active, .is-pressed):not(:disabled)::before {
+  transform: translateY(4.5px) scaleX(0.82);
+}
+.c-editorial .k-small:is(:active, .is-pressed):not(:disabled)::after {
+  transform: translateY(-4.5px) scaleX(0.82);
+}
+.c-editorial .k-btn:disabled {
+  color: #948a8b;
+}
+/* Broken rules for a heading you can't open. */
+.c-editorial .k-btn:disabled::before,
+.c-editorial .k-btn:disabled::after {
+  background: repeating-linear-gradient(90deg, rgb(246 241 241 / 0.3) 0 2px, transparent 2px 5px);
+}
+
+/* ── 07 Cloisonné: flat red enamel set in a thin polished rim ── */
+.c-cloisonne .k-btn {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  /* Only the 2px border shows this: the polished rim. */
+  background: linear-gradient(
+      115deg,
+      #b3aaab,
+      #625a5b 14%,
+      #2c2526 30%,
+      #7d7475 46%,
+      #fbf8f8 56%,
+      #7d7475 66%,
+      #2c2526 82%,
+      #d9d2d2
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 0% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 8px 16px -8px rgb(0 0 0 / 0.95);
+  transition:
+    background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 260ms ease;
+}
+/* The enamel, sitting a hair below the rim. */
+.c-cloisonne .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background-color: #b31d30;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+  transition: background-color 260ms ease;
+}
+.c-cloisonne .k-sec::before {
+  background-color: #151112;
+}
+.c-cloisonne .k-small {
+  border-width: 1.5px;
+  border-radius: 7px;
+}
+.c-cloisonne .k-small::before {
+  border-radius: 5.5px;
+}
+.c-cloisonne .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  background-position: 100% 0;
+}
+.c-cloisonne .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #c42638;
+}
+.c-cloisonne .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #201a1b;
+}
+.c-cloisonne .k-btn:is(:active, .is-pressed):not(:disabled) {
+  background-position: 60% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 4px 8px -6px rgb(0 0 0 / 0.95);
+}
+.c-cloisonne .k-pri:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #9a1728;
+}
+.c-cloisonne .k-sec:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #0d0a0b;
+}
+.c-cloisonne .k-btn:disabled {
+  color: #a19798;
+  background: linear-gradient(#3b3435, #3b3435) border-box;
+}
+.c-cloisonne .k-btn:disabled::before {
+  background-color: #1d1819;
+  box-shadow: none;
+}
+
+/* ── 08 Obsidian: black glass with one sharp specular edge ── */
+.c-obsidian .k-btn {
+  overflow: hidden;
+  border-radius: 7px;
+  background: linear-gradient(172deg, #1d1819, #090707 48%, #030202);
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.07),
+    inset 0 -1px 0 0 rgb(0 0 0 / 0.9),
+    0 1px 0 rgb(0 0 0 / 0.85),
+    0 12px 22px -12px rgb(0 0 0 / 1);
+  transition: box-shadow 300ms ease;
+}
+/* Red deep inside the primary's glass. */
+.c-obsidian .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 130% at 50% 150%, rgb(190 32 50 / 0.9), rgb(190 32 50 / 0) 66%);
+  opacity: 0.85;
+  transition: opacity 360ms ease;
+}
+.c-obsidian .k-sec::before {
+  opacity: 0;
+}
+/* The one edge that catches the light; it slides as the glass turns. */
+.c-obsidian .k-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 6%;
+  width: 52%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgb(255 255 255 / 0),
+    rgb(255 255 255 / 0.95) 40%,
+    rgb(255 255 255 / 0.95) 55%,
+    rgb(255 255 255 / 0)
+  );
+  transition:
+    transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    opacity 300ms ease;
+}
+.c-obsidian .k-sec::after {
+  opacity: 0.6;
+}
+.c-obsidian .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  transform: translateX(72%);
+  opacity: 1;
+}
+.c-obsidian .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+.c-obsidian .k-btn:is(:active, .is-pressed):not(:disabled) {
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.05),
+    inset 0 3px 8px 0 rgb(0 0 0 / 0.8),
+    0 1px 0 rgb(0 0 0 / 0.85),
+    0 6px 12px -8px rgb(0 0 0 / 1);
+}
+.c-obsidian .k-btn:is(:active, .is-pressed):not(:disabled)::after {
+  transform: translateX(30%);
+  opacity: 0.25;
+}
+.c-obsidian .k-btn:disabled {
+  color: #a19798;
+  background: #141011;
+  box-shadow:
+    inset 0 0 0 1px rgb(246 241 241 / 0.06),
+    inset 0 0 0 0 transparent,
+    0 0 0 0 transparent,
+    0 0 0 0 transparent;
+}
+.c-obsidian .k-btn:disabled::before,
+.c-obsidian .k-btn:disabled::after {
+  display: none;
+}
+
+/* ── 09 Keycap: a real key; a skirt under the top and 2px of travel ── */
+.c-keycap .k-btn {
+  border-radius: 9px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 242 / 0.22),
+    inset 0 -2px 2px rgb(0 0 0 / 0.16),
+    0 3px 0 var(--skirt),
+    0 3px 0 1px rgb(0 0 0 / 0.5),
+    0 7px 12px -3px rgb(0 0 0 / 0.75);
+  transition:
+    transform 90ms ease-out,
+    box-shadow 90ms ease-out;
+}
+/* Hover: the top catches more of the light above it. */
+.c-keycap .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(100% 150% at 50% -30%, rgb(255 240 242 / 0.16), rgb(255 240 242 / 0) 62%);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.c-keycap .k-pri {
+  --skirt: #5c0b16;
+  background: linear-gradient(180deg, #c02a3b, #a71f30);
+}
+.c-keycap .k-sec {
+  --skirt: #070505;
+  background: linear-gradient(180deg, #2d2627, #1e191a);
+}
+.c-keycap .k-small {
+  border-radius: 7px;
+}
+.c-keycap .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+.c-keycap .k-btn:is(:active, .is-pressed):not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 242 / 0.14),
+    inset 0 -1px 2px rgb(0 0 0 / 0.16),
+    0 1px 0 var(--skirt),
+    0 1px 0 1px rgb(0 0 0 / 0.5),
+    0 2px 4px -1px rgb(0 0 0 / 0.75);
+  transition-duration: 40ms;
+}
+.c-keycap .k-btn:disabled {
+  --skirt: #141011;
+  color: #a39a9b;
+  background: #262021;
+  box-shadow:
+    inset 0 1px 0 rgb(255 240 242 / 0.06),
+    inset 0 -2px 2px rgb(0 0 0 / 0.1),
+    0 3px 0 var(--skirt),
+    0 3px 0 1px rgb(0 0 0 / 0.4),
+    0 7px 12px -3px rgb(0 0 0 / 0.5);
+}
+
+/* ── 10 Velvet: matte pile, a soft inner shadow and a fine nap ── */
+.c-velvet .k-btn {
+  border-radius: 12px;
+  font: 400 16px/1 var(--bodoni);
+  letter-spacing: 0.01em;
+  background-size:
+    140px 140px,
+    100% 100%;
+  background-blend-mode: soft-light, normal;
+  box-shadow:
+    inset 0 2px 9px rgb(0 0 0 / 0.5),
+    inset 0 -2px 8px rgb(0 0 0 / 0.22),
+    0 0 0 1px rgb(0 0 0 / 0.45),
+    0 6px 14px -6px rgb(0 0 0 / 0.9);
+  transition: box-shadow 380ms ease;
+}
+.c-velvet .k-pri {
+  background-image: var(--nap), linear-gradient(180deg, #951627, #7a1121);
+}
+.c-velvet .k-sec {
+  background-image: var(--nap), linear-gradient(180deg, #1f191a, #130f10);
+}
+/* Velvet's sheen lives at the edges, where the pile is seen side-on; hover lifts it. */
+.c-velvet .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 14px 1px rgb(255 120 132 / 0.42);
+  opacity: 0;
+  transition: opacity 380ms ease;
+}
+.c-velvet .k-sec::before {
+  box-shadow: inset 0 0 14px 1px rgb(246 241 241 / 0.16);
+}
+.c-velvet .k-small {
+  font-size: 13.5px;
+  border-radius: 9px;
+}
+.c-velvet .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  box-shadow:
+    inset 0 2px 6px rgb(0 0 0 / 0.3),
+    inset 0 -2px 8px rgb(0 0 0 / 0.15),
+    0 0 0 1px rgb(0 0 0 / 0.45),
+    0 6px 14px -6px rgb(0 0 0 / 0.9);
+}
+.c-velvet .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  opacity: 1;
+}
+/* Press: the pile crushes. */
+.c-velvet .k-btn:is(:active, .is-pressed):not(:disabled) {
+  box-shadow:
+    inset 0 3px 14px rgb(0 0 0 / 0.7),
+    inset 0 -1px 6px rgb(0 0 0 / 0.3),
+    0 0 0 1px rgb(0 0 0 / 0.45),
+    0 3px 8px -6px rgb(0 0 0 / 0.9);
+}
+.c-velvet .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  opacity: 0.3;
+}
+.c-velvet .k-btn:disabled {
+  color: #a19798;
+  background-image: var(--nap), linear-gradient(#211b1c, #211b1c);
+  box-shadow:
+    inset 0 1px 4px rgb(0 0 0 / 0.35),
+    inset 0 0 0 0 transparent,
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 0 0 0 transparent;
+}
+</style>
+</head>
+<body>
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Kleio · scratch pad · buttons</p>
+    <h1>Ten buttons</h1>
+    <p class="lede">Red, white and black only; still at rest and alive when touched. The first four
+      in each row are live: hover them, press them, Tab to them. Pressed and Focus are drawn samples.</p>
+  </div>
+  <dl class="legend">
+    <dt>Over Home</dt><dd>A strip of the real Home background</dd>
+    <dt>App surface</dt><dd>The plain dark app surface, #0c090a</dd>
+    <dt>Pressed, Focus</dt><dd>Drawn samples of those two states</dd>
+  </dl>
+</header>
+<main class="concepts">
+  <article class="concept c-lacquer" id="lacquer" aria-labelledby="lacquer-name">
+    <header class="concept-head">
+      <span class="num">01</span>
+      <h2 id="lacquer-name">Lacquer</h2>
+      <p class="why">Urushi is built coat on coat, so the red sits deep and glows from inside; the black one hides a red coat that wakes when touched.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Lacquer, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Lacquer, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-inscribed" id="inscribed" aria-labelledby="inscribed-name">
+    <header class="concept-head">
+      <span class="num">02</span>
+      <h2 id="inscribed-name">Inscribed</h2>
+      <p class="why">A stone tablet with its panel cut in. The primary’s letters are filled red, as Roman letter-cutters filled theirs.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Inscribed, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Inscribed, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-door" id="door" aria-labelledby="door-name">
+    <header class="concept-head">
+      <span class="num">03</span>
+      <h2 id="door-name">Door Ajar</h2>
+      <p class="why">A shut black door with light under it. Hover opens the gap; the secondary’s light is white.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Door Ajar, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Door Ajar, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-ember" id="ember" aria-labelledby="ember-name">
+    <header class="concept-head">
+      <span class="num">04</span>
+      <h2 id="ember-name">Ember</h2>
+      <p class="why">A banked fire: the red lives under the edge, never on the face. The secondary is cold ash until you touch it.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Ember, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Ember, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-fluted" id="fluted" aria-labelledby="fluted-name">
+    <header class="concept-head">
+      <span class="num">05</span>
+      <h2 id="fluted-name">Fluted</h2>
+      <p class="why">The logo’s Ionic column as faint flutes lit from the left. On hover the light comes round.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Fluted, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Fluted, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-editorial" id="editorial" aria-labelledby="editorial-name">
+    <header class="concept-head">
+      <span class="num">06</span>
+      <h2 id="editorial-name">Editorial</h2>
+      <p class="why">No box: Didot capitals set between two hairline rules, as a book sets a heading. The rules close in on hover.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Editorial, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Editorial, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-cloisonne" id="cloisonne" aria-labelledby="cloisonne-name">
+    <header class="concept-head">
+      <span class="num">07</span>
+      <h2 id="cloisonne-name">Cloisonné</h2>
+      <p class="why">Flat red enamel in a thin polished rim. The enamel never shines; the rim catches the light as you pass.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Cloisonné, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Cloisonné, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-obsidian" id="obsidian" aria-labelledby="obsidian-name">
+    <header class="concept-head">
+      <span class="num">08</span>
+      <h2 id="obsidian-name">Obsidian</h2>
+      <p class="why">Black volcanic glass with one knife-sharp highlight along its top edge, and red deep inside the primary.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Obsidian, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Obsidian, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-keycap" id="keycap" aria-labelledby="keycap-name">
+    <header class="concept-head">
+      <span class="num">09</span>
+      <h2 id="keycap-name">Keycap</h2>
+      <p class="why">A real key: a skirt below the top and 2px of travel. It sinks when pressed and comes back up.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Keycap, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Keycap, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+  <article class="concept c-velvet" id="velvet" aria-labelledby="velvet-name">
+    <header class="concept-head">
+      <span class="num">10</span>
+      <h2 id="velvet-name">Velvet</h2>
+      <p class="why">Matte red pile with a soft inner shadow and a fine nap. Nothing shines; the edges lift when touched.</p>
+    </header>
+    <div class="stages">
+      <section class="stage" aria-label="Velvet, over home">
+        <p class="stage-tag">Over Home</p>
+        <div class="band on-home">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+      <section class="stage" aria-label="Velvet, app surface">
+        <p class="stage-tag">App surface</p>
+        <div class="band on-app">
+          <button class="k-btn k-pri" type="button">Chat</button>
+          <button class="k-btn k-sec" type="button">Code</button>
+          <button class="k-btn k-pri" type="button" disabled>Connect</button>
+          <button class="k-btn k-pri k-small" type="button">Send</button>
+          <span class="rule" aria-hidden="true"></span>
+          <span class="k-btn k-pri is-pressed" aria-hidden="true">Chat</span>
+          <span class="k-btn k-pri is-focus" aria-hidden="true">Chat</span>
+        </div>
+        <div class="captions" aria-hidden="true"><span>Primary</span><span>Secondary</span><span>Disabled</span><span>Small</span><span></span><span>Pressed</span><span>Focus</span></div>
+      </section>
+    </div>
+  </article>
+</main>
+</body>
+</html>

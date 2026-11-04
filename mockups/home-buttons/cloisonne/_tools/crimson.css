@@ -1,0 +1,44 @@
+/* ═══ Crimson (crimson.html): the locked enamel on Home, then flat and in each depth ═══ */
+
+/* The rail beside the Home; the tiles two abreast under both. */
+.page {
+  grid-template-columns: 236px 1024px;
+  column-gap: 48px;
+  row-gap: 64px;
+}
+.rail {
+  position: static;
+}
+.rail ol {
+  grid-template-columns: none;
+}
+.on-home {
+  scroll-margin-top: 28px;
+}
+.in-depth {
+  grid-column: 1 / -1;
+}
+.in-depth > .tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 636px);
+  justify-content: space-between;
+  row-gap: 40px;
+}
+/* Talk to Kleio's wrapper carries the shared enamel; as a flex box it adds no line height. */
+.home > .brief {
+  display: flex;
+}
+@media (max-width: 1371px) {
+  .page {
+    grid-template-columns: 1024px;
+    row-gap: 40px;
+  }
+  .rail ol {
+    grid-template-columns: repeat(3, max-content);
+    column-gap: 28px;
+  }
+  .in-depth > .tiles {
+    grid-template-columns: 636px;
+    justify-content: center;
+  }
+}

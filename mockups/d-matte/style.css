@@ -1,0 +1,476 @@
+/* Kleio mockup, D · Matte dark. Base layout, then this direction's look. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; width: 1024px; height: 720px; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h3, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+button, textarea { font: inherit; color: inherit; }
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+code, kbd, .mono { font-family: var(--font-mono); }
+.i { width: var(--icon); height: var(--icon); flex: none; stroke-width: var(--stroke); }
+
+/* The page is the 1024×720 window; the app draws under a macOS overlay title bar. */
+.window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 1024px;
+  height: 720px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.traffic { position: absolute; top: 13px; left: 20px; z-index: 40; display: flex; gap: 8px; }
+.traffic i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--traffic);
+  box-shadow: inset 0 0 0 0.5px var(--traffic-edge);
+}
+
+/* ── Header: one row on the traffic lights' centre line (y = 19) ── */
+.bar {
+  position: relative;
+  z-index: 30;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 38px;
+  padding: 0 14px 0 84px;
+}
+.back { gap: 3px; }
+.back .i { --icon: 16px; }
+.bar-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.bar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.new .i { --icon: 15px; }
+.icon-btn { justify-content: center; width: 30px; height: 30px; }
+
+/* Overflow: a <details>, so the ⋯ menu opens without script. */
+.overflow { position: relative; }
+.overflow > summary { list-style: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.overflow > summary::-webkit-details-marker { display: none; }
+.menu { position: absolute; top: calc(100% + 8px); right: 0; width: 248px; padding: 6px; }
+.menu-group + .menu-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--menu-rule); }
+.mi {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  text-align: left;
+}
+.mi .i { --icon: 16px; color: var(--muted); }
+.mi-label { flex: 1; }
+.mi-hint { color: var(--muted); font-size: var(--size-meta); }
+.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 8px; background: var(--switch-off); }
+.switch i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--switch-knob); }
+.mi-xp { flex-wrap: wrap; row-gap: 7px; padding-top: 8px; padding-bottom: 10px; cursor: default; }
+.xp {
+  flex: 0 0 calc(100% - 26px);
+  height: 3px;
+  margin-left: 26px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--xp-track);
+}
+.xp i { display: block; height: 100%; background: var(--xp-fill, var(--accent)); }
+
+/* ── Transcript: conversation only. Tool calls never land here; they live in
+   the pinned panel above the composer. Bottom-anchored, as if scrolled to
+   the newest message. ── */
+.transcript {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade, 28px));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade, 28px));
+}
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--turn-gap);
+  width: var(--measure);
+  margin: 0 auto;
+  padding-bottom: 18px;
+}
+.turn { display: flex; flex-direction: column; gap: var(--inner-gap); }
+
+/* Your messages sit right; the assistant's follow a dot (the app's ⏺). */
+.msg-user {
+  align-self: flex-end;
+  max-width: var(--user-max, 78%);
+  padding: var(--user-pad, 9px 14px);
+  border: 1px solid var(--user-border, transparent);
+  border-radius: var(--user-radius, 14px);
+  background: var(--user-bg, transparent);
+}
+.msg-assistant { display: flex; gap: var(--gap); }
+.msg-assistant > .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--para-gap); }
+.dot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gutter);
+  height: var(--line, calc(var(--size-body) * var(--lh-body)));
+}
+.dot::before {
+  content: "";
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--dot-color, var(--accent-ink));
+}
+/* One accent, and it means live. Done goes neutral; failed and Ken take a
+   darker or lighter step of the same hue. */
+.is-done > .dot { --dot-color: var(--done); }
+.is-failed > .dot { --dot-color: var(--fail); }
+.is-ken > .dot { --dot-color: var(--ken); }
+.is-hook > .dot { --dot-color: var(--hook); }
+.is-ken > .text { padding-left: var(--ken-pad, 12px); border-left: 2px solid var(--ken-rule); color: var(--ken); }
+/* A direction can hang its markers in the margin, like hanging punctuation. */
+.msg-assistant, .step-done, .subagents, .tool-row, .act-status { margin-left: calc(-1 * var(--hang, 0px)); }
+
+.prose h3 { font-size: inherit; }
+.prose h3 + ul { margin-top: calc(var(--para-gap) * -0.6); }
+.prose ul { display: flex; flex-direction: column; gap: 3px; }
+.prose li { position: relative; padding-left: 20px; }
+.prose li::before { position: absolute; left: 4px; }
+
+.email { display: flex; flex-direction: column; gap: 10px; }
+.email-head { display: flex; flex-direction: column; gap: 2px; font-size: var(--size-small); }
+.email-head div { display: flex; gap: 10px; }
+.email-head dt { flex: none; width: 58px; color: var(--muted); }
+.email-body { display: flex; flex-direction: column; gap: 8px; }
+.options { display: flex; gap: 8px; }
+.opt .i { --icon: 15px; }
+
+/* Plan steps the agent marks done get their own row. */
+.step-done { display: flex; align-items: center; gap: var(--gap); }
+.step-done + .step-done { margin-top: calc(var(--step-gap, 4px) - var(--inner-gap)); }
+.step-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gutter);
+  height: var(--gutter);
+  border-radius: 50%;
+  background: var(--step-fill, transparent);
+  box-shadow: inset 0 0 0 1px var(--step-ring, transparent);
+  color: var(--step-ink, var(--text));
+  font: 700 calc(var(--gutter) * 0.6) / 1 system-ui, -apple-system, sans-serif;
+}
+.step-label { font-family: var(--font-ui); font-size: var(--size-small); font-weight: 600; }
+
+/* Sub-agents: a heading row, then one line per agent on a thread rule. */
+.subagents {
+  --line: calc(var(--size-small) * 1.6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-ui);
+  font-size: var(--size-small);
+  line-height: 1.6;
+}
+.subagents-head { display: flex; align-items: center; gap: var(--gap); }
+.subagents-title { font-weight: 600; }
+.subagents-list {
+  display: flex;
+  flex-direction: column;
+  margin-left: calc(var(--gutter) / 2);
+  padding-left: calc(var(--gutter) / 2 + var(--gap));
+  border-left: 1px solid var(--live-rule);
+}
+.subagent { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.subagent-icon { flex: none; color: var(--done); font: 700 0.9em / 1 system-ui, -apple-system, sans-serif; }
+.subagent-name { font-weight: 600; }
+.subagent-tokens, .subagent-summary { color: var(--dim); }
+
+/* The app's ShimmerText: a bright spot sweeping across the line. */
+.shimmer {
+  display: inline-block;
+  color: var(--shimmer-base);
+  background: linear-gradient(100deg, var(--shimmer-base) 0%, var(--shimmer-base) 38%, var(--shimmer-bright) 50%, var(--shimmer-base) 62%, var(--shimmer-base) 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+.is-hook .shimmer { --shimmer-base: var(--hook-text, var(--hook)); --shimmer-bright: var(--hook-bright); font-weight: 600; }
+.blink { animation: blink 1s steps(1, end) infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* ── Live region, pinned above the composer: the last three tool calls
+   (status dot, bold verb, plain detail, dim summary), then the activity bar. ── */
+.liveregion { flex: none; width: var(--measure); margin: 0 auto; }
+.livetools { display: flex; flex-direction: column; padding: 7px 0 6px; border-top: 1px solid var(--live-rule); }
+.tool-row {
+  --line: calc(var(--size-tool) * var(--lh-tool));
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  font-family: var(--font-ui);
+  font-size: var(--size-tool);
+  line-height: var(--lh-tool);
+}
+.tool-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tool-line b { font-weight: 600; }
+.tool-sum { color: var(--dim); }
+.activitybar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+  border-top: 1px solid var(--live-rule);
+  font-family: var(--font-ui);
+  font-size: var(--size-bar);
+  line-height: 1.5;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.act-status { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--gap); }
+.orb { flex: none; display: flex; align-items: center; justify-content: center; width: var(--gutter); height: var(--gutter); color: var(--accent-ink); }
+.orb .i { --icon: var(--orb, 16px); animation: orb 1.2s steps(8) infinite; }
+@keyframes orb { to { transform: rotate(360deg); } }
+.act-label { --shimmer-base: var(--act-base); --shimmer-bright: var(--act-bright); font-weight: 600; white-space: nowrap; }
+.act-meta, .act-plan { color: var(--muted); white-space: nowrap; }
+.act-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tools-toggle { justify-content: center; width: 24px; height: 24px; color: var(--muted); }
+.tools-toggle .i { --icon: 14px; --stroke: 2; }
+.stop { color: var(--accent-ink); font-weight: 600; }
+
+/* Screenshots load the page as #still, so every animation holds one frame. */
+#still:target .shimmer { animation-delay: -1.1s; animation-play-state: paused; }
+#still:target .act-label { animation-delay: -1.45s; }
+#still:target .blink, #still:target .orb .i { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; }
+  .blink, .orb .i { animation: none; }
+}
+
+/* ── Composer ── */
+.composer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: var(--measure);
+  margin: 0 auto;
+  padding: 6px 0 14px;
+}
+.field { display: flex; align-items: center; gap: 4px; padding: 0 7px; }
+.field textarea {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: none;
+  resize: none;
+  overflow: hidden;
+  line-height: 24px;
+}
+.field textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.send { justify-content: center; flex: none; }
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: var(--size-meta);
+  line-height: 16px;
+}
+.meta-left, .meta-right { display: flex; align-items: center; gap: 14px; }
+.meta-left { gap: 6px; }
+.meta .i { --icon: 13px; }
+.ctx { display: inline-flex; align-items: center; gap: 6px; }
+.ctx-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent-ink) calc(var(--pct) * 1%), var(--ring-track) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.4px, #000 3.9px);
+  mask: radial-gradient(circle, transparent 3.4px, #000 3.9px);
+}
+
+/* ── Home: the hub ── */
+.home-top {
+  position: absolute;
+  top: 0;
+  left: 84px;
+  right: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+}
+.status { gap: 8px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-ink); }
+.home {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+.mark { display: flex; flex-direction: column; align-items: center; }
+.mark-img { display: block; height: auto; user-select: none; -webkit-user-drag: none; }
+.wordmark { line-height: 1; white-space: nowrap; }
+.destinations { display: flex; }
+.dest { justify-content: center; }
+.talk kbd { font-size: var(--size-meta); }
+.home-foot { position: absolute; right: 18px; bottom: 14px; color: var(--muted); font-size: var(--size-meta); }
+
+/* ── D · Matte dark: today's crimson-on-near-black, with the gloss, glass,
+   dither and rain removed, and everything a size larger. ── */
+:root {
+  --bg: #0c090a;
+  --surface: #161213;
+  --surface-2: #1f1a1b;
+  --surface-3: #282223;
+  --text: #f6f1f1;
+  --text-2: #d3c9ca;
+  --muted: #a69c9d;
+  --dim: #a69c9d;
+  --rule: rgba(255, 255, 255, 0.08);
+  --rule-strong: rgba(255, 255, 255, 0.13);
+  --accent: #c8283a;
+  --accent-ink: #ff5c69;
+  --on-accent: #ffffff;
+  /* Crimson while live, grey once done, the deeper fill crimson on failure,
+     and a pale rose for Ken instead of today's teal. */
+  --done: #8f8586;
+  --fail: #c8283a;
+  --ken: #ffadb4;
+  --ken-rule: rgba(255, 92, 105, 0.5);
+  --hook: #ff5c69;
+  --hook-bright: #ffffff;
+  --act-base: #d3c9ca;
+  --act-bright: #ffffff;
+  --live-rule: var(--rule);
+  --step-fill: var(--surface-3);
+  --step-ink: #d3c9ca;
+  --user-bg: var(--surface-2);
+  --user-pad: 11px 16px;
+  --user-radius: 18px 18px 6px 18px;
+  --user-max: 76%;
+  --traffic: #3a3334;
+  --traffic-edge: rgba(0, 0, 0, 0.45);
+  --font-display: Didot, "Bodoni 72", serif;
+  --font-body: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-ui: var(--font-body);
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 16px;
+  --lh-body: 1.55;
+  --size-small: 14px;
+  --size-meta: 13px;
+  --size-code: 13px;
+  --size-tool: 14.5px;
+  --lh-tool: 1.6;
+  --size-bar: 14px;
+  --icon: 19px;
+  --stroke: 1.7;
+  --measure: 720px;
+  --turn-gap: 24px;
+  --inner-gap: 10px;
+  --para-gap: 12px;
+  --gutter: 18px;
+  --gap: 10px;
+  --dot: 9px;
+  --orb: 18px;
+  --menu-rule: var(--rule);
+  --switch-off: #3a3233;
+  --switch-knob: #a69c9d;
+  --xp-track: #2e2728;
+  --ring-track: #3a3233;
+  --placeholder: #a69c9d;
+}
+
+/* Header */
+.bar { border-bottom: 1px solid var(--rule); }
+.back { font-size: 15px; color: var(--text-2); }
+.title { font-size: 18px; font-weight: 650; }
+.subtitle { font-size: 15px; color: var(--muted); }
+.new { gap: 6px; height: 28px; padding: 0 14px 0 11px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 14.5px; font-weight: 500; }
+.icon-btn { color: var(--text-2); }
+.bar .icon-btn.more { width: 28px; height: 28px; border: 1px solid var(--rule-strong); border-radius: 50%; background: var(--surface-2); }
+.overflow[open] > summary { background: var(--surface-3); color: var(--text); }
+
+/* Transcript */
+.prose h3 { margin-top: 4px; font-weight: 650; }
+.prose li::before { content: ""; top: 0.68em; left: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.step-label { font-size: 15px; }
+.email { padding: 16px 18px; border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--surface); }
+.email-head { font-size: 14px; }
+.email-head dt { width: 66px; }
+.email-head dd { color: var(--text-2); }
+.opt { height: 38px; padding: 0 18px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 15px; font-weight: 500; }
+.opt.is-primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.opt .i { --icon: 17px; }
+
+/* Menu */
+.menu {
+  top: calc(100% + 10px);
+  border: 1px solid var(--rule-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.mi { min-height: 36px; border-radius: 9px; font-size: 15px; }
+.mi .i { --icon: 17px; }
+.mi-hint { font-size: 13px; }
+
+/* Composer */
+.composer { padding-top: 8px; padding-bottom: 14px; }
+.field { height: 56px; padding: 0 9px; border: 1px solid var(--rule-strong); border-radius: 20px; background: var(--surface); }
+.field .icon-btn { width: 34px; height: 34px; color: var(--muted); }
+.send { width: 38px; height: 38px; margin-left: 4px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.send .i { --icon: 18px; --stroke: 2; }
+.meta { font-size: 13px; }
+.meta-right { gap: 10px; }
+.meta-right > span + span::before { content: "·"; margin-right: 10px; }
+
+/* Home */
+.status { height: 28px; padding: 0 12px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface); font-size: 14px; color: var(--text-2); }
+.settings { width: 34px; height: 34px; border: 1px solid var(--rule-strong); border-radius: 50%; background: var(--surface); color: var(--text-2); }
+.mark-img { width: 104px; margin-bottom: 22px; }
+.wordmark { font-family: var(--font-display); font-size: 60px; letter-spacing: 0.32em; margin-right: -0.32em; }
+.tagline { margin-top: 24px; font-size: 17px; color: var(--text-2); }
+.destinations { gap: 12px; margin-top: 40px; }
+.dest { gap: 9px; width: 176px; height: 50px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 16.5px; font-weight: 600; }
+.dest.is-primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.talk { gap: 9px; height: 40px; margin-top: 18px; padding: 0 18px; border: 1px solid var(--rule-strong); border-radius: 999px; font-size: 15px; color: var(--text-2); }
+.talk kbd { margin-left: 6px; font-family: inherit; color: var(--muted); }
+.home-foot { font-size: 13px; }

@@ -1,0 +1,216 @@
+:root {
+  color-scheme: dark;
+  --page: #060405;
+  --card: #0f0b0c;
+  --app: #0c090a;
+  --white: #f6f1f1;
+  --white-2: #d3c9ca;
+  --grey: #a69c9d;
+  --ring: #f6f1f1;
+  --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --didot: Didot, "Bodoni 72", serif;
+  --bodoni: "Bodoni 72", Didot, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --cols: 128px 128px 128px 80px 1px 128px 128px;
+  /* Velvet's pile: fine grey noise, blended soft-light into the colour. */
+  --nap: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--page);
+}
+body {
+  margin: 0;
+  /* 24px sides: two stages still fit beside a classic scrollbar at 1800px. */
+  padding: 44px 24px 72px;
+  color: var(--white);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page ── */
+.page-head {
+  max-width: 1724px;
+  margin: 0 auto 30px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 32px;
+}
+.eyebrow {
+  margin: 0 0 10px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.page-head h1 {
+  margin: 0;
+  font: 400 48px/1 var(--didot);
+  letter-spacing: 0.02em;
+}
+.lede {
+  margin: 14px 0 0;
+  max-width: 720px;
+  color: var(--white-2);
+  font-size: 15px;
+}
+.legend {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 16px;
+  align-items: baseline;
+}
+.legend dt {
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.legend dd {
+  margin: 0;
+  color: var(--white-2);
+  font-size: 13px;
+}
+.concepts {
+  max-width: 1724px;
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+.concept {
+  padding: 20px 22px 18px;
+  background: var(--card);
+  border: 1px solid rgb(246 241 241 / 0.07);
+  border-radius: 14px;
+}
+.concept-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+.num {
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--grey);
+}
+.concept-head h2 {
+  margin: 0;
+  font: 400 27px/1 var(--didot);
+  letter-spacing: 0.02em;
+}
+.why {
+  margin: 0;
+  color: var(--white-2);
+  font-size: 14px;
+}
+.stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 829px);
+  justify-content: space-between;
+  gap: 18px 20px;
+}
+.stage-tag {
+  margin: 0 0 8px;
+  font: 500 10.5px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.band {
+  display: grid;
+  grid-template-columns: var(--cols);
+  column-gap: 12px;
+  align-items: center;
+  justify-items: center;
+  height: 112px;
+  padding: 0 18px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(246 241 241 / 0.07);
+}
+/* A strip of the real Home: mockups/home-buttons/instrument-default.png, y 0–148. */
+.band.on-home {
+  background: var(--app) url(assets/home-strip.png) no-repeat;
+  background-size: 970px 148px;
+  background-position: -141px -24px;
+}
+.band.on-app {
+  background: var(--app);
+}
+.band .rule {
+  width: 1px;
+  height: 56px;
+  background: rgb(246 241 241 / 0.14);
+}
+.captions {
+  display: grid;
+  grid-template-columns: var(--cols);
+  column-gap: 12px;
+  justify-items: center;
+  padding: 10px 18px 0;
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+
+/* ── The button skeleton every concept dresses ── */
+.k-btn {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-width: 116px;
+  margin: 0;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--white);
+  font: 600 14px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.k-btn.k-small {
+  height: 30px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 6px;
+}
+.k-btn:disabled {
+  cursor: not-allowed;
+}
+.k-btn:focus {
+  outline: none;
+}
+/* One ring for every concept: near-white, offset, so it reads on red and on black. */
+.k-btn:focus-visible,
+.k-btn.is-focus {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+/* The drawn samples hold their state; the pointer passes over them. */
+.k-btn.is-pressed,
+.k-btn.is-focus {
+  pointer-events: none;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .k-btn,
+  .k-btn::before,
+  .k-btn::after {
+    transition: none !important;
+  }
+}

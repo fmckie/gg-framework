@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kleio: Cloisonné Reverse, one enamel</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #060405;
+  --white: #f6f1f1;
+  --white-2: #d3c9ca;
+  --grey: #a69c9d;
+  --ring: #f6f1f1;
+  --sans: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --didot: Didot, "Bodoni 72", serif;
+  --bodoni: "Bodoni 72", Didot, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* Velvet's pile (buttons/_tools/page.css). */
+  --nap: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.2' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  background: var(--page);
+  scroll-snap-type: y proximity;
+}
+body {
+  margin: 0;
+  color: var(--white);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Page: a sticky rail of contents beside a column of full-size Home windows ── */
+.page {
+  display: grid;
+  grid-template-columns: 236px 1024px;
+  justify-content: center;
+  column-gap: 48px;
+  padding: 40px 32px 96px;
+}
+.rail {
+  position: sticky;
+  top: 40px;
+  align-self: start;
+}
+.eyebrow {
+  margin: 0 0 12px;
+  font: 500 11px/1.5 var(--mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.rail h1 {
+  margin: 0;
+  font: 400 40px/1 var(--didot);
+  letter-spacing: 0.01em;
+}
+.lede {
+  margin: 14px 0 0;
+  color: var(--white-2);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.rail nav {
+  margin: 24px 0 0;
+}
+.rail ol {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rail a {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 -10px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  color: var(--white-2);
+  font: 400 17px/1.3 var(--didot);
+  text-decoration: none;
+}
+.rail a:hover {
+  color: var(--white);
+  background: rgb(246 241 241 / 0.05);
+}
+.rail a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+.num {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--grey);
+}
+.note {
+  margin: 22px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid rgb(246 241 241 / 0.08);
+  color: var(--grey);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.frames {
+  display: grid;
+  gap: 64px;
+  min-width: 0;
+}
+.concept {
+  scroll-snap-align: start;
+  scroll-margin-top: 28px;
+}
+.label {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0 0 12px;
+}
+.label h2 {
+  margin: 0;
+  font: 400 26px/1 var(--didot);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.label .why {
+  margin: 0;
+  color: var(--white-2);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.window {
+  position: relative;
+  width: 1024px;
+  height: 720px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #000;
+  box-shadow:
+    0 0 0 1px rgb(246 241 241 / 0.1),
+    0 24px 60px -24px rgb(0 0 0 / 0.9);
+}
+@media (max-width: 1399px) {
+  .page {
+    grid-template-columns: 1024px;
+    row-gap: 36px;
+  }
+  .rail {
+    position: static;
+  }
+  .rail ol {
+    grid-template-columns: repeat(4, max-content);
+    column-gap: 28px;
+  }
+}
+
+/* ── Layout (over ../../_tools/page.css): the base pinned in the rail, the variants beside it ── */
+.page {
+  grid-template-columns: 636px 636px;
+  column-gap: 48px;
+}
+.rail {
+  position: sticky;
+  top: 28px;
+}
+.pinned {
+  margin: 22px 0 0;
+}
+.toc {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  justify-content: space-between;
+  margin: 22px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgb(246 241 241 / 0.08);
+}
+.toc-h {
+  margin: 0 0 6px;
+  font: 500 10.5px/1.5 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.rail .toc ol {
+  grid-template-columns: none;
+}
+.rail .toc a {
+  gap: 8px;
+  margin: 0 -8px;
+  padding: 3px 8px;
+  font-size: 15px;
+}
+.variants {
+  display: grid;
+  gap: 48px;
+  padding-top: 2px;
+}
+.group {
+  display: grid;
+  gap: 26px;
+}
+.group-h {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgb(246 241 241 / 0.08);
+  font: 400 30px/1 var(--didot);
+  letter-spacing: 0.01em;
+}
+.group-h .range {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--grey);
+}
+@media (max-width: 1383px) {
+  .page {
+    grid-template-columns: 636px;
+    row-gap: 40px;
+  }
+  .rail {
+    position: static;
+  }
+}
+
+/* ── A tile: caption, then the four buttons on the Home backdrop ── */
+.tile {
+  scroll-margin-top: 28px;
+}
+.cap {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+.cap h3 {
+  margin: 0;
+  font: 400 21px/1 var(--didot);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.cap .what {
+  min-width: 0;
+  margin: 0;
+  color: var(--white-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* The crop behind Home's own buttons: x 194–830, y 438–584 of the 1024x720 window, waves
+   (../assets/home-dither.png) under the crimson wash from kleio-theme.css. */
+.stage {
+  --crop: -194px -438px;
+  display: flex;
+  justify-content: center;
+  padding: 26px 0;
+  border-radius: 10px;
+  background:
+    radial-gradient(58% 52% at 50% 44%, rgb(139 21 33 / 0.58), rgb(139 21 33 / 0) 74%) var(--crop) / 1024px 720px no-repeat,
+    radial-gradient(42% 42% at 100% 100%, rgb(139 21 33 / 0.3), rgb(139 21 33 / 0) 80%) var(--crop) / 1024px 720px no-repeat,
+    #000 url(../assets/home-dither.png) var(--crop) / 1024px 720px no-repeat;
+  box-shadow:
+    0 0 0 1px rgb(246 241 241 / 0.09),
+    0 18px 40px -24px rgb(0 0 0 / 0.9);
+}
+/* All four at one width: the widest label sets every column. Talk to Kleio sits under Code. */
+.set {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px 12px;
+}
+.set .k-quiet {
+  grid-column: 2;
+}
+/* Home's quiet control in the softer white, full white when touched. */
+.tile .k-quiet {
+  color: var(--white-2);
+}
+.tile .k-quiet:is(:hover, :focus-visible) {
+  color: var(--white);
+}
+
+/* ── The button skeleton every concept dresses (buttons/_tools/page.css), sized for Home ── */
+.k-btn {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  min-width: 116px;
+  margin: 0;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--white);
+  font: 600 14px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.k-btn.k-small {
+  height: 30px;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 6px;
+}
+/* The app's sizes: the three ways in, Talk to Kleio, and the status pill. */
+.k-btn.home-action {
+  height: 44px;
+  min-width: 0;
+  padding: 0 22px;
+  font-size: 15px;
+}
+.k-btn.k-quiet {
+  height: 32px;
+  padding: 0 15px;
+  font-size: 13px;
+}
+.k-btn.k-pill {
+  height: 28px;
+  padding: 0 13px;
+  font-size: 12px;
+}
+.k-btn:focus {
+  outline: none;
+}
+.k-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.k-ico {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+.k-quiet .k-ico {
+  width: 16px;
+  height: 16px;
+}
+.k-kbd {
+  margin-left: 2px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: none;
+  color: var(--grey);
+}
+/* Connected: a lit white dot (the palette has no green). */
+.k-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 7px rgb(255 255 255 / 0.45);
+}
+@media (prefers-reduced-motion: reduce) {
+  .k-btn,
+  .k-btn::before,
+  .k-btn::after {
+    transition: none !important;
+  }
+}
+
+/* ═══ buttons/_tools/concepts.css: the Cloisonné base, unchanged ═══ */
+/* ── 07 Cloisonné: flat red enamel set in a thin polished rim ── */
+.c-cloisonne .k-btn {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  /* Only the 2px border shows this: the polished rim. */
+  background: linear-gradient(
+      115deg,
+      #b3aaab,
+      #625a5b 14%,
+      #2c2526 30%,
+      #7d7475 46%,
+      #fbf8f8 56%,
+      #7d7475 66%,
+      #2c2526 82%,
+      #d9d2d2
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 0% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 8px 16px -8px rgb(0 0 0 / 0.95);
+  transition:
+    background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 260ms ease;
+}
+/* The enamel, sitting a hair below the rim. */
+.c-cloisonne .k-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background-color: #b31d30;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+  transition: background-color 260ms ease;
+}
+.c-cloisonne .k-sec::before {
+  background-color: #151112;
+}
+.c-cloisonne .k-small {
+  border-width: 1.5px;
+  border-radius: 7px;
+}
+.c-cloisonne .k-small::before {
+  border-radius: 5.5px;
+}
+.c-cloisonne .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  background-position: 100% 0;
+}
+.c-cloisonne .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #c42638;
+}
+.c-cloisonne .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #201a1b;
+}
+.c-cloisonne .k-btn:is(:active, .is-pressed):not(:disabled) {
+  background-position: 60% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 4px 8px -6px rgb(0 0 0 / 0.95);
+}
+.c-cloisonne .k-pri:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #9a1728;
+}
+.c-cloisonne .k-sec:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #0d0a0b;
+}
+.c-cloisonne .k-btn:disabled {
+  color: #a19798;
+  background: linear-gradient(#3b3435, #3b3435) border-box;
+}
+.c-cloisonne .k-btn:disabled::before {
+  background-color: #1d1819;
+  box-shadow: none;
+}
+
+
+/* ═══ cloisonne/_tools/variants.css: Reverse, unchanged ═══ */
+/* 12 Reverse: the base's gradient rebuilt so its right end (rest, 100%) is the base's rest view
+   and its left end (hover, 0%) the base's hover view; the shine between them now crosses left to
+   right. Press stops at 40%, mirroring the base's 60%. */
+.c-cloisonne.v-reverse .k-btn {
+  background-image: linear-gradient(
+    115deg,
+    #b6afb0,
+    #7d7475 4.5%,
+    #2c2526 20.5%,
+    #d9d2d2 38.5%,
+    #fbf8f8 50%,
+    #b3aaab 61.5%,
+    #625a5b 75.5%,
+    #2c2526 91.5%,
+    #574f50
+  );
+  background-position: 100% 0;
+}
+.c-cloisonne.v-reverse .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  background-position: 0% 0;
+}
+.c-cloisonne.v-reverse .k-btn:is(:active, .is-pressed):not(:disabled) {
+  background-position: 40% 0;
+}
+
+
+/* ═══ Colour (colour.html): Reverse, flat, with one enamel shared by all four buttons ═══ */
+
+/* Each palette: its enamel at rest, on hover and pressed, and inks that clear 4.5:1 on all three:
+   label, Talk to Kleio, shortcuts, and any label while it's touched. */
+.e-crimson {
+  --enamel: #b31d30;
+  --enamel-hover: #c42638;
+  --enamel-press: #9a1728;
+  --ink: #f6f1f1;
+  --ink-2: #f7e6e8;
+  --ink-3: #f7e6e8;
+  --ink-touch: #f6f1f1;
+}
+.e-oxblood {
+  --enamel: #8a1424;
+  --enamel-hover: #9c1b2c;
+  --enamel-press: #741020;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #d3c9ca;
+  --ink-touch: #f6f1f1;
+}
+.e-black {
+  --enamel: #151112;
+  --enamel-hover: #201a1b;
+  --enamel-press: #0d0a0b;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #a69c9d;
+  --ink-touch: #f6f1f1;
+}
+.e-graphite {
+  --enamel: #454041;
+  --enamel-hover: #524c4d;
+  --enamel-press: #383334;
+  --ink: #f6f1f1;
+  --ink-2: #e2dadb;
+  --ink-3: #d3c9ca;
+  --ink-touch: #f6f1f1;
+}
+.e-bone {
+  --enamel: #e6dedd;
+  --enamel-hover: #f1ebea;
+  --enamel-press: #d4cbca;
+  --ink: #1c1415;
+  --ink-2: #3b3233;
+  --ink-3: #574d4e;
+  --ink-touch: #0b0708;
+}
+.e-redblack {
+  --enamel: #1c0b0e;
+  --enamel-hover: #2a1015;
+  --enamel-press: #12070a;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #a69c9d;
+  --ink-touch: #f6f1f1;
+}
+
+/* One rule set for every palette; each outranks the base rule it replaces (red primary, black
+   secondary), so rim, corners, sweep and press stay Reverse's. */
+.c-cloisonne.shared .k-btn {
+  color: var(--ink);
+}
+.c-cloisonne.shared .k-btn.k-quiet {
+  color: var(--ink-2);
+}
+.c-cloisonne.shared .k-btn:is(:hover, :focus-visible) {
+  color: var(--ink-touch);
+}
+.c-cloisonne.shared .k-kbd {
+  color: var(--ink-3);
+}
+.c-cloisonne.shared .k-btn::before {
+  background-color: var(--enamel);
+}
+.c-cloisonne.shared .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: var(--enamel-hover);
+}
+.c-cloisonne.shared .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: var(--enamel-press);
+}
+
+/* ── Page ── */
+.rail .note a {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  color: var(--white-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rail .note a:hover {
+  background: none;
+  color: var(--white);
+}
+
+body:has(#crimson:target) .rail a[href="#crimson"] { color: var(--white); background: rgb(246 241 241 / 0.06); }
+body:has(#oxblood:target) .rail a[href="#oxblood"] { color: var(--white); background: rgb(246 241 241 / 0.06); }
+body:has(#black:target) .rail a[href="#black"] { color: var(--white); background: rgb(246 241 241 / 0.06); }
+body:has(#graphite:target) .rail a[href="#graphite"] { color: var(--white); background: rgb(246 241 241 / 0.06); }
+body:has(#bone:target) .rail a[href="#bone"] { color: var(--white); background: rgb(246 241 241 / 0.06); }
+body:has(#redblack:target) .rail a[href="#redblack"] { color: var(--white); background: rgb(246 241 241 / 0.06); }</style>
+</head>
+<body>
+<div class="page">
+  <aside class="rail">
+    <p class="eyebrow">Kleio · scratch pad · home buttons</p>
+    <h1>One enamel</h1>
+    <p class="lede">Cloisonné Reverse, flat, with one enamel for all four buttons instead of crimson Kleio over black. Rim, corners, sweep and press are Reverse’s; each colour has its own hover and press shades, and each label the ink that clears 4.5:1 on it. Today stays pinned here.</p>
+    <div class="pinned">
+    <article class="tile c-cloisonne v-reverse" id="today" aria-labelledby="today-name">
+      <header class="cap">
+        <span class="num">00</span>
+        <h3 id="today-name">Today</h3>
+        <p class="what">Reverse as it is: crimson Kleio; black enamel on Code, Specialists and Talk to Kleio.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    </div>
+    <nav class="toc" aria-label="Enamels">
+        <div class="toc-group">
+          <p class="toc-h">Shared enamel</p>
+          <ol>
+            <li><a href="#crimson"><span class="num">01</span>Crimson</a></li>
+            <li><a href="#oxblood"><span class="num">02</span>Oxblood</a></li>
+            <li><a href="#black"><span class="num">03</span>Black</a></li>
+            <li><a href="#graphite"><span class="num">04</span>Graphite</a></li>
+            <li><a href="#bone"><span class="num">05</span>Bone</a></li>
+            <li><a href="#redblack"><span class="num">06</span>Red-black</a></li>
+          </ol>
+        </div>
+    </nav>
+    <p class="note">Back to <a href="index.html">the sixteen variations</a> or <a href="depth.html">Reverse in depth</a>.</p>
+  </aside>
+  <main class="variants">
+  <section class="group" id="shared" aria-labelledby="shared-h">
+    <h2 class="group-h" id="shared-h">Shared enamel<span class="range">01–06</span></h2>
+    <article class="tile c-cloisonne v-reverse shared e-crimson" id="crimson" aria-labelledby="crimson-name">
+      <header class="cap">
+        <span class="num">01</span>
+        <h3 id="crimson-name">Crimson</h3>
+        <p class="what">All four in Kleio’s crimson, #b31d30, lettered white.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    <article class="tile c-cloisonne v-reverse shared e-oxblood" id="oxblood" aria-labelledby="oxblood-name">
+      <header class="cap">
+        <span class="num">02</span>
+        <h3 id="oxblood-name">Oxblood</h3>
+        <p class="what">All four in oxblood, #8a1424, a deep dark red, lettered white.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    <article class="tile c-cloisonne v-reverse shared e-black" id="black" aria-labelledby="black-name">
+      <header class="cap">
+        <span class="num">03</span>
+        <h3 id="black-name">Black</h3>
+        <p class="what">All four in black enamel, #151112, lettered white.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    <article class="tile c-cloisonne v-reverse shared e-graphite" id="graphite" aria-labelledby="graphite-name">
+      <header class="cap">
+        <span class="num">04</span>
+        <h3 id="graphite-name">Graphite</h3>
+        <p class="what">All four in graphite, #454041, a mid charcoal-grey, lettered white.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    <article class="tile c-cloisonne v-reverse shared e-bone" id="bone" aria-labelledby="bone-name">
+      <header class="cap">
+        <span class="num">05</span>
+        <h3 id="bone-name">Bone</h3>
+        <p class="what">All four in bone, #e6dedd, a warm off-white, lettered near-black.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+    <article class="tile c-cloisonne v-reverse shared e-redblack" id="redblack" aria-labelledby="redblack-name">
+      <header class="cap">
+        <span class="num">06</span>
+        <h3 id="redblack-name">Red-black</h3>
+        <p class="what">All four in red-black, #1c0b0e, near-black with a red cast, lettered white.</p>
+      </header>
+      <div class="stage">
+        <div class="set">
+          <button type="button" class="k-btn k-pri home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M199,125.31l-49.88-18.39L130.69,57a19.92,19.92,0,0,0-37.38,0L74.92,106.92,25,125.31a19.92,19.92,0,0,0,0,37.38l49.88,18.39L93.31,231a19.92,19.92,0,0,0,37.38,0l18.39-49.88L199,162.69a19.92,19.92,0,0,0,0-37.38Zm-63.38,35.16a12,12,0,0,0-7.11,7.11L112,212.28l-16.47-44.7a12,12,0,0,0-7.11-7.11L43.72,144l44.7-16.47a12,12,0,0,0,7.11-7.11L112,75.72l16.47,44.7a12,12,0,0,0,7.11,7.11L180.28,144ZM140,40a12,12,0,0,1,12-12h12V16a12,12,0,0,1,24,0V28h12a12,12,0,0,1,0,24H188V64a12,12,0,0,1-24,0V52H152A12,12,0,0,1,140,40ZM252,88a12,12,0,0,1-12,12h-4v4a12,12,0,0,1-24,0v-4h-4a12,12,0,0,1,0-24h4V72a12,12,0,0,1,24,0v4h4A12,12,0,0,1,252,88Z"/></svg>Kleio</button>
+          <button type="button" class="k-btn k-sec home-action"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M71.68,97.22,34.74,128l36.94,30.78a12,12,0,1,1-15.36,18.44l-48-40a12,12,0,0,1,0-18.44l48-40A12,12,0,0,1,71.68,97.22Zm176,21.56-48-40a12,12,0,1,0-15.36,18.44L221.26,128l-36.94,30.78a12,12,0,1,0,15.36,18.44l48-40a12,12,0,0,0,0-18.44ZM164.1,28.72a12,12,0,0,0-15.38,7.18l-64,176a12,12,0,0,0,7.18,15.37A11.79,11.79,0,0,0,96,228a12,12,0,0,0,11.28-7.9l64-176A12,12,0,0,0,164.1,28.72Z"/></svg>Code</button>
+          <button type="button" class="k-btn k-sec home-action" aria-keyshortcuts="Meta+Shift+L"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M176,76a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,76Zm-48,24a24,24,0,1,1,24-24A24,24,0,0,1,128,100Zm60,24a48,48,0,1,0,48,48A48.05,48.05,0,0,0,188,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,188,196ZM68,124a48,48,0,1,0,48,48A48.05,48.05,0,0,0,68,124Zm0,72a24,24,0,1,1,24-24A24,24,0,0,1,68,196Z"/></svg>Specialists<kbd class="k-kbd" aria-hidden="true">⌘⇧L</kbd></button>
+          <button type="button" class="k-btn k-sec k-small k-quiet" aria-keyshortcuts="Meta+Shift+B"><svg class="k-ico" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true" focusable="false"><path d="M60,96v64a12,12,0,0,1-24,0V96a12,12,0,0,1,24,0ZM88,20A12,12,0,0,0,76,32V224a12,12,0,0,0,24,0V32A12,12,0,0,0,88,20Zm40,32a12,12,0,0,0-12,12V192a12,12,0,0,0,24,0V64A12,12,0,0,0,128,52Zm40,32a12,12,0,0,0-12,12v64a12,12,0,0,0,24,0V96A12,12,0,0,0,168,84Zm40-16a12,12,0,0,0-12,12v96a12,12,0,0,0,24,0V80A12,12,0,0,0,208,68Z"/></svg>Talk to Kleio<kbd class="k-kbd" aria-hidden="true">⌘⇧B</kbd></button>
+        </div>
+      </div>
+    </article>
+  </section>
+  </main>
+</div>
+</body>
+</html>

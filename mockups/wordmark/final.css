@@ -1,0 +1,29 @@
+/* ═══ Kleio · the KLEIO wordmark: Bone, smaller ═══
+   The locked look for the name under the column mark: variants.html's frame 09. It replaces
+   .kleio-wordmark in gg-app/src/kleio/kleio-theme.css; that file's @font-face and its .kleio-mark
+   rules (the mark's size, the 22px gap, the centring) stay as they are.
+
+   Two changes from today: bone #e8e0dc instead of pure white, and 46px with 0.34em tracking
+   instead of 56px and 0.4em. The tight dark shadow is today's.
+
+   Contrast, WCAG 2 from the hex values: #e8e0dc is 6.68:1 on a bare lit wave dot (#9c0000), the
+   brightest thing behind it, and higher on the crimson wash.
+
+   The connect screens' small mark (.kleio-mark.is-small .kleio-wordmark) takes this colour and
+   tracking but keeps its own 39px; 32px would keep today's ratio to Home's (39/56). */
+
+.kleio-wordmark {
+  font-family: "Tejaratchi Ex Lefti", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 46px;
+  line-height: 1;
+  /* The trailing letter-space is cancelled so the word stays centred (K's and O's side bearings
+     match to 0.002em, so nothing else needs offsetting). */
+  letter-spacing: 0.34em;
+  margin-right: -0.34em;
+  color: #e8e0dc;
+  /* The tight shadow fills the bevel cuts, so the waves' dots don't show through the letters. */
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.75),
+    0 2px 24px rgb(0 0 0 / 0.6);
+}

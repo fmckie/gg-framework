@@ -1,0 +1,73 @@
+/* ═══ Wordmark variants (variants.html): each frame changes one thing about .kleio-wordmark ═══
+   Today's rule (kleio-theme.css) is inlined above, unchanged. Each variant starts .window.wm-*, so
+   it outranks today's rule and replaces only what it names: the mark, its size, the 22px gap and
+   the centring are today's in every frame, and so is the tight dark shadow unless a variant says
+   what replaces it. */
+
+/* 01 Bone */
+.window.wm-bone .kleio-wordmark {
+  color: #e8e0dc;
+}
+
+/* 02 Ash */
+.window.wm-ash .kleio-wordmark {
+  color: #cfc8c6;
+}
+
+/* 03 Dimmed: the word and its shadow at 75% together, so the wash comes through the white. (A 75%
+   fill on its own would let the dark shadow under it grey the letters instead.) */
+.window.wm-dimmed .kleio-wordmark {
+  opacity: 0.75;
+}
+
+/* 04 Carved fill: dark letters. Their light top edge and dark foot replace the shadow; a tight dark
+   ring under both still closes the bevel cuts. */
+.window.wm-carved .kleio-wordmark {
+  color: #140a0c;
+  text-shadow:
+    0 -1px 0 rgb(255 240 242 / 0.55),
+    0 1px 0 #000,
+    0 0 1px #000;
+}
+
+/* 05 Light catch: white at the cap tops fading to grey at the baseline (the caps fill 6–84% of the
+   line). A shadow under background-clip: text paints over the fill, so ::after lays the graded word
+   over the real one, which goes clear and keeps casting today's shadow. */
+.window.wm-catch .kleio-wordmark {
+  position: relative;
+  color: transparent;
+}
+.window.wm-catch .kleio-wordmark::after {
+  content: attr(data-word);
+  position: absolute;
+  inset: 0;
+  white-space: nowrap;
+  background: linear-gradient(180deg, #fff 6%, #f2eded 30%, #8f8788 84%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+/* 06 Crimson-tinted white: the buttons' pale pink-white (final.css's shortcut ink). */
+.window.wm-blush .kleio-wordmark {
+  color: #f7e6e8;
+}
+
+/* 07 Hairline outline: a 1px stroke and no fill. Any text-shadow would show through the open
+   letters, so a tight drop-shadow of the stroke alone replaces it. */
+.window.wm-outline .kleio-wordmark {
+  color: transparent;
+  -webkit-text-stroke: 1px #fff;
+  text-shadow: none;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.8));
+}
+
+/* 08 Smaller: 46px, with the tracking and its centring offset both tightened to 0.34em.
+   09 is .wm-bone and .wm-smaller together. */
+.window.wm-smaller .kleio-wordmark {
+  font-size: 46px;
+  letter-spacing: 0.34em;
+  margin-right: -0.34em;
+}

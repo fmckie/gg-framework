@@ -1,0 +1,107 @@
+/* ── B · Quiet minimal: flat graphite, near-monochrome, a narrow column with
+   room around it, oxblood as the one accent. No borders where space will do. ── */
+:root {
+  --bg: #141414;
+  --surface: #1b1b1b;
+  --surface-2: #232323;
+  --text: #ececec;
+  --text-2: #ababab;
+  --muted: #868686;
+  --dim: #868686;
+  --accent: #7c2230;
+  --accent-ink: #c96773;
+  --on-accent: #f6eeef;
+  /* Oxblood while live, grey once done, a deeper oxblood on failure, and a
+     pale rose for Ken. */
+  --done: #6f6f6f;
+  --fail: #b04a58;
+  --ken: #e7a9b1;
+  --ken-rule: rgba(201, 103, 115, 0.5);
+  --hook: #c96773;
+  --hook-bright: #f7e3e6;
+  --act-base: #a6a6a6;
+  --act-bright: #ffffff;
+  --live-rule: #262626;
+  --step-fill: #262626;
+  --step-ink: #bdbdbd;
+  --user-bg: var(--surface);
+  --traffic: #2e2e2e;
+  --traffic-edge: rgba(0, 0, 0, 0.4);
+  --font-body: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-ui: var(--font-body);
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 13.5px;
+  --lh-body: 1.62;
+  --size-small: 12.5px;
+  --size-meta: 12px;
+  --size-code: 12px;
+  --size-tool: 12.5px;
+  --lh-tool: 1.7;
+  --size-bar: 12.5px;
+  --icon: 16px;
+  --stroke: 1.5;
+  --measure: 600px;
+  --turn-gap: 28px;
+  --inner-gap: 10px;
+  --para-gap: 10px;
+  --gutter: 14px;
+  --gap: 10px;
+  --dot: 6px;
+  --orb: 15px;
+  --menu-rule: #282828;
+  --switch-off: #303030;
+  --switch-knob: #868686;
+  --xp-track: #2a2a2a;
+  --xp-fill: var(--accent-ink);
+  --ring-track: #303030;
+  --placeholder: #868686;
+}
+
+/* Header: no rule, just space. */
+.back, .new { font-size: 13px; color: var(--text-2); }
+.title { font-size: 13.5px; font-weight: 600; }
+.subtitle { color: var(--muted); }
+.icon-btn { color: var(--text-2); }
+.overflow[open] > summary { border-radius: 8px; background: var(--surface-2); color: var(--text); }
+
+/* Transcript: nothing labels a speaker; your turns sit right on a faint surface. */
+.prose h3 { margin-top: 6px; font-weight: 600; }
+.prose li::before { content: ""; top: 0.8em; left: 6px; width: 3px; height: 3px; border-radius: 50%; background: var(--muted); }
+.step-label, .subagents-title { font-weight: 500; color: var(--text-2); }
+.subagent-name { font-weight: 500; color: var(--text-2); }
+.is-hook .shimmer { font-weight: 500; }
+.email { padding: 14px 16px; border-radius: 12px; background: var(--surface); }
+.email-body { color: #dadada; }
+.opt { height: 30px; padding: 0 14px; border-radius: 8px; background: var(--surface-2); color: #dadada; font-size: 13px; }
+.opt.is-primary { background: var(--accent); color: var(--on-accent); }
+
+/* Live region */
+.tool-line b, .act-label, .stop { font-weight: 500; }
+
+/* Menu */
+.menu { top: calc(100% + 10px); padding: 6px; border: 1px solid #2a2a2a; border-radius: 12px; background: var(--surface);
+  box-shadow: 0 0 0 8px var(--bg); }
+.mi { border-radius: 7px; font-size: 13px; color: #dcdcdc; }
+
+/* Composer */
+.composer { padding-top: 8px; padding-bottom: 16px; }
+.field { height: 46px; border-radius: 14px; background: var(--surface); }
+.field .icon-btn { color: var(--muted); }
+.send { width: 28px; height: 28px; margin-left: 4px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.send .i { --icon: 15px; --stroke: 1.8; }
+
+/* Home: small and spacious. */
+.status { font-size: 12.5px; color: var(--text-2); }
+.status-dot { width: 6px; height: 6px; }
+.settings { color: var(--muted); }
+.mark-img { width: 56px; margin-bottom: 26px; opacity: 0.92; }
+.wordmark { font-size: 13px; font-weight: 500; letter-spacing: 0.6em; margin-right: -0.6em; }
+.tagline { margin-top: 18px; color: var(--text-2); }
+.destinations { gap: 10px; margin-top: 46px; }
+.dest { gap: 8px; width: 128px; height: 38px; border-radius: 10px; background: var(--surface); color: #dcdcdc; font-size: 13.5px; }
+.dest .i { --icon: 15px; }
+.dest.is-primary { background: var(--accent); color: var(--on-accent); }
+.talk { gap: 8px; margin-top: 22px; font-size: 13px; color: var(--text-2); }
+.talk .i { --icon: 15px; }
+.talk kbd { margin-left: 4px; font-family: inherit; color: var(--muted); }
+.home-foot { font-size: 11.5px; }

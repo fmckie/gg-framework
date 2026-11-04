@@ -1,0 +1,122 @@
+/* ── C · Paper: warm off-white, ink type, a red pencil used sparingly.
+   Reading text in Charter, interface labels in the system sans. ── */
+:root {
+  --bg: #f5f0e6;
+  --surface: #ece5d7;
+  --paper: #fbf8f1;
+  --text: #1f1c18;
+  --text-2: #4d4842;
+  --muted: #6b645a;
+  --dim: #6b645a;
+  --rule: #ddd4c4;
+  --rule-strong: #cbbfab;
+  --accent: #b2321f;
+  --accent-ink: #b2321f;
+  --ink: #24211d;
+  --on-ink: #f8f4ec;
+  /* Red while live, grey once done, a lighter red on failure, and a deep
+     red-brown for Ken, like a note in the margin. */
+  --done: #8a8276;
+  --fail: #d2593f;
+  --ken: #7c2416;
+  --ken-rule: rgba(178, 50, 31, 0.55);
+  --hook: #b2321f;
+  --hook-text: #4d4842;
+  --hook-bright: #c63a24;
+  --act-base: #6b645a;
+  --act-bright: #1f1c18;
+  --live-rule: var(--rule);
+  --step-ring: #8a8276;
+  --step-ink: #1f1c18;
+  --user-bg: var(--surface);
+  --user-pad: 10px 14px;
+  --user-radius: 12px 12px 4px 12px;
+  --user-max: 80%;
+  --traffic: #dbd4c8;
+  --traffic-edge: rgba(70, 50, 20, 0.22);
+  --font-display: Didot, "Bodoni 72", serif;
+  --font-body: Charter, "Iowan Old Style", ui-serif, Georgia, serif;
+  --font-ui: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 15px;
+  --lh-body: 1.56;
+  --size-small: 12.5px;
+  --size-meta: 12px;
+  --size-code: 12.5px;
+  --size-tool: 13px;
+  --lh-tool: 1.65;
+  --size-bar: 12.5px;
+  --icon: 17px;
+  --stroke: 1.5;
+  --measure: 660px;
+  --turn-gap: 24px;
+  --inner-gap: 12px;
+  --para-gap: 10px;
+  --gutter: 16px;
+  --gap: 10px;
+  --dot: 7px;
+  --menu-rule: var(--rule);
+  --switch-off: #ddd4c4;
+  --switch-knob: #fbf8f1;
+  --xp-track: #e4dccd;
+  --ring-track: #d8cfbf;
+  --placeholder: #6b645a;
+}
+.bar, .back, .new, .email-head, .opt, .menu, .meta, .status, .dest, .talk, .home-foot {
+  font-family: var(--font-ui);
+}
+
+/* Header */
+.bar { border-bottom: 1px solid var(--rule); }
+.back { font-size: 13px; color: var(--text-2); }
+.title { font-family: var(--font-body); font-size: 17px; font-weight: 700; }
+.subtitle { font-family: var(--font-body); font-style: italic; font-size: 15px; color: var(--muted); }
+.new { gap: 5px; height: 26px; padding: 0 10px 0 8px; border: 1px solid var(--rule-strong); border-radius: 7px; background: var(--paper); font-size: 13px; }
+.icon-btn { color: var(--text-2); }
+.overflow[open] > summary { border-radius: 7px; background: var(--surface); color: var(--text); }
+
+/* Transcript: your notes on a deeper paper; Ken's verdict in red-brown italic. */
+.prose h3 { margin-top: 4px; font-weight: 700; }
+.prose li::before { content: "–"; left: 3px; color: var(--muted); }
+.is-ken > .text { font-style: italic; }
+.step-label, .subagents-title { color: var(--text-2); }
+.email { padding: 14px 16px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--paper); }
+.email-head { font-size: 12.5px; }
+.email-head dd { color: var(--text-2); }
+.opt { height: 32px; padding: 0 14px; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--paper); font-size: 13px; }
+.opt.is-primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+
+/* Menu */
+.menu {
+  top: calc(100% + 10px);
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 14px 34px rgba(70, 50, 20, 0.14), 0 2px 6px rgba(70, 50, 20, 0.08);
+}
+.mi { border-radius: 7px; font-size: 13px; }
+.switch { box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.switch i { box-shadow: 0 1px 2px rgba(70, 50, 20, 0.25); }
+
+/* Composer */
+.composer { padding-top: 8px; padding-bottom: 14px; }
+.field { height: 50px; border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--paper); }
+.field textarea::placeholder { font-style: italic; }
+.field .icon-btn { color: var(--muted); }
+.send { width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
+.send .i { --icon: 16px; --stroke: 1.8; }
+
+/* Home */
+.status { gap: 7px; height: 24px; padding: 0 10px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--paper); font-size: 12.5px; color: var(--text-2); }
+.status-dot { width: 6px; height: 6px; }
+.settings { color: var(--text-2); }
+.mark-img { width: 72px; margin-bottom: 22px; filter: brightness(0); opacity: 0.86; }
+.wordmark { font-family: var(--font-display); font-size: 52px; letter-spacing: 0.32em; margin-right: -0.32em; }
+.tagline { margin-top: 24px; font-style: italic; font-size: 17.5px; color: var(--text-2); }
+.tagline::before { content: ""; display: block; width: 26px; height: 2px; margin: 0 auto 22px; background: var(--accent); }
+.destinations { gap: 12px; margin-top: 38px; }
+.dest { gap: 9px; width: 156px; height: 46px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--paper); font-size: 14.5px; font-weight: 500; }
+.dest.is-primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+.talk { gap: 8px; margin-top: 22px; font-size: 13.5px; color: var(--text-2); }
+.talk kbd { margin-left: 4px; font-family: inherit; color: var(--muted); }
+.home-foot { font-size: 11.5px; }

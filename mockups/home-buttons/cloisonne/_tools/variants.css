@@ -1,0 +1,319 @@
+/* ═══ Sixteen variants, one change each ═══
+   Every tile carries .c-cloisonne (the base above, unchanged) plus one .v-* class. Each rule here
+   starts .c-cloisonne.v-*, so it outranks the base rule it replaces and leaves the rest alone. */
+
+:root {
+  /* 07 Grain: specks cut from fractal noise. Dark ones on the red only darken it, so its label
+     keeps the base's contrast; pale ones on the charcoal. */
+  --grain-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.3' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.45 0.45 0.45 0 -0.675'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+  --grain-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='g' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.3' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0.225 0.225 0.225 0 -0.3375'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* ── Rim ── */
+
+/* 01 Hairline: a 1px rim; the enamel's corners follow it out. */
+.c-cloisonne.v-hairline .k-btn {
+  border-width: 1px;
+}
+.c-cloisonne.v-hairline .k-btn::before {
+  border-radius: 9px;
+}
+.c-cloisonne.v-hairline .k-small::before {
+  border-radius: 6px;
+}
+
+/* 02 Bezel: 3px of rim (2.5px on the small one). */
+.c-cloisonne.v-bezel .k-btn {
+  border-width: 3px;
+}
+.c-cloisonne.v-bezel .k-btn::before {
+  border-radius: 7px;
+}
+.c-cloisonne.v-bezel .k-small {
+  border-width: 2.5px;
+}
+.c-cloisonne.v-bezel .k-small::before {
+  border-radius: 4.5px;
+}
+
+/* 03 Gunmetal: the base's stops darkened; the glint peaks at mid grey. */
+.c-cloisonne.v-gunmetal .k-btn {
+  background-image: linear-gradient(
+    115deg,
+    #7a7273,
+    #453e3f 14%,
+    #262021 30%,
+    #575051 46%,
+    #9a9293 56%,
+    #575051 66%,
+    #262021 82%,
+    #857d7e
+  );
+}
+
+/* 04 Double rim: 4px of metal (3px small) with a 1px groove cut 1.5px (1px) in from the edge. */
+.c-cloisonne.v-double .k-btn {
+  border-width: 4px;
+}
+.c-cloisonne.v-double .k-btn::before {
+  border-radius: 6px;
+}
+.c-cloisonne.v-double .k-btn::after {
+  content: "";
+  position: absolute;
+  inset: -2.5px;
+  z-index: -1;
+  border: 1px solid #070505;
+  border-radius: 8.5px;
+  pointer-events: none;
+}
+.c-cloisonne.v-double .k-small {
+  border-width: 3px;
+}
+.c-cloisonne.v-double .k-small::before {
+  border-radius: 4px;
+}
+.c-cloisonne.v-double .k-small::after {
+  inset: -2px;
+  border-radius: 6px;
+}
+
+/* 05 Carved: a 4px corner (3px small). */
+.c-cloisonne.v-carved .k-btn {
+  border-radius: 4px;
+}
+.c-cloisonne.v-carved .k-btn::before {
+  border-radius: 2px;
+}
+.c-cloisonne.v-carved .k-small {
+  border-radius: 3px;
+}
+.c-cloisonne.v-carved .k-small::before {
+  border-radius: 1.5px;
+}
+
+/* ── Enamel ── */
+
+/* 06 Dome: light on the crown, shading away toward the foot. */
+.c-cloisonne.v-dome .k-btn::before {
+  background-image: linear-gradient(
+    180deg,
+    rgb(255 240 242 / 0.08),
+    rgb(255 240 242 / 0) 46%,
+    rgb(0 0 0 / 0) 56%,
+    rgb(0 0 0 / 0.2)
+  );
+}
+
+/* 07 Grain: a fired texture instead of a flat fill. */
+.c-cloisonne.v-grain .k-btn::before {
+  background-image: var(--grain-dark);
+  background-size: 120px 120px;
+}
+.c-cloisonne.v-grain .k-sec::before {
+  background-image: var(--grain-light);
+}
+
+/* 08 Oxblood: the red deepened at rest, hover and press. */
+.c-cloisonne.v-oxblood .k-pri::before {
+  background-color: #8a1424;
+}
+.c-cloisonne.v-oxblood .k-pri:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #9c1b2c;
+}
+.c-cloisonne.v-oxblood .k-pri:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #741020;
+}
+
+/* 09 Cells: two 1px slits in the enamel show the rim's metal through as wires (cloisons), so they
+   catch the same light as the rim when it slides. */
+.c-cloisonne.v-cells .k-btn::before {
+  --wire: 11px;
+  -webkit-mask: linear-gradient(
+    90deg,
+    #000 var(--wire),
+    transparent var(--wire) calc(var(--wire) + 1px),
+    #000 calc(var(--wire) + 1px) calc(100% - var(--wire) - 1px),
+    transparent calc(100% - var(--wire) - 1px) calc(100% - var(--wire)),
+    #000 calc(100% - var(--wire))
+  );
+  mask: linear-gradient(
+    90deg,
+    #000 var(--wire),
+    transparent var(--wire) calc(var(--wire) + 1px),
+    #000 calc(var(--wire) + 1px) calc(100% - var(--wire) - 1px),
+    transparent calc(100% - var(--wire) - 1px) calc(100% - var(--wire)),
+    #000 calc(100% - var(--wire))
+  );
+}
+.c-cloisonne.v-cells .k-small::before {
+  --wire: 9px;
+}
+
+/* 10 Deep set: a stronger shadow from the rim's top edge. */
+.c-cloisonne.v-deep .k-btn::before {
+  box-shadow:
+    inset 0 4px 7px rgb(0 0 0 / 0.6),
+    inset 0 1px 1px rgb(0 0 0 / 0.55),
+    inset 0 0 0 1px rgb(0 0 0 / 0.4);
+}
+
+/* ── Interaction ── */
+
+/* 11 Lit: hover lights the enamel from its edges in; the rim holds still in every state. */
+.c-cloisonne.v-lit .k-btn:is(:hover, :focus-visible, .is-focus, :active, .is-pressed):not(:disabled) {
+  background-position: 0% 0;
+}
+.c-cloisonne.v-lit .k-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  box-shadow:
+    inset 0 0 14px rgb(255 236 238 / 0.24),
+    inset 0 0 0 1px rgb(255 236 238 / 0.1);
+  opacity: 0;
+  transition: opacity 260ms ease;
+  pointer-events: none;
+}
+.c-cloisonne.v-lit .k-small::after {
+  border-radius: 5.5px;
+}
+.c-cloisonne.v-lit .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  opacity: 1;
+}
+
+/* 12 Reverse: the base's gradient rebuilt so its right end (rest, 100%) is the base's rest view
+   and its left end (hover, 0%) the base's hover view; the shine between them now crosses left to
+   right. Press stops at 40%, mirroring the base's 60%. */
+.c-cloisonne.v-reverse .k-btn {
+  background-image: linear-gradient(
+    115deg,
+    #b6afb0,
+    #7d7475 4.5%,
+    #2c2526 20.5%,
+    #d9d2d2 38.5%,
+    #fbf8f8 50%,
+    #b3aaab 61.5%,
+    #625a5b 75.5%,
+    #2c2526 91.5%,
+    #574f50
+  );
+  background-position: 100% 0;
+}
+.c-cloisonne.v-reverse .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled) {
+  background-position: 0% 0;
+}
+.c-cloisonne.v-reverse .k-btn:is(:active, .is-pressed):not(:disabled) {
+  background-position: 40% 0;
+}
+
+/* 13 Sink: press keeps the rim and its shadow where hover left them; the enamel goes deeper
+   and the label drops 1px. */
+.c-cloisonne.v-sink .k-btn:is(:active, .is-pressed):not(:disabled) {
+  padding-top: 2px;
+  background-position: 100% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 8px 16px -8px rgb(0 0 0 / 0.95);
+}
+.c-cloisonne.v-sink .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  box-shadow:
+    inset 0 3px 7px rgb(0 0 0 / 0.7),
+    inset 0 0 0 1px rgb(0 0 0 / 0.5);
+}
+
+/* ── Secondary ── */
+
+/* 14 Jet: true black enamel. */
+.c-cloisonne.v-jet .k-sec::before {
+  background-color: #070505;
+}
+.c-cloisonne.v-jet .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #130f10;
+}
+.c-cloisonne.v-jet .k-sec:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #000;
+}
+
+/* 15 Bone: white enamel, warmed toward the red like the app's whites, with black lettering. */
+.c-cloisonne.v-bone .k-sec {
+  color: #1c1415;
+}
+.c-cloisonne.v-bone .k-sec.k-quiet {
+  color: #3b3233;
+}
+.c-cloisonne.v-bone .k-sec:is(:hover, :focus-visible) {
+  color: #0b0708;
+}
+.c-cloisonne.v-bone .k-sec .k-kbd {
+  color: #574d4e;
+}
+.c-cloisonne.v-bone .k-sec::before {
+  background-color: #e6dedd;
+}
+.c-cloisonne.v-bone .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: #f1ebea;
+}
+.c-cloisonne.v-bone .k-sec:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: #d4cbca;
+}
+
+/* 16 Rim only: no enamel and no fill; the rim is redrawn as a masked ring so the waves show
+   through, and the labels take the tagline's halo. */
+.c-cloisonne.v-outline .k-sec {
+  background: none;
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 12px rgb(0 0 0 / 0.8);
+}
+.c-cloisonne.v-outline .k-sec .k-kbd {
+  color: var(--white-2);
+}
+.c-cloisonne.v-outline .k-sec::before,
+.c-cloisonne.v-outline
+  .k-sec:is(:hover, :focus-visible, .is-focus, :active, .is-pressed):not(:disabled)::before {
+  background-color: transparent;
+  box-shadow: none;
+}
+.c-cloisonne.v-outline .k-sec::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  padding: 2px;
+  border-radius: 10px;
+  background: linear-gradient(
+      115deg,
+      #b3aaab,
+      #625a5b 14%,
+      #2c2526 30%,
+      #7d7475 46%,
+      #fbf8f8 56%,
+      #7d7475 66%,
+      #2c2526 82%,
+      #d9d2d2
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 0% 0;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  transition: background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  pointer-events: none;
+}
+.c-cloisonne.v-outline .k-small::after {
+  inset: -1.5px;
+  padding: 1.5px;
+  border-radius: 7px;
+}
+.c-cloisonne.v-outline .k-sec:is(:hover, :focus-visible, .is-focus):not(:disabled)::after {
+  background-position: 100% 0;
+}
+.c-cloisonne.v-outline .k-sec:is(:active, .is-pressed):not(:disabled)::after {
+  background-position: 60% 0;
+}

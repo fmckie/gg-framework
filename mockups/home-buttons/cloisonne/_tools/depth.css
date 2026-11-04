@@ -1,0 +1,105 @@
+/* ═══ Depth (depth.html): Reverse, above, plus one depth treatment per tile ═══ */
+
+/* Each button sits in a slot: a plain box, except where a tile cuts a pocket for it. */
+.set > .slot {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+}
+.set > .slot > .k-btn {
+  flex: 1 1 auto;
+}
+.set > .slot-small {
+  grid-column: 2;
+}
+
+/* Press: down fast, back up slower. Face and shadows always share one curve, so whatever is
+   under the face holds still on the ground while the face moves. */
+.c-cloisonne.depth .k-btn {
+  transition:
+    background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 170ms cubic-bezier(0.3, 0.7, 0.4, 1),
+    transform 170ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.c-cloisonne.depth .k-btn:is(:active, .is-pressed):not(:disabled) {
+  transition:
+    background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 70ms cubic-bezier(0.2, 0, 0.4, 1),
+    transform 70ms cubic-bezier(0.2, 0, 0.4, 1);
+}
+
+/* Chamfer: the rim grows from 2px to 4px (1.5 to 3 on the small one) and its outer half is cut to
+   a bevel, lit top-left and shaded bottom-right; the inner half is Reverse's flat polished rim.
+   The bevel is a see-through tint, so Reverse's shine still sweeps across it. */
+.c-cloisonne.f-chamfer .k-btn {
+  border-width: 4px;
+}
+.c-cloisonne.f-chamfer .k-btn::before {
+  border-radius: 6px;
+}
+.c-cloisonne.f-chamfer .k-btn::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border: 2px solid;
+  border-color: rgb(255 250 250 / 0.5) rgb(0 0 0 / 0.4) rgb(0 0 0 / 0.62) rgb(255 250 250 / 0.3);
+  border-radius: 10px;
+  pointer-events: none;
+}
+.c-cloisonne.f-chamfer .k-small {
+  border-width: 3px;
+}
+.c-cloisonne.f-chamfer .k-small::before {
+  border-radius: 4px;
+}
+.c-cloisonne.f-chamfer .k-small::after {
+  inset: -3px;
+  border-width: 1.5px;
+  border-radius: 7px;
+}
+
+/* Bed: a pocket cut 5px (4px small) round each button, shaded under its top wall, its lower lip
+   catching the light. It belongs to the slot, so it stays put when the button goes down. */
+.c-cloisonne.f-bed .set {
+  column-gap: 16px;
+}
+.c-cloisonne.f-bed .slot::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: -1;
+  border-radius: 15px;
+  background: rgb(0 0 0 / 0.42);
+  box-shadow:
+    inset 0 3px 4px -1px rgb(0 0 0 / 0.9),
+    inset 0 0 0 1px rgb(0 0 0 / 0.55),
+    inset 0 -1px 0 rgb(255 240 242 / 0.06),
+    0 1px 0 rgb(255 240 242 / 0.09);
+  pointer-events: none;
+}
+.c-cloisonne.f-bed .slot-small::before {
+  inset: -4px;
+  border-radius: 11px;
+}
+
+/* ── Page ── */
+.toc {
+  grid-template-columns: repeat(2, max-content);
+  justify-content: start;
+  column-gap: 64px;
+}
+.rail .note a {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  color: var(--white-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rail .note a:hover {
+  background: none;
+  color: var(--white);
+}

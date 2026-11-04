@@ -1,0 +1,160 @@
+/* ── A · Classical editorial: a printed page at night. Ivory on near-black,
+   serif throughout, hairline rules, brass as the one accent. No glow. ── */
+:root {
+  --bg: #100f0d;
+  --surface: #161512;
+  --text: #ece5d6;
+  --text-2: #c7beac;
+  --muted: #988f7f;
+  --dim: #8f8778;
+  --rule: rgba(236, 229, 214, 0.13);
+  --rule-strong: rgba(236, 229, 214, 0.26);
+  --accent: #b89b62;
+  --accent-ink: #c6a96f;
+  --on-accent: #16130d;
+  /* Brass while live, grey once done, a darker bronze on failure, and a paler
+     gilt for Ken. */
+  --done: #7d766a;
+  --fail: #8f703c;
+  --ken: #e3cf9f;
+  --ken-rule: rgba(184, 155, 98, 0.75);
+  --ken-pad: 14px;
+  --hook: #c6a96f;
+  --hook-bright: #fff4da;
+  --act-base: #b3aa98;
+  --act-bright: #fff4da;
+  --live-rule: var(--rule);
+  --step-ring: rgba(236, 229, 214, 0.4);
+  --step-ink: #d9d1c1;
+  --user-pad: 7px 14px 8px;
+  --user-border: var(--rule-strong);
+  --user-radius: 1px;
+  --traffic: #34312c;
+  --traffic-edge: rgba(0, 0, 0, 0.5);
+  --font-display: Didot, "Bodoni 72", "Big Caslon", serif;
+  --font-body: "Iowan Old Style", Charter, ui-serif, Georgia, serif;
+  --font-ui: var(--font-body);
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 15.5px;
+  --lh-body: 1.58;
+  --size-small: 13.5px;
+  --size-meta: 12.5px;
+  --size-code: 12.5px;
+  --size-tool: 14px;
+  --lh-tool: 1.62;
+  --size-bar: 14px;
+  --icon: 17px;
+  --stroke: 1.3;
+  --measure: 680px;
+  --turn-gap: 20px;
+  --inner-gap: 10px;
+  --para-gap: 10px;
+  --gutter: 16px;
+  --gap: 10px;
+  --dot: 6px;
+  --hang: 26px;
+  --menu-rule: var(--rule);
+  --switch-off: #2b2924;
+  --switch-knob: #988f7f;
+  --xp-track: rgba(236, 229, 214, 0.12);
+  --ring-track: rgba(236, 229, 214, 0.2);
+  --placeholder: #918979;
+}
+body { font-variant-numeric: oldstyle-nums proportional-nums; }
+code, kbd, .mono, .meta, .mi-hint, .activitybar, .subagent-tokens, .subagent-summary, .tool-sum {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* Small caps carry every label, as in a printed programme. */
+.back span, .new span, .status-text, .prose h3, .meta, .opt span, .email-head dt,
+.step-label, .subagents-title, .tool-line b, .act-plan, .stop {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.09em;
+}
+
+/* Header */
+.bar { border-bottom: 1px solid var(--rule); }
+.back { color: var(--text-2); font-size: 14.5px; }
+.title { font-size: 18px; font-weight: 400; letter-spacing: 0.01em; }
+.bar-title { gap: 0; }
+.subtitle { font-style: italic; font-size: 15.5px; color: var(--muted); }
+.subtitle::before {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 13px;
+  margin: 0 12px 0 13px;
+  background: var(--rule-strong);
+  vertical-align: -1px;
+}
+.new { gap: 5px; height: 26px; padding: 0 11px 0 8px; border: 1px solid var(--rule-strong); border-radius: 1px; font-size: 14.5px; }
+.icon-btn { color: var(--text-2); }
+.overflow[open] > summary { box-shadow: inset 0 0 0 1px var(--rule-strong); border-radius: 1px; color: var(--text); }
+
+/* Transcript: the dot hangs in the margin like a printer's mark, your lines
+   sit right in a hairline frame, and a rule opens each exchange. */
+.turn + .turn { padding-top: 20px; border-top: 1px solid var(--rule); }
+.msg-user { font-style: italic; color: var(--text-2); }
+.prose h3 { margin-top: 4px; font-size: 13px; font-weight: 400; letter-spacing: 0.14em; color: var(--muted); }
+.prose li::before { content: "–"; left: 3px; color: var(--muted); }
+.is-ken > .text { font-style: italic; }
+.step-label { font-size: 14px; letter-spacing: 0.1em; color: var(--text-2); }
+.subagents-title { letter-spacing: 0.1em; color: var(--text-2); }
+.subagent-summary { font-style: italic; }
+.is-hook .shimmer { font-weight: 400; }
+
+.email { padding: 12px 0 14px; border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule-strong); }
+.email-head dt { width: 86px; padding-top: 1px; }
+.email-head dd { color: var(--text-2); }
+.opt { height: 30px; padding: 0 14px; border: 1px solid var(--rule-strong); border-radius: 1px; font-size: 14.5px; }
+.opt.is-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.opt span { letter-spacing: 0.08em; }
+
+/* Live region: a ledger under a hairline, verbs in small caps and arguments in mono. */
+.tool-line b { letter-spacing: 0.1em; }
+.tool-line .arg { font-family: var(--font-mono); font-size: 12.5px; }
+.tool-sum { font-style: italic; }
+.act-label { font-weight: 400; font-style: italic; }
+.act-meta { font-style: italic; }
+.stop { letter-spacing: 0.1em; }
+
+/* Menu: a printed card, with a ring of page colour so text underneath
+   keeps a margin from its edge. */
+.menu {
+  top: calc(100% + 14px);
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+  box-shadow: 0 0 0 8px var(--bg);
+}
+.mi { font-size: 14.5px; }
+.mi-hint { font-style: italic; }
+.mi-label.mono { font-size: 13px; }
+
+/* Composer */
+.composer { padding-top: 10px; }
+.field { height: 48px; border: 1px solid var(--rule-strong); border-radius: 1px; background: var(--surface); }
+.field textarea::placeholder { font-style: italic; }
+.field .icon-btn { color: var(--muted); }
+.send { width: 32px; height: 32px; border-radius: 1px; background: var(--accent); color: var(--on-accent); }
+.send .i { --icon: 16px; --stroke: 1.6; }
+.meta { font-size: 13px; letter-spacing: 0.08em; }
+.meta-right { gap: 10px; }
+.meta-right > span + span::before { content: "·"; margin-right: 10px; }
+
+/* Home: a title page */
+.status { font-size: 14px; color: var(--text-2); }
+.status-text { letter-spacing: 0.1em; }
+.status-dot { width: 6px; height: 6px; }
+.settings { color: var(--text-2); }
+.mark-img { width: 76px; margin-bottom: 24px; filter: sepia(0.3) brightness(0.93); }
+.wordmark { font-family: var(--font-display); font-size: 58px; font-weight: 400; letter-spacing: 0.34em; margin-right: -0.34em; }
+.tagline { margin-top: 26px; font-style: italic; font-size: 18px; color: var(--text-2); }
+.tagline::before { content: ""; display: block; width: 36px; height: 1px; margin: 0 auto 24px; background: var(--accent); }
+.destinations { margin-top: 40px; border: 1px solid var(--rule-strong); }
+.dest { gap: 10px; width: 170px; height: 50px; font-size: 16.5px; }
+.dest + .dest { border-left: 1px solid var(--rule-strong); }
+.dest.is-primary { background: var(--accent); color: var(--on-accent); }
+.talk { gap: 9px; margin-top: 26px; font-size: 16px; font-style: italic; color: var(--text-2); }
+.talk kbd { margin-left: 8px; font-family: system-ui, -apple-system, sans-serif; font-style: normal; color: var(--muted); letter-spacing: 0.08em; }
+.home-foot { font-size: 13.5px; font-style: italic; }

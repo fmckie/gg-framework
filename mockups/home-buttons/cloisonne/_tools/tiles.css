@@ -1,0 +1,125 @@
+/* ── Layout (over ../../_tools/page.css): the base pinned in the rail, the variants beside it ── */
+.page {
+  grid-template-columns: 636px 636px;
+  column-gap: 48px;
+}
+.rail {
+  position: sticky;
+  top: 28px;
+}
+.pinned {
+  margin: 22px 0 0;
+}
+.toc {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  justify-content: space-between;
+  margin: 22px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid rgb(246 241 241 / 0.08);
+}
+.toc-h {
+  margin: 0 0 6px;
+  font: 500 10.5px/1.5 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey);
+}
+.rail .toc ol {
+  grid-template-columns: none;
+}
+.rail .toc a {
+  gap: 8px;
+  margin: 0 -8px;
+  padding: 3px 8px;
+  font-size: 15px;
+}
+.variants {
+  display: grid;
+  gap: 48px;
+  padding-top: 2px;
+}
+.group {
+  display: grid;
+  gap: 26px;
+}
+.group-h {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgb(246 241 241 / 0.08);
+  font: 400 30px/1 var(--didot);
+  letter-spacing: 0.01em;
+}
+.group-h .range {
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--grey);
+}
+@media (max-width: 1383px) {
+  .page {
+    grid-template-columns: 636px;
+    row-gap: 40px;
+  }
+  .rail {
+    position: static;
+  }
+}
+
+/* ── A tile: caption, then the four buttons on the Home backdrop ── */
+.tile {
+  scroll-margin-top: 28px;
+}
+.cap {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+.cap h3 {
+  margin: 0;
+  font: 400 21px/1 var(--didot);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.cap .what {
+  min-width: 0;
+  margin: 0;
+  color: var(--white-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* The crop behind Home's own buttons: x 194–830, y 438–584 of the 1024x720 window, waves
+   (../assets/home-dither.png) under the crimson wash from kleio-theme.css. */
+.stage {
+  --crop: -194px -438px;
+  display: flex;
+  justify-content: center;
+  padding: 26px 0;
+  border-radius: 10px;
+  background:
+    radial-gradient(58% 52% at 50% 44%, rgb(139 21 33 / 0.58), rgb(139 21 33 / 0) 74%) var(--crop) / 1024px 720px no-repeat,
+    radial-gradient(42% 42% at 100% 100%, rgb(139 21 33 / 0.3), rgb(139 21 33 / 0) 80%) var(--crop) / 1024px 720px no-repeat,
+    #000 url(../assets/home-dither.png) var(--crop) / 1024px 720px no-repeat;
+  box-shadow:
+    0 0 0 1px rgb(246 241 241 / 0.09),
+    0 18px 40px -24px rgb(0 0 0 / 0.9);
+}
+/* All four at one width: the widest label sets every column. Talk to Kleio sits under Code. */
+.set {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px 12px;
+}
+.set .k-quiet {
+  grid-column: 2;
+}
+/* Home's quiet control in the softer white, full white when touched. */
+.tile .k-quiet {
+  color: var(--white-2);
+}
+.tile .k-quiet:is(:hover, :focus-visible) {
+  color: var(--white);
+}

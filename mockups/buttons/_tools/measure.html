@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Buttons: label contrast probe</title>
+<style>
+  html, body { margin: 0; background: #000; }
+  iframe { display: block; border: 0; width: 1800px; height: 12000px; }
+</style>
+</head>
+<body>
+<!-- index.html with every label hidden, so a snap capture shows only what sits behind the
+     letters. ?state=hover|pressed forces that state on the live buttons. Label boxes go out
+     through snap's error channel. -->
+<iframe id="page" src="../index.html" title="Button concepts, labels hidden"></iframe>
+<script>
+  const frame = document.getElementById("page");
+  const state = new URLSearchParams(location.search).get("state") || "rest";
+  frame.addEventListener("load", () => {
+    const d = frame.contentDocument;
+    const still = d.createElement("style");
+    still.textContent = "*, *::before, *::after { transition: none !important; }";
+    d.head.append(still);
+    const kindOf = (b) =>
+      b.disabled ? "disabled" : b.classList.contains("is-pressed") ? "pressed"
+        : b.classList.contains("is-focus") ? "focus" : b.classList.contains("k-small") ? "small"
+        : b.classList.contains("k-sec") ? "secondary" : "primary";
+    const all = [...d.querySelectorAll(".k-btn")].map((b) => ({ b, kind: kindOf(b) }));
+    // A live press is hover and active together.
+    const add = { rest: [], hover: ["is-focus"], pressed: ["is-focus", "is-pressed"] }[state];
+    for (const { b } of all) if (b.tagName === "BUTTON") b.classList.add(...add);
+    // Sized from the content, never the viewport: a classic scrollbar would narrow the page and restack it.
+    const height = Math.ceil(d.body.getBoundingClientRect().bottom);
+    frame.style.height = height + "px";
+    const labels = all.map(({ b, kind }) => {
+      const r = d.createRange();
+      r.selectNodeContents(b);
+      const t = r.getBoundingClientRect();
+      return {
+        card: b.closest(".concept").id,
+        stage: b.closest(".band").classList.contains("on-home") ? "home" : "app",
+        kind,
+        color: getComputedStyle(b).color,
+        text: [t.left, t.top, t.width, t.height],
+      };
+    });
+    const hide = d.createElement("style");
+    hide.textContent = ".k-btn { color: transparent !important; }";
+    d.head.append(hide);
+    (window.__snapErrors ||= []).push(JSON.stringify({ state, height, labels }));
+  });
+</script>
+</body>
+</html>

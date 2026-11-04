@@ -1,0 +1,121 @@
+/* ── D · Matte dark: today's crimson-on-near-black, with the gloss, glass,
+   dither and rain removed, and everything a size larger. ── */
+:root {
+  --bg: #0c090a;
+  --surface: #161213;
+  --surface-2: #1f1a1b;
+  --surface-3: #282223;
+  --text: #f6f1f1;
+  --text-2: #d3c9ca;
+  --muted: #a69c9d;
+  --dim: #a69c9d;
+  --rule: rgba(255, 255, 255, 0.08);
+  --rule-strong: rgba(255, 255, 255, 0.13);
+  --accent: #c8283a;
+  --accent-ink: #ff5c69;
+  --on-accent: #ffffff;
+  /* Crimson while live, grey once done, the deeper fill crimson on failure,
+     and a pale rose for Ken instead of today's teal. */
+  --done: #8f8586;
+  --fail: #c8283a;
+  --ken: #ffadb4;
+  --ken-rule: rgba(255, 92, 105, 0.5);
+  --hook: #ff5c69;
+  --hook-bright: #ffffff;
+  --act-base: #d3c9ca;
+  --act-bright: #ffffff;
+  --live-rule: var(--rule);
+  --step-fill: var(--surface-3);
+  --step-ink: #d3c9ca;
+  --user-bg: var(--surface-2);
+  --user-pad: 11px 16px;
+  --user-radius: 18px 18px 6px 18px;
+  --user-max: 76%;
+  --traffic: #3a3334;
+  --traffic-edge: rgba(0, 0, 0, 0.45);
+  --font-display: Didot, "Bodoni 72", serif;
+  --font-body: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-ui: var(--font-body);
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 16px;
+  --lh-body: 1.55;
+  --size-small: 14px;
+  --size-meta: 13px;
+  --size-code: 13px;
+  --size-tool: 14.5px;
+  --lh-tool: 1.6;
+  --size-bar: 14px;
+  --icon: 19px;
+  --stroke: 1.7;
+  --measure: 720px;
+  --turn-gap: 24px;
+  --inner-gap: 10px;
+  --para-gap: 12px;
+  --gutter: 18px;
+  --gap: 10px;
+  --dot: 9px;
+  --orb: 18px;
+  --menu-rule: var(--rule);
+  --switch-off: #3a3233;
+  --switch-knob: #a69c9d;
+  --xp-track: #2e2728;
+  --ring-track: #3a3233;
+  --placeholder: #a69c9d;
+}
+
+/* Header */
+.bar { border-bottom: 1px solid var(--rule); }
+.back { font-size: 15px; color: var(--text-2); }
+.title { font-size: 18px; font-weight: 650; }
+.subtitle { font-size: 15px; color: var(--muted); }
+.new { gap: 6px; height: 28px; padding: 0 14px 0 11px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 14.5px; font-weight: 500; }
+.icon-btn { color: var(--text-2); }
+.bar .icon-btn.more { width: 28px; height: 28px; border: 1px solid var(--rule-strong); border-radius: 50%; background: var(--surface-2); }
+.overflow[open] > summary { background: var(--surface-3); color: var(--text); }
+
+/* Transcript */
+.prose h3 { margin-top: 4px; font-weight: 650; }
+.prose li::before { content: ""; top: 0.68em; left: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.step-label { font-size: 15px; }
+.email { padding: 16px 18px; border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--surface); }
+.email-head { font-size: 14px; }
+.email-head dt { width: 66px; }
+.email-head dd { color: var(--text-2); }
+.opt { height: 38px; padding: 0 18px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 15px; font-weight: 500; }
+.opt.is-primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.opt .i { --icon: 17px; }
+
+/* Menu */
+.menu {
+  top: calc(100% + 10px);
+  border: 1px solid var(--rule-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+}
+.mi { min-height: 36px; border-radius: 9px; font-size: 15px; }
+.mi .i { --icon: 17px; }
+.mi-hint { font-size: 13px; }
+
+/* Composer */
+.composer { padding-top: 8px; padding-bottom: 14px; }
+.field { height: 56px; padding: 0 9px; border: 1px solid var(--rule-strong); border-radius: 20px; background: var(--surface); }
+.field .icon-btn { width: 34px; height: 34px; color: var(--muted); }
+.send { width: 38px; height: 38px; margin-left: 4px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+.send .i { --icon: 18px; --stroke: 2; }
+.meta { font-size: 13px; }
+.meta-right { gap: 10px; }
+.meta-right > span + span::before { content: "·"; margin-right: 10px; }
+
+/* Home */
+.status { height: 28px; padding: 0 12px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface); font-size: 14px; color: var(--text-2); }
+.settings { width: 34px; height: 34px; border: 1px solid var(--rule-strong); border-radius: 50%; background: var(--surface); color: var(--text-2); }
+.mark-img { width: 104px; margin-bottom: 22px; }
+.wordmark { font-family: var(--font-display); font-size: 60px; letter-spacing: 0.32em; margin-right: -0.32em; }
+.tagline { margin-top: 24px; font-size: 17px; color: var(--text-2); }
+.destinations { gap: 12px; margin-top: 40px; }
+.dest { gap: 9px; width: 176px; height: 50px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--surface-2); font-size: 16.5px; font-weight: 600; }
+.dest.is-primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.talk { gap: 9px; height: 40px; margin-top: 18px; padding: 0 18px; border: 1px solid var(--rule-strong); border-radius: 999px; font-size: 15px; color: var(--text-2); }
+.talk kbd { margin-left: 6px; font-family: inherit; color: var(--muted); }
+.home-foot { font-size: 13px; }

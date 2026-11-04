@@ -1,0 +1,98 @@
+/* ═══ Colour (colour.html): Reverse, flat, with one enamel shared by all four buttons ═══ */
+
+/* Each palette: its enamel at rest, on hover and pressed, and inks that clear 4.5:1 on all three:
+   label, Talk to Kleio, shortcuts, and any label while it's touched. */
+.e-crimson {
+  --enamel: #b31d30;
+  --enamel-hover: #c42638;
+  --enamel-press: #9a1728;
+  --ink: #f6f1f1;
+  --ink-2: #f7e6e8;
+  --ink-3: #f7e6e8;
+  --ink-touch: #f6f1f1;
+}
+.e-oxblood {
+  --enamel: #8a1424;
+  --enamel-hover: #9c1b2c;
+  --enamel-press: #741020;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #d3c9ca;
+  --ink-touch: #f6f1f1;
+}
+.e-black {
+  --enamel: #151112;
+  --enamel-hover: #201a1b;
+  --enamel-press: #0d0a0b;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #a69c9d;
+  --ink-touch: #f6f1f1;
+}
+.e-graphite {
+  --enamel: #454041;
+  --enamel-hover: #524c4d;
+  --enamel-press: #383334;
+  --ink: #f6f1f1;
+  --ink-2: #e2dadb;
+  --ink-3: #d3c9ca;
+  --ink-touch: #f6f1f1;
+}
+.e-bone {
+  --enamel: #e6dedd;
+  --enamel-hover: #f1ebea;
+  --enamel-press: #d4cbca;
+  --ink: #1c1415;
+  --ink-2: #3b3233;
+  --ink-3: #574d4e;
+  --ink-touch: #0b0708;
+}
+.e-redblack {
+  --enamel: #1c0b0e;
+  --enamel-hover: #2a1015;
+  --enamel-press: #12070a;
+  --ink: #f6f1f1;
+  --ink-2: #d3c9ca;
+  --ink-3: #a69c9d;
+  --ink-touch: #f6f1f1;
+}
+
+/* One rule set for every palette; each outranks the base rule it replaces (red primary, black
+   secondary), so rim, corners, sweep and press stay Reverse's. */
+.c-cloisonne.shared .k-btn {
+  color: var(--ink);
+}
+.c-cloisonne.shared .k-btn.k-quiet {
+  color: var(--ink-2);
+}
+.c-cloisonne.shared .k-btn:is(:hover, :focus-visible) {
+  color: var(--ink-touch);
+}
+.c-cloisonne.shared .k-kbd {
+  color: var(--ink-3);
+}
+.c-cloisonne.shared .k-btn::before {
+  background-color: var(--enamel);
+}
+.c-cloisonne.shared .k-btn:is(:hover, :focus-visible, .is-focus):not(:disabled)::before {
+  background-color: var(--enamel-hover);
+}
+.c-cloisonne.shared .k-btn:is(:active, .is-pressed):not(:disabled)::before {
+  background-color: var(--enamel-press);
+}
+
+/* ── Page ── */
+.rail .note a {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  color: var(--white-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rail .note a:hover {
+  background: none;
+  color: var(--white);
+}

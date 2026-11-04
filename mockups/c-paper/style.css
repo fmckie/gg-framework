@@ -1,0 +1,477 @@
+/* Kleio mockup, C · Paper. Base layout, then this direction's look. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; width: 1024px; height: 720px; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--size-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h3, p, ul, ol, dl, dd { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+button, textarea { font: inherit; color: inherit; }
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+code, kbd, .mono { font-family: var(--font-mono); }
+.i { width: var(--icon); height: var(--icon); flex: none; stroke-width: var(--stroke); }
+
+/* The page is the 1024×720 window; the app draws under a macOS overlay title bar. */
+.window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 1024px;
+  height: 720px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.traffic { position: absolute; top: 13px; left: 20px; z-index: 40; display: flex; gap: 8px; }
+.traffic i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--traffic);
+  box-shadow: inset 0 0 0 0.5px var(--traffic-edge);
+}
+
+/* ── Header: one row on the traffic lights' centre line (y = 19) ── */
+.bar {
+  position: relative;
+  z-index: 30;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 38px;
+  padding: 0 14px 0 84px;
+}
+.back { gap: 3px; }
+.back .i { --icon: 16px; }
+.bar-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.bar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.new .i { --icon: 15px; }
+.icon-btn { justify-content: center; width: 30px; height: 30px; }
+
+/* Overflow: a <details>, so the ⋯ menu opens without script. */
+.overflow { position: relative; }
+.overflow > summary { list-style: none; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.overflow > summary::-webkit-details-marker { display: none; }
+.menu { position: absolute; top: calc(100% + 8px); right: 0; width: 248px; padding: 6px; }
+.menu-group + .menu-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--menu-rule); }
+.mi {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  text-align: left;
+}
+.mi .i { --icon: 16px; color: var(--muted); }
+.mi-label { flex: 1; }
+.mi-hint { color: var(--muted); font-size: var(--size-meta); }
+.switch { position: relative; flex: none; width: 28px; height: 16px; border-radius: 8px; background: var(--switch-off); }
+.switch i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--switch-knob); }
+.mi-xp { flex-wrap: wrap; row-gap: 7px; padding-top: 8px; padding-bottom: 10px; cursor: default; }
+.xp {
+  flex: 0 0 calc(100% - 26px);
+  height: 3px;
+  margin-left: 26px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--xp-track);
+}
+.xp i { display: block; height: 100%; background: var(--xp-fill, var(--accent)); }
+
+/* ── Transcript: conversation only. Tool calls never land here; they live in
+   the pinned panel above the composer. Bottom-anchored, as if scrolled to
+   the newest message. ── */
+.transcript {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade, 28px));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--fade, 28px));
+}
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--turn-gap);
+  width: var(--measure);
+  margin: 0 auto;
+  padding-bottom: 18px;
+}
+.turn { display: flex; flex-direction: column; gap: var(--inner-gap); }
+
+/* Your messages sit right; the assistant's follow a dot (the app's ⏺). */
+.msg-user {
+  align-self: flex-end;
+  max-width: var(--user-max, 78%);
+  padding: var(--user-pad, 9px 14px);
+  border: 1px solid var(--user-border, transparent);
+  border-radius: var(--user-radius, 14px);
+  background: var(--user-bg, transparent);
+}
+.msg-assistant { display: flex; gap: var(--gap); }
+.msg-assistant > .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--para-gap); }
+.dot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gutter);
+  height: var(--line, calc(var(--size-body) * var(--lh-body)));
+}
+.dot::before {
+  content: "";
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--dot-color, var(--accent-ink));
+}
+/* One accent, and it means live. Done goes neutral; failed and Ken take a
+   darker or lighter step of the same hue. */
+.is-done > .dot { --dot-color: var(--done); }
+.is-failed > .dot { --dot-color: var(--fail); }
+.is-ken > .dot { --dot-color: var(--ken); }
+.is-hook > .dot { --dot-color: var(--hook); }
+.is-ken > .text { padding-left: var(--ken-pad, 12px); border-left: 2px solid var(--ken-rule); color: var(--ken); }
+/* A direction can hang its markers in the margin, like hanging punctuation. */
+.msg-assistant, .step-done, .subagents, .tool-row, .act-status { margin-left: calc(-1 * var(--hang, 0px)); }
+
+.prose h3 { font-size: inherit; }
+.prose h3 + ul { margin-top: calc(var(--para-gap) * -0.6); }
+.prose ul { display: flex; flex-direction: column; gap: 3px; }
+.prose li { position: relative; padding-left: 20px; }
+.prose li::before { position: absolute; left: 4px; }
+
+.email { display: flex; flex-direction: column; gap: 10px; }
+.email-head { display: flex; flex-direction: column; gap: 2px; font-size: var(--size-small); }
+.email-head div { display: flex; gap: 10px; }
+.email-head dt { flex: none; width: 58px; color: var(--muted); }
+.email-body { display: flex; flex-direction: column; gap: 8px; }
+.options { display: flex; gap: 8px; }
+.opt .i { --icon: 15px; }
+
+/* Plan steps the agent marks done get their own row. */
+.step-done { display: flex; align-items: center; gap: var(--gap); }
+.step-done + .step-done { margin-top: calc(var(--step-gap, 4px) - var(--inner-gap)); }
+.step-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--gutter);
+  height: var(--gutter);
+  border-radius: 50%;
+  background: var(--step-fill, transparent);
+  box-shadow: inset 0 0 0 1px var(--step-ring, transparent);
+  color: var(--step-ink, var(--text));
+  font: 700 calc(var(--gutter) * 0.6) / 1 system-ui, -apple-system, sans-serif;
+}
+.step-label { font-family: var(--font-ui); font-size: var(--size-small); font-weight: 600; }
+
+/* Sub-agents: a heading row, then one line per agent on a thread rule. */
+.subagents {
+  --line: calc(var(--size-small) * 1.6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-ui);
+  font-size: var(--size-small);
+  line-height: 1.6;
+}
+.subagents-head { display: flex; align-items: center; gap: var(--gap); }
+.subagents-title { font-weight: 600; }
+.subagents-list {
+  display: flex;
+  flex-direction: column;
+  margin-left: calc(var(--gutter) / 2);
+  padding-left: calc(var(--gutter) / 2 + var(--gap));
+  border-left: 1px solid var(--live-rule);
+}
+.subagent { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.subagent-icon { flex: none; color: var(--done); font: 700 0.9em / 1 system-ui, -apple-system, sans-serif; }
+.subagent-name { font-weight: 600; }
+.subagent-tokens, .subagent-summary { color: var(--dim); }
+
+/* The app's ShimmerText: a bright spot sweeping across the line. */
+.shimmer {
+  display: inline-block;
+  color: var(--shimmer-base);
+  background: linear-gradient(100deg, var(--shimmer-base) 0%, var(--shimmer-base) 38%, var(--shimmer-bright) 50%, var(--shimmer-base) 62%, var(--shimmer-base) 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer { from { background-position: 180% 0; } to { background-position: -80% 0; } }
+.is-hook .shimmer { --shimmer-base: var(--hook-text, var(--hook)); --shimmer-bright: var(--hook-bright); font-weight: 600; }
+.blink { animation: blink 1s steps(1, end) infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+/* ── Live region, pinned above the composer: the last three tool calls
+   (status dot, bold verb, plain detail, dim summary), then the activity bar. ── */
+.liveregion { flex: none; width: var(--measure); margin: 0 auto; }
+.livetools { display: flex; flex-direction: column; padding: 7px 0 6px; border-top: 1px solid var(--live-rule); }
+.tool-row {
+  --line: calc(var(--size-tool) * var(--lh-tool));
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  font-family: var(--font-ui);
+  font-size: var(--size-tool);
+  line-height: var(--lh-tool);
+}
+.tool-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tool-line b { font-weight: 600; }
+.tool-sum { color: var(--dim); }
+.activitybar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+  border-top: 1px solid var(--live-rule);
+  font-family: var(--font-ui);
+  font-size: var(--size-bar);
+  line-height: 1.5;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.act-status { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--gap); }
+.orb { flex: none; display: flex; align-items: center; justify-content: center; width: var(--gutter); height: var(--gutter); color: var(--accent-ink); }
+.orb .i { --icon: var(--orb, 16px); animation: orb 1.2s steps(8) infinite; }
+@keyframes orb { to { transform: rotate(360deg); } }
+.act-label { --shimmer-base: var(--act-base); --shimmer-bright: var(--act-bright); font-weight: 600; white-space: nowrap; }
+.act-meta, .act-plan { color: var(--muted); white-space: nowrap; }
+.act-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tools-toggle { justify-content: center; width: 24px; height: 24px; color: var(--muted); }
+.tools-toggle .i { --icon: 14px; --stroke: 2; }
+.stop { color: var(--accent-ink); font-weight: 600; }
+
+/* Screenshots load the page as #still, so every animation holds one frame. */
+#still:target .shimmer { animation-delay: -1.1s; animation-play-state: paused; }
+#still:target .act-label { animation-delay: -1.45s; }
+#still:target .blink, #still:target .orb .i { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; }
+  .blink, .orb .i { animation: none; }
+}
+
+/* ── Composer ── */
+.composer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: var(--measure);
+  margin: 0 auto;
+  padding: 6px 0 14px;
+}
+.field { display: flex; align-items: center; gap: 4px; padding: 0 7px; }
+.field textarea {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  background: none;
+  resize: none;
+  overflow: hidden;
+  line-height: 24px;
+}
+.field textarea::placeholder { color: var(--placeholder); opacity: 1; }
+.send { justify-content: center; flex: none; }
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: var(--size-meta);
+  line-height: 16px;
+}
+.meta-left, .meta-right { display: flex; align-items: center; gap: 14px; }
+.meta-left { gap: 6px; }
+.meta .i { --icon: 13px; }
+.ctx { display: inline-flex; align-items: center; gap: 6px; }
+.ctx-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent-ink) calc(var(--pct) * 1%), var(--ring-track) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.4px, #000 3.9px);
+  mask: radial-gradient(circle, transparent 3.4px, #000 3.9px);
+}
+
+/* ── Home: the hub ── */
+.home-top {
+  position: absolute;
+  top: 0;
+  left: 84px;
+  right: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+}
+.status { gap: 8px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-ink); }
+.home {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 12px;
+}
+.mark { display: flex; flex-direction: column; align-items: center; }
+.mark-img { display: block; height: auto; user-select: none; -webkit-user-drag: none; }
+.wordmark { line-height: 1; white-space: nowrap; }
+.destinations { display: flex; }
+.dest { justify-content: center; }
+.talk kbd { font-size: var(--size-meta); }
+.home-foot { position: absolute; right: 18px; bottom: 14px; color: var(--muted); font-size: var(--size-meta); }
+
+/* ── C · Paper: warm off-white, ink type, a red pencil used sparingly.
+   Reading text in Charter, interface labels in the system sans. ── */
+:root {
+  --bg: #f5f0e6;
+  --surface: #ece5d7;
+  --paper: #fbf8f1;
+  --text: #1f1c18;
+  --text-2: #4d4842;
+  --muted: #6b645a;
+  --dim: #6b645a;
+  --rule: #ddd4c4;
+  --rule-strong: #cbbfab;
+  --accent: #b2321f;
+  --accent-ink: #b2321f;
+  --ink: #24211d;
+  --on-ink: #f8f4ec;
+  /* Red while live, grey once done, a lighter red on failure, and a deep
+     red-brown for Ken, like a note in the margin. */
+  --done: #8a8276;
+  --fail: #d2593f;
+  --ken: #7c2416;
+  --ken-rule: rgba(178, 50, 31, 0.55);
+  --hook: #b2321f;
+  --hook-text: #4d4842;
+  --hook-bright: #c63a24;
+  --act-base: #6b645a;
+  --act-bright: #1f1c18;
+  --live-rule: var(--rule);
+  --step-ring: #8a8276;
+  --step-ink: #1f1c18;
+  --user-bg: var(--surface);
+  --user-pad: 10px 14px;
+  --user-radius: 12px 12px 4px 12px;
+  --user-max: 80%;
+  --traffic: #dbd4c8;
+  --traffic-edge: rgba(70, 50, 20, 0.22);
+  --font-display: Didot, "Bodoni 72", serif;
+  --font-body: Charter, "Iowan Old Style", ui-serif, Georgia, serif;
+  --font-ui: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  --size-body: 15px;
+  --lh-body: 1.56;
+  --size-small: 12.5px;
+  --size-meta: 12px;
+  --size-code: 12.5px;
+  --size-tool: 13px;
+  --lh-tool: 1.65;
+  --size-bar: 12.5px;
+  --icon: 17px;
+  --stroke: 1.5;
+  --measure: 660px;
+  --turn-gap: 24px;
+  --inner-gap: 12px;
+  --para-gap: 10px;
+  --gutter: 16px;
+  --gap: 10px;
+  --dot: 7px;
+  --menu-rule: var(--rule);
+  --switch-off: #ddd4c4;
+  --switch-knob: #fbf8f1;
+  --xp-track: #e4dccd;
+  --ring-track: #d8cfbf;
+  --placeholder: #6b645a;
+}
+.bar, .back, .new, .email-head, .opt, .menu, .meta, .status, .dest, .talk, .home-foot {
+  font-family: var(--font-ui);
+}
+
+/* Header */
+.bar { border-bottom: 1px solid var(--rule); }
+.back { font-size: 13px; color: var(--text-2); }
+.title { font-family: var(--font-body); font-size: 17px; font-weight: 700; }
+.subtitle { font-family: var(--font-body); font-style: italic; font-size: 15px; color: var(--muted); }
+.new { gap: 5px; height: 26px; padding: 0 10px 0 8px; border: 1px solid var(--rule-strong); border-radius: 7px; background: var(--paper); font-size: 13px; }
+.icon-btn { color: var(--text-2); }
+.overflow[open] > summary { border-radius: 7px; background: var(--surface); color: var(--text); }
+
+/* Transcript: your notes on a deeper paper; Ken's verdict in red-brown italic. */
+.prose h3 { margin-top: 4px; font-weight: 700; }
+.prose li::before { content: "–"; left: 3px; color: var(--muted); }
+.is-ken > .text { font-style: italic; }
+.step-label, .subagents-title { color: var(--text-2); }
+.email { padding: 14px 16px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--paper); }
+.email-head { font-size: 12.5px; }
+.email-head dd { color: var(--text-2); }
+.opt { height: 32px; padding: 0 14px; border: 1px solid var(--rule-strong); border-radius: 8px; background: var(--paper); font-size: 13px; }
+.opt.is-primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+
+/* Menu */
+.menu {
+  top: calc(100% + 10px);
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: 0 14px 34px rgba(70, 50, 20, 0.14), 0 2px 6px rgba(70, 50, 20, 0.08);
+}
+.mi { border-radius: 7px; font-size: 13px; }
+.switch { box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.switch i { box-shadow: 0 1px 2px rgba(70, 50, 20, 0.25); }
+
+/* Composer */
+.composer { padding-top: 8px; padding-bottom: 14px; }
+.field { height: 50px; border: 1px solid var(--rule-strong); border-radius: 14px; background: var(--paper); }
+.field textarea::placeholder { font-style: italic; }
+.field .icon-btn { color: var(--muted); }
+.send { width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--on-ink); }
+.send .i { --icon: 16px; --stroke: 1.8; }
+
+/* Home */
+.status { gap: 7px; height: 24px; padding: 0 10px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--paper); font-size: 12.5px; color: var(--text-2); }
+.status-dot { width: 6px; height: 6px; }
+.settings { color: var(--text-2); }
+.mark-img { width: 72px; margin-bottom: 22px; filter: brightness(0); opacity: 0.86; }
+.wordmark { font-family: var(--font-display); font-size: 52px; letter-spacing: 0.32em; margin-right: -0.32em; }
+.tagline { margin-top: 24px; font-style: italic; font-size: 17.5px; color: var(--text-2); }
+.tagline::before { content: ""; display: block; width: 26px; height: 2px; margin: 0 auto 22px; background: var(--accent); }
+.destinations { gap: 12px; margin-top: 38px; }
+.dest { gap: 9px; width: 156px; height: 46px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--paper); font-size: 14.5px; font-weight: 500; }
+.dest.is-primary { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+.talk { gap: 8px; margin-top: 22px; font-size: 13.5px; color: var(--text-2); }
+.talk kbd { margin-left: 4px; font-family: inherit; color: var(--muted); }
+.home-foot { font-size: 11.5px; }

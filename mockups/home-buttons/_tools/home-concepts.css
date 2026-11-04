@@ -1,0 +1,112 @@
+/* ── Home on top of the ten concepts (buttons/_tools/concepts.css, inlined unchanged before this) ──
+   Talk to Kleio, the status pill and Settings wear each concept's secondary dress one size down,
+   in the softer white; they come up to full white when touched. */
+.window .k-btn.k-icon {
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  padding: 0;
+}
+.window .k-icon .k-ico {
+  width: 20px;
+  height: 20px;
+}
+.window :is(.k-quiet, .k-pill, .k-icon) {
+  color: var(--white-2);
+}
+.window :is(.k-quiet, .k-pill, .k-icon):is(:hover, :focus-visible) {
+  color: var(--white);
+}
+/* Serif capitals sit lower than SF; smaller glyphs keep the icons from shouting over them. */
+:is(.c-inscribed, .c-editorial) .home-action .k-ico {
+  width: 15px;
+  height: 15px;
+}
+:is(.c-inscribed, .c-editorial) :is(.k-quiet, .k-icon) .k-ico {
+  width: 14px;
+  height: 14px;
+}
+:is(.c-inscribed, .c-editorial) .k-icon .k-ico {
+  width: 17px;
+  height: 17px;
+}
+/* Inscribed: the dot is inlaid, not lit. */
+.c-inscribed .k-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.5);
+}
+/* Door Ajar: the quiet doors stay nearly shut until touched. */
+.c-door :is(.k-quiet, .k-pill, .k-icon)::after {
+  opacity: 0.3;
+}
+.c-door :is(.k-quiet, .k-pill, .k-icon)::before {
+  opacity: 0;
+}
+/* Editorial: shorter rules round the gear. */
+.c-editorial .k-icon::before,
+.c-editorial .k-icon::after {
+  left: 6px;
+  right: 6px;
+}
+
+/* ── 00 Today: Instrument, as kleio-theme.css has it now ── */
+.c-today .k-btn {
+  border: 1px solid rgb(255 255 255 / 0.11);
+  border-radius: 8px;
+  background: #140f10;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.035),
+    0 1px 2px rgb(0 0 0 / 0.6);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    translate 0.15s ease;
+}
+.c-today .k-sec::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(236 56 76 / 0.85), transparent);
+  opacity: 0.75;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.c-today .k-pri {
+  border-color: #9d1d2b;
+  background: #c8283a;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    0 1px 2px rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.c-today .k-pri:hover {
+  background: #d53446;
+}
+.c-today .k-sec:hover {
+  border-color: rgb(255 255 255 / 0.2);
+  background: #1d1718;
+}
+.c-today .k-sec:hover::before {
+  opacity: 1;
+}
+.c-today .k-btn:hover {
+  translate: 0 -1px;
+}
+.c-today .k-btn:active {
+  translate: none;
+}
+.c-today .k-btn:focus-visible {
+  outline: 2px solid #ff5c69;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .c-today .k-btn:hover {
+    translate: none;
+  }
+}

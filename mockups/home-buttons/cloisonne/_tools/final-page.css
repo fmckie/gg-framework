@@ -1,0 +1,15 @@
+/* final.html only: links inside the rail's note (page.css styles the rail's nav links). */
+.rail .note a {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  font: inherit;
+  color: var(--white-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rail .note a:hover {
+  background: none;
+  color: var(--white);
+}
