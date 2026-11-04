@@ -17,6 +17,7 @@ import { isJsonObject } from "../utils/json.js";
 import { readSseStream } from "../utils/sse.js";
 import { providerFetch } from "../utils/provider-fetch.js";
 import { getEnvironment } from "../utils/env.js";
+import { mergeProviderOptions } from "../utils/provider-options.js";
 
 const DEFAULT_CODE_ASSIST_BASE_URL = "https://cloudcode-pa.googleapis.com";
 const CODE_ASSIST_API_VERSION = "v1internal";
@@ -527,7 +528,9 @@ function buildRequestPlan(options: StreamOptions, method: string): GeminiRequest
   }
 
   const projectId = getGoogleProject(options);
-  const request = buildGenerateRequest(options);
+  // Provider-specific fields go on the generateContent request (inside the
+  // Code Assist envelope) and only fill fields gg-ai left unset.
+  const request = mergeProviderOptions(buildGenerateRequest(options), options.providerOptions);
 
   return {
     url: getCodeAssistEndpoint(method),

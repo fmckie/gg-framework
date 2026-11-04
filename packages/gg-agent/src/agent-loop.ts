@@ -1130,6 +1130,7 @@ export async function* agentLoop(
               clearToolUses: options.clearToolUses,
               userAgent: options.userAgent,
               defaultHeaders: options.defaultHeaders,
+              providerOptions: options.providerOptions,
               fetch: options.fetch,
               // Raw bytes (incl. SSE pings) prove the connection is alive during
               // silent thinking; only re-arm an armed timer, never mid-yield.
