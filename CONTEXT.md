@@ -1,5 +1,7 @@
 # Shared language
 
+**Ultra (OpenAI)** — A local delegation preset, not an API reasoning level. Following `openai/codex` commit `4c9f42f4`, Astra/Sol send `xhigh` and proactively delegate; explicit Max still sends `max` through Codex. OpenAI children inherit the current parent's reasoning selection in both blocking and persistent paths, capped to a pinned model's supported levels and restored on fallback. Other providers retain their lowest-rung child policy. Thinking/model changes refresh the live delegation instructions as well as the request setting.
+
 **Motion plan** — The short record of a video's concept, motif, palette roles, type roles and beat, written in the video's project record before building. The rendered frames are checked against it.
 
 **Motion language** — The relationships between rhythm, typography, framing, transformation and continuity that give a video its character. It is independent of subject, palette or a universally mandatory effect. GG Motion's shipped guide describes principles, not a fixed house look.

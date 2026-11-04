@@ -1,5 +1,5 @@
 import type { AgentTool, ToolExecuteResult } from "@kleio/agent";
-import type { Provider, ToolCall, ToolResult } from "@kleio/ai";
+import type { Provider, ThinkingLevel, ToolCall, ToolResult } from "@kleio/ai";
 import type { ContextLimits } from "../core/context-limits.js";
 import { SubAgentManager, type SubAgentSnapshot } from "../core/subagent-manager.js";
 import { ProcessManager } from "../core/process-manager.js";
@@ -91,6 +91,7 @@ export interface CreateToolsOptions {
   /** Current parent provider/model, evaluated lazily when spawning a sub-agent. */
   getProvider?: () => Provider;
   getModel?: () => string;
+  getThinkingLevel?: () => ThinkingLevel | undefined;
   getBaseUrl?: () => string | undefined;
   /** Optional per-model subagent concurrency cap (subagentMaxPerModel). */
   getMaxPerModel?: () => number | undefined;
@@ -315,6 +316,7 @@ export async function createTools(
         () => opts.getModel?.() ?? opts.model!,
         opts.getCacheKey,
         planModeRef,
+        opts.getThinkingLevel,
       ),
     );
     subAgentManager = new SubAgentManager({
@@ -322,6 +324,7 @@ export async function createTools(
       agents: opts.agents,
       getProvider: () => opts.getProvider?.() ?? opts.provider!,
       getModel: () => opts.getModel?.() ?? opts.model!,
+      getThinkingLevel: opts.getThinkingLevel,
       getCacheKey: opts.getCacheKey,
       getBaseUrl: opts.getBaseUrl,
       getMaxPerModel: () => opts.getMaxPerModel?.(),

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import path from "node:path";
-import type { Message, Provider } from "@kleio/ai";
+import type { Message, Provider, ThinkingLevel } from "@kleio/ai";
 import { getAppPaths } from "@kleio/core";
 import { mcpServersForAgent, type AgentDefinition } from "./agents.js";
 import { SubAgentStore, type PersistedSubAgentRecord } from "./subagent-store.js";
@@ -69,6 +69,7 @@ export interface SubAgentManagerOptions {
   agents: AgentDefinition[];
   getProvider: () => Provider;
   getModel: () => string;
+  getThinkingLevel?: () => ThinkingLevel | undefined;
   getCacheKey?: () => string | undefined;
   getBaseUrl?: () => string | undefined;
   /** Optional per-model concurrency cap (subagentMaxPerModel setting). Counted
@@ -376,16 +377,22 @@ export class SubAgentManager {
     this.reapExcessIdle();
     const provider = this.options.getProvider();
     const parentModel = this.options.getModel();
-    const base = selectSubAgent(this.options.agents, agentName, provider, parentModel);
+    const parentThinkingLevel = this.options.getThinkingLevel?.();
+    const base = selectSubAgent(
+      this.options.agents,
+      agentName,
+      provider,
+      parentModel,
+      parentThinkingLevel,
+    );
     const model = overrides?.model ?? base.model;
     const selection = {
       agentDef: base.agentDef,
       provider: base.provider,
       parentModel: base.parentModel,
       model,
-      // Resolved for the model the child ACTUALLY runs on — an override (the
-      // reviewer) may differ from the agent's own model.
-      thinkingLevel: subAgentThinkingLevel(provider, model),
+      // Resolve against the actual child model, including harness overrides.
+      thinkingLevel: subAgentThinkingLevel(provider, model, parentThinkingLevel),
       tools: overrides?.tools ?? base.agentDef?.tools ?? [],
     };
     if (agentName && !selection.agentDef) {
@@ -438,6 +445,7 @@ export class SubAgentManager {
           agentPrompt: selection.agentDef?.systemPrompt,
           agentContext: selection.agentDef?.context,
           thinkingLevel: selection.thinkingLevel,
+          parentThinkingLevel,
           allowedTools: selection.tools.length ? [...selection.tools] : undefined,
           // Without this, an allow-listed child connects NO MCP servers — even
           // when its `tools:` frontmatter names `mcp__<server>__<tool>`.
@@ -696,6 +704,7 @@ export class SubAgentManager {
     const provider = (snapshot.provider as Provider | undefined) ?? this.options.getProvider();
     const model = snapshot.model ?? this.options.getModel();
     const parentModel = this.options.getModel();
+    const parentThinkingLevel = this.options.getThinkingLevel?.();
     this.assertModelCapacity(model);
     const childSessionPath = this.assertChildSessionPath(snapshot.child_session_path);
     const child = this.spawnWorkerProcess();
@@ -730,7 +739,8 @@ export class SubAgentManager {
           baseUrl: this.options.getBaseUrl?.(),
           agentPrompt: agentDef?.systemPrompt,
           agentContext: agentDef?.context,
-          thinkingLevel: subAgentThinkingLevel(provider, model),
+          thinkingLevel: subAgentThinkingLevel(provider, model, parentThinkingLevel),
+          parentThinkingLevel,
           allowedTools: agentDef?.tools.length ? agentDef.tools : undefined,
           allowedMcpServers: agentDef?.tools.length
             ? mcpServersForAgent(agentDef.tools)

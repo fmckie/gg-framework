@@ -786,6 +786,7 @@ export class AgentSession {
       // sub-agent spawns read the current parent state at execution time.
       getProvider: () => this.provider,
       getModel: () => this.model,
+      getThinkingLevel: () => this.thinkingLevel,
       getBaseUrl: () => this.baseUrl,
       getCacheKey: () => this.getPromptCacheKey(),
       getMaxPerModel: () => this.settingsManager.get("subagentMaxPerModel"),

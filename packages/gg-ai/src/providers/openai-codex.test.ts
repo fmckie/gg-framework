@@ -265,13 +265,17 @@ describe("streamOpenAICodex", () => {
   });
 
   it.each([
-    ["medium", "medium"],
-    ["high", "high"],
-    ["xhigh", "xhigh"],
-    ["ultra", "max"],
+    ["gpt-5.5", "medium", "medium"],
+    ["gpt-5.5", "high", "high"],
+    ["gpt-5.5", "xhigh", "xhigh"],
+    ["gpt-6-sol", "ultra", "max"],
+    ["gpt-6-astra", "ultra", "xhigh"],
+    ["gpt-6.1-sol", "ultra", "xhigh"],
+    ["gpt-6-astra", "max", "max"],
+    ["gpt-6.1-sol", "max", "max"],
   ] as const)(
-    "maps %s to %s reasoning effort through Codex transport",
-    async (thinking, effort) => {
+    "maps %s %s to %s reasoning effort through Codex transport",
+    async (model, thinking, effort) => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async () =>
@@ -287,7 +291,7 @@ describe("streamOpenAICodex", () => {
       const fetchMock = vi.mocked(fetch);
       const result = streamOpenAICodex({
         provider: "openai",
-        model: "gpt-5.5",
+        model,
         messages: [{ role: "user", content: "hi" }],
         apiKey: "token",
         accountId: "acct",
