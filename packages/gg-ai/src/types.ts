@@ -350,6 +350,14 @@ export interface StreamOptions {
    *  swallows. Lets the agent loop's watchdog see a live connection while the
    *  model thinks silently (Anthropic sends only a ping every 30s then). */
   onTransportActivity?: () => void;
+  /** Cache prewarm (Anthropic only; other providers ignore it). Sends the exact
+   *  same request prefix (system, tools, messages, thinking, betas) with
+   *  `max_tokens: 1` over a non-streaming request so the prompt cache is written
+   *  before the user's next real turn. If the configured thinking mode cannot be
+   *  kept identical at `max_tokens: 1` (budget thinking requires
+   *  budget_tokens < max_tokens), no request is sent and the response has
+   *  zero usage with stopReason "end_turn". */
+  prewarm?: boolean;
   /** Override the User-Agent sent with OAuth-authenticated Anthropic requests.
    *  Anthropic's OAuth edge rejects requests whose claude-cli version lags too
    *  far behind the real Claude Code release; callers that track the live

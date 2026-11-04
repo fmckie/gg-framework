@@ -81,12 +81,12 @@ export function handlePromptRoutes(
         if (raw === null) return;
         let text: string;
         let attachments: AppAttachment[];
-        let meta: { kenSent?: boolean; enhancements?: unknown[] } | undefined;
+        let meta: { kenSent?: boolean; enhancements?: unknown[]; scheduled?: boolean } | undefined;
         try {
           const body = JSON.parse(raw) as {
             text?: string;
             attachments?: AppAttachment[];
-            meta?: { kenSent?: boolean; enhancements?: unknown[] };
+            meta?: { kenSent?: boolean; enhancements?: unknown[]; scheduled?: boolean };
           };
           text = body.text ?? "";
           attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -135,6 +135,8 @@ export function handlePromptRoutes(
         // Claim the run NOW, synchronously. Everything below this line may
         // yield, and `running` does not flip until runAgent begins.
         claimedStart = ctx.runClaim.claim();
+        // A scheduled prompt has nobody watching: short ask deadline.
+        ctx.scheduledRunActive = meta?.scheduled === true;
         json(res, 202, { accepted: true });
         // Gate inputs captured around the run: whether this turn is a workflow
         // slash command (attachment prompts skip slash expansion entirely), and
@@ -246,7 +248,10 @@ export function handlePromptRoutes(
         await ctx.runStrandedQueue();
       })
       .finally(() => {
-        if (claimedStart) ctx.runClaim.release();
+        if (claimedStart) {
+          ctx.scheduledRunActive = false;
+          ctx.runClaim.release();
+        }
       });
     return true;
   }
@@ -281,6 +286,7 @@ export function handlePromptRoutes(
       }
       json(res, 202, { accepted: true });
       ctx.kenRunning = true;
+      const releaseKenAwake = ctx.keepAwake.acquire("ken");
       ctx.broadcast("ken_run_start", { text });
       try {
         const ken = await ctx.ensureKenSession();
@@ -301,6 +307,7 @@ export function handlePromptRoutes(
       } catch (err) {
         ctx.broadcastError("ken_error", "ken run failed", err);
       } finally {
+        releaseKenAwake();
         ctx.kenRunning = false;
         ctx.broadcast("ken_run_end", {});
         const pending = ctx.pendingKenModel;

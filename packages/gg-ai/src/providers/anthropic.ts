@@ -309,7 +309,9 @@ export function streamAnthropic(options: StreamOptions): StreamResult {
 async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, StreamResponse> {
   const client = createClient(options);
   const isOAuth = isAnthropicOAuth(options.apiKey);
-  const useStreaming = options.streaming !== false;
+  // Prewarm uses a single non-streaming request: the stream flag is not part of
+  // the prompt-cache key, and a 1-token response needs no incremental events.
+  const useStreaming = options.streaming !== false && !options.prewarm;
 
   const cacheControl = toAnthropicCacheControl(options.cacheRetention, options.baseUrl);
   const supportsFirstPartyToolExtras =
@@ -351,6 +353,21 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     if (t.outputConfig) {
       outputConfig = t.outputConfig;
     }
+  }
+
+  if (options.prewarm) {
+    // Thinking config is part of the cache key, so it must stay identical. Budget
+    // thinking requires budget_tokens < max_tokens, which can't hold at 1 — skip
+    // the request entirely rather than warm a different prefix.
+    const budget = (thinking as { budget_tokens?: number } | undefined)?.budget_tokens;
+    if (budget != null && budget >= 1) {
+      return {
+        message: { role: "assistant", content: [] },
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    }
+    maxTokens = 1;
   }
 
   const params: Anthropic.MessageCreateParams = {

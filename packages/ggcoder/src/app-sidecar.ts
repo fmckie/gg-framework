@@ -89,12 +89,14 @@ import {
 import { pruneDoneTasksSync } from "./core/tasks-store.js";
 import { initLogger, log } from "./core/logger.js";
 import { installTerminationHandlers } from "./core/shutdown.js";
+import { KeepAwake } from "./core/keep-awake.js";
+import { SettingsManager } from "./core/settings-manager.js";
 import { stopRadio } from "./core/radio.js";
 import { enrichProcessPath } from "./core/shell-path.js";
 import { withAppImagePreviews } from "./utils/image.js";
 import type { ServeController } from "./modes/serve-mode.js";
 import { createElicitationBridge } from "./core/mcp/index.js";
-import { createAskUserBridge } from "./core/ask-user.js";
+import { askSoftDeadlineMs, createAskUserBridge, deliverLateAnswer } from "./core/ask-user.js";
 import { createAskUserTool } from "./tools/ask-user.js";
 import { runJsonModeIfRequested } from "./app-sidecar/json-mode.js";
 import {
@@ -131,6 +133,7 @@ import { handleFileTextRoutes } from "./app-sidecar/file-text-routes.js";
 import { handleBrainRoutes } from "./app-sidecar/brain-routes.js";
 import { handleDictationRoutes } from "./app-sidecar/dictation-routes.js";
 import { handleRoutineRoutes } from "./app-sidecar/routine-routes.js";
+import { handleKeepAwakeRoutes } from "./app-sidecar/keep-awake-routes.js";
 import { handleBrainEditRoutes } from "./app-sidecar/brain-edit-routes.js";
 import { handleSessionRoutes } from "./app-sidecar/session-routes.js";
 import { handleWorkspaceRoutes } from "./app-sidecar/workspace-routes.js";
@@ -144,6 +147,10 @@ import { handleAuthRoutes } from "./app-sidecar/auth-routes.js";
 import { handleIntegrationRoutes } from "./app-sidecar/integration-routes.js";
 import { handleMcpRoutes } from "./app-sidecar/mcp-routes.js";
 import type { SessionRouteContext, DaemonRouteContext } from "./app-sidecar/route-context.js";
+
+/** App-wide idle-sleep guard: every window's runs share one OS assertion. The
+ *  `keepAwake` setting is applied at daemon start and live via /keep-awake. */
+const keepAwake = new KeepAwake();
 
 async function main(): Promise<void> {
   // Hidden persistent-worker dispatch must win before strict JSON/server parsing.
@@ -173,6 +180,8 @@ async function main(): Promise<void> {
   // ~/.gg/debug.log (initLogger truncates on each start).
   const sidecarLog = path.join(paths.agentDir, "gg-app-sidecar.log");
   initLogger(sidecarLog);
+  // Apply the saved keepAwake setting before any run can acquire the guard.
+  keepAwake.setEnabled((await new SettingsManager(paths.settingsFile).load()).keepAwake);
 
   // The desktop sidecar previously omitted the stream diagnostic hook used by
   // the CLI, leaving device-specific provider stalls impossible to distinguish from
@@ -316,7 +325,8 @@ async function main(): Promise<void> {
               "x-gg-token": authToken,
               "x-gg-session": id,
             },
-            body: JSON.stringify({ text, attachments: [] }),
+            // `scheduled`: nobody is watching this run, so ask_user gets the short deadline.
+            body: JSON.stringify({ text, attachments: [], meta: { scheduled: true } }),
           });
           const body = (await res.json().catch(() => ({}))) as { queued?: boolean; error?: string };
           if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -386,6 +396,7 @@ async function main(): Promise<void> {
     routineRunner,
     routineStore,
     broadcastAll,
+    keepAwake,
   };
 
   const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -530,6 +541,8 @@ async function main(): Promise<void> {
 
     if (handleImagePreviewRoutes(daemonCtx, req, res, url, method)) return;
 
+    if (handleKeepAwakeRoutes(daemonCtx, req, res, url, method)) return;
+
     // Progress is daemon-level so the Home screen can paint before a project
     // session exists; per-session callers still work through the same endpoint.
     if (method === "GET" && url === "/progress") {
@@ -604,6 +617,8 @@ async function main(): Promise<void> {
       // Radio playback is app-wide (one stream across all windows), so it stops
       // at the daemon level, not per session.
       stopRadio();
+      // Drop the idle-sleep assertion first: session teardown may hang.
+      keepAwake.dispose();
       // A speech model download stops; its `.part` stays, to pick up from.
       dictation.dispose();
       // Close the ~/.gg progress fs.watch handle (baseline #8 leak fix).
@@ -884,11 +899,38 @@ async function createSession(
   // MCP bridge above: broadcast over SSE, resolved when the webview POSTs
   // /ask/:id. Registered ONLY here — a TUI/headless/subagent run has nobody to
   // answer, so the tool is absent there rather than hanging on a dead channel.
+  //
+  // Soft deadline ("async ask"): past it the tool returns "no answer yet —
+  // proceed on your best guess" and the question STAYS OPEN. A later answer
+  // rides the ordinary user queue: steering into a live run, or the next turn
+  // when idle. The deadline is short when nobody is watching (autopilot, task
+  // run-all, a scheduled prompt).
+  let scheduledRunActive = false;
   const asks = createAskUserBridge({
     broadcast: (prompt) => broadcast("ask_user", prompt),
-    onTimeout: (prompt) => log("WARN", "app-sidecar", "ask_user timed out", { id: prompt.id }),
-    // Every settle path (answer, cancel, timeout, cancelAll) tells every
-    // client, so a band answered on one device closes on the others.
+    timeoutMs: () =>
+      askSoftDeadlineMs(autopilot || autopilotActive || taskRunAll || scheduledRunActive),
+    onTimeout: (prompt) => {
+      log("WARN", "app-sidecar", "ask_user deadline passed; agent proceeding", { id: prompt.id });
+      broadcast("ask_user_deferred", { id: prompt.id });
+    },
+    onClosed: (ids) => broadcast("ask_user_closed", { ids }),
+    onLateAnswer: (late) => {
+      log("INFO", "app-sidecar", "ask_user late answer queued", { id: late.prompt.id });
+      deliverLateAnswer(late, {
+        queueMessage: (text) => session.queueMessage(text),
+        isBusy: () => running || runClaim.active || autopilotActive,
+        onQueued: () =>
+          broadcast("queued", {
+            count: session.getQueuedCount(),
+            messages: session.listQueuedMessages(),
+          }),
+        startIdleRun: () => void runStrandedQueue(),
+      });
+    },
+    // Every settle path (answer, late answer, dismiss, cancel, close) tells
+    // every client, so a band answered on one device closes on the others.
+    // The soft deadline is not a settle: the question stays answerable.
     onSettle: (id) => broadcast("ask_user_done", { id }),
   });
   const askUserTool = createAskUserTool(asks.park);
@@ -1313,6 +1355,9 @@ async function createSession(
   session.eventBus.on("retry", (d) => {
     if (!d.silent) broadcast("retry", { reason: d.reason, attempt: d.attempt, delayMs: d.delayMs });
   });
+  session.eventBus.on("stream_rule_triggered", (d) =>
+    broadcast("stream_rule_triggered", { rules: d.rules, source: d.source, toolName: d.toolName }),
+  );
   session.eventBus.on("max_turns", (d) => broadcast("max_turns", d));
   // The agent consumed queued steering at a turn boundary. Re-broadcast as the
   // usual `queued` depth update so the webview drops the pending affordance the
@@ -1320,6 +1365,8 @@ async function createSession(
   session.eventBus.on("queue_drained", (d) =>
     broadcast("queued", { count: d.count, messages: session.listQueuedMessages() }),
   );
+  // A fresh/loaded session must not receive late answers to the old one's questions.
+  session.eventBus.on("session_start", () => asks.closeDeferred());
   session.eventBus.on("tool_call_start", (d) => {
     toolCallNames.set(d.toolCallId, d.name);
     broadcast("tool_call_start", d);
@@ -1383,6 +1430,24 @@ async function createSession(
   session.eventBus.on("compaction_start", (d) => broadcast("compaction_start", d));
   session.eventBus.on("compaction_end", (d) => broadcast("compaction_end", d));
 
+  // Keep the computer awake while this window's agent works: owned runs and
+  // autopilot cycles (RunLifecycle state), Ken replies, and background
+  // sub-agents that outlive their parent run. Released on settle (completed,
+  // failed or cancelled) and on session dispose.
+  let releaseRunAwake: (() => void) | null = null;
+  let releaseSubagentAwake: (() => void) | null = null;
+  const activeSubagents = new Set<string>();
+  session.eventBus.on("subagent_state", (d) => {
+    if (d.state === "starting" || d.state === "running") activeSubagents.add(d.agent_id);
+    else activeSubagents.delete(d.agent_id);
+    if (activeSubagents.size > 0) {
+      releaseSubagentAwake ??= keepAwake.acquire("subagent");
+    } else {
+      releaseSubagentAwake?.();
+      releaseSubagentAwake = null;
+    }
+  });
+
   let running = false;
   // Closes the window between `/prompt` deciding to start a run and `runAgent`
   // flipping `running` — that stretch awaits, so Node yields inside it. See
@@ -1391,6 +1456,12 @@ async function createSession(
   const runLifecycle = new RunLifecycle(
     (runState) => {
       running = runState !== "idle";
+      if (running) {
+        releaseRunAwake ??= keepAwake.acquire("run");
+      } else {
+        releaseRunAwake?.();
+        releaseRunAwake = null;
+      }
       if (runState === "cancelling") broadcast("run_cancelling", { runState });
     },
     // Durable run journal. Fire-and-forget on purpose: an unwritten journal
@@ -2250,6 +2321,13 @@ async function createSession(
     set taskRunAll(v) {
       taskRunAll = v;
     },
+    get scheduledRunActive() {
+      return scheduledRunActive;
+    },
+    set scheduledRunActive(v) {
+      scheduledRunActive = v;
+    },
+    keepAwake,
     get kenAutoAbort() {
       return kenAutoAbort;
     },
@@ -2333,6 +2411,10 @@ async function createSession(
   }
 
   async function dispose(): Promise<void> {
+    releaseRunAwake?.();
+    releaseRunAwake = null;
+    releaseSubagentAwake?.();
+    releaseSubagentAwake = null;
     elicitations.cancelAll();
     asks.cancelAll();
     tasksPollStopped = true;

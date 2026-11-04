@@ -9,6 +9,7 @@ import type {
   Usage,
   StreamOptions,
 } from "@kleio/ai";
+import type { StreamRulesConfig } from "./stream-rules.js";
 
 // ── Tool Results ────────────────────────────────────────────
 
@@ -197,7 +198,8 @@ export interface AgentRetryEvent {
     | "stream_stall"
     | "overflow_compact"
     | "tool_argument_glitch"
-    | "runaway_toolcall";
+    | "runaway_toolcall"
+    | "stream_rule";
   attempt: number;
   maxAttempts: number;
   delayMs: number;
@@ -214,6 +216,30 @@ export interface AgentRetryEvent {
    * than rolling it back.
    */
   preservedChars?: number;
+}
+
+/**
+ * A stream rule matched mid-response. The attempt was aborted and discarded
+ * (no partial message persisted, no partial tool call executed), the rule's
+ * reminder was appended to the context, and the step is retried. Always
+ * followed by a silent `retry` (reason `stream_rule`) so UIs roll back the
+ * streamed partial exactly as for any other replayed attempt.
+ */
+export interface AgentStreamRuleTriggeredEvent {
+  type: "stream_rule_triggered";
+  /** Names of the rules that matched (usually one). */
+  rules: string[];
+  source: "text" | "tool";
+  /** Tool whose streamed arguments matched, for `source: "tool"`. */
+  toolName?: string;
+  attempt: number;
+  maxAttempts: number;
+  /**
+   * ESTIMATED usage of the aborted attempt (providers report none for an
+   * aborted stream): prompt chars/4 in, streamed chars/4 out. Already added to
+   * the run's `totalUsage`.
+   */
+  usage: Usage;
 }
 
 export interface AgentToolCallDeltaEvent {
@@ -262,6 +288,7 @@ export type AgentEvent =
   | AgentSteeringMessageEvent
   | AgentFollowUpMessageEvent
   | AgentRetryEvent
+  | AgentStreamRuleTriggeredEvent
   | AgentTurnEndEvent
   | AgentCheckpointEvent
   | AgentDoneEvent
@@ -422,6 +449,13 @@ export interface AgentOptions {
    * details as they were.
    */
   transformToolDetails?: (details: unknown) => Promise<unknown>;
+  /**
+   * Regex rules matched against streamed assistant text and tool-call
+   * arguments. A match aborts the attempt, discards it, appends the rule's
+   * reminder and retries the step. Each rule fires at most once per run;
+   * `maxRetries` (default 3) caps rule retries per run. Unset = no matching.
+   */
+  streamRules?: StreamRulesConfig;
 }
 
 // ── Agent Result ────────────────────────────────────────────

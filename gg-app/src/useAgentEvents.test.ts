@@ -459,6 +459,24 @@ describe("useAgentEvents", () => {
     expect(getItems()).toEqual([]);
   });
 
+  it("drops the aborted draft and shows a notice when a stream rule fires", () => {
+    const { hook, getItems } = setup();
+
+    act(() => {
+      hook.result.current.handleEvent(ev("text_delta", { text: "TODO: later" }));
+      hook.result.current.handleEvent(
+        ev("stream_rule_triggered", { rules: ["no-todo"], source: "text" }),
+      );
+    });
+
+    expect(getItems()).toEqual([
+      expect.objectContaining({
+        kind: "info",
+        text: 'Rule "no-todo" caught the reply mid-stream — retrying',
+      }),
+    ]);
+  });
+
   it("completes the notice when messages were compacted", () => {
     const { hook, getItems } = setup();
 

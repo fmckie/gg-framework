@@ -77,6 +77,8 @@ export type Item =
       /** The complete set reached the blocked tool call. */
       sent?: boolean;
       cancelled?: boolean;
+      /** Soft deadline passed: the agent went on; an answer is still delivered late. */
+      deferred?: boolean;
     }
   // A task kicked off from the Tasks modal (shown at the top of its session).
   | { kind: "task"; id: number; title: string }

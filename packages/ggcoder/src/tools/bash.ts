@@ -13,6 +13,8 @@ import { isReadOnlyCommand, sleepOnlySeconds } from "./read-only-bash.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
 import { isCatastrophicCommand } from "../core/workspace-guard.js";
 import { checkDestructiveGit } from "../core/destructive-git-guard.js";
+import { shellThreatBlockMessage } from "../core/shell-threats.js";
+import { checkPackageInstall } from "../core/package-threats.js";
 import { checkCommandPolicy, type GetNetworkPolicy } from "../core/network-guard.js";
 import {
   prepareSandboxLaunch,
@@ -158,6 +160,8 @@ export function createBashTool(
   // Lazily created on the first persist:true call; one session per tool
   // instance (i.e. per agent session), killed when the process exits.
   let sessionShell: PersistentShell | null = null;
+  /** Install commands the model re-ran after a typosquat warning. */
+  const confirmedInstalls = new Set<string>();
   let sessionSandboxKey: string | null = null;
   let sessionSandboxed = false;
   // Shell selection doesn't depend on the command, so resolve ONCE at tool
@@ -267,6 +271,27 @@ export function createBashTool(
       });
       if (gitBlocked) {
         return `Error: ${gitBlocked}`;
+      }
+      // Shell-threat guard — pipe-to-shell, reverse shells, secret exfiltration,
+      // lookalike hosts and terminal-escape tricks (core/shell-threats.ts).
+      const threatBlocked = shellThreatBlockMessage(command);
+      if (threatBlocked) {
+        return `Error: ${threatBlocked}`;
+      }
+      // Package-install guard: known malware (OSV, fail-open) is refused;
+      // a likely typosquat is stopped once and allowed on an identical retry.
+      const packageThreats = await checkPackageInstall(command, { signal: context.signal });
+      const malware = packageThreats.find((threat) => threat.severity === "block");
+      if (malware) {
+        return `Error: Blocked by package safety check (${malware.rule}): ${malware.detail}`;
+      }
+      const typosquats = packageThreats.filter((threat) => threat.severity === "warn");
+      if (typosquats.length > 0 && !confirmedInstalls.has(command)) {
+        confirmedInstalls.add(command);
+        return (
+          `Error: not run — ${typosquats.map((threat) => threat.detail).join("; ")}. ` +
+          `If this really is the package you want, run the exact same command again.`
+        );
       }
       // Network allowlist — defence in depth only. Recognises the common egress
       // command shapes; an unrecognised command is never blocked (see

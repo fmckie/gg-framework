@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { ProviderError } from "../errors.js";
 import {
   ANTHROPIC_OAUTH_FALLBACK_USER_AGENT,
@@ -791,5 +792,81 @@ describe("streamAnthropic error normalization", () => {
       usage: { outputTokens: 6 },
     });
     expect(text).toBe("Hello");
+  });
+});
+
+describe("streamAnthropic prewarm", () => {
+  async function setupMock(): Promise<void> {
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const AnthropicMock = Anthropic as unknown as {
+      nextError: Error | null;
+      nextEvents: unknown[] | null;
+      nextMessage: unknown;
+    };
+    AnthropicMock.nextError = null;
+    AnthropicMock.nextEvents = [
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+      { type: "message_stop" },
+    ];
+    AnthropicMock.nextMessage = {
+      role: "assistant",
+      content: [{ type: "text", text: "." }],
+      stop_reason: "max_tokens",
+      usage: { input_tokens: 3, output_tokens: 1, cache_creation_input_tokens: 5000 },
+    };
+  }
+
+  const base = {
+    provider: "anthropic" as const,
+    model: "claude-opus-5-5",
+    messages: [
+      { role: "system" as const, content: "system prompt" },
+      { role: "user" as const, content: "hello" },
+    ],
+    tools: [
+      {
+        name: "read",
+        description: "read a file",
+        parameters: z.object({ path: z.string() }),
+      },
+    ],
+    apiKey: "sk-ant-test",
+    thinking: "high" as const,
+    cacheRetention: "short" as const,
+    webSearch: true,
+  };
+
+  it("sends the same prefix as a normal request with max_tokens 1", async () => {
+    await setupMock();
+    for await (const _event of streamAnthropic(base)) {
+      /* consume */
+    }
+    const real = createMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const realHeaders = createMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+
+    const result = streamAnthropic({ ...base, prewarm: true });
+    const response = await result.response;
+    const warm = createMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const warmHeaders = createMock.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+
+    expect(warm.max_tokens).toBe(1);
+    expect(warm.stream).toBe(false);
+    for (const key of ["system", "tools", "messages", "thinking", "output_config", "model"]) {
+      expect(warm[key]).toEqual(real[key]);
+    }
+    expect(warmHeaders.headers).toEqual(realHeaders.headers);
+    expect(response.usage.cacheWrite).toBe(5000);
+  });
+
+  it("skips the request when budget thinking can't stay identical at max_tokens 1", async () => {
+    await setupMock();
+    createMock.mockClear();
+    const response = await streamAnthropic({
+      ...base,
+      model: "claude-sonnet-4-5",
+      prewarm: true,
+    }).response;
+    expect(createMock).not.toHaveBeenCalled();
+    expect(response.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
   });
 });

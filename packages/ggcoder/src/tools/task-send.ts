@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AgentTool } from "@kleio/agent";
 import type { ProcessManager } from "../core/process-manager.js";
 import { checkDestructiveGit } from "../core/destructive-git-guard.js";
+import { shellThreatBlockMessage } from "../core/shell-threats.js";
 
 const TaskSendParams = z.object({
   id: z.string().describe("The background process ID to send input to"),
@@ -41,6 +42,10 @@ export function createTaskSendTool(
       if (cwd !== undefined && input) {
         const gitBlocked = await checkDestructiveGit(input, { cwd });
         if (gitBlocked) return `Error: input not sent. ${gitBlocked}`;
+      }
+      if (input) {
+        const threatBlocked = shellThreatBlockMessage(input);
+        if (threatBlocked) return `Error: input not sent. ${threatBlocked}`;
       }
       return processManager.sendInput(id, input ?? "", { enter, eof });
     },

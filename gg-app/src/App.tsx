@@ -19,6 +19,7 @@ import {
   sendKenPrompt,
   cancelKen,
   cancel,
+  prewarmCache,
   newSession,
   listModels,
   switchModel,
@@ -471,6 +472,9 @@ function App(): React.ReactElement {
   const [liveFromId, setLiveFromId] = useState(Number.POSITIVE_INFINITY);
 
   const readyRef = useRef(false);
+  // Last composer keystroke (0 = none since this chat opened). The first
+  // keystroke after opening or a >4 min idle pause prewarms the prompt cache.
+  const lastKeystrokeAtRef = useRef(0);
   // Bumped by every hydrate. Lets work that outlives a hydrate (a project
   // switch, or re-selecting a session) tell whether its result is still wanted.
   const hydrateGenerationRef = useRef(0);
@@ -1015,7 +1019,13 @@ function App(): React.ReactElement {
       if (st?.pendingAsks?.length) {
         const pending = st.pendingAsks;
         setItems((prev) =>
-          appendPendingAsks(prev, pending, (prompt) => ({ kind: "ask", id: nextId(), prompt })),
+          appendPendingAsks(prev, pending, (prompt) => ({
+            kind: "ask",
+            id: nextId(),
+            prompt,
+            // Past its soft deadline: the agent went on, an answer still lands late.
+            ...((prompt as { deferred?: unknown }).deferred === true ? { deferred: true } : {}),
+          })),
         );
       }
     } catch (err) {
@@ -2434,6 +2444,13 @@ function App(): React.ReactElement {
         attachInput={attachInput}
         displayPlaceholder={displayPlaceholder}
         setInput={setInput}
+        onKeystroke={() => {
+          const now = Date.now();
+          if (!running && now - lastKeystrokeAtRef.current > 4 * 60_000) {
+            void prewarmCache();
+          }
+          lastKeystrokeAtRef.current = now;
+        }}
         setCaret={setCaret}
         historyIndex={historyIndex}
         setHistoryIndex={setHistoryIndex}

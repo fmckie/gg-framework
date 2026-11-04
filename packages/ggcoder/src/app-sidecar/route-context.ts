@@ -20,6 +20,7 @@ import type { HfSearchRow } from "../hf-pull.js";
 import type { ServeController } from "../modes/serve-mode.js";
 import type { AgentTool } from "@kleio/agent";
 import type { Routine, RoutineRunner, RoutineStore } from "../routines.js";
+import type { KeepAwake } from "../core/keep-awake.js";
 
 /** Closure state of one `createSession` context that the per-session route
  *  handlers read and write. Built in `createSession`; `let` bindings are
@@ -90,6 +91,9 @@ export interface SessionRouteContext {
   readonly syncKenAutoModel: (provider: Provider, model: string) => Promise<void>;
   autopilotReviewing: boolean;
   taskRunAll: boolean;
+  /** The current run was fired by a routine: nobody is watching, short ask deadline. */
+  scheduledRunActive: boolean;
+  readonly keepAwake: KeepAwake;
   kenAutoAbort: AbortController;
   kenAutoSession: AgentSession | null;
   pendingCancelDrain: { generation: number; text: string } | null;
@@ -158,4 +162,5 @@ export interface DaemonRouteContext {
   readonly routineRunner: RoutineRunner;
   readonly routineStore: RoutineStore;
   readonly broadcastAll: (type: string, data: unknown) => void;
+  readonly keepAwake: KeepAwake;
 }

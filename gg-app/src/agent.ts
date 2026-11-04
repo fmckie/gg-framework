@@ -1160,6 +1160,16 @@ export async function importTranscript(
   }
 }
 
+/** Best-effort Anthropic prompt-cache prewarm before the user's next turn.
+ *  Fire-and-forget; the sidecar gates on provider, history size and cache TTL. */
+export async function prewarmCache(): Promise<void> {
+  try {
+    await invoke("agent_prewarm");
+  } catch (e) {
+    await logError(`agent_prewarm failed: ${String(e)}`);
+  }
+}
+
 /** Cycle the reasoning/thinking level to the next supported value (or off). */
 export async function cycleThinking(): Promise<ThinkingState | null> {
   try {

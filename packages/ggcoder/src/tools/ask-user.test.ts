@@ -189,7 +189,7 @@ describe("ask_user", () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
 
-  it("times out rather than blocking the turn forever", async () => {
+  it("stops blocking at the soft deadline rather than holding the turn forever", async () => {
     vi.useFakeTimers();
     try {
       const onTimeout = vi.fn();
@@ -200,7 +200,7 @@ describe("ask_user", () => {
         { signal: new AbortController().signal, toolCallId: "t1", onUpdate: () => {} } as never,
       ) as Promise<string>;
       await vi.advanceTimersByTimeAsync(1001);
-      await expect(result).resolves.toContain("did not answer");
+      await expect(result).resolves.toContain("No answer yet");
       expect(onTimeout).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

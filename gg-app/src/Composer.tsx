@@ -78,6 +78,7 @@ export function Composer({
   attachInput,
   displayPlaceholder,
   setInput,
+  onKeystroke,
   setCaret,
   historyIndex,
   setHistoryIndex,
@@ -139,6 +140,8 @@ export function Composer({
   attachInput: (el: HTMLTextAreaElement | null) => void;
   displayPlaceholder: string;
   setInput: Dispatch<SetStateAction<string>>;
+  /** A typed change to the draft (not a programmatic one): prewarms the prompt cache. */
+  onKeystroke?: () => void;
   setCaret: Dispatch<SetStateAction<number>>;
   historyIndex: number | null;
   setHistoryIndex: Dispatch<SetStateAction<number | null>>;
@@ -270,6 +273,7 @@ export function Composer({
               }
             }}
             onChange={(e) => {
+              onKeystroke?.();
               setInput(e.target.value);
               setSlashIndex(0);
               setCaret(e.target.selectionStart ?? e.target.value.length);

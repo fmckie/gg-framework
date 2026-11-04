@@ -1063,6 +1063,23 @@ pub(crate) async fn agent_enhance_prompt(
     Ok(body)
 }
 
+/// Proxy: best-effort Anthropic prompt-cache prewarm (fire-and-forget; 202).
+#[tauri::command]
+pub(crate) async fn agent_prewarm(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<(), String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    client
+        .post(format!("{}/prewarm", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Proxy: transcribe a dictated clip (base64 16 kHz mono 16-bit PCM) with the
 /// sidecar's local Whisper. Returns `{ text }`, empty when nothing was said.
 #[tauri::command]

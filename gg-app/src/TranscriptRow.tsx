@@ -389,6 +389,7 @@ function TranscriptRowBody({
           answers={item.answers}
           sent={item.sent}
           cancelled={item.cancelled}
+          deferred={item.deferred}
           onAnswer={(delta) => onAskAnswer?.(item.id, item.prompt.id, delta)}
           onTypeInstead={(questionId, seed) =>
             onAskType?.(item.id, item.prompt.id, questionId, seed)
