@@ -6,6 +6,7 @@ import {
   type AgentEvent,
   type AgentTool,
   type AgentTurnEndEvent,
+  type ToolExecuteResult,
 } from "@kleio/agent";
 import {
   ProviderError,
@@ -326,7 +327,7 @@ export interface AgentSessionOptions {
    * UI. Omitted by callers that don't want plan mode (CLI wires its own).
    */
   onEnterPlan?: (reason?: string) => void | Promise<void>;
-  onExitPlan?: (planPath: string) => Promise<string>;
+  onExitPlan?: (planPath: string) => Promise<ToolExecuteResult>;
   /**
    * If provided, the session's tool set is filtered to ONLY these tool names
    * after `createTools()` runs, and the system prompt's Tools section lists only

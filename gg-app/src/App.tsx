@@ -7,6 +7,7 @@ import {
   useMemo,
   lazy,
   Suspense,
+  Activity,
 } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { theme } from "./theme";
@@ -30,6 +31,7 @@ import {
   type QueuedMessage,
   listHistory,
   listTasks,
+  getChecklist,
   runTask,
   runAllTasks,
   deleteTask,
@@ -49,6 +51,7 @@ import {
   type SlashCommand,
   type BackgroundTask,
   type ProjectTask,
+  type ChecklistEntry,
   type FileHit,
   searchFiles,
   type PromptSegment,
@@ -76,7 +79,7 @@ import { useKenMentor } from "./useKenMentor";
 import { useAutopilot } from "./useAutopilot";
 import { useAgentEvents } from "./useAgentEvents";
 import { LiveToolPanel, type LiveToolEntry } from "./LiveToolPanel";
-import { loadModelsInto } from "./ModelSelect";
+import { loadModelsInto, ModelSelect } from "./ModelSelect";
 import {
   describeSchedule,
   isScheduleDraft,
@@ -160,6 +163,13 @@ import "./App.css";
 import "./glass.css";
 import { type Item, nextId, idSeq } from "./transcript-item";
 import { TranscriptRow } from "./TranscriptRow";
+import { activeChatErrorId, readChatError } from "./chat-error";
+import { focusesComposerOnOpen } from "./composer-refocus";
+import {
+  ChecklistView,
+  type ChecklistLoad,
+  type ChecklistNotice,
+} from "./placeholder/ChecklistView";
 import { AppFooter } from "./AppFooter";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
@@ -237,6 +247,8 @@ interface KleioOpen {
 
 function App(): React.ReactElement {
   const [items, setItems] = useState<Item[]>([]);
+  // The latest error row until a new message retires it: it alone offers recovery.
+  const currentErrorId = useMemo(() => activeChatErrorId(items), [items]);
   // Ken Kai (mentor agent): own running flag, token/thinking metrics, streaming
   // bubble, and `ken_*` SSE handling. Lives in its own hook; App just consumes
   // the state for rendering and delegates ken events to `handleKenEvent`.
@@ -415,6 +427,18 @@ function App(): React.ReactElement {
   // Updated live via the `tasks_list` SSE event while a run-all sweep advances.
   const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
   const [showTasks, setShowTasks] = useState(false);
+  // Checklist is a workspace view; the mounted chat keeps its draft and history.
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [checklistLoad, setChecklistLoad] = useState<ChecklistLoad>({ kind: "loading" });
+  const [checklistRunId, setChecklistRunId] = useState<string | null>(null);
+  const [checklistNotice, setChecklistNotice] = useState<ChecklistNotice | null>(null);
+  const checklistRunRef = useRef<{
+    id: string;
+    checkedAt: string | null;
+    expectsRecord: boolean;
+  } | null>(null);
+  const checklistFetchRef = useRef(0);
+  const checklistWasOpen = useRef(false);
   // Free-form per-project notes, persisted to localStorage keyed by project cwd.
   const [showNotes, setShowNotes] = useState(false);
   const [showMemories, setShowMemories] = useState(false);
@@ -633,7 +657,12 @@ function App(): React.ReactElement {
   const sendDisabled = !input.trim() && attachments.length === 0 && mentionedPaths.length === 0;
   // Cosmetic work only belongs to a focused, visible, empty code composer.
   const animatePlaceholder =
-    windowFocused && !needsProject && !showPicker && workspaceMode === "code" && input.length === 0;
+    windowFocused &&
+    !needsProject &&
+    !showPicker &&
+    !showChecklist &&
+    workspaceMode === "code" &&
+    input.length === 0;
   const inputPlaceholder = running
     ? RUNNING_INPUT_PLACEHOLDERS[placeholderIndex % RUNNING_INPUT_PLACEHOLDERS.length]
     : INPUT_PLACEHOLDERS[placeholderIndex % INPUT_PLACEHOLDERS.length];
@@ -953,18 +982,10 @@ function App(): React.ReactElement {
             if (h.plan) return { kind: "plan", id: nextId(), reason: h.plan.reason };
             if (h.task) return { kind: "task", id: nextId(), title: h.task.title };
             if (h.error) {
-              const prefix =
-                h.error.scope === "ken_error"
-                  ? "Helper: "
-                  : h.error.scope === "autopilot_error"
-                    ? "Autopilot: "
-                    : "";
               return {
                 kind: "error",
                 id: nextId(),
-                headline: `${prefix}${h.error.headline}`,
-                message: h.error.message,
-                guidance: h.error.guidance,
+                ...readChatError({ ...h.error }, h.error.scope, true),
               };
             }
             if (h.infoKind === "video_warning")
@@ -1115,6 +1136,66 @@ function App(): React.ReactElement {
     setShowTasks(true);
     void listTasks().then(setProjectTasks);
   }, []);
+
+  const refreshChecklist = useCallback(
+    async (completed?: {
+      id: string;
+      checkedAt: string | null;
+      expectsRecord: boolean;
+    }): Promise<void> => {
+      const fetchId = ++checklistFetchRef.current;
+      const snapshot = await getChecklist();
+      if (fetchId !== checklistFetchRef.current) return;
+      setChecklistLoad(snapshot ? { kind: "ready", snapshot } : { kind: "error" });
+      if (snapshot) {
+        setChecklistNotice((previous) => {
+          const notice = completed?.expectsRecord
+            ? {
+                id: completed.id,
+                checkedAt: completed.checkedAt,
+                message: "No result recorded. View the conversation for details.",
+              }
+            : previous;
+          if (!notice) return null;
+          const checkedAt = snapshot.items.find((item) => item.id === notice.id)?.checkedAt;
+          return checkedAt && checkedAt !== notice.checkedAt ? null : notice;
+        });
+      }
+    },
+    [],
+  );
+  const openChecklist = useCallback(() => {
+    withViewTransition(() => {
+      setShowChecklist(true);
+      setChecklistLoad({ kind: "loading" });
+      void refreshChecklist();
+    });
+  }, [refreshChecklist]);
+  useEffect(() => {
+    if (!showChecklist && checklistWasOpen.current && focusesComposerOnOpen(document))
+      inputRef.current?.focus({ preventScroll: true });
+    checklistWasOpen.current = showChecklist;
+  }, [showChecklist]);
+  // Refresh from the record, not from an assistant's claim of success. This also
+  // picks up checks recorded during ordinary chat while this view is open.
+  useEffect(
+    () =>
+      subscribe((event) => {
+        if (event.type !== "run_end") return;
+        const completed = checklistRunRef.current;
+        checklistRunRef.current = null;
+        setChecklistRunId(null);
+        if (showChecklist || completed) void refreshChecklist(completed ?? undefined);
+      }),
+    [showChecklist, refreshChecklist],
+  );
+  useEffect(
+    () => () => {
+      checklistFetchRef.current++;
+      checklistRunRef.current = null;
+    },
+    [],
+  );
 
   // Run a single task: the sidecar opens a fresh session and streams progress
   // back (session_reset → task_start → run_start/…/run_end). Close the modal so
@@ -1439,14 +1520,20 @@ function App(): React.ReactElement {
   // `keepInput` is for sends the user did not initiate right now — a scheduled
   // prompt firing on its interval. Those must NOT clear the composer, or a
   // schedule that comes due mid-sentence deletes what the user was typing.
-  function submitText(text: string, label?: string, opts?: { keepInput?: boolean }): void {
+  //
+  // `onError` hears a send the agent refused; the return says whether it was sent.
+  function submitText(
+    text: string,
+    label?: string,
+    opts?: { keepInput?: boolean; onError?: (error: unknown) => void },
+  ): boolean {
     const trimmed = text.trim();
     // Mid-run this QUEUES as steering, exactly like a typed message (see
     // submit()): the sidecar injects it into the running loop. Dropping it
     // instead would be silent — the folder picker especially, which gives no
     // hint that the directory you just chose went nowhere.
     const disposition = submitDisposition(trimmed, readyRef.current, running);
-    if (disposition === "ignore") return;
+    if (disposition === "ignore") return false;
     // A send that supersedes an open question is consumed the moment it lands
     // (the sidecar releases the parked call), so it must not wear the queued
     // look for the one frame before that, nor open the queued strip below the
@@ -1470,7 +1557,10 @@ function App(): React.ReactElement {
       setSlashIndex(0);
     }
     if (disposition !== "queue") endStreamingText();
-    void sendPrompt(trimmed);
+    const sent = sendPrompt(trimmed);
+    if (opts?.onError) void sent.catch(opts.onError);
+    else void sent;
+    return true;
   }
 
   // Scheduled prompts fire from a ticker that is set up once, so it can't close
@@ -1478,6 +1568,40 @@ function App(): React.ReactElement {
   // current one without re-creating the interval on every render.
   const submitTextRef = useRef(submitText);
   submitTextRef.current = submitText;
+
+  // Return to chat without consuming the draft. Agent setup runs the existing
+  // /init workflow; audits require a recorded result, never an inferred pass.
+  function handleRunChecklistItem(item: ChecklistEntry): void {
+    const setup = item.id === "agent-setup";
+    const prompt = setup ? "/init" : item.runPrompt;
+    if (prompt === null || running || checklistRunRef.current || !readyRef.current) return;
+    const run = { id: item.id, checkedAt: item.checkedAt, expectsRecord: !setup };
+    checklistRunRef.current = run;
+    setChecklistRunId(item.id);
+    setChecklistNotice(null);
+    const failed = (): void => {
+      if (checklistRunRef.current !== run) return;
+      checklistRunRef.current = null;
+      setChecklistRunId(null);
+      setChecklistNotice({
+        id: item.id,
+        checkedAt: item.checkedAt,
+        message: setup
+          ? "Couldn't start /init. Try again."
+          : "Couldn't start this check. Try again.",
+      });
+    };
+    if (
+      submitText(prompt, setup ? "/init" : `Checking ${item.title}`, {
+        keepInput: true,
+        onError: failed,
+      })
+    ) {
+      withViewTransition(() => setShowChecklist(false));
+    } else {
+      failed();
+    }
+  }
 
   // A question whose answer the user chose to TYPE rather than click. The next
   // composer submit belongs to it, not to a new prompt.
@@ -1637,13 +1761,17 @@ function App(): React.ReactElement {
   }, [input, enhancing, hydrated, slashOpen, mentionOpen, scheduleDraft, enhancement]);
 
   // A prompt the agent refused or never got (too large, mid-cancel, the daemon
-  // restarting) must not pass for sent: its bubble stays, with the reason.
+  // restarting) must not pass for sent: its bubble stays, with the reason in the
+  // error's details. A reason keeps this headline instead of the generic one.
   function reportUnsent(e: unknown): void {
     pushItem({
       kind: "error",
       id: nextId(),
-      headline: "Your message wasn't sent",
-      message: String(e).replace(/^Error:\s*/, ""),
+      ...readChatError({
+        headline: "Your message wasn't sent",
+        message: String(e).replace(/^Error:\s*/, ""),
+        reason: "network",
+      }),
     });
   }
 
@@ -1881,6 +2009,12 @@ function App(): React.ReactElement {
     withViewTransition(resetForChosenProject);
   }
   function resetForChosenProject(): void {
+    checklistFetchRef.current++;
+    checklistRunRef.current = null;
+    setShowChecklist(false);
+    setChecklistRunId(null);
+    setChecklistNotice(null);
+    setChecklistLoad({ kind: "loading" });
     stickToBottomRef.current = true;
     setItems([]);
     setLiveToolFeed([]);
@@ -2141,14 +2275,28 @@ function App(): React.ReactElement {
   const backButton = (
     <BackButton
       label={
-        workspaceMode === "chat"
-          ? "Back to chats"
-          : workspaceMode === "motion"
-            ? "Back to motion sessions"
-            : "Back to this project's sessions"
+        showChecklist
+          ? "Back to chat"
+          : workspaceMode === "chat"
+            ? "Back to chats"
+            : workspaceMode === "motion"
+              ? "Back to motion sessions"
+              : "Back to this project's sessions"
       }
-      onClick={() => withViewTransition(() => setShowPicker(true))}
+      onClick={() =>
+        withViewTransition(() => (showChecklist ? setShowChecklist(false) : setShowPicker(true)))
+      }
     />
+  );
+  const checklistButton = (
+    <button
+      className="btn btn-sm btn-ghost"
+      title="Check this project's health: tests, CI, security, design and more"
+      onClick={openChecklist}
+      aria-pressed={showChecklist}
+    >
+      Checklist
+    </button>
   );
   const newSessionButton =
     workspaceMode === "code" ? (
@@ -2267,6 +2415,7 @@ function App(): React.ReactElement {
           newSessionButton={newSessionButton}
           brainButton={brainButton}
           helpButton={helpButton}
+          checklistButton={checklistButton}
           state={state}
           running={running}
           autopilotReviewing={autopilotReviewing}
@@ -2286,214 +2435,262 @@ function App(): React.ReactElement {
         />
       </WorkspaceHeader>
 
-      {/* Non-scrolling frame the same size as the chat viewport. The banner
+      {workspaceMode === "code" && showChecklist && (
+        <ChecklistView
+          load={checklistLoad}
+          running={running || checklistRunId !== null}
+          activeId={checklistRunId}
+          notice={checklistNotice}
+          onRun={handleRunChecklistItem}
+          onRetry={() => {
+            setChecklistLoad({ kind: "loading" });
+            void refreshChecklist();
+          }}
+        />
+      )}
+
+      {/* React owns chat visibility rather than a stylesheet override. Activity
+          keeps the draft and transcript state, and suspends hidden child effects. */}
+      <Activity mode={showChecklist ? "hidden" : "visible"}>
+        {/* Non-scrolling frame the same size as the chat viewport. The banner
           lives HERE, not inside `.transcript` — `.transcript` scrolls, and an
           absolutely positioned child of a scrolling container is pinned to the
           top of the scrolled CONTENT, not the visible viewport, so in an
           existing session scrolled down it rendered far above what's on
           screen. Anchoring to this non-scrolling sibling keeps it pinned to
           what the user is actually looking at, at any scroll position. */}
-      <div
-        className="transcript-frame"
-        onMouseEnter={() => setChatHovered(true)}
-        onMouseLeave={() => setChatHovered(false)}
-      >
-        {workspaceMode === "code" && kenPowerBanner && (
-          <KenPowerBanner mode={kenPowerBanner} onDone={() => setKenPowerBanner(null)} />
-        )}
         <div
-          className="transcript"
-          ref={attachTranscript}
-          onScroll={onTranscriptScroll}
-          onWheel={onTranscriptWheel}
-          onTouchStart={onTranscriptTouchStart}
-          onTouchMove={onTranscriptTouchMove}
-          onTouchEnd={onTranscriptTouchEnd}
-          onTouchCancel={onTranscriptTouchEnd}
+          className="transcript-frame"
+          onMouseEnter={() => setChatHovered(true)}
+          onMouseLeave={() => setChatHovered(false)}
         >
-          {!hydrated && items.length === 0 ? (
-            <TranscriptSkeleton />
-          ) : (
-            <>
-              {items.length === 0 &&
-                (status === "ready" ? (
-                  <WakeScreen chat={workspaceMode === "chat"} motion={workspaceMode === "motion"} />
-                ) : (
-                  <div className="line transcript-reveal" style={{ color: theme.textDim }}>
-                    {`\u273b ${status}`}
-                  </div>
-                ))}
-              <PromptSendProvider value={sendKenRecommendedPrompt}>
-                <HistoryImagesProvider>
-                  <WorkspaceFilesProvider
-                    cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
-                  >
-                    {items.map((it) => (
-                      <TranscriptRow
-                        key={it.id}
-                        item={it}
-                        animateIn={it.id >= liveFromId}
-                        onContentGrow={maybeScrollToBottom}
-                        onAskAnswer={answerAsk}
-                        onAskType={typeAskInstead}
-                      />
-                    ))}
-                  </WorkspaceFilesProvider>
-                </HistoryImagesProvider>
-              </PromptSendProvider>
-            </>
+          {workspaceMode === "code" && kenPowerBanner && (
+            <KenPowerBanner mode={kenPowerBanner} onDone={() => setKenPowerBanner(null)} />
+          )}
+          <div
+            className="transcript"
+            ref={attachTranscript}
+            onScroll={onTranscriptScroll}
+            onWheel={onTranscriptWheel}
+            onTouchStart={onTranscriptTouchStart}
+            onTouchMove={onTranscriptTouchMove}
+            onTouchEnd={onTranscriptTouchEnd}
+            onTouchCancel={onTranscriptTouchEnd}
+          >
+            {!hydrated && items.length === 0 ? (
+              <TranscriptSkeleton />
+            ) : (
+              <>
+                {items.length === 0 &&
+                  (status === "ready" ? (
+                    <WakeScreen
+                      chat={workspaceMode === "chat"}
+                      motion={workspaceMode === "motion"}
+                    />
+                  ) : (
+                    <div className="line transcript-reveal" style={{ color: theme.textDim }}>
+                      {`\u273b ${status}`}
+                    </div>
+                  ))}
+                <PromptSendProvider value={sendKenRecommendedPrompt}>
+                  <HistoryImagesProvider>
+                    <WorkspaceFilesProvider
+                      cwd={kleioRemote.status?.active ? (state?.cwd ?? null) : null}
+                    >
+                      {items.map((it) => (
+                        <TranscriptRow
+                          key={it.id}
+                          item={it}
+                          animateIn={it.id >= liveFromId}
+                          errorActive={it.id === currentErrorId}
+                          errorModelPicker={
+                            it.kind === "error" && it.id === currentErrorId ? (
+                              <ModelSelect
+                                models={models}
+                                currentModel={
+                                  it.scope === "ken_error" || it.scope === "autopilot_error"
+                                    ? (state?.kenModel ?? state?.model ?? "")
+                                    : (state?.model ?? "")
+                                }
+                                onSelect={
+                                  it.scope === "ken_error" || it.scope === "autopilot_error"
+                                    ? onSelectKenModel
+                                    : onSelectModel
+                                }
+                                disabled={running || kenRunning || autopilotReviewing}
+                                title={
+                                  it.scope === "ken_error" || it.scope === "autopilot_error"
+                                    ? "Switch Helper's model"
+                                    : "Switch model"
+                                }
+                                label={
+                                  it.reason === "usage_limit" ? "Switch provider" : "Choose model"
+                                }
+                              />
+                            ) : undefined
+                          }
+                          onContentGrow={maybeScrollToBottom}
+                          onAskAnswer={answerAsk}
+                          onAskType={typeAskInstead}
+                        />
+                      ))}
+                    </WorkspaceFilesProvider>
+                  </HistoryImagesProvider>
+                </PromptSendProvider>
+              </>
+            )}
+          </div>
+          {items.length > 0 && (
+            <ExportChatButton
+              visible={chatHovered || exporting}
+              busy={exporting}
+              onExport={() => void exportTranscript()}
+            />
+          )}
+          {/* iPhone: only ever a way back down — the top of a transcript is
+            history; the end is where the work is. */}
+          <button
+            type="button"
+            className={`jump-to-latest${jumpToLatestShown ? " visible" : ""}`}
+            aria-label="Jump to latest message"
+            aria-hidden={!jumpToLatestShown}
+            tabIndex={jumpToLatestShown ? 0 : -1}
+            onClick={jumpToLatest}
+          >
+            <ArrowDownIcon size={18} weight="bold" aria-hidden />
+          </button>
+        </div>
+
+        <div className="liveregion">
+          {/* Motion's starting points sit just above the activity bar and go away
+            once the conversation has its first message. */}
+          {workspaceMode === "motion" && hydrated && items.length === 0 && !running && (
+            <MotionStarters onPick={fillComposer} />
+          )}
+          {workspaceMode === "code" && kenRunning && (
+            <KenActivityBar
+              runStartTs={kenRunStartTs}
+              tokens={kenTokens}
+              isThinking={kenIsThinking}
+              thinkingStartTs={kenThinkingStartTs}
+              thinkingAccumMs={kenThinkingAccumMs}
+              onCancel={() => void cancelKen()}
+              trailing={phoneHeader && !showTaskBar && usageMeter}
+            />
+          )}
+          {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
+          {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
+          {showTaskBar && (
+            <ActivityBar
+              running={running}
+              activity={activity}
+              cancelling={cancelling}
+              tokens={tokens}
+              doneStatus={doneStatus}
+              isThinking={isThinking}
+              thinkingStartTs={thinkingStartTs}
+              thinkingAccumMs={thinkingAccumMs}
+              planTotal={workspaceMode !== "code" ? 0 : planTotal}
+              planDone={workspaceMode !== "code" ? 0 : Math.min(planDone.size, planTotal)}
+              onCancel={requestCancel}
+              toolsHidden={toolsHidden}
+              hasToolFeed={liveToolFeed.length > 0}
+              onToggleTools={toggleTools}
+              trailing={phoneHeader && usageMeter}
+            />
           )}
         </div>
-        {items.length > 0 && (
-          <ExportChatButton
-            visible={chatHovered || exporting}
-            busy={exporting}
-            onExport={() => void exportTranscript()}
-          />
-        )}
-        {/* iPhone: only ever a way back down — the top of a transcript is
-            history; the end is where the work is. */}
-        <button
-          type="button"
-          className={`jump-to-latest${jumpToLatestShown ? " visible" : ""}`}
-          aria-label="Jump to latest message"
-          aria-hidden={!jumpToLatestShown}
-          tabIndex={jumpToLatestShown ? 0 : -1}
-          onClick={jumpToLatest}
-        >
-          <ArrowDownIcon size={18} weight="bold" aria-hidden />
-        </button>
-      </div>
 
-      <div className="liveregion">
-        {/* Motion's starting points sit just above the activity bar and go away
-            once the conversation has its first message. */}
-        {workspaceMode === "motion" && hydrated && items.length === 0 && !running && (
-          <MotionStarters onPick={fillComposer} />
-        )}
-        {workspaceMode === "code" && kenRunning && (
-          <KenActivityBar
-            runStartTs={kenRunStartTs}
-            tokens={kenTokens}
-            isThinking={kenIsThinking}
-            thinkingStartTs={kenThinkingStartTs}
-            thinkingAccumMs={kenThinkingAccumMs}
-            onCancel={() => void cancelKen()}
-            trailing={phoneHeader && !showTaskBar && usageMeter}
-          />
-        )}
-        {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
-        {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
-        {showTaskBar && (
-          <ActivityBar
-            running={running}
-            activity={activity}
-            cancelling={cancelling}
-            tokens={tokens}
-            doneStatus={doneStatus}
-            isThinking={isThinking}
-            thinkingStartTs={thinkingStartTs}
-            thinkingAccumMs={thinkingAccumMs}
-            planTotal={workspaceMode !== "code" ? 0 : planTotal}
-            planDone={workspaceMode !== "code" ? 0 : Math.min(planDone.size, planTotal)}
-            onCancel={requestCancel}
-            toolsHidden={toolsHidden}
-            hasToolFeed={liveToolFeed.length > 0}
-            onToggleTools={toggleTools}
-            trailing={phoneHeader && usageMeter}
-          />
-        )}
-      </div>
+        <Composer
+          isFileDragOver={isFileDragOver}
+          scheduleInvalid={scheduleInvalid}
+          running={running}
+          kenRunning={kenRunning}
+          autopilotReviewing={autopilotReviewing}
+          scheduleDraft={scheduleDraft}
+          input={input}
+          caret={caret}
+          fillScheduleInterval={fillScheduleInterval}
+          slashOpen={slashOpen}
+          slashMatches={slashMatches}
+          clampedSlashIndex={clampedSlashIndex}
+          pickSlashCommand={pickSlashCommand}
+          setSlashIndex={setSlashIndex}
+          mentionOpen={mentionOpen}
+          fileMatches={fileMatches}
+          clampedFileIndex={clampedFileIndex}
+          mention={mention}
+          pickMentionFile={pickMentionFile}
+          setFileIndex={setFileIndex}
+          attachments={attachments}
+          removeAttachment={removeAttachment}
+          mentionedPaths={mentionedPaths}
+          removeMentionChip={removeMentionChip}
+          visibleQueuedMessages={visibleQueuedMessages}
+          handleCancelQueued={handleCancelQueued}
+          cacheExpiry={state?.cacheExpiry}
+          onCompactFirst={() => void sendPrompt("/compact").catch(() => {})}
+          fileInputRef={fileInputRef}
+          addFiles={addFiles}
+          phoneComposer={phoneComposer}
+          workspaceMode={workspaceMode}
+          addressHelper={addressHelper}
+          enhanceAnim={enhanceAnim}
+          onEnhanceAnimDone={onEnhanceAnimDone}
+          kenActive={kenActive}
+          kenInputParts={kenInputParts}
+          attachInput={attachInput}
+          displayPlaceholder={displayPlaceholder}
+          setInput={setInput}
+          onKeystroke={() => {
+            const now = Date.now();
+            if (!running && now - lastKeystrokeAtRef.current > 4 * 60_000) {
+              void prewarmCache();
+            }
+            lastKeystrokeAtRef.current = now;
+          }}
+          setCaret={setCaret}
+          historyIndex={historyIndex}
+          setHistoryIndex={setHistoryIndex}
+          enhancement={enhancement}
+          setEnhancement={setEnhancement}
+          updateMention={updateMention}
+          setMention={setMention}
+          navigateHistory={navigateHistory}
+          submit={submit}
+          cancelling={cancelling}
+          requestCancel={requestCancel}
+          showDictation={showDictation}
+          dictation={dictation}
+          sendDisabled={sendDisabled}
+          windowFocused={windowFocused}
+          composerAction={composerAction}
+          enhanceHintVisible={enhanceHintVisible}
+          dictating={dictating}
+          enhancing={enhancing}
+          runEnhance={runEnhance}
+          onDictated={onDictated}
+          setDictation={setDictation}
+        />
 
-      <Composer
-        isFileDragOver={isFileDragOver}
-        scheduleInvalid={scheduleInvalid}
-        running={running}
-        kenRunning={kenRunning}
-        autopilotReviewing={autopilotReviewing}
-        scheduleDraft={scheduleDraft}
-        input={input}
-        caret={caret}
-        fillScheduleInterval={fillScheduleInterval}
-        slashOpen={slashOpen}
-        slashMatches={slashMatches}
-        clampedSlashIndex={clampedSlashIndex}
-        pickSlashCommand={pickSlashCommand}
-        setSlashIndex={setSlashIndex}
-        mentionOpen={mentionOpen}
-        fileMatches={fileMatches}
-        clampedFileIndex={clampedFileIndex}
-        mention={mention}
-        pickMentionFile={pickMentionFile}
-        setFileIndex={setFileIndex}
-        attachments={attachments}
-        removeAttachment={removeAttachment}
-        mentionedPaths={mentionedPaths}
-        removeMentionChip={removeMentionChip}
-        visibleQueuedMessages={visibleQueuedMessages}
-        handleCancelQueued={handleCancelQueued}
-        cacheExpiry={state?.cacheExpiry}
-        onCompactFirst={() => void sendPrompt("/compact").catch(() => {})}
-        fileInputRef={fileInputRef}
-        addFiles={addFiles}
-        phoneComposer={phoneComposer}
-        workspaceMode={workspaceMode}
-        addressHelper={addressHelper}
-        enhanceAnim={enhanceAnim}
-        onEnhanceAnimDone={onEnhanceAnimDone}
-        kenActive={kenActive}
-        kenInputParts={kenInputParts}
-        attachInput={attachInput}
-        displayPlaceholder={displayPlaceholder}
-        setInput={setInput}
-        onKeystroke={() => {
-          const now = Date.now();
-          if (!running && now - lastKeystrokeAtRef.current > 4 * 60_000) {
-            void prewarmCache();
-          }
-          lastKeystrokeAtRef.current = now;
-        }}
-        setCaret={setCaret}
-        historyIndex={historyIndex}
-        setHistoryIndex={setHistoryIndex}
-        enhancement={enhancement}
-        setEnhancement={setEnhancement}
-        updateMention={updateMention}
-        setMention={setMention}
-        navigateHistory={navigateHistory}
-        submit={submit}
-        cancelling={cancelling}
-        requestCancel={requestCancel}
-        showDictation={showDictation}
-        dictation={dictation}
-        sendDisabled={sendDisabled}
-        windowFocused={windowFocused}
-        composerAction={composerAction}
-        enhanceHintVisible={enhanceHintVisible}
-        dictating={dictating}
-        enhancing={enhancing}
-        runEnhance={runEnhance}
-        onDictated={onDictated}
-        setDictation={setDictation}
-      />
-
-      <AppFooter
-        workspaceMode={workspaceMode}
-        hydrated={hydrated}
-        phoneHeader={phoneHeader}
-        state={state}
-        runningTaskCount={runningTaskCount}
-        tasks={tasks}
-        schedules={schedules}
-        stopSchedule={stopSchedule}
-        contextPct={contextPct}
-        running={running}
-        models={models}
-        onSelectModel={onSelectModel}
-        onSelectKenModel={onSelectKenModel}
-        kenRunning={kenRunning}
-        autopilotReviewing={autopilotReviewing}
-      />
+        <AppFooter
+          workspaceMode={workspaceMode}
+          hydrated={hydrated}
+          phoneHeader={phoneHeader}
+          state={state}
+          runningTaskCount={runningTaskCount}
+          tasks={tasks}
+          schedules={schedules}
+          stopSchedule={stopSchedule}
+          contextPct={contextPct}
+          running={running}
+          models={models}
+          onSelectModel={onSelectModel}
+          onSelectKenModel={onSelectKenModel}
+          kenRunning={kenRunning}
+          autopilotReviewing={autopilotReviewing}
+        />
+      </Activity>
 
       <UpdateBanner update={appUpdate} />
       <NewPairingNotice key="new-pairing-notice" active={kleioRemote.status?.active ?? null} />

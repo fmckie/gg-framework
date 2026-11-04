@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { AgentTool } from "@kleio/agent";
+import type { AgentTool, ToolExecuteResult } from "@kleio/agent";
 import { resolvePath } from "./path-utils.js";
 import { extractPlanSteps } from "../utils/plan-steps.js";
 
@@ -11,7 +11,7 @@ const ExitPlanParams = z.object({
 
 export function createExitPlanTool(
   cwd: string,
-  onExitPlan: (planPath: string) => Promise<string>,
+  onExitPlan: (planPath: string) => Promise<ToolExecuteResult>,
 ): AgentTool<typeof ExitPlanParams> {
   return {
     name: "exit_plan",
@@ -51,7 +51,13 @@ export function createExitPlanTool(
         );
       }
 
-      return onExitPlan(resolved);
+      const review = await onExitPlan(resolved);
+      // Desktop/TUI callbacks open review UI and return immediately. End this
+      // run instead of asking the model to respond to "wait for approval".
+      // Hosts that approve inline (ACP) explicitly opt into continuation.
+      return typeof review === "string"
+        ? { content: review, endRun: true }
+        : { endRun: true, ...review };
     },
   };
 }

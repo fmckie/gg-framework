@@ -16,6 +16,11 @@ import type { StreamRulesConfig } from "./stream-rules.js";
 export interface StructuredToolResult {
   content: ToolResultContent;
   details?: unknown;
+  /** End the run after persisting this result, without another model call or
+   * draining steering/follow-ups. Use a sequential tool to also prevent later
+   * calls in the same batch from running (e.g. a pending plan-review handoff).
+   * Host control metadata only: never serialized into provider tool results. */
+  endRun?: boolean;
 }
 
 export type ToolExecuteResult = string | StructuredToolResult;

@@ -28,6 +28,7 @@ import { playSound } from "./sounds";
 import { findCompletedSteps, countPlanSteps } from "./plan-steps";
 import type { PendingAttachment } from "./attachments";
 import type { Item } from "./App";
+import { readChatError } from "./chat-error";
 
 /**
  * Build-session SSE event handling + assistant-streaming helpers, extracted from
@@ -867,21 +868,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           setStatus("cancellation failed; agent still running");
           break;
         case "error": {
-          // Structured payload from the sidecar's broadcastError (headline always
-          // present; message/guidance may be omitted for terse capability errors).
-          // Fall back to a flat string for any older-shaped frame.
-          const headline = typeof d.headline === "string" ? d.headline : undefined;
-          pushItem(
-            headline
-              ? {
-                  kind: "error",
-                  id: nextId(),
-                  headline,
-                  message: typeof d.message === "string" ? d.message : undefined,
-                  guidance: typeof d.guidance === "string" ? d.guidance : undefined,
-                }
-              : { kind: "error", id: nextId(), text: `error: ${String(d.message ?? "unknown")}` },
-          );
+          pushItem({ kind: "error", id: nextId(), ...readChatError(d) });
           break;
         }
         case "run_end": {

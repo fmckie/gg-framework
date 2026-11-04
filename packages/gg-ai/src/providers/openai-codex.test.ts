@@ -817,7 +817,7 @@ describe("streamOpenAICodex", () => {
     [
       "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.",
       "This model is not available through your ChatGPT account. " +
-        "Switch to a model listed for OpenAI via the model selector, or check your ChatGPT usage limits.",
+        "Choose another available model using the model selector.",
     ],
   ])(
     "only gives account-access guidance for an actual entitlement error: %s",

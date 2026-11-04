@@ -315,6 +315,7 @@ pub fn run() {
             commands::agent::agent_radio_set,
             commands::agent::agent_radio_volume,
             commands::agent::agent_tasks,
+            commands::agent::agent_checklist,
             commands::agent::agent_run_tasks,
             commands::agent::agent_delete_task,
             commands::agent::agent_cycle_thinking,

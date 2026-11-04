@@ -15,6 +15,7 @@ import { isCatastrophicCommand } from "../core/workspace-guard.js";
 import { checkDestructiveGit } from "../core/destructive-git-guard.js";
 import { shellThreatBlockMessage } from "../core/shell-threats.js";
 import { checkPackageInstall } from "../core/package-threats.js";
+import { classifyVerificationCommand } from "../core/verification-evidence.js";
 import { checkCommandPolicy, type GetNetworkPolicy } from "../core/network-guard.js";
 import {
   prepareSandboxLaunch,
@@ -24,6 +25,7 @@ import {
 } from "../core/sandbox.js";
 import type { WakeRules } from "../core/process-manager.js";
 import { annotateSandboxDenial } from "../core/sandbox-feedback.js";
+import { collectVerificationReview } from "./verification-review.js";
 
 /** Tool env, plus the tweaks that only make sense inside the OS sandbox. */
 function sandboxAwareEnv(sandboxed: boolean): Record<string, string> {
@@ -32,6 +34,10 @@ function sandboxAwareEnv(sandboxed: boolean): Record<string, string> {
 }
 
 const DEFAULT_TIMEOUT = 120_000; // 120 seconds
+
+/** Host-authored rejection: no process started, so this is not a failed check. */
+export const REVIEW_REJECTED_BEFORE_START =
+  "Error: review requires a local, non-persistent foreground verification check. Pass only the check in command; do not combine it with edits or diff inspection. Nothing was run.";
 
 const AUTO_BACKGROUND_RE =
   /^Still running after \d+(?:\.\d+)?s, so it was moved to the background\b/;
@@ -90,9 +96,16 @@ const GUESSED_WAIT_SECONDS = 10;
  * re-running the command. The offload is best-effort — a full disk or
  * permission error never fails the tool result.
  */
-export async function renderBashOutput(rawOutput: string): Promise<string> {
+export async function renderBashOutput(rawOutput: string, command?: string): Promise<string> {
+  const check = command ? classifyVerificationCommand(command) : undefined;
+  const feedback =
+    check?.candidate && !check.accepted && check.snapshotPreserveOnly
+      ? "\n\n[This mixed check/inspection chain cannot establish fresh verification; it can only preserve earlier successful checks. If the current changes are not already verified, run the check standalone or chain only checks with &&. Do not claim fresh verification from this shell exit status.]"
+      : check?.candidate && !check.accepted && !check.snapshotEligible
+        ? `\n\n[Verification evidence rejected: ${check.reason}. Run the check as a standalone command, or chain only checks with &&. A failed baseline need not be rerun just to record evidence: fix the bug, then verify with a supported command. Run edits and diff inspection separately; do not claim verification from this shell exit status.]`
+        : "";
   const result = truncateTail(rawOutput);
-  if (!result.truncated) return result.content;
+  if (!result.truncated) return result.content + feedback;
   const overflowPath =
     Buffer.byteLength(rawOutput, "utf-8") > MAX_BYTES
       ? await writeOverflow(rawOutput, "bash").catch(() => null)
@@ -102,11 +115,17 @@ export async function renderBashOutput(rawOutput: string): Promise<string> {
     : "";
   const c = compressToolOutput(rawOutput);
   const what = describeCompressed(rawOutput, c.content);
-  return `[${c.notice}${what ? ` ${what}` : ""}${overflowNotice}]\n${c.content}`;
+  return `[${c.notice}${what ? ` ${what}` : ""}${overflowNotice}]\n${c.content}${feedback}`;
 }
 
 const BashParams = z.object({
   command: z.string().describe("The bash command to execute"),
+  review: z
+    .boolean()
+    .optional()
+    .describe(
+      "For a local foreground check, append read-only Git status/worktree diff after success. Keeps the check exit status separate; no shell chaining needed. Staged/untracked contents are not included.",
+    ),
   timeout: z
     .number()
     .int()
@@ -232,7 +251,19 @@ export function createBashTool(
       "Do not use silence as readiness; healthy servers normally go quiet.",
     parameters: BashParams,
     executionMode: "sequential",
-    async execute({ command, timeout: timeoutMs, run_in_background, persist, wake }, context) {
+    async execute(
+      { command, timeout: timeoutMs, run_in_background, persist, wake, review },
+      context,
+    ) {
+      if (
+        review &&
+        (persist ||
+          run_in_background ||
+          ops !== localOperations ||
+          !classifyVerificationCommand(command).accepted)
+      ) {
+        return REVIEW_REJECTED_BEFORE_START;
+      }
       if (wake && !run_in_background) {
         return "Error: wake conditions require run_in_background=true — there is nothing to watch on a foreground call.";
       }
@@ -361,7 +392,7 @@ export function createBashTool(
             ? (text) => context.onUpdate?.({ type: "bash_progress", output: text, totalBytes: 0 })
             : undefined,
         );
-        const output = await renderBashOutput(res.output);
+        const output = await renderBashOutput(res.output, command);
         const exitCode =
           res.exitCode === "TIMEOUT"
             ? `TIMEOUT (${timeoutMs ?? DEFAULT_TIMEOUT}ms)` +
@@ -421,7 +452,7 @@ export function createBashTool(
       // listener below would never fire for an already-aborted signal.
       if (context.signal.aborted) return CANCELLED_BEFORE_START;
 
-      return new Promise<string>((resolve, reject) => {
+      const result = await new Promise<string>((resolve, reject) => {
         const child = ops.spawn(launch.file, launch.args, {
           cwd,
           detached: true,
@@ -537,7 +568,7 @@ export function createBashTool(
           if (backgrounded) return;
 
           const rawOutput = Buffer.concat(chunks).toString("utf-8");
-          let output = await renderBashOutput(rawOutput);
+          let output = await renderBashOutput(rawOutput, command);
           if (outputCapped) {
             output =
               `[Output capped at ${MAX_OUTPUT_BYTES / 1024 / 1024} MB to prevent memory exhaustion]\n` +
@@ -582,6 +613,9 @@ export function createBashTool(
           reject(new Error(`Exit code: 1\nFailed to spawn: ${err.message}`));
         });
       });
+      if (!review || context.signal.aborted || !/^Exit code: 0(?:\s|$)/.test(result)) return result;
+      const inspection = await collectVerificationReview(cwd, context.signal);
+      return `${result}\n\n--- Independent read-only review ---\n${await renderBashOutput(inspection)}`;
     },
   };
 }

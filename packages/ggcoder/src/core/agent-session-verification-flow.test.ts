@@ -19,6 +19,7 @@ import type { AgentSession } from "./agent-session.js";
 import type { ProcessManager } from "./process-manager.js";
 import { buildKenAutopilotContext } from "./ken-context.js";
 import type { VerificationEvidence } from "./verification-evidence.js";
+import { createBashTool, REVIEW_REJECTED_BEFORE_START } from "../tools/bash.js";
 
 interface FlowInternals {
   sessionPath: string;
@@ -171,7 +172,81 @@ async function runRealCheck(
 const artifactBuild =
   "import fs from 'node:fs'; fs.mkdirSync('dist', {recursive:true}); fs.writeFileSync('dist/app.js', 'generated');\n";
 
-describe("verification gate flow", () => {
+// These tests start real npm, node and git processes. A busy runner can take
+// many seconds to start npm (upstream saw over 16 s on Windows; usually ~1 s),
+// so the suite gets more than the 20 s default. A genuine hang still fails:
+// the bash tool stops a foreground command at 120 s.
+describe("verification gate flow", { timeout: 60_000 }, () => {
+  it.each([
+    { review: true, result: `Exit code: 1\n${REVIEW_REJECTED_BEFORE_START}` },
+    { review: false, result: REVIEW_REJECTED_BEFORE_START },
+  ])(
+    "never treats check output or another execution mode as a review rejection: %j",
+    async ({ review, result }) => {
+      const { internal } = await makeSession();
+      await simulateToolCall(internal, "edit", { file_path: "subject.mjs" });
+      await simulateToolCall(internal, "bash", { command: "npm run check", review }, result);
+      expect(internal.getVerificationEvidence()).toContainEqual(
+        expect.objectContaining({ command: "npm run check", status: "failed" }),
+      );
+      expect(internal.getVerificationProblem()).toContain("failed");
+    },
+  );
+
+  it.each([false, true])(
+    "treats a rejected review as not-run without clearing actual failures (prior failure=%s)",
+    async (priorFailure) => {
+      await prepareBuildProject(artifactBuild);
+      const { internal } = await makeSession();
+      await simulateToolCall(internal, "edit", { file_path: "subject.mjs" });
+      if (priorFailure) {
+        await fs.writeFile(path.join(tmpProject, "subject.mjs"), "export const value = 2;\n");
+        await runRealCheck(internal, "npm run check");
+      }
+      const tool = createBashTool(tmpProject, internal.processManager);
+      const invoke = async (command: string): Promise<void> => {
+        const toolCallId = `review-${command}`;
+        const args = { command, review: true };
+        await internal.trackHookEvent({
+          type: "tool_call_start",
+          toolCallId,
+          name: "bash",
+          args,
+        } as AgentEvent);
+        const result = await tool.execute(args, {
+          signal: new AbortController().signal,
+          toolCallId,
+        });
+        expect(typeof result).toBe("string");
+        if (typeof result !== "string") throw new Error("Expected string result");
+        await internal.trackHookEvent({
+          type: "tool_call_end",
+          toolCallId,
+          result,
+          isError: false,
+          durationMs: 1,
+        } as AgentEvent);
+      };
+      const rejected = "npm run check && git diff --check";
+      await invoke(rejected);
+      expect(internal.getVerificationEvidence()).toContainEqual(
+        expect.objectContaining({ command: rejected, status: "rejected" }),
+      );
+      expect(internal.getVerificationProblem()).not.toBeNull();
+
+      if (priorFailure) {
+        await runRealCheck(internal, "npm run build");
+        expect(internal.getVerificationProblem()).toContain("failed");
+      } else {
+        await invoke("npm run check");
+        expect(internal.getVerificationProblem()).toBeNull();
+        expect(internal.getVerificationEvidence()).toContainEqual(
+          expect.objectContaining({ command: "npm run check", status: "passed" }),
+        );
+      }
+    },
+  );
+
   it.each([true, false])(
     "keeps real check results out of the next read-only turn (passed=%s)",
     async (passed) => {

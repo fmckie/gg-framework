@@ -10,7 +10,7 @@ import {
 } from "../verification-gate.js";
 import { classifyVerificationCommand, extractStandaloneCheck } from "../verification-evidence.js";
 import { captureVerificationSnapshot } from "../verification-snapshot.js";
-import { autoBackgroundedId } from "../../tools/bash.js";
+import { autoBackgroundedId, REVIEW_REJECTED_BEFORE_START } from "../../tools/bash.js";
 import { editTargetPaths } from "../../tools/edit-targets.js";
 import { resolvePath, toPosixPath } from "../../tools/path-utils.js";
 
@@ -239,7 +239,14 @@ export class VerificationTracker {
     if (args && call && name === "bash") {
       const command = typeof args.command === "string" ? args.command : "";
       const classification = classifyVerificationCommand(command);
-      if (classification.accepted || classification.snapshotEligible) {
+      if (args.review === true && event.result === REVIEW_REJECTED_BEFORE_START) {
+        // The core tool rejected its arguments BEFORE spawning. Never mint
+        // a pass, or poison the failed-check ledger with an unexecuted check.
+        // A child's output cannot match: bash always prefixes it with Exit code.
+        this.gate.recordRejectedCheck(command, REVIEW_REJECTED_BEFORE_START);
+        delete call.sourceSnapshot;
+        verificationChanged = true;
+      } else if (classification.accepted || classification.snapshotEligible) {
         // A foreground check that outlived the default budget was moved to
         // the background, not failed: track it to its real exit the same way.
         const autoBackgroundId = event.isError ? undefined : autoBackgroundedId(event.result);

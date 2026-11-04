@@ -16,8 +16,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { environmentSecrets, formatError, redactValue } from "@kleio/ai";
+import { environmentSecrets, formatChatError, redactValue } from "@kleio/ai";
 import type { AddressInfo } from "node:net";
+import { createAppErrorPayload } from "./app-error.js";
 import { runSubagentWorkerMode } from "./modes/subagent-worker-mode.js";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { setStreamDiagnostic } from "@kleio/agent";
@@ -840,7 +841,7 @@ async function createSession(
   }
 
   // Turn any thrown value into the same clear headline/message/guidance shape
-  // the TUI shows (see gg-ai's formatError) instead of a bare `err.message`, log
+  // the TUI shows (see gg-ai's formatChatError) instead of a bare `err.message`, log
   // the full detail, and broadcast it under `type` ("error" or "ken_error").
   // Without this the webview only ever saw a raw provider string like
   // `400 {"code":"400",...}` with no "is this me or them / when does it reset"
@@ -850,35 +851,26 @@ async function createSession(
     logLabel: string,
     err: unknown,
   ): void {
-    const f = formatError(err);
+    const f = formatChatError(err);
     const message = f.message ? desktopGuidance(f.message) : undefined;
     const guidance = localNetworkGuidance(f.source) ?? desktopGuidance(f.guidance);
+    const payload = createAppErrorPayload(
+      { ...f, ...(message ? { message } : {}), guidance },
+      type,
+      Date.now(),
+      environmentSecrets(process.env),
+    );
     log("ERROR", "app-sidecar", logLabel, {
-      headline: f.headline,
+      headline: payload.headline,
       source: f.source,
-      ...(message ? { message } : {}),
-      ...(f.provider ? { provider: f.provider } : {}),
-      ...(f.statusCode != null ? { statusCode: String(f.statusCode) } : {}),
-      ...(f.requestId ? { requestId: f.requestId } : {}),
+      ...(payload.message ? { message: payload.message } : {}),
+      ...(payload.provider ? { provider: payload.provider } : {}),
+      ...(payload.statusCode != null ? { statusCode: String(payload.statusCode) } : {}),
+      ...(payload.requestId ? { requestId: payload.requestId } : {}),
     });
-    broadcast(type, {
-      headline: f.headline,
-      ...(message ? { message } : {}),
-      guidance,
-      ...(f.provider ? { provider: f.provider } : {}),
-      ...(f.statusCode != null ? { statusCode: f.statusCode } : {}),
-      ...(f.resetsAt != null ? { resetsAt: f.resetsAt } : {}),
-    });
-    // Persist the error row (display-only marker) so a resumed session shows
-    // the same headline/message/guidance the live run did. Best-effort.
-    void session
-      .persistAppMarker("error", {
-        scope: type,
-        headline: f.headline,
-        ...(message ? { message } : {}),
-        guidance,
-      })
-      .catch(() => {});
+    broadcast(type, payload);
+    // Same sanitized snapshot for live and restored rows, including reset metadata.
+    void session.persistAppMarker("error", payload).catch(() => {});
   }
 
   // ── MCP elicitation bridge ─────────────────────────────────

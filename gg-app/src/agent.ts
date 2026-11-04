@@ -4,6 +4,7 @@
 //   - invoke("agent_state" | "agent_prompt" | "agent_cancel")
 //   - listen("agent-event")  ← forwarded SSE frames
 import { invoke } from "@tauri-apps/api/core";
+import type { ChatErrorData } from "./chat-error";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { error as logError, info as logInfo } from "@tauri-apps/plugin-log";
 
@@ -260,6 +261,114 @@ export async function deleteTask(id: string): Promise<ProjectTask[]> {
   } catch (e) {
     await logError(`agent_delete_task failed: ${String(e)}`);
     return [];
+  }
+}
+
+/** Mirrors coder `core/checklist-store.ts` ChecklistStatus. */
+export type ChecklistStatus = "not-run" | "not-applicable" | "due" | "passed" | "needs-work";
+
+/** One project health-checklist item joined with its recorded result (ChecklistRow). */
+export interface ChecklistEntry {
+  id: string;
+  group: string;
+  title: string;
+  description: string;
+  check: string;
+  skill: string | null;
+  setupCommand: string | null;
+  status: ChecklistStatus;
+  checkedAt: string | null;
+  commit: string | null;
+  uncommittedChanges: boolean;
+  result: "pass" | "issues" | "not-applicable" | null;
+  summary: string | null;
+  findings: string[];
+  evidence: string[];
+  /** Read-only setup observations, not an audit result. */
+  detection?: { summary: string; facts: string[] } | null;
+  /** The instructions Check sends to the agent (built by the sidecar from the item). */
+  runPrompt: string | null;
+}
+
+export interface ChecklistSnapshot {
+  staleAfterDays: number;
+  items: ChecklistEntry[];
+  detectionWarnings?: string[];
+}
+
+function checklistObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function checklistStrings(value: unknown, maxLength: number): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 10 &&
+    value.every((line) => typeof line === "string" && line.length <= maxLength)
+  );
+}
+function checklistEntry(value: unknown): value is ChecklistEntry {
+  if (!checklistObject(value)) return false;
+  const text = (key: string, max: number): boolean =>
+    typeof value[key] === "string" && value[key].length <= max;
+  const nullable = (key: string, max: number): boolean => value[key] === null || text(key, max);
+  const detection = value.detection;
+  return (
+    text("id", 80) &&
+    /^[a-z0-9-]+$/.test(String(value.id)) &&
+    text("group", 100) &&
+    text("title", 200) &&
+    text("description", 2000) &&
+    text("check", 5000) &&
+    nullable("skill", 100) &&
+    nullable("setupCommand", 100) &&
+    nullable("runPrompt", 16000) &&
+    ["not-run", "not-applicable", "due", "passed", "needs-work"].includes(String(value.status)) &&
+    [null, "pass", "issues", "not-applicable"].includes(value.result as string | null) &&
+    (value.checkedAt === null ||
+      (text("checkedAt", 40) && Number.isFinite(Date.parse(String(value.checkedAt))))) &&
+    (value.commit === null ||
+      (text("commit", 64) && /^[0-9a-f]{4,64}$/i.test(String(value.commit)))) &&
+    typeof value.uncommittedChanges === "boolean" &&
+    nullable("summary", 300) &&
+    checklistStrings(value.findings, 300) &&
+    checklistStrings(value.evidence, 200) &&
+    (detection === undefined ||
+      detection === null ||
+      (checklistObject(detection) &&
+        typeof detection.summary === "string" &&
+        detection.summary.length <= 300 &&
+        checklistStrings(detection.facts, 300)))
+  );
+}
+
+/** Read the project health checklist. `null` when it can't be read. */
+export async function getChecklist(): Promise<ChecklistSnapshot | null> {
+  try {
+    await waitForReady();
+    const res: unknown = await invoke("agent_checklist");
+    if (
+      !checklistObject(res) ||
+      typeof res.staleAfterDays !== "number" ||
+      !Number.isFinite(res.staleAfterDays) ||
+      res.staleAfterDays < 1 ||
+      !Array.isArray(res.items) ||
+      res.items.length === 0 ||
+      res.items.length > 64 ||
+      !res.items.every(checklistEntry) ||
+      new Set(res.items.map((item) => item.id)).size !== res.items.length ||
+      (res.detectionWarnings !== undefined && !checklistStrings(res.detectionWarnings, 300))
+    ) {
+      await logError("agent_checklist returned an invalid snapshot");
+      return null;
+    }
+    return {
+      staleAfterDays: res.staleAfterDays,
+      items: res.items,
+      detectionWarnings: res.detectionWarnings ?? [],
+    };
+  } catch (e) {
+    await logError(`agent_checklist failed: ${String(e)}`);
+    return null;
   }
 }
 
@@ -816,7 +925,7 @@ export interface HistoryEntry {
   task?: { title: string };
   /** Error row persisted by the sidecar's broadcastError. `scope` selects the
    *  live headline prefix (ken_error → "Ken: ", autopilot_error → "Autopilot: "). */
-  error?: { scope: string; headline: string; message?: string; guidance?: string };
+  error?: ChatErrorData & { scope: string; headline: string };
   /** Webview-copy info row marker (e.g. the video-capability warning). */
   infoKind?: "video_warning";
   /** Tool-produced images rendered inline (same as live `images` items),

@@ -1,4 +1,4 @@
-import type { AgentTool } from "@kleio/agent";
+import type { AgentTool, ToolExecuteResult } from "@kleio/agent";
 import type { Provider, ToolCall, ToolResult } from "@kleio/ai";
 import type { ContextLimits } from "../core/context-limits.js";
 import { SubAgentManager, type SubAgentSnapshot } from "../core/subagent-manager.js";
@@ -31,6 +31,7 @@ import { createTaskOutputTool } from "./task-output.js";
 import { createTaskStopTool } from "./task-stop.js";
 import { createTaskSendTool } from "./task-send.js";
 import { createTasksTool } from "./tasks.js";
+import { createChecklistTool } from "./checklist.js";
 
 import { createSkillTool } from "./skill.js";
 import { createScreenshotTool } from "./screenshot.js";
@@ -67,7 +68,7 @@ export interface CreateToolsOptions {
   /** Callback when the LLM enters plan mode. */
   onEnterPlan?: (reason?: string) => void | Promise<void>;
   /** Callback when the LLM submits a plan for review. */
-  onExitPlan?: (planPath: string) => Promise<string>;
+  onExitPlan?: (planPath: string) => Promise<ToolExecuteResult>;
   /** Callback after read tool successfully reads a text file. */
   onFileRead?: (filePath: string) => void | Promise<void>;
   /** Callback after write/edit tools successfully mutate a file. */
@@ -280,6 +281,7 @@ export async function createTools(
     createTaskSendTool(processManager, cwd),
     createTaskStopTool(processManager),
     createTasksTool(cwd),
+    createChecklistTool(cwd),
     createScreenshotTool(cwd),
     // The debugger connects to a loopback inspector port, so the program must
     // run on this machine: local operations only, like LSP.
@@ -418,6 +420,7 @@ export { createTaskOutputTool } from "./task-output.js";
 export { createTaskSendTool } from "./task-send.js";
 export { createTaskStopTool } from "./task-stop.js";
 export { createTasksTool } from "./tasks.js";
+export { createChecklistTool } from "./checklist.js";
 export { createSkillTool } from "./skill.js";
 export { createScreenshotTool } from "./screenshot.js";
 export { createGenerateImageTool, type GenerateImageAuth } from "./generate-image.js";

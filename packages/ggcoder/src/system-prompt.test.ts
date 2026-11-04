@@ -87,6 +87,13 @@ afterEach(async () => {
 });
 
 describe("buildSystemPrompt", () => {
+  it("steers verification into fail-fast checks", async () => {
+    const prompt = await buildSystemPrompt(await makeProject());
+    expect(prompt).toContain("Run checks standalone or chain only checks with `&&`");
+    expect(prompt).toContain("If verification evidence is rejected, correct the command");
+    expect(prompt).toContain("use bash's review:true for final checks");
+  });
+
   it("tells the model instruction files are preloaded, whether or not any exist", async () => {
     const empty = await buildSystemPrompt(await makeProject());
     const withFile = await buildSystemPrompt(await makeProject({ "AGENTS.md": "Use tabs." }));

@@ -790,6 +790,36 @@ pub(crate) async fn agent_tasks(
         .map_err(|e| e.to_string())
 }
 
+/// Proxy: the project health checklist (`.gg-checklist.json` joined with the
+/// built-in items and their current status). A corrupt record surfaces as Err.
+#[tauri::command]
+pub(crate) async fn agent_checklist(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let res = client
+        .get(format!("{}/checklist", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    let body = res
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("checklist request failed")
+            .to_string());
+    }
+    Ok(body)
+}
+
 /// Proxy: run one task (`id`) or run-all (`all = true`, starting from the next
 /// pending task). Progress streams back via `agent-event` (session_reset,
 /// task_start, run_start/run_end, tasks_list, tasks_run_done).
