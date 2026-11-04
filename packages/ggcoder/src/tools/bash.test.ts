@@ -180,63 +180,23 @@ describe("foreground verification review", { timeout: 60_000 }, () => {
 });
 
 describe("renderBashOutput", () => {
-  it("explains why a semicolon check cannot prove verification", async () => {
-    const output = await renderBashOutput("diff succeeded", "npm test; git diff --stat");
-    expect(output).toContain("Verification evidence rejected");
-    expect(output).toContain("standalone command");
-    expect(output).toContain("chain only checks with &&");
-  });
-
-  it("does not demand reshaping a baseline command solely to record evidence", async () => {
-    const output = await renderBashOutput("tests failed", "cat src/example.js; npm test");
-    expect(output).toContain("Verification evidence rejected");
-    expect(output).toContain("do not reshape this command to satisfy this note");
-    expect(output).toContain("after your last edit");
-    expect(output).toContain("do not claim verification from this shell exit status");
-  });
-
-  it("keeps teaching the check shape on every rejected check", async () => {
-    expect(await renderBashOutput("ok", "npm test; git diff --stat")).toContain(
-      "Verification evidence rejected",
+  // Regression (haiku-ab-nonote, 2026-10-18): a note on checks whose exit status
+  // cannot prove success made Haiku 5.5 re-run suites that had already passed.
+  // The host still rejects them as evidence (verification tracker / run status);
+  // the tool result is just the output.
+  it("returns check output unchanged, including checks that cannot prove success", async () => {
+    for (const raw of ["ok", "tests failed"]) {
+      expect(await renderBashOutput(raw)).toBe(raw);
+    }
+    // `;` hands the exit status to `git --version`: rejected as evidence, no note.
+    const result = await createBashTool(tmpHome, new ProcessManager()).execute(
+      { command: "npm test; git --version" },
+      { signal: new AbortController().signal, toolCallId: "no-note" },
     );
-    expect(await renderBashOutput("ok", "npm test | grep passed")).toContain(
-      "Verification evidence rejected",
-    );
+    expect(result).toMatch(/git version/);
+    expect(result).not.toContain("Verification evidence rejected");
+    expect(result).not.toContain("cannot establish fresh verification");
   });
-
-  it.each([
-    "ls -d .venv 2>/dev/null && ls .venv/bin/ | grep -i ruff; .venv/bin/ruff --version",
-    'grep -n -A 30 "\\[tool.ruff" pyproject.toml || echo "no ruff config"',
-    "ls src && echo --- && ls .venv/bin/ | grep -i ruff",
-    'grep -rn "import time" src/*.py; echo "--- ruff config ---"',
-  ])("adds no feedback to exploration that only mentions a verifier: %s", async (command) => {
-    expect(await renderBashOutput("output", command)).toBe("output");
-  });
-
-  it("explains that mixed checks cannot establish fresh evidence without discarding prior verification", async () => {
-    const output = await renderBashOutput(
-      "tests and whitespace passed",
-      "npm test && git diff --check",
-    );
-    expect(output).toContain("cannot establish fresh verification");
-    expect(output).toContain("can only preserve earlier successful checks");
-    expect(output).toContain("If the current changes are not already verified");
-    expect(output).toContain("run the check standalone");
-  });
-
-  it.each([
-    "npm test",
-    "npm test && npm run check",
-    "git diff --stat",
-    "npm run build",
-    "npm test 2>&1",
-    ".venv/bin/python -m ruff check src/pipelines/",
-  ])(
-    "does not add rejection feedback to accepted or snapshot-eligible commands: %s",
-    async (command) => {
-      expect(await renderBashOutput("output", command)).toBe("output");
-    },
-  );
 
   it("saves full output and returns a recovery pointer when output exceeds 50KB", async () => {
     const raw = Array.from(

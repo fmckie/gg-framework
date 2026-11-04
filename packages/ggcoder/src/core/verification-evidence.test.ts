@@ -3,7 +3,6 @@ import type { Message } from "@kleio/ai";
 import {
   classifyVerificationCommand,
   collectVerificationEvidence,
-  containsBoundedCheck,
   extractStandaloneCheck,
 } from "./verification-evidence.js";
 
@@ -237,18 +236,6 @@ function bashExchange(
     },
   ];
 }
-
-describe("containsBoundedCheck", () => {
-  it.each([
-    ["npm test; git diff --stat", true],
-    [".venv/bin/ruff check a.py 2>&1 | sort > /tmp/base.txt", true],
-    ["ls .venv/bin/ | grep -i ruff; .venv/bin/ruff --version", false],
-    ["git status --short && echo done", false],
-    ["cat pyproject.toml | grep ruff", false],
-  ])("%s -> %s", (command, expected) => {
-    expect(containsBoundedCheck(command)).toBe(expected);
-  });
-});
 
 // Shapes Claude Haiku 5.5 wrote in the 2026-10-18 arena runs: the tests passed,
 // but the command's exit status belonged to a later part, so none counted.

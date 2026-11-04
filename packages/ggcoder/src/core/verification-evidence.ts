@@ -371,21 +371,6 @@ export function classifyVerificationCommand(command: string): VerificationComman
   return accepted(segments.length === 1 ? results[0].reason : "bounded verification command chain");
 }
 
-/**
- * True when some segment of `command` is, on its own, a bounded check — i.e.
- * the chain wraps a real verification attempt. Used to decide whether a
- * rejected classification deserves user-visible feedback: exploration that
- * merely mentions a verifier (`ls .venv/bin | grep ruff`, `ruff --version`)
- * was never a verification attempt and gets no nag.
- */
-export function containsBoundedCheck(command: string): boolean {
-  return command
-    .split(/(?:&&|\|\||[;|\n])/)
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .some((segment) => classifySegment(segment).accepted);
-}
-
 type TopLevelOperator = "&&" | "||" | "|" | ";" | "&" | "\n";
 
 interface TopLevelSegment {
