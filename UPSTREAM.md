@@ -257,14 +257,17 @@ Local macOS checks, each compared with `main`:
   overhead to the build output (import headers, source maps, declarations) and 5793
   bytes to the initial JavaScript.
 
-## Engine fixes from upstream (open)
+## Engine fixes from upstream (merged)
 
 - Upstream tip reviewed: `7d74ada78e31873b4e1586bf9c5f7b69d1146c98` (engine **5.89.0**,
   desktop **0.100.1**), 270 commits after `3f2bb6bc`. None of the 25 commits after
   `988f920e` is taken here.
 - Branch: `sync/upstream-engine-fixes`, based on `main` at `c2a1ea88`
-- PR: [#75](https://github.com/fmckie/gg-framework/pull/75), opened as a draft on
-  2026-11-03
+- PR: [#75](https://github.com/fmckie/gg-framework/pull/75), merged at `9a89e75c` on
+  2026-11-04; all nine CI jobs passed on `cc603c10` (run **41672298221**). GitHub
+  squashed the branch, so the downstream SHAs below are on
+  `sync/upstream-engine-fixes`; the squash commit keeps all ten trailers (seven
+  `Ported from upstream`, three `cherry picked from commit`).
 - PR 2 of the 4 in `.gg/plans/upstream-selective-import-phased.md`: engine fixes, ported
   at the paths the module split created.
 - `upstream.lastImportedCommit` stays `3f2bb6bc`, for the reason given in the 988f920e
