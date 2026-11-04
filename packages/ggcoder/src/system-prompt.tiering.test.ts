@@ -171,10 +171,12 @@ describe("tool tiering in the system prompt", () => {
     // block must stay a rounding error next to a schema per tool. Raised from
     // 1,200 for the `debug` line (~65 chars, against a ~2.5k-char schema it
     // keeps out of every request), then to 1,500 for the `web_search` line
-    // (~120 chars, against a ~1.2k-char schema).
+    // (~120 chars, against a ~1.2k-char schema). Then to 1,700 for the
+    // `steroids` and `subagent` lines (~170 chars, against ~5.4k chars of
+    // schemas moved out of every request).
     const indexBlockStart = prompt.indexOf("Available on demand");
     const indexBlock = prompt.slice(indexBlockStart, prompt.indexOf("\n\n", indexBlockStart));
-    expect(indexBlock.length).toBeLessThan(1_500);
+    expect(indexBlock.length).toBeLessThan(1_700);
     // Raised with the "How to Talk" reply-shape rules, then again for the
     // always-on security defaults in Code Quality, then again for the Code
     // Quality minimization ladder (benchmarked: same correctness, 50–76% less

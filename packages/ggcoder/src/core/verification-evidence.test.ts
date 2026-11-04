@@ -3,6 +3,7 @@ import type { Message } from "@kleio/ai";
 import {
   classifyVerificationCommand,
   collectVerificationEvidence,
+  containsBoundedCheck,
   extractStandaloneCheck,
 } from "./verification-evidence.js";
 
@@ -82,6 +83,11 @@ describe("classifyVerificationCommand", () => {
     "bun run format:check",
     "pnpm format-check",
     "pnpm check && pnpm lint && pnpm format:check && pnpm test",
+    "npm test 2>&1",
+    "npm test 2>/dev/null",
+    ".venv/bin/ruff check src 2>&1",
+    "python -m ruff check src",
+    ".venv/bin/python -m mypy src",
   ])("accepts bounded check: %s", (command) => {
     expect(classifyVerificationCommand(command)).toMatchObject({
       accepted: true,
@@ -122,6 +128,9 @@ describe("classifyVerificationCommand", () => {
     ["tsc --noEmit --generateTrace trace", "does not prove"],
     ["tsc --noEmit --generateCpuProfile cpu.cpuprofile", "does not prove"],
     ["tsc --noEmit > result.txt", "unsafe shell"],
+    ["npm test 2>&1 > result.txt", "unsafe shell"],
+    ["npm test 2> errors.log", "unsafe shell"],
+    ["python -m ruff check --fix src", "mutating"],
     ["tsc --noEmit | cat", "pipe stage"],
     ["tsc --noEmit || echo ignored", "control operator"],
     ["tsc --noEmit; echo ignored", "control operator"],
@@ -228,6 +237,18 @@ function bashExchange(
     },
   ];
 }
+
+describe("containsBoundedCheck", () => {
+  it.each([
+    ["npm test; git diff --stat", true],
+    [".venv/bin/ruff check a.py 2>&1 | sort > /tmp/base.txt", true],
+    ["ls .venv/bin/ | grep -i ruff; .venv/bin/ruff --version", false],
+    ["git status --short && echo done", false],
+    ["cat pyproject.toml | grep ruff", false],
+  ])("%s -> %s", (command, expected) => {
+    expect(containsBoundedCheck(command)).toBe(expected);
+  });
+});
 
 // Shapes Claude Haiku 5.5 wrote in the 2026-10-18 arena runs: the tests passed,
 // but the command's exit status belonged to a later part, so none counted.

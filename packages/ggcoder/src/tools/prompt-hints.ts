@@ -58,7 +58,7 @@ export const TOOL_PROMPT_HINTS: Record<string, string> = {
   generate_image:
     "OpenAI image generation/editing: only on explicit user request, never proactively. Pass `image` to edit.",
   steroids:
-    "Local corpus of real, current open-source repos. `search` (regex, NOT semantic) for how projects do X, `define` for where a symbol lives, `show` to read the file. Topic not covered = corpus gap: run `discover`, don't retry variants.",
+    "Local corpus of real, current open-source repos: how projects do X, where a symbol lives.",
 };
 
 /**
