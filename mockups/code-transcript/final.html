@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>KLEIO · Code window, locked</title>
+<link rel="stylesheet" href="final.css">
+<style>
+  :root {
+    color-scheme: dark;
+    --sans: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, Menlo, monospace;
+  }
+  html { background: #0b0909; }
+  body { margin: 0; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgb(255 255 255 / 0.2); color: #f6f1f1; }
+  .page { box-sizing: border-box; width: min(100%, 1064px); margin: 0 auto; padding: 56px 32px 96px; }
+  .cap { margin: 0 0 14px; font-size: 14.5px; font-weight: 400; line-height: 1.4; color: #d3c9ca; }
+  .cap strong { font-weight: 500; color: #f6f1f1; }
+</style>
+</head>
+<body>
+  <main class="page">
+    <h1 class="cap"><strong>Code window, locked.</strong> The stronger bloom (3) with the docked tray (5), ticks in verdigris and markers in lapis.</h1>
+    <div class="kleio-code">
+      <header class="bar">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+        <div class="bar-title">
+          <h2 class="title">Fix session expiry</h2>
+          <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+        </div>
+        <div class="bar-tools">
+          <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+          <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+        </div>
+      </header>
+
+      <div class="transcript" role="log" aria-label="Transcript">
+        <div class="col">
+          <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+            <ul class="steps">
+              <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+              <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+              <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+            </ul>
+            <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+            <div class="agent">
+              <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+              <p>Scanned 214 files for TTL arithmetic</p>
+              <p>Found one more in <code>src/cache/ttl.ts</code></p>
+              <p class="is-done">Returned 1 finding to KLEIO</p>
+            </div>
+          </div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose">
+              <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+              <p>What changed:</p>
+              <ul>
+                <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                  <ul>
+                    <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                    <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                  </ul>
+                </li>
+                <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+              </ul>
+              <p>Before this ships:</p>
+              <ol>
+                <li>Run the full suite, not just auth.</li>
+                <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                <li>Merge behind the existing <code>session-v2</code> flag.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+          <div class="turn msg help">
+            <span class="lead" aria-hidden="true"></span>
+            <p class="help-head">@help</p>
+            <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+            <div class="prompt">
+              <p class="prompt-label">Prompt for KLEIO</p>
+              <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+              <button class="send-kleio" type="button">Send to KLEIO</button>
+            </div>
+          </div>
+
+          <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dock col">
+        <section class="tools" aria-label="Live tools">
+          <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+          <ul>
+            <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+            <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+            <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+          </ul>
+        </section>
+        <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+        <div class="composer">
+          <div class="field">
+            <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+            <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+            <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

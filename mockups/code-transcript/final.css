@@ -1,0 +1,697 @@
+/* ═══ Kleio · the Code window: strong bloom, docked tray, gilt @help ═══
+   The locked look for the Code window: index.html's (3), a static oxblood light from the top-left
+   and bottom-right corners, with (5)'s docked tray, where the live tools, the activity line and the
+   composer are cut into one piece. Every rule sits under .kleio-code. Uses the app's --sans and
+   --mono.
+
+     <div class="kleio-code">
+       <header class="bar">…</header>
+       <div class="transcript"><div class="col">…turns…</div></div>
+       <div class="dock col"><section class="tools">…</section> <div class="activity">…</div>
+         <div class="composer">…</div></div>
+     </div>
+
+   Locked with it:
+   - Strong bloom: oxblood #70161e at 50% in the two corners, no brighter anywhere than #431419.
+   - Docked tray: the only place tool calls appear.
+   - Crimson #c42638 only on KLEIO's ⏺, on the first line of each of KLEIO's messages. It's a
+     non-text mark at 3.26:1; the last paragraph says why it stays below 4.5:1.
+   - Gold only on @help, Kleio's help, which consults another AI. It's metallic gilt: deep antique
+     gold → pale champagne → antique gold, clipped to the @help header, the @help mention, the
+     prompt label and Send. @help's lead mark is plain antique gold, and the prompt plate's 2px left
+     rule runs the gilt top to bottom. The shine plays once, in 900ms: on load, and on hovering the
+     mention or Send. It never loops, and never plays under reduced motion.
+   - Verdigris #66b48c on every done tick: the one approved green.
+   - Lapis #94a2c4 for the quiet marks: list markers, hooks and the subagent feed.
+   - Subagent feed: a lapis ring beside its first line, and its label and rows in lapis; its code
+     chips keep text-2. No connecting line, box, plate or side rule. Picked over a tracked heading
+     above dashed rows, in lapis or in grey.
+
+   Nothing else moves, and nothing blurs. index.html still shows these marks in grey, its subagent
+   feed with a connecting line, and @help's gold flat and boxed; where it differs, this file wins.
+
+   Contrast, WCAG 2 from the hex values. On the window's #161213: prose #e8e0dc 14.3:1, text-2
+   #d3c9ca 11.5:1, muted #a69c9d 7.0:1, verdigris #66b48c 7.5:1, lapis #94a2c4 7.3:1. In the tray
+   (#1d1819), muted is 6.6:1 and verdigris 7.1:1; on a bubble (#241f20), verdigris is 6.6:1. At the
+   bloom's brightest, #431419 in its two corners, prose is 11.9:1, text-2 9.6:1, muted 5.8:1,
+   verdigris 6.3:1 and lapis 6.1:1, and text-2 on a code chip there (#4d2126) 8.3:1, so all text,
+   and every tick and marker but the ⏺, clears 4.5:1 wherever the transcript scrolls. The subagent
+   feed's label and rows are lapis text, at 7.3:1 on #161213 and 6.1:1 at the bloom's brightest; its
+   code chips keep text-2.
+
+   The gilt, each stop on the ground under it. Deep #ae8848, the darkest, is 4.7:1 at the bloom's
+   brightest, where the @help header can scroll; 5.0:1 on a bubble and 5.4:1 in the tray, under the
+   @help mention; 5.3:1 on the prompt plate (#201a17), under the label and Send; and 5.7:1 on
+   #161213. Antique #b8975a is 5.6:1 or more, champagne #f1e4c3 12.3:1 or more, and the sweep's
+   #fff8e6 14.7:1 or more. Each stop is at least as light as the one before it in every channel, so
+   no blend between them, or under the sweep, falls below the deep stop. The prompt plate is opaque,
+   so the bloom never sits under its gilt.
+
+   The ⏺ is the one exception, and it is a non-text mark at about 3:1: #c42638 is 3.26:1 on #161213
+   and 2.72:1 at the bloom's brightest. It stays this colour, because 4.5:1 there needs a relative
+   luminance of at least 0.254, which in its hue is #e0616f, a coral pink, not a deep crimson. */
+
+.kleio-code {
+  --bg: #161213;
+  --surface: #1d1819;
+  --surface-2: #241f20;
+  --ink: #f6f1f1;
+  --text: #e8e0dc;
+  --text-2: #d3c9ca;
+  --muted: #a69c9d;
+  --rule: rgb(255 255 255 / 0.07);
+  --rule-strong: rgb(255 255 255 / 0.12);
+  --groove: rgb(0 0 0 / 0.5);
+  --lip: rgb(255 255 255 / 0.045);
+  --crimson: #c42638;
+  --help: #b8975a; /* antique gold: the lead mark and the gilt's last stop */
+  --help-deep: #ae8848; /* deep antique gold: the gilt's first stop and Send's underline */
+  --help-light: #f1e4c3; /* pale champagne: the gilt's highlight */
+  --help-plate: #201a17; /* gold at 6% on #161213, made solid */
+  --done: #66b48c; /* verdigris: every done tick */
+  --mark: #94a2c4; /* lapis: list markers, hooks and subagents */
+  --traffic: #3a3334;
+  --col: 700px;
+  --hang: 24px;
+  --dot: 9px;
+
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  /* The bloom: oxblood #70161e at 50% in two corners, gone 620×500px out. */
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(620px 500px at 0 0, rgb(112 22 30 / 0.5), rgb(112 22 30 / 0.3) 35%, rgb(112 22 30 / 0.09) 70%, rgb(112 22 30 / 0)),
+    radial-gradient(620px 500px at 100% 100%, rgb(112 22 30 / 0.5), rgb(112 22 30 / 0.3) 35%, rgb(112 22 30 / 0.09) 70%, rgb(112 22 30 / 0));
+  box-shadow:
+    inset 0 1px 0 var(--lip),
+    0 0 0 1px rgb(255 255 255 / 0.08),
+    0 0 0 2px rgb(0 0 0 / 0.6);
+  font-family: var(--sans);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.kleio-code,
+.kleio-code * {
+  box-sizing: border-box;
+}
+.kleio-code ::selection {
+  background: rgb(255 255 255 / 0.2);
+  color: var(--ink);
+}
+.kleio-code :where(p, ul, ol, h2) {
+  margin: 0;
+}
+.kleio-code :where(button) {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.kleio-code :where(button):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.kleio-code :where(strong) {
+  font-weight: 500;
+}
+.kleio-code :where(code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--text-2);
+}
+.kleio-code :where(kbd) {
+  margin-right: 5px;
+  padding: 1px 5px 2px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  font: 12px/1 var(--mono);
+  color: var(--text-2);
+}
+
+.kleio-code .i {
+  display: inline-block;
+  flex: none;
+  width: var(--icon, 16px);
+  height: var(--icon, 16px);
+  background: currentColor;
+  -webkit-mask: var(--svg) center / contain no-repeat;
+  mask: var(--svg) center / contain no-repeat;
+}
+.kleio-code .i-back {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 6l-6 6 6 6'/%3E%3C/svg%3E");
+}
+.kleio-code .i-plus {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Cpath d='M12 5.5v13M5.5 12h13'/%3E%3C/svg%3E");
+}
+.kleio-code .i-more {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='6' cy='12' r='1.5'/%3E%3Ccircle cx='12' cy='12' r='1.5'/%3E%3Ccircle cx='18' cy='12' r='1.5'/%3E%3C/svg%3E");
+}
+.kleio-code .i-up {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18.5v-13M6.5 11 12 5.5l5.5 5.5'/%3E%3C/svg%3E");
+}
+.kleio-code .i-check {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+.kleio-code .i-hook {
+  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 5v6a4 4 0 0 0 4 4h9M15 11l4 4-4 4'/%3E%3C/svg%3E");
+}
+
+/* Header: a carved groove under it, no fill, no pills. */
+.kleio-code .bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--groove);
+  box-shadow: 0 1px 0 var(--lip);
+}
+.kleio-code .lights {
+  display: flex;
+  gap: 8px;
+  margin-right: 6px;
+}
+.kleio-code .lights i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--traffic);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.45);
+}
+.kleio-code .bar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 9px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.kleio-code .bar-back .i {
+  --icon: 17px;
+}
+.kleio-code .bar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--rule-strong);
+}
+.kleio-code .title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.kleio-code .subtitle {
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kleio-code .bar-tools {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.kleio-code .bar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.kleio-code .bar-btn .i {
+  --icon: 15px;
+}
+.kleio-code .bar-btn.is-icon {
+  width: 30px;
+  padding: 0;
+}
+.kleio-code .bar-btn.is-icon .i {
+  --icon: 18px;
+}
+.kleio-code .bar-back:hover,
+.kleio-code .bar-btn:hover,
+.kleio-code .icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* Transcript: one column; the ⏺ hangs in the margin so every line of text shares one edge. */
+.kleio-code .transcript {
+  padding: 30px 0 26px;
+}
+.kleio-code .col {
+  position: relative;
+  width: min(var(--col), calc(100% - 120px));
+  margin-inline: auto;
+}
+.kleio-code .turn + .turn {
+  margin-top: 26px;
+}
+.kleio-code .you {
+  display: flex;
+  justify-content: flex-end;
+}
+.kleio-code .bubble {
+  max-width: 76%;
+  padding: 9px 15px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 14px 14px 4px 14px;
+  background: var(--surface-2);
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.kleio-code .bubble.is-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px 7px 11px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.kleio-code .bubble.is-sent .i {
+  --icon: 13px;
+  color: var(--done);
+}
+.kleio-code .mention {
+  font-weight: 500;
+}
+.kleio-code .msg {
+  position: relative;
+  font-size: 16px;
+  line-height: 1.55;
+}
+.kleio-code .lead {
+  position: absolute;
+  left: calc(4px - var(--hang));
+  top: calc(0.81em - var(--dot) / 2);
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 50%;
+  background: var(--crimson);
+}
+
+.kleio-code .prose {
+  color: var(--text);
+}
+.kleio-code .prose > * + * {
+  margin-top: 12px;
+}
+.kleio-code .prose ul,
+.kleio-code .prose ol {
+  padding-left: 24px;
+  list-style: none;
+}
+.kleio-code .prose li {
+  position: relative;
+}
+.kleio-code .prose li + li,
+.kleio-code .prose li > ul,
+.kleio-code .prose li > ol {
+  margin-top: 6px;
+}
+.kleio-code .prose li > ul,
+.kleio-code .prose li > ol {
+  padding-left: 22px;
+}
+.kleio-code .prose ul > li::before {
+  content: "";
+  position: absolute;
+  left: -15px;
+  top: calc(0.81em - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mark);
+}
+.kleio-code .prose ul ul > li::before {
+  left: -16px;
+  top: calc(0.81em - 0.75px);
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+}
+.kleio-code .prose ol {
+  counter-reset: item;
+}
+.kleio-code .prose ol > li {
+  counter-increment: item;
+}
+.kleio-code .prose ol > li::before {
+  content: counter(item) ".";
+  position: absolute;
+  right: calc(100% + 9px);
+  color: var(--mark);
+  font-variant-numeric: tabular-nums;
+}
+
+.kleio-code .steps {
+  margin-top: 10px;
+  padding: 0;
+  list-style: none;
+}
+.kleio-code .steps li {
+  position: relative;
+  padding-left: 24px;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.kleio-code .steps li + li {
+  margin-top: 3px;
+}
+.kleio-code .steps .i {
+  position: absolute;
+  left: 0;
+  top: calc(0.84em - 7px);
+  --icon: 14px;
+  color: var(--done);
+}
+
+.kleio-code .hook {
+  position: relative;
+  margin-top: 8px;
+  padding-left: 24px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.kleio-code .hook .i {
+  position: absolute;
+  left: 0;
+  top: calc(0.8em - 7px);
+  --icon: 14px;
+  color: var(--mark);
+}
+.kleio-code .hook-name {
+  color: var(--text-2);
+}
+.kleio-code .hook code {
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* The subagent feed: a lapis ring beside its first line and lapis text, the done line included,
+   with no connecting line, box, plate or side rule. Code chips keep text-2. Its text starts
+   where the step rows' text does. */
+.kleio-code .agent {
+  position: relative;
+  margin-top: 10px;
+  padding-left: 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--mark);
+}
+.kleio-code .agent::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: calc(0.8em - 5px);
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--mark);
+  border-radius: 50%;
+}
+.kleio-code .agent p + p {
+  margin-top: 2px;
+}
+.kleio-code .agent-label {
+  margin-right: 8px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mark);
+}
+
+/* @help: gold, and only @help. Its lead mark and the prompt plate's left rule are gold; the
+   @help header, the @help mention, the prompt label and Send are gilt. Its words are body text. */
+.kleio-code .help .lead {
+  background: var(--help);
+}
+.kleio-code .help-head {
+  width: fit-content;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24.8px;
+}
+.kleio-code .help .prose {
+  margin-top: 2px;
+}
+/* The plate stays solid, so the bloom never sits under its gilt. It's square on the rule's side,
+   so the rule runs straight. */
+.kleio-code .prompt {
+  margin-top: 14px;
+  padding: 13px 16px 16px;
+  border-left: 2px solid var(--help);
+  border-image: linear-gradient(180deg, var(--help-deep), var(--help-light) 30%, var(--help)) 1;
+  border-radius: 0 8px 8px 0;
+  background: var(--help-plate);
+}
+.kleio-code .prompt-label {
+  width: fit-content;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.kleio-code .prompt-text {
+  margin-top: 7px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+}
+/* No outline: gilt letters over a thin underline in the deep stop, which turns champagne on
+   hover, so hover still shows under reduced motion. */
+.kleio-code .send-kleio {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  height: 28px;
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--help-deep);
+  text-underline-offset: 4px;
+}
+.kleio-code .send-kleio:hover {
+  text-decoration-color: var(--help-light);
+}
+
+/* The gilt: a static deep → champagne → antique gradient, with App.css's ggshimmer band in warm
+   white over it, resting off the left edge. Both layers are clipped to the letters. */
+.kleio-code :is(.mention, .help-head, .prompt-label, .send-kleio) {
+  background-color: transparent;
+  background-image:
+    linear-gradient(100deg, rgb(255 248 230 / 0) 38%, #fff8e6 50%, rgb(255 248 230 / 0) 62%),
+    linear-gradient(115deg, var(--help-deep) 12%, var(--help-light) 42%, var(--help) 72%);
+  background-size: 220% 100%, 100% 100%;
+  background-position: 150% 0;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--help);
+  -webkit-text-fill-color: transparent;
+}
+/* ggshimmer's travel, trimmed from 180% → -80% so one pass spends its time on the letters. */
+@keyframes kleio-gilt {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+/* The sweep crosses once in 900ms: on load, and again on hovering the mention or Send. Leaving
+   snaps it back off the edge, unseen. Under reduced motion the gilt stays still. */
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-code :is(.mention, .help-head, .prompt-label, .send-kleio) {
+    animation: kleio-gilt 900ms linear;
+  }
+  .kleio-code :is(.mention, .send-kleio):hover {
+    background-position: -50% 0;
+    transition: background-position 900ms linear;
+  }
+}
+/* Forced colours: plain system text, never transparent letters. */
+@media (forced-colors: active) {
+  .kleio-code :is(.mention, .help-head, .prompt-label, .send-kleio) {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
+/* The tray: live tools, activity and composer in one carved piece, the only place tool calls
+   appear. */
+.kleio-code .dock {
+  margin-bottom: 20px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4);
+}
+.kleio-code .tools {
+  overflow: hidden;
+}
+.kleio-code .tools-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 14px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.kleio-code .tools-head .count {
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.kleio-code .tools ul {
+  padding: 0;
+  list-style: none;
+}
+.kleio-code .tool {
+  display: grid;
+  grid-template-columns: 14px 40px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  height: 34px;
+  padding: 0 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--text-2);
+}
+.kleio-code .tool > :first-child {
+  justify-self: center;
+}
+.kleio-code .tool .i {
+  --icon: 14px;
+  color: var(--done);
+}
+.kleio-code .tool-arg {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.kleio-code .tool-arg .stat {
+  margin-left: 10px;
+}
+.kleio-code .tool-time {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.kleio-code .tool.is-live,
+.kleio-code .tool.is-live .tool-arg,
+.kleio-code .tool.is-live .tool-time {
+  color: var(--ink);
+}
+.kleio-code .live {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+.kleio-code .activity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--text-2);
+}
+.kleio-code .activity .live {
+  width: 11px;
+  height: 11px;
+}
+.kleio-code .elapsed {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.kleio-code .esc {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted);
+}
+.kleio-code .field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 0 9px 0 8px;
+  border-top: 1px solid var(--groove);
+  box-shadow: inset 0 1px 0 var(--lip);
+}
+.kleio-code .input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.kleio-code .icon-btn,
+.kleio-code .send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 7px;
+  background: none;
+}
+.kleio-code .icon-btn {
+  border: 0;
+  color: var(--muted);
+}
+.kleio-code .icon-btn .i {
+  --icon: 17px;
+}
+.kleio-code .send {
+  border: 1px solid var(--rule-strong);
+  color: var(--text-2);
+}
+.kleio-code .send .i {
+  --icon: 16px;
+}
+.kleio-code .send:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}

@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>KLEIO · Code window</title>
+<link rel="stylesheet" href="../wordmark/final.css">
+<style>
+@font-face {
+  font-family: "Tejaratchi Ex Lefti";
+  src: url("../../gg-app/src/kleio/assets/fonts/TejaratchiExLefti.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ═══ Kleio · Code window ═══
+   One block, repeated per variant with a single class on .win. D Matte's palette with the window
+   lifted to its #161213 surface. Crimson is the ⏺ alone; gold is @help alone.
+
+   Contrast, WCAG 2 from the hex values. On #161213: prose #e8e0dc 14.3:1, muted #a69c9d 7.0:1,
+   gold #b8975a 6.7:1. Lowest pairs: muted 6.1:1 on #241f20; gold 5.2:1 on its chip in a bubble
+   and on the button's hover; at the strongest bloom's peak (#431419) muted 5.8:1, gold 5.6:1.
+   The ⏺ #c42638 is a mark, not text: 3.3:1. */
+
+:root {
+  color-scheme: dark;
+  --page: #0b0909;
+  --bg: #161213;
+  --surface: #1d1819;
+  --surface-2: #241f20;
+  --ink: #f6f1f1;
+  --text: #e8e0dc;
+  --text-2: #d3c9ca;
+  --muted: #a69c9d;
+  --rule: rgb(255 255 255 / 0.07);
+  --rule-strong: rgb(255 255 255 / 0.12);
+  --groove: rgb(0 0 0 / 0.5);
+  --lip: rgb(255 255 255 / 0.045);
+  --crimson: #c42638;
+  --help: #b8975a;
+  --help-rule: rgb(184 151 90 / 0.42);
+  --help-wash: rgb(184 151 90 / 0.06);
+  --help-chip: rgb(184 151 90 / 0.08);
+  --help-hover: rgb(184 151 90 / 0.12);
+  --traffic: #3a3334;
+  --sans: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, Menlo, monospace;
+  --col: 700px;
+  --hang: 24px;
+  --dot: 9px;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--page); }
+body { margin: 0; font-family: var(--sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+::selection { background: rgb(255 255 255 / 0.2); color: var(--ink); }
+p, ul, ol, h2 { margin: 0; }
+button { margin: 0; font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+strong { font-weight: 500; }
+code { padding: 1px 5px; border-radius: 4px; background: rgb(255 255 255 / 0.055); font-family: var(--mono); font-size: 0.85em; color: var(--text-2); }
+kbd { margin-right: 5px; padding: 1px 5px 2px; border: 1px solid var(--rule-strong); border-radius: 4px; font: 12px/1 var(--mono); color: var(--text-2); }
+
+.i { display: inline-block; flex: none; width: var(--icon, 16px); height: var(--icon, 16px); background: currentColor; -webkit-mask: var(--svg) center / contain no-repeat; mask: var(--svg) center / contain no-repeat; }
+.i-back { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.5 6l-6 6 6 6'/%3E%3C/svg%3E"); }
+.i-plus { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Cpath d='M12 5.5v13M5.5 12h13'/%3E%3C/svg%3E"); }
+.i-more { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Ccircle cx='6' cy='12' r='1.5'/%3E%3Ccircle cx='12' cy='12' r='1.5'/%3E%3Ccircle cx='18' cy='12' r='1.5'/%3E%3C/svg%3E"); }
+.i-up { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18.5v-13M6.5 11 12 5.5l5.5 5.5'/%3E%3C/svg%3E"); }
+.i-check { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E"); }
+.i-hook { --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 5v6a4 4 0 0 0 4 4h9M15 11l4 4-4 4'/%3E%3C/svg%3E"); }
+
+/* Sheet */
+.sheet-head { display: grid; justify-items: center; gap: 20px; padding: 72px 24px 56px; }
+.sheet-sub { font-size: 14px; letter-spacing: 0.02em; color: var(--muted); }
+.sheet { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 940px), 1000px)); justify-content: center; gap: 72px 48px; padding: 0 32px 120px; }
+.variant { min-width: 0; }
+.cap { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; font-size: 14.5px; line-height: 1.4; color: var(--text-2); }
+.cap b { font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cap strong { color: var(--ink); }
+.cap-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--crimson); vertical-align: 0.06em; }
+
+/* Window */
+.win {
+  --bloom: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background-color: var(--bg);
+  background-image: var(--bloom);
+  box-shadow: inset 0 1px 0 var(--lip), 0 0 0 1px rgb(255 255 255 / 0.08), 0 0 0 2px rgb(0 0 0 / 0.6);
+}
+
+/* Header: a carved groove under it, no fill, no pills. */
+.bar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--groove); box-shadow: 0 1px 0 var(--lip); }
+.lights { display: flex; gap: 8px; margin-right: 6px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--traffic); box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.45); }
+.bar-back { display: inline-flex; align-items: center; gap: 2px; height: 30px; padding: 0 9px 0 4px; border: 0; border-radius: 6px; background: none; font-size: 14px; color: var(--text-2); }
+.bar-back .i { --icon: 17px; }
+.bar-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-left: 14px; border-left: 1px solid var(--rule-strong); }
+.title { font-size: 15px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.subtitle { overflow: hidden; font-size: 13px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.bar-tools { display: flex; gap: 2px; margin-left: auto; }
+.bar-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border: 0; border-radius: 6px; background: none; font-size: 14px; color: var(--text-2); }
+.bar-btn .i { --icon: 15px; }
+.bar-btn.is-icon { width: 30px; padding: 0; }
+.bar-btn.is-icon .i { --icon: 18px; }
+.bar-back:hover, .bar-btn:hover, .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+/* Transcript: one column; the ⏺ hangs in the margin so every line of text shares one edge. */
+.transcript { padding: 30px 0 26px; }
+.col { position: relative; width: min(var(--col), calc(100% - 120px)); margin-inline: auto; }
+.turn + .turn { margin-top: 26px; }
+
+.you { display: flex; justify-content: flex-end; }
+.bubble { max-width: 76%; padding: 9px 15px 10px; border: 1px solid var(--rule); border-radius: 14px 14px 4px 14px; background: var(--surface-2); font-size: 15.5px; line-height: 1.5; color: var(--ink); }
+.bubble.is-sent { display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px 7px 11px; font-size: 13.5px; color: var(--text-2); }
+.bubble.is-sent .i { --icon: 13px; color: var(--muted); }
+.mention { padding: 0 5px 1px; border: 1px solid var(--help-rule); border-radius: 4px; background: var(--help-chip); font-weight: 500; color: var(--help); }
+
+.msg { position: relative; font-size: 16px; line-height: 1.55; }
+.lead { position: absolute; left: calc(4px - var(--hang)); top: calc(0.81em - var(--dot) / 2); width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--crimson); }
+
+.prose { color: var(--text); }
+.prose > * + * { margin-top: 12px; }
+.prose ul, .prose ol { padding-left: 24px; list-style: none; }
+.prose li { position: relative; }
+.prose li + li, .prose li > ul, .prose li > ol { margin-top: 6px; }
+.prose li > ul, .prose li > ol { padding-left: 22px; }
+.prose ul > li::before { content: ""; position: absolute; left: -15px; top: calc(0.81em - 2.5px); width: 5px; height: 5px; border-radius: 50%; background: var(--muted); }
+.prose ul ul > li::before { left: -16px; top: calc(0.81em - 0.75px); width: 7px; height: 1.5px; border-radius: 1px; }
+.prose ol { counter-reset: item; }
+.prose ol > li { counter-increment: item; }
+.prose ol > li::before { content: counter(item) "."; position: absolute; right: calc(100% + 9px); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.steps { margin-top: 10px; padding: 0; list-style: none; }
+.steps li { position: relative; padding-left: 24px; font-size: 15px; font-weight: 400; line-height: 1.6; color: var(--text-2); }
+.steps li + li { margin-top: 3px; }
+.steps .i { position: absolute; left: 0; top: calc(0.84em - 7px); --icon: 14px; color: var(--muted); }
+
+.hook { position: relative; margin-top: 8px; padding-left: 24px; font-size: 13.5px; line-height: 1.6; color: var(--muted); }
+.hook .i { position: absolute; left: 0; top: calc(0.8em - 7px); --icon: 14px; }
+.hook-name { color: var(--text-2); }
+.hook code { padding: 0; background: none; font-size: 12.5px; color: var(--text-2); }
+
+.agent { position: relative; margin-top: 10px; padding-left: 24px; font-size: 14px; line-height: 1.6; color: var(--text-2); }
+.agent::before { content: ""; position: absolute; left: 2px; top: calc(0.8em - 5px); width: 10px; height: 10px; border: 1.5px solid var(--muted); border-radius: 50%; }
+.agent::after { content: ""; position: absolute; left: 6.5px; top: calc(0.8em + 9px); bottom: 8px; width: 1px; background: var(--rule-strong); }
+.agent p + p { margin-top: 2px; }
+.agent-label { margin-right: 8px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.agent .is-done { color: var(--muted); }
+
+/* @help: gold, and only @help. */
+.help .lead { background: var(--help); }
+.help-head { font-size: 15px; font-weight: 500; line-height: 24.8px; color: var(--help); }
+.help .prose { margin-top: 2px; color: var(--help); }
+.prompt { margin-top: 14px; padding: 13px 16px 16px; border: 1px solid var(--help-rule); border-radius: 8px; background: var(--help-wash); }
+.prompt-label { font-size: 11px; line-height: 1.4; letter-spacing: 0.14em; text-transform: uppercase; color: var(--help); }
+.prompt-text { margin-top: 7px; font-size: 15px; line-height: 1.6; color: var(--text); }
+.send-kleio { display: flex; align-items: center; width: fit-content; height: 32px; margin-top: 14px; padding: 0 14px; border: 1px solid var(--help); border-radius: 6px; background: none; font-size: 13.5px; font-weight: 500; color: var(--help); }
+.send-kleio:hover { background: var(--help-hover); }
+
+/* Pinned live tools: the only place tool calls appear. */
+.tools { overflow: hidden; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--surface); box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4); }
+.tools-head { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 14px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.tools-head .count { font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+.tools ul { padding: 0; list-style: none; }
+.tool { display: grid; grid-template-columns: 14px 40px minmax(0, 1fr) auto; align-items: center; column-gap: 12px; height: 34px; padding: 0 14px; border-top: 1px solid var(--rule); font-size: 14px; color: var(--text-2); }
+.tool > :first-child { justify-self: center; }
+.tool .i { --icon: 14px; color: var(--muted); }
+.tool-arg { overflow: hidden; font-family: var(--mono); font-size: 13px; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.tool-arg .stat { margin-left: 10px; }
+.tool-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tool.is-live, .tool.is-live .tool-arg, .tool.is-live .tool-time { color: var(--ink); }
+.live { display: inline-block; flex: none; width: 12px; height: 12px; border: 1.5px solid currentColor; border-radius: 50%; background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+
+.activity { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; font-size: 14px; color: var(--text-2); }
+.activity .live { width: 11px; height: 11px; }
+.elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
+.esc { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+.dock { padding-bottom: 20px; }
+.field { display: flex; align-items: center; gap: 4px; min-height: 54px; padding: 0 9px 0 8px; border: 1px solid var(--rule-strong); border-radius: 12px; background: var(--surface); box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4); }
+.input { flex: 1; min-width: 0; padding: 0 6px; font-size: 15.5px; line-height: 1.5; color: var(--ink); }
+.icon-btn, .send { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 7px; background: none; }
+.icon-btn { border: 0; color: var(--muted); }
+.icon-btn .i { --icon: 17px; }
+.send { border: 1px solid var(--rule-strong); color: var(--text-2); }
+.send .i { --icon: 16px; }
+.send:hover { border-color: var(--muted); color: var(--ink); }
+
+/* (2)–(4) Static oxblood light behind the whole window; peaks #2c1316, #431419, #361317. */
+.win.is-bloom-subtle {
+  --bloom:
+    radial-gradient(540px 440px at 0 0, rgb(112 22 30 / 0.24), rgb(112 22 30 / 0.144) 35%, rgb(112 22 30 / 0.043) 70%, rgb(112 22 30 / 0)),
+    radial-gradient(540px 440px at 100% 100%, rgb(112 22 30 / 0.24), rgb(112 22 30 / 0.144) 35%, rgb(112 22 30 / 0.043) 70%, rgb(112 22 30 / 0));
+}
+.win.is-bloom-strong {
+  --bloom:
+    radial-gradient(620px 500px at 0 0, rgb(112 22 30 / 0.5), rgb(112 22 30 / 0.3) 35%, rgb(112 22 30 / 0.09) 70%, rgb(112 22 30 / 0)),
+    radial-gradient(620px 500px at 100% 100%, rgb(112 22 30 / 0.5), rgb(112 22 30 / 0.3) 35%, rgb(112 22 30 / 0.09) 70%, rgb(112 22 30 / 0));
+}
+.win.is-bloom-tl {
+  --bloom: radial-gradient(720px 580px at 0 0, rgb(112 22 30 / 0.36), rgb(112 22 30 / 0.216) 35%, rgb(112 22 30 / 0.065) 70%, rgb(112 22 30 / 0));
+}
+
+/* (5) Docked: tools, activity and composer as one carved tray. */
+.win.is-dock .dock { margin-bottom: 20px; padding: 0; overflow: hidden; border: 1px solid var(--rule-strong); border-radius: 12px; background: var(--surface); box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4); }
+.win.is-dock .tools { border: 0; border-radius: 0; background: none; box-shadow: none; }
+.win.is-dock .activity { border-top: 1px solid var(--rule); }
+.win.is-dock .field { min-height: 56px; border: 0; border-top: 1px solid var(--groove); border-radius: 0; background: none; box-shadow: inset 0 1px 0 var(--lip); }
+
+/* (6) Tools on top: the panel becomes a full-width strip under the header, rows on the column. */
+.win.is-top .dock { display: contents; }
+.win.is-top .bar { order: -2; }
+.win.is-top .tools { order: -1; border-width: 0 0 1px; border-color: var(--groove); border-radius: 0; box-shadow: 0 1px 0 var(--lip); }
+.win.is-top .tools-head, .win.is-top .tool { padding-inline: calc((100% - min(var(--col), 100% - 120px)) / 2); }
+.win.is-top .activity, .win.is-top .composer { width: min(var(--col), calc(100% - 120px)); margin-inline: auto; }
+.win.is-top .composer { padding-bottom: 20px; }
+</style>
+</head>
+<body>
+  <header class="sheet-head">
+    <div class="kleio-wordmark" role="heading" aria-level="1">KLEIO</div>
+    <p class="sheet-sub">Code window · one block, six variants</p>
+  </header>
+  <main class="sheet">
+    <section class="variant" aria-label="Variant 1: No bloom">
+      <p class="cap"><b>1</b><span><strong>No bloom.</strong> D Matte’s near-black lifted a step to #161213; white type, crimson only on the <span class='cap-dot' role='img' aria-label='lead dot'></span>.</span></p>
+      <div class="win">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="variant" aria-label="Variant 2: Subtle bloom">
+      <p class="cap"><b>2</b><span><strong>Subtle bloom.</strong> Static oxblood from the top-left and bottom-right corners, never brighter than #2c1316.</span></p>
+      <div class="win is-bloom-subtle">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="variant" aria-label="Variant 3: Stronger bloom">
+      <p class="cap"><b>3</b><span><strong>Stronger bloom.</strong> The same two corners at twice the strength, peaking at #431419; muted text there still clears 5.8:1.</span></p>
+      <div class="win is-bloom-strong">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="variant" aria-label="Variant 4: Top-left only">
+      <p class="cap"><b>4</b><span><strong>Top-left only.</strong> One oxblood light from the upper left, between (2) and (3) in strength.</span></p>
+      <div class="win is-bloom-tl">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="variant" aria-label="Variant 5: Docked">
+      <p class="cap"><b>5</b><span><strong>Docked.</strong> Tools, activity and composer cut into one tray instead of three separate pieces.</span></p>
+      <div class="win is-dock">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="variant" aria-label="Variant 6: Tools on top">
+      <p class="cap"><b>6</b><span><strong>Tools on top.</strong> The live panel pinned under the header, so the composer stands alone.</span></p>
+      <div class="win is-top">
+        <header class="bar">
+          <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+          <div class="bar-title">
+            <h2 class="title">Fix session expiry</h2>
+            <span class="subtitle">Code · ledger-api · fix/session-ttl</span>
+          </div>
+          <div class="bar-tools">
+            <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+            <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+          </div>
+        </header>
+
+        <div class="transcript" role="log" aria-label="Transcript">
+          <div class="col">
+            <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+              <ul class="steps">
+                <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+                <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+                <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+              </ul>
+              <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+              <div class="agent">
+                <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+                <p>Scanned 214 files for TTL arithmetic</p>
+                <p>Found one more in <code>src/cache/ttl.ts</code></p>
+                <p class="is-done">Returned 1 finding to KLEIO</p>
+              </div>
+            </div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose">
+                <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+                <p>What changed:</p>
+                <ul>
+                  <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                    <ul>
+                      <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                      <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                    </ul>
+                  </li>
+                  <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+                </ul>
+                <p>Before this ships:</p>
+                <ol>
+                  <li>Run the full suite, not just auth.</li>
+                  <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                  <li>Merge behind the existing <code>session-v2</code> flag.</li>
+                </ol>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+            <div class="turn msg help">
+              <span class="lead" aria-hidden="true"></span>
+              <p class="help-head">@help</p>
+              <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+              <div class="prompt">
+                <p class="prompt-label">Prompt for KLEIO</p>
+                <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+                <button class="send-kleio" type="button">Send to KLEIO</button>
+              </div>
+            </div>
+
+            <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+            <div class="turn msg">
+              <span class="lead" aria-hidden="true"></span>
+              <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock col">
+          <section class="tools" aria-label="Live tools">
+            <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+            <ul>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/session.test.ts</span><span class="tool-time">0.1s</span></li>
+              <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/session.test.ts<span class="stat">+21</span></span><span class="tool-time">0.4s</span></li>
+              <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Bash</span><span class="tool-arg">pnpm vitest run src/auth</span><span class="tool-time">6s</span></li>
+            </ul>
+          </section>
+          <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Running the auth suite</span><span class="elapsed">6s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+          <div class="composer">
+            <div class="field">
+              <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+              <p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> what should I check before I merge?</p>
+              <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

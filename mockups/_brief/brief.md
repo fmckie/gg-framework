@@ -229,3 +229,10 @@ It writes 2048×1440 PNGs and prints one JSON line per page. `"scroll"` must be
 contain only clipping you did on purpose. Then open each PNG and look closely:
 alignment, spacing, overlaps, truncated or wrapped text, contrast, and only one
 accent hue. Fix and re-shoot until every screen is clean.
+
+## Parked
+
+- Remove Ken from gg-app. The mentor is @help (Kleio's help, consults another
+  AI). Prefer a display-layer rename (labels, colours, handle) over deleting
+  upstream Ken code, to keep sync/upstream merges clean. Do it on its own branch
+  with tests, not in a design session.

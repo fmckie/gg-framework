@@ -1,0 +1,23 @@
+.kleio-code .help .prompt {
+  border: 1px solid rgb(184 151 90 / 0.26);
+  border-image: none;
+  border-radius: 6px;
+  padding: 12px 15px 15px;
+  background: var(--help-plate);
+}
+.kleio-code :is(.mention, .help-head, .prompt-label, .send-kleio) {
+  animation: none;
+}
+.kleio-code .send-kleio:focus-visible {
+  outline: 2px solid #94a2c4;
+  outline-offset: 5px;
+}
+.kleio-code .bubble.is-sent {
+  border: 1px solid rgb(184 151 90 / 0.26);
+  border-radius: 6px;
+  background: var(--help-plate);
+  color: var(--help);
+}
+.kleio-code .bubble.is-sent .i {
+  color: var(--help);
+}
