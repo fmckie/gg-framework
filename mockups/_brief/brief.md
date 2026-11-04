@@ -236,3 +236,6 @@ accent hue. Fix and re-shoot until every screen is clean.
   AI). Prefer a display-layer rename (labels, colours, handle) over deleting
   upstream Ken code, to keep sync/upstream merges clean. Do it on its own branch
   with tests, not in a design session.
+- Plan review moves from PlanReviewModal to inline in the transcript. That's a
+  behaviour change (focus, keyboard, scroll and resume handling), not a reskin.
+  Port it on its own branch with tests.

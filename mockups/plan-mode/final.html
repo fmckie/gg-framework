@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>KLEIO · Plan mode, locked</title>
+<link rel="stylesheet" href="../code-transcript/final.css">
+<link rel="stylesheet" href="final.css">
+<style>
+  :root {
+    color-scheme: dark;
+    --sans: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, Menlo, monospace;
+  }
+  html { background: #0b0909; }
+  body { margin: 0; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  ::selection { background: rgb(255 255 255 / 0.2); color: #f6f1f1; }
+  .page { box-sizing: border-box; padding: 56px 32px 96px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 760px), 1000px)); justify-content: center; align-items: start; gap: 56px 32px; }
+  .page-head { grid-column: 1 / -1; margin: 0 0 -24px; font-size: 14.5px; font-weight: 400; line-height: 1.4; color: #d3c9ca; }
+  .variant { min-width: 0; }
+  .cap { margin: 0 0 14px; font-size: 14.5px; line-height: 1.4; color: #d3c9ca; }
+  :is(.page-head, .cap) strong { font-weight: 500; color: #f6f1f1; }
+</style>
+</head>
+<body>
+  <main class="page">
+    <div class="grid">
+      <h1 class="page-head"><strong>Plan mode, locked.</strong> The carved banner (1A), and 2A’s plan reviewed inline: no sheet, no dimming, no overlay.</h1>
+      <section class="variant" aria-label="1: Waiting for review">
+        <p class="cap"><strong>1 · Waiting for review.</strong> The plan sits in the transcript, and its actions stick above the tray however far you scroll.</p>
+        <div class="kleio-code is-viewport">
+          <header class="bar">
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+            <div class="bar-title">
+              <h2 class="title">Rate-limit failed logins</h2>
+              <span class="subtitle">Code · ledger-api · fix/login-limits</span>
+            </div>
+            <div class="bar-tools">
+              <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+              <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+            </div>
+          </header>
+          <div class="transcript" role="log" aria-label="Transcript">
+            <div class="col">
+              <div class="turn you"><p class="bubble">Failed logins aren’t rate-limited. Plan a fix before you change anything.</p></div>
+              <div class="turn plan-banner">
+                <p class="plan-banner-title">Plan mode</p>
+                <p class="plan-banner-reason">Read-only until you approve a plan. This touches auth and the HTTP layer, so I’ll map both first.</p>
+              </div>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>I’ll map the login route and the one limiter we have, and have a subagent check how other routes throttle requests.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Read the login route in <code>src/auth/login.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found no count of failed attempts anywhere in the auth flow</li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found one limiter, in <code>src/http/limits.ts</code>, used only by signup</li>
+                </ul>
+                <div class="agent">
+                  <p><span class="agent-label">Subagent</span>Explore: how other routes throttle requests</p>
+                  <p>Scanned 88 files in <code>src/http</code> and <code>src/auth</code></p>
+                  <p>Found the shared Redis client the signup limiter uses</p>
+                  <p class="is-done">Returned 2 findings to KLEIO</p>
+                </div>
+              </div>
+              <section class="turn plan" aria-labelledby="plan-title">
+                <header class="plan-head"><h3 class="plan-head-title" id="plan-title">Plan review</h3></header>
+                <div class="prose plan-doc">
+                  <h4>Rate-limit failed logins</h4>
+                  <h5>Context</h5>
+                  <p>Failed logins aren’t counted today: <code>POST /login</code> checks the password and returns 401, so a script can try passwords as fast as the server answers. The only limiter, in <code>src/http/limits.ts</code>, guards signup.</p>
+                  <h5>Steps</h5>
+                  <ol>
+                    <li>Move the limiter in <code>src/http/limits.ts</code> behind a <code>createLimiter()</code> helper that signup and login can share.</li>
+                    <li>In <code>src/auth/login.ts</code>, count failed attempts per account and per IP. After 5 failures on one account, or 50 from one IP, within 15 minutes, return 429 with a <code>Retry-After</code> header, so a script is slowed down without locking out someone who mistypes their password a few times.</li>
+                    <li>Reset an account’s count when it logs in successfully.</li>
+                    <li>Log each 429 with the account and the IP, so the limits can be tuned from real traffic.</li>
+                    <li>Add tests in <code>src/auth/login.test.ts</code> for the 5th and 6th failure, the reset and the header.</li>
+                  </ol>
+                  <h5>Files</h5>
+                  <ul>
+                    <li><code>src/http/limits.ts</code>: the shared <code>createLimiter()</code></li>
+                    <li><code>src/auth/login.ts</code>: the two counts and the 429</li>
+                    <li><code>src/auth/login.test.ts</code>: the new tests</li>
+                  </ul>
+                  <h5>Not in this plan</h5>
+                  <ul>
+                    <li>A CAPTCHA, or locking accounts</li>
+                    <li>Changing signup’s existing limit</li>
+                  </ul>
+                  <h5>Risk</h5>
+                  <p>People behind one shared IP, such as an office or a VPN, share the per-IP count. That’s why its limit is 50, not 5.</p>
+                  <h5>Rollout</h5>
+                  <p>Ship behind the existing <code>auth-v2</code> flag, with both limits read from config, so they can change without a deploy.</p>
+                </div>
+              </section>
+              <div class="plan-actions">
+                <div class="plan-tray" role="group" aria-label="Review the plan">
+                  <input class="plan-feedback" type="text" placeholder="Give feedback on this plan…" aria-label="Feedback on this plan">
+                  <button class="plan-reject" type="button">Reject</button>
+                  <button class="plan-approve" type="button">Approve</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="dock col">
+            <section class="tools" aria-label="Live tools">
+              <p class="tools-head"><span>Tools</span><span class="count">3 done</span></p>
+              <ul>
+                <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Grep</span><span class="tool-arg">rateLimit|throttle src/</span><span class="tool-time">0.2s</span></li>
+                <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Read</span><span class="tool-arg">src/auth/login.ts</span><span class="tool-time">0.1s</span></li>
+                <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Agent</span><span class="tool-arg">Explore: how routes throttle requests</span><span class="tool-time">21s</span></li>
+              </ul>
+            </section>
+            <div class="activity" role="status"><span>Waiting for your review</span></div>
+            <div class="composer">
+              <div class="field">
+                <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+                <p class="input is-placeholder" role="textbox" aria-readonly="true" aria-label="Message">Message KLEIO…</p>
+                <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="variant" aria-label="2: Approved">
+        <p class="cap"><strong>2 · Approved.</strong> The plan folds into one ✓ row, the actions go, and KLEIO carries on.</p>
+        <div class="kleio-code is-viewport">
+          <header class="bar">
+            <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+            <button class="bar-back" type="button"><span class="i i-back" aria-hidden="true"></span>Home</button>
+            <div class="bar-title">
+              <h2 class="title">Rate-limit failed logins</h2>
+              <span class="subtitle">Code · ledger-api · fix/login-limits</span>
+            </div>
+            <div class="bar-tools">
+              <button class="bar-btn" type="button"><span class="i i-plus" aria-hidden="true"></span>New</button>
+              <button class="bar-btn is-icon" type="button" aria-label="More"><span class="i i-more" aria-hidden="true"></span></button>
+            </div>
+          </header>
+          <div class="transcript" role="log" aria-label="Transcript">
+            <div class="col">
+              <div class="turn you"><p class="bubble">Failed logins aren’t rate-limited. Plan a fix before you change anything.</p></div>
+              <div class="turn plan-banner">
+                <p class="plan-banner-title">Plan mode</p>
+                <p class="plan-banner-reason">Read-only until you approve a plan. This touches auth and the HTTP layer, so I’ll map both first.</p>
+              </div>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>I’ll map the login route and the one limiter we have, and have a subagent check how other routes throttle requests.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Read the login route in <code>src/auth/login.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found no count of failed attempts anywhere in the auth flow</li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found one limiter, in <code>src/http/limits.ts</code>, used only by signup</li>
+                </ul>
+                <div class="agent">
+                  <p><span class="agent-label">Subagent</span>Explore: how other routes throttle requests</p>
+                  <p>Scanned 88 files in <code>src/http</code> and <code>src/auth</code></p>
+                  <p>Found the shared Redis client the signup limiter uses</p>
+                  <p class="is-done">Returned 2 findings to KLEIO</p>
+                </div>
+              </div>
+              <p class="turn plan-done"><span class="i i-check" aria-hidden="true"></span>Rate-limit failed logins<span class="plan-done-state"> · Approved</span></p>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>Out of plan mode. Starting with the shared limiter, then the login count.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Moved the limiter behind <code>createLimiter()</code> in <code>src/http/limits.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Switched signup to the shared helper, keeping its limit</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="dock col">
+            <section class="tools" aria-label="Live tools">
+              <p class="tools-head"><span>Tools</span><span class="count">2 done · 1 running</span></p>
+              <ul>
+                <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/http/limits.ts<span class="stat">+24</span></span><span class="tool-time">0.3s</span></li>
+                <li class="tool"><span class="i i-check" role="img" aria-label="Done"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/signup.ts<span class="stat">+2</span></span><span class="tool-time">0.2s</span></li>
+                <li class="tool is-live"><span class="live" role="img" aria-label="Running"></span><span class="tool-name">Edit</span><span class="tool-arg">src/auth/login.ts</span><span class="tool-time">4s</span></li>
+              </ul>
+            </section>
+            <div class="activity" role="status"><span class="live" aria-hidden="true"></span><span>Counting failed logins</span><span class="elapsed">4s</span><span class="esc"><kbd>esc</kbd>to stop</span></div>
+            <div class="composer">
+              <div class="field">
+                <button class="icon-btn" type="button" aria-label="Attach"><span class="i i-plus" aria-hidden="true"></span></button>
+                <p class="input is-placeholder" role="textbox" aria-readonly="true" aria-label="Message">Message KLEIO…</p>
+                <button class="send" type="button" aria-label="Send"><span class="i i-up" aria-hidden="true"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

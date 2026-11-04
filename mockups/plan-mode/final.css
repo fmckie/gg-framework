@@ -1,0 +1,230 @@
+/* ═══ Kleio · plan mode: carved banner, plan reviewed inline ═══
+   The locked look for plan mode: the carved banner (1A), and 2A's plan review moved inline into the
+   transcript. Built on ../code-transcript/final.css, the locked Code window, and loaded after it;
+   it restyles nothing there, and every rule sits under .kleio-code.
+
+     <div class="kleio-code is-viewport">
+       <header class="bar">…</header>
+       <div class="transcript"><div class="col">
+         <div class="turn plan-banner">…</div> …turns…
+         <section class="turn plan"><header class="plan-head">…</header>
+           <div class="prose plan-doc">…</div></section>
+         <div class="plan-actions"><div class="plan-tray">…</div></div>
+       </div></div>
+       <div class="dock col">…</div>
+     </div>
+
+   Locked with it:
+   - Banner (1A): PLAN MODE carved in Tejaratchi, in bone #e8e0dc, between two grooves cut like the
+     header's, with its reason under it in muted. No ASCII art and no amber.
+   - Plan review, inline (2A's look): YOUR PLAN carved the same way, then the plan's markdown
+     straight on the transcript. No modal, sheet, scrim, dimming or shadow. Its headings are new;
+     its lists are final.css's.
+   - Action bar: a feedback field, Reject and a quiet Approve in one solid bar, cut like the dock.
+     While the plan is unresolved, the bar is pinned to the transcript's foot, 12px above the docked
+     tray, so a long plan never scrolls it out of reach.
+   - Approved: the plan collapses into one row, a verdigris ✓ with its title and "Approved". The
+     action bar goes, and the transcript carries on with the next ⏺ message.
+   - Crimson only on the ⏺. No gold: that's only for @help, which has no part here. No pills, no
+     blur, and nothing moves.
+   - Picked over 1B's hook-style row and 1C's bone-ruled plate for the banner, and for the review,
+     over 2B's Cloisonné Approve and 2C's choices in the dock. 2A itself was a modal sheet until it
+     moved inline. The page comparing them wasn't kept.
+
+   .is-viewport gives a mockup window the app's fixed height, so its transcript scrolls.
+
+   Contrast, WCAG 2 from the hex values, on the window's #161213 and then at the bloom's brightest,
+   #431419: the carved titles, the plan's text and the approved row #e8e0dc 14.3:1 and 11.9:1; the
+   plan's title #f6f1f1 16.6:1 and 13.9:1; its section heads #d3c9ca 11.5:1 and 9.6:1; its list
+   numbers in lapis #94a2c4 7.3:1 and 6.1:1; code on its chips 10.1:1 and 8.3:1; and the banner's
+   reason and "Approved" in muted #a69c9d 7.0:1 and 5.8:1, the lowest. The bar is solid #1d1819, so
+   the bloom never sits under it: its placeholder and Reject in muted are 6.6:1, typed feedback
+   #f6f1f1 15.7:1, and Approve's label, like Reject's on hover, #f6f1f1 on #241f20 14.5:1. The
+   verdigris ✓ is a mark, at 7.5:1 and 6.3:1. */
+
+@font-face {
+  font-family: "Tejaratchi Ex Lefti";
+  src: url("../home-buttons/assets/fonts/TejaratchiExLefti.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* A window at the app's fixed height: the transcript scrolls between the header and the dock.
+   The 12px under it is window, so nothing scrolls into that gap; with the 14px of padding left
+   above it, the last message still ends final.css's 26px above the dock. */
+.kleio-code.is-viewport {
+  height: 1020px;
+}
+.kleio-code.is-viewport > :is(.bar, .dock) {
+  flex: none;
+}
+.kleio-code.is-viewport .transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 12px;
+  padding-bottom: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+}
+.kleio-code :where(h3, h4, h5) {
+  margin: 0;
+}
+.kleio-code .input.is-placeholder {
+  color: var(--muted);
+}
+
+/* The carved title, on the banner and the plan alike: the wordmark's face and tracking, in
+   bone, between two grooves cut like the header's. */
+.kleio-code :is(.plan-banner, .plan-head) {
+  padding: 22px 0 18px;
+  border-block: 1px solid var(--groove);
+  box-shadow: inset 0 1px 0 var(--lip), 0 1px 0 var(--lip);
+  text-align: center;
+}
+.kleio-code :is(.plan-banner-title, .plan-head-title) {
+  margin-right: -0.34em;
+  font-family: "Tejaratchi Ex Lefti", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--help);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.75);
+}
+.kleio-code .plan-head-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--help);
+}
+.kleio-code .plan-banner-reason {
+  max-width: 520px;
+  margin: 12px auto 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* The plan, straight on the transcript. Its headings are new; its lists are final.css's. */
+.kleio-code .plan {
+  font-size: 16px;
+  line-height: 1.55;
+}
+.kleio-code .plan-doc {
+  margin-top: 22px;
+}
+.kleio-code .plan-doc > h4 {
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--ink);
+}
+.kleio-code .plan-doc > h5 {
+  margin-top: 22px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.kleio-code .plan-doc > h5 + * {
+  margin-top: 8px;
+}
+
+/* While the plan is open, its actions stick to the transcript's foot, flush with its edge, so a
+   long plan never scrolls them out of reach. The bar is solid and cut like the dock, with no
+   shadow; the square backing under its rounded corners keeps scrolled text from showing there. */
+.kleio-code .plan-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 22px;
+  background: var(--bg);
+}
+.kleio-code.is-viewport .transcript:has(> .col > .plan-actions) {
+  padding-bottom: 0;
+}
+.kleio-code .plan-tray {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 56px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4);
+}
+.kleio-code .plan-feedback {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  appearance: none;
+}
+.kleio-code .plan-feedback::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+.kleio-code .plan-feedback:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+}
+.kleio-code :is(.plan-reject, .plan-approve) {
+  height: 34px;
+  border-radius: 7px;
+  font-size: 14px;
+}
+.kleio-code .plan-reject {
+  --reject-outline: color-mix(in srgb, var(--crimson) 70%, var(--ink));
+  padding: 0 10px;
+  border: 1px solid var(--reject-outline);
+  background: transparent;
+  color: var(--reject-outline);
+}
+.kleio-code .plan-reject:hover {
+  background: var(--crimson);
+  border-color: var(--crimson);
+  color: var(--ink);
+}
+.kleio-code .plan-approve {
+  padding: 0 15px;
+  border: 1px solid var(--help);
+  background: transparent;
+  font-weight: 500;
+  color: var(--help);
+}
+.kleio-code .plan-approve:hover {
+  background: var(--help);
+  color: var(--bg);
+}
+
+/* Approved: the plan folds into one row, set like a step, and the actions go. */
+.kleio-code .plan-done {
+  position: relative;
+  padding-left: 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.kleio-code .plan-done .i {
+  position: absolute;
+  left: 0;
+  top: calc(0.8em - 7px);
+  --icon: 14px;
+  color: var(--done);
+}
+.kleio-code .plan-done-state {
+  color: var(--muted);
+}
