@@ -1,0 +1,33 @@
+/* Whole-body composer replacements; reference-led revision awaiting approval. */
+.panel-sample + .panel-sample { margin-top: 36px; }
+.panel-sample .kleio-code { display: flex; flex-direction: column; height: 788px; }
+.panel-sample .chrome, .panel-sample .dock, .panel-sample .status { flex: none; }
+.panel-sample .transcript { flex: 1; min-height: 0; }
+.composer-panel { width: 100%; }
+.panel-header { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 16px; border-top: 1px solid #4b4143; border-bottom: 1px solid #4b4143; }
+.panel-header h3 { margin: 0; color: #e8e0dc; font-size: 12px; font-weight: 600; letter-spacing: .06em; }
+.panel-header .panel-meta, .panel-header .escape { color: #a69c9d; font-size: 12px; }
+.panel-header .escape { margin-left: auto; font: 11px var(--mono); }
+.kleio-code .panel-header .control { width: 32px; height: 32px; padding: 0; border-color: #4b4143; }
+.priority-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 12px 16px; }
+.kleio-code .priority-actions .control { justify-content: flex-start; gap: 8px; height: 44px; padding: 0 12px; border: 0; border-radius: 3px; background: #241f20; color: #e8e0dc; font-size: 14px; }
+.branch-actions { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: 1px solid #4b4143; }
+.kleio-code .branch-actions .control { gap: 8px; height: 32px; padding: 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
+.kleio-code .branch-actions .is-current { border-bottom-color: #94a2c4; color: #e8e0dc; }
+.branch-actions .view-count { color: inherit; font-size: 11px; font-variant-numeric: tabular-nums; }
+.branch-actions .github { margin-left: auto; }
+.change-scroll { height: 216px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-color: #a69c9d #1d1819; }
+.change-list { list-style: none; margin: 0; padding: 4px 16px; }
+.change-list li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 7px 0; font-size: 12px; line-height: 20px; }
+.change-kind { color: #a69c9d; font: 11px var(--mono); }
+.change-path { color: #e8e0dc; overflow-wrap: anywhere; }
+.change-path .folder, .change-state { color: #a69c9d; }
+.panel-entry-bar { display: flex; flex: none; align-items: center; gap: 16px; padding: 8px 16px; border-top: 1px solid #4b4143; }
+.kleio-code .panel-entry-bar .control { height: 32px; padding: 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; }
+.kleio-code .panel-entry-bar .entry-active { border-bottom-color: #94a2c4; color: #94a2c4; }
+.panel-entry-bar .static-label { margin-left: auto; color: #a69c9d; font-size: 11px; }
+.kleio-code :is(.composer-panel, .panel-entry-bar) .control:is(:hover, :focus-visible) { color: #94a2c4; background: #241f20; }
+.kleio-code :is(.composer-panel, .panel-entry-bar) .control:focus-visible, .change-scroll:focus-visible { position: relative; z-index: 1; outline: 2px solid #94a2c4; outline-offset: 2px; }
+.change-scroll:focus-visible { outline-offset: -2px; }
+.kleio-code :is(.composer-panel, .panel-entry-bar) .control svg { width: 16px; height: 16px; color: inherit; stroke: currentColor; }
+.behavior-note { margin: 20px 0 0; color: #a69c9d; font-size: 12px; line-height: 1.6; }

@@ -1,0 +1,59 @@
+/* Session-only additions; approved shared styles remain unchanged. */
+.session-preview .session-identity { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; color: var(--muted); white-space: normal; }
+.session-preview .session-identity h3 { min-width: 0; margin: 0; color: var(--text); font-size: 12px; line-height: 1.5; font-weight: 500; overflow-wrap: anywhere; }
+.session-preview .session-identity .control { flex: none; padding-inline: 0; }
+.session-preview .chat-browser { display: flex; flex: 1; flex-direction: column; min-height: 0; padding: 22px 0; }
+.session-preview .browser-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-bottom: 20px; }
+.session-preview .browser-heading h3 { margin: 0; color: var(--ink); font-size: 20px; font-weight: 500; }
+.session-preview .browser-heading h3 span { margin-left: 10px; color: var(--muted); font: 12px var(--mono); }
+.session-preview .search-label { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
+.session-preview input { width: 260px; border: 1px solid #4b4143; border-radius: 3px; padding: 9px 12px; background: var(--surface); color: var(--ink); font: 13px var(--sans); }
+.session-preview input::placeholder, .session-preview textarea::placeholder { color: var(--muted); opacity: 1; }
+.session-preview .session-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding: 4px; scrollbar-color: #a69c9d #1d1819; }
+.session-preview .session-list { list-style: none; margin: 0; padding: 0; }
+.session-preview .session-list li + li { border-top: 1px solid var(--rule); }
+.session-preview .session-item { display: grid; grid-template-columns: minmax(0, 1fr) 76px; column-gap: 24px; row-gap: 8px; width: 100%; padding: 16px 12px; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--text); font: 15px/1.5 var(--sans); text-align: left; }
+.session-preview .session-item[aria-current] { border-color: #4b4143; background: var(--surface); }
+.session-preview .session-title { overflow-wrap: anywhere; }
+.session-preview .session-date { color: var(--muted); text-align: right; white-space: nowrap; font-size: 12px; }
+.session-preview .session-meta { display: flex; gap: 16px; grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+.session-preview .session-flag { color: var(--text-2); }
+.session-preview .session-item:is(:hover, :focus-visible), .session-preview .session-identity .control:is(:hover, :focus-visible) { background: var(--surface-2); color: var(--mark); }
+.session-preview :is(.session-item, input, textarea, .session-identity .control):focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+.session-preview .session-scroll:focus-visible { outline: 2px solid var(--mark); outline-offset: -2px; }
+.session-preview .empty-transcript { display: flex; align-items: center; text-align: center; }
+.session-preview .empty-transcript h3 { margin: 0 0 12px; font-size: 20px; font-weight: 450; }
+.session-preview .empty-transcript p { color: var(--muted); font-size: 13px; }
+.session-preview textarea.input { resize: none; border: 0; background: transparent; font-family: var(--sans); margin: 12px 0; }
+
+.session-preview .title-row { height: auto; min-height: 48px; padding-block: 10px; }
+.session-preview .title-row > :not(.session-identity) { flex-shrink: 0; }
+.session-preview .title-row .session-identity h3 { flex: 1; }
+.session-preview .title-row .lights button:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+.session-preview .browser-controls { display: flex; align-items: center; gap: 16px; }
+.session-preview .new-chat { border-color: #4b4143; min-height: 36px; }
+.session-preview .new-chat:is(:hover, :focus-visible) { background: var(--surface-2); color: var(--mark); }
+.session-preview .new-chat:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+
+/* WakeScreen adaptation: source and MIT notice in session-wake-LICENSE.txt. */
+.session-preview .session-wake { position: relative; isolation: isolate; overflow: hidden; padding: 0; }
+.session-preview .wake-field { position: absolute; inset: 0; overflow: hidden; pointer-events: none; mask-image: linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent), radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%), radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent), radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%), radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%); }
+.session-preview .session-wake .wake-copy { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1; pointer-events: none; }
+.session-preview .wake-rain { position: absolute; top: -160px; left: 0; width: 100%; height: calc(100% + 320px); opacity: 0.85; pointer-events: none; }
+.session-preview .session-wake .wake-static, .session-preview .wake-treatment { font: 18px/1.5 var(--mono); letter-spacing: 0.02em; color: var(--text); }
+.session-preview .wake-treatment { display: none; min-height: 27px; margin-bottom: 12px; }
+.session-preview .wake-animated .wake-treatment { display: block; }
+.session-preview .wake-animated .wake-static { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.session-preview .wake-cursor { margin-left: 2px; color: var(--muted); }
+.session-preview .wake-running .wake-cursor { animation: session-wake-blink 1s step-end infinite; }
+@keyframes session-wake-blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) {
+  .session-preview .wake-rain, .session-preview .wake-animated .wake-treatment, .session-preview .wake-treatment { display: none; }
+  .session-preview .wake-animated .wake-static { position: static; width: auto; height: auto; margin: 0 0 12px; overflow: visible; clip-path: none; white-space: normal; }
+  .session-preview .wake-cursor { animation: none; }
+}
+
+.session-preview .session-wake .wake-copy p { color: var(--text-2); }
+
+/* Keep bright decorative glyphs clear of the unchanged invitation and subtitle. */
+.session-preview .wake-field { -webkit-mask-composite: source-in; mask-composite: intersect; }

@@ -1,0 +1,61 @@
+/* Selected window-chrome baseline: variant A. B/C remain comparisons only.
+   Composer alternatives have not been explored. Keep the terminal control.
+   Reuses the locked Code stylesheet without modifying it. */
+:root { --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --mono: ui-monospace, monospace; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #100e0f; color: #e8e0dc; font-family: var(--sans); }
+main { width: 1584px; margin: 0 auto; padding: 44px 12px 60px; }
+.page-head { margin-bottom: 36px; }
+.page-head > span { font: 11px var(--mono); letter-spacing: .16em; color: #a69c9d; }
+h1 { margin: 12px 0 8px; font-size: 30px; font-weight: 450; letter-spacing: -.04em; }
+.page-head p { margin: 0; color: #a69c9d; font-size: 13px; }
+section + section { margin-top: 34px; }
+.caption { display: flex; gap: 14px; align-items: center; font-size: 13px; font-weight: 400; color: #a69c9d; margin: 0 0 12px; }
+.caption b { color: #e8e0dc; font: 13px var(--mono); }
+.kleio-code { --col: 940px; }
+.chrome { border-bottom: 1px solid var(--rule-strong); }
+.title-row, .toolbar { display: flex; align-items: center; gap: 16px; padding: 0 20px; white-space: nowrap; }
+.title-row { height: 48px; font-size: 12px; }
+.toolbar { height: 46px; border-top: 1px solid var(--rule); gap: 12px; }
+.kleio-code .control { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 28px; padding: 4px 8px; background: none; border: 1px solid transparent; border-radius: 3px; color: var(--text-2); font-size: 12px; white-space: nowrap; }
+.kleio-code .control:hover { background: var(--surface-2); color: var(--ink); }
+svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.kleio-code .lights { gap: 7px; margin-right: 4px; }
+.lights button { display: grid; place-items: center; padding: 0; width: 14px; height: 14px; border: 0; border-radius: 50%; background: #3a3334; color: #e8e0dc; font-size: 11px; line-height: 1; }
+.project { color: var(--ink); }
+.branch, .host, .usage { color: var(--muted); }
+.branch { padding-left: 14px; border-left: 1px solid var(--rule-strong); font-family: var(--mono); font-size: 11px; }
+.host { margin-left: auto; }
+.usage { display: flex; align-items: center; gap: 9px; font: 11px var(--mono); }
+.meter { display: block; width: 64px; height: 4px; background: #3a3334; }
+.meter i { display: block; width: 26%; height: 100%; background: #a69c9d; }
+.kleio-code .specialist { border-color: var(--rule-strong); }
+.specialist .count { color: var(--mark); padding-right: 7px; border-right: 1px solid var(--rule-strong); }
+.kleio-code .autopilot { margin-left: 14px; color: var(--muted); }
+.switch { width: 26px; height: 14px; padding: 2px; border: 1px solid #a69c9d; }
+.switch i { display: block; width: 8px; height: 8px; background: #d3c9ca; margin-left: auto; }
+.toolbar-space { flex: 1; }
+.overflow { position: relative; }
+.menu { position: absolute; top: 34px; right: 0; z-index: 2; width: 162px; padding: 6px; border: 1px solid #4b4143; background: #1d1819; }
+.menu .control { display: flex; width: 100%; justify-content: flex-start; height: 32px; }
+.menu .control:nth-child(3) { border-top-color: var(--rule-strong); }
+.kleio-code .transcript { padding-top: 22px; padding-bottom: 22px; }
+.kleio-code .turn + .turn { margin-top: 18px; }
+.kleio-code .msg { font-size: 15px; }
+.subagent-note { display: flex; align-items: center; gap: 10px; color: var(--mark); font-size: 12px; }
+.ring { width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 50%; }
+.kleio-code .dock { margin-bottom: 12px; }
+.spinner { width: 13px; height: 13px; border: 1.5px dotted #d3c9ca; border-radius: 50%; }
+.kleio-code .stop { background: #c42638; color: #f6f1f1; padding-inline: 12px; }
+.kleio-code .send { background: #c42638; color: #f6f1f1; border: 0; border-radius: 3px; }
+.status { display: flex; align-items: center; gap: 12px; padding: 0 20px 12px; }
+.status .control { font-size: 11px; padding-inline: 6px; }
+.status .control > span:not(.mention) { color: var(--muted); }
+.kleio-code .background-task { border-color: var(--rule-strong); }
+.variant-C .chrome { display: flex; align-items: center; padding: 0 10px; height: 48px; gap: 6px; }
+.variant-C .title-row, .variant-C .toolbar { display: contents; }
+.variant-C .host { margin-left: 0; }
+.variant-C .autopilot { margin-left: 0; }
+.variant-C .chrome .toolbar-space { display: none; }
+.variant-C .chrome { justify-content: space-between; }
+@media (max-width: 1600px) { main { margin-left: 20px; } }

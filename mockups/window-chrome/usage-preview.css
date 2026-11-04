@@ -1,0 +1,24 @@
+.kleio-code .usage-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px 16px;
+  border: 1px solid #4b4143;
+  border-radius: 6px;
+  background: #1d1819;
+  color: var(--text);
+  font: 12px var(--sans);
+}
+.usage-popover::backdrop { background: transparent; pointer-events: none; }
+.usage-popover header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.usage-popover h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .06em; }
+.usage-popover p { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 10px; color: #d3c9ca; }
+.usage-popover small { display: block; margin-top: 10px; color: #a69c9d; font-size: 11px; }
+.usage-popover .usage-meter { height: 4px; background: #4b4143; }
+.usage-popover .usage-meter i { display: block; height: 100%; background: #a69c9d; }
+.kleio-code .usage-popover .usage-close { width: 28px; height: 28px; padding: 0; border-color: #4b4143; }
+.kleio-code :is(.usage-close, .context-control):is(:hover, :focus-visible) { color: #94a2c4; }
+.kleio-code :is(.usage-close, .context-control):focus-visible { outline: 2px solid #94a2c4; outline-offset: 2px; }
+.kleio-code .context-control[aria-expanded=true] { color: #94a2c4; }
