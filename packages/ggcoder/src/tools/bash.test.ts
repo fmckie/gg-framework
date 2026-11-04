@@ -278,6 +278,8 @@ describe("createBashTool shell snapshot", () => {
     // 2026-08 guardrail additions (audit P1/P2); git rule now lives in the system prompt.
     expect(tool.description).toContain("never `&`, nohup or sleep");
     expect(tool.description).toContain("Kill by exact PID");
+    // Host-process safety is always on, not left to the lean skill.
+    expect(tool.description).toContain("never by name or pattern");
   });
 });
 
