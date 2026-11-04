@@ -73,7 +73,11 @@ function scriptedReply(body: ChatRequest): Reply {
     const verdict = kenVerdicts.length > 1 ? kenVerdicts.shift() : kenVerdicts[0];
     return { text: verdict ?? "HUMAN" };
   }
-  const isMainAgent = (body.tools ?? []).some((t) => t.function?.name === "exit_plan");
+  // enter_plan/exit_plan are deferred (loaded on first call), so recognise the
+  // main agent by its always-loaded tools instead.
+  const isMainAgent = (body.tools ?? []).some((t) =>
+    ["ask_user", "tool_search", "exit_plan"].includes(t.function?.name ?? ""),
+  );
   const last = messages.at(-1);
   if (!isMainAgent || last?.role !== "user") return { text: "Done." };
   const said = JSON.stringify(last.content);

@@ -2076,6 +2076,7 @@ export async function* agentLoop(
         maxToolResultChars: options.maxToolResultChars,
         maxTurnToolResultChars: options.maxTurnToolResultChars,
         transformToolResult: options.transformToolResult,
+        resolveTool: options.resolveTool,
         toolMap,
         invalidToolArgumentCounts,
         countedInvalidArguments: new Set<string>(),
@@ -2275,6 +2276,7 @@ interface ToolBatchExecutionOptions {
   maxToolResultChars?: number;
   maxTurnToolResultChars?: number;
   transformToolResult?: AgentOptions["transformToolResult"];
+  resolveTool?: AgentOptions["resolveTool"];
   toolMap: Map<string, AgentTool>;
   invalidToolArgumentCounts: Map<string, number>;
   /**
@@ -2352,7 +2354,11 @@ async function executeSingleToolCall(
   let endRun = false;
   let invalidArgAttempt: number | undefined;
 
-  const tool = options.toolMap.get(toolCall.name);
+  let tool = options.toolMap.get(toolCall.name);
+  if (!tool && options.resolveTool) {
+    tool = options.resolveTool(toolCall.name);
+    if (tool) options.toolMap.set(tool.name, tool);
+  }
   if (tool) {
     // Only deduplicate within this assistant response. Sort object keys so
     // semantically identical provider JSON cannot run a side effect twice.

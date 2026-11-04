@@ -39,17 +39,20 @@ function statusText(item: ChecklistEntry): string {
   if (item.status === "not-applicable") return "Not applicable";
   if (item.status === "due")
     return `Review due${item.result === "issues" ? " · Findings reported" : ""}`;
-  if (item.result === "issues")
-    return `${item.findings.length || "Some"} finding${item.findings.length === 1 ? "" : "s"} reported`;
+  if (item.result === "issues") {
+    const count = `${item.findings.length || "Some"} finding${item.findings.length === 1 ? "" : "s"} reported`;
+    return item.changedSinceCheck ? `${count} · Code changed since, check again` : count;
+  }
   if (item.checkedAt) return `Checked ${checkedDate(item.checkedAt)}`;
   return item.detection ? `${item.detection.summary} · Not reviewed` : "Not reviewed";
 }
 
 /**
  * The project health checklist as a workspace view. Each item's purpose is its
- * hover/focus hint (the shared TooltipLayer); Check reports only, except Agent
- * setup, which runs /init. `data-hides-composer` keeps the hidden chat box from
- * taking the cursor back while this view is open.
+ * hover/focus hint (the shared TooltipLayer); Check reports first and fixes only
+ * what the user then picks, except Agent setup, which runs /init.
+ * `data-hides-composer` keeps the hidden chat box from taking the cursor back
+ * while this view is open.
  */
 export function ChecklistView({
   load,
@@ -159,7 +162,7 @@ export function ChecklistView({
                             ? "The agent is busy"
                             : item.id === "agent-setup"
                               ? "Run /init to create or update project instructions"
-                              : "Check and report only"
+                              : "Check and report, then choose what to fix"
                         }
                         onClick={() => {
                           if (running || item.runPrompt === null) return;

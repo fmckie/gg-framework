@@ -123,69 +123,21 @@ export async function renderBashOutput(rawOutput: string): Promise<string> {
 }
 
 const BashParams = z.object({
-  command: z.string().describe("The bash command to execute"),
-  review: z
-    .boolean()
-    .optional()
-    .describe(
-      "For a local foreground check, append read-only Git status/worktree diff after success. Keeps the check exit status separate; no shell chaining needed. Staged/untracked contents are not included.",
-    ),
-  timeout: z
-    .number()
-    .int()
-    .min(1000)
-    .optional()
-    .describe(
-      "Stop the command after this many milliseconds. Without it, a command still " +
-        "running after 120000ms moves to the background instead of being stopped.",
-    ),
-  run_in_background: z
-    .boolean()
-    .optional()
-    .describe(
-      "Run the command in the background. Returns a process ID immediately. " +
-        "Use task_output to read output and task_stop to stop it.",
-    ),
-  persist: z
-    .boolean()
-    .optional()
-    .describe(
-      "Run in the persistent session shell: cd, exported env vars, and shell state " +
-        "survive across persist:true calls. Use for multi-step workflows in another " +
-        "directory or with sourced environments. Default false (fresh shell per call).",
-    ),
+  command: z.string(),
+  review: z.boolean().optional().describe("Append git diff after a passing final check"),
+  timeout: z.number().int().min(1000).optional(),
+  run_in_background: z.boolean().optional(),
+  persist: z.boolean().optional().describe("Keep cd/env across calls"),
   wake: z
     .object({
-      pattern: z
-        .string()
-        .min(1)
-        .max(200)
-        .optional()
-        .describe(
-          "A regex; the moment NEW output matches it you are actively woken with the " +
-            "matching line — no task_output polling. Use for signals in long builds, " +
-            "dev servers and watchers (e.g. 'compiled with errors', 'listening on').",
-        ),
-      silence_seconds: z
-        .number()
-        .int()
-        .min(10)
-        .max(3600)
-        .optional()
-        .describe(
-          "Wake me if the task produces no output at all for this many seconds while " +
-            "still running — a stall/hang detector for commands that should be chatty.",
-        ),
+      pattern: z.string().min(1).max(200).optional(),
+      silence_seconds: z.number().int().min(10).max(3600).optional(),
     })
     .refine((rules) => rules.pattern !== undefined || rules.silence_seconds !== undefined, {
       message: "Provide wake.pattern, wake.silence_seconds, or both.",
     })
     .optional()
-    .describe(
-      "Wake conditions for a background task (run_in_background only). You are " +
-        "notified automatically the instant one holds, instead of polling " +
-        "task_output. Each condition fires once; exit always notifies regardless.",
-    ),
+    .describe("Notify on output match or silence"),
 });
 
 export function createBashTool(
@@ -213,46 +165,15 @@ export function createBashTool(
   // for mid-session PATH changes.
   const isCmdFallback = resolveShell("", shellOpts ?? {}).isCmdFallback;
   const description = isCmdFallback
-    ? "Execute a command under Windows cmd.exe (no bash was found on this system). " +
-      "The working directory is already set to the project root — " +
-      "don't cd into it redundantly. Use cd only when you need a different directory. " +
-      "Returns exit code and combined stdout/stderr. " +
-      "Use cmd.exe syntax (dir, findstr, type, del); POSIX commands and bash syntax " +
-      "(ls, grep, cat, &&-chains relying on bash semantics, $(...), single-quoting) will fail. " +
-      "Long output is truncated (tail kept). " +
-      "Set run_in_background=true for long-running OR interactive processes " +
-      "(dev servers, watchers, REPLs, scaffolders, programs that prompt for input). " +
-      "Use task_output to read output, task_send to type input/answer prompts, and " +
-      "task_stop to stop background processes. " +
-      "Commit, push, amend, or rewrite git history only when the user explicitly asked. " +
-      "Kill processes by exact PID (taskkill /PID), never by image name alone."
-    : "Execute a bash command. The shell's working directory is already set to the project root — " +
-      "don't cd into it redundantly. Use cd only when you need a different directory. " +
-      "Returns exit code and combined stdout/stderr. " +
-      "Pipelines run with pipefail — a piped command reports the failing stage's exit " +
-      "code, so piping tests through tail/head cannot mask a failure. " +
-      "Commands run in a non-interactive bash shell with TERM=dumb. " +
-      "Long output is truncated (tail kept). " +
-      "Set run_in_background=true for long-running OR interactive processes " +
-      "(dev servers, watchers, REPLs, scaffolders, programs that prompt for input). " +
-      "Use task_output to read output, task_send to type input/answer prompts, and " +
-      "task_stop to stop background processes. " +
-      "Commit, push, amend, or rewrite git history only when the user explicitly asked. " +
-      "Never background a command with a trailing & or nohup — use run_in_background instead. " +
-      "Kill processes by exact PID, never broad patterns like pkill -f node. " +
-      "Set persist=true to run in a session shell where cd/env state survives across " +
-      "persist:true calls. " +
-      "With run_in_background, also set wake (pattern and/or silence_seconds) to be " +
-      "actively notified the moment matching output appears or the task stalls. " +
-      "Never sleep to wait for a background process — task_output with wait_ms returns " +
-      "when it exits or a declared wake fires.";
+    ? "Run a Windows cmd.exe command (no bash on this system) in the project root. Use cmd " +
+      "syntax (dir, findstr, type); POSIX commands and $(...) fail. Output tail is kept."
+    : "Run a non-interactive bash command (TERM=dumb, pipefail) in the project root.";
   return {
     name: "bash",
     description:
       description +
-      " For dev servers, set a readiness wake.pattern, use task_output with wait_ms, " +
-      "then check HTTP and finish while leaving the server running. " +
-      "Do not use silence as readiness; healthy servers normally go quiet.",
+      " Servers/watchers/REPLs: run_in_background + wake.pattern, then task_output wait_ms; " +
+      "never `&`, nohup or sleep. Leave servers running. Kill by exact PID.",
     parameters: BashParams,
     executionMode: "sequential",
     async execute(

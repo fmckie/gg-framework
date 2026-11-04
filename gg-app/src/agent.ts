@@ -288,6 +288,8 @@ export interface ChecklistEntry {
   detection?: { summary: string; facts: string[] } | null;
   /** The instructions Check sends to the agent (built by the sidecar from the item). */
   runPrompt: string | null;
+  /** The project's commit or working tree changed after this result was recorded. */
+  changedSinceCheck?: boolean;
 }
 
 export interface ChecklistSnapshot {
@@ -329,6 +331,7 @@ function checklistEntry(value: unknown): value is ChecklistEntry {
     (value.commit === null ||
       (text("commit", 64) && /^[0-9a-f]{4,64}$/i.test(String(value.commit)))) &&
     typeof value.uncommittedChanges === "boolean" &&
+    (value.changedSinceCheck === undefined || typeof value.changedSinceCheck === "boolean") &&
     nullable("summary", 300) &&
     checklistStrings(value.findings, 300) &&
     checklistStrings(value.evidence, 200) &&

@@ -62,6 +62,24 @@ describe("createEditTool", () => {
     const content = (result: unknown): string =>
       typeof result === "string" ? result : (result as { content: string }).content;
 
+    it.each([
+      [
+        "the files shape sent under `edits`",
+        { edits: [{ file_path: "a.js", edits: [{ old_text: "a = 1", new_text: "a = 2" }] }] },
+      ],
+      [
+        "a single file's edits wrapped in an extra `edits` level",
+        { file_path: "a.js", edits: [{ edits: [{ old_text: "a = 1", new_text: "a = 2" }] }] },
+      ],
+    ])("recovers %s instead of failing the call", async (_label, args) => {
+      await fs.writeFile(path.join(tmpDir, "a.js"), "const a = 1;\n");
+      const tool = createEditTool(tmpDir);
+
+      await tool.execute(tool.parameters.parse(args), ctx);
+
+      expect(await fs.readFile(path.join(tmpDir, "a.js"), "utf-8")).toBe("const a = 2;\n");
+    });
+
     it("edits every listed file in one call and returns each diff", async () => {
       await fs.writeFile(path.join(tmpDir, "a.js"), "const a = 1;\n");
       await fs.writeFile(path.join(tmpDir, "b.js"), "const b = 1;\n");

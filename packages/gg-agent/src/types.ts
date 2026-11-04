@@ -390,6 +390,11 @@ export interface AgentOptions {
    *  against parallel fan-outs injecting huge uncached context in one turn;
    *  the largest results are trimmed (water-filling) with a re-run notice. */
   maxTurnToolResultChars?: number;
+  /** Load a tool the model called by name that is not in `tools` yet (e.g. a
+   *  deferred tool it saw advertised). Return it to run the call normally, or
+   *  undefined for the usual "Unknown tool" result. Must append the tool to the
+   *  live `tools` array itself so later turns see its schema. */
+  resolveTool?: (name: string) => AgentTool | undefined;
   /** Optional post-processing of a SUCCESSFUL tool result (after redaction,
    *  before the tool_call_end event and the provider context). Return the
    *  content unchanged to leave it alone. A throw is ignored (original kept).

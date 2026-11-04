@@ -2572,6 +2572,43 @@ describe("agentLoop", () => {
   });
 });
 
+describe("agentLoop resolveTool", () => {
+  beforeEach(() => mockStream.mockReset());
+
+  it("runs a tool the model named before it was in the toolset", async () => {
+    const usage: Usage = { inputTokens: 1, outputTokens: 1 };
+    mockStream
+      .mockReturnValueOnce(
+        mockToolCallResult("late_tool", usage) as unknown as ReturnType<typeof stream>,
+      )
+      .mockReturnValueOnce(mockOkResult("done") as unknown as ReturnType<typeof stream>);
+    const lateTool: AgentTool = {
+      name: "late_tool",
+      description: "loaded on demand",
+      parameters: emptyParams,
+      execute: () => "late result",
+    };
+    const tools: AgentTool[] = [];
+    const resolveTool = vi.fn((name: string) => {
+      if (name !== "late_tool") return undefined;
+      tools.push(lateTool);
+      return lateTool;
+    });
+
+    const { events } = await collectLoop([{ role: "user", content: "go" }], {
+      provider: "anthropic",
+      model: "test",
+      tools,
+      resolveTool,
+    });
+
+    const end = events.find((e) => e.type === "tool_call_end");
+    expect(end).toMatchObject({ isError: false, result: "late result" });
+    expect(resolveTool).toHaveBeenCalledWith("late_tool");
+    expect(tools.map((t) => t.name)).toEqual(["late_tool"]);
+  });
+});
+
 describe("agentLoop turn budget extension", () => {
   beforeEach(() => {
     vi.resetAllMocks();

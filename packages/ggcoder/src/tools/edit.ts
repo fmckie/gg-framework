@@ -44,42 +44,33 @@ function isPlanModeRef(value: unknown): value is { current: boolean } {
 }
 
 const EditAnchorSchema = z.object({
-  start_line: z.number().int().min(1).describe("1-based line number of the first edited line"),
-  start_hash: z
-    .string()
-    .describe("Content anchor of the first line (from a read with anchors:true)"),
-  end_line: z.number().int().min(1).describe("1-based line number of the last edited line"),
-  end_hash: z.string().describe("Content anchor of the last line"),
+  start_line: z.number().int().min(1),
+  start_hash: z.string(),
+  end_line: z.number().int().min(1),
+  end_hash: z.string(),
 });
 
-const EditItem = z.object({
-  old_text: z.string().optional().describe("The exact text to find and replace (text form)"),
-  new_text: z.string().optional().describe("The replacement text (text form)"),
-  replace_all: z
-    .boolean()
-    .optional()
-    .describe(
-      "Replace every occurrence of old_text instead of requiring a unique match. " +
-        "Use for renames or repeated tokens. Defaults to false.",
-    ),
-  anchor: EditAnchorSchema.optional().describe(
-    "Optional staleness guard for the text form. When set (using line+hash anchors from a read " +
-      "with anchors:true), the edit is rejected if the file changed since you read it. " +
-      "old_text/new_text still drive the actual replacement.",
-  ),
-  span: EditAnchorSchema.optional().describe(
-    "Span form (preferred when you did a read with anchors:true): replace the inclusive line " +
-      "range pinned by these line+hash endpoints with `lines` — no old_text needed, so you never " +
-      "retype existing code. Rejected if the file changed since the read. " +
-      "Use INSTEAD of old_text/new_text, together with `lines`.",
-  ),
-  lines: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "Replacement lines for `span` (full lines with correct indentation, no anchor/line-number " +
-        "prefixes). An empty array deletes the span.",
-    ),
+const EditItemFields = z.object({
+  old_text: z.string().optional(),
+  new_text: z.string().optional(),
+  replace_all: z.boolean().optional(),
+  span: EditAnchorSchema.optional(),
+  lines: z.array(z.string()).optional(),
+});
+
+// The text-form `anchor` staleness guard is still honoured, but no longer
+// advertised: 3 of ~4,700 real edit calls used it, and its schema cost ~85
+// tokens on every request (bench/prompt-diet). Unknown keys pass through and
+// `anchor` alone is validated here.
+const EditItem = EditItemFields.loose().superRefine((item, ctx) => {
+  if (item.anchor === undefined) return;
+  if (!EditAnchorSchema.safeParse(item.anchor).success) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["anchor"],
+      message: "anchor needs start_line, start_hash, end_line, end_hash",
+    });
+  }
 });
 
 // Several models (opus-5, sonnet-5, fable-5, glm-5.x) occasionally send `edits`
@@ -118,38 +109,32 @@ const STRINGIFIED_EDITS_ERROR =
   "Re-sending the same large payload usually breaks the same way: split the work into " +
   "several `edit` calls carrying one or two smaller edits each.";
 
-const EditList = z
-  .preprocess(
-    coerceStringifiedEdits,
-    z
-      .array(EditItem, {
-        // Narrow to "an array was expected, a string arrived" so a nested
-        // string-typed mistake (`anchor: "x"`, `replace_all: "true"`) keeps
-        // its own accurate message. Any non-matching issue returns undefined
-        // and falls through to Zod's default.
-        error: (issue) =>
-          issue.code === "invalid_type" &&
-          issue.expected === "array" &&
-          typeof issue.input === "string"
-            ? STRINGIFIED_EDITS_ERROR
-            : undefined,
-      })
-      .min(1),
-  )
-  .describe(
-    "One or more edits applied in order. Each edit operates on the result of the previous one.",
-  );
+const EditList = z.preprocess(
+  coerceStringifiedEdits,
+  z
+    .array(EditItem, {
+      // Narrow to "an array was expected, a string arrived" so a nested
+      // string-typed mistake (`anchor: "x"`, `replace_all: "true"`) keeps
+      // its own accurate message. Any non-matching issue returns undefined
+      // and falls through to Zod's default.
+      error: (issue) =>
+        issue.code === "invalid_type" &&
+        issue.expected === "array" &&
+        typeof issue.input === "string"
+          ? STRINGIFIED_EDITS_ERROR
+          : undefined,
+    })
+    .min(1),
+);
 
 // Multi-file entries take the text form only: a replay test batched all 7
 // files 8/8 times either way, and dropping the anchor/span forms here keeps
 // ~2k chars of duplicated schema out of every request.
-const TextEditItem = EditItem.pick({ old_text: true, new_text: true, replace_all: true });
+const TextEditItem = EditItemFields.pick({ old_text: true, new_text: true, replace_all: true });
 
 const FileEdits = z.object({
-  file_path: z.string().describe("The file path to edit"),
-  edits: z
-    .preprocess(coerceStringifiedEdits, z.array(TextEditItem).min(1))
-    .describe("Text-form edits for this file, applied in order."),
+  file_path: z.string(),
+  edits: z.preprocess(coerceStringifiedEdits, z.array(TextEditItem).min(1)),
 });
 
 // Haiku 5.5 (bench/h2h: 20 of 76 edit calls across 30 runs, and the cause of
@@ -181,28 +166,45 @@ const recoverSplitOldText = (raw: unknown): unknown => {
 // (replay of a 7-file refactor at the point where every file had been read):
 // with it the model sent all 7 files in one call 8/8 times; without it 5/8
 // responses carried every edit and the rest fell back to one file per turn.
+/** An `edits` item that is really a `files` entry: only nested `edits` (+ optional file_path). */
+const isNestedFileEntry = (v: unknown): v is Record<string, unknown> =>
+  isRecord(v) &&
+  Array.isArray(coerceStringifiedEdits(v.edits)) &&
+  Object.keys(v).every((key) => key === "edits" || key === "file_path");
+
+// Prompt-diet bench (bench/prompt-diet, GLM-5.3-Flash): the model's commonest
+// malformed edit call puts the multi-file shape under `edits`, either
+// `edits: [{file_path, edits}]` or `file_path` + `edits: [{edits}]`. Zod would
+// strip the nested keys and the call fails with no file to edit, costing a
+// turn. Both shapes are unambiguous, so route them to the intended form.
+const normalizeMisnestedEdits = (raw: unknown): unknown => {
+  if (!isRecord(raw) || raw.files !== undefined) return raw;
+  const edits = coerceStringifiedEdits(raw.edits);
+  if (!Array.isArray(edits) || edits.length === 0 || !edits.every(isNestedFileEntry)) return raw;
+  const { edits: _nested, ...rest } = raw;
+  if (raw.file_path === undefined && edits.every((e) => typeof e.file_path === "string")) {
+    return { ...rest, files: edits };
+  }
+  if (
+    typeof raw.file_path === "string" &&
+    edits.every((e) => e.file_path === undefined || e.file_path === raw.file_path)
+  ) {
+    return { ...rest, edits: edits.flatMap((e) => coerceStringifiedEdits(e.edits) as unknown[]) };
+  }
+  return raw;
+};
+
 const EditParams = z.preprocess(
-  recoverSplitOldText,
+  (raw: unknown) => normalizeMisnestedEdits(recoverSplitOldText(raw)),
   z.object({
-    file_path: z.string().optional().describe("The file path to edit (single-file form)"),
+    file_path: z.string().optional(),
     edits: EditList.optional(),
     files: z
       .array(FileEdits)
       .min(1)
       .optional()
-      .describe(
-        "Several files in ONE call: one entry per file, each with text-form edits (old_text/new_text). " +
-          "Use instead of file_path/edits when a change spans files.",
-      ),
-    atomic: z
-      .boolean()
-      .optional()
-      .describe(
-        "If true, fail a file's whole batch when any of its edits fails — that file is left unchanged. " +
-          "Default false: partial-apply, keep every successful edit and report failures " +
-          "for retry. Use atomic only when later edits depend on earlier ones in a way " +
-          "where a half-applied state would be worse than nothing.",
-      ),
+      .describe("Several files: [{file_path, edits}], instead of file_path/edits"),
+    atomic: z.boolean().optional().describe("All-or-nothing per file"),
   }),
 );
 
@@ -302,19 +304,8 @@ export function createEditTool(
   return {
     name: "edit",
     description:
-      "Replace text in a file. Two edit forms:\n" +
-      "1. TEXT form { old_text, new_text }: copy old_text verbatim from the latest read/diff with " +
-      "enough context to match one location; set replace_all: true only for deliberate global renames. " +
-      "The matcher tolerates safe whitespace/quote/dash drift, but do not paraphrase. For long blocks, " +
-      "a line containing only `...` in BOTH old_text and new_text elides a middle preserved verbatim.\n" +
-      "2. SPAN form { span, lines } (preferred after a read with anchors:true): pin the line range by " +
-      "its line+hash endpoints and supply the full replacement lines — no old_text to retype, and the " +
-      "edit is rejected if the file changed since the read. Span edits apply against the file as read; " +
-      "text edits then run on the result.\n" +
-      "Partial-apply by default: failed edits are listed for retry, successful ones are still written — " +
-      "re-issue ONLY the listed failures, not the whole batch. " +
-      "Returns a short confirmation, not the new text; re-read only if you need it.\n" +
-      "Multi-file: pass `files` (one {file_path, edits} entry per file) to change several files in a single call.",
+      "Edit files. `old_text`: verbatim, unique unless replace_all. Or `span` (from read " +
+      "anchors:true) + full replacement `lines`. Re-send only failed edits.",
     parameters: EditParams,
     executionMode: "sequential",
     async execute({ file_path, edits, files, atomic = false }) {
@@ -454,7 +445,9 @@ export function createEditTool(
     // ── Phase 2: text-form edits, sequential on the working buffer.
     for (let i = 0; i < edits.length; i++) {
       if (outcomes[i] !== undefined) continue; // span-form or invalid, already settled
-      const { old_text, new_text, replace_all, anchor } = edits[i];
+      const { old_text, new_text, replace_all } = edits[i];
+      const parsedAnchor = EditAnchorSchema.safeParse(edits[i].anchor);
+      const anchor = parsedAnchor.success ? parsedAnchor.data : undefined;
       if (old_text === undefined || new_text === undefined) continue; // settled above
 
       // Optional staleness guard (opt-in). Runs BEFORE the fuzzy match ladder:

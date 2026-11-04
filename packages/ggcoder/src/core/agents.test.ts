@@ -178,7 +178,8 @@ describe("bundled agents", () => {
     expect(new Set(descriptions).size).toBe(BUNDLED_AGENTS.length);
     for (const description of descriptions) {
       expect(description.toLowerCase()).not.toContain("does anything");
-      expect(description.length).toBeGreaterThan(40);
+      // Descriptions are now short trigger lines (shortest ~26 chars).
+      expect(description.length).toBeGreaterThan(20);
     }
   });
 

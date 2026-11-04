@@ -837,6 +837,10 @@ export class AgentSession {
     // every request. Allow-listed sessions keep the eager path — their fixed
     // tool expectations predate the catalog, and tool_search isn't allow-listed.
     if (!this.opts.allowedTools && this.settingsManager.get("deferredBuiltinTools")) {
+      // Wrap before partitioning: spawn_agent itself may be deferred, and the
+      // catalog must hold the wrapped tool so a promoted spawn still loads
+      // wait_agent.
+      this.promoteFollowUpTools();
       const { core, deferred } = partitionToolsByTier(this.tools);
       if (deferred.length > 0) {
         // Append-only: `core` preserves the original relative order and
@@ -845,7 +849,6 @@ export class AgentSession {
         this.tools = core;
         this.deferredBuiltinToolNames = deferred.map((t) => t.name);
         this.mcp.addDeferred(deferred);
-        this.promoteWaitAgentAfterSpawn();
       }
     }
     this.rebuildReadTool = rebuildReadTool;
@@ -1118,22 +1121,49 @@ export class AgentSession {
   }
 
   /**
-   * `wait_agent` is deferred, yet nearly every `spawn_agent` is followed by it,
-   * so the model spent a whole turn on `tool_search` just to load it (bench 41:
-   * ~6 s per fan-out). Promote it as soon as a spawn succeeds instead: the tool
-   * list grows exactly as it would after that `tool_search`, one turn earlier,
-   * and sessions that never spawn keep the smaller prefix.
+   * Deferred follow-up tools whose need is certain once a trigger succeeds.
+   * `wait_agent` follows nearly every `spawn_agent`, and loading it through
+   * `tool_search` cost a whole turn (bench 41: ~6 s per fan-out). Likewise a
+   * background `bash` is always followed by `task_output` (and sometimes
+   * `task_send`/`task_stop`). Promote them as soon as the trigger succeeds: the
+   * tool list grows exactly as it would after that `tool_search`, one turn
+   * earlier, and sessions that never trigger keep the smaller prefix.
+   * Call before tier partitioning so a deferred trigger is wrapped too.
    */
-  private promoteWaitAgentAfterSpawn(): void {
-    const index = this.tools.findIndex((t) => t.name === "spawn_agent");
-    const spawn = index >= 0 ? this.tools[index] : undefined;
-    if (!spawn) return;
+  private promoteFollowUpTools(): void {
+    this.wrapToPromote("spawn_agent", ["wait_agent"]);
+    this.wrapToPromote(
+      "bash",
+      ["task_output", "task_send", "task_stop"],
+      (args) => (args as { run_in_background?: unknown }).run_in_background === true,
+    );
+  }
+
+  /** Append a deferred built-in to the live tool list (append-only). */
+  private promoteDeferredBuiltin(name: string): AgentTool | undefined {
+    if (!this.deferredBuiltinToolNames.includes(name)) return undefined;
+    const live = this.tools.find((t) => t.name === name);
+    if (live) return live;
+    const [tool] = this.mcp.promote([name]);
+    if (tool) this.tools.push(tool);
+    return tool;
+  }
+
+  private wrapToPromote(
+    trigger: string,
+    followUps: readonly string[],
+    when: (args: unknown) => boolean = () => true,
+  ): void {
+    const index = this.tools.findIndex((t) => t.name === trigger);
+    const tool = index >= 0 ? this.tools[index] : undefined;
+    if (!tool) return;
     this.tools[index] = {
-      ...spawn,
+      ...tool,
       execute: async (args, context) => {
-        const result = await spawn.execute(args, context);
-        if (!this.tools.some((t) => t.name === "wait_agent")) {
-          this.tools.push(...this.mcp.promote(["wait_agent"]));
+        const result = await tool.execute(args, context);
+        if (when(args)) {
+          const missing = followUps.filter((name) => !this.tools.some((t) => t.name === name));
+          if (missing.length > 0) this.tools.push(...this.mcp.promote(missing));
         }
         return result;
       },
@@ -2471,6 +2501,11 @@ export class AgentSession {
         ),
         // Warn when web/MCP output contains instruction-like text (see injection-detect.ts).
         transformToolResult: flagUntrustedToolResult,
+        // A deferred built-in called by its advertised name runs directly
+        // instead of costing a turn on "Unknown tool" then tool_search.
+        ...(options.disableTools
+          ? {}
+          : { resolveTool: (name: string) => this.promoteDeferredBuiltin(name) }),
         // Self-correction hooks (same as the TUI): loop-break + re-grounding are
         // polled mid-loop; the ideal review is polled when the agent would stop.
         getSteeringMessages: () => this.getHookSteeringMessages(),
@@ -3693,6 +3728,11 @@ export class AgentSession {
    */
   async setPlanMode(active: boolean): Promise<void> {
     this.planModeRef.current = active;
+    // Plan mode always ends with `exit_plan`; a deferred one must be callable
+    // without a tool_search turn. Append-only, like any promotion.
+    if (active && !this.tools.some((t) => t.name === "exit_plan")) {
+      this.tools.push(...this.mcp.promote(["exit_plan"]));
+    }
     // Entering plan mode discards any prior approved-plan contract (a new plan
     // is about to be drafted); exiting keeps it (set explicitly via accept).
     if (active) this.approvedPlanPath = undefined;
@@ -3928,7 +3968,9 @@ export class AgentSession {
       this.provider,
       this.model,
       this.thinkingLevel,
-      this.tools.map((tool) => tool.name),
+      // Deferred spawn_agent/wait_agent are one call away (resolveTool loads
+      // them on first use), so the policy must still see them.
+      [...this.tools.map((tool) => tool.name), ...this.deferredBuiltinToolNames],
     ).trim();
   }
 

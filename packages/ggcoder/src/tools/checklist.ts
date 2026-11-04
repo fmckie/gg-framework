@@ -19,7 +19,7 @@ import {
   SUMMARY_MAX,
   writeChecklistEntry,
 } from "../core/checklist-store.js";
-import { runBackgroundGit } from "../utils/git.js";
+import { readGitState, type GitState } from "../core/checklist-git.js";
 import { readChecklistSnapshot, type ChecklistSnapshotRow } from "../core/checklist-snapshot.js";
 
 // The union is flattened into one object schema for providers, so both
@@ -56,49 +56,9 @@ const ChecklistParams = z.discriminatedUnion("action", [
   }),
 ]);
 
-export interface GitState {
-  readonly commit: string | null;
-  readonly uncommittedChanges: boolean;
-}
-
 export interface ChecklistToolDeps {
   readonly now?: () => Date;
   readonly gitState?: (cwd: string, signal?: AbortSignal) => Promise<GitState>;
-}
-
-/**
- * Short HEAD commit and whether the work tree differs from it. The record file
- * itself is ignored, since earlier records always leave it modified. Outside a
- * repo (or before the first commit) the commit is null.
- */
-export async function readGitState(cwd: string, signal?: AbortSignal): Promise<GitState> {
-  let commit: string | null = null;
-  try {
-    const { stdout } = await runBackgroundGit(["rev-parse", "--short", "HEAD"], {
-      cwd,
-      timeoutMs: 5000,
-      ...(signal ? { signal } : {}),
-    });
-    commit = stdout.trim() || null;
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    // An unborn repository can still have uncommitted files. Inspect status
-    // even when it has no HEAD yet.
-  }
-  try {
-    const { stdout } = await runBackgroundGit(
-      ["status", "--porcelain=v1", "--untracked-files=normal"],
-      { cwd, timeoutMs: 10000, maxBuffer: 16 * 1024 * 1024, ...(signal ? { signal } : {}) },
-    );
-    const changed = stdout
-      .split(/\r?\n/)
-      .filter((line) => line.length > 3)
-      .some((line) => line.slice(3).replace(/^"|"$/g, "") !== CHECKLIST_FILE);
-    return { commit, uncommittedChanges: changed };
-  } catch (error) {
-    if (signal?.aborted || commit !== null) throw error;
-    return { commit, uncommittedChanges: false };
-  }
 }
 
 const STATUS_LABEL: Record<ChecklistSnapshotRow["status"], string> = {
@@ -114,8 +74,10 @@ function formatRow(row: ChecklistSnapshotRow): string {
     ? `checked ${row.checkedAt.slice(0, 10)}${row.commit ? ` at ${row.commit}` : ""}`
     : "—";
   const last = row.status === "due" && row.result ? ` (last: ${row.result})` : "";
+  const changed =
+    row.result === "issues" && row.changedSinceCheck ? ", code changed since this check" : "";
   const setup = row.detection ? `; setup: ${row.detection.summary} (not a review)` : "";
-  return `- ${row.id} — ${row.title}: ${STATUS_LABEL[row.status]}${last}, ${checked}${setup}`;
+  return `- ${row.id} — ${row.title}: ${STATUS_LABEL[row.status]}${last}, ${checked}${changed}${setup}`;
 }
 
 export function createChecklistTool(
@@ -144,7 +106,9 @@ export function createChecklistTool(
       "the result of checking one item: the date and Git commit are filled in " +
       "automatically. `issues` needs at least one finding; `pass` takes none; " +
       "`evidence` lists what you actually ran or read, including scope and exclusions. " +
-      "Record completed checklist reviews or checks requested in normal chat; never start extra audits unasked.",
+      "Record completed checklist reviews or checks requested in normal chat; never start extra audits unasked. " +
+      "After fixing an item's recorded findings, re-check them and record that item again " +
+      "(`pass`, or `issues` with what remains) so the checklist doesn't keep showing fixed findings.",
     parameters: ChecklistParams,
     executionMode: "sequential",
     execute(args, { signal }) {
@@ -152,7 +116,7 @@ export function createChecklistTool(
         const started = Date.now();
         if (signal?.aborted) return "Error: Checklist action cancelled.";
         if (args.action === "status") {
-          const snapshot = await readChecklistSnapshot(cwd, now(), signal);
+          const snapshot = await readChecklistSnapshot(cwd, now(), signal, gitState);
           if (!snapshot.ok) return `Error: ${snapshot.error}`;
           const rows = snapshot.value.items;
           let group = "";

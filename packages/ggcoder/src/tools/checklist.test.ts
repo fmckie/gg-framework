@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { CHECKLIST_FILE } from "../core/checklist-items.js";
-import { createChecklistTool, readGitState, type ChecklistToolDeps } from "./checklist.js";
+import { readGitState } from "../core/checklist-git.js";
+import { createChecklistTool, type ChecklistToolDeps } from "./checklist.js";
 
 const NOW = new Date("2026-10-05T09:12:44.000Z");
 
@@ -64,6 +65,12 @@ describe("checklist tool", () => {
     expect(tool.description).toContain("checks requested in normal chat");
     expect(tool.description).toContain("never start extra audits unasked");
     expect(tool.description).not.toContain("Only use during checklist runs");
+  });
+
+  it("tells the agent to re-record an item after fixing its findings", () => {
+    const { tool } = harness();
+    expect(tool.description).toContain("After fixing an item's recorded findings");
+    expect(tool.description).toContain("record that item again");
   });
 
   it("stamps the date from the clock and the commit from HEAD", async () => {
@@ -207,6 +214,25 @@ describe("checklist tool", () => {
       "- quality-tools — Lint, format & type checks: reviewed, checked 2026-10-05 at abc1234",
     );
     expect(out).toContain("- security — Security audit: never run, —");
+  });
+
+  it("status flags findings recorded before the code changed", async () => {
+    let head = "abc1234";
+    const { call } = harness({
+      gitState: async () => ({ commit: head, uncommittedChanges: false }),
+    });
+    await call({ ...passArgs, id: "security", result: "issues", findings: ["x.ts:1 — bad"] });
+    await call(passArgs);
+    head = "def5678";
+
+    const out = await call({ action: "status" });
+
+    expect(out).toContain(
+      "- security — Security audit: needs work, checked 2026-10-05 at abc1234, code changed since this check",
+    );
+    expect(out).toContain(
+      "- quality-tools — Lint, format & type checks: reviewed, checked 2026-10-05 at abc1234\n",
+    );
   });
 
   it("status reports a corrupt record instead of hiding it", async () => {
