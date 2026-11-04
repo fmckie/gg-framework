@@ -19,6 +19,8 @@ import {
   type TextContent,
   type ImageContent,
   type VideoContent,
+  type ToolCall,
+  type ToolResult,
 } from "@kleio/ai";
 import { EventBus } from "./event-bus.js";
 import { flagUntrustedToolResult } from "./injection-detect.js";
@@ -451,6 +453,9 @@ export class AgentSession {
   /** Forgets every file read; called whenever the conversation is replaced or
    *  rewound, so the model must re-read a file before changing it. */
   private clearReadTracker: (() => void) | undefined;
+  private recordBashReads:
+    | ((toolCalls: readonly ToolCall[], toolResults: readonly ToolResult[]) => Promise<void>)
+    | undefined;
   private skills: Skill[] = [];
   private cacheKeyLogged = false;
   // ── Self-correction hook state (mirrors the TUI's useAgentLoop refs) ──
@@ -734,6 +739,7 @@ export class AgentSession {
       processManager,
       rebuildReadTool,
       clearReadTracker,
+      recordBashReads,
       lspManager,
       testImpact,
       debugManager,
@@ -834,6 +840,7 @@ export class AgentSession {
     }
     this.rebuildReadTool = rebuildReadTool;
     this.clearReadTracker = clearReadTracker;
+    this.recordBashReads = recordBashReads;
     this.processManager = processManager;
     this.lspManager = lspManager;
     this.testImpact = testImpact;
@@ -1404,8 +1411,30 @@ export class AgentSession {
         // Tool results for this step are in the array and their side effects
         // already hit the filesystem. Flushing here is what makes a crash lose
         // at most the in-flight step instead of the entire turn.
+        await this.creditBashReads();
         await this.flushPendingMessages();
         break;
+    }
+  }
+
+  /**
+   * Count full-file `cat` output from the step that just finished as reads, so
+   * an edit after `cat` does not cost a second read. Uses the step's results as
+   * stored in the transcript (after per-turn trimming): only bytes the model
+   * actually received count.
+   */
+  private async creditBashReads(): Promise<void> {
+    if (!this.recordBashReads) return;
+    const messages = this.activeLoopMessages ?? this.messages;
+    const toolMessage = messages.at(-1);
+    const assistant = messages.at(-2);
+    if (toolMessage?.role !== "tool" || assistant?.role !== "assistant") return;
+    if (typeof assistant.content === "string") return;
+    const calls = assistant.content.filter((part): part is ToolCall => part.type === "tool_call");
+    try {
+      await this.recordBashReads(calls, toolMessage.content);
+    } catch (err) {
+      log("WARN", "agent-session", "Crediting bash reads failed", { error: String(err) });
     }
   }
 

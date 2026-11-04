@@ -1,5 +1,5 @@
 import type { AgentTool } from "@kleio/agent";
-import type { Provider } from "@kleio/ai";
+import type { Provider, ToolCall, ToolResult } from "@kleio/ai";
 import type { ContextLimits } from "../core/context-limits.js";
 import { SubAgentManager, type SubAgentSnapshot } from "../core/subagent-manager.js";
 import { ProcessManager } from "../core/process-manager.js";
@@ -16,6 +16,7 @@ import { createUiRegistryTool } from "./ui-registry.js";
 import { createUiAdoptTool } from "./ui-adopt.js";
 import { createEditTool } from "./edit.js";
 import { createBashTool } from "./bash.js";
+import { recordBashReads } from "./bash-read-evidence.js";
 import { createFindTool } from "./find.js";
 import { createGrepTool } from "./grep.js";
 import { createSearchCodeTool } from "./search-code.js";
@@ -167,6 +168,15 @@ export interface CreateToolsResult {
    * the model must read a file again before editing or overwriting it.
    */
   clearReadTracker: () => void;
+  /**
+   * Credit full-file `cat` output from one finished step as reads. Pass the
+   * step's tool calls and results exactly as appended to the transcript, so
+   * only bytes the model actually received count.
+   */
+  recordBashReads: (
+    toolCalls: readonly ToolCall[],
+    toolResults: readonly ToolResult[],
+  ) => Promise<void>;
   /**
    * Language-server pool backing edit/write diagnostics. Present only when
    * enabled and running against the local filesystem; callers wire
@@ -372,12 +382,19 @@ export async function createTools(
     createReadTool(cwd, readFiles, ops, opts?.onFileRead, getVideoByteLimit(model));
 
   const clearReadTracker = (): void => readFiles.clear();
+  const recordStepBashReads = async (
+    toolCalls: readonly ToolCall[],
+    toolResults: readonly ToolResult[],
+  ): Promise<void> => {
+    await recordBashReads(readFiles, cwd, ops, toolCalls, toolResults);
+  };
 
   return {
     tools,
     processManager,
     rebuildReadTool,
     clearReadTracker,
+    recordBashReads: recordStepBashReads,
     lspManager,
     ...(testImpact && { testImpact }),
     ...(debugManager && { debugManager }),
