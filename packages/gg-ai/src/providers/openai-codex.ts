@@ -104,8 +104,10 @@ async function encodeCodexRequest(body: Record<string, unknown>): Promise<Encode
 }
 
 // GPT-6 point releases (gpt-6.1-sol) keep the dotted version in the id, so a
-// bare `gpt-6-` prefix would miss them.
-function usesResponsesLite(model: string): boolean {
+// bare `gpt-6-` prefix would miss them. This is the model family Codex CLI
+// serves with Responses-Lite; it also owns the effort floor, verbosity and
+// client identity, which stay on even when the lite request shape is turned off.
+export function usesResponsesLite(model: string): boolean {
   return model.startsWith("gpt-5.6-") || model.startsWith("gpt-6-") || model.startsWith("gpt-6.");
 }
 
@@ -150,6 +152,10 @@ async function* runStream(
   const { system, input } = toCodexInput(downgraded, { supportsImages: options.supportsImages });
 
   const responsesLite = usesResponsesLite(options.model);
+  // The lite request shape (header, single tool call per response, all-turns
+  // reasoning context) is separately switchable: the server rejects
+  // parallel_tool_calls under lite, so every tool call costs a model turn.
+  const liteShape = options.responsesLite ?? responsesLite;
   const body: Record<string, unknown> = {
     model: options.model,
     store: false,
@@ -157,12 +163,12 @@ async function* runStream(
     instructions: system,
     input,
     tool_choice: toCodexToolChoice(options.toolChoice, options.tools),
-    parallel_tool_calls: !responsesLite,
+    parallel_tool_calls: !liteShape,
     include: ["reasoning.encrypted_content"],
   };
 
   if (options.tools?.length) {
-    body.tools = toCodexTools(options.tools);
+    body.tools = toCodexTools(options.tools, options.strictTools ?? true);
   }
   // Always set a prompt_cache_key. OpenAI uses this key to route requests
   // with the same prefix to the same cache shard — without it, the codex
@@ -184,7 +190,7 @@ async function* runStream(
     effort:
       options.thinking === "ultra" ? "max" : (options.thinking ?? (responsesLite ? "low" : "none")),
     summary: "auto",
-    ...(responsesLite ? { context: "all_turns" } : {}),
+    ...(liteShape ? { context: "all_turns" } : {}),
   };
   // Catalog parity: every responses-lite model (gpt-6-astra, gpt-6.1-sol,
   // gpt-6-luna and the older gpt-6-sol and gpt-5.6-sol/terra/luna) declares
@@ -206,12 +212,8 @@ async function* runStream(
     "User-Agent": responsesLite
       ? `codex_cli_rs/${CODEX_CLIENT_VERSION}`
       : `ggcoder (${os.platform()} ${os.release()}; ${os.arch()})`,
-    ...(responsesLite
-      ? {
-          version: CODEX_CLIENT_VERSION,
-          "X-OpenAI-Internal-Codex-Responses-Lite": "true",
-        }
-      : {}),
+    ...(responsesLite ? { version: CODEX_CLIENT_VERSION } : {}),
+    ...(liteShape ? { "X-OpenAI-Internal-Codex-Responses-Lite": "true" } : {}),
   };
 
   if (options.accountId) {
@@ -905,15 +907,17 @@ function toCodexInput(
 
 // ── Tool Conversion ────────────────────────────────────────
 
-function toCodexTools(tools: Tool[]): unknown[] {
+function toCodexTools(tools: Tool[], strictTools: boolean): unknown[] {
   return tools.map((tool) => {
     let parameters = resolveToolSchema(tool);
     let strict: true | null = null;
-    try {
-      parameters = makeStrictToolSchema(parameters);
-      strict = true;
-    } catch (error) {
-      if (!(error instanceof UnsupportedStrictSchemaError)) throw error;
+    if (strictTools) {
+      try {
+        parameters = makeStrictToolSchema(parameters);
+        strict = true;
+      } catch (error) {
+        if (!(error instanceof UnsupportedStrictSchemaError)) throw error;
+      }
     }
     return {
       type: "function",

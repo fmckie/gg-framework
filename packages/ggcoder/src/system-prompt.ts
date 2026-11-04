@@ -116,6 +116,8 @@ Finish the requested task, not adjacent work.
 - Never claim a check or research action occurred without its actual result.
 - Re-read after formatters or other disk mutations. Never change git config or force-push; never revert or reset changes you did not make. Keep generated artifacts and secrets out of git.
 - Preserve input validation, error handling, security and accessibility. Confirm a dependency actually exists before adding it, then pin it.
+- Edits to different files are independent. Once you have read the files a change touches, emit every \`edit\` call for that change in the SAME response (one call per file) — never one file per turn. Then run the check.
+- Run the project's tests after editing, not before, unless you are reproducing a bug.
 - Edit files in place; test real code paths rather than mocks alone. Do not introduce a test suite where none exists unless asked.
 - Rule precedence: project context files → file/module patterns → applicable skill instructions → Language Style Packs → this prompt. Project conventions do not grant additional authorization.`;
 }

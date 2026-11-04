@@ -363,6 +363,10 @@ export interface AgentOptions {
   fetch?: StreamOptions["fetch"];
   /** OpenAI service tier for latency-sensitive first-party API requests. */
   serviceTier?: StreamOptions["serviceTier"];
+  /** Codex Responses-Lite request shape override (see StreamOptions). */
+  responsesLite?: StreamOptions["responsesLite"];
+  /** Codex strict tool schema override (see StreamOptions). */
+  strictTools?: StreamOptions["strictTools"];
   /** Whether the target model supports image input. When false, image blocks
    *  in messages/tool_results are downgraded to text placeholders. Default: true. */
   supportsImages?: boolean;

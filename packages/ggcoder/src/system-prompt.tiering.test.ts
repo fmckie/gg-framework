@@ -170,10 +170,11 @@ describe("tool tiering in the system prompt", () => {
     // The whole point of tiering is that the index is cheap: the on-demand
     // block must stay a rounding error next to a schema per tool. Raised from
     // 1,200 for the `debug` line (~65 chars, against a ~2.5k-char schema it
-    // keeps out of every request).
+    // keeps out of every request), then to 1,500 for the `web_search` line
+    // (~120 chars, against a ~1.2k-char schema).
     const indexBlockStart = prompt.indexOf("Available on demand");
     const indexBlock = prompt.slice(indexBlockStart, prompt.indexOf("\n\n", indexBlockStart));
-    expect(indexBlock.length).toBeLessThan(1_250);
+    expect(indexBlock.length).toBeLessThan(1_500);
     // Raised with the "How to Talk" reply-shape rules, then again for the
     // always-on security defaults in Code Quality, then again for the Code
     // Quality minimization ladder (benchmarked: same correctness, 50–76% less

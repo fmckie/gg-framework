@@ -1122,6 +1122,8 @@ export async function* agentLoop(
               onContextPrepared: arm === "primary" ? options.onContextPrepared : undefined,
               promptCacheKey: options.promptCacheKey,
               serviceTier: options.serviceTier,
+              responsesLite: options.responsesLite,
+              strictTools: options.strictTools,
               supportsImages: options.supportsImages,
               supportsVideo: options.supportsVideo,
               compaction: options.compaction,

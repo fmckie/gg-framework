@@ -224,7 +224,7 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     ...(options.tools?.length
       ? {
           tools: toOpenAITools(options.tools, {
-            strict: supportsStrictToolSampling(options.provider),
+            strict: supportsStrictToolSampling(options.provider) && (options.strictTools ?? true),
           }),
         }
       : {}),
