@@ -36,11 +36,17 @@ describe("chat error notice (placeholder)", () => {
     expect(container.querySelector('[data-tone="warning"]')).not.toBeNull();
     expect(screen.getByRole("img", { name: "Warning" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Switch provider" })).toBeTruthy();
+    const toggle = screen.getByRole("button", { name: "Show error details" });
+    expect(toggle.textContent).toBe("Details");
     expect(details(container)?.hidden).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Show error details" }));
+    fireEvent.click(toggle);
     expect(details(container)?.hidden).toBe(false);
     expect(screen.getByRole("button", { name: "Hide error details" })).toBeTruthy();
     expect(screen.getByText("Provider diagnostic")).toBeTruthy();
+    // No exit animation here: closing hides the details at once.
+    fireEvent.click(toggle);
+    expect(details(container)?.hidden).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("marks failures as errors and never executes diagnostic markup", () => {

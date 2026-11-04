@@ -97,6 +97,7 @@ export function Composer({
   showDictation,
   dictation,
   sendDisabled,
+  attachmentsLoading,
   windowFocused,
   composerAction,
   enhanceHintVisible,
@@ -164,6 +165,7 @@ export function Composer({
   showDictation: boolean;
   dictation: UseDictation | null;
   sendDisabled: boolean;
+  attachmentsLoading: boolean;
   windowFocused: boolean;
   composerAction: ComposerButtonAction;
   enhanceHintVisible: boolean;
@@ -377,7 +379,13 @@ export function Composer({
           />
           <button
             className="icon-circle icon-circle-primary"
-            title={composerAction === "stop" ? "Stop the run" : "Send"}
+            title={
+              composerAction === "stop"
+                ? "Stop the run"
+                : attachmentsLoading
+                  ? "Loading attachments…"
+                  : "Send"
+            }
             disabled={
               composerAction === "stop" ? cancelling : !running && (cancelling || sendDisabled)
             }

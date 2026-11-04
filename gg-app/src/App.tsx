@@ -293,7 +293,11 @@ function App(): React.ReactElement {
   const historyDraftRef = useRef("");
   const {
     attachments,
-    setAttachments,
+    attachmentsLoading,
+    attachmentReadsRef,
+    attachmentGenerationRef,
+    clearAttachments,
+    stageAttachments,
     isFileDragOver,
     setIsFileDragOver,
     fileInputRef,
@@ -654,7 +658,9 @@ function App(): React.ReactElement {
   }, [state]);
 
   const windowFocused = useWindowFocused();
-  const sendDisabled = !input.trim() && attachments.length === 0 && mentionedPaths.length === 0;
+  const sendDisabled =
+    attachmentsLoading ||
+    (!input.trim() && attachments.length === 0 && mentionedPaths.length === 0);
   // Cosmetic work only belongs to a focused, visible, empty code composer.
   const animatePlaceholder =
     windowFocused &&
@@ -698,7 +704,13 @@ function App(): React.ReactElement {
   }, [animatePlaceholder, inputPlaceholder, setAnimatedPlaceholder]);
 
   const { handleWindowDragEnter, handleWindowDragOver, handleWindowDragLeave, handleWindowDrop } =
-    useWindowFileDrop({ setAttachments, setDragOverActive, insertDroppedFolderPaths, addFiles });
+    useWindowFileDrop({
+      stageAttachments,
+      attachmentGenerationRef,
+      setDragOverActive,
+      insertDroppedFolderPaths,
+      addFiles,
+    });
 
   // Keep the native window title aligned with the visible title-bar context.
   useEffect(() => {
@@ -867,7 +879,7 @@ function App(): React.ReactElement {
     setPlanReview,
     setQueuedCount,
     setQueuedMessages,
-    setAttachments,
+    setAttachments: clearAttachments,
     setCommands,
     setModels,
     stateRef,
@@ -1778,6 +1790,10 @@ function App(): React.ReactElement {
   // Submit the current input together with any staged attachments. Images are
   // echoed inline in the user's bubble; all media is sent to the agent.
   function submit(): void {
+    if (attachmentReadsRef.current > 0) {
+      toast("Attachments are still loading. Please wait.");
+      return;
+    }
     const trimmed = input.trim();
     // "Type instead" on an open question band parks the answer here: the agent's
     // tool call is blocked on it, so this text is the ANSWER, not a new prompt.
@@ -1835,6 +1851,13 @@ function App(): React.ReactElement {
     // build run; his reply streams into his own bubble via ken_* events. Enter
     // and the round button both land here.
     if (helperAsk !== null) {
+      if (attachments.length > 0) {
+        toast(
+          "Helper cannot receive attachments. Remove @Helper to send them to Kleio.",
+          "warning",
+        );
+        return;
+      }
       if (!helperAsk) return;
       recordHistory(trimmed);
       stickToBottomRef.current = true;
@@ -1892,7 +1915,7 @@ function App(): React.ReactElement {
         queued: showsQueuedBubble("queue", supersedesQuestion) ? true : undefined,
       });
       setInput("");
-      setAttachments([]);
+      clearAttachments();
       setSlashIndex(0);
       setMention(null);
       setMentionedPaths([]);
@@ -1926,7 +1949,7 @@ function App(): React.ReactElement {
       });
     }
     setInput("");
-    setAttachments([]);
+    clearAttachments();
     setSlashIndex(0);
     setMention(null);
     setMentionedPaths([]);
@@ -2031,7 +2054,7 @@ function App(): React.ReactElement {
     planDoneRef.current = new Set();
     setPlanTotal(0);
     setPlanDone(new Set());
-    setAttachments([]);
+    clearAttachments();
     setQueuedCount(0);
     setQueuedMessages([]);
     setHydrated(false);
@@ -2663,6 +2686,7 @@ function App(): React.ReactElement {
           showDictation={showDictation}
           dictation={dictation}
           sendDisabled={sendDisabled}
+          attachmentsLoading={attachmentsLoading}
           windowFocused={windowFocused}
           composerAction={composerAction}
           enhanceHintVisible={enhanceHintVisible}
@@ -2712,11 +2736,7 @@ function App(): React.ReactElement {
           // Nothing is cleared: `newSession()` writes a NEW session file and
           // leaves the old one on disk, still listed and re-openable. Saying
           // "will be cleared" made a safe action read as destructive.
-          message={
-            workspaceMode === "chat"
-              ? "Start a fresh chat with an empty context. This conversation stays saved \u2014 reopen it any time from the session list."
-              : "Start a fresh session with an empty context. This conversation stays saved \u2014 reopen it any time from the session list."
-          }
+          message="Start fresh? This conversation stays saved."
           confirmLabel={workspaceMode === "chat" ? "New Chat" : "New Session"}
           busy={newSessionBusy}
           onConfirm={() => void startNewSession()}
