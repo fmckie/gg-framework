@@ -1,6 +1,8 @@
-# Hairline instrument — orb study (awaiting verdict)
+# Hairline instrument — selected voice orb direction
 
-Final exploratory pass, 5 November 2026. One orb-only study inside the unchanged faithful baseline (`../before/`). Only the orb is replaced; layout, captions, typography, controls, background and the hands-free state model come from the baseline. Ruby, Eclipse, Filament, the three instrument studies, Conversation Table and the approved previews are untouched (SHA-256 checked: 1,732 pre-existing mockup files).
+**Selected** on 5 November 2026 as the voice orb direction. Implementation handoff: [HANDOFF.md](HANDOFF.md).
+
+Final exploratory pass, 5 November 2026. One orb-only study inside the unchanged faithful baseline (`../before/`). Only the orb is replaced; layout, captions, typography, controls, background and the hands-free state model come from the baseline. Ruby, Eclipse, Filament, the three instrument studies, Conversation Table and the approved previews were left untouched while it was built (SHA-256 checked: 1,732 pre-existing mockup files).
 
 - Animated preview: http://127.0.0.1:4794/voice/hud-study/hud.html?demo=1 — loops connecting → listening → thinking → speaking. Any click or key hands control to the existing fixtures and controls.
 - States, screenshots, recordings: http://127.0.0.1:4794/voice/hud-study/
@@ -24,7 +26,7 @@ Warm-white hairlines (crimson-tinted bloom, grey when muted) at four depths: 2.5
 
 - Connecting: layers draw on clockwise from 12 o'clock in a staggered 2 s build, then an index cursor steps between the cardinals (dimmed, as the baseline dims this state).
 - Listening: quiet. Shallow parallax only (≤1.6°); a fine trace on the inner track appears only while the simulated person speaks (one utterance per 6.5 s), then clears.
-- Thinking: rings index by detents in counter-directions and hold (3.2 s cycle, moves ≤1.5 s); the cursor steps by eighths, smeared only in transit. Indexed positions persist into the next state.
+- Thinking: the three ring layers index counterclockwise by different detents (24°, 18°, 12°) and hold (3.2 s cycle, moves ≤1.5 s), while the cursor steps clockwise by eighths, smeared only in transit. Indexed positions persist into the next state.
 - Speaking: the primary ring becomes an oscilloscope trace following a fixed 6.8 s phrase envelope with rests; a delayed echo trace sits just inside; bold arcs lengthen slightly.
 - Muted: grey and still. Ended/failed: outer structure retracts to a dim ghost; still.
 - Reduced motion: a static, state-specific pose for every state (no build, indexing, trace motion or parallax); state changes apply instantly. Live preference changes stop the orb. The page pauses when hidden.
@@ -47,8 +49,10 @@ In git: source, checks, `bundle-v4/` and three screenshots in `screenshots/`. Th
   - no page errors, WebGL validation errors or non-local requests; all 1,732 earlier files unchanged.
 - Inspected: full-page screenshots at both sizes, ordered motion sheets, reduced-motion sheets, 2× detail crops, and frames from 25 fps real-time recordings of the looping preview.
 
+The check ends by comparing mockup files with the snapshot taken before this study (`preserved-hashes.json`). Files changed since (status and link updates on 5 November, two deleted Conversation Table screenshots, a font licence file the history rewrite re-wrote on disk, which git shows as unchanged, most likely its line endings) make that last step fail now. It also needs the git-ignored local evidence, so it fails in a fresh clone. The browser checks before it are unaffected.
+
 ## Limitations
 
-WebGL2 is required; without it the orb box says "WebGL2 unavailable" rather than substituting another visual. Hairlines are crisper on 2× displays than 1×. Listening input and speech are deterministic simulations; a real build would drive them from the existing call levels. Chromium only; recordings are not a performance benchmark.
+WebGL2 is required; without it the orb box says "WebGL2 unavailable" rather than substituting another visual; a product fallback is proposed in HANDOFF.md. Hairlines are crisper on 2× displays than 1×. Listening input and speech are deterministic simulations; a real build would drive them from the existing call levels. Chromium only; recordings are not a performance benchmark.
 
-Awaiting the user's verdict; no further development.
+Selected by the user on 5 November 2026. Nothing has been built in the app yet; HANDOFF.md describes what to build.
