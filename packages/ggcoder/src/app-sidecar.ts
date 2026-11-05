@@ -2138,11 +2138,15 @@ async function createSession(
           ? ((await auth.getCredentials(oauthKey))?.usageExhaustedUntil ?? 0)
           : 0;
         const oauthSidelined = hasOAuth && Date.now() < exhaustedUntil && hasApiKey;
-        const activeMethod = connectedMethods.includes("oauth")
-          ? oauthSidelined
-            ? ("apikey" as const)
-            : ("oauth" as const)
-          : connectedMethods[0];
+        // Gemini resolves the API key first (model registry authStorageKeys).
+        const keyFirst = p.value === "gemini" && hasApiKey;
+        const activeMethod = keyFirst
+          ? ("apikey" as const)
+          : connectedMethods.includes("oauth")
+            ? oauthSidelined
+              ? ("apikey" as const)
+              : ("oauth" as const)
+            : connectedMethods[0];
 
         // `methodDetails` is the server-side lookup table behind
         // `methodGuidance` — shipping both would duplicate every string on the

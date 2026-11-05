@@ -1,6 +1,6 @@
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { isKimiCodingEndpoint } from "./oauth/kimi.js";
-import { MOONSHOT_OAUTH_KEY, XIAOMI_CREDITS_KEY } from "./auth-storage.js";
+import { GEMINI_API_KEY, MOONSHOT_OAUTH_KEY, XIAOMI_CREDITS_KEY } from "./auth-storage.js";
 
 export interface ModelInfo {
   id: string;
@@ -66,6 +66,9 @@ export interface ModelInfo {
    *     every MiMo model, so a Credits-only user still reaches these).
    *   - `mimo-v2.6-pro-ultraspeed`: `[XIAOMI_CREDITS_KEY]` only — not served
    *     over the Token Plan endpoint, so there's no fallback to it.
+   *   - every Gemini model: `[GEMINI_API_KEY, "gemini"]` — an AI Studio API key
+   *     first (the user chose to pay per token, and Code Assist OAuth now
+   *     refuses personal accounts), then the Code Assist OAuth login.
    * Falls back to `[provider]` — the normal single-credential case — when
    * unset. Read via `getAuthStorageKeys()` / `getAuthStorageKey()`.
    */
@@ -123,6 +126,9 @@ const CODEX_FAST_BILLING: ModelBilling = {
 
 // Provider display order — mirrors `PROVIDERS` in ui/login.tsx so the
 // /model selector and login selector sort models identically.
+/** Gemini credential order: an AI Studio API key first, then Code Assist OAuth. */
+const GEMINI_AUTH_KEYS = [GEMINI_API_KEY, "gemini"];
+
 export const MODELS: ModelInfo[] = [
   // ── Anthropic ──────────────────────────────────────────
   // NOTE: Claude Mythos 5 (`claude-mythos-5`) is kept commented out — it's a
@@ -440,6 +446,7 @@ export const MODELS: ModelInfo[] = [
     maxVideoBytes: 20 * 1024 * 1024,
     costTier: "low",
     maxThinkingLevel: "high",
+    authStorageKeys: GEMINI_AUTH_KEYS,
   },
   // Keep 3.1 Flash Lite first for the working OAuth default and fast-model routing.
   // New GA models are opt-in; Code Assist access varies by account. Gemini 3.7
@@ -458,6 +465,7 @@ export const MODELS: ModelInfo[] = [
     maxVideoBytes: 20 * 1024 * 1024,
     costTier: "low",
     maxThinkingLevel: "high",
+    authStorageKeys: GEMINI_AUTH_KEYS,
   },
   {
     id: "gemini-3.5-flash-lite",
@@ -471,6 +479,7 @@ export const MODELS: ModelInfo[] = [
     maxVideoBytes: 20 * 1024 * 1024,
     costTier: "low",
     maxThinkingLevel: "high",
+    authStorageKeys: GEMINI_AUTH_KEYS,
   },
   {
     // Wire name `gemini-3-flash` — the Code Assist (OAuth) backend rejects the
@@ -487,6 +496,7 @@ export const MODELS: ModelInfo[] = [
     maxVideoBytes: 20 * 1024 * 1024,
     costTier: "low",
     maxThinkingLevel: "high",
+    authStorageKeys: GEMINI_AUTH_KEYS,
   },
   {
     // Gemini 3.1 Pro is public preview — gated behind Code Assist preview
@@ -503,6 +513,7 @@ export const MODELS: ModelInfo[] = [
     maxVideoBytes: 20 * 1024 * 1024,
     costTier: "high",
     maxThinkingLevel: "high",
+    authStorageKeys: GEMINI_AUTH_KEYS,
   },
   // ── Moonshot (Kimi) ────────────────────────────────────
   // K3 is Kimi's 2.8T-parameter flagship for long-horizon coding, knowledge
