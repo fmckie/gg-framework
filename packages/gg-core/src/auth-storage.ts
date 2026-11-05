@@ -11,6 +11,7 @@ import { refreshXaiToken } from "./oauth/xai.js";
 import { withFileLock } from "./file-lock.js";
 import { log } from "./logger.js";
 import { KLEIO_PRODUCT_PROFILE } from "./product-profile.js";
+import { isHiddenProvider } from "./hidden-providers.js";
 
 const LOGIN_COMMAND = `${KLEIO_PRODUCT_PROFILE.coder.preferredCommand} login`;
 
@@ -278,6 +279,9 @@ export class AuthStorage {
    * satisfies it.
    */
   async hasProviderAuth(provider: string): Promise<boolean> {
+    // A hidden provider counts as not connected, so pickers and startup skip
+    // it even when old credentials are still on disk.
+    if (isHiddenProvider(provider)) return false;
     await this.ensureFresh();
     const dual = dualAuthProvider(provider);
     if (dual) {
