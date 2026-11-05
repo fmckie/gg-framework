@@ -1,0 +1,19 @@
+/* Only preview framing and the existing session-height constraint are added. */
+[hidden] { display: none !important; }
+main > .panel-sample { margin-top: 0; }
+main > .panel-sample > .caption { display: none; }
+.page-head { margin-bottom: 20px; }
+.page-head select { margin-left: 8px; padding: 8px; font: inherit; color: #e8e0dc; background: #241f20; border: 1px solid #a69c9d; border-radius: 3px; }
+.page-head select:focus-visible { outline: 2px solid #94a2c4; outline-offset: 3px; }
+.page-head .preview-note { margin-top: 12px; line-height: 1.5; }
+#preview-announcement { min-height: 20px; margin-top: 8px; }
+.panel-sample .kleio-code.is-viewport { height: 788px; }
+#home { margin: 0; }
+#home iframe { display: block; width: 1024px; height: 720px; margin: auto; border: 0; }
+main:has(> #home:not([hidden])) { width: 100%; padding-inline: 0; }
+main:has(> #home:not([hidden])) > .page-head { width: min(1560px, calc(100% - 72px)); margin-inline: auto; }
+/* Chromium can carry a decorative mention's inline fill into replacement text. */
+.field [contenteditable] :not(.mention) { -webkit-text-fill-color: var(--ink) !important; color: var(--ink); }
+/* Unified-only refinements; keep shared accents and motion untouched. */
+.session-preview .wake-cursor { color: #ed7380; }
+.kleio-code :is(.plan-banner-title, .plan-head-title) { color: color-mix(in srgb, var(--help) 92%, white); }

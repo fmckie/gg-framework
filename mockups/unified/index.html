@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Kleio · Unified approved preview</title>
+<link rel="stylesheet" href="../code-transcript/final.css"><link rel="stylesheet" href="../window-chrome/chrome.css"><link rel="stylesheet" href="../window-chrome/composer-refined.css"><link rel="stylesheet" href="../window-chrome/panels-preview.css"><link rel="stylesheet" href="../window-chrome/session-preview.css?v=rain-tone-2"><script src="../window-chrome/session-wake.js?v=rain-tone-2" defer=""></script><link rel="stylesheet" href="../window-chrome/model-preview.css"><script src="../window-chrome/model-preview.js" defer=""></script><link rel="stylesheet" href="../window-chrome/usage-preview.css"><script src="../window-chrome/usage-preview.js" defer=""></script><link rel="stylesheet" href="../plan-mode/final.css"><link rel="stylesheet" href="../code-transcript/help-frame-window.css"><link rel="stylesheet" href="preview.css"><link rel="stylesheet" href="mukta-malar.css"><script src="preview.js" defer=""></script></head>
+<body><main class="session-preview"><header class="page-head"><span>KLEIO / UNIFIED APPROVED MOCKUP</span><h1>Approved UI preview</h1><label for="preview-state">Preview state </label><select id="preview-state"><option value="home">Home</option><option value="chats">Chats</option><option value="conversation" selected="">Code session</option><option value="empty">Empty session</option><option value="plan-pending">Plan · pending</option><option value="plan-approved">Plan · approved</option><option value="help">@help · prompt</option><option value="help-sent">@help · sent</option></select><p class="preview-note">Local simulation only. Model/thinking, More/Branch, Usage and drafts are interactive. Other application actions are static; nothing is sent or run. Drafts/files/feedback are lost on reload.</p><p class="preview-note">Pending plan + Model: opening Model switches to Code session; return with this selector. Plan actions and helper handoff remain static; use the selector for approved/sent samples.</p><p id="preview-announcement" role="status" aria-live="polite"></p></header><section id="chats" class="panel-sample" aria-labelledby="caption-chats" hidden=""><h2 class="caption" id="caption-chats">01 · Chats — readable titles, search, current session and draft examples</h2><div class="kleio-code variant-A"><header class="chrome"><div class="title-row"><div class="lights" aria-label="Window controls"><button type="button" aria-label="Close">×</button><button type="button" aria-label="Minimize">−</button><button type="button" aria-label="Zoom">+</button></div><strong class="project">kleio-projects</strong><span class="branch">⑂ phase3/generate-recipe</span><span class="host">on mac-mini-1</span><button type="button" class="control ">Specialists</button><div class="usage"><span>week</span><span class="meter" role="meter" aria-label="Weekly usage" aria-valuenow="26" aria-valuemin="0" aria-valuemax="100"><i></i></span><span>5d 11h</span></div><button type="button" class="control " aria-label="Collapse title bar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"></path></svg></button></div></header><div class="chat-browser col"><div class="browser-heading"><h3>Chats <span>21</span></h3><div class="browser-controls"><label class="search-label">Search chats<input type="search" placeholder="Search by title" aria-label="Search chats"></label><button type="button" class="control new-chat">+ New chat</button></div></div><div class="session-scroll" tabindex="0" role="region" aria-label="Chats, scrollable"><ul class="session-list"><li><button type="button" class="session-item" aria-current="true"><span class="session-title">Research cal.app and understand what made it successful</span><span class="session-date">24m ago</span><span class="session-meta">53 msgs<span class="session-flag">Current session · Draft</span></span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Refine a message to Polina</span><span class="session-date">1h ago</span><span class="session-meta">17 msgs<span class="session-flag">Draft</span></span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Write a review for Ken Kai’s Skool service</span><span class="session-date">2d ago</span><span class="session-meta">18 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Find ways to earn with my AI skills</span><span class="session-date">3d ago</span><span class="session-meta">24 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Prepare for lunch at Lord’s tomorrow</span><span class="session-date">3d ago</span><span class="session-meta">16 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Identify an item and estimate its value</span><span class="session-date">3d ago</span><span class="session-meta">4 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Hugh Hefner’s haircut for a costume</span><span class="session-date">5d ago</span><span class="session-meta">2 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Understand how reinforcement learning was used and what information is still needed to explain the results</span><span class="session-date">6d ago</span><span class="session-meta">28 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Understand a message after an unexpected departure</span><span class="session-date">6d ago</span><span class="session-meta">2 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Explore roles combining AI engineering and ML engineering</span><span class="session-date">1w ago</span><span class="session-meta">22 msgs</span></button></li>
+<li><button type="button" class="session-item"><span class="session-title">Find the source of gg-framework’s critter animation</span><span class="session-date">1w ago</span><span class="session-meta">98 msgs</span></button></li>
+</ul></div></div></div></section>
+<section id="conversation" class="panel-sample" aria-labelledby="caption-conversation"><h2 class="caption" id="caption-conversation">02 · Existing conversation — identity in the window title bar; one New chat action</h2><div class="kleio-code variant-A"><header class="chrome"><div class="title-row"><div class="lights" aria-label="Window controls"><button type="button" aria-label="Close">×</button><button type="button" aria-label="Minimize">−</button><button type="button" aria-label="Zoom">+</button></div><nav class="session-identity" aria-label="Chat identity"><button type="button" class="control">Chats</button><span aria-hidden="true">/</span><h3>Research cal.app and understand what made it successful</h3></nav><span class="host">on mac-mini-1</span><button type="button" class="control ">Specialists</button><div class="usage"><span>week</span><span class="meter" role="meter" aria-label="Weekly usage" aria-valuenow="26" aria-valuemin="0" aria-valuemax="100"><i></i></span><span>5d 11h</span></div><button type="button" class="control " aria-label="Collapse title bar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"></path></svg></button></div><nav class="toolbar" aria-label="Code tools"><button type="button" class="control " aria-label="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"></path></svg></button><button class="control specialist"><span class="count">20</span> Architect</button><button class="control autopilot" role="switch" aria-checked="true">Autopilot <span class="switch"><i></i></span></button><span class="toolbar-space"></span><button type="button" class="control ">+ New chat</button><button type="button" class="control ">Notes</button><button type="button" class="control ">Tasks</button><button type="button" class="control " aria-label="Radio"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="1"></rect><path d="m4 8 14-5M6 12h5m-5 4h5"></path><circle cx="16" cy="14" r="3"></circle></svg></button><button type="button" class="control " aria-label="Terminal"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"></rect><path d="m6 9 3 3-3 3m6 0h5"></path></svg></button><button type="button" class="control ">/commit</button><button type="button" class="control " aria-label="Help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 5m0 3v.1"></path></svg></button></nav></header><div class="transcript"><div class="col"><div class="turn you"><p class="bubble">I want you to do some research on cal.app and tell me why it was successful.</p></div><div class="turn msg"><div class="prose"><h3>How to pay creators</h3><p>A flat fee per post, plus a bonus for views and sales. Track results with a code or link per creator.</p><h3>A pilot I’d suggest</h3><p>Judge it the Cal AI way: test a few creators in each niche, double down on the ones that convert, and drop the rest.</p></div></div></div></div><div class="dock col">
+<div class="activity"><span>Ready for your next message</span></div><div class="composer"><div class="field"><button type="button" class="control " aria-label="Attach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 15 7-7a2 2 0 0 0-3-3l-8 8a4 4 0 0 0 6 6l9-9"></path></svg></button><p class="input" role="textbox" aria-readonly="true" aria-label="Message"><span class="mention">@help</span> help me refine the next steps.</p><button type="button" class="control enhance">Enhance</button><button type="button" class="control " aria-label="Microphone"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6"></path></svg></button><button type="button" class="send" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-7 7 7-7 7 7"></path></svg></button></div><nav class="panel-entry-bar" aria-label="Composer panel entries"><button type="button" class="control more-entry ">More ···</button><button type="button" class="control branch-entry ">⑂ phase3/generate-recipe</button><span class="static-label">Text entry · static sample</span></nav></div></div>
+<footer class="status"><button type="button" class="control background-task"><span class="task-mark" aria-hidden="true">⚙</span> 1 background task</button><span class="toolbar-space"></span><button type="button" class="control context-control">Context <span class="context-track" aria-hidden="true"><i></i></span><span class="context-value">19%</span></button><button type="button" class="control thinking thinking-low"><span class="effort-mark" aria-hidden="true"><i></i></span>Thinking low</button><button type="button" class="control">Kleio <span>Claude Opus 5.5</span></button><button type="button" class="control"><span class="mention">@help</span> <span>Claude Opus 5.5</span></button></footer></div></section>
+<section id="empty" class="panel-sample" aria-labelledby="caption-empty" hidden=""><h2 class="caption" id="caption-empty">03 · New conversation — untitled identity and an empty composer</h2><div class="kleio-code variant-A"><header class="chrome"><div class="title-row"><div class="lights" aria-label="Window controls"><button type="button" aria-label="Close">×</button><button type="button" aria-label="Minimize">−</button><button type="button" aria-label="Zoom">+</button></div><nav class="session-identity" aria-label="Chat identity"><button type="button" class="control">Chats</button><span aria-hidden="true">/</span><h3>Untitled chat</h3></nav><span class="host">on mac-mini-1</span><button type="button" class="control ">Specialists</button><div class="usage"><span>week</span><span class="meter" role="meter" aria-label="Weekly usage" aria-valuenow="26" aria-valuemin="0" aria-valuemax="100"><i></i></span><span>5d 11h</span></div><button type="button" class="control " aria-label="Collapse title bar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 9 7 7 7-7"></path></svg></button></div><nav class="toolbar" aria-label="Code tools"><button type="button" class="control " aria-label="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 5-7 7 7 7"></path></svg></button><button class="control specialist"><span class="count">20</span> Architect</button><button class="control autopilot" role="switch" aria-checked="true">Autopilot <span class="switch"><i></i></span></button><span class="toolbar-space"></span><button type="button" class="control ">+ New chat</button><button type="button" class="control ">Notes</button><button type="button" class="control ">Tasks</button><button type="button" class="control " aria-label="Radio"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="18" height="12" rx="1"></rect><path d="m4 8 14-5M6 12h5m-5 4h5"></path><circle cx="16" cy="14" r="3"></circle></svg></button><button type="button" class="control " aria-label="Terminal"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1"></rect><path d="m6 9 3 3-3 3m6 0h5"></path></svg></button><button type="button" class="control ">/commit</button><button type="button" class="control " aria-label="Help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 5m0 3v.1"></path></svg></button></nav></header><div class="transcript empty-transcript session-wake"><div class="wake-field" aria-hidden="true"><canvas class="wake-rain" aria-hidden="true"></canvas></div><div class="col wake-copy"><h3 class="wake-static">Talk to me. I’m listening.</h3><div class="wake-treatment" aria-hidden="true"><span class="wake-line"></span><span class="wake-cursor">█</span></div><p>A new conversation in this project.</p></div></div><div class="dock col">
+<div class="activity"><span>Ready when you are</span></div><div class="composer"><div class="field"><button type="button" class="control " aria-label="Attach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 15 7-7a2 2 0 0 0-3-3l-8 8a4 4 0 0 0 6 6l9-9"></path></svg></button><textarea class="input" rows="1" aria-label="Message" placeholder="Ask anything…"></textarea><button type="button" class="control enhance">Enhance</button><button type="button" class="control " aria-label="Microphone"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M6 11v1a6 6 0 0 0 12 0v-1m-6 7v3m-3 0h6"></path></svg></button><button type="button" class="send" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V4m-7 7 7-7 7 7"></path></svg></button></div><nav class="panel-entry-bar" aria-label="Composer panel entries"><button type="button" class="control more-entry ">More ···</button><button type="button" class="control branch-entry ">⑂ phase3/generate-recipe</button><span class="static-label">Text entry · static sample</span></nav></div></div>
+<footer class="status"><button type="button" class="control background-task"><span class="task-mark" aria-hidden="true">⚙</span> 1 background task</button><span class="toolbar-space"></span><button type="button" class="control context-control">Context <span class="context-track" aria-hidden="true"><i></i></span><span class="context-value">0%</span></button><button type="button" class="control thinking thinking-low"><span class="effort-mark" aria-hidden="true"><i></i></span>Thinking low</button><button type="button" class="control">Kleio <span>Claude Opus 5.5</span></button><button type="button" class="control"><span class="mention">@help</span> <span>Claude Opus 5.5</span></button></footer></div></section>
+<section id="home" hidden=""><iframe src="home.html" title="Approved Home mockup" width="1024" height="720"></iframe></section></main><template id="more-template"><section class="composer-panel more-panel" aria-label="More"><header class="panel-header"><h3>More</h3><span class="escape">esc</span><button type="button" class="control" aria-label="Close More panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"></path></svg></button></header><div class="priority-actions"><button type="button" class="control "><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 2 2 3-4M11 6h10M3 13h3m5 0h10M3 20h3m5 0h10"></path></svg><span>Checklist</span></button><button type="button" class="control "><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h5l3-7 4 14 3-7h5"></path></svg><span>Project Health</span></button></div></section></template><template id="branch-template"><section class="composer-panel branch-panel" aria-label="Branch"><header class="panel-header"><h3>phase3/generate-recipe</h3><span class="panel-meta">18 uncommitted files · sample</span><span class="escape">esc</span><button type="button" class="control" aria-label="Close Branch panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"></path></svg></button></header><nav class="branch-actions" aria-label="Branch views"><button type="button" class="control is-current"><span>Changes</span><span class="view-count">18</span></button><button type="button" class="control "><span>Pull requests</span><span class="view-count">7</span></button><button type="button" class="control "><span>Issues</span><span class="view-count">1</span></button><button type="button" class="control github">Open on GitHub</button></nav><div class="change-scroll" tabindex="0" role="region" aria-label="Representative changes, scrollable"><ul class="change-list"><li><span class="change-kind" aria-label="Modified">M</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>README.md</span><span class="change-state">modified</span></li><li><span class="change-kind" aria-label="Modified">M</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>panels-preview.css</span><span class="change-state">modified</span></li><li><span class="change-kind" aria-label="Modified">M</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>panels-preview.html</span><span class="change-state">modified</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>approval-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>approval-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>approval-states-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>approval-states-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polish-before.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-branch-states-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-branch-states-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-more-states-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>polished-more-states-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>refined-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>refined-1680.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>replacement-1024.png</span><span class="change-state">new</span></li><li><span class="change-kind" aria-label="Added">A</span><span class="change-path"><span class="folder">mockups/window-chrome/</span>replacement-1680.png</span><span class="change-state">new</span></li></ul></div></section></template>
+<template id="plan-pending-template"><div class="transcript" role="log" aria-label="Transcript">
+            <div class="col">
+              <div class="turn you"><p class="bubble">Failed logins aren’t rate-limited. Plan a fix before you change anything.</p></div>
+              <div class="turn plan-banner">
+                <p class="plan-banner-title">Plan mode</p>
+                <p class="plan-banner-reason">Read-only until you approve a plan. This touches auth and the HTTP layer, so I’ll map both first.</p>
+              </div>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>I’ll map the login route and the one limiter we have, and have a subagent check how other routes throttle requests.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Read the login route in <code>src/auth/login.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found no count of failed attempts anywhere in the auth flow</li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found one limiter, in <code>src/http/limits.ts</code>, used only by signup</li>
+                </ul>
+                <div class="agent">
+                  <p><span class="agent-label">Subagent</span>Explore: how other routes throttle requests</p>
+                  <p>Scanned 88 files in <code>src/http</code> and <code>src/auth</code></p>
+                  <p>Found the shared Redis client the signup limiter uses</p>
+                  <p class="is-done">Returned 2 findings to KLEIO</p>
+                </div>
+              </div>
+              <section class="turn plan" aria-labelledby="plan-title">
+                <header class="plan-head"><h3 class="plan-head-title" id="plan-title">Plan review</h3></header>
+                <div class="prose plan-doc">
+                  <h4>Rate-limit failed logins</h4>
+                  <h5>Context</h5>
+                  <p>Failed logins aren’t counted today: <code>POST /login</code> checks the password and returns 401, so a script can try passwords as fast as the server answers. The only limiter, in <code>src/http/limits.ts</code>, guards signup.</p>
+                  <h5>Steps</h5>
+                  <ol>
+                    <li>Move the limiter in <code>src/http/limits.ts</code> behind a <code>createLimiter()</code> helper that signup and login can share.</li>
+                    <li>In <code>src/auth/login.ts</code>, count failed attempts per account and per IP. After 5 failures on one account, or 50 from one IP, within 15 minutes, return 429 with a <code>Retry-After</code> header, so a script is slowed down without locking out someone who mistypes their password a few times.</li>
+                    <li>Reset an account’s count when it logs in successfully.</li>
+                    <li>Log each 429 with the account and the IP, so the limits can be tuned from real traffic.</li>
+                    <li>Add tests in <code>src/auth/login.test.ts</code> for the 5th and 6th failure, the reset and the header.</li>
+                  </ol>
+                  <h5>Files</h5>
+                  <ul>
+                    <li><code>src/http/limits.ts</code>: the shared <code>createLimiter()</code></li>
+                    <li><code>src/auth/login.ts</code>: the two counts and the 429</li>
+                    <li><code>src/auth/login.test.ts</code>: the new tests</li>
+                  </ul>
+                  <h5>Not in this plan</h5>
+                  <ul>
+                    <li>A CAPTCHA, or locking accounts</li>
+                    <li>Changing signup’s existing limit</li>
+                  </ul>
+                  <h5>Risk</h5>
+                  <p>People behind one shared IP, such as an office or a VPN, share the per-IP count. That’s why its limit is 50, not 5.</p>
+                  <h5>Rollout</h5>
+                  <p>Ship behind the existing <code>auth-v2</code> flag, with both limits read from config, so they can change without a deploy.</p>
+                </div>
+              </section>
+              <div class="plan-actions">
+                <div class="plan-tray" role="group" aria-label="Review the plan">
+                  <input class="plan-feedback" type="text" placeholder="Give feedback on this plan…" aria-label="Feedback on this plan">
+                  <button class="plan-reject" type="button">Reject</button>
+                  <button class="plan-approve" type="button">Approve</button>
+                </div>
+              </div>
+            </div>
+          </div></template><template id="plan-approved-template"><div class="transcript" role="log" aria-label="Transcript">
+            <div class="col">
+              <div class="turn you"><p class="bubble">Failed logins aren’t rate-limited. Plan a fix before you change anything.</p></div>
+              <div class="turn plan-banner">
+                <p class="plan-banner-title">Plan mode</p>
+                <p class="plan-banner-reason">Read-only until you approve a plan. This touches auth and the HTTP layer, so I’ll map both first.</p>
+              </div>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>I’ll map the login route and the one limiter we have, and have a subagent check how other routes throttle requests.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Read the login route in <code>src/auth/login.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found no count of failed attempts anywhere in the auth flow</li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Found one limiter, in <code>src/http/limits.ts</code>, used only by signup</li>
+                </ul>
+                <div class="agent">
+                  <p><span class="agent-label">Subagent</span>Explore: how other routes throttle requests</p>
+                  <p>Scanned 88 files in <code>src/http</code> and <code>src/auth</code></p>
+                  <p>Found the shared Redis client the signup limiter uses</p>
+                  <p class="is-done">Returned 2 findings to KLEIO</p>
+                </div>
+              </div>
+              <p class="turn plan-done"><span class="i i-check" aria-hidden="true"></span>Rate-limit failed logins<span class="plan-done-state"> · Approved</span></p>
+              <div class="turn msg">
+                <span class="lead" aria-hidden="true"></span>
+                <div class="prose"><p>Out of plan mode. Starting with the shared limiter, then the login count.</p></div>
+                <ul class="steps">
+                  <li><span class="i i-check" aria-hidden="true"></span>Moved the limiter behind <code>createLimiter()</code> in <code>src/http/limits.ts</code></li>
+                  <li><span class="i i-check" aria-hidden="true"></span>Switched signup to the shared helper, keeping its limit</li>
+                </ul>
+              </div>
+            </div>
+          </div></template><template id="help-sent-template"><div class="transcript" role="log" aria-label="Transcript">
+        <div class="col">
+          <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+            <ul class="steps">
+              <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+              <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+              <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+            </ul>
+            <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+            <div class="agent">
+              <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+              <p>Scanned 214 files for TTL arithmetic</p>
+              <p>Found one more in <code>src/cache/ttl.ts</code></p>
+              <p class="is-done">Returned 1 finding to KLEIO</p>
+            </div>
+          </div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose">
+              <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+              <p>What changed:</p>
+              <ul>
+                <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                  <ul>
+                    <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                    <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                  </ul>
+                </li>
+                <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+              </ul>
+              <p>Before this ships:</p>
+              <ol>
+                <li>Run the full suite, not just auth.</li>
+                <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                <li>Merge behind the existing <code>session-v2</code> flag.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+          <div class="turn msg help">
+            <span class="lead" aria-hidden="true"></span>
+            <p class="help-head">@help</p>
+            <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+            <div class="prompt">
+              <p class="prompt-label">Prompt for KLEIO</p>
+              <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+              <button class="send-kleio" type="button">Send to KLEIO</button>
+            </div>
+          </div>
+
+          <div class="turn you"><p class="bubble is-sent"><span class="i i-check" aria-hidden="true"></span>Sent to KLEIO</p></div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose"><p>Adding the boundary test now, then running the auth suite.</p></div>
+          </div>
+        </div>
+      </div></template><template id="help-template"><div class="transcript" role="log" aria-label="Transcript">
+        <div class="col">
+          <div class="turn you"><p class="bubble">Sessions expire seconds after login on staging. Find out why and fix it.</p></div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose"><p>I’ll trace where the expiry is set, fix it, and have a subagent look for the same slip elsewhere.</p></div>
+            <ul class="steps">
+              <li><span class="i i-check" aria-hidden="true"></span>Traced the expiry to <code>issueSession()</code> in <code>src/auth/session.ts</code></li>
+              <li><span class="i i-check" aria-hidden="true"></span>Found the TTL written in seconds and read as milliseconds</li>
+              <li><span class="i i-check" aria-hidden="true"></span>Converted it once, where the config is read</li>
+            </ul>
+            <p class="hook"><span class="i i-hook" aria-hidden="true"></span><span class="hook-name">Hook</span> · after edit · <code>prettier --write src/auth/session.ts</code> · passed</p>
+            <div class="agent">
+              <p><span class="agent-label">Subagent</span>Explore: the same mismatch outside <code>src/auth</code></p>
+              <p>Scanned 214 files for TTL arithmetic</p>
+              <p>Found one more in <code>src/cache/ttl.ts</code></p>
+              <p class="is-done">Returned 1 finding to KLEIO</p>
+            </div>
+          </div>
+
+          <div class="turn msg">
+            <span class="lead" aria-hidden="true"></span>
+            <div class="prose">
+              <p>Fixed in both places, and the auth suite passes. The TTL was written in seconds and read as milliseconds, so a 30-minute session looked expired after 1.8 seconds.</p>
+              <p>What changed:</p>
+              <ul>
+                <li><code>src/auth/session.ts</code> converts the TTL to milliseconds once, where the config is read
+                  <ul>
+                    <li><code>issueSession()</code> stores <code>expiresAt</code> in epoch milliseconds</li>
+                    <li><code>isExpired()</code> compares milliseconds with milliseconds</li>
+                  </ul>
+                </li>
+                <li><code>src/cache/ttl.ts</code> had the same mismatch, which the subagent found. It’s fixed the same way, and both files now share one <code>toMs()</code> helper, so the two can’t drift apart again.</li>
+              </ul>
+              <p>Before this ships:</p>
+              <ol>
+                <li>Run the full suite, not just auth.</li>
+                <li>Log in on staging and leave the session idle past the 30-minute mark, to confirm it now lasts its full TTL; a frozen clock in the unit tests can’t show that.</li>
+                <li>Merge behind the existing <code>session-v2</code> flag.</li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="turn you"><p class="bubble"><span class="mention">@help</span> is this a sound fix?</p></div>
+
+          <div class="turn msg help">
+            <span class="lead" aria-hidden="true"></span>
+            <p class="help-head">@help</p>
+            <div class="prose"><p><strong>Verdict: sound.</strong> The unit mismatch is the root cause, and both call sites now agree. One gap: no test checks the expiry boundary, so nothing stops this coming back.</p></div>
+            <div class="prompt">
+              <p class="prompt-label">Prompt for KLEIO</p>
+              <p class="prompt-text">Add a regression test to <code>src/auth/session.test.ts</code>: issue a session with a 30-minute TTL, advance a fake clock 29 minutes and assert it is still valid, then to 31 minutes and assert it has expired. Run the auth suite after.</p>
+              <button class="send-kleio" type="button">Send to KLEIO</button>
+            </div>
+          </div>
+
+          
+
+          
+        </div>
+      </div></template></body></html>

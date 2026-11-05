@@ -1,0 +1,32 @@
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("fonts/mukta-malar/MuktaMalar-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("fonts/mukta-malar/MuktaMalar-Medium.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("fonts/mukta-malar/MuktaMalar-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("fonts/mukta-malar/MuktaMalar-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+/* Typeface only; preserve metrics and explicit monospace code styles. */
+.kleio-code .prose, .kleio-code .field .input {
+  font-family: "Mukta Malar", var(--sans);
+}
