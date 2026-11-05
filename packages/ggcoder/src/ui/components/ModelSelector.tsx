@@ -35,9 +35,18 @@ const PROVIDER_LABEL: Record<string, string> = {
 };
 
 /** The `provider:model` value's model, when it spends real money. */
-export function paidModelFor(value: string): { name: string; detail: string } | undefined {
+export function paidModelFor(
+  value: string,
+): { name: string; detail: string; label: string; standardName: string } | undefined {
   const model = getModel(value.slice(value.indexOf(":") + 1));
-  return model?.billing?.paid ? { name: model.name, detail: model.billing.detail } : undefined;
+  if (!model?.billing?.paid) return undefined;
+  const standard = model.billing.standardModel ? getModel(model.billing.standardModel) : undefined;
+  return {
+    name: model.name,
+    detail: model.billing.detail,
+    label: model.billing.label,
+    standardName: standard?.name ?? "a standard model",
+  };
 }
 
 export function ModelSelector({
@@ -84,16 +93,16 @@ export function ModelSelector({
         </Text>
         <Text color={theme.text}>{paid.detail}</Text>
         <Text color={theme.textDim}>
-          It stays on for this session only. Restarts and new sessions go back to standard speed,
-          and sub-agents never use it.
+          It stays on for this session only. Restarts and new sessions go back to{" "}
+          {paid.standardName}, and sub-agents never use it.
         </Text>
         <SlashStyledSelectList
           items={[
             { label: "Cancel", value: PAID_CONFIRM_CANCEL, description: "keep the current model" },
             {
-              label: "Use it and pay from credits",
+              label: "Use it and pay",
               value: PAID_CONFIRM_YES,
-              description: "bills usage credits from the first token",
+              description: paid.label,
             },
           ]}
           onSelect={(choice) => {

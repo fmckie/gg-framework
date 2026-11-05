@@ -469,10 +469,11 @@ export interface ModelOption {
   contextWindowKnown?: boolean;
   supportsThinking?: boolean;
   /**
-   * Set when picking this model changes what the user pays (fast modes).
-   * `paid` means real money: Claude fast mode bills usage credits, never the plan.
+   * Set when picking this model changes what the user pays (fast modes,
+   * MiMo UltraSpeed). `paid` means real money, never the plan;
+   * `standardModel` is what replaces it wherever it isn't carried over.
    */
-  billing?: { label: string; detail: string; paid: boolean };
+  billing?: { label: string; detail: string; paid: boolean; standardModel?: string };
 }
 
 export interface SlashCommand {

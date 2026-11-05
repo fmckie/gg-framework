@@ -1,4 +1,3 @@
-import { resolveFastModeModel } from "@kleio/ai";
 import type { Provider, ThinkingLevel } from "@kleio/ai";
 import { isKimiCodingEndpoint } from "./oauth/kimi.js";
 import { MOONSHOT_OAUTH_KEY, XIAOMI_CREDITS_KEY } from "./auth-storage.js";
@@ -87,6 +86,13 @@ export interface ModelBilling {
   detail: string;
   /** True when choosing the model spends real money, not just plan allowance. */
   paid: boolean;
+  /**
+   * The same-provider model to run instead wherever a paid tier must not be
+   * carried silently (saved defaults, restored sessions, Ken, sub-agents, goal
+   * workers). Required when `paid` is true; registry tests enforce that it is
+   * registered, same-provider and itself not paid.
+   */
+  standardModel?: string;
 }
 
 /** Claude fast mode: billed to usage credits from the first token. */
@@ -95,6 +101,16 @@ const CLAUDE_FAST_BILLING: ModelBilling = {
   detail:
     "Fast mode bills your Claude usage credits ($8 in / $40 out per million tokens) from the first token, never your plan's included usage.",
   paid: true,
+  standardModel: "claude-opus-5-5",
+};
+
+/** MiMo UltraSpeed: API Credits only, billed per token, never the Token Plan. */
+const XIAOMI_ULTRASPEED_BILLING: ModelBilling = {
+  label: "bills API Credits",
+  detail:
+    "UltraSpeed runs only on your Xiaomi API Credits, billed per token at a higher rate than MiMo-V2.6-Pro, never on the Token Plan.",
+  paid: true,
+  standardModel: "mimo-v2.6-pro",
 };
 
 /** Codex Fast mode: plan limits at 2.5x (purchased credits at 2x). */
@@ -674,6 +690,7 @@ export const MODELS: ModelInfo[] = [
     costTier: "high",
     maxThinkingLevel: "high",
     authStorageKeys: [XIAOMI_CREDITS_KEY],
+    billing: XIAOMI_ULTRASPEED_BILLING,
   },
   // ── DeepSeek ───────────────────────────────────────────
   // The live /models list (2026-09-28) serves exactly `deepseek-flash` and
@@ -809,6 +826,37 @@ export function getModelsForProvider(provider: Provider): ModelInfo[] {
   return getAllModels().filter((m) => m.provider === provider);
 }
 
+/** True when running `modelId` spends real money (Claude fast mode, MiMo UltraSpeed). */
+export function isPaidModel(modelId: string): boolean {
+  return getModel(modelId)?.billing?.paid === true;
+}
+
+/**
+ * The model to run instead of a paid tier: its `billing.standardModel`
+ * (`claude-opus-5-5-fast` → `claude-opus-5-5`, `mimo-v2.6-pro-ultraspeed` →
+ * `mimo-v2.6-pro`); every unpaid id is returned unchanged. A paid tier must be
+ * picked on purpose for the one session the user is watching, so everything
+ * that would otherwise carry it silently (saved defaults, restored sessions,
+ * Ken following GG, sub-agents, goal workers) runs through this instead.
+ *
+ * Fails closed: when the standard model is missing, unregistered or itself
+ * paid, it falls back to the provider's default, then the global default —
+ * never to the paid id.
+ */
+export function withoutPaidTier(modelId: string): string {
+  const model = getModel(modelId);
+  if (model?.billing?.paid !== true) return modelId;
+  const usable = (id: string | undefined): id is string =>
+    id !== undefined && getModel(id) !== undefined && !isPaidModel(id);
+  const standard = model.billing.standardModel;
+  if (usable(standard)) return standard;
+  // getDefaultModel also covers local (its first discovered model), so a
+  // missing standard model fails closed to a usable same-provider model.
+  const providerDefault = getDefaultModel(model.provider).id;
+  if (usable(providerDefault)) return providerDefault;
+  return getDefaultModel("anthropic").id;
+}
+
 /**
  * Ordered auth-storage keys to try resolving credentials from for
  * `(provider, model)`, first match wins. Almost every model just uses its
@@ -817,25 +865,6 @@ export function getModelsForProvider(provider: Provider): ModelInfo[] {
  * another — e.g. `mimo-v2.6-pro` prefers the Token Plan but falls back to API
  * Credits, while the API-only `mimo-v2.6-pro-ultraspeed` has no fallback.
  */
-/** True when running `modelId` spends real money (e.g. Claude fast mode). */
-export function isPaidModel(modelId: string): boolean {
-  return getModel(modelId)?.billing?.paid === true;
-}
-
-/**
- * The same model without its paid tier: `claude-opus-5-5-fast` becomes
- * `claude-opus-5-5`; every other id is returned unchanged. A paid tier must be
- * picked on purpose for the one session the user is watching, so everything
- * that would otherwise carry it silently (saved defaults, restored sessions,
- * Ken following GG, sub-agents, goal workers) runs through this instead.
- */
-export function withoutPaidTier(modelId: string): string {
-  const model = getModel(modelId);
-  if (model?.billing?.paid !== true) return modelId;
-  const base = resolveFastModeModel(model.provider, model.id).model;
-  return getModel(base) ? base : modelId;
-}
-
 export function getAuthStorageKeys(provider: Provider, modelId: string): string[] {
   const model = getAllModels().find((m) => m.id === modelId && m.provider === provider);
   return model?.authStorageKeys ?? [provider];
@@ -992,11 +1021,10 @@ const SUMMARY_COST_TIER: Readonly<Partial<Record<Provider, ModelInfo["costTier"]
  */
 export function getSummaryModel(provider: Provider, currentModelId: string): ModelInfo {
   const tier = SUMMARY_COST_TIER[provider];
-  // Fast-mode entries bill a premium speed tier — never pick one for summaries.
+  // Models with billing (fast modes, UltraSpeed) cost more than the standard
+  // rate — never pick one for summaries.
   const tagged = tier
-    ? getModelsForProvider(provider).find(
-        (m) => m.costTier === tier && !resolveFastModeModel(provider, m.id).fast,
-      )
+    ? getModelsForProvider(provider).find((m) => m.costTier === tier && m.billing === undefined)
     : undefined;
   return tagged ?? getModel(currentModelId) ?? getDefaultModel(provider);
 }

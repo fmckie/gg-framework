@@ -69,26 +69,6 @@ import {
 import { getHistoryMessageVisibility } from "./session-history.js";
 import { sourceFingerprint as computeSourceFingerprint } from "./session-compaction.js";
 import { getAuthStorageKeys, getContextWindow, getModel, MODELS } from "./model-registry.js";
-
-/**
- * Thrown by {@link AgentSession.switchModel} when the target model spends real
- * money and the caller didn't pass the user's explicit confirmation.
- */
-/** Reply for chat bridges (Telegram, agent home) that have no confirmation step. */
-export function paidModelRefusal(modelName: string): string {
-  return `${modelName} spends real money (Claude fast mode bills usage credits, not your plan), so it can't be switched to from chat. Switch to it in the Kleio app or the Kleio Coder CLI, where you confirm it.`;
-}
-
-export class PaidModelConfirmationError extends Error {
-  readonly modelName: string;
-  readonly detail: string;
-  constructor(modelName: string, detail: string) {
-    super(`${modelName} spends real money. ${detail} Confirm before switching to it.`);
-    this.name = "PaidModelConfirmationError";
-    this.modelName = modelName;
-    this.detail = detail;
-  }
-}
 import { discoverSkills, type Skill } from "./skills.js";
 import { ensureAppDirs } from "../config.js";
 import {
@@ -215,6 +195,32 @@ import { RunLoopMonitor } from "./agent-session/run-loop-monitor.js";
 import { VerificationTracker } from "./agent-session/verification-tracker.js";
 import { McpToolRegistry } from "./agent-session/mcp-tools.js";
 import { TranscriptMarkers } from "./agent-session/transcript-markers.js";
+
+// ── Paid models ────────────────────────────────────────────
+
+/**
+ * Reply for chat bridges (Telegram, agent home) that have no confirmation step.
+ * Generic on purpose: every paid model (Claude fast mode, MiMo UltraSpeed) is
+ * refused here, so the reason must not name one of them.
+ */
+export function paidModelRefusal(modelName: string): string {
+  return `${modelName} spends real money, so it can't be switched to from chat. Switch to it in the Kleio app or the Kleio Coder CLI, where you confirm it.`;
+}
+
+/**
+ * Thrown by {@link AgentSession.switchModel} when the target model spends real
+ * money and the caller didn't pass the user's explicit confirmation.
+ */
+export class PaidModelConfirmationError extends Error {
+  readonly modelName: string;
+  readonly detail: string;
+  constructor(modelName: string, detail: string) {
+    super(`${modelName} spends real money. ${detail} Confirm before switching to it.`);
+    this.name = "PaidModelConfirmationError";
+    this.modelName = modelName;
+    this.detail = detail;
+  }
+}
 
 // ── Options ────────────────────────────────────────────────
 

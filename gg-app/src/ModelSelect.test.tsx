@@ -122,7 +122,13 @@ describe("ModelSelect — confirming a model that spends real money", () => {
       label: "bills usage credits",
       detail: "Fast mode bills your Claude usage credits from the first token.",
       paid: true,
+      standardModel: "claude-opus-5-5",
     },
+  };
+  const standard: ModelOption = {
+    id: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    provider: "anthropic",
   };
   const QUESTION = "Claude Opus 5.5 Fast spends real money.";
 
@@ -131,7 +137,7 @@ describe("ModelSelect — confirming a model that spends real money", () => {
     const onSelect = vi.fn();
     const view = render(
       <ModelSelect
-        models={[...MODELS, paid]}
+        models={[...MODELS, standard, paid]}
         currentModel="claude-sonnet-5"
         onSelect={onSelect}
         offerPaid
@@ -159,6 +165,8 @@ describe("ModelSelect — confirming a model that spends real money", () => {
 
       expect(onSelect).not.toHaveBeenCalled();
       expect(screen.getByText(QUESTION)).toBeTruthy();
+      // Names the fallback from the model list, not a Claude-only "standard speed".
+      expect(screen.getByText(/go back to Claude Opus 5\.5, and the Helper/)).toBeTruthy();
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
 
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -180,7 +188,7 @@ describe("ModelSelect — confirming a model that spends real money", () => {
     (native) => {
       const { onSelect } = renderMain(native);
       pick(native, paid.id, "Claude Opus 5.5 Fast · bills usage credits");
-      fireEvent.click(screen.getByRole("button", { name: "Use it and pay from credits" }));
+      fireEvent.click(screen.getByRole("button", { name: "Use it and pay" }));
       expect(onSelect).toHaveBeenCalledWith("claude-opus-5-5-fast", { confirmPaid: true });
       expect(screen.queryByText(QUESTION)).toBeNull();
     },

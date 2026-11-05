@@ -118,6 +118,45 @@ describe("model registry invariants", () => {
     expect(getSummaryModel("anthropic", "claude-opus-5-5-fast").id).toBe("claude-sonnet-5-5");
   });
 
+  it("treats MiMo UltraSpeed as real money and strips it back to MiMo-V2.6-Pro", () => {
+    // UltraSpeed only runs on pay-per-token API Credits, never the Token Plan.
+    expect(isPaidModel("mimo-v2.6-pro-ultraspeed")).toBe(true);
+    expect(withoutPaidTier("mimo-v2.6-pro-ultraspeed")).toBe("mimo-v2.6-pro");
+    expect(isPaidModel("mimo-v2.6-pro")).toBe(false);
+  });
+
+  it("gives every paid model a registered, same-provider, unpaid standard model", () => {
+    for (const model of getAllModels().filter((m) => m.billing?.paid === true)) {
+      const standard = model.billing?.standardModel;
+      expect(standard, `${model.id} names its standard model`).toBeDefined();
+      const target = standard ? getModel(standard) : undefined;
+      expect(target, `${model.id} → ${standard} is registered`).toBeDefined();
+      expect(target?.provider, `${model.id} → ${standard} same provider`).toBe(model.provider);
+      expect(isPaidModel(standard ?? ""), `${model.id} → ${standard} is unpaid`).toBe(false);
+      expect(withoutPaidTier(model.id)).toBe(standard);
+    }
+  });
+
+  it("never strips a paid model back to a paid id when its standard model is missing", () => {
+    // Fail closed: a paid runtime model with no usable standard model falls
+    // back to the provider default, not to itself.
+    registerRuntimeModels([
+      {
+        ...(getModel("mimo-v2.6-pro-ultraspeed") as ModelInfo),
+        id: "mimo-test-paid-orphan",
+        billing: { label: "paid", detail: "paid", paid: true, standardModel: "not-registered" },
+      },
+    ]);
+    try {
+      const fallback = withoutPaidTier("mimo-test-paid-orphan");
+      expect(fallback).not.toBe("mimo-test-paid-orphan");
+      expect(isPaidModel(fallback)).toBe(false);
+      expect(getModel(fallback)).toBeDefined();
+    } finally {
+      clearRuntimeModels((m) => m.id === "mimo-test-paid-orphan");
+    }
+  });
+
   it("returns a registered default model for every provider", () => {
     for (const provider of PROVIDERS) {
       const defaultModel = getDefaultModel(provider);

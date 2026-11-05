@@ -216,6 +216,11 @@ export function ModelSelect({
   const paidConfirm = pendingPaid && !unavailable && (
     <PaidModelConfirm
       model={pendingPaid}
+      standardName={
+        pendingPaid.billing?.standardModel
+          ? modelDisplayName(models, pendingPaid.billing.standardModel)
+          : undefined
+      }
       onConfirm={() => settlePaid(true)}
       onCancel={() => settlePaid(false)}
     />

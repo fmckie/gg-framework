@@ -69,6 +69,8 @@ describe("ModelSelector — a model that spends real money", () => {
       await press({ return: true });
       expect(view.onSelect).not.toHaveBeenCalled();
       expect(view.output()).toContain("Claude Opus 5.5 Fast spends real money.");
+      // Names the model it falls back to, not a Claude-only "standard speed".
+      expect(view.output()).toContain("go back to Claude Opus 5.5");
 
       // Enter on the default answer (Cancel) backs out without switching.
       await press({ return: true });
