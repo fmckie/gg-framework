@@ -116,3 +116,18 @@ packages/*/.bench-*.mjs
 # `git add -A` cannot sweep 216KB of scratch into a release.
 /gg-app/mockups/
 /gg-app/dev/
+
+# Voice orb mockups: local verification evidence and superseded study builds.
+# They stay on disk because the local previews still link to them. Each study
+# commits its source, check scripts, the one bundle its HTML loads, and a few
+# screenshots under screenshots/. references/ holds third-party photos.
+/mockups/voice/**/*.webm
+/mockups/voice/*/verification-*/
+/mockups/voice/*/inspection/
+/mockups/voice/orb-studies/captures/
+/mockups/voice/instrument-studies/references/
+/mockups/voice/instrument-studies/bundle/
+/mockups/voice/instrument-studies/bundle-v2/
+/mockups/voice/hud-study/bundle/
+/mockups/voice/hud-study/bundle-v2/
+/mockups/voice/hud-study/bundle-v3/

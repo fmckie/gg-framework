@@ -1,0 +1,246 @@
+{
+  "checks": 239,
+  "engine": "Chromium",
+  "evidence": [
+    {
+      "name": "connecting",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/connecting-1680.png"
+    },
+    {
+      "name": "listening",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/listening-1680.png"
+    },
+    {
+      "name": "processing",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/processing-1680.png"
+    },
+    {
+      "name": "speaking",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/speaking-1680.png"
+    },
+    {
+      "name": "interrupted",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/interrupted-1680.png"
+    },
+    {
+      "name": "muted",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/muted-1680.png"
+    },
+    {
+      "name": "ending",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/ending-1680.png"
+    },
+    {
+      "name": "ended",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/ended-1680.png"
+    },
+    {
+      "name": "no-speech",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/no-speech-1680.png"
+    },
+    {
+      "name": "denied",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/denied-1680.png"
+    },
+    {
+      "name": "unavailable",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/unavailable-1680.png"
+    },
+    {
+      "name": "failure",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/failure-1680.png"
+    },
+    {
+      "name": "show-content",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/show-content-1680.png"
+    },
+    {
+      "name": "show-image",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/show-image-1680.png"
+    },
+    {
+      "name": "show-loading",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/show-loading-1680.png"
+    },
+    {
+      "name": "show-failure",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/show-failure-1680.png"
+    },
+    {
+      "name": "long",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/long-1680.png"
+    },
+    {
+      "name": "guide",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/guide-1680.png"
+    },
+    {
+      "name": "chat",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/chat-1680.png"
+    },
+    {
+      "name": "speaking-motion",
+      "width": 1680,
+      "height": 1000,
+      "path": "mockups/voice/after/speaking-motion-1680.png"
+    },
+    {
+      "name": "connecting",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/connecting-1024.png"
+    },
+    {
+      "name": "listening",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/listening-1024.png"
+    },
+    {
+      "name": "processing",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/processing-1024.png"
+    },
+    {
+      "name": "speaking",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/speaking-1024.png"
+    },
+    {
+      "name": "interrupted",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/interrupted-1024.png"
+    },
+    {
+      "name": "muted",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/muted-1024.png"
+    },
+    {
+      "name": "ending",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/ending-1024.png"
+    },
+    {
+      "name": "ended",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/ended-1024.png"
+    },
+    {
+      "name": "no-speech",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/no-speech-1024.png"
+    },
+    {
+      "name": "denied",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/denied-1024.png"
+    },
+    {
+      "name": "unavailable",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/unavailable-1024.png"
+    },
+    {
+      "name": "failure",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/failure-1024.png"
+    },
+    {
+      "name": "show-content",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/show-content-1024.png"
+    },
+    {
+      "name": "show-image",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/show-image-1024.png"
+    },
+    {
+      "name": "show-loading",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/show-loading-1024.png"
+    },
+    {
+      "name": "show-failure",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/show-failure-1024.png"
+    },
+    {
+      "name": "long",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/long-1024.png"
+    },
+    {
+      "name": "guide",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/guide-1024.png"
+    },
+    {
+      "name": "chat",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/chat-1024.png"
+    },
+    {
+      "name": "speaking-motion",
+      "width": 1024,
+      "height": 1000,
+      "path": "mockups/voice/after/speaking-motion-1024.png"
+    }
+  ]
+}

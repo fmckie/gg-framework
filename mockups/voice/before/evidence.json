@@ -1,0 +1,554 @@
+[
+  {
+    "state": "connecting",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "connecting",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/connecting-1680.png"
+  },
+  {
+    "state": "listening",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/listening-1680.png"
+  },
+  {
+    "state": "thinking",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "thinking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/thinking-1680.png"
+  },
+  {
+    "state": "speaking",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "speaking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/speaking-1680.png"
+  },
+  {
+    "state": "muted",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "muted",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/muted-1680.png"
+  },
+  {
+    "state": "ended",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/ended-1680.png"
+  },
+  {
+    "state": "long-caption",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "speaking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/long-caption-1680.png"
+  },
+  {
+    "state": "denied",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/denied-1680.png"
+  },
+  {
+    "state": "no-key",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/no-key-1680.png"
+  },
+  {
+    "state": "bad-key",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/bad-key-1680.png"
+  },
+  {
+    "state": "no-credit",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/no-credit-1680.png"
+  },
+  {
+    "state": "unreachable",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/unreachable-1680.png"
+  },
+  {
+    "state": "forbidden",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/forbidden-1680.png"
+  },
+  {
+    "state": "offline",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/offline-1680.png"
+  },
+  {
+    "state": "outdated",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/outdated-1680.png"
+  },
+  {
+    "state": "failed",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/failed-1680.png"
+  },
+  {
+    "state": "show-text",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-text-1680.png"
+  },
+  {
+    "state": "show-image",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-image-1680.png"
+  },
+  {
+    "state": "show-pdf",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-pdf-1680.png"
+  },
+  {
+    "state": "show-web",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-web-1680.png"
+  },
+  {
+    "state": "show-capturing",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-capturing-1680.png"
+  },
+  {
+    "state": "show-failed",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-failed-1680.png"
+  },
+  {
+    "state": "guide",
+    "width": 1680,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/guide-1680.png"
+  },
+  {
+    "state": "connecting",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "connecting",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/connecting-1024.png"
+  },
+  {
+    "state": "listening",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/listening-1024.png"
+  },
+  {
+    "state": "thinking",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "thinking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/thinking-1024.png"
+  },
+  {
+    "state": "speaking",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "speaking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/speaking-1024.png"
+  },
+  {
+    "state": "muted",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "muted",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/muted-1024.png"
+  },
+  {
+    "state": "ended",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/ended-1024.png"
+  },
+  {
+    "state": "long-caption",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "speaking",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/long-caption-1024.png"
+  },
+  {
+    "state": "denied",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/denied-1024.png"
+  },
+  {
+    "state": "no-key",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/no-key-1024.png"
+  },
+  {
+    "state": "bad-key",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/bad-key-1024.png"
+  },
+  {
+    "state": "no-credit",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/no-credit-1024.png"
+  },
+  {
+    "state": "unreachable",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/unreachable-1024.png"
+  },
+  {
+    "state": "forbidden",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/forbidden-1024.png"
+  },
+  {
+    "state": "offline",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/offline-1024.png"
+  },
+  {
+    "state": "outdated",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/outdated-1024.png"
+  },
+  {
+    "state": "failed",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "ended",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/failed-1024.png"
+  },
+  {
+    "state": "show-text",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-text-1024.png"
+  },
+  {
+    "state": "show-image",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-image-1024.png"
+  },
+  {
+    "state": "show-pdf",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-pdf-1024.png"
+  },
+  {
+    "state": "show-web",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-web-1024.png"
+  },
+  {
+    "state": "show-capturing",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-capturing-1024.png"
+  },
+  {
+    "state": "show-failed",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/show-failed-1024.png"
+  },
+  {
+    "state": "guide",
+    "width": 1024,
+    "height": 1000,
+    "engine": "Chromium",
+    "reducedMotion": true,
+    "screen": {
+      "mood": "listening",
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif"
+    },
+    "path": "mockups/voice/before/guide-1024.png"
+  }
+]

@@ -1,0 +1,128 @@
+{
+  "text": [
+    {
+      "label": "SPAN",
+      "ratio": 11.886740086477783
+    },
+    {
+      "label": "LABEL",
+      "ratio": 11.886740086477783
+    },
+    {
+      "label": "play",
+      "ratio": 12.483411983748876
+    },
+    {
+      "label": "simulation-notice",
+      "ratio": 7.202826517446275
+    },
+    {
+      "label": "SPAN",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "guide-open",
+      "ratio": 12.483411983748876
+    },
+    {
+      "label": "eyebrow",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "state-title",
+      "ratio": 14.271066426133867
+    },
+    {
+      "label": "state-detail",
+      "ratio": 11.483913284720122
+    },
+    {
+      "label": "progress-label",
+      "ratio": 11.483913284720122
+    },
+    {
+      "label": "eyebrow",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "P",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "H2",
+      "ratio": 14.271066426133867
+    },
+    {
+      "label": "SPAN",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "speaker",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "P",
+      "ratio": 14.530046217109154
+    },
+    {
+      "label": "speaker",
+      "ratio": 6.958731706881783
+    },
+    {
+      "label": "P",
+      "ratio": 14.271066426133867
+    },
+    {
+      "label": "latest",
+      "ratio": 12.483411983748876
+    },
+    {
+      "label": "control-note",
+      "ratio": 6.56983153814911
+    },
+    {
+      "label": "mute",
+      "ratio": 12.483411983748876
+    },
+    {
+      "label": "end",
+      "ratio": 8.848963951901943
+    },
+    {
+      "label": "return",
+      "ratio": 12.483411983748876
+    },
+    {
+      "label": "announcement",
+      "ratio": 7.202826517446275
+    }
+  ],
+  "boundaries": [
+    {
+      "color": "rgb(166, 156, 157)",
+      "background": "rgb(36, 31, 32)",
+      "ratio": 6.087051393882039
+    },
+    {
+      "color": "rgb(166, 156, 157)",
+      "background": "rgb(36, 31, 32)",
+      "ratio": 6.087051393882039
+    },
+    {
+      "color": "rgb(166, 156, 157)",
+      "background": "rgb(36, 31, 32)",
+      "ratio": 6.087051393882039
+    },
+    {
+      "color": "rgb(211, 201, 202)",
+      "background": "rgb(112, 22, 30)",
+      "ratio": 7.120752692816523
+    },
+    {
+      "color": "rgb(166, 156, 157)",
+      "background": "rgb(36, 31, 32)",
+      "ratio": 6.087051393882039
+    }
+  ],
+  "scope": "New voice text and controls; shared approved chrome unchanged."
+}

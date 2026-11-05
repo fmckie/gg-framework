@@ -1,0 +1,1429 @@
+/* ── Kleio's look ────────────────────────────────────────────────────────────
+   The icon's crimson and white, carried through Ken's near-black design
+   system. Loaded after App.css and glass.css (see main.tsx), so it overrides
+   tokens plus the few solid fills that pair a colour with its label; every
+   component that reads `var(--primary)` or `theme.primary` follows on its own.
+   GG Coder is a separate app and never loads this file.
+
+   Why two reds: one red cannot both read as text on near-black (needs ≥4.5:1
+   against --bg) and carry a white label as a fill (needs ≥4.5:1 against white);
+   those ranges don't overlap. So --primary is the bright red for text, icons,
+   focus rings and highlights, and --kleio-crimson (the icon's red, lifted for
+   a dark UI) is the fill behind white labels. */
+
+:root {
+  /* Brand. */
+  --kleio-red: #8b1521; /* the icon */
+  --kleio-crimson: #c8283a; /* fills behind white labels: 5.5:1 */
+  --kleio-crimson-hi: #d53446; /* hover: 4.8:1 */
+
+  /* Surfaces and ink: Ken's near-black, warmed a touch toward the red. */
+  --bg: #0c090a;
+  --surface-1: #161213;
+  --surface-2: #1f1a1b;
+  --surface-3: #282223;
+  --text: #f6f1f1;
+  --text-secondary: #d3c9ca;
+  --text-muted: #a69c9d;
+  --text-dim: #8f8586;
+
+  /* Accent for text, icons, focus and highlights: 6.5:1 on --bg. */
+  --primary: #ff5c69;
+  --primary-hi: #ff7a85;
+  /* Ink for any luminous --primary fill not restyled below. */
+  --on-primary: #2a0508;
+  --secondary: #ff5c69;
+
+  /* The ambient window glow, Ken's glass accent (primary buttons, the send
+     button) and progress fills. */
+  --glow: #b3202f;
+  --glass-accent-base: #c8283a;
+  --flux-from: #b3202f;
+  --flux-to: #ff8a95;
+
+  /* The empty-workspace rain (WakeScreen). */
+  --wake-rain-lead: #ff7a85;
+  --wake-rain: rgba(200, 40, 58, 0.55);
+  --wake-fade: rgba(12, 9, 10, 0.18);
+}
+
+/* ── Solid fills: crimson with a white label, like the icon ── */
+.modal-btn.primary,
+.plan-step-check,
+.enhance-pill,
+.ask-options .btn.btn-primary {
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+.modal-btn.primary:hover:not(:disabled),
+.enhance-pill:hover:not(:disabled),
+.ask-options .btn-primary:hover:not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+.btn-primary .ask-row-hint {
+  color: rgb(255 255 255 / 0.8);
+}
+.btn-primary .ask-num {
+  color: rgb(255 255 255 / 0.72);
+}
+/* Checkboxes and radios: crimson when on, with a white tick or dot. */
+.modal-radio input[type="checkbox"] {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E");
+}
+.modal-radio input[type="radio"] {
+  background-image: radial-gradient(circle, #fff 0 34%, transparent 38%);
+}
+.modal-radio input:is([type="checkbox"], [type="radio"]):checked {
+  background-color: var(--kleio-crimson);
+  border-color: var(--kleio-crimson);
+  box-shadow:
+    var(--liquid-rim-soft-small),
+    0 0 10px color-mix(in oklab, var(--kleio-crimson) 45%, transparent);
+}
+.modal-radio input:is([type="checkbox"], [type="radio"]):checked:hover:not(:disabled) {
+  background-color: var(--kleio-crimson-hi);
+  border-color: var(--kleio-crimson-hi);
+}
+
+/* No glass (reduced transparency / more contrast): Ken's fallback is a
+   luminous fill with dark ink; Kleio's is crimson with white. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .modal-btn.primary,
+  .btn-primary,
+  .icon-circle-primary,
+  .inputactions-trailing:has(> .action-metal.metal-fx-root) > .icon-circle-primary,
+  .enhance-pill,
+  .enhance-pill-host:has(> .action-metal.metal-fx-root) > .enhance-pill {
+    background: var(--kleio-crimson);
+    color: #fff;
+  }
+  .modal-btn.primary:hover:not(:disabled),
+  .btn-primary:hover:not(:disabled),
+  .icon-circle-primary:hover:not(:disabled),
+  .enhance-pill:hover:not(:disabled),
+  .enhance-pill-host:has(> .action-metal.metal-fx-root) > .enhance-pill:hover:not(:disabled) {
+    background: var(--kleio-crimson-hi);
+    color: #fff;
+  }
+}
+
+/* The wordmark's face. Converted to WOFF2 and otherwise unmodified, as its licence requires
+   (assets/fonts/1001fonts-tejaratchi-eula.txt). */
+@font-face {
+  font-family: "Tejaratchi Ex Lefti";
+  src: url("./assets/fonts/TejaratchiExLefti.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
+.kleio-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+.kleio-mark-img {
+  display: block;
+  width: 112px;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 8px 28px rgb(0 0 0 / 0.55));
+}
+.kleio-wordmark {
+  font-family: "Tejaratchi Ex Lefti", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-weight: 400;
+  font-size: 56px;
+  line-height: 1;
+  /* The trailing letter-space is cancelled so the word stays centred (K's and O's side
+     bearings match to 0.002em, so nothing else needs offsetting). */
+  letter-spacing: 0.4em;
+  margin-right: -0.4em;
+  color: #fff;
+  /* The tight shadow fills the bevel cuts, so the waves' dots don't show through the letters. */
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.75),
+    0 2px 24px rgb(0 0 0 / 0.6);
+}
+.kleio-mark.is-small .kleio-mark-img {
+  width: 84px;
+}
+.kleio-mark.is-small .kleio-wordmark {
+  font-size: 39px;
+}
+
+/* ── Home ── Ken's layout and entry animation (.home and friends), with a
+   crimson wash over the dithered waves in place of his neutral grey. */
+.home.kleio-home::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      58% 52% at 50% 44%,
+      color-mix(in srgb, var(--kleio-red) 58%, transparent),
+      transparent 74%
+    ),
+    radial-gradient(
+      42% 42% at 100% 100%,
+      color-mix(in srgb, var(--kleio-red) 30%, transparent),
+      transparent 80%
+    );
+}
+.home > .kleio-mark {
+  position: relative;
+  z-index: 1;
+  animation: reveal-up 460ms var(--ease-out) 120ms both;
+}
+.kleio-home .home-tagline {
+  margin-top: -6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+/* Home's controls: opaque and hairline-edged, steady under the pointer (no
+   glass, no swell). Instrument is the base; KleioHome's temporary
+   data-home-buttons adds "edge" (a light runs round the edge on hover or focus)
+   or "console" (Kleio, Code and Specialists fused into one bar) to compare. */
+.kleio-home {
+  --home-surface: #140f10;
+  --home-surface-hover: #1d1718;
+  --home-edge: rgb(255 255 255 / 0.11);
+  --home-edge-hover: rgb(255 255 255 / 0.2);
+  --home-glint: rgb(236 56 76 / 0.85);
+  --home-radius: 8px;
+}
+.kleio-home :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status) {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid var(--home-edge);
+  border-radius: var(--home-radius);
+  background: var(--home-surface);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.035),
+    0 1px 2px rgb(0 0 0 / 0.6);
+  transition:
+    background-color var(--t-fast),
+    border-color var(--t-fast),
+    color var(--t-fast),
+    box-shadow var(--t-fast),
+    translate var(--t-fast);
+}
+.kleio-home .kleio-status {
+  position: relative;
+}
+/* Above the crimson wash, like the other controls; it tinted this one red. */
+.kleio-home > .home-brief {
+  z-index: 1;
+}
+/* The faint crimson light along each control's top edge. */
+.kleio-home
+  :is(.home-action.btn-ghost, .home-settings.icon-circle, .home-brief, .kleio-status)::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--home-glint), transparent);
+  opacity: 0.75;
+  pointer-events: none;
+  transition: opacity var(--t-fast);
+}
+.kleio-home .home-action.btn-primary {
+  border-color: #9d1d2b;
+  background: var(--kleio-crimson);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.24),
+    0 1px 2px rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.kleio-home .home-action.btn-ghost {
+  color: var(--text);
+}
+.kleio-home .home-action.btn-primary:hover:not([aria-disabled="true"]) {
+  background: var(--kleio-crimson-hi);
+}
+.kleio-home
+  :is(.home-action.btn-ghost, .home-settings.icon-circle, .home-brief, .kleio-status):hover:not(
+    [aria-disabled="true"]
+  ) {
+  border-color: var(--home-edge-hover);
+  background: var(--home-surface-hover);
+  color: var(--text);
+}
+.kleio-home
+  :is(.home-action.btn-ghost, .home-settings.icon-circle, .home-brief, .kleio-status):hover:not(
+    [aria-disabled="true"]
+  )::before {
+  opacity: 1;
+}
+/* At most a 1px lift; pressing sets it back down. */
+.kleio-home
+  :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):hover:not(
+    [aria-disabled="true"]
+  ) {
+  translate: 0 -1px;
+}
+.kleio-home :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):active {
+  translate: none;
+}
+.kleio-home
+  :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
+.kleio-home .home-kbd {
+  margin-left: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+html.platform-ios .kleio-home .home-kbd {
+  display: none;
+}
+
+/* Edge: no fill change on hover; a thin light sweeps round the border. */
+@property --home-sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.kleio-home[data-home-buttons="edge"]
+  :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status)::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from var(--home-sweep),
+    transparent 0turn 0.68turn,
+    rgb(255 196 201 / 0.3) 0.78turn,
+    rgb(255 242 243) 0.86turn,
+    rgb(255 196 201 / 0.3) 0.94turn,
+    transparent 1turn
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast);
+}
+.kleio-home[data-home-buttons="edge"]
+  :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):is(
+    :hover:not([aria-disabled="true"]),
+    :focus-visible
+  )::after {
+  opacity: 1;
+  animation: home-edge-sweep 2.4s linear infinite;
+}
+.kleio-home[data-home-buttons="edge"]
+  :is(.home-action.btn-ghost, .home-settings.icon-circle, .home-brief, .kleio-status):hover:not(
+    [aria-disabled="true"]
+  ) {
+  border-color: var(--home-edge);
+  background: var(--home-surface);
+}
+.kleio-home[data-home-buttons="edge"] .home-action.btn-primary:hover:not([aria-disabled="true"]) {
+  background: var(--kleio-crimson);
+}
+@keyframes home-edge-sweep {
+  to {
+    --home-sweep: 1turn;
+  }
+}
+
+/* Console: one segmented bar with hairline dividers. The iPhone stacks the ways
+   in instead (kleio-phone.css), so it keeps the separate controls. */
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-actions {
+  gap: 0;
+  border: 1px solid var(--home-edge);
+  border-radius: var(--home-radius);
+  background: var(--home-surface);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.035),
+    0 1px 2px rgb(0 0 0 / 0.6);
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-actions::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 14%;
+  right: 14%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--home-glint), transparent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action.btn {
+  height: 42px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  translate: none;
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action.btn::before {
+  content: none;
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action + .home-action {
+  border-left: 1px solid var(--home-edge);
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action:first-child {
+  border-radius: calc(var(--home-radius) - 1px) 0 0 calc(var(--home-radius) - 1px);
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action:last-child {
+  border-radius: 0 calc(var(--home-radius) - 1px) calc(var(--home-radius) - 1px) 0;
+}
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action.btn-primary {
+  background: var(--kleio-crimson);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.24);
+}
+html:not(.platform-ios)
+  .kleio-home[data-home-buttons="console"]
+  .home-action.btn-primary:hover:not([aria-disabled="true"]) {
+  background: var(--kleio-crimson-hi);
+}
+html:not(.platform-ios)
+  .kleio-home[data-home-buttons="console"]
+  .home-action.btn-ghost:hover:not([aria-disabled="true"]) {
+  background: rgb(255 255 255 / 0.05);
+}
+/* Inside the segment: the bar has no gaps for a ring to sit in. */
+html:not(.platform-ios) .kleio-home[data-home-buttons="console"] .home-action.btn:focus-visible {
+  outline-offset: -4px;
+}
+html:not(.platform-ios)
+  .kleio-home[data-home-buttons="console"]
+  .home-action.btn-primary:focus-visible {
+  outline-color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kleio-home
+    :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):hover:not(
+      [aria-disabled="true"]
+    ) {
+    translate: none;
+  }
+  /* A still edge light instead of the sweep. */
+  .kleio-home[data-home-buttons="edge"]
+    :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status)::after {
+    background: rgb(255 242 243 / 0.55);
+  }
+  .kleio-home[data-home-buttons="edge"]
+    :is(.home-action.btn, .home-settings.icon-circle, .home-brief, .kleio-status):is(
+      :hover:not([aria-disabled="true"]),
+      :focus-visible
+    )::after {
+    animation: none;
+  }
+}
+.kleio-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  color: var(--text-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.kleio-status:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: var(--text);
+}
+/* A long reason ("Kleio's link isn't running on this iPhone") ends in an
+   ellipsis rather than run off a narrow screen: Connection has it whole. */
+.kleio-home .home-version-row {
+  max-width: 100%;
+}
+.kleio-status {
+  max-width: 100%;
+  min-width: 0;
+}
+.kleio-status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kleio-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+}
+/* The Mac mini stopped answering (Tailscale dropped, or it's asleep): red, and
+   the words say Disconnected, so colour isn't the only sign. */
+.kleio-status.is-down {
+  color: var(--text);
+}
+.kleio-status.is-down .kleio-status-dot {
+  background: var(--error);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--error) 60%, transparent);
+}
+.kleio-status.is-checking .kleio-status-dot {
+  background: var(--text-dim);
+  box-shadow: none;
+}
+
+/* ── Connect / can't-reach screens: the same crimson wash ── */
+.kleio-gate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 70% 65% at 50% 44%,
+    color-mix(in srgb, var(--kleio-red) 48%, transparent) 0%,
+    color-mix(in srgb, var(--kleio-red) 16%, transparent) 45%,
+    transparent 85%
+  );
+}
+.kleio-gate-card {
+  position: relative;
+}
+
+/* ── "Brief me" (BriefPanel.tsx) ──
+   On the home screen: a quiet pill under the main buttons. The panel: a small
+   card over any screen, bottom right (like a toast, above them), with the
+   words as captions. Three bars breathe while Kleio speaks. */
+.home > .home-brief {
+  position: relative;
+  animation: reveal-up 460ms var(--ease-out) 400ms both;
+}
+.home-brief {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  color: var(--text-secondary);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+.home-brief:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: var(--text);
+}
+.home-brief:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 2px;
+}
+
+.brief-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: calc(var(--z-toast) + 1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(380px, calc(100vw - 36px));
+  max-height: min(60vh, 520px);
+  padding: 14px 14px 12px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  animation: toast-in 0.32s var(--ease-expo);
+}
+.brief-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brief-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.brief-close {
+  flex: none;
+}
+.brief-text {
+  margin: 0;
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.brief-text.is-muted {
+  color: var(--text-muted);
+}
+.brief-text.is-error {
+  color: var(--error);
+}
+.brief-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.brief-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.brief-orb {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 22px;
+  height: 22px;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--kleio-crimson) 22%, transparent);
+}
+.brief-orb > span {
+  width: 3px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--kleio-crimson-hi);
+}
+.brief-orb.is-speaking > span {
+  animation: brief-bar 0.9s ease-in-out infinite;
+}
+.brief-orb.is-speaking > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.brief-orb.is-speaking > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes brief-bar {
+  0%,
+  100% {
+    height: 5px;
+  }
+  50% {
+    height: 13px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home > .home-brief,
+  .brief-panel,
+  .brief-orb.is-speaking > span {
+    animation: none;
+  }
+}
+
+.settings-desc.is-error {
+  color: var(--error);
+}
+
+/* ── "Talk to Kleio" (VoiceMode.tsx): the voice screen, inside the window ──
+   Kleio's own room: the home screen's crimson wash on near-black, the living
+   orb in the middle, who's talking and live subtitles under her, and two big
+   round buttons at the bottom. Nothing else: the full conversation lands in
+   the main chat afterwards. */
+.voice-mode {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  /* The orb takes what's left, so a small window shrinks it, never the words. */
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  justify-items: center;
+  align-items: end;
+  gap: clamp(10px, 2.6vh, 18px);
+  padding: clamp(36px, 7vh, 48px) 28px clamp(18px, 5vh, 36px);
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  outline: none;
+  animation: voice-in 0.32s var(--ease-out) both;
+  /* The subtitles' type size and how many of their lines show at once. */
+  --voice-type: 19px;
+  --voice-lines: 4;
+}
+/* The home screen's dithered waves, moving behind her (HomeDither.tsx). They
+   paint the near-black themselves, so the crimson wash sits over them, as on
+   the home screen. Everything else in the room sits above both. */
+.voice-dither {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.voice-mode::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      52% 46% at 50% 40%,
+      color-mix(in srgb, var(--kleio-red) 46%, transparent),
+      transparent 76%
+    ),
+    radial-gradient(
+      40% 40% at 100% 100%,
+      color-mix(in srgb, var(--kleio-red) 22%, transparent),
+      transparent 80%
+    );
+}
+/* The orb, the words and the buttons sit above the waves and the wash. */
+.voice-stage,
+.voice-words,
+.voice-controls {
+  position: relative;
+  z-index: 1;
+}
+/* Drag the window by the top, like the rest of Kleio (the close button sits on top). */
+.voice-drag {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 40px;
+}
+/* "What Kleio Voice can do" and close, top right. */
+.voice-corner {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+}
+/* A share of the window at any zoom: vh and vw scale with the app's CSS zoom,
+   so they are divided back out (ZoomController.tsx), else zooming in grew the
+   orb past its row. */
+.voice-stage {
+  align-self: center;
+  width: min(calc(46vh / var(--zoom, 1)), calc(72vw / var(--zoom, 1)), 380px);
+  max-height: 100%;
+  aspect-ratio: 1;
+}
+.voice-orb,
+.voice-orb-fallback {
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.4s var(--ease-out);
+}
+/* A hairline of shadow at her edge, then the glow: she sits in front of the
+   crimson room instead of melting into it. */
+.voice-orb {
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.65))
+    drop-shadow(0 0 36px color-mix(in srgb, var(--kleio-crimson) 32%, transparent));
+}
+/* Muted: the orb drains to grey, and so does its glow. */
+.voice-mode[data-mood="muted"] .voice-orb {
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.65)) drop-shadow(0 0 32px rgb(150 150 160 / 0.22));
+}
+/* No WebGL, or still loading: a quiet crimson disc holds the orb's place. */
+.voice-orb-fallback {
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 42% 38%,
+    var(--kleio-crimson-hi),
+    var(--kleio-red) 58%,
+    #2a070c
+  );
+  opacity: 0.6;
+}
+/* Not on the line yet, or the call is over: the orb dims. */
+.voice-mode[data-mood="connecting"] .voice-orb,
+.voice-mode[data-mood="ended"] .voice-orb {
+  opacity: 0.45;
+}
+
+/* Who's talking, then what's said on a dark glass panel: the waves and the
+   crimson glow move behind the words, never through them. */
+.voice-words {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: min(600px, 100%);
+  /* Room for the status and a full panel, so the screen never jumps as she talks. */
+  min-height: calc(15px + 10px + 24px + var(--voice-lines) * 1.45 * var(--voice-type));
+}
+.voice-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.voice-mode[data-mood="speaking"] .voice-status {
+  color: color-mix(in srgb, var(--kleio-crimson-hi) 55%, var(--text));
+}
+/* The panel: near-black glass, as over a chat window (.kleio-overlay), with a
+   hairline edge that turns crimson when the words are hers. */
+.voice-transcript {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 12px 20px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 12px 32px rgb(0 0 0 / 0.4);
+  animation: voice-words-in 0.24s var(--ease-out);
+}
+.voice-transcript.is-kleio {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--kleio-crimson-hi) 34%, transparent),
+    0 12px 32px rgb(0 0 0 / 0.4);
+}
+/* Live subtitles, a few lines at most: anchored to the newest line, so a long
+   reply rolls upward; the top line fades only once it overflows. */
+.voice-captions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  max-height: calc(var(--voice-lines) * 1.45 * var(--voice-type));
+  overflow: hidden;
+}
+.voice-captions[data-rolling="true"] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 calc(1.45 * var(--voice-type))
+  );
+  mask-image: linear-gradient(to bottom, transparent 0, #000 calc(1.45 * var(--voice-type)));
+}
+/* Plain wrapping: her words arrive one by one, and balanced lines would
+   re-break the whole caption with each. */
+.voice-line {
+  flex: none;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--voice-type);
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: center;
+}
+/* A soft dark halo keeps the words on the room readable over bright
+   stretches of waves, as the home screen's text has. */
+.voice-status,
+.voice-error,
+.voice-button-label {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.9),
+    0 0 12px rgb(0 0 0 / 0.8);
+}
+/* Your words, quoted while she thinks: a step quieter than hers. */
+.voice-line.is-you {
+  color: var(--text-secondary);
+}
+.voice-error {
+  margin: 0;
+  max-width: 44ch;
+  color: #ffb8b2;
+  font-size: 16px;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* Mute and hang up: big, round, labelled, like a phone call. */
+.voice-controls {
+  display: flex;
+  gap: 36px;
+}
+.voice-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.voice-button-icon {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
+  color: var(--text);
+  transition: background var(--t-fast);
+}
+.voice-button:hover .voice-button-icon {
+  background: rgb(255 255 255 / 0.16);
+}
+.voice-button:focus-visible {
+  outline: none;
+}
+.voice-button:focus-visible .voice-button-icon {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 3px;
+}
+/* Muted: light, so it never reads as the red hang-up beside it. */
+.voice-button[aria-pressed="true"] .voice-button-icon {
+  background: #f4ecec;
+  color: #1b1214;
+}
+.voice-button.is-hangup .voice-button-icon,
+.voice-button.is-again .voice-button-icon {
+  background: var(--kleio-crimson);
+  box-shadow: none;
+  color: #fff;
+}
+.voice-button.is-hangup:hover .voice-button-icon,
+.voice-button.is-again:hover .voice-button-icon {
+  background: var(--kleio-crimson-hi);
+}
+@keyframes voice-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes voice-words-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-mode,
+  .voice-transcript {
+    animation: none;
+  }
+  .voice-orb,
+  .voice-button-icon {
+    transition: none;
+  }
+}
+/* A short window: two lines of words, smaller buttons. */
+@media (max-height: 460px) {
+  .voice-mode {
+    --voice-type: 17px;
+    --voice-lines: 2;
+  }
+  .voice-words {
+    min-height: calc(15px + 8px + 20px + var(--voice-lines) * 1.45 * var(--voice-type));
+    gap: 8px;
+  }
+  .voice-transcript {
+    padding: 10px 16px;
+  }
+  .voice-button-icon {
+    width: 48px;
+    height: 48px;
+  }
+  .voice-controls {
+    gap: 28px;
+  }
+}
+
+/* What she's showing (ShowPanel.tsx), beside her. The room becomes two
+   columns: her orb (smaller), words and buttons on the left, the panel on the
+   right, clear of the corner's buttons. VoiceMode.tsx glides them between the
+   layouts. Sizes stay a share of the window at any zoom, as above. */
+.voice-mode[data-panel="open"] {
+  grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+  column-gap: clamp(18px, 2.4vw, 32px);
+  padding-top: 60px;
+}
+.voice-mode[data-panel="open"] > :is(.voice-stage, .voice-words, .voice-controls) {
+  grid-column: 1;
+}
+.voice-mode[data-panel="open"] > .voice-stage {
+  grid-row: 1;
+  width: min(calc(34vh / var(--zoom, 1)), 100%, 260px);
+}
+.voice-mode[data-panel="open"] > .voice-words {
+  grid-row: 2;
+}
+.voice-mode[data-panel="open"] > .voice-controls {
+  grid-row: 3;
+}
+/* A glass card the height of the room, scrolling inside. */
+.voice-show {
+  position: relative;
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: stretch;
+  justify-self: stretch;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 18px 48px rgb(0 0 0 / 0.45);
+  animation: voice-show-in 0.32s cubic-bezier(0.2, 0, 0, 1) both;
+}
+/* Closed: it keeps its place, out of the layout, while it slides away
+   (VoiceMode.tsx sets where). */
+.voice-show[data-leaving] {
+  position: absolute;
+  grid-area: auto;
+  margin: 0;
+  pointer-events: none;
+}
+.voice-show-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 18px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+.voice-show-titles {
+  flex: 1;
+  min-width: 0;
+}
+.voice-show-title,
+.voice-show-whose {
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.voice-show-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.voice-show-whose {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.voice-show-at {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.voice-show-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* Full size's arrows (ShowPanel.tsx), as heavy as the bold icons beside them. */
+.voice-show-full {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.voice-show-close {
+  flex: none;
+}
+.voice-show-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+.voice-show-body:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--kleio-crimson-hi);
+}
+/* A document: Markdown, or plain text as it is. */
+.voice-show-doc {
+  padding: 18px 22px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+.voice-show-pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A picture: fit to the width, never stretched past its own. */
+.voice-show-picture {
+  padding: 16px;
+}
+.voice-show-picture img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+/* A PDF's pages, white sheets one under another; a sheet waiting for its
+   picture holds a letter page's shape. */
+.voice-show-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+.voice-show-page {
+  overflow: hidden;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.4);
+}
+.voice-show-page.is-waiting {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 8.5 / 11;
+  background: rgb(255 255 255 / 0.06);
+}
+.voice-show-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.voice-show-page-trouble {
+  margin: 0;
+  padding: 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+/* A picture of a web page: in the viewer, tap it to open the page itself. */
+.voice-show-shot {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #fff;
+  cursor: pointer;
+}
+.voice-show-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.voice-show-shot:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: -2px;
+}
+/* On a call, a picture, a PDF's sheet or a page's picture opens full size
+   when clicked (ShowViews.tsx, onEnlarge); its text does too, keeping the
+   text cursor. */
+img[data-enlarge],
+[data-enlarge] > .voice-show-page {
+  cursor: zoom-in;
+}
+.voice-show-note {
+  margin: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.voice-show-note.is-sign-in {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kleio-crimson-hi) 40%, transparent);
+}
+/* Loading, or why it can't be shown, in the middle of the panel. */
+.voice-show-state {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 100%;
+  padding: 32px 28px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.voice-show-state p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 14px;
+  line-height: 1.5;
+  text-wrap: balance;
+}
+.voice-show-state.is-trouble p {
+  color: var(--text);
+}
+.voice-show-spin {
+  width: 26px;
+  height: 26px;
+  box-sizing: border-box;
+  border: 2.5px solid rgb(255 255 255 / 0.14);
+  border-top-color: var(--kleio-crimson-hi);
+  border-radius: 50%;
+  animation: voice-show-spin 0.9s linear infinite;
+}
+@keyframes voice-show-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@keyframes voice-show-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes voice-show-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+@keyframes voice-show-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* A phone or a narrow window: her orb rises to the top with two lines of
+   words under it, the panel fills the middle and rises from below, and the
+   buttons stay at the bottom. "Open in browser" keeps only its icon. */
+@media (max-width: 759px) {
+  .voice-mode[data-panel="open"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    --voice-lines: 2;
+  }
+  .voice-mode[data-panel="open"] > .voice-stage {
+    grid-row: 1;
+    width: min(calc(14vh / var(--zoom, 1)), 112px);
+  }
+  .voice-mode[data-panel="open"] > .voice-words {
+    grid-row: 2;
+  }
+  .voice-mode[data-panel="open"] > .voice-show {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .voice-mode[data-panel="open"] > .voice-controls {
+    grid-row: 4;
+  }
+  .voice-show {
+    animation-name: voice-show-rise;
+  }
+  .voice-show-open-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+/* Reduced motion: nothing moves (VoiceMode.tsx skips the glide too); the
+   panel only fades in. */
+@media (prefers-reduced-motion: reduce) {
+  .voice-show {
+    animation: voice-show-fade 0.15s linear both;
+  }
+  .voice-show-spin {
+    animation: none;
+  }
+}
+
+/* The file viewer (FileViewer.tsx): a file at full size over everything, the
+   voice screen included, on the show panel's glass with its header and its
+   views. A centred panel up to 1,100 px wide that fills the window less
+   32 px: the backdrop is the window itself, so it fits at any zoom. */
+.file-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 32px;
+  background: rgb(0 0 0 / 0.55);
+  animation: fade-in var(--dur-enter) linear backwards;
+}
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(1100px, 100%);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  backdrop-filter: blur(20px) saturate(130%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.1),
+    0 18px 48px rgb(0 0 0 / 0.45);
+  animation: surface-in var(--dur-enter) var(--ease-out) backwards;
+  /* Closing glides out like a modal's (App.css, Exits). */
+  view-transition-name: kleio-file-viewer;
+}
+/* The dialog only takes focus as a fallback; its body and buttons carry the ring. */
+.file-viewer:focus {
+  outline: none;
+}
+.file-viewer-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+/* How Open in app or Save a copy went; takes no room until it says something. */
+.file-viewer-note {
+  margin: 0;
+  padding: 0 18px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.file-viewer-note:not(:empty) {
+  padding-block: 8px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+/* Text at a reading measure; a PDF's sheets at most 900 px wide (the host
+   draws them 1,600 px wide). Pictures are never enlarged past their size. */
+.file-viewer .voice-show-doc > :is(.markdown, .voice-show-pre, .voice-show-note) {
+  max-width: 80ch;
+  margin-inline: auto;
+}
+.file-viewer .voice-show-pages {
+  max-width: 900px;
+  margin-inline: auto;
+}
+/* A picture shorter than the viewer sits in its middle, as in Quick Look; a
+   taller one starts at the top and scrolls (auto margins take no room then). */
+.file-viewer .voice-show-body:has(> .voice-show-picture) {
+  display: flex;
+  flex-direction: column;
+}
+.file-viewer .voice-show-picture {
+  margin-block: auto;
+}
+/* A small CSV as a table (CsvTable.tsx), scrolling sideways when it's wide. */
+.file-viewer-table {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+.file-viewer-table:focus-visible {
+  outline: 2px solid var(--kleio-crimson-hi);
+  outline-offset: 2px;
+}
+.file-viewer-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+/* A row is one line, as in a spreadsheet: the table is as wide as its cells
+   (max-content above) and scrolls sideways in its own frame when that's wider
+   than the viewer. Only a cell longer than 40 characters wraps, at spaces
+   (whole words, as in a reply's tables in App.css). */
+.file-viewer-cell {
+  max-width: 40ch;
+}
+.file-viewer-table :is(th, td) {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+  text-align: start;
+  vertical-align: top;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+.file-viewer-table th {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--text);
+  font-weight: 650;
+}
+.file-viewer-table tbody tr:nth-child(even) {
+  background: rgb(255 255 255 / 0.025);
+}
+.file-viewer-table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+.file-viewer-csv-note {
+  margin: 0 auto 12px;
+}
+::view-transition-old(kleio-file-viewer) {
+  animation: surface-out var(--dur-exit) var(--ease-in) both;
+}
+::view-transition-new(kleio-file-viewer) {
+  animation: none;
+}
+::view-transition-group(kleio-file-viewer) {
+  animation-duration: var(--dur-exit);
+}
+/* A narrow window: less margin, and the actions keep only their icons. */
+@media (max-width: 759px) {
+  .file-viewer-backdrop {
+    padding: 12px;
+  }
+  .file-viewer-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+/* Reduced motion: it opens and closes in place (withViewTransition skips its glide too). */
+@media (prefers-reduced-motion: reduce) {
+  .file-viewer-backdrop,
+  .file-viewer {
+    animation: none;
+  }
+}

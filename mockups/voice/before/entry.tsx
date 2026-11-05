@@ -1,0 +1,10 @@
+import { createRoot } from 'react-dom/client';
+import { VoiceMode } from './source/kleio/VoiceMode';
+import { scenarios, selectScenario } from './fixtures';
+import './source/App.css';
+import './source/glass.css';
+import './source/kleio/kleio-theme.css';
+const name = new URLSearchParams(location.search).get('state') || 'listening';
+selectScenario(name);
+(window as any).baseline = {scenarios:Object.keys(scenarios),selectScenario};
+createRoot(document.getElementById('root')!).render(<VoiceMode/>);

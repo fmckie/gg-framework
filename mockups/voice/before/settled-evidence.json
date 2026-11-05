@@ -1,0 +1,54 @@
+[
+  {
+    "path": "mockups/voice/before/connecting-settled-1680.png",
+    "width": 1680,
+    "height": 1000,
+    "reducedMotion": true
+  },
+  {
+    "path": "mockups/voice/before/guide-bottom-1680.png",
+    "width": 1680,
+    "height": 1000,
+    "reducedMotion": true
+  },
+  {
+    "path": "mockups/voice/before/speaking-motion-1680.png",
+    "width": 1680,
+    "height": 1000,
+    "reducedMotion": false
+  },
+  {
+    "width": 1680,
+    "captionStyles": {
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif",
+      "size": "19px",
+      "lineHeight": "27.55px"
+    }
+  },
+  {
+    "path": "mockups/voice/before/connecting-settled-1024.png",
+    "width": 1024,
+    "height": 1000,
+    "reducedMotion": true
+  },
+  {
+    "path": "mockups/voice/before/guide-bottom-1024.png",
+    "width": 1024,
+    "height": 1000,
+    "reducedMotion": true
+  },
+  {
+    "path": "mockups/voice/before/speaking-motion-1024.png",
+    "width": 1024,
+    "height": 1000,
+    "reducedMotion": false
+  },
+  {
+    "width": 1024,
+    "captionStyles": {
+      "font": "-apple-system, \"system-ui\", \"Segoe UI\", ui-sans-serif, sans-serif",
+      "size": "19px",
+      "lineHeight": "27.55px"
+    }
+  }
+]
