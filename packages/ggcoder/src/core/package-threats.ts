@@ -75,6 +75,8 @@ export interface PackageCheckOptions {
 }
 
 const OSV_URL = "https://api.osv.dev/v1/querybatch";
+/** Full advisories for one version (severity + fixed versions); only asked when flawed. */
+const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
 const NPM_REGISTRY = "https://registry.npmjs.org";
 const NPM_DOWNLOADS = "https://api.npmjs.org/downloads/point/last-week";
 const PYPI = "https://pypi.org/pypi";
@@ -86,8 +88,13 @@ const TYPOSQUAT_MIN_WEEKLY = 500;
 const NPM_INSTALL = new Set(["add", "install", "i"]);
 
 // Per-process caches; answers are stable within a session.
-/** OSV answers by `eco:name@version`: MAL ids + when asked. Clean answers expire after a day. */
-const osvCache = new Map<string, { ids: string[]; at: number }>();
+/**
+ * OSV answers by `eco:name@version`: MAL ids, whether it has any other
+ * (vulnerability) advisories, and when asked. Clean answers expire after a day.
+ */
+const osvCache = new Map<string, { ids: string[]; flawed: boolean; at: number }>();
+/** Serious-flaw verdicts by `eco:name@version` (detailed OSV query), with when asked. */
+const vulnCache = new Map<string, { verdict: VulnVerdict | null; at: number }>();
 const metaCache = new Map<string, Promise<unknown>>();
 const lockfileCache = new Map<string, LockVerdict>();
 
@@ -840,7 +847,10 @@ function feedFlagged(ctx: Ctx, ref: PackageRef, versions: Iterable<string>): Set
  * lockfile verdicts by content hash. Lives at `<gg dir>/package-verdicts.json`.
  */
 interface DiskCache {
+  /** No malware for this exact version, with when asked. */
   osvClean: Record<string, number>;
+  /** Subset of osvClean: OSV also listed (non-malware) advisories. */
+  osvFlawed?: Record<string, number>;
   locks: Record<string, LockVerdict>;
 }
 interface LockVerdict {
@@ -852,7 +862,7 @@ const OSV_TTL_MS = DAY_MS;
 const MAX_LOCKS = 50;
 
 class VerdictCache {
-  private data: DiskCache = { osvClean: {}, locks: {} };
+  private data: DiskCache = { osvClean: {}, osvFlawed: {}, locks: {} };
   private loaded: Promise<void> | null = null;
   private saving: Promise<void> = Promise.resolve();
   private dirty = false;
@@ -865,7 +875,11 @@ class VerdictCache {
             .readFile(this.file, "utf8")
             .then((text) => {
               const raw = JSON.parse(text) as Partial<DiskCache>;
-              this.data = { osvClean: raw.osvClean ?? {}, locks: raw.locks ?? {} };
+              this.data = {
+                osvClean: raw.osvClean ?? {},
+                osvFlawed: raw.osvFlawed ?? {},
+                locks: raw.locks ?? {},
+              };
             })
             .catch(() => undefined)
         : Promise.resolve();
@@ -876,9 +890,17 @@ class VerdictCache {
     const at = this.data.osvClean[key];
     return at !== undefined && now - at < OSV_TTL_MS;
   }
-  markClean(key: string, now: number): void {
+  markClean(key: string, now: number, flawed = false): void {
     this.data.osvClean[key] = now;
+    const f = (this.data.osvFlawed ??= {});
+    if (flawed) f[key] = now;
+    else delete f[key];
     this.dirty = true;
+  }
+  /** A remembered no-malware answer that also had advisories. */
+  osvFlawed(key: string, now: number): boolean {
+    const at = this.data.osvFlawed?.[key];
+    return at !== undefined && now - at < OSV_TTL_MS;
   }
   lock(key: string): LockVerdict | undefined {
     return this.data.locks[key];
@@ -896,12 +918,15 @@ class VerdictCache {
       const osvClean = Object.fromEntries(
         Object.entries(this.data.osvClean).filter(([, at]) => now - at < OSV_TTL_MS),
       );
+      const osvFlawed = Object.fromEntries(
+        Object.entries(this.data.osvFlawed ?? {}).filter(([k]) => k in osvClean),
+      );
       const locks = Object.fromEntries(
         Object.entries(this.data.locks)
           .sort(([, a], [, b]) => b.at - a.at)
           .slice(0, MAX_LOCKS),
       );
-      this.data = { osvClean, locks };
+      this.data = { osvClean, osvFlawed, locks };
       try {
         await writeJsonAtomic(file, this.data);
       } catch (err) {
@@ -971,11 +996,13 @@ async function osvMalware(items: OsvItem[], ctx: Ctx): Promise<Map<string, strin
       ctx,
     )) as OsvBatchResponse;
     batch.forEach((item, i) => {
-      const ids = (body.results?.[i]?.vulns ?? [])
-        .map((v) => v.id ?? "")
-        .filter((id) => id.startsWith("MAL-"));
-      osvCache.set(osvKey(item), { ids, at: ctx.now });
-      if (ids.length === 0) ctx.cache.markClean(osvKey(item), ctx.now);
+      const all = (body.results?.[i]?.vulns ?? []).map((v) => v.id ?? "");
+      const ids = all.filter((id) => id.startsWith("MAL-"));
+      const flawed = all.some((id) => id !== "" && !id.startsWith("MAL-"));
+      osvCache.set(osvKey(item), { ids, flawed, at: ctx.now });
+      // Remembered on disk with whether it had advisories, so a restart
+      // neither re-asks OSV nor loses the serious-flaw trigger.
+      if (ids.length === 0) ctx.cache.markClean(osvKey(item), ctx.now, flawed);
     });
   }
   const out = new Map<string, string[]>();
@@ -984,6 +1011,151 @@ async function osvMalware(items: OsvItem[], ctx: Ctx): Promise<Map<string, strin
     if (ids && ids.length > 0) out.set(osvKey(i), ids);
   }
   return out;
+}
+
+// ── Serious known flaws ─────────────────────────────────
+
+/**
+ * Major version, the boundary for a flaw fix: moving 0.21 → 0.34 or 4.17 →
+ * 4.18 is the normal upgrade path; 0.x → 1.x or 4 → 5 is the breaking one.
+ * (Not `releaseLine`: under `^`, 0.21 and 0.31 count as different lines, which
+ * would leave old 0.x packages with no fix to move to.)
+ */
+function majorOf(version: string): string {
+  return version.replace(/^v/, "").split(".")[0] ?? "";
+}
+
+/** A version with HIGH/CRITICAL advisories and the versions that fix them. */
+interface VulnVerdict {
+  /** Advisory IDs rated HIGH or CRITICAL. */
+  ids: string[];
+  /** Short plain summary of the worst one. */
+  summary: string;
+  /** Highest severity seen ("CRITICAL" | "HIGH"). */
+  severity: string;
+  /** Per serious advisory: the `fixed` versions it lists (any release line). */
+  fixes: string[][];
+}
+
+interface OsvAdvisory {
+  id?: string;
+  summary?: string;
+  database_specific?: { severity?: string };
+  affected?: Array<{
+    package?: { name?: string; ecosystem?: string };
+    ranges?: Array<{ type?: string; events?: Array<{ introduced?: string; fixed?: string }> }>;
+  }>;
+}
+
+const SERIOUS = new Set(["HIGH", "CRITICAL"]);
+
+/** Did the batch lookup see any non-malware advisory for this exact version? */
+function osvFlawed(item: OsvItem, ctx: Ctx): boolean {
+  const key = osvKey(item);
+  const hit = osvCache.get(key);
+  return hit ? hit.flawed : ctx.cache.osvFlawed(key, ctx.now);
+}
+
+/**
+ * Serious advisories for one exact version (one detailed OSV request, only
+ * made when the batch lookup already saw advisories). Cached for a day.
+ */
+async function seriousFlaws(item: OsvItem, ctx: Ctx): Promise<VulnVerdict | null> {
+  const key = osvKey(item);
+  const hit = vulnCache.get(key);
+  if (hit && ctx.now - hit.at < OSV_TTL_MS) return hit.verdict;
+  const body = (await fetchJson(
+    OSV_QUERY_URL,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        package: { ecosystem: item.ecosystem, name: item.name },
+        version: item.version,
+      }),
+    },
+    ctx,
+  )) as { vulns?: OsvAdvisory[] };
+  const serious = (body.vulns ?? []).filter(
+    (v) =>
+      !(v.id ?? "").startsWith("MAL-") &&
+      SERIOUS.has((v.database_specific?.severity ?? "").toUpperCase()),
+  );
+  const verdict: VulnVerdict | null =
+    serious.length === 0
+      ? null
+      : {
+          ids: serious.map((v) => v.id ?? "").filter(Boolean),
+          summary:
+            (
+              serious.find((v) => v.database_specific?.severity?.toUpperCase() === "CRITICAL") ??
+              serious[0]
+            )?.summary?.trim() ?? "",
+          severity: serious.some((v) => v.database_specific?.severity?.toUpperCase() === "CRITICAL")
+            ? "CRITICAL"
+            : "HIGH",
+          fixes: serious.map((v) =>
+            (v.affected ?? [])
+              .filter(
+                (a) => !a.package?.name || a.package.name.toLowerCase() === item.name.toLowerCase(),
+              )
+              .flatMap((a) => a.ranges ?? [])
+              .flatMap((r) => r.events ?? [])
+              .map((e) => e.fixed)
+              .filter((f): f is string => typeof f === "string" && f.length > 0),
+          ),
+        };
+  vulnCache.set(key, { verdict, at: ctx.now });
+  return verdict;
+}
+
+/**
+ * The version to move to: the newest stable release on `version`'s release
+ * line that is at or past a fix of EVERY serious advisory (on that line),
+ * older than the cooldown, and not malware. Null when there is none (no fix
+ * yet, or only fixed in another major) — then the install is left alone.
+ */
+function fixedOnSameLine(
+  version: string,
+  verdict: VulnVerdict,
+  times: Map<string, number>,
+  cutoff: number,
+  bad: Set<string>,
+): string | null {
+  const line = majorOf(version);
+  const floors: string[] = [];
+  for (const fixes of verdict.fixes) {
+    const onLine = fixes.filter((f) => majorOf(f) === line && compareVersions(f, version) > 0);
+    if (onLine.length === 0) return null; // this flaw isn't fixed on this line
+    floors.push(onLine.reduce((a, b) => (compareVersions(a, b) <= 0 ? a : b)));
+  }
+  const floor = floors.reduce((a, b) => (compareVersions(a, b) >= 0 ? a : b));
+  const ok = [...times]
+    .filter(
+      ([v, t]) =>
+        t <= cutoff &&
+        isStable(v) &&
+        !bad.has(v) &&
+        majorOf(v) === line &&
+        compareVersions(v, floor) >= 0,
+    )
+    .map(([v]) => v);
+  return pickMax(ok);
+}
+
+function vulnThreat(
+  ref: PackageRef,
+  version: string,
+  verdict: VulnVerdict,
+  fixed: string,
+): ShellThreat {
+  const what = verdict.summary ? `: ${verdict.summary.replace(/\s+/g, " ").slice(0, 100)}` : "";
+  const ids = verdict.ids.slice(0, 3).join(", ") + (verdict.ids.length > 3 ? ", …" : "");
+  return {
+    rule: "known-vulnerability",
+    severity: "block",
+    detail: `${ref.name}@${version} has known ${verdict.severity} security flaws (${ids})${what}; use ${ref.name}@${fixed}, the newest ${majorOf(version)}.x release with those fixed.`,
+  };
 }
 
 // ── Main check ──────────────────────────────────────────
@@ -1110,8 +1282,36 @@ async function checkNamed(local: LocalCheck, ctx: Ctx): Promise<ShellThreat[]> {
     threats.push(malwareThreat(r.ref, version, ids, suggestion, ctx.days));
   }
 
+  // Serious known flaws: only versions the batch lookup already saw
+  // advisories for get the one detailed request; all of them in parallel.
+  const vulnChecks = await Promise.all(
+    live
+      .filter((r) => !malware.has(r.ref.name) && osvFlawed(resolvedItem(r), ctx))
+      .map(async (r) => {
+        const version = r.version ?? "";
+        const verdict = await safe(`advisories ${r.ref.name}`, () =>
+          seriousFlaws(resolvedItem(r), ctx),
+        );
+        if (!verdict) return null;
+        const times = await safe("publish times", () => publishTimes(r, ctx));
+        if (!times) return null;
+        const cutoff = ctx.now - Math.max(ctx.days, 0) * DAY_MS;
+        const bad = feedFlagged(ctx, r.ref, times.keys()).add(version);
+        const fixed = fixedOnSameLine(version, verdict, times, cutoff, bad);
+        return fixed
+          ? { name: r.ref.name, threat: vulnThreat(r.ref, version, verdict, fixed) }
+          : null;
+      }),
+  );
+  const flawed = new Set<string>();
+  for (const v of vulnChecks) {
+    if (!v) continue;
+    flawed.add(v.name);
+    threats.push(v.threat);
+  }
+
   for (const r of live) {
-    if (malware.has(r.ref.name)) continue;
+    if (malware.has(r.ref.name) || flawed.has(r.ref.name)) continue;
     const version = r.version ?? "";
     // P4: provenance downgrade (npm).
     if (r.npm?.versions) {
@@ -1398,6 +1598,7 @@ export async function flushPackageVerdicts(): Promise<void> {
 /** Test hook: forget cached answers (memory only; the disk file is left alone). */
 export function clearPackageThreatCache(): void {
   osvCache.clear();
+  vulnCache.clear();
   metaCache.clear();
   lockfileCache.clear();
   verdictCaches.clear();

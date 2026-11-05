@@ -265,3 +265,173 @@ describe("checkPackageInstall", () => {
     expect(parsePackageInstalls("pipx run ruff --fix").map((r) => r.name)).toEqual(["ruff"]);
   });
 });
+
+describe("serious known flaws", () => {
+  beforeEach(() => clearPackageThreatCache());
+
+  /** Fake registry for `widget` (0.21.1 … 0.34.0, 1.0.0 … 1.20.0) + OSV with advisories. */
+  function flawNet(opts2: {
+    advisories: Record<
+      string,
+      Array<{ id: string; severity?: string; fixed: string[]; summary?: string }>
+    >;
+    calls?: string[];
+    detailDelayMs?: number;
+  }): typeof fetch {
+    const versions = ["0.21.1", "0.30.3", "0.31.1", "0.34.0", "1.0.0", "1.15.2", "1.20.0"];
+    return vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      opts2.calls?.push(url.replace(/^https:\/\/[^/]+/, ""));
+      if (url.endsWith("/v1/querybatch")) {
+        const body = JSON.parse(String(init?.body)) as {
+          queries: Array<{ package: { name: string }; version?: string }>;
+        };
+        const results = body.queries.map((q) => ({
+          vulns: (opts2.advisories[`${q.package.name}@${q.version}`] ?? []).map((a) => ({
+            id: a.id,
+          })),
+        }));
+        return new Response(JSON.stringify({ results }));
+      }
+      if (url.endsWith("/v1/query")) {
+        if (opts2.detailDelayMs) await new Promise((r) => setTimeout(r, opts2.detailDelayMs));
+        const q = JSON.parse(String(init?.body)) as { package: { name: string }; version: string };
+        const vulns = (opts2.advisories[`${q.package.name}@${q.version}`] ?? []).map((a) => ({
+          id: a.id,
+          summary: a.summary ?? "Credential theft",
+          database_specific: a.severity ? { severity: a.severity } : {},
+          affected: [
+            {
+              package: { name: q.package.name },
+              ranges: [
+                {
+                  type: "SEMVER",
+                  events: [{ introduced: "0" }, ...a.fixed.map((f) => ({ fixed: f }))],
+                },
+              ],
+            },
+          ],
+        }));
+        return new Response(JSON.stringify({ vulns }));
+      }
+      if (url.includes("/downloads/")) return new Response(JSON.stringify({ downloads: 1e6 }));
+      return new Response(
+        JSON.stringify({
+          "dist-tags": { latest: "1.20.0" },
+          versions: Object.fromEntries(versions.map((v) => [v, { dist: {} }])),
+          time: Object.fromEntries(versions.map((v, i) => [v, `202${i % 6}-01-01T00:00:00Z`])),
+        }),
+      );
+    }) as unknown as typeof fetch;
+  }
+
+  const flawOpts = (f: typeof fetch): PackageCheckOptions => ({
+    fetch: f,
+    env: {},
+    feed: emptyFeed(),
+    cacheDir: null,
+    managerVersion: async () => "11.12.1",
+  });
+
+  it("moves an old flawed version to the newest fixed release in the same major", async () => {
+    const f = flawNet({
+      advisories: {
+        "widget@0.21.1": [
+          { id: "GHSA-aaaa", severity: "HIGH", fixed: ["1.15.2", "0.31.1"] },
+          { id: "GHSA-bbbb", severity: "CRITICAL", fixed: ["0.30.3"] },
+        ],
+      },
+    });
+    const threats = await checkPackageInstall("npm i widget@0.21.1", flawOpts(f));
+    expect(threats).toEqual([
+      expect.objectContaining({ rule: "known-vulnerability", severity: "block" }),
+    ]);
+    expect(threats[0]?.detail).toContain("CRITICAL");
+    expect(threats[0]?.detail).toContain("use widget@0.34.0");
+  });
+
+  it("leaves it alone when the only fix is a breaking major, or none exists yet", async () => {
+    const majorOnly = flawNet({
+      advisories: { "widget@0.21.1": [{ id: "GHSA-cccc", severity: "HIGH", fixed: ["1.15.2"] }] },
+    });
+    expect(await checkPackageInstall("npm i widget@0.21.1", flawOpts(majorOnly))).toEqual([]);
+    clearPackageThreatCache();
+    const noFix = flawNet({
+      advisories: { "widget@0.21.1": [{ id: "GHSA-dddd", severity: "HIGH", fixed: [] }] },
+    });
+    expect(await checkPackageInstall("npm i widget@0.21.1", flawOpts(noFix))).toEqual([]);
+  });
+
+  it("ignores moderate, low and unrated advisories", async () => {
+    const f = flawNet({
+      advisories: {
+        "widget@0.21.1": [
+          { id: "GHSA-eeee", severity: "MODERATE", fixed: ["0.31.1"] },
+          { id: "GHSA-ffff", severity: "LOW", fixed: ["0.31.1"] },
+          { id: "GHSA-gggg", fixed: ["0.31.1"] },
+        ],
+      },
+    });
+    expect(await checkPackageInstall("npm i widget@0.21.1", flawOpts(f))).toEqual([]);
+  });
+
+  it("a clean version costs no extra request; a flawed one exactly one, then cached", async () => {
+    const calls: string[] = [];
+    const f = flawNet({
+      calls,
+      advisories: { "widget@0.21.1": [{ id: "GHSA-aaaa", severity: "HIGH", fixed: ["0.31.1"] }] },
+    });
+    await checkPackageInstall("npm i widget@1.20.0", flawOpts(f));
+    expect(calls.filter((c) => c === "/v1/query")).toHaveLength(0);
+    await checkPackageInstall("npm i widget@0.21.1", flawOpts(f));
+    await checkPackageInstall("npm i widget@0.21.1", flawOpts(f));
+    expect(calls.filter((c) => c === "/v1/query")).toHaveLength(1);
+  });
+
+  it("after a restart, the disk cache still knows a version is flawed (no batch re-ask)", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gg-flaw-cache-"));
+    try {
+      const advisories = {
+        "widget@0.21.1": [{ id: "GHSA-aaaa", severity: "HIGH", fixed: ["0.31.1"] }],
+      };
+      const first = flawNet({ advisories });
+      const o = { ...flawOpts(first), cacheDir: dir };
+      expect(await checkPackageInstall("npm i widget@0.21.1", o)).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 100)); // background cache write
+      clearPackageThreatCache(); // "restart": memory gone, disk kept
+      const calls: string[] = [];
+      const second = flawNet({ advisories, calls });
+      const threats = await checkPackageInstall("npm i widget@0.21.1", {
+        ...flawOpts(second),
+        cacheDir: dir,
+      });
+      expect(threats[0]?.rule).toBe("known-vulnerability");
+      expect(calls.filter((c) => c === "/v1/querybatch")).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a slow advisory lookup fails open inside the one deadline", async () => {
+    const f = flawNet({
+      detailDelayMs: 5_000,
+      advisories: { "widget@0.21.1": [{ id: "GHSA-aaaa", severity: "HIGH", fixed: ["0.31.1"] }] },
+    });
+    const t = Date.now();
+    expect(await checkPackageInstall("npm i widget@0.21.1", flawOpts(f))).toEqual([]);
+    expect(Date.now() - t).toBeLessThan(4_000);
+  }, 10_000);
+
+  it("malware still wins over a flaw on the same version", async () => {
+    const f = flawNet({
+      advisories: {
+        "widget@0.21.1": [
+          { id: "MAL-2026-1", fixed: [] },
+          { id: "GHSA-aaaa", severity: "HIGH", fixed: ["0.31.1"] },
+        ],
+      },
+    });
+    const threats = await checkPackageInstall("npm i widget@0.21.1", flawOpts(f));
+    expect(threats.map((t) => t.rule)).toEqual(["malicious-package"]);
+  });
+});

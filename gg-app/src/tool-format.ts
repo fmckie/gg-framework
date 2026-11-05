@@ -21,6 +21,7 @@ export interface ToolLinePart {
 /** Plain words for each safety-block rule (the coder's core guards). */
 const SAFETY_RULES: Record<string, string> = {
   "malicious-package": "known malware",
+  "known-vulnerability": "serious known flaw",
   "release-age": "too new to trust yet",
   typosquat: "lookalike name",
   "provenance-downgrade": "unsigned release",
