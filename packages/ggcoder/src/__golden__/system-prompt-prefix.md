@@ -169,7 +169,7 @@ Today's date: <DATE>
 }
 {
   "name": "grep",
-  "description": "Regex search of file contents → path:line:text. Skips .gitignored and binary files.",
+  "description": "Regex search of file contents → matches grouped by file (path, then line:text rows). Skips .gitignored and binary files.",
   "input_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",

@@ -493,6 +493,10 @@ export interface AgentSessionState {
 
 // ── Agent Session ──────────────────────────────────────────
 
+/** A prompt that asks for the live web (see AgentSession.attachWebSearchIfAsked). */
+const WEB_INTENT =
+  /\b(?:web|internet|online|google|googling|website|look (?:it |this |that )?up|(?:latest|newest|current) (?:version|release|news|docs?|documentation)|release notes|news)\b/i;
+
 export class AgentSession {
   readonly eventBus = new EventBus();
   readonly slashCommands = new SlashCommandRegistry();
@@ -777,6 +781,12 @@ export class AgentSession {
   async initialize(): Promise<void> {
     // Set model for accurate token estimation
     setEstimatorModel(this.model);
+
+    // The Anthropic transport needs the current Claude Code version for its
+    // User-Agent before the first request. Without a fresh on-disk cache that
+    // is an npm round-trip (~0.3–3s) on the user's first prompt; start it now
+    // so it overlaps session setup and the user's typing instead.
+    if (this.provider === "anthropic") void getClaudeCliUserAgent().catch(() => {});
 
     const paths = await ensureAppDirs();
 
@@ -1222,6 +1232,46 @@ export class AgentSession {
     );
   }
 
+  /**
+   * Whether provider-native web search rides along with this request.
+   *
+   * Anthropic's `web_search_20250305` server tool costs ~2.5k prefix tokens on
+   * every request (count_tokens: 6,628 vs 4,098 for the Kleio prefix without it),
+   * yet web search is reached in ~6% of sessions — the reason the client tool
+   * is deferred everywhere else. So on a tiered Anthropic session it is only
+   * attached once the model has promoted `web_search` (tool_search or a direct
+   * call). The server tool is appended last, so the tool block stays
+   * append-only. Untiered sessions and other providers keep it always on.
+   */
+  private nativeWebSearchOn(): boolean {
+    if (this.provider !== "anthropic") return true;
+    if (!this.deferredBuiltinToolNames.includes("web_search")) return true;
+    return this.tools.some((t) => t.name === "web_search");
+  }
+
+  /**
+   * A human prompt that plainly asks for the web gets native web search from
+   * its first request. Without this, an on-demand web_search costs an extra
+   * round trip (tool_search or a client search) before the native tool is
+   * attached — slower than the always-on tool it replaced for exactly the
+   * sessions that need it. Conservative on purpose: a miss only costs that
+   * one discovery turn, a false hit only the ~2.5k-token schema.
+   */
+  private attachWebSearchIfAsked(content: unknown): void {
+    if (this.provider !== "anthropic" || this.nativeWebSearchOn()) return;
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content
+              .map((part) =>
+                part && typeof part === "object" && "text" in part ? String(part.text) : "",
+              )
+              .join(" ")
+          : "";
+    if (WEB_INTENT.test(text)) this.promoteDeferredBuiltin("web_search");
+  }
+
   /** Append a deferred built-in to the live tool list (append-only). */
   private promoteDeferredBuiltin(name: string): AgentTool | undefined {
     if (!this.deferredBuiltinToolNames.includes(name)) return undefined;
@@ -1342,6 +1392,7 @@ export class AgentSession {
     this.messages.push(userMessage);
     await this.persistMessage(userMessage);
     this.lastPersistedIndex = this.messages.length;
+    if (provenance.source === "human") this.attachWebSearchIfAsked(content);
 
     await this.runLoop(options);
   }
@@ -1360,6 +1411,7 @@ export class AgentSession {
     await this.adoptDeferredCheckpointBeforePrompt();
     const parts = this.buildAttachmentParts(text, attachments);
     if (parts.length === 0) return;
+    this.attachWebSearchIfAsked(text);
     const userMessage: Message = {
       role: "user",
       content: parts,
@@ -2498,7 +2550,7 @@ export class AgentSession {
         model: this.model,
         tools: options.disableTools ? [] : this.tools,
         transformToolDetails: this.opts.toolDetails,
-        webSearch: !options.disableTools,
+        webSearch: options.disableTools ? false : () => this.nativeWebSearchOn(),
         maxTokens: this.requestMaxTokens(accountId),
         maxTurns: this.opts.maxTurns,
         maxTurnExtensions: this.opts.maxTurnExtensions,
@@ -2562,7 +2614,7 @@ export class AgentSession {
                 this.planModeRef.current || options.capThinking
                   ? clampThinkingForPlanMode(this.thinkingLevel)
                   : this.thinkingLevel,
-              webSearch: !options.disableTools,
+              webSearch: !options.disableTools && this.nativeWebSearchOn(),
               supportsImages: modelInfo?.supportsImages,
               promptCacheKey: this.getPromptCacheKey(),
             },
@@ -2976,7 +3028,12 @@ export class AgentSession {
       // Add/remove client-side web_search tool based on provider.
       // Anthropic has native server-side web search; all other providers need the client tool.
       const hasWebSearch = this.tools.some((t) => t.name === "web_search");
-      if (this.provider === "anthropic" && hasWebSearch) {
+      if (this.deferredBuiltinToolNames.includes("web_search")) {
+        // Tiered: the client tool lives in the catalog for every provider and,
+        // once promoted, is swapped for the native server tool by the Anthropic
+        // transport. Nothing to add or remove — doing so would either load the
+        // schema eagerly or take away a capability the model already has.
+      } else if (this.provider === "anthropic" && hasWebSearch) {
         // Switching TO anthropic — remove client-side web_search (server-side handles it)
         this.tools = this.tools.filter((t) => t.name !== "web_search");
       } else if (this.provider !== "anthropic" && !hasWebSearch) {
@@ -4531,7 +4588,7 @@ export class AgentSession {
         model: this.model,
         messages,
         tools: this.tools,
-        webSearch: true,
+        webSearch: this.nativeWebSearchOn(),
         maxTokens: this.requestMaxTokens(creds.accountId),
         thinking: this.planModeRef.current
           ? clampThinkingForPlanMode(this.thinkingLevel)
