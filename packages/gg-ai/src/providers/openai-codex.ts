@@ -185,6 +185,11 @@ async function* runStream(
   if (options.temperature != null && !options.thinking) {
     body.temperature = options.temperature;
   }
+  // Codex Fast mode: the Codex CLI sends `priority` on the wire (its
+  // ServiceTier::Fast request value); the ChatGPT backend rejects "fast".
+  if (options.speed === "fast") {
+    body.service_tier = "priority";
+  }
   body.reasoning = {
     // GPT-5.6/6 require at least low; older models still support thinking off.
     // Apply the floor here for every caller, including one-off prompt rewrites.

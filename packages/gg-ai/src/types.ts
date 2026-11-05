@@ -321,6 +321,10 @@ export interface StreamOptions {
   promptCacheKey?: string;
   /** OpenAI service tier for latency-sensitive requests. Only sent to first-party OpenAI API calls. */
   serviceTier?: "auto" | "default" | "flex" | "priority";
+  /** Provider speed tier. "fast" sends Anthropic `speed: "fast"` (first-party API
+   *  only) or OpenAI/Codex `service_tier: "priority"`. Set automatically by
+   *  `stream()` for fast-mode model ids (see `resolveFastModeModel`). */
+  speed?: "standard" | "fast";
   /** Codex endpoint only: send the Responses-Lite request shape (lite header,
    *  `parallel_tool_calls: false`, all-turns reasoning context). Unset follows
    *  the model family (on for gpt-5.6/gpt-6 models). Lite allows only one tool

@@ -279,8 +279,10 @@ async function* runStream(options: StreamOptions): AsyncGenerator<StreamEvent, S
     (params as unknown as Record<string, unknown>).reasoning_effort = "max";
   }
 
-  if (options.provider === "openai" && options.serviceTier) {
-    (params as unknown as Record<string, unknown>).service_tier = options.serviceTier;
+  // Fast mode on the public API is priority processing; an explicit tier wins.
+  const serviceTier = options.serviceTier ?? (options.speed === "fast" ? "priority" : undefined);
+  if (options.provider === "openai" && serviceTier) {
+    (params as unknown as Record<string, unknown>).service_tier = serviceTier;
   }
 
   if (isKimiK3) {
