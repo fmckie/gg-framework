@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1539,
+        "tracked": 1537,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1549,
+        "tracked": 1551,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2113,8 +2113,8 @@
       "removeWhen": "A coordinated repository path migration updates scripts and evidence locations together."
     },
     {
-      "id": "bundled-find-skills-legacy-seed",
-      "path": "packages/ggcoder/src/config.ts",
+      "id": "retired-find-skills-seed-fixtures",
+      "path": "packages/ggcoder/src/__fixtures__/seeded-find-skills-*.md",
       "scope": "content",
       "targets": [
         "tracked"
@@ -2123,13 +2123,13 @@
         "literal": "gg-coder"
       },
       "expectedOccurrences": {
-        "tracked": 2,
+        "tracked": 4,
         "packed": 0
       },
       "bucket": "compatibility",
       "owner": "Coder skills owner",
-      "reason": "The bundled seed remains unchanged until the Step 9 no-overwrite migration and tests land.",
-      "removeWhen": "Step 9 updates only the new-install default while preserving every existing user skill."
+      "reason": "Byte-exact copies of the find-skills seed earlier versions wrote to the skills folder. config.test.ts hashes them to prove the cleanup deletes only untouched copies, so their text cannot change.",
+      "removeWhen": "The retired-seed cleanup (removeRetiredSeededSkills) is removed."
     },
     {
       "id": "coder-runtime-temporary-prefixes",
@@ -2348,25 +2348,6 @@
       "owner": "Coder public API owner",
       "reason": "Packed runtime and declarations retain the legacy APP_NAME export.",
       "removeWhen": "A later major version removes the documented legacy export."
-    },
-    {
-      "id": "packed-coder-find-skills-seed",
-      "path": "packages/ggcoder/dist/config.js",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "literal": "gg-coder"
-      },
-      "expectedOccurrences": {
-        "tracked": 0,
-        "packed": 2
-      },
-      "bucket": "compatibility",
-      "owner": "Coder skills owner",
-      "reason": "Packed new-install seed output remains unchanged until the Step 9 no-overwrite migration lands.",
-      "removeWhen": "Step 9 updates the bundled default while preserving every existing user skill."
     },
     {
       "id": "packed-coder-prompt-cache-contract",
@@ -2797,7 +2778,7 @@
       "removeWhen": "A coordinated repository path migration rebuilds package metadata."
     },
     {
-      "id": "packed-manager-find-skills-seed",
+      "id": "packed-manager-coder-legacy-literals",
       "path": "packages/gg-boss/dist/**",
       "scope": "content",
       "targets": [
@@ -2808,12 +2789,12 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 9
+        "packed": 5
       },
       "bucket": "compatibility",
-      "owner": "Coder skills owner",
-      "reason": "Inlined new-install seed output remains unchanged until the Step 9 no-overwrite migration lands.",
-      "removeWhen": "Step 9 updates the bundled default while preserving every existing user skill."
+      "owner": "Coder runtime owner",
+      "reason": "Inlined Coder modules keep the legacy name in the steroids release-download user agent, the MCP OAuth client URI and a project-discovery comment.",
+      "removeWhen": "Those Coder modules drop the legacy name."
     },
     {
       "id": "packed-manager-error-discriminators",

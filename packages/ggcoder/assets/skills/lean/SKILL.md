@@ -1,6 +1,6 @@
 ---
 name: lean
-description: Use when speed or resource use matters. Do NOT use for correctness bugs.
+description: "Use to make software faster or lighter when speed, memory, CPU or size is the problem. Do NOT use for correctness bugs."
 # Checklist audits only (Security, Dependencies, Secrets / Performance); hidden from routine coding after the 27 Oct 2026 skill-value bench.
 hidden: true
 license: Performance engineering guidance, not a benchmark certification. Sources and snapshot date are recorded at the foot of each reference file.

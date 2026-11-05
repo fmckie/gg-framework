@@ -2580,7 +2580,6 @@ export function App(props: AppProps) {
       // Setup / installers
       "setup-commit",
       "setup-ci",
-      "setup-skills",
     ];
     const orderedPromptCommands = promptOrder
       .map(fromPrompt)

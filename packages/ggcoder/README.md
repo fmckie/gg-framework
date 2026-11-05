@@ -145,7 +145,6 @@ Plus built-in workflows that ship with the binary:
 /expand        # Compare against current alternatives and report gaps
 /init          # Generate CLAUDE.md for your project
 /setup-commit  # Generate a /commit command with quality checks
-/setup-skills  # Audit and recommend reusable skills
 ```
 
 ---
