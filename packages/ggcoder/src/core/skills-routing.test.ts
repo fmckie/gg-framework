@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { discoverSkills, formatSkillsForPrompt, type Skill } from "./skills.js";
-import { createSkillTool } from "../tools/skill.js";
+import { createSkillTool, DELEGATION_RULES, HOST_RULES } from "../tools/skill.js";
 import { resolveContextLimits } from "./context-limits.js";
 import { buildSystemPrompt } from "../system-prompt.js";
 
@@ -34,6 +34,9 @@ describe("skill routing prompts", () => {
       "When the work is in a skill's scope below, load it before writing code",
     );
     expect(tool.description).toContain("Respect exclusions");
+    // Reviews write no code; without this Haiku 5.5 answered "is our data
+    // safe?" with no skill in 9/10 bench runs (skills-ab-haiku55).
+    expect(tool.description).toContain("before giving a review or a safety verdict");
   });
 
   it("fails loudly when asked for a skill that does not exist, pointing at a same-named tool", async () => {
@@ -132,6 +135,30 @@ describe("skill routing prompts", () => {
     expect(result).toContain("Skill root directory: /skills/evidence-led-ui");
     expect(result).toContain("authoritative within their stated scope");
     expect(result).toContain("Preserve higher-priority project and file/module rules");
+  });
+
+  it("appends one shared delegation protocol instead of per-skill copies", async () => {
+    const tool = createSkillTool([skill]);
+    const result = await tool.execute(
+      { skill: skill.name },
+      { signal: new AbortController().signal, toolCallId: "delegation" },
+    );
+    // Goals mode lists builder/scout/researcher/checker, Code mode owl/bee/
+    // auditor/skeptic: helpers are matched by role to whatever spawn_agent lists.
+    expect(result).toContain(DELEGATION_RULES);
+    expect(DELEGATION_RULES).toContain("use agent types your spawn_agent tool actually lists");
+    expect(DELEGATION_RULES).toContain('"not checked", never clean');
+    // Skills assume a user at the keyboard; a running goal says not to ask.
+    expect(result).toContain(HOST_RULES);
+    expect(HOST_RULES).toContain("Host rules on branches, commits and installs override the skill");
+  });
+
+  it("shows the launch-readiness rule in the live skill tool, not only the fallback prompt", () => {
+    const tool = createSkillTool([skill]);
+    expect(tool.description).toContain(
+      "durable, bulletproof, compliance-guard, lean, evidence-led-ui",
+    );
+    expect(tool.description).toContain("report-only child");
   });
 
   it("discovers evidence-led-ui for a fresh user from bundled assets", async () => {
