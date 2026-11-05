@@ -10,6 +10,7 @@ import { getSafeToolEnv } from "./safe-env.js";
 import { resolveShell, type ResolveShellOpts } from "../core/shell.js";
 import { PersistentShell } from "../core/persistent-shell.js";
 import { isReadOnlyCommand, sleepOnlySeconds } from "./read-only-bash.js";
+import { backgroundWatchWarnings } from "./background-watch-lint.js";
 import { isPlanModeActive, planModeRestriction } from "../core/runtime-mode.js";
 import { isCatastrophicCommand } from "../core/workspace-guard.js";
 import { checkDestructiveGit } from "../core/destructive-git-guard.js";
@@ -342,6 +343,7 @@ export function createBashTool(
         }
         if (context.signal.aborted) return CANCELLED_BEFORE_START;
         const result = await processManager.start(command, cwd, launch, wakeRules);
+        const watchWarnings = backgroundWatchWarnings(command);
         return (
           `Background process started.\n` +
           `ID: ${result.id}\n` +
@@ -360,7 +362,8 @@ export function createBashTool(
               : `Wake conditions were NOT armed: this session has no notification path, so nothing will wake you automatically. Poll task_output periodically instead.\n`
             : "") +
           `Use task_output with id="${result.id}" to read output, ` +
-          `task_send to type input/answer prompts, task_stop to stop it.`
+          `task_send to type input/answer prompts, task_stop to stop it.` +
+          watchWarnings.map((warning) => `\nWarning: ${warning}`).join("")
         );
       }
 
@@ -448,7 +451,7 @@ export function createBashTool(
                 `ID: ${adopted.id}\n` +
                 `PID: ${adopted.pid}\n` +
                 `Log: ${adopted.logFile}\n` +
-                `You will be notified when it exits. Use task_output with id="${adopted.id}" ` +
+                `You will be notified when it exits or prints a failure. Use task_output with id="${adopted.id}" ` +
                 `(wait_ms to block until it exits) to read output, task_stop to stop it. ` +
                 `Pass an explicit timeout to have a command stopped instead.\n` +
                 (soFar ? `Output so far:\n${soFar}` : "No output so far."),

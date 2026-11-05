@@ -322,7 +322,7 @@ export class SubAgentManager {
       `Child agent "${adopted.task_name}" (${adopted.agent_id}) finished during a parent ` +
         `restart and its result was recovered (${record.status}). ` +
         `Collect the full output with wait_agent agent_ids ["${adopted.agent_id}"].`,
-      { terminal: true },
+      { terminal: true, urgent: true },
     );
   }
 
@@ -887,7 +887,7 @@ export class SubAgentManager {
         `${worker.turn_count} turn(s)${digest ? `: ${digest}` : ""}. ` +
         `${worker.acceptance ? `Acceptance checks: ${worker.acceptance}. ` : ""}` +
         `Collect its full output with wait_agent agent_ids ["${worker.agent_id}"].`,
-      { terminal: true },
+      { terminal: true, urgent: true },
     );
   }
 
