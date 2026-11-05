@@ -1,7 +1,6 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const root = 'mockups/voice/hud-study';
 const name = process.argv[2] || 'verification-1';
@@ -184,8 +183,6 @@ try {
   }
   assert.deepEqual(errors, [], 'Browser errors');
   assert.deepEqual(glErrors, [], 'WebGL validation errors');
-  const hashes = JSON.parse(readFileSync(`${root}/preserved-hashes.json`));
-  for (const [path, hash] of Object.entries(hashes)) assert.equal(createHash('sha256').update(readFileSync(path)).digest('hex'), hash, path + ' preserved');
-  writeFileSync(`${out}/evidence.json`, JSON.stringify({ results, motion, controls, errors, glErrors, preservedFiles: Object.keys(hashes).length }, null, 2), { flag: 'wx' });
-  console.log(`PASS: ${results.length} baseline/state comparisons; ${motion.length} live motion checks; controls at both widths; reduced motion; hidden pause; continuity; local-only; ${Object.keys(hashes).length} preserved files.`);
+  writeFileSync(`${out}/evidence.json`, JSON.stringify({ results, motion, controls, errors, glErrors }, null, 2), { flag: 'wx' });
+  console.log(`PASS: ${results.length} baseline/state comparisons; ${motion.length} live motion checks; controls at both widths; reduced motion; hidden pause; continuity; local-only.`);
 } finally { await browser.close(); }

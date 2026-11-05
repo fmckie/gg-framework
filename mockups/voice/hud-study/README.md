@@ -37,7 +37,7 @@ Files live only in this directory. `build.mjs` bundles the read-only `../before/
 
 In git: source, checks, `bundle-v4/` and three screenshots in `screenshots/`. The superseded bundles, `verification-*/`, `inspection/` and recordings are git-ignored local evidence.
 
-## Verification (final run: verification-3/)
+## Verification
 
 - `node --test mockups/voice/hud-study/motion.test.mjs` — 6/6 pass.
 - `node mockups/voice/hud-study/hud.check.mjs verification-<new-name>` — pass in Chromium at 1680×1000 and 1024×1000:
@@ -46,10 +46,10 @@ In git: source, checks, `bundle-v4/` and three screenshots in `screenshots/`. Th
   - connecting, listening, thinking and speaking advance a live clock, redraw, and render distinct ordered frames;
   - Mute/Unmute (click and Space), guide + Escape, Hang up, Talk again, Escape to close; a control cancels the preview loop;
   - rotation continuity from thinking to speaking; hidden-page pause; canvas follows device pixel ratio;
-  - no page errors, WebGL validation errors or non-local requests; all 1,732 earlier files unchanged.
+  - no page errors, WebGL validation errors or non-local requests.
 - Inspected: full-page screenshots at both sizes, ordered motion sheets, reduced-motion sheets, 2× detail crops, and frames from 25 fps real-time recordings of the looping preview.
 
-The check ends by comparing mockup files with the snapshot taken before this study (`preserved-hashes.json`). Files changed since (status and link updates on 5 November, two deleted Conversation Table screenshots, a font licence file the history rewrite re-wrote on disk, which git shows as unchanged, most likely its line endings) make that last step fail now. It also needs the git-ignored local evidence, so it fails in a fresh clone. The browser checks before it are unaffected.
+Until the study was selected, the check ended by comparing every other mockup file with a SHA-256 snapshot taken before the study began (`preserved-hashes.json`, 1,732 files). That proved the exploration changed nothing outside this folder, and the final exploration run (verification-3/) passed it. The step and the snapshot were removed after selection: the study is committed, so git history now records what each change touched. The snapshot also listed untracked and git-ignored files, so it failed in any fresh clone and after any legitimate edit elsewhere in `mockups/`. The check passed without it on 5 November 2026 (verification-4/, local).
 
 ## Limitations
 
