@@ -29,9 +29,9 @@ const SYNTHETIC_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 // Mirrors VALID_GEMINI_MODELS in the official gemini-cli
 // (packages/core/src/config/models.ts). Preview flash-lite went GA and was
 // renamed to `gemini-3.1-flash-lite`; `gemini-3.5-flash` (and its backend alias
-// `gemini-3-flash`) are now served over Code Assist. `gemini-3.7-flash` is
-// AHEAD of upstream: gemini-cli hasn't listed it yet (issue #28802), but the
-// model is GA on the Gemini API and entitled Code Assist accounts serve it.
+// `gemini-3-flash`) are now served over Code Assist. `gemini-3.7-flash` stays
+// accepted for old sessions only: Google deprecated it on 2026-10-08 and
+// routes it to 3.8 Flash, so it is no longer in the model registry.
 const CODE_ASSIST_SUPPORTED_MODELS = new Set([
   "gemini-3-pro-preview",
   "gemini-3.1-pro-preview",
@@ -210,13 +210,46 @@ function accountGatedHint(model: string): string {
     return "Use /model to select Gemini 3.1 Flash Lite, or retry once Google enables this model through Code Assist for your account.";
   }
   return (
-    `Newer Gemini models (3.7 Flash, 3.5 Flash, 3.1 Pro Preview) are available only to Code Assist ` +
-    `Standard/Enterprise accounts with preview/GA access enabled by a cloud admin — ` +
-    `free/personal accounts usually can't call them. Switch to Gemini 3.1 Flash Lite ` +
-    `(it works on this account) with /model, or sign in with a Code Assist ` +
-    `Standard/Enterprise account that has preview access.`
+    `Newer Gemini models (3.5 Flash, 3.1 Pro Preview) are available only to Code Assist ` +
+    `Standard/Enterprise accounts with preview/GA access enabled by a cloud admin. Try Gemini 3.1 ` +
+    `Flash Lite with /model, or sign in with a Code Assist Standard/Enterprise account that has ` +
+    `preview access.`
   );
 }
+
+/**
+ * Google stopped serving Code Assist to personal accounts (Google AI Pro/Ultra,
+ * the free "Code Assist for individuals" tier) on 2026-06-18. Those accounts now
+ * get 403 PERMISSION_DENIED with reason SUBSCRIPTION_REQUIRED on EVERY model,
+ * so no model switch helps — only a Code Assist Standard/Enterprise licence
+ * does. Detected by the structured reason, not the message wording.
+ */
+export function isCodeAssistLicenseRequired(status: number, body: string): boolean {
+  if (status !== 403) return false;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const details =
+      typeof parsed === "object" && parsed !== null && "error" in parsed
+        ? (parsed as { error?: { details?: unknown } }).error?.details
+        : undefined;
+    return (
+      Array.isArray(details) &&
+      details.some(
+        (detail: unknown) =>
+          typeof detail === "object" &&
+          detail !== null &&
+          (detail as { reason?: unknown }).reason === "SUBSCRIPTION_REQUIRED",
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+const LICENSE_REQUIRED_MESSAGE =
+  "This Google account has no Gemini Code Assist licence. Google stopped serving Gemini through Code Assist to personal accounts (Google AI Pro/Ultra and the free individual tier) on June 18, 2026, so every Gemini model is refused, not just this one.";
+const LICENSE_REQUIRED_HINT =
+  "Sign in to Gemini with a Google account that has a Gemini Code Assist Standard or Enterprise licence, or pick a model from another provider with /model.";
 
 function formatErrorMessage(status: number, body: string, model: string): string {
   if (status === 404 && !CODE_ASSIST_SUPPORTED_MODELS.has(model)) {
@@ -643,9 +676,12 @@ async function fetchCodeAssist(plan: GeminiRequestPlan, options: StreamOptions):
       const text = await response.text().catch(() => "");
       const quota = parseGeminiQuota(response.status, text);
       const accountGated = response.status === 404 && ACCOUNT_GATED_MODELS.has(options.model);
-      let message = accountGated
-        ? accountGatedMessage(options.model)
-        : formatErrorMessage(response.status, text, options.model);
+      const licenseRequired = isCodeAssistLicenseRequired(response.status, text);
+      let message = licenseRequired
+        ? LICENSE_REQUIRED_MESSAGE
+        : accountGated
+          ? accountGatedMessage(options.model)
+          : formatErrorMessage(response.status, text, options.model);
       let resetsAt: number | undefined;
       if (quota?.exhausted) {
         // Stamp the canonical phrase the agent loop matches on so this hard
@@ -657,7 +693,11 @@ async function fetchCodeAssist(plan: GeminiRequestPlan, options: StreamOptions):
       throw new ProviderError("gemini", message, {
         statusCode: response.status,
         ...(resetsAt !== undefined ? { resetsAt } : {}),
-        ...(accountGated ? { hint: accountGatedHint(options.model) } : {}),
+        ...(licenseRequired
+          ? { hint: LICENSE_REQUIRED_HINT, source: "auth" as const }
+          : accountGated
+            ? { hint: accountGatedHint(options.model) }
+            : {}),
       });
     }
 

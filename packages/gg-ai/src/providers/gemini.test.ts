@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { streamGemini } from "./gemini.js";
+import { isCodeAssistLicenseRequired, streamGemini } from "./gemini.js";
 import { formatError } from "../errors.js";
 
 const originalFetch = globalThis.fetch;
@@ -452,7 +452,7 @@ describe("streamGemini", () => {
       error: { code: 404, message: "Requested entity was not found.", status: "NOT_FOUND" },
     });
 
-    for (const model of ["gemini-3-flash", "gemini-3.1-pro-preview", "gemini-3.7-flash"]) {
+    for (const model of ["gemini-3-flash", "gemini-3.1-pro-preview"]) {
       globalThis.fetch = vi.fn().mockResolvedValue(new Response(body, { status: 404 }));
       const result = streamGemini({
         provider: "gemini",
@@ -478,6 +478,51 @@ describe("streamGemini", () => {
       // The guidance line carries the fix.
       expect(formatted.guidance).toMatch(/Gemini 3\.1 Flash Lite/i);
       expect(formatted.guidance).toMatch(/Code Assist Standard\/Enterprise/i);
+    }
+  });
+
+  it("explains a personal account with no Code Assist licence instead of suggesting a model switch", async () => {
+    // Real response on a Google AI Pro account (2026-10-16), every model: Google
+    // stopped serving Code Assist to personal accounts on 2026-06-18.
+    const body = JSON.stringify({
+      error: {
+        code: 403,
+        message: "The caller does not have permission",
+        status: "PERMISSION_DENIED",
+        details: [
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            reason: "SUBSCRIPTION_REQUIRED",
+            domain: "cloudcode-pa.googleapis.com",
+          },
+        ],
+      },
+    });
+    expect(isCodeAssistLicenseRequired(403, body)).toBe(true);
+    expect(isCodeAssistLicenseRequired(403, '{"error":{"code":403}}')).toBe(false);
+    expect(isCodeAssistLicenseRequired(404, body)).toBe(false);
+
+    for (const model of ["gemini-3.1-flash-lite", "gemini-3.8-flash"]) {
+      globalThis.fetch = vi.fn().mockResolvedValue(new Response(body, { status: 403 }));
+      const result = streamGemini({
+        provider: "gemini",
+        model,
+        projectId: "test-project",
+        apiKey: "access-token",
+        messages: [{ role: "user", content: "hi" }],
+      });
+      const err = await result.response.then(
+        () => {
+          throw new Error("expected rejection");
+        },
+        (e: unknown) => e,
+      );
+      const formatted = formatError(err);
+      expect(formatted.message).toMatch(/no Gemini Code Assist licence/);
+      expect(formatted.message).toMatch(/every Gemini model/);
+      expect(formatted.guidance).toMatch(/Standard or Enterprise licence/);
+      // Never the old advice to switch to a Gemini model "that works".
+      expect(formatted.guidance).not.toMatch(/it works on this account/);
     }
   });
 

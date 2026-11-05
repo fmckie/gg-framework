@@ -201,6 +201,39 @@ import { VerificationTracker } from "./agent-session/verification-tracker.js";
 import { McpToolRegistry } from "./agent-session/mcp-tools.js";
 import { TranscriptMarkers } from "./agent-session/transcript-markers.js";
 
+// ── Output cap ─────────────────────────────────────────────
+
+/**
+ * The output cap to send on a request. A model's output ceiling can equal its
+ * whole window (Kimi K2.7 Code: 262,144 of 262,144), and providers that count
+ * prompt + max_tokens against the window reject every request with a real
+ * prompt. Cap it at the room the model's TOTAL window leaves once the context
+ * reaches this session's compaction trigger — the largest prompt it lets build
+ * up. The total window, not the route's: the ChatGPT/Codex route's 272K
+ * window is an input budget, and GPT-6's 128K output sits outside it.
+ */
+export function outputCapForRequest(options: {
+  provider: Provider;
+  model: string;
+  maxTokens: number;
+  threshold: number;
+  accountId?: string;
+}): number {
+  const totalWindow = getContextWindow(options.model, { provider: options.provider });
+  const { targetTokens } = resolveCompactionPolicy({
+    provider: options.provider,
+    model: options.model,
+    contextWindow: getContextWindow(options.model, {
+      provider: options.provider,
+      accountId: options.accountId,
+    }),
+    threshold: options.threshold,
+    accountId: options.accountId,
+  });
+  const room = totalWindow - targetTokens;
+  return room > 0 ? Math.min(options.maxTokens, room) : options.maxTokens;
+}
+
 // ── Paid models ────────────────────────────────────────────
 
 /**
@@ -728,6 +761,17 @@ export class AgentSession {
         : this.opts.maxTokens;
     }
     return modelInfo?.maxOutputTokens ?? 16384;
+  }
+
+  /** {@link outputCapForRequest} for this session's live model and settings. */
+  private requestMaxTokens(accountId?: string): number {
+    return outputCapForRequest({
+      provider: this.provider,
+      model: this.model,
+      maxTokens: this.maxTokens,
+      threshold: this.settingsManager.get("compactThreshold"),
+      accountId,
+    });
   }
 
   async initialize(): Promise<void> {
@@ -2455,7 +2499,7 @@ export class AgentSession {
         tools: options.disableTools ? [] : this.tools,
         transformToolDetails: this.opts.toolDetails,
         webSearch: !options.disableTools,
-        maxTokens: this.maxTokens,
+        maxTokens: this.requestMaxTokens(accountId),
         maxTurns: this.opts.maxTurns,
         maxTurnExtensions: this.opts.maxTurnExtensions,
         // Plan mode caps effort at medium (Codex `plan_mode_reasoning_effort`
@@ -4361,9 +4405,17 @@ export class AgentSession {
     if (!text.trim()) return { enhanced: text, segments: [{ kind: "text", text }] };
     // Keep credentials and settings on the model selected at click time, even
     // if the user switches models while credential resolution is pending.
-    const { provider, model, thinkingLevel, maxTokens, baseUrl } = this;
+    const { provider, model, thinkingLevel, baseUrl } = this;
+    const threshold = this.settingsManager.get("compactThreshold");
     const creds = await this.authStorage.resolveCredentials(provider, {
       storageKeys: this.currentAuthStorageKeys(),
+    });
+    const maxTokens = outputCapForRequest({
+      provider,
+      model,
+      maxTokens: this.maxTokens,
+      threshold,
+      accountId: creds.accountId,
     });
     // Cheap, best-effort stack detection from the project root so terminology is
     // idiomatic to the user's stack. Never throws (returns "" on any failure).
@@ -4480,7 +4532,7 @@ export class AgentSession {
         messages,
         tools: this.tools,
         webSearch: true,
-        maxTokens: this.maxTokens,
+        maxTokens: this.requestMaxTokens(creds.accountId),
         thinking: this.planModeRef.current
           ? clampThinkingForPlanMode(this.thinkingLevel)
           : this.thinkingLevel,

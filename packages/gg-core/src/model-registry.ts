@@ -442,7 +442,10 @@ export const MODELS: ModelInfo[] = [
     maxThinkingLevel: "high",
   },
   // Keep 3.1 Flash Lite first for the working OAuth default and fast-model routing.
-  // New GA models are opt-in; Code Assist access varies by account.
+  // New GA models are opt-in; Code Assist access varies by account. Gemini 3.7
+  // Flash is retired: Google deprecated it on 2026-10-08 and routes every
+  // `gemini-3.7-flash` request to 3.8 Flash (ai.google.dev/gemini-api/docs/
+  // changelog), so a saved session on it falls back to the provider default.
   {
     id: "gemini-3.8-flash",
     name: "Gemini 3.8 Flash",
@@ -459,26 +462,6 @@ export const MODELS: ModelInfo[] = [
   {
     id: "gemini-3.5-flash-lite",
     name: "Gemini 3.5 Flash Lite",
-    provider: "gemini",
-    contextWindow: 1_048_576,
-    maxOutputTokens: 65_536,
-    supportsThinking: true,
-    supportsImages: true,
-    supportsVideo: true,
-    maxVideoBytes: 20 * 1024 * 1024,
-    costTier: "low",
-    maxThinkingLevel: "high",
-  },
-  {
-    // Gemini 3.7 Flash (released 2026-08-13) — Google's most capable Flash for
-    // coding, agents, and multi-step execution; GA-stable on the Gemini API as
-    // `gemini-3.7-flash`. 1M context, 64K output, thinking low/medium/high.
-    // Sent over our Code Assist (OAuth) transport ahead of gemini-cli — upstream
-    // hasn't listed 3.7 yet (google-gemini/gemini-cli#28802, still open) — so
-    // free/personal accounts 404 (entitlement-gated) while Code Assist
-    // Standard/Enterprise accounts get it.
-    id: "gemini-3.7-flash",
-    name: "Gemini 3.7 Flash",
     provider: "gemini",
     contextWindow: 1_048_576,
     maxOutputTokens: 65_536,
@@ -693,6 +676,9 @@ export const MODELS: ModelInfo[] = [
     billing: XIAOMI_ULTRASPEED_BILLING,
   },
   // ── DeepSeek ───────────────────────────────────────────
+  // Window 1,000,000 tokens (decimal "1M"), as DeepSeek's own agent sizes it
+  // (deepseek-ai/deepseek-harness DEFAULT_CONTEXT_WINDOW = 1_000_000; models.dev
+  // via earendil-works/pi agrees) — not 1,048,576.
   // The live /models list (2026-09-28) serves exactly `deepseek-flash` and
   // `deepseek-v4-pro`. V4 Flash and V4 Flash Vision Exp are retired; their old
   // ids only temporarily route to V4.1 Flash, so they are retired here too.
@@ -706,7 +692,7 @@ export const MODELS: ModelInfo[] = [
     id: "deepseek-v4-pro",
     name: "DeepSeek V4 Pro",
     provider: "deepseek",
-    contextWindow: 1_048_576,
+    contextWindow: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: true,
     supportsImages: false,
@@ -720,7 +706,7 @@ export const MODELS: ModelInfo[] = [
     id: "deepseek-flash",
     name: "DeepSeek V4.1 Flash",
     provider: "deepseek",
-    contextWindow: 1_048_576,
+    contextWindow: 1_000_000,
     maxOutputTokens: 384_000,
     supportsThinking: true,
     supportsImages: true,

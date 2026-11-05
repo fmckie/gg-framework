@@ -109,7 +109,7 @@ pub(crate) const AUTH_PROVIDERS: &[ProviderMeta] = &[
         value: "gemini",
         label: "Gemini",
         description:
-            "Gemini 3.8 Flash, 3.5 Flash Lite, 3.7 Flash, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
+            "Gemini 3.8 Flash, 3.5 Flash Lite, 3.1 Flash Lite, 3.5 Flash, 3.1 Pro (Preview)",
         methods: &["oauth"],
         oauth_key: None,
         oauth_label: None,

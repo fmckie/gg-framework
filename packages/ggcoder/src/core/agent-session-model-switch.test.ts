@@ -13,6 +13,7 @@ import type * as McpModule from "./mcp/index.js";
 import { useFakeHome } from "../test-support/fake-home.js";
 import { stream, StreamResult, type StreamEvent, type StreamResponse } from "@kleio/ai";
 import { getModel } from "./model-registry.js";
+import { outputCapForRequest } from "./agent-session.js";
 import { AuthStorage } from "./auth-storage.js";
 
 vi.mock("@kleio/ai", async (importOriginal) => ({
@@ -79,6 +80,7 @@ beforeEach(async () => {
       },
       anthropic: { accessToken: "t", refreshToken: "t", expiresAt: Date.now() + 3_600_000 },
       openai: { accessToken: "t", refreshToken: "t", expiresAt: Date.now() + 3_600_000 },
+      moonshot: { accessToken: "t", refreshToken: "", expiresAt: Date.now() + 3_600_000 },
     }),
   );
 });
@@ -157,6 +159,55 @@ describe("AgentSession model switch", () => {
       await session.dispose();
     }
   }, 30_000);
+
+  it("never asks for more output than the window leaves above the compaction trigger", async () => {
+    // Kimi K2.7 Code's output ceiling equals its whole 262,144 window, so
+    // sending it as max_tokens left no room for any prompt.
+    const session = await createSession();
+    try {
+      await session.switchModel("moonshot", "kimi-k2.7-code");
+      await session.enhancePrompt("fix bug");
+      const request = vi.mocked(stream).mock.lastCall![0];
+      expect(getModel("kimi-k2.7-code")?.maxOutputTokens).toBe(262_144);
+      // 262,144 window − 222,823 trigger (0.85 × 262,144).
+      expect(request.maxTokens).toBe(39_321);
+    } finally {
+      await session.dispose();
+    }
+  }, 30_000);
+
+  it("caps output against the model's total window, not the Codex route's input budget", () => {
+    const threshold = 0.85;
+    // Kimi K2.7 Code: its 262,144 ceiling would fill the whole window.
+    expect(
+      outputCapForRequest({
+        provider: "moonshot",
+        model: "kimi-k2.7-code",
+        maxTokens: 262_144,
+        threshold,
+      }),
+    ).toBe(39_321);
+    // GPT-6 on the ChatGPT/Codex route: 272K is an input budget, so the 128K
+    // output stays (the total window is 1.05M).
+    expect(
+      outputCapForRequest({
+        provider: "openai",
+        model: "gpt-6.1-sol",
+        maxTokens: 128_000,
+        threshold,
+        accountId: "acct",
+      }),
+    ).toBe(128_000);
+    // Claude: 128K output fits beside an 850K trigger in a 1M window.
+    expect(
+      outputCapForRequest({
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        maxTokens: 128_000,
+        threshold,
+      }),
+    ).toBe(128_000);
+  });
 
   it("keeps the click-time model paired with its credentials during a switch", async () => {
     const session = await createSession();
