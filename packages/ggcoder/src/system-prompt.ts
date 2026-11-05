@@ -17,7 +17,7 @@ import { extractPlanSteps } from "./utils/plan-steps.js";
 
 // One instruction file per directory, first match wins (Codex-style selection).
 // AGENTS.override.md lets a user shadow a checked-in AGENTS.md locally.
-const CONTEXT_FILES = [
+export const CONTEXT_FILES = [
   "AGENTS.override.md",
   "AGENTS.md",
   "CLAUDE.md",

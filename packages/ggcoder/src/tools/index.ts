@@ -46,7 +46,7 @@ import type { WriteGuardSettings } from "../core/workspace-guard.js";
 import type { GetNetworkPolicy } from "../core/network-guard.js";
 import type { SandboxPolicy } from "../core/sandbox.js";
 import type { AgentDefinition } from "../core/agents.js";
-import type { Skill } from "../core/skills.js";
+import type { BlockedSkill, Skill } from "../core/skills.js";
 import type { AgentNotificationQueue } from "../core/agent-notifications.js";
 
 // Canonical registry of built-in tool names. Defined in prompt-hints (a leaf
@@ -57,6 +57,8 @@ export { BUILTIN_TOOL_NAMES } from "./prompt-hints.js";
 export interface CreateToolsOptions {
   agents?: AgentDefinition[];
   skills?: Skill[];
+  /** Skills the safety scan refused; the skill tool names them instead of "not found". */
+  blockedSkills?: readonly BlockedSkill[];
   /** Byte budgets for skill catalog / MCP descriptions in tool schemas. */
   contextLimits?: ContextLimits;
   provider?: Provider;
@@ -131,6 +133,8 @@ export interface CreateToolsOptions {
   getNetworkPolicy?: GetNetworkPolicy;
   /** Lazily read the OS command-sandbox mode and allowed network domains. */
   getSandboxPolicy?: () => SandboxPolicy;
+  /** Package release-age cooldown in days (settings `packageCooldownDays`). */
+  getPackageCooldownDays?: () => number;
   /**
    * Lazily read whether `grep` may use the external `rg` scanner when present
    * (grepUseRipgrep). Defaults to enabled when omitted.
@@ -271,6 +275,8 @@ export async function createTools(
       undefined,
       opts?.getNetworkPolicy,
       ops === localOperations ? opts?.getSandboxPolicy : undefined,
+      undefined,
+      opts?.getPackageCooldownDays,
     ),
     createFindTool(cwd),
     createGrepTool(cwd, ops, { useExternalScanner: opts?.getUseExternalGrep }),
@@ -339,7 +345,7 @@ export async function createTools(
   }
 
   if (opts?.skills && opts.skills.length > 0) {
-    tools.push(createSkillTool(opts.skills, opts.contextLimits));
+    tools.push(createSkillTool(opts.skills, opts.contextLimits, opts.blockedSkills));
   }
 
   if (opts?.onEnterPlan) {

@@ -373,6 +373,8 @@ export class ProcessManager {
     cwd: string,
     launch?: ShellResolution,
     wake?: WakeRules,
+    /** Extra env for this process (e.g. the package release-age cooldown). */
+    extraEnv: Record<string, string> = {},
   ): Promise<StartResult> {
     await fsp.mkdir(this.bgDir, { recursive: true });
     void this.pruneOldLogs();
@@ -390,7 +392,7 @@ export class ProcessManager {
       // stdin is a pipe so callers can drive interactive processes (REPLs,
       // scaffolders, [Y/n] prompts) via sendInput(); stdout/stderr go to the log.
       stdio: ["pipe", fd, fd],
-      env: getSafeToolEnv(),
+      env: { ...getSafeToolEnv(), ...extraEnv },
     });
 
     fs.closeSync(fd);

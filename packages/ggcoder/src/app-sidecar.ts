@@ -11,6 +11,7 @@
  * The agent spine (gg-ai → gg-agent → gg-core) and every tool are reused
  * unchanged via AgentSession — this file is only a network seam.
  */
+import { startThreatFeedSync } from "./core/threat-feed.js";
 import http from "node:http";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -249,6 +250,10 @@ async function main(): Promise<void> {
   // Sweep recoverable full tool outputs (~/.gg/tool-output/) older than 48h.
   // Fire-and-forget: cleanup must never delay or break startup.
   void cleanupToolOutputs().catch(() => {});
+
+  // Daily malicious-package feed (OSV MAL-, npm + PyPI): deferred, background,
+  // fail-silent; at most one sync a day (core/threat-feed.ts).
+  startThreatFeedSync();
 
   const auth = new AuthStorage(paths.authFile);
   await auth.load();
@@ -1416,6 +1421,8 @@ async function createSession(
   session.eventBus.on("model_change", (d) => broadcast("model_change", d));
   session.eventBus.on("hook", (d) => broadcast("hook", d));
   session.eventBus.on("diagnostics", (d) => broadcast("diagnostics", d));
+  session.eventBus.on("security_notice", (d) => broadcast("security_notice", d));
+  session.eventBus.on("security_block", (d) => broadcast("security_block", d));
   // Fires BEFORE the candidate final answer streams. The webview holds assistant
   // text back while armed, so an Ideal review supersedes a draft that was never
   // painted instead of deleting one the user already started reading.

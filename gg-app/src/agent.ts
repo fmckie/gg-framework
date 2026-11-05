@@ -146,7 +146,31 @@ export interface GitHubCI {
   stale?: boolean;
 }
 
+/** A skill the sidecar's safety scan refused to load (it is simply absent). */
+export interface BlockedSkill {
+  name: string;
+  path: string;
+  /** "project", "global", "bundled" or "motion". */
+  scope: string;
+  /** Plain words: what the skill tried to do. */
+  reason: string;
+  /** Content hash; "" when the block isn't about content. */
+  hash: string;
+}
+
+/** A project lockfile pins a package now known to be malware (background check). */
+export interface SecurityNotice {
+  /** Stable id; the same notice is shown once. */
+  key: string;
+  /** One plain line for the user. */
+  message: string;
+}
+
 export interface AgentState {
+  /** Skills kept out of this session for safety. Absent on older sidecars. */
+  blockedSkills?: BlockedSkill[];
+  /** Installed packages now known to be infected. Absent on older sidecars. */
+  installedThreats?: SecurityNotice[];
   provider: string;
   model: string;
   cwd: string;
@@ -952,6 +976,8 @@ export interface HistoryEntry {
   error?: ChatErrorData & { scope: string; headline: string };
   /** Webview-copy info row marker (e.g. the video-capability warning). */
   infoKind?: "video_warning";
+  /** Safety-block chat row. */
+  security?: { rule: string; target: string };
   /** Tool-produced images rendered inline (same as live `images` items),
    *  reconstructed from ImageContent blocks in persisted tool results: each
    *  its preview (`src`), or, asked for by ref, a `ref` to load it by as it's
@@ -2116,6 +2142,8 @@ export interface McpServerRow {
   summary: string;
   /** True when the server returned 401 and needs an interactive OAuth login. */
   requiresAuth?: boolean;
+  /** gg-safe: one line per tool hidden from the model, and why. */
+  warning?: string;
 }
 
 /** Outcome of adding an MCP server from a pasted command line. */

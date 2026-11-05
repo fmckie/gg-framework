@@ -314,39 +314,99 @@ describe("shell-threat guard", () => {
 });
 
 describe("package-install guard", () => {
-  const osvReply = (vulns: Array<{ id: string }>): typeof fetch =>
-    (async () =>
-      new Response(JSON.stringify({ results: [{ vulns }] }), { status: 200 })) as typeof fetch;
+  /** Fake registry + OSV: every package is 1.0.0. `fresh` = first published now. */
+  const fakeNet =
+    (opts: { mal?: Record<string, string[]>; fresh?: string[]; downloads?: number }) =>
+    async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url.includes("api.osv.dev")) {
+        const body = JSON.parse(String(init?.body)) as {
+          queries: Array<{ package: { name: string }; version?: string }>;
+        };
+        return new Response(
+          JSON.stringify({
+            results: body.queries.map((q) => ({
+              vulns: (opts.mal?.[`${q.package.name}@${q.version}`] ?? []).map((id) => ({ id })),
+            })),
+          }),
+        );
+      }
+      if (url.includes("/downloads/")) {
+        return new Response(JSON.stringify({ downloads: opts.downloads ?? 1_000_000 }));
+      }
+      const name = decodeURIComponent(url.split("registry.npmjs.org/")[1] ?? "");
+      const created = opts.fresh?.includes(name)
+        ? new Date(Date.now() - 3_600_000 * 72).toISOString()
+        : "2020-01-01T00:00:00Z";
+      return new Response(
+        JSON.stringify({
+          "dist-tags": { latest: "1.0.0" },
+          versions: { "1.0.0": { dist: {} } },
+          time: { "1.0.0": created },
+        }),
+      );
+    };
 
   afterEach(() => {
     vi.unstubAllGlobals();
     clearPackageThreatCache();
   });
 
-  it("stops a likely typosquat once, then runs the identical command", async () => {
-    vi.stubGlobal("fetch", osvReply([]));
+  /** A package block returns { content, details }; everything else a string. */
+  const text = (result: unknown): string =>
+    typeof result === "string" ? result : String((result as { content: unknown }).content);
+
+  it("blocks a fresh typosquat every time (no retry-to-allow)", async () => {
+    vi.stubGlobal("fetch", fakeNet({ fresh: ["raect"] }));
     const tool = createBashTool(tmpHome, new ProcessManager());
     // `true ||` short-circuits, so npm never actually runs.
     const command = "true || npm install raect";
     const ctx = { signal: new AbortController().signal, toolCallId: "pkg-1" };
-
-    const first = String(await tool.execute({ command }, ctx));
-    expect(first).toContain("did you mean react");
-    expect(first).toContain("run the exact same command again");
-
-    const second = String(await tool.execute({ command }, ctx));
-    expect(second).toContain("Exit code: 0");
+    for (let i = 0; i < 2; i++) {
+      const out = text(await tool.execute({ command }, ctx));
+      expect(out).toContain("Blocked install (typosquat)");
+      expect(out).toContain('"react"');
+    }
   });
 
-  it("refuses a package OSV flags as malware", async () => {
-    vi.stubGlobal("fetch", osvReply([{ id: "MAL-2026-1234" }]));
+  it("runs an established lookalike silently", async () => {
+    vi.stubGlobal("fetch", fakeNet({}));
+    const tool = createBashTool(tmpHome, new ProcessManager());
+    const out = String(
+      await tool.execute(
+        { command: "true || npm install raect" },
+        { signal: new AbortController().signal, toolCallId: "pkg-3" },
+      ),
+    );
+    expect(out).toContain("Exit code: 0");
+  });
+
+  it("refuses a package version OSV flags as malware", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fakeNet({ mal: { "totally-unknown-pkg-xyz@1.0.0": ["MAL-2026-1234"] } }),
+    );
     const tool = createBashTool(tmpHome, new ProcessManager());
     const result = await tool.execute(
       { command: "true || npm install totally-unknown-pkg-xyz" },
       { signal: new AbortController().signal, toolCallId: "pkg-2" },
     );
-    expect(String(result)).toContain("Blocked by package safety check (malicious-package)");
-    expect(String(result)).toContain("MAL-2026-1234");
+    expect(text(result)).toContain("Blocked install (malicious-package)");
+    expect(text(result)).toContain("totally-unknown-pkg-xyz@1.0.0");
+    expect(text(result)).toContain("MAL-2026-1234");
+    // The refused package travels with the result, for the project's list.
+    expect((result as { details?: unknown }).details).toEqual({
+      safetyBlock: {
+        packages: [
+          {
+            ecosystem: "npm",
+            name: "totally-unknown-pkg-xyz",
+            version: "1.0.0",
+            reason: "known malware (MAL-2026-1234)",
+          },
+        ],
+      },
+    });
   });
 });
 
