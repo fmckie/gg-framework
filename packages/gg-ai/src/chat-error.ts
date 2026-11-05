@@ -5,6 +5,7 @@ import {
   type ErrorDisplayOptions,
   type FormattedError,
 } from "./errors.js";
+import { parseFastModeRejection } from "./fast-mode.js";
 
 /** Display meaning is separate from retry policy: a hard stop is not always a plan limit. */
 export type ChatErrorReason =
@@ -71,6 +72,17 @@ export function formatChatError(error: unknown, display?: ErrorDisplayOptions): 
       "update",
       `${display?.productName ?? "The application"} needs an update`,
       "Update the app, or choose another model.",
+    );
+  }
+  // Anthropic fast mode bills usage credits only. Its refusals arrive as 429s,
+  // but waiting never clears them, so name the actual cause (credits off, empty,
+  // capped, or blocked by an admin) instead of "limiting requests".
+  const fastRejection = base.provider === "anthropic" ? parseFastModeRejection(raw) : undefined;
+  if (fastRejection) {
+    return present(
+      fastRejection.kind === "billing" ? "billing" : "model_access",
+      fastRejection.headline,
+      fastRejection.guidance,
     );
   }
   // Check billing and entitlement BEFORE the canonical hard-stop token stamped by adapters.

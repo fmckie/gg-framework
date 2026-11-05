@@ -212,6 +212,79 @@ describe("loopback daemon auth", () => {
   });
 });
 
+describe("a model that spends real money", () => {
+  /** Restart the daemon logged in to Anthropic, with fast mode saved as the default. */
+  async function restartWithSavedPaidModel(): Promise<void> {
+    const running = daemon;
+    daemon = undefined;
+    if (running && running.exitCode === null && running.signalCode === null) {
+      await new Promise<void>((resolve) => {
+        running.once("close", () => resolve());
+        running.kill("SIGKILL");
+      });
+    }
+    await fs.writeFile(
+      path.join(tmpHome, ".gg", "auth.json"),
+      JSON.stringify({
+        anthropic: {
+          accessToken: "sk-ant-oat-fake-for-tests",
+          refreshToken: "fake-refresh",
+          expiresAt: Date.now() + 86_400_000,
+        },
+      }),
+    );
+    await fs.writeFile(
+      path.join(tmpHome, ".gg", "settings.json"),
+      JSON.stringify({
+        autoCompact: false,
+        defaultProvider: "anthropic",
+        defaultModel: "claude-opus-5-5-fast",
+      }),
+    );
+    await startDaemon();
+  }
+
+  it("never restores, follows into, or switches to it without explicit confirmation", async () => {
+    await restartWithSavedPaidModel();
+    const session = await createSession();
+
+    // A saved paid default boots the standard model instead.
+    const boot = await request("GET", "/state", { session });
+    expect(boot.json.model).toBe("claude-opus-5-5");
+
+    // Switching without the user's confirmation is refused, and nothing changes.
+    const refused = await request("POST", "/model", {
+      session,
+      body: { model: "claude-opus-5-5-fast" },
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.json.requiresPaidConfirmation).toBe(true);
+    expect((await request("GET", "/state", { session })).json.model).toBe("claude-opus-5-5");
+
+    // With confirmation it switches, but only this session: Ken stays on the
+    // standard model and the saved default is never the paid tier.
+    const confirmed = await request("POST", "/model", {
+      session,
+      body: { model: "claude-opus-5-5-fast", confirmPaid: true },
+    });
+    expect(confirmed.status).toBe(200);
+    const after = await request("GET", "/state", { session });
+    expect(after.json.model).toBe("claude-opus-5-5-fast");
+    expect(after.json.kenModel).toBe("claude-opus-5-5");
+    const saved = JSON.parse(
+      await fs.readFile(path.join(tmpHome, ".gg", "settings.json"), "utf-8"),
+    ) as { defaultModel?: string };
+    expect(saved.defaultModel).toBe("claude-opus-5-5");
+
+    // Ken can't be pinned to it either.
+    const kenPin = await request("POST", "/ken/model", {
+      session,
+      body: { model: "claude-opus-5-5-fast" },
+    });
+    expect(kenPin.status).toBe(400);
+  }, 120_000);
+});
+
 describe("connecting a provider", () => {
   it("refreshes models in every window, not just the one that connected", async () => {
     const windowA = await createSession();

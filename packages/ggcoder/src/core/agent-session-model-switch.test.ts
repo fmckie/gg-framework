@@ -247,6 +247,29 @@ describe("AgentSession model switch", () => {
     }
   }, 30_000);
 
+  it("refuses a model that spends real money without the user's explicit yes", async () => {
+    const session = await createSession();
+    try {
+      const before = [...session.getMessages()];
+      await expect(session.switchModel("anthropic", "claude-opus-5-5-fast")).rejects.toMatchObject({
+        name: "PaidModelConfirmationError",
+        modelName: "Claude Opus 5.5 Fast",
+      });
+      // Nothing changed: same model, no switch note, no marker.
+      expect(session.getState().model).toBe("gpt-6.1-sol");
+      expect(session.getMessages()).toHaveLength(before.length);
+      expect(session.getAppMarkers().filter((m) => m.kind === "model_switch")).toHaveLength(0);
+
+      await session.switchModel("anthropic", "claude-opus-5-5-fast", { confirmPaid: true });
+      expect(session.getState().model).toBe("claude-opus-5-5-fast");
+      // A plan-usage fast tier (Codex) needs no confirmation.
+      await session.switchModel("openai", "gpt-6-luna-fast");
+      expect(session.getState().model).toBe("gpt-6-luna-fast");
+    } finally {
+      await session.dispose();
+    }
+  }, 30_000);
+
   it("does nothing when the model did not actually change", async () => {
     const session = await createSession();
     try {

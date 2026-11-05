@@ -468,6 +468,11 @@ export interface ModelOption {
   /** False when the local server didn't report a real context length (we guessed). */
   contextWindowKnown?: boolean;
   supportsThinking?: boolean;
+  /**
+   * Set when picking this model changes what the user pays (fast modes).
+   * `paid` means real money: Claude fast mode bills usage credits, never the plan.
+   */
+  billing?: { label: string; detail: string; paid: boolean };
 }
 
 export interface SlashCommand {
@@ -1370,10 +1375,16 @@ export async function listModels(): Promise<ModelOption[] | null> {
  * rather than as a thrown IPC error — so unpack it here and let the caller
  * surface it.
  */
-export async function switchModel(model: string): Promise<SwitchModelResult | { error: string }> {
+export async function switchModel(
+  model: string,
+  options: { confirmPaid?: boolean } = {},
+): Promise<SwitchModelResult | { error: string }> {
   try {
+    // `confirmPaid` is only ever set from the explicit "spend real money"
+    // confirmation; the sidecar refuses a paid model without it.
     const res = await invoke<SwitchModelResult & { error?: string }>("agent_switch_model", {
       model,
+      confirmPaid: options.confirmPaid === true,
     });
     if (res.error) {
       await logError(`agent_switch_model refused: ${res.error}`);

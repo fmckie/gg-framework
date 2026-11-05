@@ -71,7 +71,39 @@ export interface ModelInfo {
    * unset. Read via `getAuthStorageKeys()` / `getAuthStorageKey()`.
    */
   authStorageKeys?: string[];
+  /**
+   * How this model bills beyond the normal plan/API rate, shown wherever the
+   * model is picked or active. Only set where picking the model changes what
+   * the user pays: `paid` marks real money (Claude fast mode bills usage
+   * credits, never included plan usage), unset `paid` a plan-usage multiplier.
+   */
+  billing?: ModelBilling;
 }
+
+export interface ModelBilling {
+  /** Short picker label, e.g. "bills usage credits". */
+  label: string;
+  /** One-sentence explanation for tooltips and notes. */
+  detail: string;
+  /** True when choosing the model spends real money, not just plan allowance. */
+  paid: boolean;
+}
+
+/** Claude fast mode: billed to usage credits from the first token. */
+const CLAUDE_FAST_BILLING: ModelBilling = {
+  label: "bills usage credits",
+  detail:
+    "Fast mode bills your Claude usage credits ($8 in / $40 out per million tokens) from the first token, never your plan's included usage.",
+  paid: true,
+};
+
+/** Codex Fast mode: plan limits at 2.5x (purchased credits at 2x). */
+const CODEX_FAST_BILLING: ModelBilling = {
+  label: "2.5x plan usage",
+  detail:
+    "Codex Fast mode uses your ChatGPT plan limits at 2.5x the standard rate (purchased credits at 2x).",
+  paid: false,
+};
 
 // Provider display order — mirrors `PROVIDERS` in ui/login.tsx so the
 // /model selector and login selector sort models identically.
@@ -149,6 +181,7 @@ export const MODELS: ModelInfo[] = [
     supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "max",
+    billing: CLAUDE_FAST_BILLING,
   },
   {
     // Released 2026-09-28 — replaces Sonnet 5 at $2/$10 MTok, with the same
@@ -226,6 +259,7 @@ export const MODELS: ModelInfo[] = [
     supportsVideo: false,
     costTier: "high",
     maxThinkingLevel: "ultra",
+    billing: CODEX_FAST_BILLING,
   },
   // GPT-6 Sol + Luna — released 2026-09-22 below Astra, replacing the whole
   // GPT-5.6 family (Sol/Terra/Luna; there is no GPT-6 Terra — OpenAI's Codex
@@ -270,6 +304,7 @@ export const MODELS: ModelInfo[] = [
     supportsVideo: false,
     costTier: "medium",
     maxThinkingLevel: "ultra",
+    billing: CODEX_FAST_BILLING,
   },
   {
     // Luna — "Fast and affordable model for easier tasks." (Codex priority 4,
@@ -304,6 +339,7 @@ export const MODELS: ModelInfo[] = [
     supportsVideo: false,
     costTier: "low",
     maxThinkingLevel: "max",
+    billing: CODEX_FAST_BILLING,
   },
   // ── Sakana (Fugu) ──────────────────────────────────────
   // Sakana Fugu is a multi-agent system surfaced as a standard LLM via the
@@ -781,6 +817,25 @@ export function getModelsForProvider(provider: Provider): ModelInfo[] {
  * another — e.g. `mimo-v2.6-pro` prefers the Token Plan but falls back to API
  * Credits, while the API-only `mimo-v2.6-pro-ultraspeed` has no fallback.
  */
+/** True when running `modelId` spends real money (e.g. Claude fast mode). */
+export function isPaidModel(modelId: string): boolean {
+  return getModel(modelId)?.billing?.paid === true;
+}
+
+/**
+ * The same model without its paid tier: `claude-opus-5-5-fast` becomes
+ * `claude-opus-5-5`; every other id is returned unchanged. A paid tier must be
+ * picked on purpose for the one session the user is watching, so everything
+ * that would otherwise carry it silently (saved defaults, restored sessions,
+ * Ken following GG, sub-agents, goal workers) runs through this instead.
+ */
+export function withoutPaidTier(modelId: string): string {
+  const model = getModel(modelId);
+  if (model?.billing?.paid !== true) return modelId;
+  const base = resolveFastModeModel(model.provider, model.id).model;
+  return getModel(base) ? base : modelId;
+}
+
 export function getAuthStorageKeys(provider: Provider, modelId: string): string[] {
   const model = getAllModels().find((m) => m.id === modelId && m.provider === provider);
   return model?.authStorageKeys ?? [provider];

@@ -69,6 +69,26 @@ import {
 import { getHistoryMessageVisibility } from "./session-history.js";
 import { sourceFingerprint as computeSourceFingerprint } from "./session-compaction.js";
 import { getAuthStorageKeys, getContextWindow, getModel, MODELS } from "./model-registry.js";
+
+/**
+ * Thrown by {@link AgentSession.switchModel} when the target model spends real
+ * money and the caller didn't pass the user's explicit confirmation.
+ */
+/** Reply for chat bridges (Telegram, agent home) that have no confirmation step. */
+export function paidModelRefusal(modelName: string): string {
+  return `${modelName} spends real money (Claude fast mode bills usage credits, not your plan), so it can't be switched to from chat. Switch to it in the Kleio app or the Kleio Coder CLI, where you confirm it.`;
+}
+
+export class PaidModelConfirmationError extends Error {
+  readonly modelName: string;
+  readonly detail: string;
+  constructor(modelName: string, detail: string) {
+    super(`${modelName} spends real money. ${detail} Confirm before switching to it.`);
+    this.name = "PaidModelConfirmationError";
+    this.modelName = modelName;
+    this.detail = detail;
+  }
+}
 import { discoverSkills, type Skill } from "./skills.js";
 import { ensureAppDirs } from "../config.js";
 import {
@@ -2813,7 +2833,21 @@ export class AgentSession {
     this.maybeCompactPostTurn(creds);
   }
 
-  async switchModel(provider: string, model: string): Promise<void> {
+  /**
+   * Switch the session's model. A model that spends real money (Claude fast
+   * mode bills usage credits) is refused unless `confirmPaid` carries the
+   * user's explicit yes, so no caller can switch onto one by accident: every
+   * path (app, CLI, editors, chat bridges, RPC) fails closed by default.
+   */
+  async switchModel(
+    provider: string,
+    model: string,
+    options: { confirmPaid?: boolean } = {},
+  ): Promise<void> {
+    const target = getModel(model);
+    if (target?.billing?.paid && options.confirmPaid !== true && model !== this.model) {
+      throw new PaidModelConfirmationError(target.name, target.billing.detail);
+    }
     // The model-switch note is appended to `this.messages`; settle any
     // background compaction first so the note cannot be swapped out.
     await this.settlePostTurnCompaction();
@@ -4725,7 +4759,7 @@ export class AgentSession {
 
   private createSlashCommandContext(): SlashCommandContext {
     return {
-      switchModel: (provider, model) => this.switchModel(provider, model),
+      switchModel: (provider, model, options) => this.switchModel(provider, model, options),
       compact: (focus?: string) => this.compact(undefined, "manual", focus),
       newSession: () => this.newSession(),
       listSessions: async () => {

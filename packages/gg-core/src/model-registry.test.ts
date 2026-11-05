@@ -16,7 +16,9 @@ import {
   getModelsForProvider,
   getSummaryModel,
   getToolResultCharLimit,
+  isPaidModel,
   usesOpenAICodexTransport,
+  withoutPaidTier,
 } from "./model-registry.js";
 
 const PROVIDERS = [
@@ -92,13 +94,25 @@ describe("model registry invariants", () => {
       "gpt-6-luna-fast",
     ]);
     for (const id of fastIds) {
-      const { id: _id, name, ...fast } = getModel(id) as ModelInfo;
+      const { id: _id, name, billing, ...fast } = getModel(id) as ModelInfo;
       const resolved = resolveFastModeModel(fast.provider, id);
       expect(resolved.fast, `${id} resolves in gg-ai`).toBe(true);
       const { id: _baseId, name: baseName, ...base } = getModel(resolved.model) as ModelInfo;
       expect(fast, `${id} metadata matches ${resolved.model}`).toEqual(base);
       expect(name).toBe(`${baseName} Fast`);
+      // Every fast tier changes what the user pays, so it must say so.
+      expect(billing, `${id} declares its billing`).toBeDefined();
+      expect(base.billing, `${resolved.model} bills normally`).toBeUndefined();
     }
+    // Claude fast mode spends real money (usage credits); Codex fast spends plan allowance.
+    expect(getModel("claude-opus-5-5-fast")?.billing?.paid).toBe(true);
+    expect(getModel("gpt-6.1-sol-fast")?.billing?.paid).toBe(false);
+    // Only a real-money tier is ever stripped back to the standard model.
+    expect(isPaidModel("claude-opus-5-5-fast")).toBe(true);
+    expect(withoutPaidTier("claude-opus-5-5-fast")).toBe("claude-opus-5-5");
+    expect(withoutPaidTier("gpt-6.1-sol-fast")).toBe("gpt-6.1-sol-fast");
+    expect(withoutPaidTier("claude-sonnet-5-5")).toBe("claude-sonnet-5-5");
+    expect(withoutPaidTier("not-a-model")).toBe("not-a-model");
     // Compaction summaries never land on a fast (premium) tier.
     expect(getSummaryModel("openai", "gpt-6.1-sol-fast").id).toBe("gpt-6-luna");
     expect(getSummaryModel("anthropic", "claude-opus-5-5-fast").id).toBe("claude-sonnet-5-5");
