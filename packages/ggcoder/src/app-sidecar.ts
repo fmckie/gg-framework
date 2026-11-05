@@ -51,6 +51,7 @@ import {
   dualAuthProvider,
   discoverLocalModels,
   findProbedModel,
+  isLocalModelId,
   formatLocalModelId,
   parseLocalModelId,
   ollamaServedContext,
@@ -730,7 +731,7 @@ async function createSession(
   // parsing); the daemon owns the real listen host.
   const host = "127.0.0.1";
 
-  const saved = loadSavedSettings(paths.settingsFile);
+  const saved = loadSavedSettings(paths.settingsFile, { localModels: true });
   // Native login/logout and other live sessions share auth.json. Refresh the
   // daemon-level snapshot before choosing this session's provider so a project
   // never boots against credentials that were just replaced or disconnected.
@@ -1315,7 +1316,7 @@ async function createSession(
     log("INFO", "app-sidecar", "restored saved local model", { model: savedModel });
   }
 
-  void scanLocalModels(false)
+  const initialLocalScan = scanLocalModels(false)
     .then(async () => {
       await restoreSavedLocalModel();
       clampLocalThinking();
@@ -1329,6 +1330,18 @@ async function createSession(
         error: err instanceof Error ? err.message : String(err),
       });
     });
+  // A run that starts before the scan would run on the fallback model; a goal's
+  // kickoff fires as its window opens and lost that race (#133). Never rejects.
+  let savedLocalModelPending: Promise<void> | null =
+    preferred === "local" &&
+    savedModel !== undefined &&
+    savedModel !== model &&
+    isLocalModelId(savedModel)
+      ? initialLocalScan
+      : null;
+  void initialLocalScan.finally(() => {
+    savedLocalModelPending = null;
+  });
 
   // Refresh the GitHub counts and broadcast only on change. Transient failures
   // keep the last-known numbers so the chips don't flicker off on a timeout.
@@ -1916,6 +1929,8 @@ async function createSession(
     run: () => Promise<void>,
     reviewPending: () => boolean = () => false,
   ): Promise<void> {
+    // Only at boot: afterwards runAgent stays synchronous up to its first await.
+    if (savedLocalModelPending) await savedLocalModelPending;
     const ownsGeneration = !runLifecycle.running;
     const generation = ownsGeneration
       ? runLifecycle.begin(abortOwnedWork).generation
