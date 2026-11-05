@@ -1052,16 +1052,39 @@ export function toAnthropicMessages(
         ? msg.content.filter((r) => !droppedToolCallIds.has(r.toolCallId))
         : msg.content;
       if (results.length === 0) continue;
+      const trailing: unknown[] = [];
+      const blocks = results.map((result) => {
+        const toolUseId = remapAnthropicToolCallId(result.toolCallId, idMap);
+        const content = toAnthropicToolResultContent(result.content);
+        if (
+          result.isError &&
+          typeof content !== "string" &&
+          content.some((part) => part.type !== "text")
+        ) {
+          // An is_error tool_result must be text-only (API 400), so its media
+          // follows the tool_result blocks as ordinary user content.
+          const text = content.filter((part) => part.type === "text" && part.text !== "");
+          trailing.push({ type: "text", text: `Attachments from tool call ${toolUseId}:` });
+          for (const part of content) if (part.type !== "text") trailing.push(part);
+          return {
+            type: "tool_result" as const,
+            tool_use_id: toolUseId,
+            content: text.length > 0 ? text : "Tool call failed; its attachments follow.",
+            is_error: true,
+          };
+        }
+        return {
+          type: "tool_result" as const,
+          tool_use_id: toolUseId,
+          content,
+          is_error: result.isError,
+        };
+      });
       out.push({
         role: "user",
         // Cast covers the video block (used by the Anthropic-compatible MiniMax
         // API), which isn't in the first-party Anthropic tool_result types.
-        content: results.map((result) => ({
-          type: "tool_result" as const,
-          tool_use_id: remapAnthropicToolCallId(result.toolCallId, idMap),
-          content: toAnthropicToolResultContent(result.content),
-          is_error: result.isError,
-        })) as unknown as Anthropic.ContentBlockParam[],
+        content: [...blocks, ...trailing] as unknown as Anthropic.ContentBlockParam[],
       });
     }
   }

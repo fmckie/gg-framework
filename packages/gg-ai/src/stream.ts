@@ -21,6 +21,7 @@ import { sanitizeMessagesForWire } from "./utils/well-formed.js";
 import { markContinuesTurn } from "./utils/turn-continuation.js";
 import { observePreparedContext } from "./utils/context-observation.js";
 import { resolveFastModeModel } from "./fast-mode.js";
+import { localBearerKey } from "./local-api-key.js";
 
 /** OpenAI's documented cap: an embeddings `input` array may hold at most 2048 entries. */
 const OPENAI_EMBED_BATCH_SIZE = 2048;
@@ -250,20 +251,26 @@ providerRegistry.register("local", {
   // Every supported local server exposes OpenAI-compatible `/v1/embeddings`
   // (the model must be an embedding model). None has an input-type parameter.
   embed: (request) =>
-    embedOpenAICompatible(request, {
-      provider: "local",
-      baseUrl: requireLocalBaseUrl(request.baseUrl),
-      wireModel: localWireModelId(request.model),
-    }),
+    embedOpenAICompatible(
+      { ...request, apiKey: localBearerKey(request.apiKey) },
+      {
+        provider: "local",
+        baseUrl: requireLocalBaseUrl(request.baseUrl),
+        wireModel: localWireModelId(request.model),
+      },
+    ),
   embedBatchSize: LOCAL_EMBED_BATCH_SIZE,
   // llama.cpp (`llama-server --rerank`) and vLLM serve `/v1/rerank`; Ollama and
   // LM Studio don't, and answer with a 404 ProviderError.
   rerank: (request) =>
-    rerankCohereCompatible(request, {
-      provider: "local",
-      baseUrl: requireLocalBaseUrl(request.baseUrl),
-      wireModel: localWireModelId(request.model),
-    }),
+    rerankCohereCompatible(
+      { ...request, apiKey: localBearerKey(request.apiKey) },
+      {
+        provider: "local",
+        baseUrl: requireLocalBaseUrl(request.baseUrl),
+        wireModel: localWireModelId(request.model),
+      },
+    ),
 });
 
 function requireLocalBaseUrl(baseUrl: string | undefined): string {

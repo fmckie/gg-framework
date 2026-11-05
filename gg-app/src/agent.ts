@@ -1116,17 +1116,33 @@ export interface AuthStatusResult {
   providers: AuthProvider[];
   /** Why the list couldn't be read (kleio: e.g. the Mac mini isn't answering). */
   error: string | null;
+  /** A local endpoint answered with a model (absent from older builds). */
+  localConnected?: boolean;
 }
 
 /** `authStatus`, keeping the reason when the list couldn't be read. */
 export async function authStatusWithError(): Promise<AuthStatusResult> {
   try {
-    const res = await invoke<{ providers?: AuthProvider[]; error?: string }>("app_auth_status");
-    return { providers: res.providers ?? [], error: res.error ?? null };
+    const res = await invoke<{
+      providers?: AuthProvider[];
+      error?: string;
+      localConnected?: boolean;
+    }>("app_auth_status");
+    return {
+      providers: res.providers ?? [],
+      error: res.error ?? null,
+      localConnected: res.localConnected === true,
+    };
   } catch (e) {
     await logError(`app_auth_status failed: ${String(e)}`);
     return { providers: [], error: String(e).replace(/^Error:\s*/, "") };
   }
+}
+
+/** True when the agent has something to run on: a connected provider or a local endpoint. */
+export async function hasModelSource(): Promise<boolean> {
+  const status = await authStatusWithError();
+  return status.localConnected === true || status.providers.some((p) => p.connected);
 }
 
 /**
