@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1545,
+        "tracked": 1539,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1649,
+        "tracked": 1549,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2611,7 +2611,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 768
+        "packed": 758
       },
       "bucket": "compatibility",
       "owner": "Manager build owner",
@@ -4420,25 +4420,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-86cc04835c4c",
-      "path": "packages/ggcoder/assets/skills/evidence-led-ui/references/provenance.md",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:The package structure was checked against the \\[Agent Skills specification\\]\\(https://agentskills\\.io/specification\\), \\[Anthropic skill-authoring best practices\\]\\(https://platform\\.claude\\.com/docs/en/agents-and-tools/agent-skills/best-practices\\.md\\), \\[OpenAI Skills guidance\\]\\(https://platform\\.openai\\.com/docs/guides/tools-skills\\), and \\[Agent Skills evaluation guidance\\]\\(https://agentskills\\.io/skill-creation/evaluating-skills\\): loader-visible name/description metadata, a concise directly actionable `SKILL\\.md`, references one level from the root, focused on-demand documents, self-contained scripts, explicit validation, and evaluation-driven iteration\\. The installed GG Coder loader reads `name` and `description`; the portable `license` and `compatibility` fields are retained for other Agent Skills clients and safely ignored by GG Coder\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 2
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Reviewed pinned upstream source-directory references, legacy CLI examples, implementation comments, attribution, and test/benchmark fixtures; not package-resolution dependencies.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-287c2df82876",
       "path": "packages/ggcoder/scripts/compress-bench-real.ts",
       "scope": "content",
@@ -6199,25 +6180,6 @@
       },
       "expectedOccurrences": {
         "packed": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
-      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
-    },
-    {
-      "id": "packed-20260911-86cc04835c4c",
-      "path": "packages/ggcoder/assets/skills/evidence-led-ui/references/provenance.md",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "regex": "(?:The package structure was checked against the \\[Agent Skills specification\\]\\(https://agentskills\\.io/specification\\), \\[Anthropic skill-authoring best practices\\]\\(https://platform\\.claude\\.com/docs/en/agents-and-tools/agent-skills/best-practices\\.md\\), \\[OpenAI Skills guidance\\]\\(https://platform\\.openai\\.com/docs/guides/tools-skills\\), and \\[Agent Skills evaluation guidance\\]\\(https://agentskills\\.io/skill-creation/evaluating-skills\\): loader-visible name/description metadata, a concise directly actionable `SKILL\\.md`, references one level from the root, focused on-demand documents, self-contained scripts, explicit validation, and evaluation-driven iteration\\. The installed GG Coder loader reads `name` and `description`; the portable `license` and `compatibility` fields are retained for other Agent Skills clients and safely ignored by GG Coder\\.)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "packed": 2
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
