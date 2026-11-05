@@ -156,6 +156,9 @@ import type { SessionRouteContext, DaemonRouteContext } from "./app-sidecar/rout
  *  `keepAwake` setting is applied at daemon start and live via /keep-awake. */
 const keepAwake = new KeepAwake();
 
+/** Limit for re-reading git state in the background when git missed the usual 2 s. */
+const SLOW_GIT_READ_TIMEOUT_MS = 15_000;
+
 async function main(): Promise<void> {
   // Hidden persistent-worker dispatch must win before strict JSON/server parsing.
   if (process.argv.includes("--subagent-worker")) {
@@ -2213,6 +2216,24 @@ async function createSession(
     gitPoll.unref?.();
   };
   scheduleGitPoll(5000);
+  // Git missed its 2 s limit at startup (a busy machine): the titlebar would
+  // show "not a repo" until the next run. Read again in the background with
+  // more time; window creation doesn't wait for it.
+  if (!initialGit.settled) {
+    readGitState(cwd, { timeoutMs: SLOW_GIT_READ_TIMEOUT_MS })
+      .then((state) => {
+        if (gitPollStopped) return;
+        gitBranch = state.branch;
+        gitIsRepo = state.isRepo;
+        gitDirtyFileCount = state.dirtyFileCount;
+        broadcast("extras", footerExtras());
+      })
+      .catch((err: unknown) => {
+        log("WARN", "app-sidecar", "slow git re-read failed", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }
 
   // GitHub issue/PR counts change outside the app (web UI, teammates), so poll
   // on a slow cadence. Network-bound, so keep it well under the search API's
