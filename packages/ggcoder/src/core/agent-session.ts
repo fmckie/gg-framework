@@ -171,7 +171,7 @@ import {
   REVIEWER_TURN_TIMEOUT_MS,
   REVIEWER_WAIT_MS,
 } from "./ideal-review-subagent.js";
-import { buildEnvDeltaMessage } from "./env-delta.js";
+import { buildEnvDeltaMessage, buildLanguageUpdateMessage } from "./env-delta.js";
 import { wrapSteeringText, buildNotificationSteeringText, STEERING_PREFIX } from "./steering.js";
 import { AgentNotificationQueue } from "./agent-notifications.js";
 import { VerificationGate, VERIFICATION_STATE_KIND } from "./verification-gate.js";
@@ -606,6 +606,9 @@ export class AgentSession {
    * for no benefit.
    */
   private activeLanguages = new Set<LanguageId>();
+  /** Languages the model has already been given guidance for, via the system
+   *  prompt or an appended language update. */
+  private announcedLanguages = new Set<LanguageId>();
   /** Shared with the tool layer so plan-mode restrictions read live state. */
   private planModeRef = { current: false };
   /** Path of the approved plan currently being implemented, or undefined. When
@@ -878,6 +881,9 @@ export class AgentSession {
       await this.connectMcpServers();
     }
 
+    // Detect languages before the first render so the opening prompt already
+    // carries their packs and only a genuinely new language needs an update.
+    this.refreshActiveLanguages();
     const basePrompt = await this.buildBasePrompt(false, undefined);
     this.baseSystemPrompt = basePrompt;
     this.messages = [{ role: "system", content: this.withSystemPromptTail(basePrompt) }];
@@ -1236,6 +1242,7 @@ export class AgentSession {
     if (slash?.kind === "template") {
       // Prompt templates remain human-originated: the user invoked the command.
       const userMessage: Message = { role: "user", content: slash.fullPrompt, provenance };
+      await this.announceNewLanguages();
       this.messages.push(userMessage);
       await this.persistMessage(userMessage);
       this.lastPersistedIndex = this.messages.length;
@@ -1253,6 +1260,7 @@ export class AgentSession {
 
     // Push user message
     const userMessage: Message = { role: "user", content, provenance };
+    await this.announceNewLanguages();
     this.messages.push(userMessage);
     await this.persistMessage(userMessage);
     this.lastPersistedIndex = this.messages.length;
@@ -1278,6 +1286,7 @@ export class AgentSession {
       content: parts,
       provenance: { source: "human", kind: "prompt", visibility: "transcript" },
     };
+    await this.announceNewLanguages();
     this.messages.push(userMessage);
     await this.persistMessage(userMessage);
     this.lastPersistedIndex = this.messages.length;
@@ -3429,6 +3438,9 @@ export class AgentSession {
     // new session's /history, and get re-persisted into the new file by the
     // next compaction — the cross-session duplicate-marker propagation bug.
     this.markers.clear();
+    // Detect languages before the first render so the opening prompt already
+    // carries their packs and only a genuinely new language needs an update.
+    this.refreshActiveLanguages();
     const basePrompt = await this.buildBasePrompt(false, undefined);
     this.baseSystemPrompt = basePrompt;
     this.messages = [{ role: "system", content: this.withSystemPromptTail(basePrompt) }];
@@ -3859,6 +3871,8 @@ export class AgentSession {
     if (this.customSystemPrompt) return this.customSystemPrompt;
     const toolNames = this.tools.map((tool) => tool.name);
     const deferredToolNames = this.deferredToolNamesForPrompt(toolNames);
+    // Whatever is rendered now is what the model has been told.
+    this.announcedLanguages = new Set(this.activeLanguages);
     if (this.agentPrompt !== undefined) {
       return buildSubAgentSystemPrompt(this.agentPrompt, {
         cwd: this.cwd,
@@ -3868,6 +3882,7 @@ export class AgentSession {
         role: this.opts.agentRole,
         environment: this.recordRenderedEnvironment(),
         contextLimits: this.contextLimits,
+        ...(this.languagesApply() ? { activeLanguages: this.activeLanguages } : {}),
       });
     }
     return buildSystemPrompt(
@@ -3885,24 +3900,69 @@ export class AgentSession {
   }
 
   /**
-   * Add newly detected project languages. Returns true when the set grew and
-   * the standard prompt therefore needs a rebuild. Custom and sub-agent
-   * prompts never render packs, so detection is skipped for them.
-   */
-  /**
    * Bring the system prompt to the exact state the next provider request will
    * send. Shared by real runs and {@link prewarm} so both see one prefix.
+   *
+   * Languages are re-detected at each task boundary. Before the first reply
+   * nothing is cached worth keeping, so a new language simply rebuilds the
+   * prompt. After that the prompt is a cached prefix and is left alone: the
+   * new language is announced by {@link announceNewLanguages} instead.
    */
   private async prepareSystemPromptForRequest(): Promise<void> {
-    // Languages are re-detected at each task boundary so a project scaffolded
-    // during the previous turn gets its packs; the prompt is rebuilt only when
-    // the set grows, keeping the cached prefix stable otherwise.
-    if (this.refreshActiveLanguages()) await this.rebuildSystemPromptInPlace();
+    if (this.refreshActiveLanguages() && !this.hasReply()) {
+      await this.rebuildSystemPromptInPlace();
+    }
     this.refreshSystemPromptTail();
   }
 
+  private hasReply(): boolean {
+    return this.messages.some((m) => m.role === "assistant");
+  }
+
+  /**
+   * Give the model style packs for languages that appeared after its prompt
+   * was cached (e.g. the previous task scaffolded a TypeScript project), as a
+   * hidden message appended to the history rather than a prompt re-render that
+   * would throw away the whole cache. Runs just before a new user message is
+   * added, so the user's request stays the last thing the model reads and the
+   * update is saved in order with the rest of the conversation.
+   */
+  private async announceNewLanguages(): Promise<void> {
+    if (!this.hasReply()) return; // the next request rebuilds the prompt instead
+    this.refreshActiveLanguages();
+    const fresh = new Set(
+      [...this.activeLanguages].filter((id) => !this.announcedLanguages.has(id)),
+    );
+    if (fresh.size === 0) return;
+    for (const id of fresh) this.announcedLanguages.add(id);
+    const update = buildLanguageUpdateMessage(fresh, this.cwd);
+    if (!update) return;
+    this.messages.push(update);
+    await this.persistMessage(update);
+    this.lastPersistedIndex = this.messages.length;
+    log("INFO", "language", "Appended style packs for new languages", {
+      added: [...fresh].join(","),
+    });
+  }
+
+  /**
+   * Whether this session renders language packs: the standard prompt, and a
+   * code-writing child (a sub-agent prompt with project context). A verbatim
+   * custom prompt never does, nor do user-facing specialist agents (Motion,
+   * goals) or recon children without project context.
+   */
+  private languagesApply(): boolean {
+    if (this.customSystemPrompt) return false;
+    if (this.agentPrompt === undefined) return true;
+    return (
+      (this.opts.agentRole ?? "subagent") === "subagent" &&
+      (this.opts.agentContext ?? "project") === "project"
+    );
+  }
+
+  /** Add newly detected project languages. Returns true when the set grew. */
   private refreshActiveLanguages(): boolean {
-    if (this.customSystemPrompt || this.agentPrompt !== undefined) return false;
+    if (!this.languagesApply()) return false;
     let grew = false;
     try {
       for (const id of detectLanguages(this.cwd)) {

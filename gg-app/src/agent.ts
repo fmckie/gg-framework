@@ -245,12 +245,20 @@ export async function listTasks(): Promise<ProjectTask[]> {
 
 /** Run a single task end-to-end in its own fresh session. */
 export async function runTask(id: string): Promise<void> {
-  await invoke("agent_run_tasks", { id, all: false });
+  try {
+    await invoke("agent_run_tasks", { id, all: false });
+  } catch (e) {
+    await logError(`agent_run_tasks failed: ${String(e)}`);
+  }
 }
 
 /** Run every pending task sequentially (a fresh session each), in order. */
 export async function runAllTasks(): Promise<void> {
-  await invoke("agent_run_tasks", { id: null, all: true });
+  try {
+    await invoke("agent_run_tasks", { id: null, all: true });
+  } catch (e) {
+    await logError(`agent_run_tasks failed: ${String(e)}`);
+  }
 }
 
 /** Delete a task by id. Returns the remaining tasks. */
@@ -1525,6 +1533,7 @@ export async function createProject(name: string): Promise<string> {
 /** Discover known projects (ggcoder + Claude Code + Codex), most recent first. */
 export async function listProjects(): Promise<DiscoveredProject[]> {
   try {
+    await waitForReady();
     const res = await invoke<{ projects: DiscoveredProject[] }>("agent_projects");
     return res.projects ?? [];
   } catch (e) {
@@ -1979,7 +1988,11 @@ export async function hfPullStatus(): Promise<HfPullState | null> {
 /** Cancel the running pull (no-op when none). Partial bytes are kept by Ollama. */
 export async function hfPullCancel(): Promise<void> {
   await waitForReady();
-  await invoke("agent_hf_pull_cancel");
+  try {
+    await invoke("agent_hf_pull_cancel");
+  } catch (e) {
+    await logError(`agent_hf_pull_cancel failed: ${String(e)}`);
+  }
 }
 
 // ── Telegram serve (remote control via Telegram) ───────────
@@ -2055,6 +2068,7 @@ export interface SteroidsStatus {
 /** Probe the `steroids` CLI. Never throws — an unreachable sidecar reads as "not installed". */
 export async function getSteroidsStatus(): Promise<SteroidsStatus> {
   try {
+    await waitForReady();
     return await invoke<SteroidsStatus>("agent_steroids_status");
   } catch (e) {
     await logError(`agent_steroids_status failed: ${String(e)}`);

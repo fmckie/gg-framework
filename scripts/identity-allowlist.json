@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1546,
+        "tracked": 1542,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -503,7 +503,7 @@
         "literal": "ggcoder"
       },
       "expectedOccurrences": {
-        "tracked": 1622,
+        "tracked": 1625,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -4895,25 +4895,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-0c0bde402f90",
-      "path": "packages/ggcoder/src/core/auth-providers.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:// authenticates\\. Mirrors the CLI's `ggcoder login` provider list \\(ui/login\\.tsx\\))",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Reviewed pinned upstream source-directory references, legacy CLI examples, implementation comments, attribution, and test/benchmark fixtures; not package-resolution dependencies.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-0d6d25872fba",
       "path": "packages/ggcoder/src/core/autopilot-cycle.test.ts",
       "scope": "content",
@@ -6636,25 +6617,6 @@
       },
       "expectedOccurrences": {
         "packed": 2
-      },
-      "bucket": "provenance",
-      "owner": "Kleio framework maintainers",
-      "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
-      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
-    },
-    {
-      "id": "packed-20260911-136fc01a8ebb",
-      "path": "packages/ggcoder/dist/core/auth-providers.js",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "regex": "(?:// authenticates\\. Mirrors the CLI's `ggcoder login` provider list \\(ui/login\\.tsx\\))",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "packed": 1
       },
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",

@@ -16,9 +16,9 @@ import {
   formatToolCallStart,
   formatToolCallEnd,
   formatUsage,
-  formatError,
   formatWelcome,
 } from "./utils/format.js";
+import { formatUserError } from "./utils/error-handler.js";
 import { AuthStorage } from "./core/auth-storage.js";
 import { kimiCodingHeaders, isKimiCodingEndpoint } from "./core/oauth/kimi.js";
 import { ensureAppDirs, loadSavedSettings } from "./config.js";
@@ -230,7 +230,7 @@ export async function runInteractive(config: CliConfig): Promise<void> {
         stdout.write("\n\nInterrupted.\n");
       } else {
         stdout.write(
-          "\n" + formatError(err instanceof Error ? err : new Error(String(err))) + "\n",
+          "\n" + formatUserError(err instanceof Error ? err : new Error(String(err))) + "\n",
         );
       }
     } finally {
@@ -282,7 +282,7 @@ function renderEvent(event: AgentEvent): void {
       break;
 
     case "error":
-      stdout.write(formatError(event.error) + "\n");
+      stdout.write(formatUserError(event.error) + "\n");
       break;
   }
 }

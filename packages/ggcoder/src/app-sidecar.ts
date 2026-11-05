@@ -76,7 +76,7 @@ import {
 } from "./core/model-registry.js";
 import { resolveStartOrFallback } from "./core/resolve-start.js";
 import { getGitBranch, getGitDirtyFileCount, isGitRepo } from "./utils/git.js";
-import { getGitHubOpenCounts, getGitHubRepoSlug } from "./utils/github.js";
+import { getGitHubOpenCounts } from "./utils/github.js";
 import { startGitHubCIPoll, type GitHubCI } from "./utils/github-ci.js";
 import { extractPlanSteps } from "./utils/plan-steps.js";
 import { getSupportedThinkingLevels, isThinkingLevelSupported } from "./core/thinking-level.js";
@@ -139,6 +139,7 @@ import { handleKeepAwakeRoutes } from "./app-sidecar/keep-awake-routes.js";
 import { handleBrainEditRoutes } from "./app-sidecar/brain-edit-routes.js";
 import { handleSessionRoutes } from "./app-sidecar/session-routes.js";
 import { handleWorkspaceRoutes } from "./app-sidecar/workspace-routes.js";
+import { readGitState } from "./app-sidecar/git-target.js";
 import { handleProjectFolderRoutes } from "./app-sidecar/project-folder-routes.js";
 import { handleHistoryRoutes } from "./app-sidecar/history-routes.js";
 import { handlePromptRoutes } from "./app-sidecar/prompt-routes.js";
@@ -1171,19 +1172,13 @@ async function createSession(
   // Workspace extras (context window, git status, background tasks). Git state
   // is resolved once at startup and refreshed after every run; the context
   // window follows the active model.
-  const [initialGitBranch, initialGitIsRepo, initialDirtyFileCount, initialGitHubSlug] =
-    await Promise.all([
-      getGitBranch(cwd).catch(() => null),
-      isGitRepo(cwd).catch(() => false),
-      getGitDirtyFileCount(cwd).catch(() => 0),
-      getGitHubRepoSlug(cwd).catch(() => null),
-    ]);
-  let gitBranch: string | null = initialGitBranch;
-  let gitIsRepo: boolean = initialGitIsRepo;
-  let gitDirtyFileCount = initialDirtyFileCount;
+  const initialGit = await readGitState(cwd);
+  let gitBranch: string | null = initialGit.branch;
+  let gitIsRepo: boolean = initialGit.isRepo;
+  let gitDirtyFileCount = initialGit.dirtyFileCount;
   // Open issue/PR counts for the origin repo's GitHub slug, via the `gh` CLI's
   // auth. null = unknown (gh missing/unauthed, non-GitHub origin) → chips hidden.
-  const gitHubSlug: string | null = initialGitHubSlug;
+  const gitHubSlug: string | null = initialGit.gitHubSlug;
   let gitHubIssues: number | null = null;
   let gitHubPRs: number | null = null;
   let gitHubCI: GitHubCI | null = null;
@@ -2467,6 +2462,12 @@ async function createSession(
   }
 
   async function dispose(): Promise<void> {
+    // A window closed (or switched project) mid-run: stop the run itself, any
+    // run-all sweep or autopilot turn, and a model download this window
+    // started. Otherwise they keep streaming tokens and running tools on a
+    // session that is being torn down.
+    abortOwnedWork();
+    cancelHfPull();
     releaseRunAwake?.();
     releaseRunAwake = null;
     releaseSubagentAwake?.();

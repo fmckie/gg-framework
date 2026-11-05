@@ -191,7 +191,7 @@ export function McpModal({ onClose }: Props): React.ReactElement {
         <ListSkeleton rows={3} />
       ) : visible.length === 0 ? (
         <div className="mcp-empty" style={{ color: theme.textMuted }}>
-          No MCP’s configured.
+          No MCP servers yet.
         </div>
       ) : (
         <div className="mcp-list">
@@ -225,6 +225,7 @@ export function McpModal({ onClose }: Props): React.ReactElement {
               ) : null}
               {s.requiresAuth && !s.ok && (
                 <button
+                  type="button"
                   className="modal-btn primary"
                   style={{ padding: "2px 12px", fontSize: 12 }}
                   disabled={loggingIn === s.name}
@@ -235,9 +236,11 @@ export function McpModal({ onClose }: Props): React.ReactElement {
                 </button>
               )}
               <button
+                type="button"
                 className="mcp-delete"
                 style={{ color: theme.textDim }}
                 title={`Remove "${s.name}"`}
+                aria-label={`Delete ${s.name}`}
                 onClick={() => void remove(s.name, s.scope)}
               >
                 <XIcon size={12} weight="bold" aria-hidden="true" />
