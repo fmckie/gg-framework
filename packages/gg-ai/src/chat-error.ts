@@ -1,6 +1,7 @@
 import {
   formatError,
   ProviderError,
+  ResponseStalledError,
   VideoUnsupportedError,
   type ErrorDisplayOptions,
   type FormattedError,
@@ -131,6 +132,17 @@ export function formatChatError(error: unknown, display?: ErrorDisplayOptions): 
       "usage_limit",
       `${provider} usage limit reached`,
       "Wait for the reset, or use another provider.",
+    );
+  }
+  // Connected, but the reply never finished: saying "couldn't reach the
+  // provider" sends the user to debug a network that was working.
+  if (error instanceof ResponseStalledError) {
+    return present(
+      "network",
+      "The response kept stalling",
+      error.inToolCall
+        ? "Ask for the change in smaller pieces, then try again."
+        : "Try again, or choose another model if it keeps happening.",
     );
   }
   if (base.source === "network") {

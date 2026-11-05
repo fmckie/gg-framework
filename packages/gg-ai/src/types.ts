@@ -107,6 +107,12 @@ export interface ServerToolResult {
 export interface RawContent {
   type: "raw";
   data: Record<string, unknown>;
+  /**
+   * Which transport and model produced an opaque block whose replay is only
+   * valid there (e.g. `"xai:grok-4.7"` for Grok's encrypted reasoning). Never
+   * sent on the wire. Absent on blocks from before this field existed.
+   */
+  origin?: string;
 }
 
 export type ContentPart =
