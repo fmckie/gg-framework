@@ -163,6 +163,7 @@ import {
   goalPhase,
   goalsRoot,
   isGoalDir,
+  isGoalStartMessage,
   startGoalOnAnswer,
   readGoal,
 } from "./core/goals-store.js";
@@ -1033,9 +1034,10 @@ async function createSession(
       new Date(),
       questions,
     ).catch((err: unknown) => {
-      log("WARN", "app-sidecar", "couldn't record goal start", {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const message = err instanceof Error ? err.message : String(err);
+      log("WARN", "app-sidecar", "couldn't record goal start", { error: message });
+      // Silent, the coordinator just asked the start question again and again.
+      broadcastError("error", "goal start", new Error(`Couldn't start the goal: ${message}`));
       return null;
     });
     if (started) {
@@ -1048,6 +1050,12 @@ async function createSession(
     await startGoalFrom(result, request.questions);
     return result;
   });
+  // A typed "start the goal now" starts it like the card does: small local
+  // models often never show the card (#133).
+  const startGoalFromMessage = async (text: string): Promise<void> => {
+    if (!goal || goal.record.startedAt || !isGoalStartMessage(text)) return;
+    await startGoalFrom({ action: "answer", answers: { message: text } }, []);
+  };
 
   // The session file path to resume (passed by the daemon's POST /session);
   // empty/unset starts a fresh session. A file that's gone (retention cleaned
@@ -2648,6 +2656,7 @@ async function createSession(
     sessionId: opts.id,
     sessionIdsAt,
     busyAt,
+    startGoalFromMessage,
     get goal() {
       return goal;
     },

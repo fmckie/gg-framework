@@ -718,6 +718,38 @@ describe("saved local model across restarts", () => {
   }, 90_000);
 });
 
+describe("starting a goal by typing", () => {
+  it("starts a briefing goal when the user types to start it, not when they ask (#133)", async () => {
+    const session = await createSession();
+    const created = await request("POST", "/goals", {
+      session,
+      body: { name: "Typed start", goal: "Write hello.txt", context: [tmpProject] },
+    });
+    expect(created.status).toBe(200);
+    const goalDir = path.join(tmpHome, ".gg", "goals", (created.json.goal as { id: string }).id);
+    const opened = await request("POST", "/session", { body: { mode: "code", cwd: goalDir } });
+    const goalSession = opened.json.sessionId as string;
+    const startedAt = async (): Promise<unknown> =>
+      (
+        JSON.parse(await fs.readFile(path.join(goalDir, "goal.json"), "utf8")) as {
+          startedAt?: unknown;
+        }
+      ).startedAt;
+
+    await request("POST", "/prompt", {
+      session: goalSession,
+      body: { text: "Should we start the goal now?" },
+    });
+    expect(await startedAt()).toBeUndefined();
+
+    await request("POST", "/prompt", {
+      session: goalSession,
+      body: { text: "Start the goal now" },
+    });
+    expect(typeof (await startedAt())).toBe("string");
+  }, 90_000);
+});
+
 describe("a new window after picking a local model", () => {
   it("opens on the saved local model in a folder it has never seen (#133)", async () => {
     const gateway = http.createServer((req, res) => {
