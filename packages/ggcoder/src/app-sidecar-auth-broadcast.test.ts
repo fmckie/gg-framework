@@ -6,6 +6,7 @@ import { execFileSync, spawn, type ChildProcessByStdio } from "node:child_proces
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { removeWhenReleased } from "./core/lsp/test-support.js";
 
 /**
  * Boots the REAL app sidecar daemon and drives it over HTTP, because the bug
@@ -791,7 +792,9 @@ describe("a new window after picking a local model", () => {
       expect(model).toBe(saved);
     } finally {
       await new Promise<void>((resolve) => gateway.close(() => resolve()));
-      await fs.rm(otherFolder, { recursive: true, force: true });
+      // The daemon still has a session (and its git polls) in this folder:
+      // Windows refuses to remove it until those handles close.
+      await removeWhenReleased(otherFolder);
     }
   }, 90_000);
 });
