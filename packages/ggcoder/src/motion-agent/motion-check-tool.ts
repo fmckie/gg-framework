@@ -165,6 +165,18 @@ async function sourceFingerprint(
   }
 }
 
+/**
+ * Browser pages `hf check` audits sample times on at once. Each seek mostly waits on a fixed
+ * settle, so pages overlap almost perfectly: on a 25 s reel, 4 pages took the audit from 90 s
+ * to 29 s for ~1.1 GB more memory (each page holds its own copy of the composition), with the
+ * same report. Capped at 4 so a render running alongside keeps its cores.
+ */
+export function auditPages(cpus: number, memoryBytes: number): number {
+  const byCpu = Math.floor(cpus / 2);
+  const byMemory = Math.floor(memoryBytes / 4 / 1024 ** 3);
+  return Math.max(1, Math.min(4, byCpu, byMemory));
+}
+
 /** Frame rate and duration of the export, or undefined when they are missing or out of range. */
 async function probeVideo(
   ffprobe: string,
@@ -436,7 +448,15 @@ export function createMotionCheckTool(
           runtime = await run(
             SOURCE_CHECK,
             process.execPath,
-            [bundle.launcher, "check", project, "--json", "--contrast", ...sampling],
+            [
+              bundle.launcher,
+              "check",
+              project,
+              "--json",
+              "--contrast",
+              ...sampling,
+              `--workers=${auditPages(os.availableParallelism(), os.totalmem())}`,
+            ],
             { timeoutMs: sourceCheckMs, describe: summarizeSourceCheck },
           );
           // Keep a pass only if the source did not change while it was being audited.

@@ -1,8 +1,112 @@
 diff --git a/dist/cli.js b/dist/cli.js
-index b9641758454a5ac3d5e836edb66357ba62aece58..3d5a919b605d1870450c7d00e148cf9c5997a331 100755
+index b9641758454a5ac3d5e836edb66357ba62aece58..a87381959dcce0e9ad404b37863e3ab50d3e4f0a 100755
 --- a/dist/cli.js
 +++ b/dist/cli.js
-@@ -169916,20 +169916,29 @@ function gateSampleTimes(duration, seeks, fallback) {
+@@ -132908,19 +132908,29 @@ ${remediation}`,
+         );
+       }
+     }
+-    const page = await chromeBrowser.newPage();
++    const { page, renderReadyTimedOut } = await openSettledPageInBrowser(chromeBrowser, html, url, options);
++    return { browser: chromeBrowser, page, renderReadyTimedOut };
++  } catch (err) {
++    await chromeBrowser?.close().catch(() => {
++    });
++    throw err;
++  }
++}
++async function openSettledPageInBrowser(chromeBrowser, html, url, options) {
++  const page = await chromeBrowser.newPage();
++  try {
+     await installPageFunctionGuard(page);
+-    await page.setViewport(viewport);
++    await page.setViewport(resolveCompositionViewportFromHtml(html));
+     await options.beforeNavigate?.(page);
+     await page.goto(url, {
+       waitUntil: "domcontentloaded",
+       timeout: resolveDiagnosticNavigationTimeoutMs(process.env, options.navigationTimeoutMs)
+     });
+-    await assertWebGpuAdapterAvailable(page, requiresWebGpu);
++    await assertWebGpuAdapterAvailable(page, compositionRequiresWebGpu(html));
+     const renderReadyTimedOut = !await waitForCompositionSettle(page, options);
+-    return { browser: chromeBrowser, page, renderReadyTimedOut };
++    return { page, renderReadyTimedOut };
+   } catch (err) {
+-    await chromeBrowser?.close().catch(() => {
++    await page.close().catch(() => {
+     });
+     throw err;
+   }
+@@ -169028,10 +169038,21 @@ async function runBrowserCheck(project, options, motion, runGrid) {
+     const driver = createPageDriver(page, (time) => {
+       currentTime = time;
+     });
+-    const result = await runGrid(driver, options, motion);
++    const workers = await openAuditWorkers(chromeBrowser, html, server.url, options);
++    const gridDrafts = drafts.length;
++    let denseDrafts = -1;
++    if (workers.length > 0) {
++      const seekGeometry = driver.seekGeometry;
++      driver.seekGeometry = (time) => {
++        if (denseDrafts < 0) denseDrafts = drafts.length;
++        return seekGeometry(time);
++      };
++    }
++    const result = await runGrid(driver, options, motion, workers.map((worker) => worker.driver));
++    if (workers.length > 0) mergeWorkerDrafts(drafts, gridDrafts, denseDrafts, workers);
+     return {
+       ...result,
+-      timings: { ...result.timings, launchSettleMs },
++      timings: { ...result.timings, launchSettleMs, workers: workers.length + 1 },
+       runtimeFindings: drafts.map((draft) => runtimeFinding(draft, rootAnchor))
+     };
+   } finally {
+@@ -169039,6 +169060,44 @@ async function runBrowserCheck(project, options, motion, runGrid) {
+     await server.close();
+   }
+ }
++function mergeWorkerDrafts(drafts, gridStart, denseStart, workers) {
++  const denseAt = denseStart < 0 ? drafts.length : denseStart;
++  const sampled = [
++    ...drafts.slice(gridStart, denseAt),
++    ...workers.flatMap((worker) => worker.drafts.slice(worker.loadDrafts))
++  ].sort((a, b2) => a.time - b2.time);
++  const dense = drafts.slice(denseAt);
++  drafts.length = gridStart;
++  for (const draft of [...sampled, ...dense]) {
++    const duplicate = draft.code === "webgpu_runtime_error" ? drafts.find(
++      (entry) => entry.code === draft.code && entry.message === draft.message && entry.url === draft.url && entry.line === draft.line
++    ) : void 0;
++    if (duplicate) duplicate.count = (duplicate.count ?? 1) + (draft.count ?? 1);
++    else drafts.push(draft);
++  }
++}
++async function openAuditWorkers(chromeBrowser, html, url, options) {
++  const count = Math.max(0, (options.workers ?? 1) - 1);
++  if (count === 0) return [];
++  const opened = await Promise.allSettled(
++    Array.from({ length: count }, async () => {
++      const drafts = [];
++      let currentTime = 0;
++      const { page } = await openSettledPageInBrowser(chromeBrowser, html, url, {
++        navigationTimeoutMs: options.timeout,
++        renderReadyTimeoutMs: options.timeout,
++        renderReadyWarningSuffix: "checking the current page state",
++        beforeNavigate: (page2) => wireRuntimeListeners(page2, drafts, () => currentTime)
++      });
++      await waitForPreferredSeekTarget(page);
++      const driver = createPageDriver(page, (time) => {
++        currentTime = time;
++      });
++      return { driver, drafts, loadDrafts: drafts.length };
++    })
++  );
++  return opened.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
++}
+ async function captureFindingCrops(project, options, requests) {
+   if (requests.length === 0) return [];
+   const { bundleWithLocalizedFonts: bundleWithLocalizedFonts2 } = await Promise.resolve().then(() => (init_bundleWithLocalizedFonts(), bundleWithLocalizedFonts_exports));
+@@ -169916,20 +169975,29 @@ function gateSampleTimes(duration, seeks, fallback) {
    const fractions = seeks && seeks.length > 0 ? seeks : [fallback];
    return mergeSampleTimes(fractions.map((fraction) => fraction * duration));
  }
@@ -36,18 +140,140 @@ index b9641758454a5ac3d5e836edb66357ba62aece58..3d5a919b605d1870450c7d00e148cf9c
    const auditSamples = mergeSampleTimes(baseSamples, transitions.times);
    const layoutSamples = mergeSampleTimes(auditSamples, captionSamples, frameSamples);
    if (layoutSamples.length === 0) {
-@@ -171037,6 +171046,7 @@ function parseCheckOptions(args) {
+@@ -170083,11 +170151,94 @@ async function collectGeometryAt(driver, options, grid, canvas, time, seen) {
+   }
+   return issues;
+ }
+-async function collectGridSamples(driver, options, grid, motion) {
++async function collectSampleAt(driver, options, time, sets) {
++  await driver.seek(time);
++  const sample = { time, layoutIssues: [], motionFrame: null, contrast: null };
++  if (sets.layout.has(time)) {
++    sample.layoutIssues = await driver.collectLayout(time, options.tolerance, options.layout);
++    sample.signature = await driver.collectLayoutGeometry();
++    sample.rotation = await driver.collectRotationSample(time);
++    sample.indicator = await driver.collectOffPivotRotationSample(time);
++  }
++  if (sets.motion.has(time)) {
++    sample.motionFrame = await driver.collectMotionFrame(time, sets.motionSelectors, sets.livenessScopes);
++  }
++  if (sets.contrast.has(time)) {
++    const contrastStart = Date.now();
++    sample.contrast = options.snapshots ? await driver.collectContrast(time, annotationBoxesFrom(sample.layoutIssues)) : await driver.collectContrast(time);
++    sample.contrastMs = Date.now() - contrastStart;
++  }
++  return sample;
++}
++async function collectGridSamplesInParallel(drivers, options, grid, motion) {
++  const times = mergeSampleTimes(grid.layoutSamples, motion.times);
++  const sets = {
++    layout: new Set(grid.layoutSamples),
++    motion: new Set(motion.times),
++    contrast: new Set(grid.contrastSamples),
++    motionSelectors: motion.selectors,
++    livenessScopes: motion.livenessScopes
++  };
++  const samples = new Array(times.length);
++  const retry = [];
++  // Pages take runs of consecutive times, so each walks forward through its run exactly as
++  // the serial loop does; several runs per page keep the pages evenly loaded.
++  const runLength = Math.max(1, Math.ceil(times.length / (drivers.length * 4)));
++  let nextRun = 0;
++  await Promise.all(
++    drivers.map(async (worker, index) => {
++      for (let start = nextRun; start < times.length; start = nextRun) {
++        nextRun += runLength;
++        for (let i = start; i < Math.min(times.length, start + runLength); i++) {
++          try {
++            samples[i] = await collectSampleAt(worker, options, times[i], sets);
++          } catch (error) {
++            if (index === 0) throw error;
++            for (let j = i; j < Math.min(times.length, start + runLength); j++) retry.push(j);
++            return;
++          }
++        }
++      }
++    })
++  );
++  for (const i of retry.sort((a, b2) => a - b2)) {
++    samples[i] = await collectSampleAt(drivers[0], options, times[i], sets);
++  }
++  const collected = {
++    layoutIssues: [],
++    motionFrames: [],
++    contrastEntries: [],
++    screenshots: [],
++    contrastMs: 0,
++    geometrySignatures: [],
++    rotationSamples: [],
++    indicatorFrames: []
++  };
++  for (const sample of samples) {
++    if (sets.layout.has(sample.time)) {
++      collected.layoutIssues.push(...sample.layoutIssues);
++      collected.geometrySignatures.push({ time: sample.time, signature: sample.signature });
++      collected.rotationSamples.push(...sample.rotation);
++      collected.indicatorFrames.push(sample.indicator);
++    }
++    if (sets.motion.has(sample.time)) collected.motionFrames.push(sample.motionFrame);
++    if (sample.contrast) {
++      collected.contrastMs += sample.contrastMs;
++      collected.contrastEntries.push(...sample.contrast.entries);
++      collected.screenshots.push({ time: sample.time, pngBase64: sample.contrast.pngBase64 });
++    }
++  }
++  await collectMotionOverlapSamples(drivers[0], grid, collected);
++  return collected;
++}
++async function collectGridSamples(driver, options, grid, motion, workers = []) {
+   const layoutSet = new Set(grid.layoutSamples);
+   const motionSet = new Set(motion.times);
+   const contrastSet = new Set(grid.contrastSamples);
+   const geometryEnabled = grid.captionSamples.length > 0 || grid.frameSamples.length > 0;
++  if (workers.length > 0 && !geometryEnabled) {
++    return collectGridSamplesInParallel([driver, ...workers], options, grid, motion);
++  }
+   const canvas = geometryEnabled ? await driver.getCanvas() : null;
+   const geometrySeen = { caption: /* @__PURE__ */ new Set(), frame: /* @__PURE__ */ new Set() };
+   const collected = {
+@@ -170493,12 +170644,14 @@ function detectOffPivotRotation(frames) {
+ function annotationBoxesFrom(issues) {
+   return issues.filter((issue) => issue.severity === "error" && issue.bbox.width > 0 && issue.bbox.height > 0).map((issue, index) => ({ label: `${index + 1} ${issue.code}`, bbox: issue.bbox }));
+ }
+-async function runAuditGrid(driver, options, motion) {
++async function runAuditGrid(driver, options, motion, workers = []) {
+   await driver.initialize(options.contrast);
++  const ready = await Promise.allSettled(workers.map((worker) => worker.initialize(options.contrast)));
++  const liveWorkers = workers.filter((_, index) => ready[index]?.status === "fulfilled");
+   const grid = await buildSampleGrid(driver, options);
+   const plan2 = await planMotionSampling(driver, motion, grid.duration);
+   const seekLoopStart = Date.now();
+-  const collected = await collectGridSamples(driver, options, grid, plan2);
++  const collected = await collectGridSamples(driver, options, grid, plan2, liveWorkers);
+   const seekLoopMs = Date.now() - seekLoopStart;
+   let motionIssues = plan2.preflightIssues;
+   if (motion.kind === "valid" && plan2.assertions.length > 0 && collected.motionFrames.length > 0) {
+@@ -171037,6 +171190,8 @@ function parseCheckOptions(args) {
      at: parseAt(args.at),
      atTransitions: args["at-transitions"] === true,
      maxTransitionSamples: maxTransitionSamples > 0 ? maxTransitionSamples : void 0,
 +    frameRate: parseCheckFrameRate(args["frame-rate"]),
++    workers: parseCheckWorkers(args.workers),
      maxIssues: positiveInteger2(args["max-issues"], DEFAULT_CHECK_OPTIONS.maxIssues),
      collapseStatic: args["collapse-static"] !== false,
      tolerance: nonNegativeNumber(args.tolerance, DEFAULT_CHECK_OPTIONS.tolerance),
-@@ -171201,6 +171211,14 @@ function captionZoneError() {
+@@ -171201,6 +171356,22 @@ function captionZoneError() {
      'Invalid --caption-zone; use "x0=0;y0=.82;x1=1;y1=1[;severity=warning|error][;seek=.5,1]" with fractions from 0 to 1.'
    );
  }
++function parseCheckWorkers(value) {
++  if (value === void 0 || value === null || value === false) return 1;
++  const parsed = Number(String(value));
++  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 8) {
++    throw new Error(`--workers must be a whole number from 1 to 8, got "${value}"`);
++  }
++  return parsed;
++}
 +function parseCheckFrameRate(value) {
 +  if (value === void 0 || value === null || value === false) return void 0;
 +  const parsed = Number(String(value));
@@ -59,10 +285,14 @@ index b9641758454a5ac3d5e836edb66357ba62aece58..3d5a919b605d1870450c7d00e148cf9c
  function positiveInteger2(value, fallback) {
    const parsed = parseInt(String(value ?? ""), 10);
    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-@@ -171348,6 +171366,10 @@ var init_check = __esm({
+@@ -171348,6 +171519,14 @@ var init_check = __esm({
          type: "string",
          description: "Optional cap on transition-derived samples; when it truncates, the omitted count is reported (default: unlimited)"
        },
++      workers: {
++        type: "string",
++        description: "Browser pages that audit sample times at once (1-8, default 1); the report is the same as with one page"
++      },
 +      "frame-rate": {
 +        type: "string",
 +        description: "Frames per second of the render: move every sample onto the nearest rendered frame (from 0 to the last frame) so the audit checks only states the video shows"
