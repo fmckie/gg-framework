@@ -691,6 +691,22 @@ export async function appToolImages(
 }
 
 /**
+ * Pixel dimensions from the image header, or null when it cannot be read.
+ * Header only: no pixel decode, so it is cheap on large images.
+ */
+export async function imageDimensions(
+  buffer: Buffer,
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const sharp = await loadSharp();
+    const { width, height } = await sharp(buffer).metadata();
+    return width && height ? { width, height } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Re-encode an image as `format`. Unlike the preview helpers this is the saved
  * file itself, so a failure propagates rather than silently keeping the
  * original bytes under a mismatched extension.

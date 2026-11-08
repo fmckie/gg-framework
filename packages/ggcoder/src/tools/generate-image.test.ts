@@ -4,6 +4,7 @@ import path from "node:path";
 import { mkdtemp, rm, readFile, writeFile, mkdir } from "node:fs/promises";
 import type { StructuredToolResult, ToolContext } from "@kleio/agent";
 import type { GenerateImageAuth } from "./generate-image.js";
+import { extractToolImagePaths } from "../core/session-history.js";
 
 // A real, decodable 1×1 PNG so sharp (shrinkToFit / downscaleForPreview) works.
 const TINY_PNG = Buffer.from(
@@ -45,10 +46,11 @@ function noAuth(): GenerateImageAuth & { hasProviderAuth(p: string): Promise<boo
 }
 
 /** A Codex image endpoint reply (`codex/images/generations` or `/edits`). */
-function makeImageResponse(b64Images: string[], status = 200): Response {
+function makeImageResponse(b64Images: string[], status = 200, size?: string): Response {
   return new Response(
     JSON.stringify({
       created: 1,
+      ...(size ? { size } : {}),
       data: b64Images.map((b64_json) => ({ b64_json })),
       output_format: "png",
     }),
@@ -154,7 +156,8 @@ describe("generate_image — generation (no image input)", () => {
     const blocks = Array.isArray(result.content) ? result.content : [];
     const texts = blocks.filter((c) => c.type === "text");
     const images = blocks.filter((c) => c.type === "image");
-    expect(texts.length).toBe(1);
+    // The path summary, then the size report.
+    expect(texts.length).toBe(2);
     expect(images.length).toBe(1);
     // Should have imagePreviews in details.
     const details = result.details as { imagePreviews?: unknown[] };
@@ -247,6 +250,259 @@ describe("generate_image — generation (no image input)", () => {
     // RIFF....WEBP, not the PNG bytes saved under a .webp name.
     expect(saved.subarray(0, 4).toString("ascii")).toBe("RIFF");
     expect(saved.subarray(8, 12).toString("ascii")).toBe("WEBP");
+  });
+});
+
+/** A real PNG of the given size with an alpha channel at 253 (as a user saw live). */
+async function transparentPng(width: number, height: number): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
+  const pixels = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < pixels.length; i += 4) {
+    pixels[i] = 20;
+    pixels[i + 1] = 120;
+    pixels[i + 2] = 220;
+    pixels[i + 3] = 253;
+  }
+  return sharp(pixels, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
+}
+
+function textBlocks(result: string | StructuredToolResult): string[] {
+  if (!isStructured(result) || !Array.isArray(result.content)) return [];
+  return result.content.flatMap((c) => (c.type === "text" ? [c.text] : []));
+}
+
+describe("generate_image — delivered size", () => {
+  it("reports a smaller size than requested, saving the native file with no resize or retry", async () => {
+    // Live report: 2048x2048 asked for on a transparent edit, 1254x1254 saved,
+    // and the tool said nothing.
+    const png = await transparentPng(1254, 1254);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeImageResponse([png.toString("base64")], 200, "1254x1254"));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const refPath = path.join(tmpDir, "turntable.png");
+    await writeFile(refPath, png);
+    const outPath = path.join(tmpDir, "edited.png");
+
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth());
+    const result = await tool.execute(
+      {
+        prompt: "cut out the turntable",
+        image: refPath,
+        size: "2048x2048",
+        background: "transparent",
+        out_path: outPath,
+      },
+      ctx(),
+    );
+
+    // One request: a mismatch never triggers another chargeable render.
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [summary, size] = textBlocks(result);
+    // The path line is untouched, so restored history still finds the file.
+    expect(summary).toBe(`Generated image → ${outPath}`);
+    expect(extractToolImagePaths(summary ?? "")).toEqual([outPath]);
+    expect(size).toContain("Size mismatch: requested 2048x2048, but OpenAI returned 1254x1254.");
+    expect(size).toContain("no resizing");
+
+    // The master file is OpenAI's PNG byte for byte: native size, alpha intact.
+    const saved = await readFile(outPath);
+    expect(saved.equals(png)).toBe(true);
+    const { default: sharp } = await import("sharp");
+    const meta = await sharp(saved).metadata();
+    expect([meta.width, meta.height, meta.hasAlpha]).toEqual([1254, 1254, true]);
+
+    // Only the preview is downscaled, never the saved file.
+    if (!isStructured(result)) return;
+    const preview = (result.details as { imagePreviews: Array<{ base64: string }> })
+      .imagePreviews[0];
+    const previewMeta = await sharp(Buffer.from(preview?.base64 ?? "", "base64")).metadata();
+    expect(previewMeta.width).toBeLessThan(1254);
+    expect(previewMeta.hasAlpha).toBe(true);
+  });
+
+  it("confirms the size when the request was honoured", async () => {
+    const png = await transparentPng(1024, 1024);
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        makeImageResponse([png.toString("base64")]),
+      ) as unknown as typeof globalThis.fetch;
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth());
+    const result = await tool.execute({ prompt: "an icon", size: "1024x1024" }, ctx());
+    expect(textBlocks(result)[1]).toBe("Size: 1024x1024, as requested.");
+  });
+
+  it("reports the size OpenAI chose when none was requested", async () => {
+    const png = await transparentPng(1536, 1024);
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        makeImageResponse([png.toString("base64")]),
+      ) as unknown as typeof globalThis.fetch;
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth());
+    const result = await tool.execute({ prompt: "a banner" }, ctx());
+    expect(textBlocks(result)[1]).toBe("Size: 1536x1024 (size auto, chosen by OpenAI).");
+  });
+});
+
+describe("generate_image — retries (Codex's policy)", () => {
+  /** Retry seams with no real waiting: records each wait, jitter factor exactly 1. */
+  function instantRetry(now = 0) {
+    const waits: number[] = [];
+    return {
+      waits,
+      deps: {
+        sleep: async (ms: number) => {
+          waits.push(ms);
+        },
+        random: () => 0.5,
+        now: () => now,
+      },
+    };
+  }
+
+  const serverError = (status: number, headers?: Record<string, string>): Response =>
+    new Response(JSON.stringify({ detail: "upstream hiccup" }), { status, headers });
+
+  it("retries a 5xx with Codex's backoff, then succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(serverError(502))
+      .mockResolvedValueOnce(serverError(503))
+      .mockResolvedValueOnce(makeImageResponse([TINY_PNG_B64]));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { waits, deps } = instantRetry();
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), deps);
+
+    const result = await tool.execute({ prompt: "a cat" }, ctx());
+    expect(isStructured(result)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(waits).toEqual([200, 400]);
+    // Every attempt is the same request.
+    const bodies = fetchMock.mock.calls.map(([, init]) => (init as RequestInit).body);
+    expect(new Set(bodies).size).toBe(1);
+  });
+
+  it("gives up after 4 retries (5 attempts) and says so", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => serverError(500));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { waits, deps } = instantRetry();
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), deps);
+
+    const result = await tool.execute({ prompt: "a cat" }, ctx());
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(waits).toEqual([200, 400, 800, 1600]);
+    expect(result).toContain("OpenAI Image API (500) after 5 attempts: upstream hiccup");
+  });
+
+  it("retries a dropped connection", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(makeImageResponse([TINY_PNG_B64]));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { waits, deps } = instantRetry();
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), deps);
+
+    expect(isStructured(await tool.execute({ prompt: "a cat" }, ctx()))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(waits).toEqual([200]);
+  });
+
+  it.each([400, 403, 429])("never retries a %d", async (status) => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ detail: "no" }), { status }));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { waits, deps } = instantRetry();
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), deps);
+
+    await tool.execute({ prompt: "a cat" }, ctx());
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(waits).toEqual([]);
+  });
+
+  it("waits as long as Retry-After says, in seconds or as an HTTP date", async () => {
+    const now = Date.parse("2026-10-17T00:00:00Z");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(serverError(503, { "retry-after": "3" }))
+      .mockResolvedValueOnce(serverError(503, { "retry-after": "Sat, 17 Oct 2026 00:00:07 GMT" }))
+      .mockResolvedValueOnce(makeImageResponse([TINY_PNG_B64]));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { waits, deps } = instantRetry(now);
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), deps);
+
+    await tool.execute({ prompt: "a cat" }, ctx());
+    expect(waits).toEqual([3000, 7000]);
+  });
+
+  it("stops without another request when the run is cancelled mid-wait", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => serverError(502));
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const controller = new AbortController();
+    const { createGenerateImageTool } = await import("./generate-image.js");
+    const tool = createGenerateImageTool(tmpDir, fakeAuth(), {
+      sleep: async (_ms, signal) => {
+        controller.abort();
+        throw signal.reason;
+      },
+    });
+
+    const result = await tool.execute({ prompt: "a cat" }, ctx(controller.signal));
+    expect(result).toBe("Image generation aborted.");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("jitters the backoff by at most 10% either way", async () => {
+    const { retryDelayMs } = await import("./generate-image.js");
+    const at = (random: number): number =>
+      retryDelayMs(3, null, { random: () => random, now: () => 0 });
+    expect(at(0)).toBe(720);
+    expect(at(0.999999)).toBe(879);
+  });
+});
+
+describe("sizeReport", () => {
+  it("names each image when a batch came back at different sizes", async () => {
+    const { sizeReport } = await import("./generate-image.js");
+    const text = sizeReport(
+      "2048x2048",
+      ["a.png", "b.png"],
+      [
+        { width: 2048, height: 2048 },
+        { width: 1254, height: 1254 },
+      ],
+      [undefined, undefined],
+    );
+    expect(text).toContain(
+      "requested 2048x2048, but OpenAI returned a.png: 2048x2048, b.png: 1254x1254",
+    );
+  });
+
+  it("adds the response's own size claim when it disagrees with the pixels", async () => {
+    const { sizeReport } = await import("./generate-image.js");
+    expect(
+      sizeReport("2048x2048", ["a.png"], [{ width: 1254, height: 1254 }], ["2048x2048"]),
+    ).toContain("OpenAI's response reported 2048x2048.");
+  });
+
+  it("says so when the saved image cannot be measured", async () => {
+    const { sizeReport } = await import("./generate-image.js");
+    expect(sizeReport("2048x2048", ["a.png"], [null], [undefined])).toBe(
+      "Requested 2048x2048, but the saved image could not be measured to confirm its size.",
+    );
   });
 });
 

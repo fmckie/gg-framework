@@ -10,6 +10,7 @@ import {
   IMAGE_MEDIA_TYPES,
   convertImageFormat,
   downscaleForPreview,
+  imageDimensions,
   shrinkToFit,
 } from "../utils/image.js";
 
@@ -51,6 +52,69 @@ const RESPONSE_FORMAT = "png";
 const IMAGE_MODEL = "gpt-image-2";
 /** Codex's `MAX_EDIT_IMAGES`: an edit takes one to five reference images. */
 const MAX_EDIT_IMAGES = 5;
+/**
+ * Codex's retry policy for image requests (codex-client `retry.rs`
+ * `run_with_retry`, with the provider's `DEFAULT_REQUEST_MAX_RETRIES` = 4 and a
+ * 200ms base delay): up to 4 retries (5 attempts) on a 5xx or a failed
+ * connection, never on a 4xx such as 429. The wait honours `Retry-After`;
+ * otherwise it doubles from 200ms with ±10% jitter (200, 400, 800, 1600ms).
+ */
+const MAX_RETRIES = 4;
+const RETRY_BASE_DELAY_MS = 200;
+
+/** Timing seams for the retry policy, so tests can check the exact waits. */
+export type ImageRetryDeps = {
+  /** Wait `ms`, rejecting early when `signal` aborts. */
+  sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Uniform in [0, 1): the jitter source. */
+  random: () => number;
+  /** Wall-clock ms, for an HTTP-date `Retry-After`. */
+  now: () => number;
+};
+
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+const DEFAULT_RETRY_DEPS: ImageRetryDeps = {
+  sleep: abortableSleep,
+  random: Math.random,
+  now: Date.now,
+};
+
+/**
+ * Wait before retry number `retry` (1-based), as Codex computes it: the
+ * server's `Retry-After` (whole seconds or an HTTP date) when present,
+ * otherwise exponential backoff from 200ms with ±10% jitter.
+ */
+export function retryDelayMs(
+  retry: number,
+  retryAfter: string | null,
+  deps: Pick<ImageRetryDeps, "random" | "now">,
+): number {
+  const value = retryAfter?.trim();
+  if (value) {
+    if (/^\d+$/.test(value)) return Number(value) * 1000;
+    const date = Date.parse(value);
+    if (Number.isFinite(date)) return Math.max(0, date - deps.now());
+  }
+  const jitter = 0.9 + deps.random() * 0.2;
+  return Math.floor(RETRY_BASE_DELAY_MS * 2 ** (retry - 1) * jitter);
+}
 
 const GenerateImageParams = z.object({
   prompt: z.string().describe("Text description of the image to generate or the edit to apply"),
@@ -77,7 +141,9 @@ const GenerateImageParams = z.object({
     .describe(
       "Output resolution: `auto` (default) or WIDTHxHEIGHT with both edges multiples of " +
         "16px, max edge 3840px, long:short ratio at most 3:1, and 655,360 to 8,294,400 " +
-        "total pixels. Popular: 1024x1024, 1536x1024, 1024x1536, 2048x2048.",
+        "total pixels. Common: 1024x1024, 1536x1024, 1024x1536. The ChatGPT image backend " +
+        "does not guarantee the requested size and may return a smaller image; the result " +
+        "always reports the size actually delivered.",
     ),
   quality: z
     .enum(["low", "medium", "high", "auto"])
@@ -131,7 +197,9 @@ function mediaTypeFor(format: string): string {
 export function createGenerateImageTool(
   cwd: string,
   auth: GenerateImageAuth,
+  retryDeps: Partial<ImageRetryDeps> = {},
 ): AgentTool<typeof GenerateImageParams> {
+  const retry: ImageRetryDeps = { ...DEFAULT_RETRY_DEPS, ...retryDeps };
   return {
     name: "generate_image",
     description:
@@ -224,6 +292,8 @@ export function createGenerateImageTool(
         // generation, and a later failure keeps the earlier ones.
         const requestedCount = args.n ?? 1;
         const imageBuffers: Buffer[] = [];
+        // The size OpenAI's response says it produced, per image (when given).
+        const reportedSizes: Array<string | undefined> = [];
         for (
           let index = 0;
           index < requestedCount && imageBuffers.length < requestedCount;
@@ -234,13 +304,17 @@ export function createGenerateImageTool(
             request,
             { token, accountId, turnId },
             context.signal,
+            retry,
           );
-          for (const png of generated.slice(0, requestedCount - imageBuffers.length)) {
+          for (const png of generated.images.slice(0, requestedCount - imageBuffers.length)) {
+            // PNG output is saved byte for byte as OpenAI sent it (alpha and
+            // all); only another format is re-encoded. Never resized.
             imageBuffers.push(
               outputFormat === RESPONSE_FORMAT ? png : await convertImageFormat(png, outputFormat),
             );
+            reportedSizes.push(generated.reportedSize);
           }
-          if (generated.length === 0) break;
+          if (generated.images.length === 0) break;
         }
 
         if (imageBuffers.length === 0) {
@@ -294,8 +368,14 @@ export function createGenerateImageTool(
             ? `Generated image → ${primaryPath}`
             : `Generated ${savedPaths.length} images → ${savedPaths.join(", ")}`;
 
+        const dimensions = await Promise.all(imageBuffers.map((buf) => imageDimensions(buf)));
+        const sizeText = sizeReport(args.size, savedPaths, dimensions, reportedSizes);
+
+        // The summary stays the FIRST text block, on its own: restored history
+        // reads the image paths from exactly that line (extractToolImagePaths).
         const allContent: StructuredToolResult["content"] = [
           { type: "text", text: summary },
+          { type: "text", text: sizeText },
           {
             type: "image",
             mediaType: detectedType,
@@ -316,6 +396,58 @@ export function createGenerateImageTool(
       }
     },
   };
+}
+
+type Dimensions = { width: number; height: number } | null;
+
+const formatDimensions = (d: { width: number; height: number }): string => `${d.width}x${d.height}`;
+
+/**
+ * Requested versus delivered size, for the agent to relay. The ChatGPT image
+ * backend can return a different size than asked (a user asked for 2048x2048
+ * and got 1254x1254), so a mismatch is reported plainly instead of the call
+ * reading as a clean success. Nothing is resized and nothing is re-requested:
+ * each request spends the user's image quota.
+ */
+export function sizeReport(
+  requested: string | undefined,
+  paths: readonly string[],
+  dimensions: readonly Dimensions[],
+  reportedSizes: ReadonlyArray<string | undefined>,
+): string {
+  const explicit = requested && requested !== "auto" ? requested : undefined;
+  const actual = dimensions.map((d) => (d ? formatDimensions(d) : undefined));
+  // What OpenAI's response claimed, when it disagrees with the pixels.
+  const claims = actual
+    .map((size, i) => {
+      const reported = reportedSizes[i];
+      return reported && size && reported !== size ? reported : undefined;
+    })
+    .filter((claim): claim is string => claim !== undefined);
+  const claimNote =
+    claims.length > 0 ? ` OpenAI's response reported ${[...new Set(claims)].join(", ")}.` : "";
+
+  if (actual.some((size) => size === undefined)) {
+    return explicit
+      ? `Requested ${explicit}, but the saved image could not be measured to confirm its size.`
+      : "The saved image could not be measured to report its size.";
+  }
+  const unique = [...new Set(actual)];
+  const delivered =
+    unique.length === 1
+      ? (unique[0] ?? "")
+      : actual.map((size, i) => `${paths[i] ?? `image ${i + 1}`}: ${size}`).join(", ");
+
+  if (!explicit) return `Size: ${delivered} (size auto, chosen by OpenAI).${claimNote}`;
+  if (unique.length === 1 && unique[0] === explicit) {
+    return `Size: ${explicit}, as requested.${claimNote}`;
+  }
+  return (
+    `Size mismatch: requested ${explicit}, but OpenAI returned ${delivered}.${claimNote} ` +
+    "The file was saved at its native size with no resizing. Tell the user. The ChatGPT " +
+    "image backend does not always honour the requested size, so asking again is unlikely " +
+    "to change it and would spend more of their image quota."
+  );
 }
 
 /** Insert a numeric index before the extension for multi-image output. */
@@ -401,24 +533,52 @@ async function callImageEndpoint(
   request: Record<string, unknown>,
   auth: { token: string; accountId: string | undefined; turnId: string },
   signal: AbortSignal,
-): Promise<Buffer[]> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${auth.token}`,
-      ...(auth.accountId ? { "chatgpt-account-id": auth.accountId } : {}),
-      originator: "codex_cli_rs",
-      "User-Agent": `codex_cli_rs/${CODEX_CLIENT_VERSION} (${os.type()} ${os.release()}; ${os.arch()})`,
-      version: CODEX_CLIENT_VERSION,
-      "x-codex-image-turn-id": auth.turnId,
-    },
-    body: JSON.stringify(request),
-    signal,
-  });
+  retry: ImageRetryDeps,
+): Promise<{ images: Buffer[]; reportedSize?: string }> {
+  const body = JSON.stringify(request);
+  for (let attempt = 0; ; attempt++) {
+    let response: Response;
+    let text: string;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+          ...(auth.accountId ? { "chatgpt-account-id": auth.accountId } : {}),
+          originator: "codex_cli_rs",
+          "User-Agent": `codex_cli_rs/${CODEX_CLIENT_VERSION} (${os.type()} ${os.release()}; ${os.arch()})`,
+          version: CODEX_CLIENT_VERSION,
+          "x-codex-image-turn-id": auth.turnId,
+        },
+        body,
+        signal,
+      });
+      text = await response.text();
+    } catch (err) {
+      // A failed connection or a body cut off mid-read. An abort is the
+      // user stopping the run, never something to retry.
+      if (signal.aborted || attempt >= MAX_RETRIES) throw err;
+      await retry.sleep(retryDelayMs(attempt + 1, null, retry), signal);
+      continue;
+    }
+    if (response.status >= 500 && attempt < MAX_RETRIES) {
+      const wait = retryDelayMs(attempt + 1, response.headers.get("retry-after"), retry);
+      await retry.sleep(wait, signal);
+      continue;
+    }
+    return parseImageResponse(response.status, text, attempt + 1);
+  }
+}
 
-  const text = await response.text();
+/** Turn one image endpoint reply into images, or the error it describes. */
+function parseImageResponse(
+  status: number,
+  text: string,
+  attempts: number,
+): { images: Buffer[]; reportedSize?: string } {
+  const response = { status, ok: status >= 200 && status < 300 };
   if (response.status === 403) throw new ImageAccessError(text);
   if (!response.ok) {
     let detail = text;
@@ -439,17 +599,21 @@ async function callImageEndpoint(
     if (response.status === 429 && errorType === "usage_limit_reached") {
       throw new ImageLimitError(detail, resetsAt);
     }
-    throw new Error(`OpenAI Image API (${response.status}): ${detail}`);
+    const tries = attempts > 1 ? ` after ${attempts} attempts` : "";
+    throw new Error(`OpenAI Image API (${response.status})${tries}: ${detail}`);
   }
 
-  let parsed: { data?: Array<{ b64_json?: unknown }> };
+  let parsed: { data?: Array<{ b64_json?: unknown }>; size?: unknown };
   try {
     parsed = JSON.parse(text) as typeof parsed;
   } catch {
     throw new Error("OpenAI Image API returned a response that is not JSON.");
   }
-  return (parsed.data ?? [])
+  const images = (parsed.data ?? [])
     .map((item) => item.b64_json)
     .filter((b64): b64 is string => typeof b64 === "string" && b64.length > 0)
     .map((b64) => Buffer.from(b64, "base64"));
+  // Codex's ImageResponse carries the size the backend says it produced.
+  const reportedSize = typeof parsed.size === "string" ? parsed.size : undefined;
+  return { images, ...(reportedSize ? { reportedSize } : {}) };
 }
