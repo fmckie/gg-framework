@@ -884,14 +884,17 @@ Local macOS checks, each compared with `main` at `bf328196`:
   `setup-history.ts`.
 - The critter-art checks match nothing.
 
-## Goals from upstream (open)
+## Goals from upstream (merged)
 
 - Upstream tip reviewed: `296df256b164ec18a4cc72ec7a824633da245bcb` (engine **5.91.2**,
   desktop **0.102.2**), as for #77. The 9 later upstream commits, up to `f6b17fc5`, all
   follow the relicense and are not reviewed.
 - Branch: `sync/upstream-goals`, based on `main` at `7150a676`.
-- PR: [#78](https://github.com/fmckie/gg-framework/pull/78), opened as a draft on
-  2026-11-08
+- PR: [#78](https://github.com/fmckie/gg-framework/pull/78), merged at `31597ce2` on
+  2026-11-08; all nine CI jobs passed on `55fd7c78` (run **42526668917**). GitHub
+  squashed the branch, so the downstream SHAs below are on `sync/upstream-goals`; the
+  squash commit keeps all 21 trailers (20 `Ported from upstream`, 1
+  `cherry picked from commit`).
 - PR 4a of PR 4 in `.gg/plans/upstream-selective-import-phased.md`, re-planned as 4a (Goals)
   and 4b (motion) in `.gg/plans/upstream-pr4-goals-motion.md`. Its first commit, `14e1c85b`,
   records #77 as merged. Then `223830dc`'s ask-user slice (moved ahead, because `e98215da`
