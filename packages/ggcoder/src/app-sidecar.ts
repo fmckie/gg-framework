@@ -26,7 +26,11 @@ import { setStreamDiagnostic } from "@kleio/agent";
 import { AgentSession } from "./core/agent-session.js";
 import { RunLifecycle } from "./core/run-lifecycle.js";
 import { RunClaim } from "./core/run-claim.js";
-import { shouldOfferPendingPlan } from "./core/plan-handoff.js";
+import {
+  IMPLEMENT_PLAN_PROMPT as SHARED_IMPLEMENT_PLAN_PROMPT,
+  PLAN_SUBMITTED_FOR_REVIEW,
+  shouldOfferPendingPlan,
+} from "./core/plan-handoff.js";
 import {
   createChatAgent,
   createPersonaChatAgent,
@@ -1159,7 +1163,7 @@ async function createSession(
         }
         setPendingPlan(planPath, content);
         broadcast("plan_exit", { planPath, content });
-        return "Plan submitted for user review. Wait for the user to approve, reject, or dismiss it before implementing.";
+        return PLAN_SUBMITTED_FOR_REVIEW;
       },
     });
   }
@@ -2190,8 +2194,7 @@ async function createSession(
   // string the webview sends on a manual Accept (see PlanReviewModal's accept
   // handler in gg-app/src/App.tsx). Keep the two in lockstep so auto- and
   // manual approval produce identical implementation turns.
-  const IMPLEMENT_PLAN_PROMPT =
-    "The plan has been approved. Implement it now, following each step in order.";
+  const IMPLEMENT_PLAN_PROMPT = SHARED_IMPLEMENT_PLAN_PROMPT;
 
   // ── Stranded-queue drain ───────────────────────────────
   // A prompt POSTed while an autopilot cycle is between injected runs (build
