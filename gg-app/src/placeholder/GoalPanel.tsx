@@ -4,6 +4,8 @@ import type { LiveToolEntry } from "../LiveToolPanel";
 import type { Item } from "../transcript-item";
 import { GoalContextField, GoalInstructionsField, type ContextPick } from "./GoalForm";
 import { GoalFinish } from "./GoalFinish";
+import { StatusPill } from "./StatusPill";
+import { goalStatusOf, lastRunOf } from "./goal-status";
 import {
   FINISH_SETTLE_MS,
   goalFinishOf,
@@ -262,6 +264,26 @@ export function GoalPanel({
   useEffect(() => {
     if (finish && (running || view === "chat")) setFinish(null);
   }, [finish, running, view]);
+  // What the coordinator is doing right now, for the status pill.
+  const lastRun = useMemo(
+    () => (active ? lastRunOf(runs, goal.id, items) : null),
+    [active, runs, goal.id, items],
+  );
+  const status = useMemo(
+    () =>
+      active
+        ? goalStatusOf({
+            running,
+            paused: goal.paused === true,
+            waitingOnUser: needsAnswer,
+            liveTools,
+            workers,
+            lastRun,
+          })
+        : null,
+    [active, running, goal.paused, needsAnswer, liveTools, workers, lastRun],
+  );
+
   const shownFinish =
     view === "workers" && !askNotice && finish?.goalId === goal.id ? finish : null;
 
@@ -328,6 +350,11 @@ export function GoalPanel({
           ))}
         </select>
       </div>
+      {status && view === "workers" && (
+        <div className="placeholder-bar">
+          <StatusPill status={status} />
+        </div>
+      )}
       {askNotice && (
         <div className="placeholder-notice placeholder-bar" role="status">
           <p className="placeholder-notice-body">

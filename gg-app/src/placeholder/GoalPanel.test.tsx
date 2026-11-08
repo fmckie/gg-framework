@@ -116,7 +116,9 @@ describe("GoalPanel", () => {
         ]}
       />,
     );
-    expect(screen.getByRole("status").textContent).toBe("1 working · 1 done · 1 failed");
+    expect(screen.getByText("1 working · 1 done · 1 failed")).toBeTruthy();
+    // The status pill says what the coordinator is doing.
+    expect(screen.getByText("Thinking")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Pause the goal" }));
     expect(onPauseChange).toHaveBeenCalledWith(true);
   });
