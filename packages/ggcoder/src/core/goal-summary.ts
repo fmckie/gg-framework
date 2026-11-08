@@ -6,6 +6,7 @@
 import { promises as fs } from "node:fs";
 import type { MessageProvenance } from "@kleio/ai";
 import { goalWasInterrupted, type GoalRecord } from "./goals-store.js";
+import { goalRunLive } from "./goal-run-marker.js";
 import { formatRelativeTime } from "./project-discovery.js";
 import type { SessionManager } from "./session-manager.js";
 
@@ -115,6 +116,11 @@ export async function summarizeGoal(
     }
     if (ms > lastActiveMs) lastActiveMs = ms;
   }
+  // `busy` only knows this process's sessions. A goal another process is
+  // running (the phone through `kleio-coder acp`, or the desktop app while the
+  // phone asks) says so through its run marker; without it, a session file
+  // ending on a tool call read as "Interrupted" while the goal was working.
+  const live = busy || goalRunLive(dir);
   return {
     id: record.id,
     name: record.name,
@@ -128,10 +134,10 @@ export async function summarizeGoal(
     latestSessionId,
     status: goalListStatus(
       record,
-      busy,
+      live,
       // Not working, but its last turn never finished: the app closed, or it
       // was stopped, mid-work. Workers aren't known here, only the session.
-      !busy &&
+      !live &&
         Boolean(record.startedAt) &&
         latestSessionPath !== null &&
         goalWasInterrupted(record, await lastMessages(latestSessionPath), []),

@@ -384,6 +384,14 @@ export interface AgentSessionOptions {
    */
   transient?: boolean;
   /**
+   * Told when an agent loop starts (true) and when the outermost one ends
+   * (false), however it ended. Nested loops (a template prompt inside a run)
+   * don't repeat it. Kleio Goals uses it to tell other processes the goal is
+   * being worked on (`core/goal-run-marker.ts`). A throwing listener is
+   * ignored: it must never fail or wedge a run.
+   */
+  onRunActive?: (active: boolean) => void;
+  /**
    * If true, `initialize()` returns WITHOUT waiting for MCP servers to connect —
    * the connection runs in the background and tools are appended when ready.
    * Hosts whose readiness is gated on `initialize()` (the gg-app sidecar, which
@@ -2631,11 +2639,24 @@ export class AgentSession {
   private async runLoop(options: PromptRunOptions = {}): Promise<void> {
     this.prewarmController?.abort();
     this.runLoopDepth++;
+    if (this.runLoopDepth === 1) this.notifyRunActive(true);
     try {
       await this.runLoopInner(options);
     } finally {
       this.runLoopDepth--;
       this.lastRealRequestAt = Date.now();
+      if (this.runLoopDepth === 0) this.notifyRunActive(false);
+    }
+  }
+
+  /** `opts.onRunActive`, never allowed to throw into the run. */
+  private notifyRunActive(active: boolean): void {
+    try {
+      this.opts.onRunActive?.(active);
+    } catch (err) {
+      log("WARN", "session", "onRunActive listener threw", {
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

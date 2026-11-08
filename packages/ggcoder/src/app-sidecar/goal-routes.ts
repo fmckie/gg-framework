@@ -17,6 +17,7 @@ import {
   markGoalKickoff,
   type GoalRecord,
 } from "../core/goals-store.js";
+import { goalRunningElsewhere } from "../core/goal-run-marker.js";
 import {
   GOAL_RUNTIME_PROVENANCE,
   goalListStatus,
@@ -336,9 +337,12 @@ export function handleGoalRoutes(
       if (wasPaused) {
         ctx.broadcast("goal_state", { id: record.id, phase: goalPhase(record), paused: false });
       }
+      // Never resume a goal another process is running (the phone, through
+      // `kleio-coder acp`): that would start a second coordinator on it.
       const cutOff =
-        wasPaused ||
-        goalWasInterrupted(record, ctx.session.getMessages(), ctx.session.listSubAgents());
+        !goalRunningElsewhere(goal.dir) &&
+        (wasPaused ||
+          goalWasInterrupted(record, ctx.session.getMessages(), ctx.session.listSubAgents()));
       if (!cutOff) {
         json(res, 200, { resumed: false });
         return;

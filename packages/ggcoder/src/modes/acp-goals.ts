@@ -33,8 +33,12 @@ export interface AcpGoalSummary {
    * (absent = none). The desktop app reads them from the record the same way.
    */
   instructions?: string;
-  /** Never `running`: the coder computes it without a live run (the client overlays that). */
-  status: "briefing" | "paused" | "interrupted" | "idle";
+  /**
+   * `running` when some process holds the goal's run marker (this one, the
+   * desktop app, another `kleio-coder acp`). A client that knows of a live run of
+   * its own may still overlay `running` on top.
+   */
+  status: "briefing" | "running" | "paused" | "interrupted" | "idle";
 }
 
 /** pew2 wire `GoalWorker`. */
@@ -66,8 +70,7 @@ function toAcpSummary(
     lastActiveMs: summary.lastActiveMs,
     lastActiveDisplay: summary.lastActiveDisplay,
     agentSessionId: summary.latestSessionId,
-    // summarizeGoal is never told the goal is busy, so `running` cannot occur.
-    status: summary.status === "running" ? "idle" : summary.status,
+    status: summary.status,
   };
 }
 

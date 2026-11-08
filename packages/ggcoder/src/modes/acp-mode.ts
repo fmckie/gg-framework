@@ -56,6 +56,7 @@ import {
   type GoalBriefExtras,
   type GoalRecord,
 } from "../core/goals-store.js";
+import { goalRunningElsewhere } from "../core/goal-run-marker.js";
 import { GOAL_RUNTIME_PROVENANCE } from "../core/goal-summary.js";
 import {
   createGoalsAgentSession,
@@ -2523,9 +2524,12 @@ export async function runAcpMode(options: AcpModeOptions): Promise<void> {
         : current.record;
       if (goal === current) goal = { dir: current.dir, record };
       if (wasPaused) notifyGoalState();
+      // Never resume a goal another process is running (the desktop app):
+      // that would start a second coordinator on it.
       const cutOff =
-        wasPaused ||
-        goalWasInterrupted(record, target.getMessages(), target.listSubAgents?.() ?? []);
+        !goalRunningElsewhere(current.dir) &&
+        (wasPaused ||
+          goalWasInterrupted(record, target.getMessages(), target.listSubAgents?.() ?? []));
       if (!cutOff) return;
       await target.prompt(goalResumePrompt(record), GOAL_RUNTIME_PROVENANCE);
     });
