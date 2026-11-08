@@ -1,4 +1,5 @@
 import type http from "node:http";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionRouteContext } from "./route-context.js";
 
@@ -50,9 +51,10 @@ describe("GET /projects", () => {
     expect(reply.status).toBe(200);
     expect(discoverProjects).toHaveBeenCalledOnce();
     // Goal folders live under the agent directory's goals folder; their sessions look like projects'.
+    // Built with the platform's separators (backslashes on Windows).
     expect(discoverProjects.mock.calls[0]?.[0]).toMatchObject({
       projectsRoot: "/home/u/gg-projects",
-      excludeRoots: ["/home/u/agent/goals"],
+      excludeRoots: [path.join("/home/u/agent", "goals")],
     });
   });
 });
