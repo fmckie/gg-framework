@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1586,
+        "tracked": 1582,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -2829,7 +2829,7 @@
       },
       "expectedOccurrences": {
         "tracked": 0,
-        "packed": 16
+        "packed": 14
       },
       "bucket": "compatibility",
       "owner": "Provider integration owner",
@@ -5712,25 +5712,6 @@
       "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
     },
     {
-      "id": "upstream-20260911-96c0db669863",
-      "path": "packages/ggcoder/src/tools/generate-image.ts",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:originator: \"ggcoder\",)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Reviewed OAuth/provider identifiers, persisted session source IDs, protocol names, installed-state migration references, or fixtures exercising those exact contracts; retained for mixed-version compatibility.",
-      "removeWhen": "Only after separately reviewing this exact file and the corresponding compatibility or upstream attribution contract."
-    },
-    {
       "id": "upstream-20260911-10fb9685bd24",
       "path": "packages/ggcoder/src/utils/github.test.ts",
       "scope": "content",
@@ -7381,25 +7362,6 @@
       "bucket": "provenance",
       "owner": "Kleio framework maintainers",
       "reason": "Exact emitted contexts from reviewed source: generated implementation comments/declarations, copied upstream skills, unchanged benchmark fixtures, imported app mentor wording, and their source-map fragments. No allowance for new engine dependency names.",
-      "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
-    },
-    {
-      "id": "packed-20260911-5b0ed87686c8",
-      "path": "packages/ggcoder/dist/tools/generate-image.js",
-      "scope": "content",
-      "targets": [
-        "packed"
-      ],
-      "match": {
-        "regex": "(?:originator: \"ggcoder\",)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "packed": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Exact emitted OAuth/provider metadata, persisted source/progress/transcript identifiers, and ACP protocol labels from already classified source. These values are compatibility contracts, not a package rename.",
       "removeWhen": "Review the exact generated artifact against its classified source whenever the build output changes."
     },
     {

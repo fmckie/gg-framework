@@ -691,6 +691,19 @@ export async function appToolImages(
 }
 
 /**
+ * Re-encode an image as `format`. Unlike the preview helpers this is the saved
+ * file itself, so a failure propagates rather than silently keeping the
+ * original bytes under a mismatched extension.
+ */
+export async function convertImageFormat(
+  buffer: Buffer,
+  format: "png" | "jpeg" | "webp",
+): Promise<Buffer> {
+  const sharp = await loadSharp();
+  return sharp(buffer).toFormat(format).toBuffer();
+}
+
+/**
  * Inline previews (`details.imagePreviews`) for image blocks a tool returns
  * without a file of its own (MCP servers). The chat only
  * renders tool images from these previews, so a tool that skips them shows
