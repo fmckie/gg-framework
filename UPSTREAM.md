@@ -607,6 +607,8 @@ Local macOS checks, each compared with `main` at `9a89e75c`:
   further, to `f6b17fc5` (desktop **0.103.1**). All nine come after the relicense, and this
   import doesn't review them.
 - Branch: `sync/upstream-models-safety`, based on `main` at `bf328196`.
+- PR: [#77](https://github.com/fmckie/gg-framework/pull/77), opened as a draft on
+  2026-11-08
 - PR 3b of the 4 in `.gg/plans/upstream-selective-import-phased.md`: models, providers,
   gg-safe and skills. Its first commit, `97398b68`, records #76 as merged. Plan rows 24–46
   follow in order, then `cf6c9a23`, `a4bb110c`, `0ba57296`, `0a9d083f` and the non-Goals
