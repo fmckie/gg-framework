@@ -26,6 +26,7 @@ import { setStreamDiagnostic } from "@kleio/agent";
 import { AgentSession } from "./core/agent-session.js";
 import { RunLifecycle } from "./core/run-lifecycle.js";
 import { RunClaim } from "./core/run-claim.js";
+import { IdleWakeController } from "./core/idle-wake.js";
 import {
   IMPLEMENT_PLAN_PROMPT as SHARED_IMPLEMENT_PLAN_PROMPT,
   PLAN_SUBMITTED_FOR_REVIEW,
@@ -1729,6 +1730,9 @@ async function createSession(
   // Bumped by /cancel — a run whose cancel generation changed mid-flight was
   // canceled and earns no XP.
   let cancelGeneration = 0;
+  // Wakes an idle session for its own failed background work; set up once the
+  // run machinery below exists. Null outside the coding agent.
+  let idleWake: IdleWakeController | null = null;
   // Autopilot (auto-review) toggle for THIS window's project. Loaded from
   // gg-app.json on boot; flipped via POST /autopilot. When on, POST /prompt runs
   // runAutopilotCycle after the user's turn settles — Ken auto-reviews the work
@@ -2016,6 +2020,8 @@ async function createSession(
 
   function abortOwnedWork(): void {
     cancelGeneration++;
+    // Stop means "stop acting on your own" — that includes background alerts.
+    idleWake?.noteStop();
     abort.abort();
     // An MCP tool call parked on user input is not cancelled by the signal —
     // the promise lives in the bridge. Release it, or the aborted turn's tool
@@ -2328,6 +2334,43 @@ async function createSession(
       taskRunAll = v;
     },
   });
+
+  // ── Idle wake for background alerts ────────────────────────
+  // A background task that fails, or a child agent that finishes, after the
+  // agent ended its turn would otherwise wait for the user's next message.
+  // The coding agent only: chat agents start no background work, Motion owns
+  // its own render flow, and the Goals coordinator drives its workers itself.
+  if (mode !== "chat" && mode !== "motion" && !goal) {
+    idleWake = new IdleWakeController({
+      isBusy: () =>
+        running ||
+        runClaim.active ||
+        autopilotActive ||
+        autopilotReviewing ||
+        drainingStrandedQueue ||
+        taskRunAll,
+      isBlocked: () => pendingPlanPath !== null,
+      hasPendingAlert: () => session.hasPendingBackgroundAlert(),
+      humanPromptSeq: () => session.getHumanPromptSeq(),
+      onSkip: (reason) =>
+        log("INFO", "app-sidecar", "background alert left for the next message", { reason }),
+      start: async () => {
+        // Same race guard as POST /prompt: claim synchronously or yield.
+        if (!runClaim.claim()) return;
+        try {
+          log("INFO", "app-sidecar", "starting a run for a background alert");
+          await runAgent("Background task update", async () => {
+            await session.continueFromNotifications();
+          });
+          await runStrandedQueue();
+        } finally {
+          runClaim.release();
+          offerPendingPlan();
+        }
+      },
+    });
+    session.onBackgroundAlert(() => idleWake?.trigger());
+  }
 
   // ── Provider auth (login) bridge ───────────────────────────
   // OAuth login functions are interactive (open a URL, sometimes prompt for a
@@ -2802,6 +2845,7 @@ async function createSession(
     // started. Otherwise they keep streaming tokens and running tools on a
     // session that is being torn down.
     abortOwnedWork();
+    idleWake?.dispose();
     cancelHfPull();
     releaseRunAwake?.();
     releaseRunAwake = null;
