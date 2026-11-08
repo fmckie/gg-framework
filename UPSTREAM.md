@@ -600,15 +600,18 @@ Local macOS checks, each compared with `main` at `9a89e75c`:
   critter-art checks match only upstream's image fixture in `App.attachments.test.tsx`
   (`c617d8ab`), whose preview data URI holds the ten bytes "screenshot".
 
-## Models, providers, gg-safe and skills from upstream (open)
+## Models, providers, gg-safe and skills from upstream (merged)
 
 - Upstream tip reviewed: `296df256b164ec18a4cc72ec7a824633da245bcb` (engine **5.91.2**,
   desktop **0.102.2**), 290 commits after `3f2bb6bc`. Upstream has since moved 9 commits
   further, to `f6b17fc5` (desktop **0.103.1**). All nine come after the relicense, and this
   import doesn't review them.
 - Branch: `sync/upstream-models-safety`, based on `main` at `bf328196`.
-- PR: [#77](https://github.com/fmckie/gg-framework/pull/77), opened as a draft on
-  2026-11-08
+- PR: [#77](https://github.com/fmckie/gg-framework/pull/77), merged at `7150a676` on
+  2026-11-08; all nine CI jobs passed on `ae265c0e` (run **42511087761**). GitHub
+  squashed the branch, so the downstream SHAs below are on
+  `sync/upstream-models-safety`; the squash commit keeps all 32 trailers (23
+  `Ported from upstream`, 9 `cherry picked from commit`).
 - PR 3b of the 4 in `.gg/plans/upstream-selective-import-phased.md`: models, providers,
   gg-safe and skills. Its first commit, `97398b68`, records #76 as merged. Plan rows 24–46
   follow in order, then `cf6c9a23`, `a4bb110c`, `0ba57296`, `0a9d083f` and the non-Goals
