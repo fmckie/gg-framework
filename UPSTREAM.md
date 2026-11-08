@@ -1053,7 +1053,8 @@ warnings` passes, and `rustfmt --check` passes on the five Rust files this impor
   desktop **0.102.2**), as for #77 and #78. Upstream has since moved to `57d1e7ed`; every
   later commit follows the relicense and is not reviewed.
 - Branch: `sync/upstream-motion`, based on `main` at `31597ce2`.
-- PR: opened as a draft on 2026-11-08.
+- PR: [#79](https://github.com/fmckie/gg-framework/pull/79), opened as a draft on
+  2026-11-08
 - PR 4b of PR 4 in `.gg/plans/upstream-selective-import-phased.md`, as re-planned in
   `.gg/plans/upstream-pr4-goals-motion.md`. Its first commit, `0a2e1fb7`, records #78 as
   merged. Then `4a0f2dbd`'s motion slice (which `223830dc` builds on), the motion hunks PR 3a
