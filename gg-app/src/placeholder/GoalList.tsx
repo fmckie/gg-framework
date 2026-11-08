@@ -3,6 +3,24 @@ import { deleteGoal, listGoals, selectProject, waitForReady, type GoalSummary } 
 import { GoalForm } from "./GoalForm";
 import "./placeholder.css";
 
+/** How often the open goal list refreshes each goal's status. */
+const GOAL_STATUS_REFRESH_MS = 4000;
+
+/**
+ * A goal's state on its row, only when it's worth a glance: running, paused
+ * by the user, or cut off mid-work. Briefing and finished goals carry none.
+ */
+const STATUS_LABEL: Partial<Record<NonNullable<GoalSummary["status"]>, string>> = {
+  running: "Running now",
+  paused: "Paused",
+  interrupted: "Interrupted",
+};
+const STATUS_TITLE: Partial<Record<NonNullable<GoalSummary["status"]>, string>> = {
+  running: "The coordinator is working on this now",
+  paused: "Paused. Open it and resume to carry on",
+  interrupted: "Stopped mid-work. Opening it carries it on",
+};
+
 /** "2 folders · 1 file" style summary of a goal's attached context. */
 export function contextSummary(goal: GoalSummary): string | null {
   const folders = goal.context.filter((c) => c.kind === "folder").length;
@@ -63,6 +81,23 @@ export function GoalList({
       cancelled = true;
     };
   }, [reloadNonce]);
+
+  // Goals keep working while the list is open: refresh their status quietly
+  // (no loading state), so "Running now" and "Paused" stay true.
+  useEffect(() => {
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      void listGoals()
+        .then((g) => {
+          if (!cancelled) setGoals(g);
+        })
+        .catch(() => undefined);
+    }, GOAL_STATUS_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   function choose(goal: GoalSummary): void {
     if (busy) return;
@@ -159,6 +194,7 @@ export function GoalList({
           <ul className="placeholder-list">
             {filteredGoals.map((g) => {
               const context = contextSummary(g);
+              const status = g.status ? STATUS_LABEL[g.status] : undefined;
               return (
                 <li key={g.path} className="placeholder-row">
                   <button type="button" disabled={busy} onClick={() => choose(g)}>
@@ -168,6 +204,14 @@ export function GoalList({
                     {context && <span className="placeholder-muted">{context} </span>}
                     <span>{g.goal}</span>
                   </span>
+                  {status && g.status && (
+                    <span
+                      className={g.status === "interrupted" ? "placeholder-attention" : undefined}
+                      title={STATUS_TITLE[g.status]}
+                    >
+                      {status}
+                    </span>
+                  )}
                   <span className="placeholder-muted">{g.lastActiveDisplay}</span>
                   <button
                     type="button"

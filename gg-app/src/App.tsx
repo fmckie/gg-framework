@@ -15,8 +15,11 @@ import { MetalButton } from "./MetalButton";
 import { withViewTransition } from "./view-transition";
 import {
   waitForReady,
+  retryWindowSession,
   getState,
   kickoffGoal,
+  pauseGoal,
+  resumeGoal,
   setCritterModel,
   sendPrompt,
   sendKenPrompt,
@@ -189,6 +192,8 @@ import { useTranscriptExport } from "./useTranscriptExport";
 import { useTranscriptScroll } from "./useTranscriptScroll";
 import { useTrayIntents } from "./useTrayIntents";
 import { useWindowOrder } from "./useWindowOrder";
+import { dropHiddenFocus } from "./hidden-focus";
+import { emptyTranscriptStatus } from "./transcript-status";
 
 export type { Item, TranscriptImage } from "./transcript-item";
 // The session screen's guide, behind the header's Help button.
@@ -533,6 +538,8 @@ function App(): React.ReactElement {
   const stateRef = useRef<AgentState | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Bumped each time the transcript is reloaded from the session file.
+  const [transcriptEpoch, setTranscriptEpoch] = useState(0);
   const {
     stickToBottomRef,
     lastScrollTopRef,
@@ -872,6 +879,18 @@ function App(): React.ReactElement {
 
   const { windowIndex, windowTotal, isThisFocused } = useWindowOrder(inputRef);
 
+  // A goal cut off by a daemon restart (found on reconnect) carries on, or
+  // asks its briefing question again. The sidecar ignores it when nothing was
+  // cut off or a run is already going.
+  const resumeCutOffGoal = useCallback(() => {
+    void resumeGoal().catch((e: unknown) =>
+      toast(
+        `Couldn't pick the goal back up: ${e instanceof Error ? e.message : String(e)}`,
+        "error",
+      ),
+    );
+  }, []);
+
   // Build-session SSE handling + assistant-streaming helpers live in the
   // useAgentEvents hook (mirrors useKenMentor). It owns the event machine's
   // private refs + the streaming helpers; App keeps owning the build-session
@@ -910,6 +929,7 @@ function App(): React.ReactElement {
     planReviewPathRef,
     pendingPlanTotalRef,
     stickToBottomRef,
+    onGoalNeedsResume: resumeCutOffGoal,
   });
 
   // Run the connect/ready flow against the current sidecar and hydrate state,
@@ -968,6 +988,9 @@ function App(): React.ReactElement {
             return (parsed ? parsed.text : h.text).trim();
           })
           .filter((t, i, a) => t.length > 0 && a[i - 1] !== t);
+        // A reloaded transcript gives every worker a new row key; the goal
+        // bar's tally starts again from it.
+        setTranscriptEpoch((epoch) => epoch + 1);
         // The transcript is being replaced. A reply still streaming (a chat
         // reopened mid-reply on the iPhone) must start a fresh bubble here, not
         // keep appending to a message that no longer exists — that silently
@@ -1105,6 +1128,16 @@ function App(): React.ReactElement {
         void kickoffGoal().catch((e: unknown) =>
           toast(
             `Couldn't start the goal's first reply: ${e instanceof Error ? e.message : String(e)}`,
+            "error",
+          ),
+        );
+      }
+      // A goal cut off mid-work (the app closed while it worked) carries on
+      // by itself when its window opens again.
+      if (st?.goal?.needsResume && hydrateGenerationRef.current === generation) {
+        void resumeGoal().catch((e: unknown) =>
+          toast(
+            `Couldn't pick the goal back up: ${e instanceof Error ? e.message : String(e)}`,
             "error",
           ),
         );
@@ -2250,6 +2283,92 @@ function App(): React.ReactElement {
     () => activeGoalId !== null && firstOpenAskId(items) !== null,
     [activeGoalId, items],
   );
+  // Pause stops the current run and its workers (the same cancel as Stop) and
+  // keeps the goal put, even across restarts; resume carries it on.
+  const setGoalPaused = useCallback(
+    (paused: boolean) => {
+      const act = paused
+        ? pauseGoal().then(() => {
+            if (running) requestCancel();
+          })
+        : resumeGoal().then((resumed) => {
+            // Nothing was cut short: the goal had simply finished.
+            if (!resumed && !state?.goal?.paused) {
+              toast(
+                "Nothing to carry on: the goal finished. Tell the coordinator what's next in the chat.",
+              );
+            }
+          });
+      void act.catch((e: unknown) =>
+        toast(
+          `Couldn't ${paused ? "pause" : "resume"} the goal: ${e instanceof Error ? e.message : String(e)}`,
+          "error",
+        ),
+      );
+    },
+    [running, requestCancel, state?.goal?.paused],
+  );
+  // When the current run began, for the activity bar's timer. Kept here, not
+  // in the bar: the bar lives in the chat, which the Workers view hides, and
+  // its own clock would restart from zero each time the chat came back.
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  useEffect(() => {
+    setRunStartedAt((prev) => (running ? (prev ?? Date.now()) : null));
+  }, [running]);
+  // A question waiting in the transcript means the run is waiting on the user,
+  // even when the window reopened after it was asked (the activity reducer
+  // only sees the ask arrive live): say so instead of "Working...".
+  const openQuestion = useMemo(
+    () =>
+      items.some((item) => item.kind === "ask" && !item.sent && !item.cancelled && !item.deferred),
+    [items],
+  );
+  const barActivity = useMemo(
+    () =>
+      running && openQuestion && !activity.waitingForAnswer
+        ? {
+            ...activity,
+            phase: "attention" as const,
+            label: "Your decision needed",
+            detail: "Answer the question in chat to continue.",
+            waitingForAnswer: true,
+            startedAt: activity.startedAt ?? runStartedAt,
+          }
+        : activity,
+    [running, openQuestion, activity, runStartedAt],
+  );
+  // The chat stays mounted but hidden behind the Workers view, and a hidden
+  // scroller loses its offset. Remember where the reader was when it hid, and
+  // put them back on return: at the bottom if they were following, else at
+  // the same spot.
+  const chatScrollOnHideRef = useRef<{ pinned: boolean; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (goalWorkersOpen) {
+      chatScrollOnHideRef.current = {
+        pinned: stickToBottomRef.current,
+        top: lastScrollTopRef.current,
+      };
+      dropHiddenFocus();
+      return;
+    }
+    const saved = chatScrollOnHideRef.current;
+    chatScrollOnHideRef.current = null;
+    const el = scrollRef.current;
+    if (!saved || !el) return;
+    stickToBottomRef.current = saved.pinned;
+    if (saved.pinned) maybeScrollToBottom();
+    else {
+      el.scrollTop = saved.top;
+      lastScrollTopRef.current = el.scrollTop;
+    }
+  }, [goalWorkersOpen, stickToBottomRef, lastScrollTopRef, maybeScrollToBottom]);
+  // And for as long as the Workers view is up: the composer can take focus
+  // while still visible (its autoFocus on a reload) and be hidden right after.
+  useEffect(() => {
+    if (!goalWorkersOpen) return;
+    document.addEventListener("focusin", dropHiddenFocus);
+    return () => document.removeEventListener("focusin", dropHiddenFocus);
+  }, [goalWorkersOpen]);
 
   const kleioShown = showKleioOverlay || (needsProject && entryView === "kleio");
   useEffect(() => {
@@ -2440,9 +2559,13 @@ function App(): React.ReactElement {
               ? "Back to motion sessions"
               : "Back to this project's sessions"
       }
-      onClick={() =>
-        withViewTransition(() => (showChecklist ? setShowChecklist(false) : setShowPicker(true)))
-      }
+      onClick={() => {
+        const goBack = (): void => (showChecklist ? setShowChecklist(false) : setShowPicker(true));
+        // Leaving a goal for the goal list skips the screen crossfade: WebKit's
+        // snapshot of a goal workspace flashed a line along the header's edge.
+        if (state?.goal && !showChecklist) goBack();
+        else withViewTransition(goBack);
+      }}
     />
   );
   const checklistButton = (
@@ -2615,6 +2738,15 @@ function App(): React.ReactElement {
             needsAnswer={goalWaitingOnUser}
             models={models}
             onSelectWorkerModel={onSelectCritterModel}
+            items={items}
+            groups={goalGroups}
+            running={running}
+            liveTools={liveToolFeed}
+            transcriptEpoch={transcriptEpoch}
+            onPauseChange={activeGoalId ? setGoalPaused : undefined}
+            onSaved={(next) =>
+              setState((s) => (s?.goal ? { ...s, goal: { ...s.goal, ...next } } : s))
+            }
           />
         </Suspense>
       )}
@@ -2667,11 +2799,34 @@ function App(): React.ReactElement {
                       chat={workspaceMode === "chat"}
                       motion={workspaceMode === "motion"}
                     />
-                  ) : (
+                  ) : emptyTranscriptStatus(status) ? (
                     <div className="line transcript-reveal" style={{ color: theme.textDim }}>
-                      {`\u273b ${status}`}
+                      {`\u273b ${emptyTranscriptStatus(status)}`}
+                      {status.startsWith("agent failed") && (
+                        <>
+                          {" "}
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-ghost"
+                            onClick={() => {
+                              // Restart the failed start first so the re-hydrate
+                              // waits on a fresh attempt, not the recorded failure.
+                              void retryWindowSession()
+                                .catch((e: unknown) =>
+                                  toast(
+                                    `Couldn't restart the agent: ${e instanceof Error ? e.message : String(e)}`,
+                                    "error",
+                                  ),
+                                )
+                                .finally(() => setHydrateNonce((n) => n + 1));
+                            }}
+                          >
+                            Try again
+                          </button>
+                        </>
+                      )}
                     </div>
-                  ))}
+                  ) : null)}
                 <PromptSendProvider value={sendKenRecommendedPrompt}>
                   <HistoryImagesProvider>
                     <WorkspaceFilesProvider
@@ -2767,7 +2922,8 @@ function App(): React.ReactElement {
           {showTaskBar && (
             <ActivityBar
               running={running}
-              activity={activity}
+              runStartedAt={runStartedAt}
+              activity={barActivity}
               cancelling={cancelling}
               tokens={tokens}
               doneStatus={doneStatus}

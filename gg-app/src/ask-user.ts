@@ -212,6 +212,70 @@ export function markAskDeferred<T extends AskItem>(items: readonly T[], promptId
 }
 
 /**
+ * On (re)connect: close every open question the sidecar can no longer take an
+ * answer to (`open` is its list). After a daemon restart the old run is gone,
+ * so its cards would otherwise stay up as buttons that reach no one.
+ */
+export function closeAsksNotIn<T extends AskItem>(
+  items: readonly T[],
+  open: readonly string[],
+): T[] {
+  const live = new Set(open);
+  const stale = new Set<string>();
+  for (const it of items) {
+    if (it.kind !== "ask" || it.sent === true || it.cancelled === true) continue;
+    const id = (it.prompt as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string" && !live.has(id)) stale.add(id);
+  }
+  return stale.size === 0 ? [...items] : closeAsks(items, [...stale]);
+}
+
+/** An open question as the sidecar lists it on (re)connect. */
+export interface OpenAskPrompt {
+  prompt: AskUserPrompt;
+  deferred: boolean;
+}
+
+/** The sidecar's `openAskPrompts` list, dropping anything malformed. */
+export function parseOpenAskPrompts(data: unknown): OpenAskPrompt[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const { prompt, deferred } = entry as { prompt?: unknown; deferred?: unknown };
+    return isAskUserPrompt(prompt) ? [{ prompt, deferred: deferred === true }] : [];
+  });
+}
+
+/**
+ * Show the cards for questions still waiting on the user that the transcript
+ * has no card for. A reloaded window rebuilds its transcript from history,
+ * which keeps the tool call but not the card, so the agent sat waiting on a
+ * question nobody could see.
+ */
+export function withOpenAsks<T>(
+  items: readonly T[],
+  open: readonly OpenAskPrompt[],
+  makeItem: (ask: OpenAskPrompt) => T,
+): T[] {
+  const shown = new Set<string>();
+  for (const it of items as readonly AskItem[]) {
+    if (it.kind !== "ask" || typeof it.prompt !== "object" || it.prompt === null) continue;
+    const id = (it.prompt as { id?: unknown }).id;
+    if (typeof id === "string") shown.add(id);
+  }
+  const missing = open.filter((ask) => !shown.has(ask.prompt.id));
+  return missing.length === 0 ? [...items] : [...items, ...missing.map(makeItem)];
+}
+
+/** A transcript card for an open question listed by the sidecar. */
+export function askItemFor(
+  ask: OpenAskPrompt,
+  id: number,
+): { kind: "ask"; id: number; prompt: AskUserPrompt; deferred?: true } {
+  return { kind: "ask", id, prompt: ask.prompt, ...(ask.deferred ? { deferred: true } : {}) };
+}
+
+/**
  * The sidecar closed questions nobody is waiting on any more (a newer question
  * or a new session superseded them). Their buttons would reach no one.
  */

@@ -16,10 +16,14 @@ import {
 } from "./agent";
 import {
   appendPendingAsks,
+  askItemFor,
   closeAsks,
+  closeAsksNotIn,
   closeSettledAsk,
   isAskUserPrompt,
   markAskDeferred,
+  parseOpenAskPrompts,
+  withOpenAsks,
 } from "./ask-user";
 import { formatTokenCount } from "./ActivityBar";
 import { type LiveToolEntry, LIVE_TOOL_PANEL_ROWS } from "./LiveToolPanel";
@@ -130,6 +134,8 @@ export interface AgentEventsDeps {
   planReviewPathRef: MutableRefObject<string | null>;
   pendingPlanTotalRef: MutableRefObject<number | null>;
   stickToBottomRef: MutableRefObject<boolean>;
+  /** A (re)connect found this goal cut off mid-work or mid-question. */
+  onGoalNeedsResume?: () => void;
 }
 
 export interface AgentEvents {
@@ -174,6 +180,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
     planReviewPathRef,
     pendingPlanTotalRef,
     stickToBottomRef,
+    onGoalNeedsResume,
   } = deps;
 
   // ── Event-machine private refs (used nowhere outside this hook) ──
@@ -560,6 +567,25 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           openPlanReview(d.pendingPlan);
           setTasks((d.tasks as BackgroundTask[] | undefined) ?? []);
           setStatus(readyState.runState === "cancelling" ? "cancelling..." : "ready");
+          // Close question cards this daemon can't answer (a restart killed
+          // their run), so none is left as a dead button.
+          if (Array.isArray(d.openAsks)) {
+            const open = d.openAsks.filter((id): id is string => typeof id === "string");
+            // ...and show the ones it still waits on that have no card (a
+            // reload rebuilt the transcript without them).
+            const openAsks = parseOpenAskPrompts(d.openAskPrompts);
+            setItems((prev) => {
+              const next = withOpenAsks(closeAsksNotIn(prev, open), openAsks, (ask) =>
+                askItemFor(ask, nextId()),
+              );
+              return next.length === prev.length && next.every((it, i) => it === prev[i])
+                ? prev
+                : next;
+            });
+          }
+          // A goal cut off by the restart picks itself back up (a briefing
+          // asks its question again), as it does when its window opens.
+          if (readyState.goal?.needsResume) onGoalNeedsResume?.();
           break;
         }
         case "run_start":
@@ -1017,7 +1043,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
               typeof d.critterModel === "string" || d.critterModel === null
                 ? d.critterModel
                 : s.goal.critterModel;
-            return { ...s, goal: { ...s.goal, phase, critterModel } };
+            const paused = typeof d.paused === "boolean" ? d.paused : s.goal.paused;
+            return { ...s, goal: { ...s.goal, phase, critterModel, paused } };
           });
           break;
         case "plan_mode":
@@ -1447,6 +1474,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
       pendingPlanTotalRef,
       stickToBottomRef,
       openPlanReview,
+      onGoalNeedsResume,
     ],
   );
 

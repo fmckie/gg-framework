@@ -62,6 +62,8 @@ export interface SessionRouteContext {
   readonly sessionId: string;
   /** Ids of every live window session whose cwd is `cwd`, this one included. */
   readonly sessionIdsAt: (cwd: string) => string[];
+  /** Whether any live window session in `cwd` is working right now (see goal list status). */
+  readonly busyAt: (cwd: string) => boolean;
   /** Set when this session's cwd is a Goal folder; null for every other session. */
   goal: { dir: string; record: GoalRecord } | null;
   readonly broadcast: (type: string, data: unknown) => void;

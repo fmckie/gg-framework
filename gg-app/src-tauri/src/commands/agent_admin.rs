@@ -655,13 +655,19 @@ pub(crate) async fn agent_create_goal(
     name: String,
     goal: String,
     context: Vec<String>,
+    instructions: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let port = port_for(&webview).ok_or("daemon not ready")?;
     let gg_sid = session_for(&webview).ok_or("session not ready")?;
     let res = client
         .post(format!("{}/goals", sidecar_base(port)))
         .header("x-gg-session", &gg_sid)
-        .json(&serde_json::json!({ "name": name, "goal": goal, "context": context }))
+        .json(&serde_json::json!({
+            "name": name,
+            "goal": goal,
+            "context": context,
+            "instructions": instructions,
+        }))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -723,6 +729,69 @@ pub(crate) async fn agent_goal_kickoff(
         .await
         .map_err(|e| e.to_string())?;
     json_or_error(res, "failed to start the goal").await
+}
+
+/// Proxy: change this window's Goal's attached context and/or standing
+/// instructions. The sidecar validates both and resolves paths on disk.
+#[tauri::command]
+pub(crate) async fn agent_update_goal(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+    context: Option<Vec<String>>,
+    instructions: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let mut body = serde_json::Map::new();
+    if let Some(context) = context {
+        body.insert("context".into(), serde_json::json!(context));
+    }
+    if let Some(instructions) = instructions {
+        body.insert("instructions".into(), serde_json::json!(instructions));
+    }
+    let res = client
+        .post(format!("{}/goal/update", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .json(&serde_json::Value::Object(body))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(res, "failed to update the goal").await
+}
+
+/// Proxy: pause this window's Goal (the app also stops the current run).
+#[tauri::command]
+pub(crate) async fn agent_goal_pause(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let res = client
+        .post(format!("{}/goal/pause", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(res, "failed to pause the goal").await
+}
+
+/// Proxy: carry this window's Goal on after a pause or an interrupted run.
+/// Idempotent on the sidecar.
+#[tauri::command]
+pub(crate) async fn agent_goal_resume(
+    webview: WebviewWindow,
+    client: State<'_, reqwest::Client>,
+) -> Result<serde_json::Value, String> {
+    let port = port_for(&webview).ok_or("daemon not ready")?;
+    let gg_sid = session_for(&webview).ok_or("session not ready")?;
+    let res = client
+        .post(format!("{}/goal/resume", sidecar_base(port)))
+        .header("x-gg-session", &gg_sid)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    json_or_error(res, "failed to resume the goal").await
 }
 
 /// Proxy: list recent sessions for a project cwd.

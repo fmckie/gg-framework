@@ -115,6 +115,7 @@ import {
   buildSubAgentCompletionFollowUp,
   type ChildModelPick,
   type SubAgentManager,
+  type SubAgentSnapshot,
   type SubAgentState,
 } from "./subagent-manager.js";
 import { applyAsyncSubagentPolicy } from "./subagent-policy.js";
@@ -163,7 +164,7 @@ import { extractPlanSteps, findCompletedMarkers } from "../utils/plan-steps.js";
 import { readFileSync } from "node:fs";
 import { clampThinkingForPlanMode } from "./thinking-level.js";
 import { pruneStaleToolResults, shouldPruneToolResults } from "./compaction/tool-result-pruner.js";
-import { discoverAgents } from "./agents.js";
+import { discoverAgents, type AgentDefinition } from "./agents.js";
 import { enhancePrompt, type EnhanceResult } from "../utils/prompt-enhancer.js";
 import { detectLanguages, detectProjectStack, type LanguageId } from "./language-detector.js";
 import {
@@ -434,6 +435,28 @@ export interface AgentSessionOptions {
    * stays prompt-cache stable. Used by Kleio Goals to gate its own editing.
    */
   wrapTool?: (tool: AgentTool) => AgentTool;
+  /**
+   * Built-in tools this session never has, removed at registration (before
+   * tiering) and left out of the system prompt's Tools section. Unlike
+   * `allowedTools`, the rest of the tool set and its tiering are untouched.
+   * Fixed for the session, so the cached tool block never changes. Used by
+   * Kleio Goals, which never edits or runs anything itself.
+   */
+  withoutTools?: readonly string[];
+  /**
+   * A fixed team of sub-agents, replacing agent discovery (project, global
+   * and bundled): the only agents spawn_agent and subagent can start. Used by
+   * Kleio Goals, whose workers follow their own rules (goals-agent/goal-team.ts).
+   */
+  subAgents?: readonly AgentDefinition[];
+  /**
+   * Start every spawned child with this session's extra workspace roots too
+   * (less the folder it works in), so it can read and change all of them.
+   * Kleio Goals' workers work across all of a goal's attached folders.
+   */
+  shareRootsWithSubAgents?: boolean;
+  /** The sub-agent a spawned child is when the spawn names none (one of `subAgents`). */
+  defaultSubAgent?: string;
   onExitPlan?: (planPath: string) => Promise<ToolExecuteResult>;
   /**
    * If provided, the session's tool set is filtered to ONLY these tool names
@@ -948,7 +971,10 @@ export class AgentSession {
       projectCustomization &&
       !this.opts.skills &&
       (this.opts.agentContext ?? "project") === "project";
-    if (projectCustomization) {
+    // A sub-agent worker never creates them: the session that owns the
+    // project does. Goals workers work in the user's attached folders,
+    // which mustn't gain empty .gg folders as a side effect.
+    if (projectCustomization && !this.opts.subagentWorker) {
       // Ensure project-local .gg directories exist.
       const localGGDir = path.join(this.cwd, ".gg");
       await fs.mkdir(path.join(localGGDir, "skills"), { recursive: true });
@@ -971,14 +997,16 @@ export class AgentSession {
 
     // Discover agents and create tools (with sub-agent support). Chat sessions
     // can retain bundled workers without loading project/global customization.
-    const agents = projectCustomization
-      ? await discoverAgents({
-          globalAgentsDir: paths.agentsDir,
-          projectDir: this.cwd,
-        })
-      : this.opts.globalSubagents
-        ? await discoverAgents({ globalAgentsDir: paths.agentsDir })
-        : [];
+    const agents = this.opts.subAgents
+      ? [...this.opts.subAgents]
+      : projectCustomization
+        ? await discoverAgents({
+            globalAgentsDir: paths.agentsDir,
+            projectDir: this.cwd,
+          })
+        : this.opts.globalSubagents
+          ? await discoverAgents({ globalAgentsDir: paths.agentsDir })
+          : [];
     const {
       tools: builtInTools,
       processManager,
@@ -991,6 +1019,8 @@ export class AgentSession {
       subAgentManager,
     } = await createTools(this.cwd, {
       agents,
+      shareWorkspaceRoots: this.opts.shareRootsWithSubAgents,
+      defaultSubAgent: this.opts.defaultSubAgent,
       skills: this.skills,
       blockedSkills: this.blockedSkills,
       contextLimits: this.contextLimits,
@@ -1065,6 +1095,8 @@ export class AgentSession {
     // a hallucinated call can't mutate the repo — and buildSystemPrompt below is
     // fed the same filtered names so the Tools section matches exactly.
     this.tools = this.opts.allowedTools ? tools.filter((t) => this.isToolAllowed(t.name)) : tools;
+    const without = new Set(this.opts.withoutTools ?? []);
+    if (without.size > 0) this.tools = this.tools.filter((t) => !without.has(t.name));
     // A host may wrap built-ins (Kleio Goals holds back its own editing once a
     // goal is underway). Same names and schemas, so the cached tool block and
     // the system prompt's Tools section are unchanged.
@@ -4220,6 +4252,11 @@ export class AgentSession {
     this.lastPersistedIndex = this.messages.length;
     await this.runLoop();
     return true;
+  }
+
+  /** This session's sub-agents (workers), newest-state, including ones restored after a restart. */
+  listSubAgents(): SubAgentSnapshot[] {
+    return this.subAgentManager?.list() ?? [];
   }
 
   /** Snapshot of background processes (bash run_in_background), newest-state. */

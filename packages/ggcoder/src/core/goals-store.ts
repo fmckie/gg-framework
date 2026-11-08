@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import type { AskUserResult } from "./ask-user.js";
+import type { AskQuestion, AskUserResult } from "./ask-user.js";
 import { encodeCwd } from "./encode-cwd.js";
 
 /**
@@ -21,6 +21,12 @@ export const GOAL_NAME_MAX = 15;
 const GOAL_NAME_STORED_MAX = 80;
 export const GOAL_TEXT_MAX = 2000;
 export const GOAL_CONTEXT_MAX = 20;
+/** Standing instructions the user gives a goal (rules that hold throughout). */
+export const GOAL_INSTRUCTIONS_MAX = 4000;
+/** The goal's memory file in its folder: decisions and preferences learned along the way. */
+export const GOAL_MEMORY_FILE = "MEMORY.md";
+/** How much of the memory file is loaded into Kleio Goals' brief. */
+export const GOAL_MEMORY_MAX = 16_000;
 
 const contextItemSchema = z.object({
   path: z.string().min(1),
@@ -40,6 +46,10 @@ const goalRecordSchema = z.object({
   startedAt: z.string().optional(),
   /** The model Kleio Goals' workers run on; absent: Kleio Goals' own. */
   critterModel: z.object({ provider: z.string().min(1), model: z.string().min(1) }).optional(),
+  /** Standing instructions: rules for the whole goal ("don't touch CI"). */
+  instructions: z.string().max(GOAL_INSTRUCTIONS_MAX).optional(),
+  /** Paused by the user: Kleio Goals stops at the next safe point and doesn't carry on by itself. */
+  pausedAt: z.string().optional(),
 });
 
 /** What the app sends to create a goal. Context kinds are re-derived on disk. */
@@ -51,7 +61,23 @@ export const createGoalInputSchema = z.object({
     .max(GOAL_NAME_MAX, `Keep the name to ${GOAL_NAME_MAX} characters`),
   goal: z.string().trim().min(1, "Describe the goal").max(GOAL_TEXT_MAX),
   context: z.array(z.string().min(1)).max(GOAL_CONTEXT_MAX).default([]),
+  instructions: z
+    .string()
+    .trim()
+    .max(GOAL_INSTRUCTIONS_MAX, `Keep instructions to ${GOAL_INSTRUCTIONS_MAX} characters`)
+    .optional(),
 });
+
+/** What the app sends to change a goal's context or instructions after it's created. */
+export const updateGoalInputSchema = z.object({
+  context: z.array(z.string().min(1)).max(GOAL_CONTEXT_MAX).optional(),
+  instructions: z
+    .string()
+    .trim()
+    .max(GOAL_INSTRUCTIONS_MAX, `Keep instructions to ${GOAL_INSTRUCTIONS_MAX} characters`)
+    .optional(),
+});
+export type UpdateGoalInput = z.input<typeof updateGoalInputSchema>;
 
 export type GoalContextItem = z.infer<typeof contextItemSchema>;
 export type GoalRecord = z.infer<typeof goalRecordSchema>;
@@ -155,7 +181,7 @@ export async function createGoal(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid goal" };
   }
-  const { name, goal, context } = parsed.data;
+  const { name, goal, context, instructions } = parsed.data;
   const resolved = await resolveContext(context);
   if (!resolved.ok) return resolved;
 
@@ -177,6 +203,7 @@ export async function createGoal(
       goal,
       context: resolved.value,
       createdAt: now.toISOString(),
+      ...(instructions ? { instructions } : {}),
     };
     await writeGoal(dir, record);
     return { ok: true, value: { dir, record } };
@@ -220,15 +247,49 @@ export function goalPhase(record: GoalRecord): GoalPhase {
   return record.startedAt ? "active" : "briefing";
 }
 
-/** True when an ask_user result is the user choosing to start the goal. */
-export function isGoalStartAnswer(result: AskUserResult): boolean {
+/**
+ * True when an ask_user result is the user choosing to start the goal. An
+ * answer comes back as the option's `value` when it has one, so pass the
+ * questions asked: an option labelled GOAL_START_OPTION counts by its value
+ * too (live bug: Kleio Goals gave it the value "start", the answer came back as
+ * "start", and the goal never started).
+ */
+export function isGoalStartAnswer(
+  result: AskUserResult,
+  questions: ReadonlyArray<AskQuestion> = [],
+): boolean {
   if (result.action !== "answer") return false;
   const wanted = GOAL_START_OPTION.toLowerCase();
-  return Object.values(result.answers).some((answer) =>
-    (Array.isArray(answer) ? answer : [answer]).some(
-      (value) => value.trim().toLowerCase() === wanted,
+  const startValues = new Set(
+    questions.flatMap((question) =>
+      (question.options ?? [])
+        .filter((option) => option.label.trim().toLowerCase() === wanted && option.value)
+        .map((option) => (option.value ?? "").trim().toLowerCase()),
     ),
   );
+  return Object.values(result.answers).some((answer) =>
+    (Array.isArray(answer) ? answer : [answer]).some((value) => {
+      const picked = value.trim().toLowerCase();
+      return picked === wanted || startValues.has(picked);
+    }),
+  );
+}
+
+/**
+ * Start the goal if `result` is the user choosing to, whether it came back
+ * while Kleio Goals was still waiting on its question or after the question's
+ * deadline passed (a late answer). Returns the started record, or null when
+ * the answer isn't the start option or the goal had already started.
+ */
+export async function startGoalOnAnswer(
+  dir: string,
+  record: GoalRecord,
+  result: AskUserResult,
+  now: Date,
+  questions: ReadonlyArray<AskQuestion> = [],
+): Promise<GoalRecord | null> {
+  if (record.startedAt || !isGoalStartAnswer(result, questions)) return null;
+  return markGoalStarted(dir, now);
 }
 
 /**
@@ -257,6 +318,68 @@ export async function markGoalStarted(dir: string, now: Date): Promise<GoalRecor
   const next: GoalRecord = { ...record, startedAt: now.toISOString() };
   await writeGoal(dir, next);
   return next;
+}
+
+/**
+ * Change a goal's attached context or standing instructions. Paths are
+ * re-resolved on disk like at creation; an empty instructions string clears
+ * them. Takes effect for the goal's next session (Kleio Goals' brief is fixed
+ * for a session, so its prompt cache holds).
+ */
+export async function updateGoal(
+  dir: string,
+  input: UpdateGoalInput,
+): Promise<GoalResult<GoalRecord>> {
+  const parsed = updateGoalInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid change" };
+  }
+  const record = await readGoal(dir);
+  if (!record) return { ok: false, error: "Goal not found" };
+  let next: GoalRecord = record;
+  if (parsed.data.context) {
+    const resolved = await resolveContext(parsed.data.context);
+    if (!resolved.ok) return resolved;
+    next = { ...next, context: resolved.value };
+  }
+  if (parsed.data.instructions !== undefined) {
+    const { instructions: _old, ...rest } = next;
+    next = parsed.data.instructions ? { ...rest, instructions: parsed.data.instructions } : rest;
+  }
+  await writeGoal(dir, next);
+  return { ok: true, value: next };
+}
+
+/** Pause a goal (true) or let it carry on (false). Returns the updated record, or null if missing. */
+export async function setGoalPaused(
+  dir: string,
+  paused: boolean,
+  now: Date,
+): Promise<GoalRecord | null> {
+  const record = await readGoal(dir);
+  if (!record) return null;
+  const { pausedAt: _was, ...rest } = record;
+  const next: GoalRecord = paused ? { ...rest, pausedAt: now.toISOString() } : rest;
+  await writeGoal(dir, next);
+  return next;
+}
+
+/**
+ * The goal's memory: what Kleio Goals has written down in its folder's
+ * MEMORY.md (decisions, the user's preferences and corrections, what's done
+ * and what's left). Empty when there's none yet. Long files are cut to
+ * GOAL_MEMORY_MAX, with a note, so the brief stays bounded.
+ */
+export async function readGoalMemory(dir: string): Promise<string> {
+  let text: string;
+  try {
+    text = await fs.readFile(path.join(dir, GOAL_MEMORY_FILE), "utf-8");
+  } catch {
+    return "";
+  }
+  const trimmed = text.trim();
+  if (trimmed.length <= GOAL_MEMORY_MAX) return trimmed;
+  return `${trimmed.slice(0, GOAL_MEMORY_MAX)}\n\n(Memory cut at ${GOAL_MEMORY_MAX} characters: keep ${GOAL_MEMORY_FILE} short, folding old entries into a summary.)`;
 }
 
 /**
@@ -299,11 +422,25 @@ export const GOAL_HOLD_OPTION = "Hang on, I want to discuss it more";
  * The coordinator's standing brief, appended to the system prompt of a session
  * whose cwd is a goal folder. Static for the goal's lifetime.
  */
-export function renderGoalPrompt(dir: string, record: GoalRecord): string {
+/** What Kleio Goals' brief carries besides the goal itself, read once per session. */
+export interface GoalBriefExtras {
+  /** The goal folder's MEMORY.md (see readGoalMemory); empty when there's none. */
+  memory?: string;
+  /** Each attached folder's instruction files (AGENTS.md, CLAUDE.md…), by folder. */
+  projectRules?: ReadonlyArray<{ readonly folder: string; readonly rules: readonly string[] }>;
+}
+
+export function renderGoalPrompt(
+  dir: string,
+  record: GoalRecord,
+  extras: GoalBriefExtras = {},
+): string {
   const context =
     record.context.length > 0
       ? record.context.map((item) => `- ${item.kind}: ${item.path}`).join("\n")
       : "- (none attached yet)";
+  const rules = (extras.projectRules ?? []).filter((entry) => entry.rules.length > 0);
+  const memoryPath = path.join(dir, GOAL_MEMORY_FILE);
   return [
     "# Goal",
     "",
@@ -312,10 +449,32 @@ export function renderGoalPrompt(dir: string, record: GoalRecord): string {
     "Goal:",
     record.goal,
     "",
-    "Context the user attached (folders are in your workspace; read files by path):",
+    "Context the user attached (folders are in your workspace and every worker's; read files by path and name them in the briefs of workers that need them):",
     context,
     "",
     `Goal folder (shared notes and artifacts for this goal): ${dir}`,
+    "",
+    ...(record.instructions
+      ? [
+          "## Standing instructions from the user",
+          "They hold for the whole goal and override your own defaults.",
+          record.instructions,
+          "",
+        ]
+      : []),
+    ...rules.flatMap((entry) => [
+      `## Project rules: ${entry.folder}`,
+      "The instruction files of an attached project (nearest last). Follow them when you work there, and give a worker the parts that apply to its task.",
+      ...entry.rules,
+      "",
+    ]),
+    "## Goal memory",
+    `Your memory for this goal lives in ${memoryPath}. It's loaded here at the start of every session, so it's how you remember across sessions and app restarts.`,
+    extras.memory ? `Current memory:\n${extras.memory}` : "Nothing written yet.",
+    "- Write to it (create it the first time) when you learn something that should hold " +
+      "for the rest of the goal: a decision, the user's preferences and corrections, what " +
+      "is done and what is left. Update it in place; keep it short and current, not a log.",
+    "- Give a worker the parts of it that bear on its task in its brief.",
     "",
     "## Before the goal starts",
     "A goal begins with a short briefing, not with work. Until the user has chosen " +
@@ -325,21 +484,99 @@ export function renderGoalPrompt(dir: string, record: GoalRecord): string {
       "user warmly in a line, then acknowledge the goal in your own words so they can " +
       "see you understood it. Questions come after that, never first.",
     "- Look at the attached context and say briefly what you found that matters.",
-    "- If something you need is missing or unclear (success criteria, scope, constraints, " +
-      "access, which repo owns what), ask about it. Ask only what you cannot find out " +
-      "yourself, a few questions at a time, and use `ask_user` when the answers are choices.",
-    "- When you have what you need, say in two or three lines how you would approach it, " +
-      "then ask with `ask_user` (kind `choice`, one question) whether to start, with exactly " +
-      `these option labels and no custom values: "${GOAL_START_OPTION}" (recommended) and ` +
-      `"${GOAL_HOLD_OPTION}".`,
+    "- Once the goal starts the user may walk away until it's done, so ask now for " +
+      "everything the work will need from them: choices only they can make, preferences " +
+      "that change the result, access or credentials. Questions after the start should be " +
+      "rare.",
+    "- Ask only what changes the outcome and that you can't find out yourself. Decide " +
+      "small details yourself (formatting, file names, wording, sensible defaults) and say " +
+      "them in your plan instead of asking. If nothing is unclear, ask nothing but the " +
+      "start question.",
+    "- Then say in two or three lines how you would approach it, and ask with one " +
+      "`ask_user` call: your questions first (choices where you can), then last, whether " +
+      `to start (kind \`choice\`), with exactly these option labels and no custom values: ` +
+      `"${GOAL_START_OPTION}" (recommended) and "${GOAL_HOLD_OPTION}". One card, so the ` +
+      "user answers once. Only if an answer could change the plan a lot, ask those first " +
+      "and the start question after.",
     "- If they want to discuss more, keep talking it through and ask the same question " +
       "again when it is settled.",
     "",
     "## Once the goal has started",
-    "Your team does the work. Right after the user starts the goal, split it into " +
-      "independent tasks and start their workers in one spawn_agent call (cwd: the attached " +
-      "folder each one works in). Then wait_agent for reports, follow up, verify, and keep " +
-      "the user informed about what is happening and what needs them.",
+    "Start the work right after the user starts the goal. Do it yourself unless it " +
+      "splits into big independent parts; for those, start their workers together in one " +
+      "spawn_agent call (cwd: the attached folder each one works in) and handle each as " +
+      'soon as it reports (wait_agent, condition "any"). Keep the user informed about ' +
+      "what is happening and what needs them.",
+    "- When the work is done, write what was done and what's left to your memory.",
+  ].join("\n");
+}
+
+/** What Kleio Goals is told when the user changes the goal's settings mid-session. */
+export function goalSettingsNote(record: GoalRecord): string {
+  const context =
+    record.context.length > 0
+      ? record.context.map((item) => `- ${item.kind}: ${item.path}`).join("\n")
+      : "- (none)";
+  return [
+    "The user changed this goal's settings. These replace what your brief says:",
+    `Standing instructions: ${record.instructions ?? "(none)"}`,
+    "Attached context:",
+    context,
+  ].join("\n");
+}
+
+/**
+ * Whether a started goal was cut off mid-work and should pick itself back up
+ * when its session opens again: it isn't paused, and either a worker was
+ * interrupted by the restart or Kleio Goals' own last turn never finished (its
+ * last message is a tool call, or a tool result or message with no reply
+ * after it).
+ */
+export function goalWasInterrupted(
+  record: GoalRecord,
+  messages: ReadonlyArray<{ role: string; content?: unknown }>,
+  workers: ReadonlyArray<{ state: string; recovered?: boolean }>,
+): boolean {
+  if (record.pausedAt) return false;
+  // Still briefing: only its first reply can be cut off (the window closed
+  // or switched away mid-question), which leaves the user with no question
+  // to answer and the goal stuck. Started: anything mid-work counts too.
+  if (!record.startedAt && !record.kickoffAt) return false;
+  if (workers.some((w) => w.recovered && w.state === "interrupted")) return true;
+  const last = [...messages].reverse().find((m) => m.role !== "system");
+  if (!last) return false;
+  // A tool result or a message with no reply after it: the turn never finished.
+  if (last.role === "tool" || last.role === "user") return true;
+  if (last.role !== "assistant" || !Array.isArray(last.content)) return false;
+  return last.content.some(
+    (part: unknown) =>
+      typeof part === "object" && part !== null && (part as { type?: string }).type === "tool_call",
+  );
+}
+
+/**
+ * The note behind Kleio Goals' first run after the goal was interrupted (the
+ * app closed or crashed mid-work): workers don't survive a restart, so it
+ * checks what got done and carries on with the rest. Cut off mid-briefing,
+ * it asks its question again instead.
+ */
+export function goalResumePrompt(record: GoalRecord): string {
+  if (!record.startedAt) {
+    return [
+      `The briefing for the goal "${record.name}" was cut off before the user could ` +
+        "answer your question.",
+      "Ask it again now, in one ask_user card: what you still need (if anything) and " +
+        "whether to start. Don't repeat your greeting or what you already found; one short " +
+        "line before the card is enough.",
+    ].join("\n");
+  }
+  return [
+    `The app was closed while you were working on the goal "${record.name}", so any ` +
+      "workers you had running were stopped.",
+    "Pick it up where it left off: check what is already done (your memory, the files " +
+      "themselves, and this conversation), then carry on with what's left, the same way " +
+      "as before. Don't redo finished work, and don't ask the user anything you could " +
+      "check yourself. Start with one short line saying you're picking it back up.",
   ].join("\n");
 }
 
@@ -350,8 +587,11 @@ export function goalKickoffPrompt(record: GoalRecord): string {
     "Start the briefing described in your Goal instructions, in this order:",
     "1. Before any tool call, write a short message: greet the user, then say the goal " +
       "back in your own words.",
-    "2. Read the attached context if there is any, and say briefly what matters in it.",
-    "3. Ask about anything you need that is missing. If nothing is, ask whether to start.",
+    "2. Look through the attached context if there is any, with read, ls and find only " +
+      "(bash, edit and write stay locked until the user starts the goal), and say briefly " +
+      "what matters in it.",
+    "3. Say how you'd approach it, and in one ask_user card ask what you still need " +
+      "(if anything) and whether to start.",
     "Do not start the work itself in this reply.",
   ].join("\n");
 }

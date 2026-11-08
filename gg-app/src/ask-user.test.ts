@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   answerAskItem,
   appendPendingAsks,
+  askItemFor,
   askNotificationText,
+  closeAsksNotIn,
   closeSettledAsk,
   firstOpenAskId,
   isAskUserPrompt,
+  parseOpenAskPrompts,
+  withOpenAsks,
   type AskQuestion,
   type AskUserPrompt,
 } from "./ask-user";
@@ -180,5 +184,56 @@ describe("askNotificationText", () => {
       askNotificationText({ id: "a", questions: [{ id: "x", kind: "confirm", question: "Go?" }] })
         .body,
     ).toBe("Yes · No");
+  });
+});
+
+describe("closeAsksNotIn", () => {
+  it("closes cards the sidecar can no longer answer, and keeps live ones", () => {
+    // Live bug: after a daemon restart a goal's "Start the goal now" card stayed
+    // up; clicking it reached no one, and the goal never started.
+    const ask = (id: string, extra: Partial<{ sent: boolean }> = {}) => ({
+      kind: "ask",
+      prompt: { id, questions: [] },
+      ...extra,
+    });
+    const items = [ask("dead"), ask("live"), ask("done", { sent: true }), { kind: "user" }];
+    const next = closeAsksNotIn(items, ["live"]);
+    expect(next[0]).toMatchObject({ cancelled: true });
+    expect(next[1]).toBe(items[1]);
+    expect(next[2]).toBe(items[2]);
+    expect(closeAsksNotIn(items.slice(1), ["live"])).toEqual(items.slice(1));
+  });
+});
+
+describe("withOpenAsks", () => {
+  it("puts back cards for questions the agent still waits on", () => {
+    // Live bug: a reload rebuilt the transcript from history, which keeps the
+    // tool call but not the card, so Kleio Goals sat waiting on a question
+    // nobody could see.
+    const open = parseOpenAskPrompts([
+      { prompt: { id: "ask-1", questions: [q("tool")] }, deferred: false },
+      { prompt: { id: "ask-0", questions: [q("old")] }, deferred: true },
+      { prompt: { id: "bad" }, deferred: false },
+      "junk",
+    ]);
+    expect(open.map((a) => a.prompt.id)).toEqual(["ask-1", "ask-0"]);
+
+    let id = 100;
+    const items: Array<{ kind: string; id: number; prompt?: unknown }> = [
+      { kind: "user", id: 1 },
+      { kind: "ask", id: 2, prompt: { id: "ask-0", questions: [q("old")] } },
+    ];
+    const next = withOpenAsks(items, open, (ask) => askItemFor(ask, ++id));
+    expect(next.slice(0, 2)).toEqual(items);
+    expect(next[2]).toEqual({ kind: "ask", id: 101, prompt: open[0]?.prompt });
+    expect(next).toHaveLength(3);
+    // Nothing missing: the same items, nothing added.
+    expect(withOpenAsks(next, open, (ask) => askItemFor(ask, ++id))).toEqual(next);
+    expect(askItemFor({ prompt: { id: "x", questions: [q("a")] }, deferred: true }, 7)).toEqual({
+      kind: "ask",
+      id: 7,
+      prompt: { id: "x", questions: [q("a")] },
+      deferred: true,
+    });
   });
 });

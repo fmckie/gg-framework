@@ -12,6 +12,7 @@ import {
   goalKickoffPrompt,
   goalPhase,
   isGoalStartAnswer,
+  startGoalOnAnswer,
   markGoalStarted,
   setGoalCritterModel,
   goalSlug,
@@ -19,7 +20,14 @@ import {
   listGoals,
   markGoalKickoff,
   readGoal,
+  readGoalMemory,
   renderGoalPrompt,
+  goalWasInterrupted,
+  goalResumePrompt,
+  setGoalPaused,
+  updateGoal,
+  GOAL_MEMORY_FILE,
+  GOAL_MEMORY_MAX,
 } from "./goals-store.js";
 
 const NOW = new Date("2026-10-10T12:00:00.000Z");
@@ -157,12 +165,54 @@ describe("goals store", () => {
       }),
     ).toBe(true);
     expect(isGoalStartAnswer({ action: "answer", answers: { q: GOAL_HOLD_OPTION } })).toBe(false);
+    // Live run: Kleio Goals gave the start option a value, and the answer came back as it.
+    const asked = [
+      {
+        id: "start",
+        question: "Ready to begin?",
+        kind: "choice" as const,
+        options: [
+          { label: GOAL_START_OPTION, value: "start" },
+          { label: GOAL_HOLD_OPTION, value: "discuss" },
+        ],
+      },
+    ];
+    expect(isGoalStartAnswer({ action: "answer", answers: { start: "start" } }, asked)).toBe(true);
+    expect(isGoalStartAnswer({ action: "answer", answers: { start: "discuss" } }, asked)).toBe(
+      false,
+    );
+    expect(isGoalStartAnswer({ action: "answer", answers: { start: "start" } })).toBe(false);
     expect(isGoalStartAnswer({ action: "cancel" })).toBe(false);
 
     const started = await markGoalStarted(created.value.dir, NOW);
     expect(started && goalPhase(started)).toBe("active");
     expect(await markGoalStarted(created.value.dir, NOW)).toBeNull();
     expect((await readGoal(created.value.dir))?.startedAt).toBe(NOW.toISOString());
+  });
+
+  it("starts a goal from a start answer that arrives after the question's deadline", async () => {
+    // Regression: past ask_user's soft deadline the answer comes back as a
+    // late answer (only its answers, no "answer" action), which never
+    // started the goal, leaving Kleio Goals unable to hand out any work.
+    const created = await createGoal(root, { name: "Late", goal: "g" }, NOW);
+    if (!created.ok) throw new Error(created.error);
+    const { dir, record } = created.value;
+    const late = { answers: { start: [GOAL_START_OPTION] } };
+
+    expect(
+      await startGoalOnAnswer(
+        dir,
+        record,
+        { action: "answer", answers: { q: GOAL_HOLD_OPTION } },
+        NOW,
+      ),
+    ).toBeNull();
+    const started = await startGoalOnAnswer(dir, record, { action: "answer", ...late }, NOW);
+    expect(started && goalPhase(started)).toBe("active");
+    expect((await readGoal(dir))?.startedAt).toBe(NOW.toISOString());
+    // Once started, a second start answer changes nothing.
+    if (!started) throw new Error("expected the goal to start");
+    expect(await startGoalOnAnswer(dir, started, { action: "answer", ...late }, NOW)).toBeNull();
   });
 
   it("pins and clears the workers' model on the goal", async () => {
@@ -217,6 +267,101 @@ describe("goals store", () => {
     expect(goalKickoffPrompt(created.value.record)).toContain("Brief");
   });
 
+  it("keeps standing instructions, and lets context and instructions change later", async () => {
+    const ctxDir = path.join(tmp, "site");
+    const other = path.join(tmp, "docs");
+    await fs.mkdir(ctxDir);
+    await fs.mkdir(other);
+    const created = await createGoal(
+      root,
+      { name: "Rules", goal: "g", context: [ctxDir], instructions: "Don't touch CI." },
+      NOW,
+    );
+    if (!created.ok) throw new Error(created.error);
+    expect(created.value.record.instructions).toBe("Don't touch CI.");
+    expect(renderGoalPrompt(created.value.dir, created.value.record)).toContain(
+      "## Standing instructions from the user\nThey hold for the whole goal and override your own defaults.\nDon't touch CI.",
+    );
+
+    // Attach another folder and change the rules after creating it.
+    const updated = await updateGoal(created.value.dir, {
+      context: [ctxDir, other],
+      instructions: "Ask before deleting anything.",
+    });
+    if (!updated.ok) throw new Error(updated.error);
+    expect(updated.value.context.map((c) => c.path)).toEqual([ctxDir, other]);
+    expect((await readGoal(created.value.dir))?.instructions).toBe("Ask before deleting anything.");
+    // An empty string clears them; a missing path is refused, nothing written.
+    const cleared = await updateGoal(created.value.dir, { instructions: "" });
+    expect(cleared.ok && cleared.value.instructions).toBeUndefined();
+    const bad = await updateGoal(created.value.dir, { context: [path.join(tmp, "gone")] });
+    expect(bad.ok).toBe(false);
+    expect((await readGoal(created.value.dir))?.context).toHaveLength(2);
+  });
+
+  it("carries the goal's memory and its projects' rules in the brief", async () => {
+    const created = await createGoal(root, { name: "Mem", goal: "g" }, NOW);
+    if (!created.ok) throw new Error(created.error);
+    const { dir, record } = created.value;
+    // No memory yet: the brief says where to keep it.
+    expect(await readGoalMemory(dir)).toBe("");
+    expect(renderGoalPrompt(dir, record)).toContain(`${path.join(dir, GOAL_MEMORY_FILE)}`);
+    expect(renderGoalPrompt(dir, record)).toContain("Nothing written yet.");
+
+    await fs.writeFile(path.join(dir, GOAL_MEMORY_FILE), "- The user wants plain HTML.\n");
+    const memory = await readGoalMemory(dir);
+    const brief = renderGoalPrompt(dir, record, {
+      memory,
+      projectRules: [
+        { folder: "/p/site", rules: ["### AGENTS.md\n\nRun npm test before you finish."] },
+      ],
+    });
+    expect(brief).toContain("Current memory:\n- The user wants plain HTML.");
+    expect(brief).toContain("## Project rules: /p/site");
+    expect(brief).toContain("Run npm test before you finish.");
+
+    // A long memory is cut, with a note to keep it short.
+    await fs.writeFile(path.join(dir, GOAL_MEMORY_FILE), "x".repeat(GOAL_MEMORY_MAX + 500));
+    const long = await readGoalMemory(dir);
+    expect(long.length).toBeLessThan(GOAL_MEMORY_MAX + 200);
+    expect(long).toContain("keep MEMORY.md short");
+  });
+
+  it("knows when a started goal was cut off mid-work, and not when it's paused or idle", async () => {
+    const created = await createGoal(root, { name: "Cut", goal: "g" }, NOW);
+    if (!created.ok) throw new Error(created.error);
+    const started = await markGoalStarted(created.value.dir, NOW);
+    if (!started) throw new Error("not started");
+    const toolCall = { role: "assistant", content: [{ type: "tool_call", id: "1", name: "bash" }] };
+    const replied = { role: "assistant", content: [{ type: "text", text: "Done." }] };
+    // Kleio Goals' own turn stopped mid-tool: resume.
+    expect(goalWasInterrupted(started, [toolCall], [])).toBe(true);
+    expect(goalWasInterrupted(started, [toolCall, { role: "tool" }], [])).toBe(true);
+    // A message it never got to answer.
+    expect(goalWasInterrupted(started, [replied, { role: "user", content: "go" }], [])).toBe(true);
+    // A worker the restart stopped: resume.
+    expect(
+      goalWasInterrupted(started, [replied], [{ state: "interrupted", recovered: true }]),
+    ).toBe(true);
+    // Finished cleanly, still briefing, or paused: nothing to resume.
+    expect(goalWasInterrupted(started, [replied], [{ state: "completed", recovered: true }])).toBe(
+      false,
+    );
+    // Still briefing and never kicked off: nothing to resume.
+    expect(goalWasInterrupted(created.value.record, [toolCall], [])).toBe(false);
+    // Briefing, its question cut off when the window switched away (live
+    // run, "Page load"): resume, and ask again rather than carry on working.
+    const briefing = { ...created.value.record, kickoffAt: NOW.toISOString() };
+    expect(goalWasInterrupted(briefing, [toolCall, { role: "tool" }], [])).toBe(true);
+    expect(goalWasInterrupted(briefing, [replied], [])).toBe(false);
+    expect(goalResumePrompt(briefing)).toMatch(/Ask it again now, in one ask_user card/);
+    const paused = await setGoalPaused(created.value.dir, true, NOW);
+    if (!paused) throw new Error("not paused");
+    expect(goalWasInterrupted(paused, [toolCall], [])).toBe(false);
+    expect((await setGoalPaused(created.value.dir, false, NOW))?.pausedAt).toBeUndefined();
+    expect(goalResumePrompt(started)).toMatch(/Don't redo finished work/);
+  });
+
   it("briefs before working and ends on a start question ask_user accepts", async () => {
     const created = await createGoal(root, { name: "Gate", goal: "g" }, NOW);
     if (!created.ok) throw new Error(created.error);
@@ -224,6 +369,15 @@ describe("goals store", () => {
     expect(brief).toContain(`"${GOAL_START_OPTION}"`);
     expect(brief).toContain(`"${GOAL_HOLD_OPTION}"`);
     expect(goalKickoffPrompt(created.value.record)).toContain("Do not start the work");
+    // Everything the work needs is asked up front, in one card with the start
+    // question, so the goal can then run while the user is away.
+    expect(brief).toMatch(/the user may walk away until it's done, so ask now/);
+    expect(brief).toMatch(/Decide small details yourself/);
+    expect(brief).toMatch(/One card, so the user answers once/);
+    // Live run: its first look was a bash command, refused during the briefing.
+    expect(goalKickoffPrompt(created.value.record)).toMatch(
+      /with read, ls and find only \(bash, edit and write stay locked/,
+    );
 
     // Neither label may trip ask_user's "defers back to the user" guard.
     const asked: unknown[] = [];

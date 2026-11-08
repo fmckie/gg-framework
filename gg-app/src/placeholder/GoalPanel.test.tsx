@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { GoalStateInfo, ModelOption } from "../agent";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { updateGoal, type GoalStateInfo, type ModelOption } from "../agent";
+import type { Item } from "../transcript-item";
 import { GoalPanel } from "./GoalPanel";
+
+vi.mock("../agent", () => ({ updateGoal: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const GOAL: GoalStateInfo = {
   id: "api-latency",
@@ -16,7 +20,17 @@ const MODELS: ModelOption[] = [
   { id: "gpt-6", name: "GPT-6", provider: "openai" },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+const base = {
+  view: "workers" as const,
+  onViewChange: vi.fn(),
+  models: MODELS,
+  onSelectWorkerModel: vi.fn(),
+};
 
 describe("GoalPanel", () => {
   it("switches between the chat and the workers once the goal is underway", () => {
@@ -80,5 +94,92 @@ describe("GoalPanel", () => {
     );
     fireEvent.change(select, { target: { value: "" } });
     expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("counts the workers and tasks, and pauses a running goal", () => {
+    const onPauseChange = vi.fn();
+    render(
+      <GoalPanel
+        {...base}
+        goal={GOAL}
+        running
+        onPauseChange={onPauseChange}
+        groups={[
+          {
+            id: 1,
+            agents: [
+              { toolCallId: "a", status: "running", activities: [], toolUseCount: 0 },
+              { toolCallId: "b", status: "done", activities: [], toolUseCount: 0 },
+              { toolCallId: "c", status: "error", activities: [], toolUseCount: 0 },
+            ],
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("1 working · 1 done · 1 failed");
+    fireEvent.click(screen.getByRole("button", { name: "Pause the goal" }));
+    expect(onPauseChange).toHaveBeenCalledWith(true);
+  });
+
+  it("offers to resume a paused goal, and to carry on a stopped one", () => {
+    const onPauseChange = vi.fn();
+    const { rerender } = render(
+      <GoalPanel {...base} goal={{ ...GOAL, paused: true }} onPauseChange={onPauseChange} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resume the goal" }));
+    expect(onPauseChange).toHaveBeenLastCalledWith(false);
+    rerender(<GoalPanel {...base} goal={GOAL} onPauseChange={onPauseChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "Not running. Carry the goal on" }));
+    expect(onPauseChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("says what the coordinator is waiting on over the Workers view, until the chat is seen", () => {
+    const onViewChange = vi.fn();
+    const items = [
+      {
+        kind: "ask",
+        id: 3,
+        prompt: {
+          id: "ask-1",
+          questions: [
+            { id: "q", kind: "confirm", question: "Ship it?" },
+            { id: "r", kind: "confirm", question: "Tag it?" },
+          ],
+        },
+      },
+    ] as unknown as Item[];
+    const { rerender } = render(
+      <GoalPanel {...base} goal={GOAL} items={items} onViewChange={onViewChange} />,
+    );
+    expect(screen.getByText("Ship it?")).toBeTruthy();
+    expect(screen.getByText(/And 1 more question/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Answer in Chat" }));
+    expect(onViewChange).toHaveBeenCalledWith("chat");
+
+    rerender(<GoalPanel {...base} view="chat" goal={GOAL} items={items} />);
+    rerender(<GoalPanel {...base} goal={GOAL} items={items} />);
+    expect(screen.queryByText("Ship it?")).toBeNull();
+  });
+
+  it("saves changed instructions, and holds changes while the goal works", async () => {
+    vi.mocked(updateGoal).mockResolvedValue({ context: [], instructions: "Keep URLs." });
+    const onSaved = vi.fn();
+    const { rerender } = render(
+      <GoalPanel {...base} goal={{ ...GOAL, instructions: "" }} running onSaved={onSaved} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Goal settings" }));
+    expect(screen.getByText(/Pause it to change its settings/)).toBeTruthy();
+    expect((screen.getByLabelText(/Instructions/) as HTMLTextAreaElement).disabled).toBe(true);
+
+    rerender(<GoalPanel {...base} goal={{ ...GOAL, instructions: "" }} onSaved={onSaved} />);
+    const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/Instructions/), { target: { value: " Keep URLs. " } });
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith({ context: [], instructions: "Keep URLs." }),
+    );
+    expect(updateGoal).toHaveBeenCalledWith({ context: [], instructions: "Keep URLs." });
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 });

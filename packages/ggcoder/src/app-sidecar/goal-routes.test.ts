@@ -4,9 +4,9 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import type http from "node:http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGoal, goalsRoot, readGoal } from "../core/goals-store.js";
+import { createGoal, goalsRoot, markGoalStarted, readGoal } from "../core/goals-store.js";
 import { RunClaim } from "../core/run-claim.js";
-import { handleGoalRoutes } from "./goal-routes.js";
+import { goalListStatus, handleGoalRoutes } from "./goal-routes.js";
 import type { SessionRouteContext } from "./route-context.js";
 
 interface Reply {
@@ -43,7 +43,7 @@ describe("goal kickoff route", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  async function goalContext(messages: unknown[] = []) {
+  async function goalContext(messages: unknown[] = [], workers: unknown[] = []) {
     const created = await createGoal(
       goalsRoot(tmp),
       { name: "Perf", goal: "Make it fast" },
@@ -54,7 +54,14 @@ describe("goal kickoff route", () => {
     const runAgent = vi.fn(async (_label: string, run: () => Promise<void>) => run());
     const ctx = {
       goal: created.value,
-      session: { getMessages: () => messages, prompt },
+      session: {
+        getMessages: () => messages,
+        prompt,
+        listSubAgents: () => workers,
+        addDirectory: vi.fn(async (root: string) => ({ ok: true as const, root })),
+        notify: vi.fn(),
+      },
+      broadcast: vi.fn(),
       running: false,
       autopilotActive: false,
       runClaim: new RunClaim(),
@@ -62,6 +69,7 @@ describe("goal kickoff route", () => {
       paths: { agentDir: tmp, sessionsDir: path.join(tmp, "sessions") },
       sessionId: "me",
       sessionIdsAt: vi.fn((_cwd: string): string[] => []),
+      busyAt: vi.fn((_cwd: string): boolean => false),
     };
     return { ctx, dir: created.value.dir, prompt, runAgent };
   }
@@ -121,6 +129,95 @@ describe("goal kickoff route", () => {
     ctx.runClaim.claim();
     expect(await kickoff(ctx)).toEqual({ status: 409, body: { error: "The agent is busy" } });
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  function call(ctx: object, url: string, body?: unknown): Promise<Reply> {
+    const { res, reply } = fakeResponse();
+    const req = Readable.from(body === undefined ? [] : [Buffer.from(JSON.stringify(body))]);
+    expect(
+      handleGoalRoutes(
+        ctx as SessionRouteContext,
+        req as unknown as http.IncomingMessage,
+        res,
+        url,
+        "POST",
+      ),
+    ).toBe(true);
+    return reply;
+  }
+
+  it("changes a goal's folders and instructions, and joins new folders to the workspace", async () => {
+    const { ctx, dir } = await goalContext();
+    const site = path.join(tmp, "site");
+    await fs.mkdir(site);
+    const reply = await call(ctx, "/goal/update", { context: [site], instructions: "No CI." });
+    expect(reply).toEqual({
+      status: 200,
+      body: { context: [{ path: site, kind: "folder" }], instructions: "No CI." },
+    });
+    expect(ctx.session.addDirectory).toHaveBeenCalledWith(site);
+    // Kleio Goals hears about it at its next turn, not only next session.
+    expect(ctx.session.notify).toHaveBeenCalledWith(
+      "goal-settings",
+      expect.stringContaining("Standing instructions: No CI."),
+    );
+    expect((await readGoal(dir))?.instructions).toBe("No CI.");
+    // Not mid-run: a folder could be detached under a working worker.
+    ctx.running = true;
+    expect((await call(ctx, "/goal/update", { instructions: "x" })).status).toBe(409);
+  });
+
+  it("pauses a goal, and resumes it with a hidden run that carries on", async () => {
+    const { ctx, dir, prompt } = await goalContext();
+    await markGoalStarted(dir, new Date());
+    ctx.goal = { dir, record: (await readGoal(dir))! };
+    expect((await call(ctx, "/goal/pause")).body).toMatchObject({ paused: true });
+    expect((await readGoal(dir))?.pausedAt).toBeTypeOf("string");
+
+    expect(await call(ctx, "/goal/resume")).toEqual({ status: 202, body: { resumed: true } });
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce());
+    expect(prompt).toHaveBeenCalledWith(expect.stringContaining("Pick it up where it left off"), {
+      source: "runtime",
+      kind: "automation",
+      visibility: "hidden",
+    });
+    expect((await readGoal(dir))?.pausedAt).toBeUndefined();
+  });
+
+  it("resumes a goal cut off by a restart, and leaves a finished one alone", async () => {
+    // A worker the restart interrupted: carry on.
+    const cut = await goalContext([], [{ state: "interrupted", recovered: true }]);
+    await markGoalStarted(cut.dir, new Date());
+    cut.ctx.goal = { dir: cut.dir, record: (await readGoal(cut.dir))! };
+    expect((await call(cut.ctx, "/goal/resume")).body).toEqual({ resumed: true });
+    await vi.waitFor(() => expect(cut.prompt).toHaveBeenCalledOnce());
+
+    // Everything finished cleanly: nothing to do.
+    const done = await goalContext(
+      [{ role: "assistant", content: [{ type: "text", text: "Done." }] }],
+      [{ state: "completed", recovered: true }],
+    );
+    await markGoalStarted(done.dir, new Date());
+    done.ctx.goal = { dir: done.dir, record: (await readGoal(done.dir))! };
+    expect(await call(done.ctx, "/goal/resume")).toEqual({ status: 200, body: { resumed: false } });
+    expect(done.prompt).not.toHaveBeenCalled();
+  });
+
+  it("tells the goal list where each goal stands: briefing, running, paused or idle", async () => {
+    const { dir } = await goalContext();
+    const record = (await readGoal(dir))!;
+    expect(goalListStatus(record, false)).toBe("briefing");
+    expect(goalListStatus(record, true)).toBe("running");
+    const started = { ...record, startedAt: "2026-10-10T00:00:00.000Z" };
+    expect(goalListStatus(started, false)).toBe("idle");
+    expect(goalListStatus(started, true)).toBe("running");
+    // Paused wins, even while its last turn winds down.
+    const paused = { ...started, pausedAt: "2026-10-10T01:00:00.000Z" };
+    expect(goalListStatus(paused, true)).toBe("paused");
+    // Not working, its last turn never finished: interrupted. Busy wins.
+    expect(goalListStatus(started, false, true)).toBe("interrupted");
+    expect(goalListStatus(started, true, true)).toBe("running");
+    expect(goalListStatus(paused, false, true)).toBe("paused");
   });
 
   it("is a 404 outside a goal window", async () => {

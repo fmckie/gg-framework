@@ -20,6 +20,37 @@ import { json } from "./http.js";
 import type { SessionRouteContext } from "./route-context.js";
 import type http from "node:http";
 
+/**
+ * The restored worker rows for one delegation call, as the transcript shows
+ * them on reopen (`resultIsError`: null when no result was saved). Async
+ * workers are intentionally non-resumable; restored rows are historical.
+ */
+export function restoredWorkerRows(
+  call: { readonly name: string; readonly args: Record<string, unknown> },
+  resultIsError: boolean | null,
+): Array<{ agentName: string | undefined; status: "done" | "error"; toolUseCount: number }> {
+  const status = resultIsError ? ("error" as const) : ("done" as const);
+  if (call.name === "spawn_agent") {
+    // A refused call started no worker (live bug: a spawn blocked during a
+    // goal's briefing came back after a restart as "3 critters didn't make
+    // it back").
+    if (resultIsError) return [];
+    // One row per child: a batch call starts several.
+    return spawnedTasks(call.args).map((spawn) => ({
+      agentName: spawn.task_name ?? spawn.agent,
+      status,
+      toolUseCount: 0,
+    }));
+  }
+  return [
+    {
+      agentName: typeof call.args.agent === "string" ? call.args.agent : undefined,
+      status,
+      toolUseCount: 0,
+    },
+  ];
+}
+
 export function handleHistoryRoutes(
   ctx: SessionRouteContext,
   req: http.IncomingMessage,
@@ -349,31 +380,16 @@ export function handleHistoryRoutes(
               } => c.type === "tool_call" && (c.name === "subagent" || c.name === "spawn_agent"),
             );
             if (subagentCalls.length > 0) {
-              const agents = subagentCalls.flatMap((c) => {
-                const result = toolResultMap.get(c.id);
-                // Async workers are intentionally non-resumable; restored rows are historical.
-                const status = result?.isError ? ("error" as const) : ("done" as const);
-                if (c.name === "spawn_agent") {
-                  // One row per child: a batch call starts several.
-                  return spawnedTasks(c.args).map((spawn) => ({
-                    agentName: spawn.task_name ?? spawn.agent,
-                    status,
-                    toolUseCount: 0,
-                  }));
-                }
-                return [
-                  {
-                    agentName: typeof c.args?.agent === "string" ? c.args.agent : undefined,
-                    status,
-                    toolUseCount: 0,
-                  },
-                ];
-              });
-              history.push({
-                role: "assistant",
-                text: "",
-                subagentGroup: agents,
-              });
+              const agents = subagentCalls.flatMap((c) =>
+                restoredWorkerRows(c, toolResultMap.get(c.id)?.isError ?? null),
+              );
+              if (agents.length > 0) {
+                history.push({
+                  role: "assistant",
+                  text: "",
+                  subagentGroup: agents,
+                });
+              }
             }
           }
         },

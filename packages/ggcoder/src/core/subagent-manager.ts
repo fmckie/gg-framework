@@ -9,6 +9,7 @@ import { mcpServersForAgent, type AgentDefinition } from "./agents.js";
 import { SubAgentStore, type PersistedSubAgentRecord } from "./subagent-store.js";
 import { SessionManager } from "./session-manager.js";
 import { log } from "./logger.js";
+import { withContextFiles } from "./context-files.js";
 import type { AgentNotificationQueue } from "./agent-notifications.js";
 import type { AcceptanceCheck } from "./acceptance-checks.js";
 import {
@@ -81,6 +82,17 @@ export interface SubAgentManagerOptions {
    * one of them; anything else is refused. Read at spawn time.
    */
   getWorkspaceRoots?: () => readonly string[];
+  /**
+   * Start each child with those roots too (less its own folder), so it can
+   * read and change all of them, not just the folder it works in.
+   */
+  shareWorkspaceRoots?: boolean;
+  /**
+   * The agent a child is when the spawn names none. Unset, such a child runs
+   * with no agent prompt and the full tool set (Kleio Coder's default). Kleio Goals
+   * sets its builder, so no worker ever runs outside its team's rules.
+   */
+  defaultAgent?: string;
   agents: AgentDefinition[];
   getProvider: () => Provider;
   getModel: () => string;
@@ -205,6 +217,11 @@ export class SubAgentManager {
   private persistScheduled = false;
 
   /** Agent definitions `spawn` resolves names against — the delegation roster. */
+  /** The agent a child is when its spawn names none (see SubAgentManagerOptions.defaultAgent). */
+  get defaultAgent(): string | undefined {
+    return this.options.defaultAgent;
+  }
+
   get agents(): readonly AgentDefinition[] {
     return this.options.agents;
   }
@@ -402,9 +419,12 @@ export class SubAgentManager {
       checks?: readonly AcceptanceCheck[];
       /** Folder the child works in; defaults to the parent's cwd. */
       cwd?: string;
+      /** Files the parent already read, handed over in the brief (see withContextFiles). */
+      contextFiles?: readonly string[];
     },
   ): Promise<SubAgentSnapshot> {
     this.assertAvailable();
+    agentName ??= this.options.defaultAgent;
     const childCwd = this.resolveChildCwd(overrides?.cwd);
     if (!taskName.trim()) throw new Error("task_name is required");
     if ([...this.workers.values()].some((worker) => worker.task_name === taskName)) {
@@ -486,6 +506,7 @@ export class SubAgentManager {
               ? undefined
               : parentModel,
           cwd: childCwd,
+          additionalRoots: this.sharedRoots(childCwd),
           baseUrl: this.options.getBaseUrl?.(),
           // Composed, not replaced — the child keeps its Tools section, project
           // context and Environment facts alongside its agent body.
@@ -517,7 +538,8 @@ export class SubAgentManager {
           : undefined;
       this.publish(record);
       await this.waitForPersistence();
-      await this.request(record, "start", { task, checks: overrides?.checks ?? [] });
+      const brief = await withContextFiles(task, overrides?.contextFiles ?? [], childCwd);
+      await this.request(record, "start", { task: brief, checks: overrides?.checks ?? [] });
       record.state = "running";
       record.updated_at = Date.now();
       this.publish(record);
@@ -764,6 +786,22 @@ export class SubAgentManager {
     return target;
   }
 
+  /**
+   * The parent's extra roots a child also gets (see shareWorkspaceRoots),
+   * less the folder it works in and any root that folder already covers.
+   * Undefined when the parent doesn't share them.
+   */
+  private sharedRoots(childCwd: string): string[] | undefined {
+    if (!this.options.shareWorkspaceRoots) return undefined;
+    const roots = (this.options.getWorkspaceRoots?.() ?? [])
+      .map((root) => path.resolve(root))
+      .filter((root) => {
+        const relative = path.relative(childCwd, root);
+        return relative.startsWith("..") || path.isAbsolute(relative);
+      });
+    return roots.length > 0 ? roots : undefined;
+  }
+
   private spawnWorkerProcess(cwd: string): ChildProcess {
     return spawn(
       process.execPath,
@@ -822,6 +860,7 @@ export class SubAgentManager {
           model,
           fallbackModel: model === parentModel ? undefined : parentModel,
           cwd: childCwd,
+          additionalRoots: this.sharedRoots(childCwd),
           baseUrl: this.options.getBaseUrl?.(),
           agentPrompt: agentDef?.systemPrompt,
           agentContext: agentDef?.context,

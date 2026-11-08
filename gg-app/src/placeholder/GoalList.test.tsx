@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   createGoal,
@@ -96,6 +96,35 @@ describe("GoalList", () => {
     expect(selectProjectMock).not.toHaveBeenCalled();
   });
 
+  it("shows which goals are running now or paused, and keeps that current", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderList([
+        { ...GOAL, id: "a", name: "Working", path: "/g/a", status: "running" },
+        { ...GOAL, id: "b", name: "Held", path: "/g/b", status: "paused" },
+        { ...GOAL, id: "c", name: "Fresh", path: "/g/c", status: "briefing" },
+        { ...GOAL, id: "d", name: "Cut off", path: "/g/d", status: "interrupted" },
+      ]);
+      expect(await screen.findByText("Running now")).toBeDefined();
+      expect(screen.getByText("Paused")).toBeDefined();
+      // Cut off mid-work (the app closed, or it was stopped): marked as such.
+      expect(screen.getByText("Interrupted")).toBeDefined();
+      // A goal not yet started, or finished, carries no label.
+      expect(screen.getAllByText(/Running now|Paused|Interrupted/)).toHaveLength(3);
+
+      // It finishes while the list is open: the label goes on the next refresh.
+      listGoalsMock.mockResolvedValue([
+        { ...GOAL, id: "a", name: "Working", path: "/g/a", status: "idle" },
+      ]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4100);
+      });
+      await waitFor(() => expect(screen.queryByText("Running now")).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("filters goals by name or objective", async () => {
     renderList([GOAL, { ...GOAL, id: "b", path: "/g/b", name: "Docs", goal: "Rewrite docs" }]);
     await screen.findByText("Docs");
@@ -134,7 +163,7 @@ describe("GoalList", () => {
     const create = screen.getByRole("button", { name: "Create goal" });
     expect((create as HTMLButtonElement).disabled).toBe(true);
     expect(
-      screen.getByPlaceholderText("Bring p95 latency under 200 ms across the whole API"),
+      screen.getByPlaceholderText("Get checkout loading under one second on mobile"),
     ).toBeDefined();
 
     const name = screen.getByLabelText("Name") as HTMLInputElement;
@@ -145,6 +174,19 @@ describe("GoalList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add folders" }));
     expect(await screen.findByText("api")).toBeDefined();
     expect(openDialogMock).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
+    // Every attached item can be removed, and the count shows against the limit.
+    openDialogMock.mockResolvedValue(["/specs/a.pdf", "/specs/b.pdf"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add files" }));
+    expect(await screen.findByText("b.pdf")).toBeDefined();
+    expect(screen.getByText("(3 of 20)")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Remove a.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove b.pdf" }));
+    expect(screen.queryByText("a.pdf")).toBeNull();
+    expect(screen.getByText("(1 of 20)")).toBeDefined();
+    // Standing instructions, optional: rules for the whole goal.
+    fireEvent.change(screen.getByLabelText(/Instructions/), {
+      target: { value: "  Don't touch CI.  " },
+    });
 
     fireEvent.click(create);
 
@@ -153,6 +195,7 @@ describe("GoalList", () => {
       name: "API latency",
       goal: GOAL.goal,
       context: ["/repos/api"],
+      instructions: "Don't touch CI.",
     });
     expect(selectProjectMock).toHaveBeenCalledWith(created.path);
   });

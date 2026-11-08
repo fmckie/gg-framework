@@ -48,6 +48,8 @@ function manager(
     model?: string;
     getThinkingLevel?: () => ThinkingLevel | undefined;
     workspaceRoots?: string[];
+    shareWorkspaceRoots?: boolean;
+    defaultAgent?: string;
     childModel?: { provider: Provider; model: string };
   } = {},
 ) {
@@ -55,6 +57,8 @@ function manager(
     notifications: options.notifications,
     cwd: options.cwd ?? process.cwd(),
     getWorkspaceRoots: () => options.workspaceRoots ?? [],
+    shareWorkspaceRoots: options.shareWorkspaceRoots,
+    defaultAgent: options.defaultAgent,
     getChildModel: () => options.childModel,
     agents: options.agentDefs ?? agents,
     getProvider: () => options.provider ?? "openai",
@@ -136,6 +140,54 @@ describe("SubAgentManager", () => {
     // No cwd: the parent's own folder, and nothing recorded.
     const plain = await instance.spawn("plain", "x");
     expect(plain.cwd).toBeUndefined();
+  });
+
+  it("gives a child the parent's other roots too when they're shared, less its own folder", async () => {
+    // Kleio Goals' workers reach every attached folder, not only the one they work in.
+    const home = await tempDir();
+    const site = await tempDir();
+    const docs = await tempDir();
+    const optionsOf = async (share: boolean): Promise<Record<string, unknown>> => {
+      const instance = manager({
+        cwd: home,
+        workspaceRoots: [site, docs],
+        shareWorkspaceRoots: share,
+      });
+      const requestSpy = vi.spyOn(
+        instance as unknown as { request: (...args: unknown[]) => Promise<unknown> },
+        "request",
+      );
+      await instance.spawn("w", "x", undefined, { cwd: site });
+      const call = requestSpy.mock.calls.find(([, command]) => command === "initialize");
+      return (call?.[2] as { options: Record<string, unknown> }).options;
+    };
+    expect((await optionsOf(true)).additionalRoots).toEqual([path.resolve(docs)]);
+    // Not shared (Kleio Coder): the child gets only its own folder, as before.
+    expect((await optionsOf(false)).additionalRoots).toBeUndefined();
+  });
+
+  it("starts a child that names no agent as the default agent, when there is one", async () => {
+    // Live run: Kleio Goals left out `agent` and the worker ran with Kleio Coder's
+    // generic prompt instead of its team's rules.
+    const spawnAs = async (defaultAgent?: string): Promise<Record<string, unknown>> => {
+      const instance = manager({ defaultAgent });
+      const requestSpy = vi.spyOn(
+        instance as unknown as { request: (...args: unknown[]) => Promise<unknown> },
+        "request",
+      );
+      const started = await instance.spawn("w", "x");
+      const call = requestSpy.mock.calls.find(([, command]) => command === "initialize");
+      return {
+        ...(call?.[2] as { options: Record<string, unknown> }).options,
+        name: started.agent_name,
+      };
+    };
+    const named = await spawnAs("fake");
+    expect(named.name).toBe("fake");
+    expect(named.agentPrompt).toBe("fake");
+    const plain = await spawnAs(undefined);
+    expect(plain.name).toBeUndefined();
+    expect(plain.agentPrompt).toBeUndefined();
   });
 
   it("applies explicit spawn overrides for harness-owned children", async () => {
