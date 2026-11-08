@@ -90,11 +90,17 @@ export function inside(root: string, target: string): boolean {
     (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
   );
 }
-/** Existing paths only; checking their real paths rejects symlink escapes. */
+/**
+ * Existing paths only; checking their real paths rejects symlink escapes. A path is read
+ * against the workspace as it was named (so `/tmp/x/file` works for a workspace named
+ * `/tmp/x` although macOS keeps it at `/private/tmp/x`) and checked again by real path.
+ */
 export async function motionPath(root: string, input: string): Promise<string> {
   const base = await fs.realpath(root);
-  const requested = path.resolve(base, input);
-  if (!inside(base, requested)) throw new Error("Motion path escapes its workspace");
+  const named = path.resolve(root);
+  const requested = path.resolve(named, input);
+  if (!inside(named, requested) && !inside(base, requested))
+    throw new Error("Motion path escapes its workspace");
   const real = await fs.realpath(requested);
   if (!inside(base, real)) throw new Error("Motion symlink escapes its workspace");
   return real;
