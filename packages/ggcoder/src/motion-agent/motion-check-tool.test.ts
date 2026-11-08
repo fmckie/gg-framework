@@ -125,6 +125,7 @@ type CheckInput = {
   output?: string;
   spot?: boolean;
   project?: string;
+  holds?: string;
 };
 async function check(
   extra: CheckInput = {},
@@ -198,6 +199,8 @@ describe("Motion single-pass output check", { timeout: MEDIA_TEST_MS }, () => {
       "--json",
       "--contrast",
       "--at-transitions",
+      // The 24 fps export: transition samples are moved onto frames it actually contains.
+      "--frame-rate=24",
     ]);
     expect(await fs.readFile(path.join(root, "renders", "video.mp4"))).toEqual(before);
     expect(summary(result).checks.some((item) => item.name === "Audio levels")).toBe(false);
@@ -397,6 +400,23 @@ describe("Motion single-pass output check", { timeout: MEDIA_TEST_MS }, () => {
     await fs.writeFile(path.join(root, "project", "index.html"), "<div>edited</div>");
     expect(summary(await check(input, {}, tool)).technical).toBe(true);
     expect(await sourceCheckCalls()).toBe(3);
+  });
+  it("reuses a passing source check after only the hold plan changed", async () => {
+    await fs.mkdir(path.join(root, "project"));
+    await fs.writeFile(path.join(root, "project", "index.html"), "<div>fixture</div>");
+    await fs.writeFile(path.join(root, "project", "holds.json"), "[]");
+    await render();
+    const tool = createMotionCheckTool(root, bundle);
+    const input = { project: "project", holds: "project/holds.json" };
+    await check(input, {}, tool);
+    expect(await sourceCheckCalls()).toBe(1);
+    await fs.writeFile(
+      path.join(root, "project", "holds.json"),
+      JSON.stringify([{ start: 1.5, end: 2 }]),
+    );
+    const again = await check(input, {}, tool);
+    expect(details(again, "Runtime/layout/contrast (includes lint)")).toMatch(/^Reused: /);
+    expect(await sourceCheckCalls()).toBe(1);
   });
   it("does not reuse a failing source check", async () => {
     await fs.mkdir(path.join(root, "project"));

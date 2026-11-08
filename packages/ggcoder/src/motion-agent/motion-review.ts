@@ -147,16 +147,21 @@ export async function readMotionText(
   }
 }
 
-/** Source/media fingerprint; output/QA folders are never composition inputs. */
+/**
+ * Source/media fingerprint; output/QA folders are never composition inputs. `ignored` names
+ * further files the composition never reads (e.g. a check's hold plan).
+ */
 export async function motionSourceHash(
   project: string,
   output: string,
   signal?: AbortSignal,
+  ignored: readonly string[] = [],
 ): Promise<string> {
   const root = await fs.realpath(project);
-  const excludedOutput = path.resolve(
-    root,
-    path.relative(path.resolve(project), path.resolve(output)),
+  const excluded = new Set(
+    [output, ...ignored].map((file) =>
+      path.resolve(root, path.relative(path.resolve(project), path.resolve(file))),
+    ),
   );
   const hash = createHash("sha256");
   let count = 0;
@@ -181,7 +186,7 @@ export async function motionSourceHash(
       )
         continue;
       const file = path.join(dir, entry.name);
-      if (file === excludedOutput) continue;
+      if (excluded.has(file)) continue;
       if (entry.isSymbolicLink())
         throw new Error("Motion source symlinks require local copies for review");
       if (entry.isDirectory()) await walk(file, depth + 1);

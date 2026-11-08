@@ -28,6 +28,18 @@ describe("Motion artifact/source identity", () => {
     await fs.unlink(path.join(tmp, "audio.wav"));
     expect(await motionSourceHash(tmp, output)).toBe(changed);
   });
+  it("ignores only the files it is told the composition never reads", async () => {
+    await fs.writeFile(path.join(tmp, "index.html"), "first");
+    await fs.writeFile(path.join(tmp, "holds.json"), "[]");
+    const output = path.join(tmp, "video.mp4");
+    const holds = path.join(tmp, "holds.json");
+    const original = await motionSourceHash(tmp, output, undefined, [holds]);
+    await fs.writeFile(holds, '[{"start":9,"end":10}]');
+    expect(await motionSourceHash(tmp, output, undefined, [holds])).toBe(original);
+    expect(await motionSourceHash(tmp, output)).not.toBe(original);
+    await fs.writeFile(path.join(tmp, "index.html"), "second");
+    expect(await motionSourceHash(tmp, output, undefined, [holds])).not.toBe(original);
+  });
   it("rejects path escapes and oversized brief data", async () => {
     await expect(motionPath(tmp, "../")).rejects.toThrow("escapes");
     await fs.writeFile(path.join(tmp, "frame.md"), "x".repeat(100));

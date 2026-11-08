@@ -1,0 +1,72 @@
+diff --git a/dist/cli.js b/dist/cli.js
+index b9641758454a5ac3d5e836edb66357ba62aece58..3d5a919b605d1870450c7d00e148cf9c5997a331 100755
+--- a/dist/cli.js
++++ b/dist/cli.js
+@@ -169916,20 +169916,29 @@ function gateSampleTimes(duration, seeks, fallback) {
+   const fractions = seeks && seeks.length > 0 ? seeks : [fallback];
+   return mergeSampleTimes(fractions.map((fraction) => fraction * duration));
+ }
++function snapToRenderedFrames(times, duration, frameRate) {
++  if (frameRate === void 0 || !Number.isFinite(duration) || duration <= 0) return times;
++  const lastFrame = Math.max(0, Math.ceil(duration * frameRate - 1e-6) - 1);
++  return mergeSampleTimes(
++    times.map((time) => Math.min(Math.max(0, Math.round(time * frameRate)), lastFrame) / frameRate)
++  );
++}
+ async function buildSampleGrid(driver, options) {
+   const duration = await driver.getDuration();
+-  const baseSamples = buildLayoutSampleTimes({
++  const snap = (times) => snapToRenderedFrames(times, duration, options.frameRate);
++  const baseSamples = snap(buildLayoutSampleTimes({
+     duration,
+     samples: options.samples,
+     at: options.at
+-  });
++  }));
+   const transitions = options.atTransitions ? buildTransitionSampleTimes({
+     duration,
+     boundaries: await driver.getTransitionBoundaries(),
+     cap: options.maxTransitionSamples
+   }) : { times: [], dropped: 0 };
+-  const captionSamples = options.captionZone ? gateSampleTimes(duration, options.captionZone.seek, 1) : [];
+-  const frameSamples = options.frameCheck ? gateSampleTimes(duration, options.frameCheck.seek, 0.5) : [];
++  transitions.times = snap(transitions.times);
++  const captionSamples = snap(options.captionZone ? gateSampleTimes(duration, options.captionZone.seek, 1) : []);
++  const frameSamples = snap(options.frameCheck ? gateSampleTimes(duration, options.frameCheck.seek, 0.5) : []);
+   const auditSamples = mergeSampleTimes(baseSamples, transitions.times);
+   const layoutSamples = mergeSampleTimes(auditSamples, captionSamples, frameSamples);
+   if (layoutSamples.length === 0) {
+@@ -171037,6 +171046,7 @@ function parseCheckOptions(args) {
+     at: parseAt(args.at),
+     atTransitions: args["at-transitions"] === true,
+     maxTransitionSamples: maxTransitionSamples > 0 ? maxTransitionSamples : void 0,
++    frameRate: parseCheckFrameRate(args["frame-rate"]),
+     maxIssues: positiveInteger2(args["max-issues"], DEFAULT_CHECK_OPTIONS.maxIssues),
+     collapseStatic: args["collapse-static"] !== false,
+     tolerance: nonNegativeNumber(args.tolerance, DEFAULT_CHECK_OPTIONS.tolerance),
+@@ -171201,6 +171211,14 @@ function captionZoneError() {
+     'Invalid --caption-zone; use "x0=0;y0=.82;x1=1;y1=1[;severity=warning|error][;seek=.5,1]" with fractions from 0 to 1.'
+   );
+ }
++function parseCheckFrameRate(value) {
++  if (value === void 0 || value === null || value === false) return void 0;
++  const parsed = Number(String(value));
++  if (!Number.isFinite(parsed) || parsed < 1 || parsed > 240) {
++    throw new Error(`--frame-rate must be a number of frames per second from 1 to 240, got "${value}"`);
++  }
++  return parsed;
++}
+ function positiveInteger2(value, fallback) {
+   const parsed = parseInt(String(value ?? ""), 10);
+   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+@@ -171348,6 +171366,10 @@ var init_check = __esm({
+         type: "string",
+         description: "Optional cap on transition-derived samples; when it truncates, the omitted count is reported (default: unlimited)"
+       },
++      "frame-rate": {
++        type: "string",
++        description: "Frames per second of the render: move every sample onto the nearest rendered frame (from 0 to the last frame) so the audit checks only states the video shows"
++      },
+       "max-issues": {
+         type: "string",
+         description: "Maximum issues to print or return after static collapse (default: 80)",
