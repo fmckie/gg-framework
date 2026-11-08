@@ -261,6 +261,30 @@ describe("goal kickoff route", () => {
     expect((await readGoal(path.join(goalsRoot(tmp), "docs")))?.instructions).toBe("No CI.");
   });
 
+  it("refuses a paid model for the workers, and pins a standard one", async () => {
+    const { ctx, dir } = await goalContext();
+    const withAuth = { ...ctx, auth: { hasProviderAuth: vi.fn(async () => true) } };
+    const pin = async (model: string): Promise<Reply> => {
+      const { res, reply } = fakeResponse();
+      handleGoalRoutes(
+        withAuth as unknown as SessionRouteContext,
+        Readable.from([Buffer.from(JSON.stringify({ model }))]) as unknown as http.IncomingMessage,
+        res,
+        "/goal/critter-model",
+        "POST",
+      );
+      return reply;
+    };
+    // Workers run in parallel and unwatched: real-money spend would multiply.
+    const refused = await pin("claude-opus-5-5-fast");
+    expect(refused.status).toBe(400);
+    expect((refused.body as { error: string }).error).toContain("only for your main chat");
+    expect((await readGoal(dir))?.critterModel).toBeUndefined();
+
+    expect((await pin("claude-sonnet-5-5")).status).toBe(200);
+    expect((await readGoal(dir))?.critterModel?.model).toBe("claude-sonnet-5-5");
+  });
+
   it("is a 404 outside a goal window", async () => {
     const { ctx } = await goalContext();
     expect(await kickoff({ ...ctx, goal: null })).toEqual({

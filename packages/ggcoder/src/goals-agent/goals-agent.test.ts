@@ -357,6 +357,16 @@ describe("Kleio Goals agent", () => {
     expect(GOALS_SYSTEM_PROMPT).toMatch(/write the summary once, complete/);
   });
 
+  it("never runs workers on a paid tier, even one saved before the refusal", async () => {
+    const g = await goal();
+    expect(
+      goalCritterPick({
+        ...g.record,
+        critterModel: { provider: "anthropic", model: "claude-opus-5-5-fast" },
+      }),
+    ).toEqual({ provider: "anthropic", model: "claude-opus-5-5" });
+  });
+
   it("uses the goal's critter model only while it still names a real model", async () => {
     const g = await goal();
     expect(goalCritterPick(g.record)).toBeUndefined();

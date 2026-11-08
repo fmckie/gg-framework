@@ -18,6 +18,17 @@ const GOAL: GoalStateInfo = {
 const MODELS: ModelOption[] = [
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic" },
   { id: "gpt-6", name: "GPT-6", provider: "openai" },
+  {
+    id: "claude-opus-5-5-fast",
+    name: "Claude Opus 5.5 Fast",
+    provider: "anthropic",
+    billing: {
+      label: "bills usage credits",
+      detail: "",
+      paid: true,
+      standardModel: "claude-opus-5-5",
+    },
+  },
 ];
 
 afterEach(() => {
@@ -80,6 +91,8 @@ describe("GoalPanel", () => {
     );
     const select = screen.getByLabelText("Workers' model") as HTMLSelectElement;
     expect(select.value).toBe("");
+    // Paid tiers are only for the main chat.
+    expect(screen.queryByRole("option", { name: "Claude Opus 5.5 Fast" })).toBeNull();
     fireEvent.change(select, { target: { value: "gpt-6" } });
     expect(onSelect).toHaveBeenLastCalledWith("gpt-6");
 

@@ -343,11 +343,14 @@ export function GoalPanel({
           {current && !models.some((m) => m.id === current) && (
             <option value={current}>{current}</option>
           )}
-          {models.map((model) => (
-            <option key={`${model.provider}:${model.id}`} value={model.id}>
-              {model.name}
-            </option>
-          ))}
+          {/* Workers run in parallel and unwatched: the sidecar refuses paid tiers. */}
+          {models
+            .filter((model) => model.billing?.paid !== true)
+            .map((model) => (
+              <option key={`${model.provider}:${model.id}`} value={model.id}>
+                {model.name}
+              </option>
+            ))}
         </select>
       </div>
       {status && view === "workers" && (
