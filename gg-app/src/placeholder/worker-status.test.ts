@@ -67,6 +67,22 @@ describe("goal agents", () => {
     expect(idle && goalAgentStateLabel(idle)).toBe("Idle");
   });
 
+  it("keeps the coordinator with its last work between tool calls", () => {
+    const base = { running: true, waitingOnUser: false, workers: [] };
+    expect(collectGoalAgents({ ...base, liveTools: [] })[0]).toMatchObject({
+      kind: "think",
+      detail: "Planning",
+    });
+    expect(collectGoalAgents({ ...base, liveTools: [tool({ name: "read" })] })[0]).toMatchObject({
+      kind: "read",
+      detail: "Planning",
+    });
+    // An answered question doesn't keep it waiting on the user.
+    expect(collectGoalAgents({ ...base, liveTools: [tool({ name: "ask_user" })] })[0]?.kind).toBe(
+      "think",
+    );
+  });
+
   it("maps orchestration tools to orchestration work", () => {
     expect(coordinatorKind("spawn_agent")).toBe("delegate");
     expect(coordinatorKind("wait_agent")).toBe("wait");

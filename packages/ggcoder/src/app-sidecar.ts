@@ -168,7 +168,7 @@ import {
   loadGoalBriefExtras,
 } from "./goals-agent/goals-agent.js";
 import { handleWorkspaceRoutes } from "./app-sidecar/workspace-routes.js";
-import { readGitState } from "./app-sidecar/git-target.js";
+import { readGitState, resolveGitCwd } from "./app-sidecar/git-target.js";
 import { handleProjectFolderRoutes } from "./app-sidecar/project-folder-routes.js";
 import { handleHistoryRoutes } from "./app-sidecar/history-routes.js";
 import { handlePromptRoutes } from "./app-sidecar/prompt-routes.js";
@@ -1378,15 +1378,18 @@ async function createSession(
   }
 
   // Workspace extras (context window, git status, background tasks). Git state
-  // is resolved once at startup and refreshed after every run; the context
-  // window follows the active model.
-  const initialGit = await readGitState(cwd);
+  // is resolved at startup and refreshed after every run; the context window
+  // follows the active model. A Goal window reads git from its attached
+  // project folder, not the goal folder (see resolveGitCwd), and re-targets
+  // when the goal's folders change (`retargetGit`).
+  let gitCwd = await resolveGitCwd(cwd, goal?.record ?? null);
+  const initialGit = await readGitState(gitCwd);
   let gitBranch: string | null = initialGit.branch;
   let gitIsRepo: boolean = initialGit.isRepo;
   let gitDirtyFileCount = initialGit.dirtyFileCount;
   // Open issue/PR counts for the origin repo's GitHub slug, via the `gh` CLI's
   // auth. null = unknown (gh missing/unauthed, non-GitHub origin) → chips hidden.
-  const gitHubSlug: string | null = initialGit.gitHubSlug;
+  let gitHubSlug: string | null = initialGit.gitHubSlug;
   let gitHubIssues: number | null = null;
   let gitHubPRs: number | null = null;
   let gitHubCI: GitHubCI | null = null;
@@ -2104,9 +2107,9 @@ async function createSession(
       // A run may have switched branches, changed files, or spawned/finished
       // background tasks. Refresh the workspace extras once it settles.
       [gitBranch, gitIsRepo, gitDirtyFileCount] = await Promise.all([
-        getGitBranch(cwd).catch(() => gitBranch),
-        isGitRepo(cwd).catch(() => gitIsRepo),
-        getGitDirtyFileCount(cwd).catch(() => gitDirtyFileCount),
+        getGitBranch(gitCwd).catch(() => gitBranch),
+        isGitRepo(gitCwd).catch(() => gitIsRepo),
+        getGitDirtyFileCount(gitCwd).catch(() => gitDirtyFileCount),
       ]);
       // A run may have opened/closed issues or PRs — refresh fire-and-forget so
       // teardown isn't delayed by the network. Broadcasts itself on change.
@@ -2452,7 +2455,7 @@ async function createSession(
   const scheduleGitPoll = (delay: number): void => {
     if (gitPollStopped) return;
     gitPoll = setTimeout(() => {
-      void getGitDirtyFileCount(cwd)
+      void getGitDirtyFileCount(gitCwd)
         .catch(() => gitDirtyFileCount)
         .then((nextDirtyFileCount) => {
           if (gitPollStopped) return;
@@ -2470,7 +2473,7 @@ async function createSession(
   // show "not a repo" until the next run. Read again in the background with
   // more time; window creation doesn't wait for it.
   if (!initialGit.settled) {
-    readGitState(cwd, { timeoutMs: SLOW_GIT_READ_TIMEOUT_MS })
+    readGitState(gitCwd, { timeoutMs: SLOW_GIT_READ_TIMEOUT_MS })
       .then((state) => {
         if (gitPollStopped) return;
         gitBranch = state.branch;
@@ -2498,10 +2501,38 @@ async function createSession(
     gitHubPoll.unref?.();
   };
   scheduleGitHubPoll(2000);
-  const ciPoll = startGitHubCIPoll(cwd, (next) => {
-    gitHubCI = next;
+  const watchCI = (dir: string) =>
+    startGitHubCIPoll(dir, (next) => {
+      gitHubCI = next;
+      broadcast("extras", footerExtras());
+    });
+  let ciPoll = watchCI(gitCwd);
+  let gitTargetGeneration = 0;
+  /**
+   * A goal's attached folders changed: point the titlebar's git state at the
+   * new project folder. No-op when the target is unchanged; a newer call or
+   * teardown supersedes one still reading git.
+   */
+  async function retargetGit(): Promise<void> {
+    const generation = ++gitTargetGeneration;
+    const next = await resolveGitCwd(cwd, goal?.record ?? null);
+    if (generation !== gitTargetGeneration || gitPollStopped || next === gitCwd) return;
+    const state = await readGitState(next);
+    if (generation !== gitTargetGeneration || gitPollStopped) return;
+    ciPoll.stop();
+    gitCwd = next;
+    gitBranch = state.branch;
+    gitIsRepo = state.isRepo;
+    gitDirtyFileCount = state.dirtyFileCount;
+    gitHubSlug = state.gitHubSlug;
+    // The old repo's numbers don't apply; the new reads fill these in.
+    gitHubIssues = null;
+    gitHubPRs = null;
+    gitHubCI = null;
+    ciPoll = watchCI(gitCwd);
+    void refreshGitHubCounts();
     broadcast("extras", footerExtras());
-  });
+  }
 
   // OPTIONS/CORS preflight is handled at the daemon level before delegation.
   // This chat's tool images by ref (historyImageRef), as the last
@@ -2573,7 +2604,15 @@ async function createSession(
       return goal;
     },
     set goal(v) {
+      const foldersBefore = JSON.stringify(goal?.record.context ?? []);
       goal = v;
+      if (JSON.stringify(goal?.record.context ?? []) !== foldersBefore) {
+        retargetGit().catch((err: unknown) => {
+          log("WARN", "app-sidecar", "goal git retarget failed", {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
     },
     broadcast,
     loadWorkflowCommandSpecs,

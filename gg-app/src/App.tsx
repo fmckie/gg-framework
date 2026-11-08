@@ -84,7 +84,7 @@ import { KenActivityBar } from "./KenActivityBar";
 import { useTaskActivity } from "./useTaskActivity";
 import { useKenMentor } from "./useKenMentor";
 import { useAutopilot } from "./useAutopilot";
-import { useAgentEvents } from "./useAgentEvents";
+import { useAgentEvents, type RunEnd } from "./useAgentEvents";
 import { LiveToolPanel, type LiveToolEntry } from "./LiveToolPanel";
 import { loadModelsInto, ModelSelect } from "./ModelSelect";
 import {
@@ -879,6 +879,15 @@ function App(): React.ReactElement {
 
   const { windowIndex, windowTotal, isThisFocused } = useWindowOrder(inputRef);
 
+  // Every run of a started goal, for its finish card. The event hook reports
+  // each run as it ends; only a started goal's are kept (the newest 200).
+  const [goalRuns, setGoalRuns] = useState<readonly (RunEnd & { readonly goalId: string })[]>([]);
+  const goalRunTargetRef = useRef<string | null>(null);
+  const recordGoalRun = useCallback((run: RunEnd) => {
+    const goalId = goalRunTargetRef.current;
+    if (goalId) setGoalRuns((runs) => [...runs, { ...run, goalId }].slice(-200));
+  }, []);
+
   // A goal cut off by a daemon restart (found on reconnect) carries on, or
   // asks its briefing question again. The sidecar ignores it when nothing was
   // cut off or a run is already going.
@@ -930,6 +939,7 @@ function App(): React.ReactElement {
     pendingPlanTotalRef,
     stickToBottomRef,
     onGoalNeedsResume: resumeCutOffGoal,
+    onRunEnd: recordGoalRun,
   });
 
   // Run the connect/ready flow against the current sidecar and hydrate state,
@@ -2278,6 +2288,9 @@ function App(): React.ReactElement {
         : [],
     [activeGoalId, items],
   );
+  useEffect(() => {
+    goalRunTargetRef.current = activeGoalId;
+  }, [activeGoalId]);
   // The coordinator waits while a question is open on the user.
   const goalWaitingOnUser = useMemo(
     () => activeGoalId !== null && firstOpenAskId(items) !== null,
@@ -2743,6 +2756,7 @@ function App(): React.ReactElement {
             running={running}
             liveTools={liveToolFeed}
             transcriptEpoch={transcriptEpoch}
+            runs={goalRuns}
             onPauseChange={activeGoalId ? setGoalPaused : undefined}
             onSaved={(next) =>
               setState((s) => (s?.goal ? { ...s, goal: { ...s.goal, ...next } } : s))

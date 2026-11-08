@@ -34,6 +34,7 @@ import { toast } from "./toast";
 import { findCompletedSteps, countPlanSteps } from "./plan-steps";
 import type { PendingAttachment } from "./attachments";
 import type { Item } from "./App";
+import { lastIssuedId } from "./transcript-item";
 import { readChatError } from "./chat-error";
 
 /**
@@ -57,6 +58,18 @@ export interface ImagePreview {
   base64: string;
   mediaType: string;
   path?: string;
+}
+
+/** How one run ended, for whoever keeps score across runs (the goal finish card). */
+export interface RunEnd {
+  readonly startedAt: number;
+  readonly endedAt: number;
+  /** The newest transcript item id when the run began: later items are its. */
+  readonly fromItemId: number;
+  /** Model turns the run took. */
+  readonly turns: number;
+  readonly outputTokens: number;
+  readonly outcome: "done" | "unverified" | "failed" | "cancelled";
 }
 
 // Hook kind → notice copy + tone color, mirroring the TUI's app-items.ts.
@@ -136,6 +149,8 @@ export interface AgentEventsDeps {
   stickToBottomRef: MutableRefObject<boolean>;
   /** A (re)connect found this goal cut off mid-work or mid-question. */
   onGoalNeedsResume?: () => void;
+  /** A run ended (any outcome). */
+  onRunEnd?: (run: RunEnd) => void;
 }
 
 export interface AgentEvents {
@@ -181,6 +196,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
     pendingPlanTotalRef,
     stickToBottomRef,
     onGoalNeedsResume,
+    onRunEnd,
   } = deps;
 
   // ── Event-machine private refs (used nowhere outside this hook) ──
@@ -213,6 +229,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
   // flip the same row from shimmer → summary instead of pushing a new line.
   const compactionIdRef = useRef<number | null>(null);
   const runStartRef = useRef<number>(0);
+  const turnsRef = useRef<number>(0);
+  const runFromItemRef = useRef<number>(0);
 
   const tokensRef = useRef<number>(0);
   // Accumulated assistant text this run, for detecting [DONE:n] plan-step
@@ -600,7 +618,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           subagentGroupIdRef.current = null;
           compactionIdRef.current = null;
           runStartRef.current = Date.now();
-
+          runFromItemRef.current = lastIssuedId();
+          turnsRef.current = 0;
           tokensRef.current = 0;
           assistantTextRef.current = "";
           // Arming is per-run state on the sidecar; start every run streaming
@@ -826,6 +845,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           break;
         }
         case "turn_end": {
+          turnsRef.current += 1;
           const usage = d.usage as
             | {
                 inputTokens?: number;
@@ -942,6 +962,20 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // question the user can still answer and strand the agent until it
           // timed out ten minutes later.
           const runCancelled = d.cancelled === true;
+          onRunEnd?.({
+            startedAt: runStartRef.current || Date.now(),
+            endedAt: Date.now(),
+            fromItemId: runFromItemRef.current,
+            turns: turnsRef.current,
+            outputTokens: tokensRef.current,
+            outcome: runCancelled
+              ? "cancelled"
+              : d.failed === true
+                ? "failed"
+                : d.unverified === true
+                  ? "unverified"
+                  : "done",
+          });
           setItems((prev) =>
             prev.map((it) => {
               if (it.kind === "user" && it.queued) return { ...it, queued: false };
@@ -1475,6 +1509,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
       stickToBottomRef,
       openPlanReview,
       onGoalNeedsResume,
+      onRunEnd,
     ],
   );
 

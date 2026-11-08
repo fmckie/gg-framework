@@ -220,6 +220,22 @@ describe("goal kickoff route", () => {
     expect(goalListStatus(paused, false, true)).toBe("paused");
   });
 
+  it("keeps the standing instructions sent with a new goal", async () => {
+    const { ctx } = await goalContext();
+    const { res, reply } = fakeResponse();
+    const body = { name: "Docs", goal: "Write docs", context: [], instructions: "No CI." };
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]);
+    handleGoalRoutes(
+      ctx as unknown as SessionRouteContext,
+      req as unknown as http.IncomingMessage,
+      res,
+      "/goals",
+      "POST",
+    );
+    expect((await reply).status).toBe(200);
+    expect((await readGoal(path.join(goalsRoot(tmp), "docs")))?.instructions).toBe("No CI.");
+  });
+
   it("is a 404 outside a goal window", async () => {
     const { ctx } = await goalContext();
     expect(await kickoff({ ...ctx, goal: null })).toEqual({

@@ -264,7 +264,15 @@ function coordinator(input: GoalAgentsInput): GoalAgent {
     return { ...base, status: "idle", kind: null, detail: "Ready when you are" };
   }
   const current = [...input.liveTools].reverse().find((entry) => entry.status === "running");
-  if (!current) return { ...base, status: "working", kind: "think", detail: "Planning" };
+  if (!current) {
+    // Between tool calls the coordinator is thinking over what it just did,
+    // so it stays with that kind of work; only before its first tool, or once
+    // a question is answered, is it planning.
+    const last = input.liveTools[input.liveTools.length - 1];
+    const lastKind = last ? coordinatorKind(last.name) : null;
+    const kind = lastKind && lastKind !== "ask" ? lastKind : "think";
+    return { ...base, status: "working", kind, detail: "Planning" };
+  }
   return {
     ...base,
     status: "working",

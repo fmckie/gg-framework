@@ -1,8 +1,17 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { updateGoal, type GoalContextItem, type GoalStateInfo, type ModelOption } from "../agent";
 import type { LiveToolEntry } from "../LiveToolPanel";
 import type { Item } from "../transcript-item";
 import { GoalContextField, GoalInstructionsField, type ContextPick } from "./GoalForm";
+import { GoalFinish } from "./GoalFinish";
+import {
+  FINISH_SETTLE_MS,
+  goalFinishOf,
+  goalIsQuiet,
+  openStretch,
+  type GoalFinish as GoalFinishScore,
+  type GoalRun,
+} from "./goal-finish";
 import {
   EMPTY_TALLY,
   blockingAsk,
@@ -138,6 +147,7 @@ export function GoalPanel({
   running = false,
   liveTools = [],
   transcriptEpoch = 0,
+  runs = [],
   onPauseChange,
   onSaved,
 }: {
@@ -158,6 +168,8 @@ export function GoalPanel({
   liveTools?: readonly LiveToolEntry[];
   /** Bumped each time the transcript reloads: reloaded rows get new keys. */
   transcriptEpoch?: number;
+  /** Every run of this goal seen live, for the finish card. */
+  runs?: readonly GoalRun[];
   /** Pause (true) or resume (false); only for a started goal. */
   onPauseChange?: (paused: boolean) => void;
   /** After the settings were saved, with what the sidecar stored. */
@@ -172,11 +184,12 @@ export function GoalPanel({
   // starts afresh for each goal and each transcript reload (reloaded rows get
   // new keys, which would count every worker again).
   const tallySource = `${active ? goal.id : ""}:${transcriptEpoch}`;
+  const workers = useMemo(() => (active ? collectWorkers(groups) : []), [active, groups]);
   const tallyInput = useMemo(
     () =>
       active
         ? [
-            ...collectWorkers(groups).map((worker) => ({
+            ...workers.map((worker) => ({
               key: worker.key,
               phase: workerPhase(worker.status),
             })),
@@ -186,7 +199,7 @@ export function GoalPanel({
               : []),
           ]
         : [],
-    [active, groups, running, liveTools],
+    [active, workers, running, liveTools],
   );
   const [tallyState, setTallyState] = useState<{ source: string; tally: GoalTally }>({
     source: "",
@@ -219,6 +232,38 @@ export function GoalPanel({
     setSeenAsks((seen) => (seen.has(ask.id) ? seen : new Set([...seen, ask.id])));
   }, [ask, view]);
   const askNotice = view === "workers" && ask && !seenAsks.has(ask.id) ? ask : null;
+
+  // A stretch of work finished (nothing left going, and it stayed that way a
+  // moment): its score over the Workers view. It comes down when closed, when
+  // the user goes to the chat, or when work starts again. Only runs seen live
+  // count, so a reopened window shows none.
+  const [closedAt, setClosedAt] = useState(0);
+  const [finish, setFinish] = useState<GoalFinishScore | null>(null);
+  const stretch = useMemo(
+    () => (active ? openStretch(runs, goal.id, closedAt) : []),
+    [active, runs, goal.id, closedAt],
+  );
+  const quiet =
+    stretch.length > 0 &&
+    goalIsQuiet({ paused: goal.paused === true, running, waitingOnUser: needsAnswer, workers });
+  const groupsRef = useRef(groups);
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
+  useEffect(() => {
+    if (!quiet) return;
+    const timer = window.setTimeout(() => {
+      const last = stretch[stretch.length - 1];
+      if (last) setClosedAt(last.endedAt);
+      setFinish(goalFinishOf(stretch, groupsRef.current));
+    }, FINISH_SETTLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [quiet, stretch]);
+  useEffect(() => {
+    if (finish && (running || view === "chat")) setFinish(null);
+  }, [finish, running, view]);
+  const shownFinish =
+    view === "workers" && !askNotice && finish?.goalId === goal.id ? finish : null;
 
   return (
     <div>
@@ -300,6 +345,13 @@ export function GoalPanel({
             Answer in Chat
           </button>
         </div>
+      )}
+      {shownFinish && (
+        <GoalFinish
+          finish={shownFinish}
+          onShowChat={() => onViewChange("chat")}
+          onClose={() => setFinish(null)}
+        />
       )}
       {settingsOpen && (
         <div className="placeholder-bar">

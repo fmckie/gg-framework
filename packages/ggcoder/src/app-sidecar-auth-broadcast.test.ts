@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { execFileSync, spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -333,6 +333,34 @@ describe("a goal window reconnecting", () => {
     expect(ready?.data?.openAsks).toEqual([]);
     const state = await request("GET", "/state", { session });
     expect(state.json.goal).toMatchObject({ id: "speed", name: "Speed" });
+  });
+
+  it("shows the attached project's uncommitted files, not the goal folder's", async () => {
+    // Live bug: the goal window read git from its own folder in the agent
+    // directory, so the titlebar never showed what the agent had changed.
+    const project = path.join(tmpHome, "site");
+    await fs.mkdir(project, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: project });
+    await fs.writeFile(path.join(project, "a.txt"), "changed by the agent\n");
+    await fs.writeFile(path.join(project, "b.txt"), "and this\n");
+    const goalDir = path.join(tmpHome, ".gg", "goals", "site-speed");
+    await fs.mkdir(goalDir, { recursive: true });
+    await fs.writeFile(
+      path.join(goalDir, "goal.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "site-speed",
+        name: "Site speed",
+        goal: "Make it fast",
+        context: [{ path: project, kind: "folder" }],
+        createdAt: "2026-10-11T00:00:00.000Z",
+      }),
+    );
+    const created = await request("POST", "/session", { body: { mode: "code", cwd: goalDir } });
+    expect(created.status).toBe(200);
+    const state = await request("GET", "/state", { session: created.json.sessionId as string });
+    expect(state.json.isGitRepo).toBe(true);
+    expect(state.json.gitDirtyFileCount).toBe(2);
   });
 });
 

@@ -189,7 +189,7 @@ export function handleGoalRoutes(
       }
       const input =
         body && typeof body === "object"
-          ? (body as { name?: unknown; goal?: unknown; context?: unknown })
+          ? (body as { name?: unknown; goal?: unknown; context?: unknown; instructions?: unknown })
           : {};
       try {
         const created = await createGoal(
@@ -200,6 +200,7 @@ export function handleGoalRoutes(
             context: Array.isArray(input.context)
               ? input.context.filter((p): p is string => typeof p === "string")
               : [],
+            ...(typeof input.instructions === "string" ? { instructions: input.instructions } : {}),
           },
           new Date(),
         );

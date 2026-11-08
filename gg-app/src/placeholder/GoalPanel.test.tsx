@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { updateGoal, type GoalStateInfo, type ModelOption } from "../agent";
 import type { Item } from "../transcript-item";
 import { GoalPanel } from "./GoalPanel";
@@ -181,5 +181,34 @@ describe("GoalPanel", () => {
     );
     expect(updateGoal).toHaveBeenCalledWith({ context: [], instructions: "Keep URLs." });
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("shows the finish card once a stretch of work has gone quiet", async () => {
+    vi.useFakeTimers();
+    try {
+      const runs = [
+        {
+          goalId: GOAL.id,
+          startedAt: 1000,
+          endedAt: 5000,
+          fromItemId: 0,
+          turns: 4,
+          outputTokens: 900,
+          outcome: "done" as const,
+        },
+      ];
+      const { rerender } = render(<GoalPanel {...base} goal={GOAL} running runs={runs} />);
+      expect(screen.queryByRole("status", { name: "Job done" })).toBeNull();
+      rerender(<GoalPanel {...base} goal={GOAL} runs={runs} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect(screen.getByRole("status", { name: "Job done" })).toBeTruthy();
+      // Work starting again takes it down.
+      rerender(<GoalPanel {...base} goal={GOAL} running runs={runs} />);
+      expect(screen.queryByRole("status", { name: "Job done" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
