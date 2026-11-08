@@ -1,6 +1,5 @@
 import { json, readBody } from "./http.js";
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
-import { loadCustomCommands } from "../core/custom-commands.js";
 import { type AppAttachment, prepareAttachments } from "./attachments.js";
 import {
   isWorkflowCommandText,
@@ -53,7 +52,7 @@ export function handlePromptRoutes(
           source: "built-in" as const,
         },
       ];
-      const custom = (await loadCustomCommands(ctx.cwd))
+      const custom = (await ctx.session.loadCustomCommands())
         // A custom command can't shadow a built-in name or app action.
         .filter(
           (c) =>

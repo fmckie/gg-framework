@@ -1,5 +1,4 @@
 import { PROMPT_COMMANDS } from "../core/prompt-commands.js";
-import { loadCustomCommands } from "../core/custom-commands.js";
 import {
   restoreUserRow,
   normalizeKenTurnsForHistory,
@@ -75,7 +74,7 @@ export function handleHistoryRoutes(
     // sidecar side and extracting the path from the text block
     // ("Generated image → /path").
     void (async () => {
-      const commandCandidates = [...PROMPT_COMMANDS, ...(await loadCustomCommands(ctx.cwd))];
+      const commandCandidates = [...PROMPT_COMMANDS, ...(await ctx.session.loadCustomCommands())];
       const messages = ctx.session.getMessages();
 
       // An Ideal hook is injected immediately after the assistant's candidate

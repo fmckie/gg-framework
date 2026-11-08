@@ -1342,6 +1342,24 @@ function App(): React.ReactElement {
     });
   }
 
+  // Re-read the slash commands: each workspace root brings its own
+  // `.gg/commands` (a goal's attached repos, `/add-dir`). An answer from a
+  // superseded hydrate (project switch) is dropped.
+  const refreshCommands = useCallback((): void => {
+    const generation = hydrateGenerationRef.current;
+    void listCommands().then((cmds) => {
+      if (hydrateGenerationRef.current === generation && cmds.length > 0) setCommands(cmds);
+    });
+  }, []);
+  // Roots added or removed mid-session (they arrive with the footer extras).
+  const rootsKey = (state?.additionalRoots ?? []).join("\n");
+  const rootsSeenRef = useRef(rootsKey);
+  useEffect(() => {
+    if (!hydrated || rootsSeenRef.current === rootsKey) return;
+    rootsSeenRef.current = rootsKey;
+    refreshCommands();
+  }, [hydrated, rootsKey, refreshCommands]);
+
   // A Goal window's workers: the model they run on (null follows the coordinator).
   function onSelectCritterModel(modelId: string | null): void {
     const current = state?.goal?.critterModel ?? null;
@@ -2758,9 +2776,11 @@ function App(): React.ReactElement {
             transcriptEpoch={transcriptEpoch}
             runs={goalRuns}
             onPauseChange={activeGoalId ? setGoalPaused : undefined}
-            onSaved={(next) =>
-              setState((s) => (s?.goal ? { ...s, goal: { ...s.goal, ...next } } : s))
-            }
+            onSaved={(next) => {
+              setState((s) => (s?.goal ? { ...s, goal: { ...s.goal, ...next } } : s));
+              // Newly attached repos bring their own slash commands.
+              refreshCommands();
+            }}
           />
         </Suspense>
       )}

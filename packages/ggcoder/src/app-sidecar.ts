@@ -95,7 +95,6 @@ import { startGitHubCIPoll, type GitHubCI } from "./utils/github-ci.js";
 import { extractPlanSteps } from "./utils/plan-steps.js";
 import { getSupportedThinkingLevels, isThinkingLevelSupported } from "./core/thinking-level.js";
 import { PROMPT_COMMANDS } from "./core/prompt-commands.js";
-import { loadCustomCommands } from "./core/custom-commands.js";
 import {
   createRoutineRunner,
   createRoutineStore,
@@ -1826,12 +1825,12 @@ async function createSession(
     broadcast("plan_review", plan);
   }
 
-  // Workflow (prompt-template) commands: built-in + the project's custom
-  // `.gg/commands/*.md`. Used to gate autopilot off command turns and to label
+  // Workflow (prompt-template) commands: built-in + the custom
+  // `.gg/commands/*.md` of every workspace root (a goal's attached repos too). Used to gate autopilot off command turns and to label
   // expanded templates in Ken's digests. Loaded fresh so a newly added custom
   // command is picked up without a restart (mirrors GET /commands).
   async function loadWorkflowCommandSpecs(): Promise<WorkflowCommandSpec[]> {
-    const custom = await loadCustomCommands(cwd).catch(() => []);
+    const custom = await session.loadCustomCommands().catch(() => []);
     return [
       ...PROMPT_COMMANDS.map((c) => ({ name: c.name, aliases: c.aliases, prompt: c.prompt })),
       ...custom.map((c) => ({ name: c.name, aliases: [] as string[], prompt: c.prompt })),
