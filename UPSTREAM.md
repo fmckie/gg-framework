@@ -890,6 +890,8 @@ Local macOS checks, each compared with `main` at `bf328196`:
   desktop **0.102.2**), as for #77. The 9 later upstream commits, up to `f6b17fc5`, all
   follow the relicense and are not reviewed.
 - Branch: `sync/upstream-goals`, based on `main` at `7150a676`.
+- PR: [#78](https://github.com/fmckie/gg-framework/pull/78), opened as a draft on
+  2026-11-08
 - PR 4a of PR 4 in `.gg/plans/upstream-selective-import-phased.md`, re-planned as 4a (Goals)
   and 4b (motion) in `.gg/plans/upstream-pr4-goals-motion.md`. Its first commit, `14e1c85b`,
   records #77 as merged. Then `223830dc`'s ask-user slice (moved ahead, because `e98215da`
