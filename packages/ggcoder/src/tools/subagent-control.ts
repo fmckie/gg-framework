@@ -32,6 +32,11 @@ export function createSubAgentControlTools(
     task: z.string().min(1).describe("Standalone brief"),
     agent: agentParam,
     checks: AcceptanceChecksParam,
+    cwd: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Absolute folder to work in (a workspace root); default: yours"),
   });
   // A list, so one call starts every child: on models that send one tool call
   // per turn (GPT-6.x), a one-child-per-call shape cost a model turn per child
@@ -57,8 +62,11 @@ export function createSubAgentControlTools(
       // exceed ACTIVE_LIMIT or the per-model cap.
       const settled = await Promise.allSettled(
         args.tasks.map((t) =>
-          t.checks
-            ? manager.spawn(t.task_name, t.task, t.agent, { checks: t.checks })
+          t.checks || t.cwd
+            ? manager.spawn(t.task_name, t.task, t.agent, {
+                ...(t.checks && { checks: t.checks }),
+                ...(t.cwd && { cwd: t.cwd }),
+              })
             : manager.spawn(t.task_name, t.task, t.agent),
         ),
       );

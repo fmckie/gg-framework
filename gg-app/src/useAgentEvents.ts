@@ -1008,6 +1008,18 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
               : s,
           );
           break;
+        case "goal_state":
+          // The user started the goal: the window switches to its world view.
+          setState((s) => {
+            if (!s?.goal || s.goal.id !== d.id) return s;
+            const phase = d.phase === "active" || d.phase === "briefing" ? d.phase : s.goal.phase;
+            const critterModel =
+              typeof d.critterModel === "string" || d.critterModel === null
+                ? d.critterModel
+                : s.goal.critterModel;
+            return { ...s, goal: { ...s.goal, phase, critterModel } };
+          });
+          break;
         case "plan_mode":
           // Back in plan mode to revise a plan (no new "entering plan" banner).
           setState((s) => (s ? { ...s, planMode: d.active === true } : s));

@@ -107,6 +107,29 @@ describe("AgentSession built-in tool tiering", () => {
     }
   }, 20_000);
 
+  it("keeps a session's chosen built-ins in the core set, in their original order", async () => {
+    // Kleio Goals orchestrates: tools it relies on must not need a tool_search turn.
+    const plain = await createSession();
+    const kept = await createSession({ coreTools: ["web_fetch", "find"] });
+    try {
+      const before = liveToolNames(plain);
+      const after = liveToolNames(kept);
+      expect(before).not.toContain("web_fetch");
+      expect(before).not.toContain("find");
+      expect(after).toContain("web_fetch");
+      expect(after).toContain("find");
+      // Everything else is unchanged and keeps its relative order.
+      expect(after.filter((name) => name !== "web_fetch" && name !== "find")).toEqual(before);
+      // Offered once, not also as a deferred catalog entry.
+      const prompt = String(kept.getMessages()[0]?.content ?? "");
+      expect(prompt).not.toContain("- **web_fetch**:");
+      expect(prompt).not.toContain("- **find**:");
+    } finally {
+      await plain.dispose();
+      await kept.dispose();
+    }
+  }, 20_000);
+
   it("discovers UI libraries in a normal session and executes the promoted tool offline", async () => {
     const session = await createSession();
     try {

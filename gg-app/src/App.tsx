@@ -16,6 +16,8 @@ import { withViewTransition } from "./view-transition";
 import {
   waitForReady,
   getState,
+  kickoffGoal,
+  setCritterModel,
   sendPrompt,
   sendKenPrompt,
   cancelKen,
@@ -65,6 +67,7 @@ import {
   appendPendingAsks,
   askNotificationText,
   dropSupersededAsks,
+  firstOpenAskId,
   isAskUserPrompt,
   mergeAskAnswers,
 } from "./ask-user";
@@ -190,6 +193,16 @@ import { useWindowOrder } from "./useWindowOrder";
 export type { Item, TranscriptImage } from "./transcript-item";
 // The session screen's guide, behind the header's Help button.
 const SessionHelp = lazy(() => import("./SessionHelp").then((m) => ({ default: m.SessionHelp })));
+// Goals load on demand, so they add nothing to the start-up bundle.
+const GoalList = lazy(() =>
+  import("./placeholder/GoalList").then((m) => ({ default: m.GoalList })),
+);
+const GoalPanel = lazy(() =>
+  import("./placeholder/GoalPanel").then((m) => ({ default: m.GoalPanel })),
+);
+const WorkerList = lazy(() =>
+  import("./placeholder/WorkerList").then((m) => ({ default: m.WorkerList })),
+);
 
 const DEFAULT_INPUT_PLACEHOLDER = `Type a message, / commands, @ files, ${HELPER_MENTION} for help`;
 const INPUT_PLACEHOLDERS = [
@@ -720,18 +733,20 @@ function App(): React.ReactElement {
 
   // Keep the native window title aligned with the visible title-bar context.
   useEffect(() => {
-    const fallbackTitle = workspaceProductName(workspaceMode);
+    const fallbackTitle = workspaceProductName(workspaceMode, Boolean(state?.goal));
     const title =
-      !needsProject && !showPicker
-        ? formatWorkspaceTitle(
-            state?.cwd,
-            state?.gitBranch,
-            fallbackTitle,
-            state?.gitDirtyFileCount,
-            state?.gitHubIssues ?? null,
-            state?.gitHubPRs ?? null,
-          )
-        : fallbackTitle;
+      !needsProject && !showPicker && state?.goal
+        ? `${state.goal.name} \u2502 ${fallbackTitle}`
+        : !needsProject && !showPicker
+          ? formatWorkspaceTitle(
+              state?.cwd,
+              state?.gitBranch,
+              fallbackTitle,
+              state?.gitDirtyFileCount,
+              state?.gitHubIssues ?? null,
+              state?.gitHubPRs ?? null,
+            )
+          : fallbackTitle;
     setWindowTitle(title);
   }, [
     needsProject,
@@ -741,6 +756,7 @@ function App(): React.ReactElement {
     state?.gitDirtyFileCount,
     state?.gitHubIssues,
     state?.gitHubPRs,
+    state?.goal,
     workspaceMode,
   ]);
 
@@ -1083,6 +1099,16 @@ function App(): React.ReactElement {
           })),
         );
       }
+      // A goal's coordinator speaks first: the sidecar starts its reply once,
+      // the first time the new goal is opened, and streams it like any turn.
+      if (st?.goal?.needsKickoff && hydrateGenerationRef.current === generation) {
+        void kickoffGoal().catch((e: unknown) =>
+          toast(
+            `Couldn't start the goal's first reply: ${e instanceof Error ? e.message : String(e)}`,
+            "error",
+          ),
+        );
+      }
     } catch (err) {
       setStatus(`agent failed to start: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -1271,6 +1297,22 @@ function App(): React.ReactElement {
         );
       }
     });
+  }
+
+  // A Goal window's workers: the model they run on (null follows the coordinator).
+  function onSelectCritterModel(modelId: string | null): void {
+    const current = state?.goal?.critterModel ?? null;
+    if (modelId === current) return;
+    void setCritterModel(modelId)
+      .then((res) => {
+        setState((s) =>
+          s?.goal ? { ...s, goal: { ...s.goal, critterModel: res.critterModel } } : s,
+        );
+      })
+      .catch((e: unknown) =>
+        // Otherwise the picker just snaps back and the click looks ignored.
+        toast(e instanceof Error ? e.message : String(e), "error"),
+      );
   }
 
   function onSelectModel(modelId: string, options?: { confirmPaid?: boolean }): void {
@@ -2187,6 +2229,28 @@ function App(): React.ReactElement {
   useNotificationTaps(openTapped);
   // Forget the tapped item once no Kleio screen shows it, however it was left
   // (Back, a tapped chat, a menu item), so the next visit opens on the list.
+  // ── Goal workers ──
+  // A started goal opens on its Workers view in place of the chat, input and
+  // footer; the goal bar's Chat | Workers switch flips between the two.
+  const [goalChatFor, setGoalChatFor] = useState<string | null>(null);
+  const activeGoalId = state?.goal?.phase === "active" ? state.goal.id : null;
+  const goalWorkersOpen = activeGoalId !== null && goalChatFor !== activeGoalId;
+  const goalGroups = useMemo(
+    () =>
+      activeGoalId
+        ? items.filter(
+            (item): item is Extract<Item, { kind: "subagent_group" }> =>
+              item.kind === "subagent_group",
+          )
+        : [],
+    [activeGoalId, items],
+  );
+  // The coordinator waits while a question is open on the user.
+  const goalWaitingOnUser = useMemo(
+    () => activeGoalId !== null && firstOpenAskId(items) !== null,
+    [activeGoalId, items],
+  );
+
   const kleioShown = showKleioOverlay || (needsProject && entryView === "kleio");
   useEffect(() => {
     if (!kleioShown) setKleioOpen(null);
@@ -2229,6 +2293,12 @@ function App(): React.ReactElement {
                 setEntryView("projects");
               })
             }
+            onGoals={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("code");
+                setEntryView("goals");
+              })
+            }
             onBlobs={() => withViewTransition(() => setEntryView("kleio"))}
             onSettings={(tab) =>
               withViewTransition(() => {
@@ -2255,6 +2325,13 @@ function App(): React.ReactElement {
               })
             }
           />
+        ) : entryView === "goals" ? (
+          <Suspense fallback={null}>
+            <GoalList
+              onChosen={onProjectChosen}
+              onClose={() => withViewTransition(() => setEntryView("home"))}
+            />
+          </Suspense>
         ) : entryView === "chats" ? (
           <ChatPicker
             onChosen={onProjectChosen}
@@ -2316,6 +2393,10 @@ function App(): React.ReactElement {
           <ChatPicker initialAgent={state?.chatAgent ?? "general"} {...pickerProps} />
         ) : workspaceMode === "motion" ? (
           <ChatPicker mode="motion" {...pickerProps} />
+        ) : state?.goal ? (
+          <Suspense fallback={null}>
+            <GoalList {...pickerProps} />
+          </Suspense>
         ) : (
           <ProjectPicker initialProjectPath={state?.cwd ?? null} {...pickerProps} />
         )}
@@ -2525,9 +2606,32 @@ function App(): React.ReactElement {
         />
       )}
 
+      {state?.goal && !showChecklist && (
+        <Suspense fallback={null}>
+          <GoalPanel
+            goal={state.goal}
+            view={activeGoalId ? (goalWorkersOpen ? "workers" : "chat") : null}
+            onViewChange={(view) => setGoalChatFor(view === "chat" ? activeGoalId : null)}
+            needsAnswer={goalWaitingOnUser}
+            models={models}
+            onSelectWorkerModel={onSelectCritterModel}
+          />
+        </Suspense>
+      )}
+      {goalWorkersOpen && !showChecklist && (
+        <Suspense fallback={null}>
+          <WorkerList
+            groups={goalGroups}
+            running={running}
+            liveTools={liveToolFeed}
+            waitingOnUser={goalWaitingOnUser}
+          />
+        </Suspense>
+      )}
+
       {/* React owns chat visibility rather than a stylesheet override. Activity
           keeps the draft and transcript state, and suspends hidden child effects. */}
-      <Activity mode={showChecklist ? "hidden" : "visible"}>
+      <Activity mode={showChecklist || goalWorkersOpen ? "hidden" : "visible"}>
         {/* Non-scrolling frame the same size as the chat viewport. The banner
           lives HERE, not inside `.transcript` — `.transcript` scrolls, and an
           absolutely positioned child of a scrolling container is pinned to the

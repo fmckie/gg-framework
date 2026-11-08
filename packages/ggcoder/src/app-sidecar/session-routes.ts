@@ -1,3 +1,5 @@
+import { goalNeedsKickoff, goalPhase } from "../core/goals-store.js";
+import { goalCritterPick } from "../goals-agent/goals-agent.js";
 import { json } from "./http.js";
 import { getSupportedThinkingLevels } from "../core/thinking-level.js";
 import { getModel } from "../core/model-registry.js";
@@ -23,6 +25,18 @@ export function handleSessionRoutes(
       installedThreats: ctx.session
         .getInstalledThreats()
         .map(({ key, message }) => ({ key, message })),
+      // The app needs to know a code window is a goal (title, back navigation,
+      // automatic first reply). Null for every ordinary session.
+      goal: ctx.goal
+        ? {
+            id: ctx.goal.record.id,
+            name: ctx.goal.record.name,
+            needsKickoff: goalNeedsKickoff(ctx.goal.record, ctx.session.getMessages()),
+            phase: goalPhase(ctx.goal.record),
+            // The workers' pinned model; null: they follow the coordinator's model.
+            critterModel: goalCritterPick(ctx.goal.record)?.model ?? null,
+          }
+        : null,
       running: ctx.running,
       runState: ctx.runLifecycle.state,
       ready: true,

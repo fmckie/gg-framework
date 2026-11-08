@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
+import { statSync } from "node:fs";
 import path from "node:path";
 import type { Message, Provider, ThinkingLevel } from "@kleio/ai";
 import { getAppPaths, withoutPaidTier } from "@kleio/core";
@@ -60,15 +61,35 @@ export interface SubAgentSnapshot {
   model?: string;
   child_session_id?: string;
   child_session_path?: string;
+  /** Folder the child works in, when it isn't the parent's cwd. */
+  cwd?: string;
   collected?: boolean;
   recovered?: boolean;
 }
 
+/** A provider and model for spawned children (Kleio Goals' "Critters" pick). */
+export interface ChildModelPick {
+  provider: Provider;
+  model: string;
+}
+
 export interface SubAgentManagerOptions {
   cwd: string;
+  /**
+   * Other folders a child may be started in (the parent's extra workspace
+   * roots). A child's `cwd` must be the parent's cwd, one of these, or inside
+   * one of them; anything else is refused. Read at spawn time.
+   */
+  getWorkspaceRoots?: () => readonly string[];
   agents: AgentDefinition[];
   getProvider: () => Provider;
   getModel: () => string;
+  /**
+   * The provider and model children run on when their agent names no model of
+   * its own (Kleio Goals' "Critters" pick). Undefined: the parent's. Read at
+   * spawn time, so a change applies to the next worker started.
+   */
+  getChildModel?: () => ChildModelPick | undefined;
   getThinkingLevel?: () => ThinkingLevel | undefined;
   getCacheKey?: () => string | undefined;
   getBaseUrl?: () => string | undefined;
@@ -171,6 +192,8 @@ export class SubAgentManager {
   private readonly listeners = new Set<(snapshot: SubAgentSnapshot) => void>();
   private shuttingDown = false;
   private shutdownPromise?: Promise<void>;
+  /** Background retention started by `hydrate`; never rejects. */
+  private retention: Promise<void> = Promise.resolve();
   private readonly store: SubAgentStore;
   private readonly sessionRootDir: string;
   private parentSessionId?: string;
@@ -231,17 +254,30 @@ export class SubAgentManager {
     this.queuePersist();
     await this.waitForPersistence();
     await this.settleAdoptableTurns(adoptable);
-    const referencedChildSessions = await this.store.listChildSessionPaths();
-    await new SessionManager(this.sessionRootDir)
-      .pruneOldSessions({
-        maxAgeDays: 30,
-        keepPaths: referencedChildSessions,
-      })
-      .catch((error) => {
-        log("WARN", "subagent", "Failed to prune old subagent sessions", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
+    // Retention is housekeeping, not restore: it walks every child session on
+    // disk, so it runs after hydrate returns instead of holding up readiness
+    // (hydrate is awaited by session initialize, i.e. every window open).
+    this.retention = this.store
+      .listChildSessionPaths()
+      .then((referencedChildSessions) =>
+        new SessionManager(this.sessionRootDir).pruneOldSessions({
+          maxAgeDays: 30,
+          keepPaths: referencedChildSessions,
+        }),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          log("WARN", "subagent", "Failed to prune old subagent sessions", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
+  }
+
+  /** Resolves once the retention pass the last `hydrate` started has finished. */
+  async waitForRetention(): Promise<void> {
+    await this.retention;
   }
 
   /**
@@ -364,9 +400,12 @@ export class SubAgentManager {
       tools?: readonly string[];
       turnTimeoutMs?: number;
       checks?: readonly AcceptanceCheck[];
+      /** Folder the child works in; defaults to the parent's cwd. */
+      cwd?: string;
     },
   ): Promise<SubAgentSnapshot> {
     this.assertAvailable();
+    const childCwd = this.resolveChildCwd(overrides?.cwd);
     if (!taskName.trim()) throw new Error("task_name is required");
     if ([...this.workers.values()].some((worker) => worker.task_name === taskName)) {
       throw new Error(`An agent named "${taskName}" already exists`);
@@ -375,14 +414,16 @@ export class SubAgentManager {
       throw new Error(`At most ${ACTIVE_LIMIT} agents may run at once`);
 
     this.reapExcessIdle();
-    const provider = this.options.getProvider();
+    const pick = this.options.getChildModel?.();
+    const parentProvider = this.options.getProvider();
+    const provider = pick?.provider ?? parentProvider;
     const parentModel = this.options.getModel();
     const parentThinkingLevel = this.options.getThinkingLevel?.();
     const base = selectSubAgent(
       this.options.agents,
       agentName,
       provider,
-      parentModel,
+      pick?.model ?? parentModel,
       parentThinkingLevel,
     );
     // Same rule as selectSubAgent: a harness override can't put a worker on a paid tier.
@@ -406,7 +447,7 @@ export class SubAgentManager {
 
     const now = Date.now();
     const agentId = this.createId();
-    const child = this.spawnWorkerProcess();
+    const child = this.spawnWorkerProcess(childCwd);
     const record: WorkerRecord = {
       agent_id: agentId,
       task_name: taskName,
@@ -420,6 +461,7 @@ export class SubAgentManager {
       agent_name: selection.agentDef?.name,
       provider,
       model: selection.model,
+      ...(childCwd !== this.options.cwd ? { cwd: childCwd } : {}),
       collected: false,
       process: child,
       requests: new Map(),
@@ -438,8 +480,12 @@ export class SubAgentManager {
         options: {
           provider,
           model: selection.model,
-          fallbackModel: selection.model === parentModel ? undefined : parentModel,
-          cwd: this.options.cwd,
+          // The parent's model is only a fallback on the parent's provider.
+          fallbackModel:
+            selection.model === parentModel || provider !== parentProvider
+              ? undefined
+              : parentModel,
+          cwd: childCwd,
           baseUrl: this.options.getBaseUrl?.(),
           // Composed, not replaced — the child keeps its Tools section, project
           // context and Environment facts alongside its agent body.
@@ -655,6 +701,9 @@ export class SubAgentManager {
       ).then(() => undefined);
     }
     await this.shutdownPromise;
+    // Let a running retention pass finish so teardown (and test temp-dir
+    // removal) never races its file deletions.
+    await this.retention;
   }
 
   /** Synchronous process-exit fallback: terminate detached process groups immediately. */
@@ -682,12 +731,45 @@ export class SubAgentManager {
     this.queuePersist();
   }
 
-  private spawnWorkerProcess(): ChildProcess {
+  /**
+   * The folder a new child works in: the parent's cwd by default, otherwise a
+   * folder already in the parent's workspace. Never wider than the parent.
+   */
+  private resolveChildCwd(requested: string | undefined): string {
+    if (!requested) return this.options.cwd;
+    if (!path.isAbsolute(requested)) {
+      throw new Error(`cwd must be an absolute path: ${requested}`);
+    }
+    const target = path.resolve(requested);
+    const roots = [this.options.cwd, ...(this.options.getWorkspaceRoots?.() ?? [])].map((root) =>
+      path.resolve(root),
+    );
+    const inside = roots.some((root) => {
+      const relative = path.relative(root, target);
+      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+    });
+    if (!inside) {
+      throw new Error(
+        `cwd is outside this session's workspace: ${target}. Use one of: ${roots.join(", ")}`,
+      );
+    }
+    // A missing folder would only surface as an opaque spawn ENOENT.
+    let isDirectory: boolean;
+    try {
+      isDirectory = statSync(target).isDirectory();
+    } catch {
+      isDirectory = false;
+    }
+    if (!isDirectory) throw new Error(`cwd is not an existing folder: ${target}`);
+    return target;
+  }
+
+  private spawnWorkerProcess(cwd: string): ChildProcess {
     return spawn(
       process.execPath,
       [this.options.workerEntry ?? resolveSubAgentCliEntry(), "--subagent-worker"],
       {
-        cwd: this.options.cwd,
+        cwd,
         stdio: ["pipe", "pipe", "pipe"],
         env: childSubAgentEnv(),
         detached: process.platform !== "win32",
@@ -708,7 +790,10 @@ export class SubAgentManager {
     const parentThinkingLevel = this.options.getThinkingLevel?.();
     this.assertModelCapacity(model);
     const childSessionPath = this.assertChildSessionPath(snapshot.child_session_path);
-    const child = this.spawnWorkerProcess();
+    // Wake it where it was working; re-checked, since the workspace may have
+    // changed since it was started.
+    const childCwd = this.resolveChildCwd(snapshot.cwd);
+    const child = this.spawnWorkerProcess(childCwd);
     const worker: WorkerRecord = {
       ...snapshot,
       state: "starting",
@@ -736,7 +821,7 @@ export class SubAgentManager {
           provider,
           model,
           fallbackModel: model === parentModel ? undefined : parentModel,
-          cwd: this.options.cwd,
+          cwd: childCwd,
           baseUrl: this.options.getBaseUrl?.(),
           agentPrompt: agentDef?.systemPrompt,
           agentContext: agentDef?.context,
@@ -947,6 +1032,7 @@ export class SubAgentManager {
       model: worker.model,
       child_session_id: worker.child_session_id,
       child_session_path: worker.child_session_path,
+      ...(worker.cwd !== undefined && { cwd: worker.cwd }),
       collected: worker.collected,
       recovered: worker.recovered,
     };
