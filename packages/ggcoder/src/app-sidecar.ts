@@ -1386,7 +1386,8 @@ async function createSession(
   // follows the active model. A Goal window reads git from its attached
   // project folder, not the goal folder (see resolveGitCwd), and re-targets
   // when the goal's folders change (`retargetGit`).
-  let gitCwd = await resolveGitCwd(cwd, goal?.record ?? null);
+  const initialTarget = await resolveGitCwd(cwd, goal?.record ?? null);
+  let gitCwd = initialTarget.dir;
   const initialGit = await readGitState(gitCwd);
   let gitBranch: string | null = initialGit.branch;
   let gitIsRepo: boolean = initialGit.isRepo;
@@ -2514,24 +2515,6 @@ async function createSession(
     gitPoll.unref?.();
   };
   scheduleGitPoll(5000);
-  // Git missed its 2 s limit at startup (a busy machine): the titlebar would
-  // show "not a repo" until the next run. Read again in the background with
-  // more time; window creation doesn't wait for it.
-  if (!initialGit.settled) {
-    readGitState(gitCwd, { timeoutMs: SLOW_GIT_READ_TIMEOUT_MS })
-      .then((state) => {
-        if (gitPollStopped) return;
-        gitBranch = state.branch;
-        gitIsRepo = state.isRepo;
-        gitDirtyFileCount = state.dirtyFileCount;
-        broadcast("extras", footerExtras());
-      })
-      .catch((err: unknown) => {
-        log("WARN", "app-sidecar", "slow git re-read failed", {
-          message: err instanceof Error ? err.message : String(err),
-        });
-      });
-  }
 
   // GitHub issue/PR counts change outside the app (web UI, teammates), so poll
   // on a slow cadence. Network-bound, so keep it well under the search API's
@@ -2555,28 +2538,48 @@ async function createSession(
   let gitTargetGeneration = 0;
   /**
    * A goal's attached folders changed: point the titlebar's git state at the
-   * new project folder. No-op when the target is unchanged; a newer call or
-   * teardown supersedes one still reading git.
+   * new project folder. No-op when the target is unchanged, unless `reread`
+   * asks for a fresh read of the same folder; a newer call or teardown
+   * supersedes one still reading git.
    */
-  async function retargetGit(): Promise<void> {
+  async function retargetGit(
+    options: { reread?: boolean; timeoutMs?: number } = {},
+  ): Promise<void> {
     const generation = ++gitTargetGeneration;
-    const next = await resolveGitCwd(cwd, goal?.record ?? null);
-    if (generation !== gitTargetGeneration || gitPollStopped || next === gitCwd) return;
-    const state = await readGitState(next);
+    const read = { timeoutMs: options.timeoutMs };
+    const { dir: next } = await resolveGitCwd(cwd, goal?.record ?? null, (dir) =>
+      isGitRepo(dir, read),
+    );
     if (generation !== gitTargetGeneration || gitPollStopped) return;
-    ciPoll.stop();
+    if (next === gitCwd && !options.reread) return;
+    const state = await readGitState(next, read);
+    if (generation !== gitTargetGeneration || gitPollStopped) return;
+    const moved = next !== gitCwd || state.gitHubSlug !== gitHubSlug;
     gitCwd = next;
     gitBranch = state.branch;
     gitIsRepo = state.isRepo;
     gitDirtyFileCount = state.dirtyFileCount;
     gitHubSlug = state.gitHubSlug;
-    // The old repo's numbers don't apply; the new reads fill these in.
-    gitHubIssues = null;
-    gitHubPRs = null;
-    gitHubCI = null;
-    ciPoll = watchCI(gitCwd);
-    void refreshGitHubCounts();
+    if (moved) {
+      // The old repo's numbers don't apply; the new reads fill these in.
+      ciPoll.stop();
+      gitHubIssues = null;
+      gitHubPRs = null;
+      gitHubCI = null;
+      ciPoll = watchCI(gitCwd);
+      void refreshGitHubCounts();
+    }
     broadcast("extras", footerExtras());
+  }
+  // Git missed its 2 s limit at startup (a busy machine): the titlebar would
+  // show "not a repo" until the next run. Read again in the background with
+  // more time; window creation doesn't wait for it.
+  if (!initialTarget.settled || !initialGit.settled) {
+    retargetGit({ reread: true, timeoutMs: SLOW_GIT_READ_TIMEOUT_MS }).catch((err: unknown) => {
+      log("WARN", "app-sidecar", "slow git re-read failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   // OPTIONS/CORS preflight is handled at the daemon level before delegation.

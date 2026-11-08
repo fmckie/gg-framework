@@ -60,7 +60,10 @@ describe("resolveGitCwd", () => {
   const isRepo = async (dir: string): Promise<boolean> => repos.has(dir);
 
   it("uses the window's cwd outside a goal", async () => {
-    expect(await resolveGitCwd("/work/site", null, isRepo)).toBe("/work/site");
+    expect(await resolveGitCwd("/work/site", null, isRepo)).toEqual({
+      dir: "/work/site",
+      settled: true,
+    });
   });
 
   it("uses a goal's first attached folder that is a git repo", async () => {
@@ -74,17 +77,21 @@ describe("resolveGitCwd", () => {
         { path: "/work/engine", kind: "folder" as const },
       ],
     };
-    expect(await resolveGitCwd("/home/agent/goals/speed", goal, isRepo)).toBe("/work/site");
+    expect(await resolveGitCwd("/home/agent/goals/speed", goal, isRepo)).toEqual({
+      dir: "/work/site",
+      settled: true,
+    });
   });
 
   it("keeps the goal folder when no attached folder is a repo", async () => {
     const goal = { context: [{ path: "/work/notes", kind: "folder" as const }] };
-    expect(await resolveGitCwd("/home/agent/goals/speed", goal, isRepo)).toBe(
-      "/home/agent/goals/speed",
-    );
+    expect(await resolveGitCwd("/home/agent/goals/speed", goal, isRepo)).toEqual({
+      dir: "/home/agent/goals/speed",
+      settled: true,
+    });
   });
 
-  it("skips a folder whose repo check fails", async () => {
+  it("skips a folder whose repo check fails, and says the choice is unsettled", async () => {
     const goal = {
       context: [
         { path: "/gone", kind: "folder" as const },
@@ -95,6 +102,10 @@ describe("resolveGitCwd", () => {
       if (dir === "/gone") throw new Error("ENOENT");
       return repos.has(dir);
     };
-    expect(await resolveGitCwd("/home/agent/goals/speed", goal, flaky)).toBe("/work/engine");
+    // A failed check is no answer: the caller re-reads with more time.
+    expect(await resolveGitCwd("/home/agent/goals/speed", goal, flaky)).toEqual({
+      dir: "/work/engine",
+      settled: false,
+    });
   });
 });
