@@ -576,7 +576,7 @@ describe("the link in the host", () => {
     );
   });
 
-  it("answers GET /kleio/link with the key, the relay list and where the link is", async () => {
+  it("answers GET /kleio/link with the keys, the relay list and where the link is", async () => {
     const { registry, linkPort, dir } = await linkHost();
     const phone = await mint(registry, "iPhone", KEY_A);
     const ask = async (): Promise<unknown> => {
@@ -586,6 +586,7 @@ describe("the link in the host", () => {
     };
     expect(await ask()).toEqual({
       key: HOST_KEY,
+      pairKey: PAIR_KEY,
       relays: ["n0"],
       listVersion: 0,
       running: false,
@@ -604,6 +605,7 @@ describe("the link in the host", () => {
     writeConfig(dir, { version: 1, listVersion: 3, relays: [OWN, "n0"] });
     expect(await ask()).toEqual({
       key: HOST_KEY,
+      pairKey: PAIR_KEY,
       relays: [OWN, "n0"],
       listVersion: 3,
       running: true,

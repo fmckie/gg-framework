@@ -175,7 +175,8 @@ goes: devices paired since must pair again, and **a device revoked since works a
 revoke it again. Restoring `gg/` too also drops the chats and sign-ins since. A snapshot from
 before Kleio's link has no link key, so `serve` makes a new one, and every phone paired over the
 link must pair again. One from before the pairing key has no `link-pair.key`, so `serve` makes one
-too, but no paired phone uses it.
+too. A phone that kept the old pairing key gets the new one from `GET /kleio/link` when it next
+connects. Until then, a dial the host refuses isn't told why.
 
 ```sh
 # mini
@@ -461,6 +462,8 @@ what was missed (persisted ring, survives a host restart).
 `GET /kleio/link` gives any paired device what it needs to find the host again:
 
 - its key;
+- its pairing key, which a device the link refuses asks where it stands
+  ([ADR 0005](../../docs/adr/0005-link-connections-start-through-the-relay.md));
 - its relay list, with `listVersion`;
 - the relay it was last on, and its direct addresses;
 - whether a relay is slowing it down;

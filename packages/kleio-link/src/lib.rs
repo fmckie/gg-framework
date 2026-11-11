@@ -18,6 +18,8 @@
 //!   a stream on that connection.
 //! - [`pair`]: pairing on [`ALPN_PAIR`], with a reason of its own for each
 //!   way it can fail.
+//! - [`ALPN_STANDING`]: asking the pairing endpoint whether this device's
+//!   key is still paired, after the link endpoint refused a dial.
 //! - [`paths`]: the path log the field tests' path timelines come from.
 //! - [`relays`] and [`probe`]: relay lists, and asking a relay whether it's
 //!   there, which both sides use.
@@ -54,6 +56,14 @@ pub const ALPN_HTTP: &[u8] = b"kleio/http/0";
 /// forwarder passes to kleio-host's `POST /kleio/pair/redeem`.
 pub const ALPN_PAIR: &[u8] = b"kleio/pair/0";
 
+/// Where a key stands with the host, on the pairing endpoint only, open to
+/// any key. The host answers right after the handshake, with no stream, by
+/// closing: [`close::PAIRED`], [`close::REVOKED`] or [`close::NOT_PAIRED`].
+/// The link endpoint refuses a key it won't let in before any handshake, so
+/// that it learns none of the host's addresses; this is how the app learns
+/// why (docs/adr/0005-link-connections-start-through-the-relay.md).
+pub const ALPN_STANDING: &[u8] = b"kleio/standing/0";
+
 /// The host requests over the link name: `http://link.kleio.invalid`.
 /// `.invalid` never resolves, so it can't be taken for a real address.
 pub const LINK_HOST: &str = "link.kleio.invalid";
@@ -62,7 +72,8 @@ pub const LINK_HOST: &str = "link.kleio.invalid";
 pub mod close {
     /// The exchange is over.
     pub const DONE: u32 = 0;
-    /// `kleio/http/0` from a key that isn't on the host's allow-list.
+    /// `kleio/http/0` from a key that isn't on the host's allow-list, or
+    /// `kleio/standing/0` from one that was never paired.
     pub const NOT_PAIRED: u32 = 1;
     /// `kleio/pair/0` while another pairing is in flight, or after 10 in a
     /// minute.
@@ -72,8 +83,11 @@ pub mod close {
     pub const PAIR_FAILED: u32 = 3;
     /// A protocol the host doesn't serve.
     pub const UNKNOWN_ALPN: u32 = 4;
-    /// `kleio/http/0` from a key whose device was revoked.
+    /// `kleio/http/0` or `kleio/standing/0` from a key whose device was
+    /// revoked.
     pub const REVOKED: u32 = 5;
+    /// `kleio/standing/0` from a key on the host's allow-list.
+    pub const PAIRED: u32 = 6;
 }
 
 /// An error and its causes on one line, for logs and messages. A cause whose

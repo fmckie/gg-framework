@@ -3,16 +3,22 @@
 //!
 //! - Two endpoints, on the same relay. The link endpoint (`secure/link.key`)
 //!   takes `kleio/http/0` only, and goes direct once it can. The pairing
-//!   endpoint (`secure/link-pair.key`) takes `kleio/pair/0` only, through the
-//!   relay alone: it binds no socket and has no address, so a device that
-//!   isn't allowed yet learns none of the host's addresses
-//!   (docs/adr/0004-no-host-address-before-allow.md).
+//!   endpoint (`secure/link-pair.key`) takes `kleio/pair/0` and
+//!   `kleio/standing/0` only, through the relay alone: it binds no socket and
+//!   has no address, so a device that isn't allowed yet learns none of the
+//!   host's addresses (docs/adr/0004-no-host-address-before-allow.md).
+//! - iroh gives a connection the endpoint's addresses once its handshake is
+//!   done, before any hook of ours runs. So the link endpoint first decides
+//!   whose handshake to take ([`admit`]): through a relay, which names the
+//!   key, only a paired key's; a direct dial, which names none, gets no
+//!   answer while the link endpoint is on a relay, and its handshake only
+//!   when it's on none
+//!   (docs/adr/0005-link-connections-start-through-the-relay.md).
 //! - The gate, an `after_handshake` hook on both, decides who gets in before
 //!   any stream: `kleio/http/0` only from keys on kleio-host's allow-list (a
-//!   revoked device's key is told so), `kleio/pair/0` from any key, and
-//!   nothing else. iroh gives a connection the endpoint's addresses before
-//!   the gate runs, so the link endpoint refuses a key it doesn't know before
-//!   its handshake when a relay brings it, which names the key.
+//!   revoked device's key is told so), `kleio/pair/0` from any key,
+//!   `kleio/standing/0` from any key, told where it stands by the close, and
+//!   nothing else.
 //! - Each stream of an allowed `kleio/http/0` connection is copied both ways
 //!   to kleio-host's link listener, which the connection's first line tells
 //!   whose bytes they are (upstream.rs). When kleio-host doesn't take the
@@ -51,14 +57,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use iroh::endpoint::{Builder, Incoming, IncomingAddr, QuicTransportConfig, VarInt};
-use iroh::{Endpoint, RelayMap, RelayMode, RelayUrl, SecretKey, Watcher};
+use iroh::{
+    Endpoint, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr, Watcher,
+};
 use noq_proto::congestion::Bbr3Config;
 use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 use crate::endpoint::{builder, EndpointOptions, Mode};
 use crate::probe::HttpsProbe;
-use crate::{close, error_chain, paths, ALPN_HTTP, ALPN_PAIR};
+use crate::{close, error_chain, paths, ALPN_HTTP, ALPN_PAIR, ALPN_STANDING};
 use budget::PairBudget;
 use gate::{AllowList, Gate, Standing};
 use open::OpenLinks;
@@ -70,8 +78,9 @@ use upstream::Upstream;
 pub use upstream::DEFAULT_UPSTREAM;
 
 /// The most connections not yet known to be paired, open at once on the two
-/// endpoints: those in their handshake, and pairings. One more is refused
-/// before its handshake.
+/// endpoints: those in their handshake, pairings, and keys asking where they
+/// stand. One more is refused before its handshake. A connection the link
+/// endpoint refuses or ignores before its handshake ([`admit`]) takes none.
 pub const MAX_UNPAIRED: usize = 32;
 
 /// What `serve` forwards to, from where, and through which relay.
@@ -216,7 +225,8 @@ pub async fn serve(config: Config) -> Result<(), HostError> {
 enum Door {
     /// `link.key`'s: `kleio/http/0`, direct once it can.
     Link,
-    /// `link-pair.key`'s: `kleio/pair/0`, through the relay alone.
+    /// `link-pair.key`'s: `kleio/pair/0` and `kleio/standing/0`, through
+    /// the relay alone.
     Pairing,
 }
 
@@ -234,10 +244,10 @@ fn host_builder(
         .transport_config(transport())
 }
 
-/// The pairing endpoint: [`host_builder`]'s with `kleio/pair/0` instead and,
-/// whatever `options`' mode, no IP transports. So it binds no socket, finds
-/// no address of the host's and gives none out: a device reaches it through
-/// the relay alone.
+/// The pairing endpoint: [`host_builder`]'s with `kleio/pair/0` and
+/// `kleio/standing/0` instead and, whatever `options`' mode, no IP
+/// transports. So it binds no socket, finds no address of the host's and
+/// gives none out: a device reaches it through the relay alone.
 fn pair_builder(
     secret_key: SecretKey,
     relay_mode: RelayMode,
@@ -249,7 +259,7 @@ fn pair_builder(
         trust: options.trust.clone(),
     };
     builder(secret_key, relay_mode, &relay_only)
-        .alpns(vec![ALPN_PAIR.to_vec()])
+        .alpns(vec![ALPN_PAIR.to_vec(), ALPN_STANDING.to_vec()])
         .hooks(Gate::new(allow))
         .transport_config(transport())
 }
@@ -344,19 +354,37 @@ impl Server {
 
     /// Serves `door`'s connections until its endpoint closes.
     async fn run(self, endpoint: Endpoint, door: Door) {
+        let mut relays = endpoint.home_relay_status();
         while let Some(incoming) = endpoint.accept().await {
-            tokio::spawn(self.clone().handle(incoming, door));
+            // Read for each connection: a direct dial is answered only while
+            // the endpoint is on no relay.
+            let on_relay = relays.get().iter().any(|status| status.is_connected());
+            tokio::spawn(self.clone().handle(incoming, door, on_relay));
         }
     }
 
-    async fn handle(self, incoming: Incoming, door: Door) {
-        if door == Door::Link {
-            if let Some(stranger) = self.stranger_through_a_relay(&incoming) {
+    async fn handle(self, incoming: Incoming, door: Door, on_relay: bool) {
+        let addr = incoming.remote_addr();
+        match admit(door, &addr, |key| self.allow.standing(key), on_relay) {
+            Admit::Take => {}
+            Admit::Refuse(key, standing) => {
+                let why = match standing {
+                    Standing::Revoked => "revoked",
+                    _ => "not paired",
+                };
                 warn!(
-                    "{} through a relay: refused before its handshake, not paired",
-                    stranger.fmt_short()
+                    "{} through a relay: refused before its handshake, {why}",
+                    key.fmt_short()
                 );
                 incoming.refuse();
+                return;
+            }
+            Admit::Ignore => {
+                debug!(
+                    "{}: no answer before its handshake, a direct dial while on a relay",
+                    TransportAddr::from(addr)
+                );
+                incoming.ignore();
                 return;
             }
         }
@@ -385,25 +413,55 @@ impl Server {
             pairing::serve(conn, &self.upstream, &self.allow, &self.budget).await;
             drop(unpaired);
         } else {
-            // The gate turns these away first.
+            // The gate turns these away first, `kleio/standing/0` among them.
             conn.close(VarInt::from_u32(close::UNKNOWN_ALPN), b"unknown protocol");
         }
     }
+}
 
-    /// The key of a connection a relay brings, if it's neither paired nor
-    /// revoked. iroh would give it the endpoint's addresses once its
-    /// handshake was done, before the gate turned it away. The relay names
-    /// the key it got the connection from, and the gate still checks the
-    /// handshake's; a revoked key gets its handshake, to be told so.
-    fn stranger_through_a_relay(&self, incoming: &Incoming) -> Option<iroh::EndpointId> {
-        match incoming.remote_addr() {
-            IncomingAddr::Relay { endpoint_id, .. }
-                if self.allow.standing(&endpoint_id) == Standing::Unknown =>
-            {
-                Some(endpoint_id)
-            }
-            _ => None,
-        }
+/// What an endpoint does with a connection before its handshake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Admit {
+    /// Its handshake, after which the gate decides.
+    Take,
+    /// Refused before its handshake: a relay named a key that's revoked or
+    /// was never paired.
+    Refuse(EndpointId, Standing),
+    /// No answer at all: a direct dial, which names no key, while the link
+    /// endpoint is on a relay.
+    Ignore,
+}
+
+/// Whether a connection gets its handshake. iroh gives a connection whose
+/// handshake is done the endpoint's addresses, before the gate runs, so the
+/// link endpoint takes only one it would let in
+/// (docs/adr/0005-link-connections-start-through-the-relay.md):
+///
+/// - Through a relay, which names the key it got the connection from: a
+///   paired key's. The gate still checks the handshake's.
+/// - Direct, which names no key: none while `on_relay`. A phone sends its
+///   dial through the relay too, and that copy comes in next, with its key.
+///   On no relay, all of them, so a phone on the host's network still
+///   reaches it with the internet down; the gate turns away the rest.
+///
+/// The pairing endpoint takes any: it has no address to give.
+fn admit(
+    door: Door,
+    addr: &IncomingAddr,
+    standing: impl FnOnce(&EndpointId) -> Standing,
+    on_relay: bool,
+) -> Admit {
+    if door == Door::Pairing {
+        return Admit::Take;
+    }
+    match addr {
+        IncomingAddr::Relay { endpoint_id, .. } => match standing(endpoint_id) {
+            Standing::Paired => Admit::Take,
+            other => Admit::Refuse(*endpoint_id, other),
+        },
+        // An IP or a custom transport's address names no key.
+        _ if on_relay => Admit::Ignore,
+        _ => Admit::Take,
     }
 }
 
@@ -692,18 +750,55 @@ mod tests {
         .await;
     }
 
-    /// The link endpoint takes no pairing and the pairing endpoint no HTTP:
-    /// the handshake fails, so the gate never sees them.
+    /// The link endpoint takes no pairing and no asking where a key stands,
+    /// and the pairing endpoint no HTTP: the handshake fails, so the gate
+    /// never sees them. The pairing endpoint does take asking.
     #[tokio::test]
-    async fn each_endpoint_takes_its_one_protocol() {
+    async fn each_endpoint_takes_only_its_own_protocols() {
         within_30_s(async {
             let (upstream, mut requests) = fake_kleio_host(None, None).await;
-            let rig = start_host("host-one-protocol", upstream).await;
+            let rig = start_host("host-own-protocols", upstream).await;
             let phone = loopback_endpoint(2, &[]).await;
             rig.pair(&[phone.id()], &[]);
-            for (endpoint, alpn) in [(&rig.host, ALPN_PAIR), (&rig.pairing, ALPN_HTTP)] {
+            for (endpoint, alpn) in [
+                (&rig.host, ALPN_PAIR),
+                (&rig.host, ALPN_STANDING),
+                (&rig.pairing, ALPN_HTTP),
+            ] {
                 let dialled = phone.connect(loopback_addr(endpoint), alpn).await;
                 assert!(dialled.is_err(), "{}", String::from_utf8_lossy(alpn));
+            }
+            // No close of the gate's: the link endpoint never offered it.
+            assert_eq!(close_code(&phone, &rig.host, ALPN_STANDING).await, None);
+            assert_eq!(
+                close_code(&phone, &rig.pairing, ALPN_STANDING).await,
+                Some(close::PAIRED.into())
+            );
+            assert!(requests.try_recv().is_err(), "a request reached kleio-host");
+        })
+        .await;
+    }
+
+    /// Any key that asks the pairing endpoint is told where it stands by the
+    /// close alone, with nothing sent to kleio-host.
+    #[tokio::test]
+    async fn the_pairing_endpoint_tells_any_key_where_it_stands() {
+        within_30_s(async {
+            let (upstream, mut requests) = fake_kleio_host(None, None).await;
+            let rig = start_host("host-standing", upstream).await;
+            let (paired, revoked, stranger) = (
+                loopback_endpoint(2, &[]).await,
+                loopback_endpoint(3, &[]).await,
+                loopback_endpoint(4, &[]).await,
+            );
+            rig.pair(&[paired.id()], &[revoked.id()]);
+            for (endpoint, code) in [
+                (&paired, close::PAIRED),
+                (&revoked, close::REVOKED),
+                (&stranger, close::NOT_PAIRED),
+            ] {
+                let told = close_code(endpoint, &rig.pairing, ALPN_STANDING).await;
+                assert_eq!(told, Some(code.into()), "{}", endpoint.id().fmt_short());
             }
             assert!(requests.try_recv().is_err(), "a request reached kleio-host");
         })
@@ -1073,6 +1168,74 @@ mod pairing_endpoint_tests {
             pairing.close().await;
         })
         .await;
+    }
+}
+
+/// [`admit`]'s table, for each door: no endpoint needed, so on every OS.
+#[cfg(test)]
+mod admit_tests {
+    use std::net::SocketAddr;
+
+    use super::*;
+
+    fn key(byte: u8) -> EndpointId {
+        SecretKey::from_bytes(&[byte; 32]).public()
+    }
+
+    /// iroh doesn't export a custom transport's address type; its serde form
+    /// makes one.
+    fn custom() -> IncomingAddr {
+        let addr = serde_json::json!({"Custom": {"id": 7, "data": [1, 2, 3]}});
+        match serde_json::from_value(addr).expect("a custom transport's address") {
+            TransportAddr::Custom(custom) => IncomingAddr::Custom(custom),
+            other => panic!("not a custom address: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_link_endpoint_takes_a_paired_keys_handshake_and_a_direct_one_only_on_no_relay() {
+        let (paired, revoked, stranger) = (key(1), key(2), key(3));
+        let standing = |key: &EndpointId| {
+            if *key == paired {
+                Standing::Paired
+            } else if *key == revoked {
+                Standing::Revoked
+            } else {
+                Standing::Unknown
+            }
+        };
+        let relay: RelayUrl = "https://relay.example/".parse().expect("a relay URL");
+        let through = |endpoint_id| IncomingAddr::Relay {
+            url: relay.clone(),
+            endpoint_id,
+        };
+        let ip: SocketAddr = "192.0.2.7:4433".parse().expect("an address");
+        let direct = [IncomingAddr::Ip(ip), custom()];
+
+        for on_relay in [true, false] {
+            let link = |addr: &IncomingAddr| admit(Door::Link, addr, standing, on_relay);
+            assert_eq!(link(&through(paired)), Admit::Take, "{on_relay}");
+            assert_eq!(
+                link(&through(revoked)),
+                Admit::Refuse(revoked, Standing::Revoked),
+                "{on_relay}"
+            );
+            assert_eq!(
+                link(&through(stranger)),
+                Admit::Refuse(stranger, Standing::Unknown),
+                "{on_relay}"
+            );
+            let expected = if on_relay { Admit::Ignore } else { Admit::Take };
+            for addr in &direct {
+                assert_eq!(link(addr), expected, "{addr:?}, {on_relay}");
+            }
+            // The pairing endpoint has no address to give.
+            let all = [through(paired), through(revoked), through(stranger)];
+            for addr in all.iter().chain(&direct) {
+                let pairing = admit(Door::Pairing, addr, standing, on_relay);
+                assert_eq!(pairing, Admit::Take, "{addr:?}, {on_relay}");
+            }
+        }
     }
 }
 

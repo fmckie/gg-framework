@@ -15,18 +15,30 @@
 //! Without this, a revoked phone dialled 185 times in 124 s, one dial for each
 //! request the app retried.
 //!
+//! The host refuses such a key's dial before its handshake, so that the key
+//! learns none of the host's addresses, and that says nothing of why. So the
+//! link then asks the host's pairing endpoint where the key stands
+//! ([`ALPN_STANDING`]), through the route's relays, if the route has its key
+//! ([`Route::pair_key`]). Without the key, or an answer, the dial fails as
+//! one that found no host does
+//! (docs/adr/0005-link-connections-start-through-the-relay.md).
+//!
 //! There's no address lookup, and a relay drops what it gets for a key that
 //! isn't connected to it, so the phone finds the host only through the
 //! relays the host names, and the host may have moved relay (it does after
-//! 15 s without its own: host/relays.rs). A dial ([`Route`]) goes in two
+//! 15 s without its own: host/relays.rs). While the host is on a relay, it
+//! answers a new connection only through one, which names this device's key,
+//! and a direct dial not at all. So a dial ([`Route::stages`]) goes in two
 //! stages:
 //!
 //! 1. For up to [`FIRST_STAGE`]: the relay the host was last reached through,
-//!    and its last direct addresses.
+//!    and its last direct addresses only while this device is on no relay
+//!    (the host may be on none either), or if the route has no relay.
 //! 2. Then, alongside the first, until [`DIAL_TIMEOUT`]: every relay in the
-//!    host's list as well.
+//!    host's list, and the direct addresses, as well.
 //!
-//! The relay that worked becomes the route's, and the endpoint's home relay
+//! A connection that starts through a relay goes direct once it can. The
+//! relay that worked becomes the route's, and the endpoint's home relay
 //! ([`switch_relay`]): the phone keeps one relay connection, and it's the
 //! host's. So the endpoint should start with the route's relay as its only
 //! one, as `bind_client(key, &[relay], options)` binds it.
@@ -58,7 +70,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use iroh::endpoint::{ConnectError, ConnectingError, Connection, ConnectionError, VarInt};
+use iroh::endpoint::{
+    ConnectError, ConnectingError, Connection, ConnectionError, TransportErrorCode, VarInt,
+};
 use iroh::{Endpoint, EndpointAddr, EndpointId, RelayUrl, TransportAddr, Watcher};
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -69,31 +83,39 @@ use crate::paths::{PathEvents, SelectedPath};
 use crate::probe::{ping_all, HttpsProbe, Ping};
 use crate::relays::{every_relay, RelayEntry};
 use crate::ticket::Ticket;
-use crate::{close, error_chain, paths, ALPN_HTTP};
+use crate::{close, error_chain, paths, ALPN_HTTP, ALPN_STANDING};
 
 /// How long one dial may take before the requests waiting on it fail.
 pub const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How long a dial tries only the relay the host was last reached through,
-/// and its direct addresses, before it tries every relay in its list too.
+/// How long a dial tries only its first stage ([`Route::stages`]) before it
+/// tries the second too.
 pub const FIRST_STAGE: Duration = Duration::from_secs(4);
+
+/// How long a dial the host refused before its handshake may take to ask the
+/// host's pairing endpoint where this device stands ([`ALPN_STANDING`]),
+/// within the dial's [`DIAL_TIMEOUT`].
+pub const STANDING_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// The most direct addresses a route keeps: as many as `GET /kleio/link`
 /// gives (`MAX_INFO_ADDRS` in packages/kleio-host/src/link.ts).
 pub const MAX_ROUTE_ADDRS: usize = 8;
 
 /// Where the phone looks for its host: its key, the relay it was last
-/// reached through, its last direct addresses, and its relay list.
+/// reached through, its last direct addresses, its relay list, and its
+/// pairing endpoint's key, which says where this device stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
     key: EndpointId,
     relay: Option<RelayUrl>,
     addrs: Vec<SocketAddr>,
     relays: Vec<RelayEntry>,
+    pair: Option<EndpointId>,
 }
 
 impl Route {
     /// `addrs` best first; past [`MAX_ROUTE_ADDRS`], and repeats, are dropped.
+    /// No pairing key: [`with_pair_key`](Self::with_pair_key) adds one.
     pub fn new(
         key: EndpointId,
         relay: Option<RelayUrl>,
@@ -105,11 +127,12 @@ impl Route {
             relay,
             addrs: first_few(addrs),
             relays,
+            pair: None,
         }
     }
 
-    /// What a pairing ticket says: the relay the host was on, its addresses
-    /// and its list.
+    /// What a pairing ticket says: the relay the host was on, its addresses,
+    /// its list, and a v5 ticket's pairing key.
     pub fn from_ticket(ticket: &Ticket) -> Self {
         Self::new(
             ticket.key(),
@@ -117,10 +140,24 @@ impl Route {
             ticket.addrs().to_vec(),
             ticket.relays().to_vec(),
         )
+        .with_pair_key(ticket.pair_key())
+    }
+
+    /// The route with `pair` as the host's pairing endpoint's key. The link
+    /// key is left out: a v4 ticket's one key is no pairing endpoint's.
+    pub fn with_pair_key(mut self, pair: EndpointId) -> Self {
+        self.take_pair_key(pair);
+        self
     }
 
     pub fn key(&self) -> EndpointId {
         self.key
+    }
+
+    /// The host's pairing endpoint's key, if the route has it: a v5
+    /// ticket's, or the one `GET /kleio/link` gave.
+    pub fn pair_key(&self) -> Option<EndpointId> {
+        self.pair
     }
 
     /// The relay the host was last reached through.
@@ -150,24 +187,49 @@ impl Route {
         all
     }
 
-    /// The first stage's address: the relay and the direct addresses.
-    pub fn first_stage(&self) -> EndpointAddr {
-        let addr =
-            EndpointAddr::from_parts(self.key, self.addrs.iter().copied().map(TransportAddr::Ip));
-        match &self.relay {
-            Some(relay) => addr.with_relay_url(relay.clone()),
-            None => addr,
-        }
-    }
-
-    /// The second stage's: every relay as well. `None` if that's no more
-    /// than the first stage's.
-    pub fn second_stage(&self) -> Option<EndpointAddr> {
-        let first = self.first_stage();
+    /// A dial's two stages. The first: the relay the host was last reached
+    /// through and, if `direct_first` or the route has no relay, the host's
+    /// direct addresses. The second: every relay and the direct addresses,
+    /// or `None` if that's no more than the first.
+    ///
+    /// While the host is on a relay it answers no direct dial
+    /// (docs/adr/0005-link-connections-start-through-the-relay.md), so a
+    /// phone with a relay connection starts through the relay, and its
+    /// connection goes direct once it can. A phone on no relay may be
+    /// dialling a host on none either, so the direct addresses go first.
+    pub fn stages(&self, direct_first: bool) -> (EndpointAddr, Option<EndpointAddr>) {
+        let direct = || self.addrs.iter().copied().map(TransportAddr::Ip);
+        let first = match &self.relay {
+            Some(relay) if !direct_first => {
+                EndpointAddr::new(self.key).with_relay_url(relay.clone())
+            }
+            Some(relay) => {
+                EndpointAddr::from_parts(self.key, direct()).with_relay_url(relay.clone())
+            }
+            None => EndpointAddr::from_parts(self.key, direct()),
+        };
         let all = first
             .clone()
-            .with_addrs(self.every_relay().into_iter().map(TransportAddr::Relay));
-        (all != first).then_some(all)
+            .with_addrs(direct().chain(self.every_relay().into_iter().map(TransportAddr::Relay)));
+        let second = (all != first).then_some(all);
+        (first, second)
+    }
+
+    /// Where a dial the host refused before its handshake asks where this
+    /// device stands: the pairing endpoint's key through every relay the
+    /// route names, as it has no address. `None` without that key or a
+    /// relay.
+    pub fn pairing_addr(&self) -> Option<EndpointAddr> {
+        let pair = self.pair?;
+        let relays = self.every_relay();
+        (!relays.is_empty())
+            .then(|| EndpointAddr::from_parts(pair, relays.into_iter().map(TransportAddr::Relay)))
+    }
+
+    fn take_pair_key(&mut self, pair: EndpointId) {
+        if pair != self.key {
+            self.pair = Some(pair);
+        }
     }
 }
 
@@ -376,12 +438,22 @@ impl Link {
         self.inner.route().clone()
     }
 
-    /// Takes the host's relay list and direct addresses, as
-    /// `GET /kleio/link` gives them, for the next dial.
-    pub fn refresh(&self, relays: Vec<RelayEntry>, addrs: Vec<SocketAddr>) {
+    /// Takes the host's relay list, direct addresses and pairing endpoint's
+    /// key, as `GET /kleio/link` gives them, for the next dial. Given no
+    /// pairing key, as a host from before ADR 0005 gives none, or the link
+    /// key, the route keeps the one it has.
+    pub fn refresh(
+        &self,
+        relays: Vec<RelayEntry>,
+        addrs: Vec<SocketAddr>,
+        pair: Option<EndpointId>,
+    ) {
         let mut route = self.inner.route();
         route.relays = relays;
         route.addrs = first_few(addrs);
+        if let Some(pair) = pair {
+            route.take_pair_key(pair);
+        }
     }
 
     /// The open connection, dialling first if there is none or it has closed.
@@ -395,10 +467,12 @@ impl Link {
     }
 
     /// Whether the host has turned this device away:
-    /// [`LinkError::NotPaired`] or [`LinkError::Revoked`]. It does so just
-    /// after the handshake, so a dial usually succeeds and the connection
-    /// then closes with the reason. Once it has, the link never dials again
-    /// (see the module docs). Never dials.
+    /// [`LinkError::NotPaired`] or [`LinkError::Revoked`]. Through a relay,
+    /// its link endpoint refuses such a dial before the handshake, and its
+    /// pairing endpoint says why. Otherwise it takes the handshake and
+    /// closes the connection with the reason, as it closes one open when
+    /// the device is revoked. Once it has, the link never dials again (see
+    /// the module docs). Never dials.
     pub fn refusal(&self) -> Option<LinkError> {
         self.inner.cache.refusal()
     }
@@ -507,14 +581,14 @@ impl Link {
         if matches!(failure, LinkError::NotPaired | LinkError::Revoked) {
             return;
         }
-        let home = self.inner.endpoint.home_relay_status().get();
-        if home.iter().any(|status| status.is_connected()) {
+        if relay_connected(&self.inner.endpoint) {
             *self.inner.unreached() = Some(Unreached::HostSilent);
             return;
         }
         let Some(probe) = self.inner.probe.clone() else {
             return;
         };
+        let home = self.inner.endpoint.home_relay_status().get();
         let turned_down = home.iter().find_map(|status| {
             let error = error_chain(status.last_error()?);
             turned_down_by_relay(&error).then(|| status.url().clone())
@@ -597,15 +671,25 @@ impl Heard {
     }
 }
 
-/// One dial, in two stages, along the route as it is now. The relay that
-/// worked becomes the route's and the endpoint's.
+/// Whether `endpoint` has a relay connection now.
+fn relay_connected(endpoint: &Endpoint) -> bool {
+    endpoint
+        .home_relay_status()
+        .get()
+        .iter()
+        .any(|status| status.is_connected())
+}
+
+/// One dial, in two stages, along the route as it is now: through the relay
+/// first while this device has a relay connection. The relay that worked
+/// becomes the route's and the endpoint's.
 async fn dial(inner: &Inner) -> Result<Connection, LinkError> {
     let route = inner.route().clone();
     let endpoint = &inner.endpoint;
-    let first = connect(endpoint, route.first_stage());
-    let second = route
-        .second_stage()
-        .map(|addr| connect_later(endpoint, addr));
+    let (first, second) = route.stages(!relay_connected(endpoint));
+    let pairing = route.pairing_addr();
+    let first = connect(endpoint, first, pairing.clone());
+    let second = second.map(|addr| connect_later(endpoint, addr, pairing));
     let conn = in_two_stages(first, second).await?;
     inner.heard.note();
     *inner.unreached() = None;
@@ -624,44 +708,115 @@ async fn dial(inner: &Inner) -> Result<Connection, LinkError> {
     Ok(conn)
 }
 
-async fn connect(endpoint: &Endpoint, host: EndpointAddr) -> Result<Connection, LinkError> {
-    endpoint.connect(host, ALPN_HTTP).await.map_err(|err| {
-        refused_while_dialling(&err).unwrap_or_else(|| LinkError::Dial(error_chain(&err)))
-    })
+/// Dials `host` on [`ALPN_HTTP`]. If the host refuses the dial before its
+/// handshake, which says nothing of why, it asks the host's pairing endpoint
+/// at `pairing` where this device stands.
+async fn connect(
+    endpoint: &Endpoint,
+    host: EndpointAddr,
+    pairing: Option<EndpointAddr>,
+) -> Result<Connection, LinkError> {
+    let err = match endpoint.connect(host, ALPN_HTTP).await {
+        Ok(conn) => return Ok(conn),
+        Err(err) => err,
+    };
+    if let Some(refused) = refused_while_dialling(&err) {
+        return Err(refused);
+    }
+    let failed = LinkError::Dial(error_chain(&err));
+    match pairing {
+        Some(pairing) if refused_outright(&err) => {
+            Err(standing(endpoint, pairing).await.unwrap_or(failed))
+        }
+        _ => Err(failed),
+    }
 }
 
-/// The host's refusal, if it turned the key away before the dial finished.
-/// It does so just after the handshake, which is usually after this end's
-/// dial has finished too, but not always.
-fn refused_while_dialling(err: &ConnectError) -> Option<LinkError> {
+/// Why the connection closed while the dial was under way, if it did.
+fn closed_while_dialling(err: &ConnectError) -> Option<&ConnectionError> {
     match err {
         ConnectError::Connection { source, .. }
         | ConnectError::Connecting {
             source: ConnectingError::ConnectionError { source, .. },
             ..
-        } => refused_with(source),
+        } => Some(source),
         _ => None,
     }
 }
 
+/// The host's refusal, if it closed the connection with one before the dial
+/// finished. It closes just after the handshake, which is usually after this
+/// end's dial has finished too, but not always.
+fn refused_while_dialling(err: &ConnectError) -> Option<LinkError> {
+    refused_with(closed_while_dialling(err)?)
+}
+
+/// Whether the host refused the dial before its handshake: QUIC's
+/// `CONNECTION_REFUSED`, with no close code of the host's.
+fn refused_outright(err: &ConnectError) -> bool {
+    matches!(
+        closed_while_dialling(err),
+        Some(ConnectionError::ConnectionClosed(close))
+            if close.error_code == TransportErrorCode::CONNECTION_REFUSED
+    )
+}
+
+/// Asks the host's pairing endpoint at `pairing` where this device stands,
+/// for up to [`STANDING_TIMEOUT`]: the refusal its close means, if it's one.
+/// [`close::PAIRED`], no answer, or a host too old to take [`ALPN_STANDING`]
+/// is none.
+async fn standing(endpoint: &Endpoint, pairing: EndpointAddr) -> Option<LinkError> {
+    info!("the host refused the dial before its handshake: asking its pairing endpoint why");
+    let asked = async {
+        match endpoint.connect(pairing, ALPN_STANDING).await {
+            // It answers by closing, right after the handshake.
+            Ok(conn) => refused_with(&conn.closed().await),
+            Err(err) => refused_while_dialling(&err),
+        }
+    };
+    match tokio::time::timeout(STANDING_TIMEOUT, asked).await {
+        Ok(Some(told)) => Some(told),
+        Ok(None) => {
+            info!("the host's pairing endpoint didn't turn this device away");
+            None
+        }
+        Err(_) => {
+            info!(
+                "the host's pairing endpoint didn't answer within {} s",
+                STANDING_TIMEOUT.as_secs()
+            );
+            None
+        }
+    }
+}
+
 /// [`connect`] for the second stage, which says so first.
-async fn connect_later(endpoint: &Endpoint, host: EndpointAddr) -> Result<Connection, LinkError> {
+async fn connect_later(
+    endpoint: &Endpoint,
+    host: EndpointAddr,
+    pairing: Option<EndpointAddr>,
+) -> Result<Connection, LinkError> {
     let relays = host.relay_urls().count();
-    info!("not found yet: trying all {relays} of the host's relays as well");
-    connect(endpoint, host).await
+    let ips = host.ip_addrs().count();
+    info!("not found yet: trying all {relays} of the host's relays and its {ips} direct addresses");
+    connect(endpoint, host, pairing).await
 }
 
 /// `first` alone for up to [`FIRST_STAGE`], or until it fails; then `second`,
 /// if there is one, alongside it, until one connects. Each keeps going if the
-/// other fails. The caller stops the whole at [`DIAL_TIMEOUT`].
+/// other fails, unless the host turned this device away: that ends the dial
+/// at once, as the other would be turned away too. The caller stops the
+/// whole at [`DIAL_TIMEOUT`].
 async fn in_two_stages<C, F1, F2>(first: F1, second: Option<F2>) -> Result<C, LinkError>
 where
     F1: Future<Output = Result<C, LinkError>>,
     F2: Future<Output = Result<C, LinkError>>,
 {
+    let turned_away = |err: &LinkError| matches!(err, LinkError::NotPaired | LinkError::Revoked);
     tokio::pin!(first);
     let first_failed = match tokio::time::timeout(FIRST_STAGE, &mut first).await {
         Ok(Ok(conn)) => return Ok(conn),
+        Ok(Err(err)) if turned_away(&err) => return Err(err),
         Ok(Err(err)) => Some(err),
         Err(_) => None,
     };
@@ -677,12 +832,12 @@ where
     tokio::pin!(second);
     tokio::select! {
         outcome = &mut first => match outcome {
-            Ok(conn) => Ok(conn),
-            Err(_) => second.await,
+            Err(err) if !turned_away(&err) => second.await,
+            outcome => outcome,
         },
         outcome = &mut second => match outcome {
-            Ok(conn) => Ok(conn),
-            Err(_) => first.await,
+            Err(err) if !turned_away(&err) => first.await,
+            outcome => outcome,
         },
     }
 }
@@ -692,7 +847,13 @@ fn refused_with(reason: &ConnectionError) -> Option<LinkError> {
     let ConnectionError::ApplicationClosed(closed) = reason else {
         return None;
     };
-    let code = closed.error_code.into_inner();
+    told_by(closed.error_code.into_inner())
+}
+
+/// The refusal a close code of the host's means, if it's one.
+/// [`close::PAIRED`], the pairing endpoint's answer for a key it lets in,
+/// is none.
+fn told_by(code: u64) -> Option<LinkError> {
     if code == u64::from(close::NOT_PAIRED) {
         Some(LinkError::NotPaired)
     } else if code == u64::from(close::REVOKED) {
@@ -1421,6 +1582,11 @@ mod tests {
         iroh::SecretKey::from_bytes(&[7; 32]).public()
     }
 
+    /// The host's pairing endpoint's key.
+    fn pair() -> EndpointId {
+        iroh::SecretKey::from_bytes(&[8; 32]).public()
+    }
+
     fn addr(text: &str) -> SocketAddr {
         text.parse().expect("an address")
     }
@@ -1441,19 +1607,19 @@ mod tests {
             vec![addr("192.168.1.20:52043"), addr("[2001:db8::7]:7842")],
             vec![RelayEntry::Url(relay("relay.example.com")), RelayEntry::N0],
         );
-        let first = route.first_stage();
-        assert_eq!(first.id, key());
-        assert_eq!(relays_of(&first), ["https://relay.example.com/"]);
-        assert_eq!(
-            ips_of(&first),
-            [addr("192.168.1.20:52043"), addr("[2001:db8::7]:7842")]
-        );
-        let second = route.second_stage().expect("a second stage");
+        let ips = [addr("192.168.1.20:52043"), addr("[2001:db8::7]:7842")];
         let mut expected = vec!["https://relay.example.com/".to_string()];
         expected.extend(crate::relays::n0_relays().iter().map(ToString::to_string));
         expected.sort();
-        assert_eq!(relays_of(&second), expected);
-        assert_eq!(ips_of(&second), ips_of(&first));
+        for direct_first in [true, false] {
+            let (first, second) = route.stages(direct_first);
+            assert_eq!(first.id, key());
+            assert_eq!(relays_of(&first), ["https://relay.example.com/"]);
+            let second = second.expect("a second stage");
+            assert_eq!(relays_of(&second), expected);
+            assert_eq!(ips_of(&second), ips, "the second stage goes direct too");
+        }
+        assert_eq!(ips_of(&route.stages(true).0), ips);
         assert_eq!(route.every_relay().len(), 5);
         assert_eq!(route.every_relay()[0], relay("relay.example.com"));
     }
@@ -1471,12 +1637,18 @@ mod tests {
                 last,
                 vec![addr("192.168.1.20:52043")],
                 vec![RelayEntry::Url(own.clone()), RelayEntry::Url(other.clone())],
-            );
+            )
+            .with_pair_key(pair());
             let mut named = route.every_relay();
-            named.extend(route.first_stage().relay_urls().cloned());
-            if let Some(second) = route.second_stage() {
-                named.extend(second.relay_urls().cloned());
+            for direct_first in [true, false] {
+                let (first, second) = route.stages(direct_first);
+                named.extend(first.relay_urls().cloned());
+                if let Some(second) = second {
+                    named.extend(second.relay_urls().cloned());
+                }
             }
+            let asked = route.pairing_addr().expect("where to ask");
+            named.extend(asked.relay_urls().cloned());
             assert!(!named.is_empty());
             assert!(
                 !named.iter().any(crate::relays::is_n0_relay),
@@ -1489,20 +1661,51 @@ mod tests {
     fn has_no_second_stage_when_the_list_adds_nothing() {
         let own = relay("relay.example.com");
         let route = Route::new(key(), Some(own.clone()), vec![], vec![RelayEntry::Url(own)]);
-        assert_eq!(route.second_stage(), None);
-        // With no relay of its own to start from, the list is the second
-        // stage, and the first has only the direct addresses.
+        assert_eq!(route.stages(true).1, None);
+        assert_eq!(route.stages(false).1, None);
+    }
+
+    /// ADR 0005: while the host is on a relay it answers no direct dial, so
+    /// a phone with a relay connection names the direct addresses only in
+    /// the second stage. With none, or a route with no relay, they go first.
+    #[test]
+    fn names_the_direct_addresses_first_only_while_on_no_relay() {
+        let own = relay("relay.example.com");
+        let lan = addr("192.168.1.20:52043");
         let route = Route::new(
             key(),
-            None,
-            vec![addr("10.0.0.2:1")],
-            vec![RelayEntry::Url(relay("relay.example.com"))],
+            Some(own.clone()),
+            vec![lan],
+            vec![RelayEntry::Url(own.clone())],
         );
-        assert_eq!(relays_of(&route.first_stage()), Vec::<String>::new());
+        let (first, second) = route.stages(false);
+        assert_eq!(relays_of(&first), [own.to_string()]);
+        assert_eq!(ips_of(&first), [], "through the relay alone");
+        let second = second.expect("the direct addresses in the second stage");
         assert_eq!(
-            relays_of(&route.second_stage().expect("a second stage")),
-            ["https://relay.example.com/"]
+            (relays_of(&second), ips_of(&second)),
+            (vec![own.to_string()], vec![lan])
         );
+
+        let (first, second) = route.stages(true);
+        assert_eq!(
+            (relays_of(&first), ips_of(&first)),
+            (vec![own.to_string()], vec![lan])
+        );
+        assert_eq!(second, None, "the list adds nothing");
+
+        // With no relay of its own to start from, the first stage has only
+        // the direct addresses, and the list is the second.
+        let route = Route::new(key(), None, vec![lan], vec![RelayEntry::Url(own.clone())]);
+        for direct_first in [true, false] {
+            let (first, second) = route.stages(direct_first);
+            assert_eq!((relays_of(&first), ips_of(&first)), (vec![], vec![lan]));
+            let second = second.expect("a second stage");
+            assert_eq!(
+                (relays_of(&second), ips_of(&second)),
+                (vec![own.to_string()], vec![lan])
+            );
+        }
     }
 
     #[test]
@@ -1532,6 +1735,95 @@ mod tests {
         assert_eq!(route.relays(), ticket.relays());
         // n0's EU relay is the ticket's, and n0's entry names it again.
         assert_eq!(route.every_relay().len(), 4);
+        // A v4 ticket's one key is no pairing endpoint's.
+        assert_eq!((route.pair_key(), route.pairing_addr()), (None, None));
+    }
+
+    #[test]
+    fn takes_a_v5_tickets_pairing_key_and_asks_it_through_every_relay() {
+        let ticket: crate::ticket::Ticket = format!(
+            r#"{{"v":5,"type":"kleio-pair","name":"mini","key":"{}","pair":"{}","relays":["https://relay.example.com/","n0"],"code":"ABC-DEF"}}"#,
+            key(),
+            pair()
+        )
+        .parse()
+        .expect("a ticket");
+        let route = Route::from_ticket(&ticket);
+        assert_eq!((route.key(), route.pair_key()), (key(), Some(pair())));
+        let asked = route.pairing_addr().expect("where to ask");
+        assert_eq!(asked.id, pair());
+        assert_eq!(ips_of(&asked), [], "the pairing endpoint has no address");
+        let mut every: Vec<String> = route
+            .every_relay()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        every.sort();
+        assert_eq!(relays_of(&asked), every);
+
+        // Without a relay there's nowhere to ask, and the link key isn't a
+        // pairing key.
+        let lan = vec![addr("10.0.0.2:1")];
+        let direct = Route::new(key(), None, lan, vec![]).with_pair_key(pair());
+        assert_eq!(direct.pairing_addr(), None);
+        assert_eq!(route.clone().with_pair_key(key()).pair_key(), Some(pair()));
+        assert_eq!(
+            Route::new(key(), None, vec![], vec![])
+                .with_pair_key(key())
+                .pair_key(),
+            None
+        );
+    }
+
+    /// `GET /kleio/link` gives the pairing key; a host from before ADR 0005
+    /// gives none, and the route keeps the one it has.
+    #[tokio::test]
+    async fn refreshing_replaces_the_pairing_key_and_keeps_it_when_given_none() {
+        use crate::testing::{loopback_endpoint, within_30_s};
+
+        within_30_s(async {
+            let own = relay("relay.example.com");
+            let route = Route::new(key(), Some(own.clone()), vec![], vec![RelayEntry::Url(own)]);
+            let link = Link::new(loopback_endpoint(13, &[]).await, route);
+            let lan = addr("192.168.1.20:52043");
+            link.refresh(vec![RelayEntry::N0], vec![lan], Some(pair()));
+            let route = link.route();
+            assert_eq!(route.relays(), [RelayEntry::N0]);
+            assert_eq!(route.addrs(), [lan]);
+            assert_eq!(route.pair_key(), Some(pair()));
+
+            let newer = iroh::SecretKey::from_bytes(&[9; 32]).public();
+            link.refresh(vec![RelayEntry::N0], vec![], Some(newer));
+            assert_eq!(link.route().pair_key(), Some(newer), "replaced");
+            link.refresh(vec![RelayEntry::N0], vec![], None);
+            assert_eq!(link.route().pair_key(), Some(newer), "kept");
+            link.refresh(vec![RelayEntry::N0], vec![], Some(key()));
+            assert_eq!(
+                link.route().pair_key(),
+                Some(newer),
+                "the link key left out"
+            );
+            assert_eq!(link.route().addrs(), []);
+        })
+        .await;
+    }
+
+    #[test]
+    fn reads_the_hosts_close_codes() {
+        let told = |code: u32| told_by(u64::from(code));
+        assert_eq!(told(close::NOT_PAIRED), Some(LinkError::NotPaired));
+        assert_eq!(told(close::REVOKED), Some(LinkError::Revoked));
+        // The pairing endpoint's answer for a key it lets in.
+        assert_eq!(told(close::PAIRED), None);
+        for other in [
+            close::DONE,
+            close::PAIR_BUSY,
+            close::PAIR_FAILED,
+            close::UNKNOWN_ALPN,
+            7,
+        ] {
+            assert_eq!(told(other), None, "{other}");
+        }
     }
 
     /// One stage's dial: connects as `id` after `after`, fails then, or
@@ -1606,6 +1898,32 @@ mod tests {
     async fn with_no_second_stage_the_first_has_all_the_time() {
         let secs = Duration::from_secs;
         assert_eq!(two_stages((9, Some(Ok(1))), None).await, (Ok(1), secs(9)));
+    }
+
+    /// The host turning this device away ends the dial at once, from either
+    /// stage: the other would be turned away too, and ask why again.
+    #[tokio::test(start_paused = true)]
+    async fn a_refusal_from_either_stage_ends_the_dial() {
+        let secs = Duration::from_secs;
+        for why in [LinkError::NotPaired, LinkError::Revoked] {
+            assert_eq!(
+                two_stages((1, Some(Err(why.clone()))), Some((0, Some(Ok(2))))).await,
+                (Err(why.clone()), secs(1)),
+                "the second never starts"
+            );
+            assert_eq!(
+                two_stages((5, Some(Err(why.clone()))), Some((0, None))).await,
+                (Err(why.clone()), secs(5))
+            );
+            assert_eq!(
+                two_stages((0, None), Some((1, Some(Err(why.clone()))))).await,
+                (Err(why.clone()), secs(5))
+            );
+            assert_eq!(
+                two_stages((1, Some(Err(refused()))), Some((1, Some(Err(why.clone()))))).await,
+                (Err(why), secs(2))
+            );
+        }
     }
 
     #[tokio::test(start_paused = true)]

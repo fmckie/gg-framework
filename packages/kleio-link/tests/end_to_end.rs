@@ -365,9 +365,13 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
         assert_eq!(status, 401);
 
         // A key that never paired gets no further than kleio-link-host,
-        // which refuses it before its handshake.
+        // which refuses it before its handshake; the pairing endpoint tells
+        // it it isn't paired.
         let stranger = phone(SecretKey::generate(), Route::from_ticket(&ticket), &options).await;
-        refused_before_handshake(&stranger).await;
+        assert_eq!(
+            refused_before_handshake(&stranger).await,
+            LinkError::NotPaired
+        );
 
         // An admin revokes the phone: its open connection is closed as
         // revoked, within 2 s of kleio-host's answer (3 s allows for a slow
@@ -385,7 +389,8 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
 
         // An admin denies the next phone while kleio-host holds its first
         // request: it's told so at once, the code is gone, and its key gets
-        // no further than kleio-link-host.
+        // no further than kleio-link-host. It was never paired, and the
+        // pairing endpoint says so.
         let (status, offer) = call(kleio.api, "POST", "/kleio/pair/offer", Some(admin)).await;
         assert_eq!(status, 200, "{}", offer["error"]);
         let ticket: Ticket = offer["ticket"]
@@ -415,7 +420,10 @@ async fn a_phone_pairs_uses_and_loses_the_link_through_kleio_host() {
         let (status, offer) = call(kleio.api, "GET", "/kleio/pair", Some(admin)).await;
         assert_eq!((status, &offer["active"]), (200, &json!(false)));
         let denied = phone(key, Route::from_ticket(&ticket), &options).await;
-        refused_before_handshake(&denied).await;
+        assert_eq!(
+            refused_before_handshake(&denied).await,
+            LinkError::NotPaired
+        );
     })
     .await;
 }
