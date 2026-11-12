@@ -9,7 +9,14 @@ import { toast } from "../toast";
 import { ConnectionPage, formatLatency, N0_RELAY_LINE, switchWords } from "./ConnectionPage";
 import { forgetHint } from "./ForgetHost";
 import { RESTART_HOST, RESTART_LINK, START_HOST } from "./connectionDiagnosis";
-import { hostHealth, KleioApiError, notificationSettings, setQuoteText } from "./kleioApi";
+import {
+  getHostInfo,
+  hostHealth,
+  KleioApiError,
+  notificationSettings,
+  setQuoteText,
+  type HostInfo,
+} from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
 import { adoptRelayList, relayList, setRelayList, type RelayList } from "./kleioRelays";
 import type * as KleioRelays from "./kleioRelays";
@@ -50,6 +57,7 @@ vi.mock("./kleioApi", async (importOriginal) => ({
   hostHealth: vi.fn(),
   notificationSettings: vi.fn(),
   setQuoteText: vi.fn(),
+  getHostInfo: vi.fn(),
 }));
 vi.mock("./kleioRelays", async (importOriginal) => ({
   ...(await importOriginal<typeof KleioRelays>()),
@@ -161,8 +169,15 @@ const N0_LIST: RelayList = {
   waiting: 0,
 };
 
+/** GET /kleio/host from a Mac mini set never to sleep, its engine holding nothing. */
+const MINI_INFO: HostInfo = {
+  kind: { os: "darwin", laptop: false, alwaysOn: { state: "yes", reasons: [] } },
+  keepAwake: "idle",
+};
+
 beforeEach(() => {
   remote.status = BY_ADDRESS;
+  vi.mocked(getHostInfo).mockResolvedValue(MINI_INFO);
   vi.mocked(hostHealth).mockResolvedValue({ sidecar: "up", devices: 2, latencyMs: 38 });
   vi.mocked(notificationSettings).mockResolvedValue({ quoteText: true });
   vi.mocked(relayList).mockResolvedValue(N0_LIST);
@@ -751,6 +766,61 @@ describe("ConnectionPage — Notifications", () => {
       ),
     ).toBeTruthy();
     expect(within(box).queryByRole("checkbox")).toBeNull();
+  });
+});
+
+describe("ConnectionPage — a laptop host", () => {
+  const AWAKE =
+    "Kleio keeps mac-mini-1 awake while a run is going. Closing the lid still sleeps it.";
+  const NO_NOTICES = "mac-mini-1 sends them, so none come while it's asleep.";
+  const laptop = (keepAwake: HostInfo["keepAwake"]): HostInfo => ({
+    kind: { os: "darwin", laptop: true, alwaysOn: { state: "laptop", reasons: [] } },
+    keepAwake,
+  });
+  const host = (): HTMLElement => screen.getByRole("region", { name: "Host" });
+  const notices = (): HTMLElement => screen.getByRole("region", { name: "Notifications" });
+
+  it("says Kleio keeps it awake during a run, and that it sends no notifications asleep", async () => {
+    for (const keepAwake of ["holding", "idle"] as const) {
+      vi.mocked(getHostInfo).mockResolvedValue(laptop(keepAwake));
+      await renderPage();
+      expect(await within(host()).findByText(AWAKE)).toBeTruthy();
+      expect(within(notices()).getByText(NO_NOTICES)).toBeTruthy();
+      cleanup();
+    }
+  });
+
+  it("with the hold off, or an engine that can't say, doesn't claim it", async () => {
+    for (const keepAwake of ["off", "unavailable"] as const) {
+      vi.mocked(getHostInfo).mockResolvedValue(laptop(keepAwake));
+      await renderPage();
+      expect(await within(notices()).findByText(NO_NOTICES)).toBeTruthy();
+      expect(within(host()).queryByText(AWAKE)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("a host that isn't a laptop gets neither line", async () => {
+    await renderPage();
+    await waitFor(() => expect(getHostInfo).toHaveBeenCalled());
+    await act(async () => {});
+    expect(within(host()).queryByText(AWAKE)).toBeNull();
+    expect(within(notices()).queryByText(NO_NOTICES)).toBeNull();
+  });
+
+  it("can't ask the host: goes by what it last said it is, and claims no hold", async () => {
+    vi.mocked(getHostInfo).mockRejectedValue(new KleioApiError(404, "not found"));
+    localStorage.setItem("kleio.hostKind", JSON.stringify({ os: "darwin", laptop: true }));
+    await renderPage();
+    expect(await within(notices()).findByText(NO_NOTICES)).toBeTruthy();
+    expect(within(host()).queryByText(AWAKE)).toBeNull();
+    cleanup();
+
+    // And with nothing kept, says nothing about it.
+    localStorage.clear();
+    await renderPage();
+    await act(async () => {});
+    expect(within(notices()).queryByText(NO_NOTICES)).toBeNull();
   });
 });
 

@@ -503,16 +503,35 @@ export interface HostKind {
   alwaysOn?: AlwaysOn;
 }
 
-/** GET /kleio/host: which OS the host runs, and whether it stays on. */
-export const getHostKind = async (): Promise<HostKind> => {
+/**
+ * GET /kleio/host's keepAwake (host-info.ts): the engine holds the host awake
+ * for a run now, holds nothing now, has the setting off, or couldn't say.
+ */
+export const KEEP_AWAKE_STATES = ["holding", "idle", "off", "unavailable"] as const;
+export type KeepAwakeState = (typeof KEEP_AWAKE_STATES)[number];
+
+export interface HostInfo {
+  kind: HostKind;
+  /** Changes with every run, so it's never kept. A host from before it is "unavailable". */
+  keepAwake: KeepAwakeState;
+}
+
+/** GET /kleio/host: which OS the host runs, whether it stays on, and whether it's kept awake. */
+export const getHostInfo = async (): Promise<HostInfo> => {
   const body = await call<Record<string, unknown>>("GET", "/kleio/host");
   const alwaysOn = alwaysOnFrom(body.alwaysOn);
   return {
-    os: typeof body.os === "string" ? body.os : "unknown",
-    laptop: alwaysOn?.state === "laptop",
-    ...(alwaysOn ? { alwaysOn } : {}),
+    kind: {
+      os: typeof body.os === "string" ? body.os : "unknown",
+      laptop: alwaysOn?.state === "laptop",
+      ...(alwaysOn ? { alwaysOn } : {}),
+    },
+    keepAwake: KEEP_AWAKE_STATES.find((s) => s === body.keepAwake) ?? "unavailable",
   };
 };
+
+/** GET /kleio/host: which OS the host runs, and whether it stays on. */
+export const getHostKind = async (): Promise<HostKind> => (await getHostInfo()).kind;
 
 // ─── home thread ────────────────────────────────────────────────────────────
 

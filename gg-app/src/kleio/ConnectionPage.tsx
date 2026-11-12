@@ -12,10 +12,11 @@
 //   under "Advanced: connect over your own network". Windows and Linux
 //   builds don't show it.
 // - Host: its name (or address), how quickly it replies, how this device is
-//   paired.
+//   paired, and on a laptop host that Kleio keeps it awake during a run
+//   (GET /kleio/host's keepAwake).
 // - Notifications: they come through Apple, so they aren't end-to-end
 //   encrypted, and whether they quote what was said (the host's setting; an
-//   admin device changes it).
+//   admin device changes it). A laptop host sends none while it's asleep.
 // - Tailscale (a Mac paired by address): the private network's details.
 // - Pair a device: a one-time pairing QR code an iPhone scans, with its
 //   pairing text for a Mac, and Allow or Deny for the device that uses it
@@ -63,11 +64,13 @@ import {
   type LinkHealth,
   type Tone,
 } from "./connectionDiagnosis";
-import { linkVerdict, REACH_TIMEOUT_MS } from "./hostReach";
+import { linkVerdict, REACH_TIMEOUT_MS, rememberedHostKind } from "./hostReach";
 import {
+  getHostInfo,
   hostHealth,
   KleioApiError,
   notificationSettings,
+  type HostInfo,
   type NotificationSettings,
   setQuoteText,
 } from "./kleioApi";
@@ -244,6 +247,28 @@ export function ConnectionPage(): React.ReactElement {
       live = false;
     };
   }, [pairedId]);
+  // The host's kind, and whether its engine keeps it awake for a run. Can't
+  // ask: what it last said of its kind, and nothing about the hold.
+  const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
+  useEffect(() => {
+    if (pairedId === null) return;
+    let live = true;
+    getHostInfo().then(
+      (info) => {
+        if (live) setHostInfo(info);
+      },
+      () => {
+        if (!live) return;
+        const kind = rememberedHostKind();
+        setHostInfo(kind ? { kind, keepAwake: "unavailable" } : null);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [pairedId]);
+  const laptop = hostInfo?.kind.laptop === true;
+  const keptAwake = laptop && (hostInfo?.keepAwake === "holding" || hostInfo?.keepAwake === "idle");
   const verdict = !checks
     ? null
     : linkInUse
@@ -334,6 +359,11 @@ export function ConnectionPage(): React.ReactElement {
               </Fact>
               {paired && <Fact label="Paired">{relTime(paired.pairedAt)}</Fact>}
             </dl>
+            {keptAwake && (
+              <p className="settings-desc">
+                {`Kleio keeps ${hostLabel} awake while a run is going. Closing the lid still sleeps it.`}
+              </p>
+            )}
             {/* Forgotten in this launch: it applies on the next. */}
             {paired ? (
               <ForgetHost compact onForgot={refreshRemote} />
@@ -348,6 +378,7 @@ export function ConnectionPage(): React.ReactElement {
               admin={active.admin}
               device={device}
               hostLabel={hostLabel}
+              laptop={laptop}
               onSaved={(s) => setNotices({ state: "ok", quoteText: s.quoteText })}
             />
           )}
@@ -799,19 +830,22 @@ const QUOTE_OFF =
 /**
  * Notifications: they come through Apple, so they aren't end-to-end
  * encrypted. An admin device chooses whether they quote what was said; any
- * other device sees the choice.
+ * other device sees the choice. The host sends them, so a laptop host sends
+ * none while it's asleep.
  */
 function NotificationsCard({
   notices,
   admin,
   device,
   hostLabel,
+  laptop,
   onSaved,
 }: {
   notices: Notices;
   admin: boolean;
   device: Device;
   hostLabel: string;
+  laptop: boolean;
   onSaved: (settings: NotificationSettings) => void;
 }): React.ReactElement {
   const [busy, setBusy] = useState(false);
@@ -861,6 +895,9 @@ function NotificationsCard({
             <span />
           </label>
         </div>
+      )}
+      {laptop && (
+        <p className="settings-desc">{`${hostLabel} sends them, so none come while it's asleep.`}</p>
       )}
       {!admin && notices.state === "ok" && (
         <p className="settings-desc">Only an admin device can change this.</p>
