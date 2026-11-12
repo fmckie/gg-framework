@@ -379,6 +379,13 @@ jobs:
       - name: Frontend platform-class test
         run: pnpm --filter gg-app test
 
+      # The Mac app carries the host "On this Mac" installs (tauri.macos.conf.json
+      # lists host/), so its Rust build needs host/ staged. kleio-link-host is the
+      # debug build the link's tests made above. The capture helper is left out:
+      # only a real app build needs it. Elsewhere the script says it skipped.
+      - name: Stage the host (the Mac app's)
+        run: node gg-app/scripts/stage-host.mjs --link-bin packages/kleio-link/target/debug/kleio-link-host --no-capture
+
       - name: Rust unit tests (path + window-chrome resolution)
         working-directory: subject/gg-app/src-tauri
         run: cargo test
