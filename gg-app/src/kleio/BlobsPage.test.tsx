@@ -3,8 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { agentRowState } from "./AgentRow";
 import { BlobsPage } from "./BlobsPage";
-import { deleteBlob, listBlobs, newBlobSession, type Blob, type Schedule } from "./kleioApi";
+import { ranLate } from "./blobFormat";
+import type * as BlobSchedulesModule from "./BlobSchedules";
+import {
+  deleteBlob,
+  listBlobs,
+  listRuns,
+  newBlobSession,
+  type Blob,
+  type Schedule,
+} from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
+import { useKleioRemote } from "./useKleioRemote";
 import type { HistoryEntry } from "../agent";
 
 vi.mock("../RadioButton", () => ({ RadioButton: () => <button type="button">Radio</button> }));
@@ -48,8 +58,10 @@ vi.mock("./kleioApi", async (importOriginal) => {
     deleteBlob: vi.fn(),
     getBlobSession: vi.fn(),
     newBlobSession: vi.fn(),
+    listRuns: vi.fn(),
   };
 });
+vi.mock("./useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
 
 const DAILY: Schedule = {
   id: "s1",
@@ -87,6 +99,20 @@ async function renderPage(onClose: () => void = () => undefined): Promise<void> 
 }
 
 beforeEach(() => {
+  vi.mocked(listRuns).mockResolvedValue([]);
+  vi.mocked(useKleioRemote).mockReturnValue({
+    status: {
+      active: {
+        base: "https://mac-mini-1.example.ts.net:8443",
+        host: "mac-mini-1.example.ts.net",
+        deviceId: "d1",
+        label: "iPhone",
+        admin: false,
+      },
+      paired: null,
+    },
+    refresh: vi.fn(async () => undefined),
+  });
   vi.mocked(listBlobs).mockResolvedValue([
     blob({}),
     blob({ id: "b2", name: "Chef", color: "peach", schedules: [], running: true }),
@@ -289,5 +315,47 @@ describe("agentRowState", () => {
         }),
       ),
     ).toEqual({ text: "Last run failed", tone: "failed" });
+  });
+});
+
+describe("a schedule that ran late", () => {
+  const late: Schedule = {
+    ...DAILY,
+    time: "09:00",
+    lastRun: {
+      at: "2026-10-26T09:30:00.000Z",
+      outcome: "ran",
+      late: { dueAt: "2026-10-24T08:00:00.000Z" },
+    },
+  };
+
+  it("shows the line under the schedule, with the host and the time it was for", async () => {
+    // The real card: the page's tests stand it in.
+    const { Schedules } = await vi.importActual<typeof BlobSchedulesModule>("./BlobSchedules");
+    await act(async () => {
+      render(<Schedules blob={blob({ schedules: [late] })} onChanged={async () => {}} />);
+    });
+    expect(screen.getByText("Ran late: mac-mini-1 was asleep at 09:00.")).toBeTruthy();
+    cleanup();
+
+    // On time: no line.
+    await act(async () => {
+      render(<Schedules blob={blob({})} onChanged={async () => {}} />);
+    });
+    expect(screen.queryByText(/^Ran late/)).toBeNull();
+  });
+
+  it("says it only for a run that ran, in the schedule's own zone", () => {
+    expect(ranLate(late.lastRun, "Europe/London", "mac-mini-1")).toBe(
+      "Ran late: mac-mini-1 was asleep at 09:00.",
+    );
+    expect(ranLate(late.lastRun, "America/New_York", "mac-mini-1")).toBe(
+      "Ran late: mac-mini-1 was asleep at 04:00.",
+    );
+    expect(ranLate({ at: late.lastRun!.at, outcome: "ran" }, "Europe/London", "x")).toBeNull();
+    expect(
+      ranLate({ ...late.lastRun!, outcome: "error", error: "failed" }, "Europe/London", "x"),
+    ).toBeNull();
+    expect(ranLate(undefined, "Europe/London", "x")).toBeNull();
   });
 });

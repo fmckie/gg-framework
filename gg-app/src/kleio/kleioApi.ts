@@ -43,6 +43,8 @@ export interface ScheduleLastRun {
   at: string;
   outcome: "ran" | "skipped" | "error";
   error?: string;
+  /** It ran more than 2 minutes after its time, `dueAt`, because the host was asleep then. */
+  late?: { dueAt: string };
 }
 
 export interface Schedule {

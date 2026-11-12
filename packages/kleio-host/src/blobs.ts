@@ -16,6 +16,8 @@
 // Missed occurrences are skipped, never replayed. A fire while the Blob's
 // conversation is running is logged as a skipped run. A fired run is closed on
 // the session's next run_end with the last assistant message as its summary.
+// One that fires more than LATE_AFTER_MS after its time (the host was asleep:
+// its ticker stops with it) runs once and records `lastRun.late`.
 //
 // Auto-schedules: creating a Blob (or changing its job) asks the sidecar's
 // one-shot `POST /complete` to read timing out of the job (auto-schedules.ts).
@@ -93,11 +95,15 @@ const LIST_RUNS = 50;
 const SUMMARY_CHARS = 280;
 /** A fired run with no run_end after this long is closed as an error. */
 const OPEN_RUN_TIMEOUT_MS = 2 * 3_600_000;
+/** A schedule that fires more than this after its time ran late; the 5 s tick is always a little late. */
+export const LATE_AFTER_MS = 2 * 60_000;
 
 export interface ScheduleLastRun {
   readonly at: string;
   readonly outcome: "ran" | "skipped" | "error";
   readonly error?: string;
+  /** It ran more than LATE_AFTER_MS after its time, `dueAt`: the host was asleep then. */
+  readonly late?: { readonly dueAt: string };
 }
 
 export interface Schedule {
@@ -573,9 +579,13 @@ export function createBlobs(options: BlobsOptions): Blobs {
     return o;
   }
 
-  /** Prompt a Blob with a schedule now. Records and returns the run. */
-  async function fire(blobId: string, s: Schedule): Promise<Run> {
+  /** Prompt a Blob with a schedule now. Records and returns the run. `dueAt`: the time it was for. */
+  async function fire(blobId: string, s: Schedule, dueAt?: number): Promise<Run> {
     const startedAt = now().toISOString();
+    const late =
+      dueAt !== undefined && Date.parse(startedAt) - dueAt > LATE_AFTER_MS
+        ? { dueAt: new Date(dueAt).toISOString() }
+        : undefined;
     const base = { id: `r_${hex()}`, blobId, scheduleId: s.id, label: s.label, startedAt };
     const finish = async (run: Run, lastRun: ScheduleLastRun): Promise<Run> => {
       const cur = find(blobId)?.schedules.find((x) => x.id === s.id);
@@ -617,7 +627,8 @@ export function createBlobs(options: BlobsOptions): Blobs {
 
     const run: Run = { ...base, outcome: "ok" };
     open.set(blobId, { run, sessionId, notify: s.notify, text: "", stale: false });
-    const done = finish(run, { at: startedAt, outcome: "ran" });
+    const done = finish(run, { at: startedAt, outcome: "ran", ...(late ? { late } : {}) });
+    if (late) log(`[blobs] ${blobId} "${s.label}" ran late: it was due at ${late.dueAt}`);
     const r = await options.call("POST", "/prompt", {
       session: sessionId,
       body: { text: `⏰ Scheduled task "${s.label}":\n${s.prompt}` },
@@ -655,7 +666,7 @@ export function createBlobs(options: BlobsOptions): Blobs {
       // Advance first, so a slow fire can never fire the same occurrence twice.
       replaceSchedule(due.blobId, advanced(due.s, due.at, t));
       await save();
-      await fire(due.blobId, due.s);
+      await fire(due.blobId, due.s, due.at);
     } catch (e) {
       log(`[blobs] tick failed: ${String(e)}`);
     } finally {
