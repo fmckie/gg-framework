@@ -251,6 +251,10 @@ pub fn run() {
             kleio::switch::kleio_switch_status,
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             kleio::switch::kleio_switch_remove_old,
+            #[cfg(target_os = "macos")]
+            kleio::host_install::kleio_this_mac_kind,
+            #[cfg(target_os = "macos")]
+            kleio::host_install::kleio_host_install,
             daemon::kleio_chat_for_session,
             kleio::push::kleio_take_notification_tap,
             kleio::live::kleio_live_start,
