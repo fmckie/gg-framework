@@ -997,6 +997,40 @@ describe("blobs: scheduler", () => {
     expect(JSON.parse(readFileSync(join(home, "sessions.json"), "utf8"))).toContain(sid);
   });
 
+  it("asleep past a daily time: fires once on waking, marked late with the time it was for", async () => {
+    const b = await newBlob();
+    // 09:00 in London is 08:00Z today (BST); the clock is 07:00Z.
+    const s = await schedule(b.id, { kind: "daily", time: "09:00", timezone: "Europe/London" });
+    expect(s.nextRunAt).toBe("2026-10-24T08:00:00.000Z");
+    await restart();
+    // The host sleeps through three 09:00s and wakes at 09:30 on the third day.
+    clock = Date.parse("2026-10-26T09:30:00Z");
+    await until(() => sidecar.prompts.length > 0);
+    await settle();
+    expect(sidecar.prompts).toHaveLength(1);
+    const [run] = await runs(b.id);
+    expect(run).toMatchObject({ scheduleId: s.id, outcome: "ok" });
+    const sched = (await call("GET", "/kleio/blobs")).body.blobs[0].schedules[0];
+    expect(sched.lastRun).toEqual({
+      at: new Date(clock).toISOString(),
+      outcome: "ran",
+      late: { dueAt: "2026-10-24T08:00:00.000Z" },
+    });
+    // The missed slots are behind it: the next is tomorrow's, not a replay.
+    expect(sched.nextRunAt).toBe("2026-10-27T09:00:00.000Z");
+  });
+
+  it("a fire within 2 minutes of its time isn't late", async () => {
+    const b = await newBlob();
+    const s = await schedule(b.id, { kind: "daily", time: "09:00", timezone: "Europe/London" });
+    await restart();
+    clock = Date.parse(s.nextRunAt) + 2 * 60_000;
+    await until(() => sidecar.prompts.length > 0);
+    await settle();
+    const sched = (await call("GET", "/kleio/blobs")).body.blobs[0].schedules[0];
+    expect(sched.lastRun).toEqual({ at: new Date(clock).toISOString(), outcome: "ran" });
+  });
+
   it("a once schedule fires and then disables; one missed while down is skipped", async () => {
     const b = await newBlob();
     const s = await schedule(b.id, { kind: "once", at: new Date(clock + 60_000).toISOString() });

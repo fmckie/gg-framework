@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { SidecarEvent } from "./agent";
-import { INITIAL_ACTIVITY, reduceTaskActivity, type TaskActivity } from "./task-activity";
+import { diagnoseLink, hostAway } from "./kleio/connectionDiagnosis";
+import type { HostKind } from "./kleio/kleioApi";
+import type { LinkStatus } from "./kleio/kleioLink";
+import {
+  INITIAL_ACTIVITY,
+  reduceTaskActivity,
+  withHostAway,
+  type TaskActivity,
+} from "./task-activity";
 const event = (s: TaskActivity, type: string, data: Record<string, unknown> = {}, now = 1000) =>
   reduceTaskActivity(s, { type, data } as SidecarEvent, now);
 const start = () => event(INITIAL_ACTIVITY, "run_start", {}, 100);
@@ -336,6 +344,116 @@ describe("whole-task activity", () => {
       expect(event(s, "autopilot_done").phase).toBe(
         verification === "failed" ? "failed" : "unverified",
       );
+    }
+  });
+});
+
+describe("a chat past a failed reconnect", () => {
+  const away = {
+    label: "Kleio lives on mac-mini-1, which is asleep",
+    detail: "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself.",
+  };
+
+  it("says the host is asleep instead of Reconnecting… once the link check says it's silent", () => {
+    const lost = event(start(), "connection_lost");
+    expect(lost.label).toBe("Reconnecting…");
+    // Until the link check says the host is silent, it's still reconnecting.
+    expect(withHostAway(lost, null)).toBe(lost);
+    const shown = withHostAway(lost, away);
+    expect(shown.label).toBe(away.label);
+    expect(shown.detail).toBe(away.detail);
+    expect(shown.phase).toBe("working");
+    expect(shown.connectionLost).toBe(true);
+  });
+
+  it("changes nothing for a chat that didn't lose its stream, and recovers as before", () => {
+    const working = start();
+    expect(withHostAway(working, away)).toBe(working);
+    const done = event(start(), "run_end", { verification: "passed", verifiedChecks: 1 });
+    expect(withHostAway(done, away)).toBe(done);
+    // Awake again: the stream's ready event clears the loss, so the words go too.
+    const resumed = event(event(start(), "connection_lost"), "ready", { running: true });
+    expect(withHostAway(resumed, away).label).toBe("Working on your request…");
+  });
+});
+
+describe("a chat's words while the link check says the host is silent, by host", () => {
+  const NOW = Date.parse("2026-11-12T12:00:00Z");
+  const link = (over: Partial<LinkStatus>): LinkStatus => ({
+    paired: true,
+    active: true,
+    running: true,
+    error: null,
+    host: "mac-mini-1.example.ts.net",
+    hostKey: "ab".repeat(32),
+    relay: null,
+    relayN0: true,
+    refused: null,
+    refusal: null,
+    connected: false,
+    dialling: false,
+    unreached: null,
+    lastReachedMs: NOW - 3 * 60_000,
+    path: null,
+    pathAddr: null,
+    pathN0: false,
+    rateLimited: false,
+    rttMs: null,
+    connectedSinceMs: null,
+    redials: 0,
+    lastResumeMs: null,
+    events: [],
+    debugBuild: false,
+    ...over,
+  });
+  /** The chat's label after its stream dropped, with the link check's verdict for `host`. */
+  const label = (host: HostKind | null, over: Partial<LinkStatus>): string =>
+    withHostAway(
+      event(start(), "connection_lost"),
+      hostAway(
+        diagnoseLink(
+          {
+            link: link(over),
+            health: { state: "error", kleioDown: false },
+            host,
+            hostLabel: "mac-mini-1",
+            device: "iPhone",
+            online: true,
+          },
+          NOW,
+        ),
+      ),
+    ).label;
+  const SILENT = { unreached: { kind: "host-silent" as const, relays: [] } };
+  const LAPTOP: HostKind = {
+    os: "darwin",
+    laptop: true,
+    alwaysOn: { state: "laptop", reasons: [] },
+  };
+  const DESKTOP: HostKind = {
+    os: "darwin",
+    laptop: false,
+    alwaysOn: { state: "yes", reasons: [] },
+  };
+  const OLDER: HostKind = { os: "darwin", laptop: false };
+
+  it("a laptop host says it's asleep", () => {
+    expect(label(LAPTOP, SILENT)).toBe("Kleio lives on mac-mini-1, which is asleep");
+  });
+
+  it("a desktop host keeps today's words, at the same moment", () => {
+    expect(label(DESKTOP, SILENT)).toBe("mac-mini-1 is asleep or offline");
+  });
+
+  it("a host too old to report its type, or never asked, keeps today's words too", () => {
+    expect(label(OLDER, SILENT)).toBe("mac-mini-1 is asleep or offline");
+    expect(label(null, SILENT)).toBe("mac-mini-1 is asleep or offline");
+  });
+
+  it("until the link check says the host is silent, every host's chat says Reconnecting…", () => {
+    for (const host of [LAPTOP, DESKTOP, OLDER, null]) {
+      expect(label(host, { dialling: true })).toBe("Reconnecting…");
+      expect(label(host, { unreached: { kind: "no-relay", relays: [] } })).toBe("Reconnecting…");
     }
   });
 });

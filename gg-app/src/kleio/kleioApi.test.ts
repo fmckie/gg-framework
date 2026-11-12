@@ -326,6 +326,45 @@ describe("dictation setup", () => {
   });
 });
 
+describe("host info", () => {
+  it("reads the host's OS, whether it stays on, and whether its engine keeps it awake", async () => {
+    const calls = reply({
+      os: "darwin",
+      version: "2.2.0",
+      alwaysOn: { state: "laptop", reasons: [] },
+      keepAwake: "holding",
+    });
+    expect(await api.getHostInfo()).toEqual({
+      kind: { os: "darwin", laptop: true, alwaysOn: { state: "laptop", reasons: [] } },
+      keepAwake: "holding",
+    });
+    expect(calls[0]).toMatchObject({ method: "GET", path: "/kleio/host" });
+    reply({
+      os: "darwin",
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "made_up"] },
+      keepAwake: "off",
+    });
+    expect(await api.getHostKind()).toEqual({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac"] },
+    });
+  });
+
+  it("an older host: no alwaysOn, and a hold it can't say anything about", async () => {
+    reply({ os: "linux", version: "2.0.0" });
+    expect(await api.getHostInfo()).toEqual({
+      kind: { os: "linux", laptop: false },
+      keepAwake: "unavailable",
+    });
+    reply({ os: "linux", alwaysOn: { state: "sleepy" }, keepAwake: "maybe" });
+    expect(await api.getHostInfo()).toEqual({
+      kind: { os: "linux", laptop: false },
+      keepAwake: "unavailable",
+    });
+  });
+});
+
 describe("notification setting", () => {
   const UNREADABLE = "The host's notification setting couldn't be read.";
 

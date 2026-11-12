@@ -67,17 +67,21 @@ describe("lazy settings", () => {
     // needs more than vitest's 5 s default (slow Windows runners hit it).
   }, 20_000);
 
-  it("loads the keep-awake setting and saves a toggle through the sidecar", async () => {
+  it("has no Power switch in Kleio, and never reads this computer's keep-awake setting", async () => {
     render(<SettingsModal onClose={() => {}} />);
     const dialog = await screen.findByRole("dialog", { name: "Settings" }, { timeout: 5000 });
-    const toggle = within(dialog).getByRole("checkbox", {
-      name: "Keep computer awake while the agent works",
-    });
-    // Disabled until the sidecar answers, so a click can't race the load.
-    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
-    expect((toggle as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(toggle);
-    await waitFor(() => expect(keepAwake.setKeepAwake).toHaveBeenCalledWith(false));
-    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false));
+    // Loaded: the projects folder is in, and the Effects section is there.
+    await waitFor(() =>
+      expect((within(dialog).getByRole("textbox") as HTMLInputElement).value).toBe(
+        "/synthetic/projects",
+      ),
+    );
+    expect(within(dialog).getByText("Effects")).toBeTruthy();
+    expect(within(dialog).queryByText("Power")).toBeNull();
+    expect(
+      within(dialog).queryByRole("checkbox", { name: "Keep computer awake while the agent works" }),
+    ).toBeNull();
+    expect(keepAwake.getKeepAwake).not.toHaveBeenCalled();
+    expect(keepAwake.setKeepAwake).not.toHaveBeenCalled();
   }, 20_000);
 });

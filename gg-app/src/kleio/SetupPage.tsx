@@ -2,22 +2,32 @@
 // (see shouldOpenSetup in app-entry-view.ts). At the top, how much is done;
 // then one card per step, with its status in the header and one thing to do.
 // The optional steps sit apart, under their own label. Keys live on the host;
-// only an admin device can change them.
+// only an admin device can change them. Always on is advice about the host
+// itself, so it doesn't count toward the steps.
 
 import { useCallback, useEffect, useId, useState } from "react";
 import { LockSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { Badge } from "../Badge";
+import { theme } from "../theme";
 import { SettingsCard } from "../settings-section";
 import { authStatusWithError, type AuthStatusResult } from "../agent";
 import { localStorageOrNull, markSetupSeen } from "../app-entry-view";
 import type { SettingsTabId } from "../SettingsScreen";
 import { diagnosisText, type Diagnosis } from "./connectionDiagnosis";
 import { shortHost } from "./host-name";
-import { useHostReach, useHostReachWords, type HostReach } from "./hostReach";
+import {
+  askHostKind,
+  rememberedHostKind,
+  useHostReach,
+  useHostReachWords,
+  type HostReach,
+} from "./hostReach";
 import {
   errorText,
   KleioApiError,
   removeSetupKey,
   getSetupStatus,
+  type HostKind,
   type SetupKeyName,
   type SetupStatus,
 } from "./kleioApi";
@@ -122,6 +132,98 @@ function HostCard({
           Connection
         </button>
       </div>
+    </SettingsCard>
+  );
+}
+
+/** Stops a Linux desktop host from sleeping; `unmask` with the same targets undoes it. */
+const LINUX_NO_SLEEP =
+  "sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target";
+
+/** The host's sleep settings to change, by its OS: only the ones that are off. */
+function stayOnSteps(kind: HostKind, name: string): React.ReactNode[] {
+  const reasons = kind.alwaysOn?.reasons ?? [];
+  if (kind.os === "darwin") {
+    const steps: React.ReactNode[] = [];
+    if (reasons.includes("sleeps_on_ac"))
+      steps.push("Turn on \u201cPrevent automatic sleeping when the display is off\u201d.");
+    if (reasons.includes("no_autorestart"))
+      steps.push(
+        "Turn on \u201cStart up automatically after a power failure\u201d. Where it shows \u201cStart up when power is connected\u201d instead, choose \u201cAfter power failure\u201d.",
+      );
+    if (reasons.includes("no_wake_for_network"))
+      steps.push("Turn on \u201cWake for network access\u201d.");
+    if (steps.length === 0) return [];
+    return [
+      "Choose Apple menu \u2192 System Settings, then click Energy in the sidebar. You may need to scroll down.",
+      ...steps,
+    ];
+  }
+  if (kind.os === "win32" && reasons.includes("sleeps_on_ac"))
+    return [
+      "Choose Start \u2192 Settings \u2192 System \u2192 Power & battery \u2192 Screen, sleep, & hibernate timeouts.",
+      "Set \u201cMake my device sleep after\u201d to Never for when it's plugged in. On Windows 10 the page is called Power & sleep.",
+    ];
+  if (kind.os === "linux" && reasons.includes("sleep_not_masked"))
+    return [
+      <>
+        In a terminal on {name}, run <code className="conn-code">{LINUX_NO_SLEEP}</code>
+      </>,
+      "To undo it later, run the same command with unmask instead of mask.",
+    ];
+  return [];
+}
+
+/**
+ * Always on: whether the host stays awake, so Kleio can answer any time. A
+ * laptop gets one line and no steps; a computer set to sleep gets the steps
+ * for its OS, done on the host itself. `kind` undefined: still asking.
+ */
+function AlwaysOnCard({
+  kind,
+  name,
+}: {
+  kind: HostKind | null | undefined;
+  name: string;
+}): React.ReactElement {
+  const state = kind === undefined ? "checking" : (kind?.alwaysOn?.state ?? "unknown");
+  const steps = kind && state === "may_sleep" ? stayOnSteps(kind, name) : [];
+  const badge =
+    state === "checking" ? (
+      <StepBadge mark="checking" />
+    ) : state === "yes" ? (
+      <Badge color={theme.success}>Yes</Badge>
+    ) : state === "may_sleep" ? (
+      <Badge color={theme.warning}>May sleep</Badge>
+    ) : state === "laptop" ? (
+      <Badge>Laptop</Badge>
+    ) : (
+      <StepBadge mark="unknown" />
+    );
+  const line =
+    state === "checking"
+      ? `Checking whether ${name} stays on\u2026`
+      : state === "yes"
+        ? `Yes. ${name} stays on, so Kleio can answer any time.`
+        : state === "may_sleep"
+          ? `${name === "your host" ? "Your host" : name} may fall asleep.${steps.length > 0 ? ` To keep it on, do this on ${name} itself:` : ""}`
+          : state === "laptop"
+            ? `Kleio works while ${name} is open and awake.`
+            : `Couldn't check whether ${name} stays on.`;
+  return (
+    <SettingsCard
+      title="Always on"
+      badge={badge}
+      description="Kleio runs on your host, so it answers only while the host is awake."
+    >
+      <p className="settings-desc">{line}</p>
+      {steps.length > 0 && (
+        <ol className="conn-steps">
+          {steps.map((step, i) => (
+            <li key={i}>{step}</li>
+          ))}
+        </ol>
+      )}
     </SettingsCard>
   );
 }
@@ -260,6 +362,9 @@ export function SetupPage({
   const reach = useHostReach();
   const words = useHostReachWords();
   const host = useKleioRemote().status?.active?.host;
+  // Whether the host stays on: asked now, else what it last said.
+  const [hostKind, setHostKind] = useState<HostKind | null | undefined>(undefined);
+  const name = host ? shortHost(host) : "your host";
 
   // Seeing Setup, however it was reached, means it needn't open by itself again.
   useEffect(() => markSetupSeen(localStorageOrNull()), []);
@@ -278,6 +383,7 @@ export function SetupPage({
     let live = true;
     void fetchSetup();
     void authStatusWithError().then((a) => live && setAuth(a));
+    void askHostKind().then((kind) => live && setHostKind(kind ?? rememberedHostKind()));
     return () => {
       live = false;
     };
@@ -324,12 +430,8 @@ export function SetupPage({
         </Callout>
       )}
 
-      <HostCard
-        reach={reach}
-        words={words}
-        name={host ? shortHost(host) : "your host"}
-        onOpenTab={onOpenTab}
-      />
+      <HostCard reach={reach} words={words} name={name} onOpenTab={onOpenTab} />
+      <AlwaysOnCard kind={hostKind} name={name} />
       <ProviderCard auth={auth} onOpenTab={onOpenTab} />
       {/* Until the host says otherwise (an older host can't), assume an admin:
           the host still refuses a change from any other device. */}

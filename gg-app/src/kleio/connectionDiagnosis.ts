@@ -78,6 +78,8 @@ export interface Diagnosis {
   checks: CheckLine[];
   /** Empty when everything works. */
   fix: FixStep[];
+  /** Over the link, a relay answered and the host didn't: a chat says this instead of Reconnecting…. */
+  hostSilent?: true;
 }
 
 export interface DiagnosisInput {
@@ -661,20 +663,30 @@ export function diagnoseLink(input: LinkDiagnosisInput, now: number = Date.now()
 
   const unreached = link.unreached;
   if (unreached?.kind === "host-silent") {
-    const last =
-      link.lastReachedMs === null
-        ? `The relay answered, but ${hostLabel} didn't.`
-        : `Last reached ${reachedAgo(link.lastReachedMs, now)}.`;
-    const kind = host?.laptop
-      ? ` ${hostLabel} is a laptop: open it and keep it on power.`
-      : host?.os === "linux"
+    const reached =
+      link.lastReachedMs === null ? null : `Last reached ${reachedAgo(link.lastReachedMs, now)}.`;
+    const last = reached ?? `The relay answered, but ${hostLabel} didn't.`;
+    const kind =
+      host?.os === "linux"
         ? ` If ${hostLabel} is a VPS, check in your provider's dashboard that it's running.`
         : "";
+    // A laptop host says so in the words every screen shows (laptop first);
+    // a host that never said it's a laptop keeps "asleep or offline".
+    const words = host?.laptop
+      ? {
+          badge: "Asleep",
+          headline: `Kleio lives on ${hostLabel}, which is asleep`,
+          detail: `Open it and Kleio reconnects by itself.${reached ? ` ${reached}` : ""}`,
+        }
+      : {
+          badge: "Asleep or offline",
+          headline: `${hostLabel} is asleep or offline`,
+          detail: `${last}${kind}`,
+        };
     return {
       ...down,
-      badge: "Asleep or offline",
-      headline: `${hostLabel} is asleep or offline`,
-      detail: `${last}${kind}`,
+      ...words,
+      hostSilent: true,
       fix: [
         {
           text: host?.laptop
@@ -807,4 +819,14 @@ function connectedOverLink(
 export function diagnosisText(d: Diagnosis): string {
   const headline = /[.…!?]$/.test(d.headline) ? d.headline : `${d.headline}.`;
   return d.detail ? `${headline} ${d.detail}` : headline;
+}
+
+/**
+ * What a chat whose reconnect failed says instead of "Reconnecting…": the
+ * verdict's headline, with the rest on hover, once the link check says the
+ * host is silent (decision 12). Null for anything else, which keeps its own
+ * wording.
+ */
+export function hostAway(d: Diagnosis | null): { label: string; detail: string } | null {
+  return d?.hostSilent ? { label: d.headline, detail: diagnosisText(d) } : null;
 }

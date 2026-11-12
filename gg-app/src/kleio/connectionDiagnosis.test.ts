@@ -3,6 +3,7 @@ import {
   diagnose,
   diagnoseLink,
   diagnosisText,
+  hostAway,
   isKleioDown,
   RESTART_ENGINE,
   RESTART_HOST,
@@ -328,14 +329,6 @@ describe("diagnoseLink", () => {
     expect(d).toMatchObject({ tone: "bad", badge: "Asleep or offline" });
     expect(d.fix[0]?.text).toBe("Make sure mac-mini-1 is switched on, awake and online.");
 
-    const laptop = diagnoseLink(
-      input(ASLEEP, NO_ANSWER, { host: { os: "darwin", laptop: true } }),
-      NOW,
-    );
-    expect(laptop.detail).toBe(
-      "Last reached 3 min ago. mac-mini-1 is a laptop: open it and keep it on power.",
-    );
-    expect(laptop.fix[0]?.text).toBe("Open mac-mini-1 and plug it in.");
     const vps = diagnoseLink(input(ASLEEP, NO_ANSWER, { host: LINUX }), NOW);
     expect(vps.detail).toBe(
       "Last reached 3 min ago. If mac-mini-1 is a VPS, check in your provider's dashboard that it's running.",
@@ -349,6 +342,104 @@ describe("diagnoseLink", () => {
     expect(ahead.detail).toBe("Last reached just now.");
     const recent = diagnoseLink(input({ ...ASLEEP, lastReachedMs: NOW - 12_000 }), NOW);
     expect(recent.detail).toBe("Last reached 12s ago.");
+  });
+
+  describe("a laptop host that's silent", () => {
+    const LAPTOP: HostKind = {
+      os: "darwin",
+      laptop: true,
+      alwaysOn: { state: "laptop", reasons: [] },
+    };
+    const asleep = (link: Partial<LinkStatus> = ASLEEP, over: Partial<LinkDiagnosisInput> = {}) =>
+      diagnoseLink(input(link, NO_ANSWER, { host: LAPTOP, ...over }), NOW);
+
+    it("says it's asleep, and that Kleio reconnects by itself once it's open", () => {
+      const d = asleep();
+      expect(d).toMatchObject({
+        tone: "bad",
+        badge: "Asleep",
+        headline: "Kleio lives on mac-mini-1, which is asleep",
+        hostSilent: true,
+      });
+      expect(diagnosisText(d)).toBe(
+        "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 3 min ago.",
+      );
+      expect(d.fix[0]?.text).toBe("Open mac-mini-1 and plug it in.");
+      // Never reached as far as this device knows: the same words, without a time.
+      expect(diagnosisText(asleep({ ...ASLEEP, lastReachedMs: null }))).toBe(
+        "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself.",
+      );
+    });
+
+    it("keeps the other causes in their own words", () => {
+      const relayBlocked = asleep(BLOCKED);
+      expect(relayBlocked.headline).toBe("Kleio can't reach its relay");
+      const offline = asleep(ASLEEP, { online: false });
+      expect(offline.headline).toBe("This iPhone is offline");
+      const stopped = diagnoseLink(input({}, KLEIO_DOWN, { host: LAPTOP }), NOW);
+      expect(stopped.headline).toBe("Kleio on mac-mini-1 isn't running");
+      const notAnswering = asleep({ connected: true });
+      expect(notAnswering.headline).toBe("Kleio on mac-mini-1 isn't answering");
+      const reconnecting = asleep(gone(null, { dialling: true }));
+      expect(reconnecting.headline).toBe("Reconnecting to mac-mini-1…");
+      for (const d of [relayBlocked, offline, stopped, notAnswering, reconnecting]) {
+        expect(diagnosisText(d)).not.toMatch(/asleep/);
+        expect(d.hostSilent).toBeUndefined();
+      }
+    });
+
+    it("a desktop host that's silent keeps today's words, whatever its sleep settings", () => {
+      for (const alwaysOn of [
+        { state: "yes", reasons: [] },
+        { state: "may_sleep", reasons: ["sleeps_on_ac"] },
+        { state: "unknown", reasons: ["check_failed"] },
+      ] as const) {
+        const host: HostKind = {
+          os: "darwin",
+          laptop: false,
+          alwaysOn: { ...alwaysOn, reasons: [...alwaysOn.reasons] },
+        };
+        const d = diagnoseLink(input(ASLEEP, NO_ANSWER, { host }), NOW);
+        expect(diagnosisText(d)).toBe("mac-mini-1 is asleep or offline. Last reached 3 min ago.");
+        expect(d.badge).toBe("Asleep or offline");
+        expect(d.fix[0]?.text).toBe("Make sure mac-mini-1 is switched on, awake and online.");
+        expect(d.hostSilent).toBe(true);
+      }
+    });
+
+    it("a host too old to report its type, or one never asked, keeps today's words", () => {
+      // From before alwaysOn: only the OS, and never a laptop.
+      const older = diagnoseLink(
+        input(ASLEEP, NO_ANSWER, { host: { os: "darwin", laptop: false } }),
+        NOW,
+      );
+      // Never asked (GET /kleio/host missing, or nothing kept).
+      const unknown = diagnoseLink(input(ASLEEP, NO_ANSWER, { host: null }), NOW);
+      for (const d of [older, unknown]) {
+        expect(diagnosisText(d)).toBe("mac-mini-1 is asleep or offline. Last reached 3 min ago.");
+        expect(d.badge).toBe("Asleep or offline");
+        expect(d.hostSilent).toBe(true);
+      }
+    });
+
+    it("a chat says the same words, past a failed reconnect, only while the host is silent", () => {
+      expect(hostAway(asleep())).toEqual({
+        label: "Kleio lives on mac-mini-1, which is asleep",
+        detail:
+          "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 3 min ago.",
+      });
+      // A desktop host, and a host too old to say: today's headline, at the same moment.
+      expect(hostAway(diagnoseLink(input(ASLEEP), NOW))?.label).toBe(
+        "mac-mini-1 is asleep or offline",
+      );
+      expect(hostAway(diagnoseLink(input(ASLEEP, NO_ANSWER, { host: null }), NOW))).toEqual({
+        label: "mac-mini-1 is asleep or offline",
+        detail: "mac-mini-1 is asleep or offline. Last reached 3 min ago.",
+      });
+      expect(hostAway(asleep(BLOCKED))).toBeNull();
+      expect(hostAway(asleep(gone(null, { dialling: true })))).toBeNull();
+      expect(hostAway(null)).toBeNull();
+    });
   });
 
   it("restarts Kleio's link with the host's own service: launchd, systemd or Windows", () => {

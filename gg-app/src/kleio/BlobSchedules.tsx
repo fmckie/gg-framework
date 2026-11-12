@@ -16,7 +16,8 @@ import { ConfirmModal } from "../ConfirmModal";
 import { Dropdown } from "../Dropdown";
 import { Modal } from "../Modal";
 import { theme } from "../theme";
-import { describeSchedule, formatWhen, plainSummary, systemTimezone } from "./blobFormat";
+import { describeSchedule, formatWhen, plainSummary, ranLate, systemTimezone } from "./blobFormat";
+import { shortHost } from "./host-name";
 import { KleioPanel } from "./KleioChrome";
 import {
   addSchedule,
@@ -31,6 +32,7 @@ import {
   type ScheduleInput,
   type ScheduleKind,
 } from "./kleioApi";
+import { useKleioRemote } from "./useKleioRemote";
 
 const RUNS_SHOWN = 12;
 const RUNS_REFRESH_MS = 8_000;
@@ -73,6 +75,18 @@ function RunIcon({ run }: { run: Run }): React.ReactElement {
   return <ArrowRightIcon size={16} weight="bold" aria-label="Skipped" />;
 }
 
+/** The line under a schedule whose last run fired late, because the host was asleep. */
+function RanLate({
+  schedule,
+  hostLabel,
+}: {
+  schedule: Schedule;
+  hostLabel: string;
+}): React.ReactElement | null {
+  const line = ranLate(schedule.lastRun, schedule.timezone, hostLabel);
+  return line ? <span className="kleio-sched-when">{line}</span> : null;
+}
+
 export function Schedules({
   blob,
   onChanged,
@@ -85,6 +99,8 @@ export function Schedules({
   const [deleting, setDeleting] = useState<Schedule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const host = useKleioRemote().status?.active?.host;
+  const hostLabel = host ? shortHost(host) : "your host";
 
   const loadRuns = useCallback(async () => {
     try {
@@ -159,6 +175,7 @@ export function Schedules({
                   {describeSchedule(s)}
                   {s.enabled ? (s.nextRunAt ? ` · next ${formatWhen(s.nextRunAt)}` : "") : " · off"}
                 </span>
+                <RanLate schedule={s} hostLabel={hostLabel} />
                 <div className="kleio-sched-actions">
                   <button
                     type="button"

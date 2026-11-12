@@ -1180,3 +1180,16 @@ img[data-enlarge],
     animation: none;
   }
 }
+
+/* A chat whose host is away says so whole (ActivityBar's host-away label):
+   over two lines on a narrow screen rather than cut at "which is as…". */
+.task-activity.is-host-away .statusrow,
+.task-activity.is-host-away .activity-label-reveal {
+  white-space: normal;
+}
+
+/* The titlebar's "on [host]" dot: red while the link check says the host is
+   silent, the same state as a chat's headline (KleioBadge). */
+.kleio-badge.is-away .kleio-badge-dot {
+  background: var(--error);
+}

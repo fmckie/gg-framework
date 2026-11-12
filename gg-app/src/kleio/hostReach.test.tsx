@@ -6,9 +6,11 @@ import { getHostKind, hostHealth, KleioApiError } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
 import { kleioLink, type LinkStatus } from "./kleioLink";
 import {
+  askHostKind,
   HostReachProvider,
   REACH_INTERVAL_MS,
   REACH_TIMEOUT_MS,
+  rememberedHostKind,
   useHostReach,
   useHostReachWords,
 } from "./hostReach";
@@ -263,7 +265,7 @@ describe("HostReachProvider over Kleio's link", () => {
     onTheLink(ASLEEP);
     await nextCheck("no reply");
     expect(words()).toBe(
-      "mac-mini-1 is asleep or offline. Last reached 10s ago. mac-mini-1 is a laptop: open it and keep it on power.",
+      "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 10s ago.",
     );
 
     // Kept for the next launch, for this host only.
@@ -271,7 +273,9 @@ describe("HostReachProvider over Kleio's link", () => {
     vi.setSystemTime(NOW + 2 * 60 * 60_000);
     renderPill();
     await nextCheck("no reply");
-    expect(words()).toMatch(/^mac-mini-1 is asleep or offline\. Last reached 2 h ago\./);
+    expect(words()).toBe(
+      "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 2 h ago.",
+    );
     expect(getHostKind).toHaveBeenCalledOnce();
   });
 
@@ -311,5 +315,54 @@ describe("HostReachProvider over Kleio's link", () => {
     } finally {
       visibility.mockRestore();
     }
+  });
+});
+
+describe("the host's kind, kept between launches", () => {
+  it("keeps whether it stays on, with the reasons, not just whether it's a laptop", async () => {
+    vi.mocked(getHostKind).mockResolvedValue({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "no_wake_for_network"] },
+    });
+    expect(await askHostKind()).toEqual({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "no_wake_for_network"] },
+    });
+    expect(rememberedHostKind()).toEqual({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "no_wake_for_network"] },
+    });
+  });
+
+  it("reads what an older app kept, and drops what it doesn't know", () => {
+    localStorage.setItem("kleio.hostKind", JSON.stringify({ os: "linux", laptop: true }));
+    expect(rememberedHostKind()).toEqual({ os: "linux", laptop: true });
+    localStorage.setItem(
+      "kleio.hostKind",
+      JSON.stringify({
+        os: "linux",
+        laptop: false,
+        alwaysOn: { state: "may_sleep", reasons: ["sleep_not_masked", "made_up"] },
+      }),
+    );
+    expect(rememberedHostKind()?.alwaysOn).toEqual({
+      state: "may_sleep",
+      reasons: ["sleep_not_masked"],
+    });
+    localStorage.setItem(
+      "kleio.hostKind",
+      JSON.stringify({ os: "linux", laptop: false, alwaysOn: { state: "asleep" } }),
+    );
+    expect(rememberedHostKind()).toEqual({ os: "linux", laptop: false });
+  });
+
+  it("can't ask an older host: says so, and keeps what it had", async () => {
+    localStorage.setItem("kleio.hostKind", JSON.stringify({ os: "darwin", laptop: true }));
+    vi.mocked(getHostKind).mockRejectedValue(new KleioApiError(404, "not found"));
+    expect(await askHostKind()).toBeNull();
+    expect(rememberedHostKind()).toEqual({ os: "darwin", laptop: true });
   });
 });

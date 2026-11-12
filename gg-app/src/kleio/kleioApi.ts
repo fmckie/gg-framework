@@ -43,6 +43,8 @@ export interface ScheduleLastRun {
   at: string;
   outcome: "ran" | "skipped" | "error";
   error?: string;
+  /** It ran more than 2 minutes after its time, `dueAt`, because the host was asleep then. */
+  late?: { dueAt: string };
 }
 
 export interface Schedule {
@@ -459,26 +461,77 @@ export const notificationSettings = async (): Promise<NotificationSettings> =>
 export const setQuoteText = async (quoteText: boolean): Promise<NotificationSettings> =>
   notificationSettingsFrom(await call<unknown>("POST", "/kleio/notifications", { quoteText }));
 
+/** Whether the host stays on (kleio-host always-on.ts): yes, may sleep, a laptop, or unknown. */
+export const ALWAYS_ON_STATES = ["yes", "may_sleep", "laptop", "unknown"] as const;
+export type AlwaysOnState = (typeof ALWAYS_ON_STATES)[number];
+
+/** Which of the host's settings let it sleep, or why it couldn't check. */
+export const ALWAYS_ON_REASONS = [
+  "sleeps_on_ac",
+  "no_autorestart",
+  "no_wake_for_network",
+  "sleep_not_masked",
+  "check_failed",
+  "unsupported_os",
+] as const;
+export type AlwaysOnReason = (typeof ALWAYS_ON_REASONS)[number];
+
+export interface AlwaysOn {
+  state: AlwaysOnState;
+  reasons: AlwaysOnReason[];
+}
+
+/** GET /kleio/host's `alwaysOn`, or null when it's missing or not one this app knows. */
+export function alwaysOnFrom(value: unknown): AlwaysOn | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { state, reasons } = value as { state?: unknown; reasons?: unknown };
+  const known = ALWAYS_ON_STATES.find((s) => s === state);
+  if (!known) return null;
+  return {
+    state: known,
+    reasons: Array.isArray(reasons) ? ALWAYS_ON_REASONS.filter((r) => reasons.includes(r)) : [],
+  };
+}
+
 /** What the app keeps of GET /kleio/host (host-info.ts), for its words when the host can't be reached. */
 export interface HostKind {
   /** The host's `process.platform`: `darwin`, `linux`, `win32`, … */
   os: string;
   /** It's a laptop, which sleeps when its lid closes. */
   laptop: boolean;
+  /** Whether it stays on, with the reasons; absent from a host too old to say. */
+  alwaysOn?: AlwaysOn;
 }
 
-/** GET /kleio/host: which OS the host runs, and whether it's a laptop. */
-export const getHostKind = async (): Promise<HostKind> => {
+/**
+ * GET /kleio/host's keepAwake (host-info.ts): the engine holds the host awake
+ * for a run now, holds nothing now, has the setting off, or couldn't say.
+ */
+export const KEEP_AWAKE_STATES = ["holding", "idle", "off", "unavailable"] as const;
+export type KeepAwakeState = (typeof KEEP_AWAKE_STATES)[number];
+
+export interface HostInfo {
+  kind: HostKind;
+  /** Changes with every run, so it's never kept. A host from before it is "unavailable". */
+  keepAwake: KeepAwakeState;
+}
+
+/** GET /kleio/host: which OS the host runs, whether it stays on, and whether it's kept awake. */
+export const getHostInfo = async (): Promise<HostInfo> => {
   const body = await call<Record<string, unknown>>("GET", "/kleio/host");
-  const alwaysOn =
-    typeof body.alwaysOn === "object" && body.alwaysOn !== null
-      ? (body.alwaysOn as Record<string, unknown>)
-      : {};
+  const alwaysOn = alwaysOnFrom(body.alwaysOn);
   return {
-    os: typeof body.os === "string" ? body.os : "unknown",
-    laptop: alwaysOn.state === "laptop",
+    kind: {
+      os: typeof body.os === "string" ? body.os : "unknown",
+      laptop: alwaysOn?.state === "laptop",
+      ...(alwaysOn ? { alwaysOn } : {}),
+    },
+    keepAwake: KEEP_AWAKE_STATES.find((s) => s === body.keepAwake) ?? "unavailable",
   };
 };
+
+/** GET /kleio/host: which OS the host runs, and whether it stays on. */
+export const getHostKind = async (): Promise<HostKind> => (await getHostInfo()).kind;
 
 // ─── home thread ────────────────────────────────────────────────────────────
 

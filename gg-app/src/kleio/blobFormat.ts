@@ -2,7 +2,7 @@
 // the iPhone app ("Every day at 08:00", "Mon, Wed, Fri at 18:30",
 // "Every 2 hours", "Once on 3 Oct at 09:00") and short relative times.
 
-import type { Schedule } from "./kleioApi";
+import type { Schedule, ScheduleLastRun } from "./kleioApi";
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -82,6 +82,20 @@ export function describeSchedule(
       return z ? `Once on ${z.date} at ${z.time}` : "Once";
     }
   }
+}
+
+/**
+ * "Ran late: mac-mini-1 was asleep at 09:00.", in the schedule's own zone,
+ * when its last run fired late; null otherwise.
+ */
+export function ranLate(
+  lastRun: ScheduleLastRun | undefined,
+  timezone: string,
+  hostLabel: string,
+): string | null {
+  if (lastRun?.outcome !== "ran" || !lastRun.late) return null;
+  const due = zoned(lastRun.late.dueAt, timezone);
+  return due ? `Ran late: ${hostLabel} was asleep at ${due.time}.` : null;
 }
 
 function dayKey(d: Date): string {
