@@ -96,16 +96,20 @@ if (!identity) {
 }
 
 // The sidecar the app ships: @kleio/coder and what it builds on, bundled with the
-// Node runtime, smoke-tested, then signed so the app's signature holds.
+// Node runtime, smoke-tested, then signed so the app's signature holds. Then the
+// host "On this Mac" installs (stage-host.mjs: kleio-host, its capture helper and
+// kleio-link-host), signed with them.
 run("pnpm", ["--filter", "@kleio/coder...", "build"], { cwd: repoRoot });
 run("pnpm", ["stage:node"], { cwd: appRoot });
 run("pnpm", ["bundle:sidecar"], { cwd: appRoot });
 run("node", [join(appRoot, "scripts", "smoke-sidecar.mjs")]);
+run("pnpm", ["stage:host"], { cwd: appRoot });
 run("bash", [
   join(appRoot, "scripts", "sign-nested-macos.sh"),
   identity,
   join(appRoot, "src-tauri", "binaries"),
   join(appRoot, "src-tauri", "sidecar"),
+  join(appRoot, "src-tauri", "host"),
 ]);
 // tauri.conf.json has bundle.createUpdaterArtifacts on: with the key in the
 // environment, the build also writes the signed update bundle.

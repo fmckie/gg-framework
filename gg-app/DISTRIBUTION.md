@@ -11,7 +11,7 @@ authorize signing, downloads of system runtimes, publication, or deployment.
 
 A packaged gg-app must launch from Finder / Explorer / a file manager with **no
 Node on the user's PATH** and reach the project picker. Two things are bundled
-to make that work:
+to make that work, and the Mac app carries a third:
 
 1. **A per-platform Node runtime** (`scripts/stage-node.mjs`). Downloads the
    official standalone Node build for the build machine's platform/arch and
@@ -32,7 +32,19 @@ to make that work:
    dependency trees, pnpm symlinks dereferenced) into
    `src-tauri/sidecar/node_modules/`.
 
-At runtime the Rust shell resolves both from the bundle in production and falls
+3. **The Kleio host, on macOS only** (`scripts/stage-host.mjs`). It builds
+   `@kleio/host`, its page and PDF capture helper (`build-capture.sh`, needs
+   Xcode) and `kleio-link-host`, then stages them with `install-mini.sh` and a
+   `VERSION` (`<app version>+<commit>`) at `src-tauri/host/`. Only
+   `src-tauri/tauri.macos.conf.json` lists `host/` as a resource, so Windows and
+   Linux builds don't need it. "On this Mac" runs that `install-mini.sh` in app
+   mode (`KLEIO_HOST_MODE=app`), which copies the host, with the app's
+   `ggnode` and `sidecar/`, into `~/Library/Application Support/Kleio/host-code/<VERSION>/`
+   and starts it there. `publish-update.mjs` stages and signs it; a macOS
+   `cargo build` or `tauri dev` needs it staged first (`pnpm --filter gg-app
+   stage:host`).
+
+At runtime the Rust shell resolves the first two from the bundle in production and falls
 back to the workspace in dev (`src-tauri/src/lib.rs`, `resolve_node` /
 `resolve_sidecar`): a debug build, or `GG_NODE_BIN` / `GG_SIDECAR_PATH` being
 set, keeps the dev PATH/workspace behavior.
