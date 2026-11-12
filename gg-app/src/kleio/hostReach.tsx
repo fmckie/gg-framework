@@ -19,7 +19,7 @@ import { localStorageOrNull } from "../app-entry-view";
 import { isPhone } from "../platform";
 import { diagnoseLink, isKleioDown, type Diagnosis, type LinkHealth } from "./connectionDiagnosis";
 import { shortHost } from "./host-name";
-import { getHostKind, hostHealth, KleioApiError, type HostKind } from "./kleioApi";
+import { alwaysOnFrom, getHostKind, hostHealth, KleioApiError, type HostKind } from "./kleioApi";
 import { kleioLink, type LinkStatus } from "./kleioLink";
 
 /** How long one check waits: a host that dropped off Tailscale never answers. */
@@ -48,8 +48,9 @@ const HOST_KIND_KEY = "kleio.hostKind";
 const LAST_REACHED_KEY = "kleio.lastReached";
 
 /**
- * The host's OS and whether it's a laptop, as GET /kleio/host last said:
- * kept across launches, so the words are right while it can't be reached.
+ * The host's OS, whether it's a laptop and whether it stays on (with the
+ * reasons), as GET /kleio/host last said: kept across launches, so the words
+ * are right while it can't be reached.
  */
 export function rememberedHostKind(
   storage: Storage | null = localStorageOrNull(),
@@ -65,21 +66,37 @@ export function rememberedHostKind(
       "laptop" in kept &&
       typeof kept.os === "string" &&
       typeof kept.laptop === "boolean"
-    )
-      return { os: kept.os, laptop: kept.laptop };
+    ) {
+      // Kept by an app from before alwaysOn: the OS and kind still hold.
+      const alwaysOn = "alwaysOn" in kept ? alwaysOnFrom(kept.alwaysOn) : null;
+      return { os: kept.os, laptop: kept.laptop, ...(alwaysOn ? { alwaysOn } : {}) };
+    }
   } catch {
     // Unreadable: as good as none.
   }
   return null;
 }
 
-/** Asks the host its OS and kind, and keeps the answer. An older host has no GET /kleio/host. */
-async function askHostKind(storage: Storage | null = localStorageOrNull()): Promise<void> {
+/**
+ * Asks the host its OS and kind, keeps the answer and returns it; null when
+ * it can't be asked. An older host has no GET /kleio/host.
+ */
+export async function askHostKind(
+  storage: Storage | null = localStorageOrNull(),
+): Promise<HostKind | null> {
+  let kind: HostKind;
   try {
-    storage?.setItem(HOST_KIND_KEY, JSON.stringify(await getHostKind()));
+    kind = await getHostKind();
   } catch {
     // The words do without.
+    return null;
   }
+  try {
+    storage?.setItem(HOST_KIND_KEY, JSON.stringify(kind));
+  } catch {
+    // Not kept: this launch still has it.
+  }
+  return kind;
 }
 
 /** Notes that `host` answered at `atMs`, so "Last reached" outlives this launch. */

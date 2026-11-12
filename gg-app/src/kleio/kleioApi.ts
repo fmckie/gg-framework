@@ -459,24 +459,56 @@ export const notificationSettings = async (): Promise<NotificationSettings> =>
 export const setQuoteText = async (quoteText: boolean): Promise<NotificationSettings> =>
   notificationSettingsFrom(await call<unknown>("POST", "/kleio/notifications", { quoteText }));
 
+/** Whether the host stays on (kleio-host always-on.ts): yes, may sleep, a laptop, or unknown. */
+export const ALWAYS_ON_STATES = ["yes", "may_sleep", "laptop", "unknown"] as const;
+export type AlwaysOnState = (typeof ALWAYS_ON_STATES)[number];
+
+/** Which of the host's settings let it sleep, or why it couldn't check. */
+export const ALWAYS_ON_REASONS = [
+  "sleeps_on_ac",
+  "no_autorestart",
+  "no_wake_for_network",
+  "sleep_not_masked",
+  "check_failed",
+  "unsupported_os",
+] as const;
+export type AlwaysOnReason = (typeof ALWAYS_ON_REASONS)[number];
+
+export interface AlwaysOn {
+  state: AlwaysOnState;
+  reasons: AlwaysOnReason[];
+}
+
+/** GET /kleio/host's `alwaysOn`, or null when it's missing or not one this app knows. */
+export function alwaysOnFrom(value: unknown): AlwaysOn | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { state, reasons } = value as { state?: unknown; reasons?: unknown };
+  const known = ALWAYS_ON_STATES.find((s) => s === state);
+  if (!known) return null;
+  return {
+    state: known,
+    reasons: Array.isArray(reasons) ? ALWAYS_ON_REASONS.filter((r) => reasons.includes(r)) : [],
+  };
+}
+
 /** What the app keeps of GET /kleio/host (host-info.ts), for its words when the host can't be reached. */
 export interface HostKind {
   /** The host's `process.platform`: `darwin`, `linux`, `win32`, … */
   os: string;
   /** It's a laptop, which sleeps when its lid closes. */
   laptop: boolean;
+  /** Whether it stays on, with the reasons; absent from a host too old to say. */
+  alwaysOn?: AlwaysOn;
 }
 
-/** GET /kleio/host: which OS the host runs, and whether it's a laptop. */
+/** GET /kleio/host: which OS the host runs, and whether it stays on. */
 export const getHostKind = async (): Promise<HostKind> => {
   const body = await call<Record<string, unknown>>("GET", "/kleio/host");
-  const alwaysOn =
-    typeof body.alwaysOn === "object" && body.alwaysOn !== null
-      ? (body.alwaysOn as Record<string, unknown>)
-      : {};
+  const alwaysOn = alwaysOnFrom(body.alwaysOn);
   return {
     os: typeof body.os === "string" ? body.os : "unknown",
-    laptop: alwaysOn.state === "laptop",
+    laptop: alwaysOn?.state === "laptop",
+    ...(alwaysOn ? { alwaysOn } : {}),
   };
 };
 

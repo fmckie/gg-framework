@@ -3,13 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { authStatusWithError, openUrl } from "../agent";
-import { useHostReach, useHostReachWords } from "./hostReach";
+import { askHostKind, rememberedHostKind, useHostReach, useHostReachWords } from "./hostReach";
 import {
   KleioApiError,
   getDictationSetup,
   getSetupStatus,
   removeSetupKey,
   setSetupKey,
+  type HostKind,
   type SetupStatus,
 } from "./kleioApi";
 import type * as KleioApi from "./kleioApi";
@@ -21,7 +22,12 @@ import { VoiceCard } from "./VoiceCard";
 vi.mock("./VoiceCard", () => ({ VoiceCard: vi.fn() }));
 // Covered by its own tests; here it only has to be in the right place.
 vi.mock("./BrainCard", () => ({ BrainCard: vi.fn() }));
-vi.mock("./hostReach", () => ({ useHostReach: vi.fn(), useHostReachWords: vi.fn() }));
+vi.mock("./hostReach", () => ({
+  useHostReach: vi.fn(),
+  useHostReachWords: vi.fn(),
+  askHostKind: vi.fn(),
+  rememberedHostKind: vi.fn(),
+}));
 vi.mock("./useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
 vi.mock("../agent", () => ({
   authStatusWithError: vi.fn(),
@@ -44,6 +50,13 @@ vi.mock("./kleioApi", async (importOriginal) => {
 function status(keys: Partial<SetupStatus["keys"]> = {}, admin = true): SetupStatus {
   return { admin, keys: { openai: "missing", composio: "missing", typesafe: "missing", ...keys } };
 }
+
+/** A Mac mini set never to sleep. */
+const MINI_ON: HostKind = {
+  os: "darwin",
+  laptop: false,
+  alwaysOn: { state: "yes", reasons: [] },
+};
 
 const PROVIDER = {
   value: "anthropic",
@@ -81,6 +94,8 @@ beforeEach(() => {
   vi.mocked(authStatusWithError).mockResolvedValue({ providers: [PROVIDER], error: null });
   vi.mocked(useHostReach).mockReturnValue("connected");
   vi.mocked(useHostReachWords).mockReturnValue(null);
+  vi.mocked(askHostKind).mockResolvedValue(MINI_ON);
+  vi.mocked(rememberedHostKind).mockReturnValue(null);
   vi.mocked(useKleioRemote).mockReturnValue({
     status: {
       active: {
@@ -380,5 +395,133 @@ describe("SetupPage", () => {
     });
     expect(getSetupStatus).toHaveBeenCalledTimes(2);
     expect(within(card("Apps")).getByText("Needed")).toBeTruthy();
+  });
+});
+
+describe("SetupPage's Always on row", () => {
+  const row = (): HTMLElement => card("Always on");
+  const steps = (): string[] =>
+    within(row())
+      .queryAllByRole("listitem")
+      .map((li) => li.textContent ?? "");
+  const maySleep = (os: string, reasons: KleioApi.AlwaysOnReason[]): HostKind => ({
+    os,
+    laptop: false,
+    alwaysOn: { state: "may_sleep", reasons },
+  });
+
+  it("comes right after Host, and doesn't count toward the steps", async () => {
+    await renderPage();
+    expect(card("Host").nextElementSibling).toBe(row());
+    expect(screen.getByText("2 of 4 done")).toBeTruthy();
+    expect(progress().getAttribute("aria-valuemax")).toBe("4");
+  });
+
+  it("says yes when the host stays on, with no steps", async () => {
+    await renderPage();
+    expect(within(row()).getByText("Yes")).toBeTruthy();
+    expect(
+      within(row()).getByText("Yes. home-server stays on, so Kleio can answer any time."),
+    ).toBeTruthy();
+    expect(steps()).toEqual([]);
+  });
+
+  it("a desktop Mac that may sleep gets Apple's steps, only for the settings that are off", async () => {
+    vi.mocked(askHostKind).mockResolvedValue(
+      maySleep("darwin", ["sleeps_on_ac", "no_autorestart", "no_wake_for_network"]),
+    );
+    await renderPage();
+    expect(within(row()).getByText("May sleep")).toBeTruthy();
+    expect(
+      within(row()).getByText(
+        "home-server may fall asleep. To keep it on, do this on home-server itself:",
+      ),
+    ).toBeTruthy();
+    expect(steps()).toEqual([
+      "Choose Apple menu \u2192 System Settings, then click Energy in the sidebar. You may need to scroll down.",
+      "Turn on \u201cPrevent automatic sleeping when the display is off\u201d.",
+      "Turn on \u201cStart up automatically after a power failure\u201d. Where it shows \u201cStart up when power is connected\u201d instead, choose \u201cAfter power failure\u201d.",
+      "Turn on \u201cWake for network access\u201d.",
+    ]);
+    cleanup();
+
+    vi.mocked(askHostKind).mockResolvedValue(maySleep("darwin", ["no_wake_for_network"]));
+    await renderPage();
+    expect(steps()).toEqual([
+      "Choose Apple menu \u2192 System Settings, then click Energy in the sidebar. You may need to scroll down.",
+      "Turn on \u201cWake for network access\u201d.",
+    ]);
+  });
+
+  it("a Windows PC or a Linux desktop that may sleep gets its own steps", async () => {
+    vi.mocked(askHostKind).mockResolvedValue(maySleep("win32", ["sleeps_on_ac"]));
+    await renderPage();
+    expect(steps()).toEqual([
+      "Choose Start \u2192 Settings \u2192 System \u2192 Power & battery \u2192 Screen, sleep, & hibernate timeouts.",
+      "Set \u201cMake my device sleep after\u201d to Never for when it's plugged in. On Windows 10 the page is called Power & sleep.",
+    ]);
+    cleanup();
+
+    vi.mocked(askHostKind).mockResolvedValue(maySleep("linux", ["sleep_not_masked"]));
+    await renderPage();
+    expect(steps()).toEqual([
+      "In a terminal on home-server, run sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target",
+      "To undo it later, run the same command with unmask instead of mask.",
+    ]);
+  });
+
+  it("a laptop host gets one line and no steps", async () => {
+    vi.mocked(askHostKind).mockResolvedValue({
+      os: "darwin",
+      laptop: true,
+      alwaysOn: { state: "laptop", reasons: [] },
+    });
+    await renderPage();
+    expect(within(row()).getByText("Laptop")).toBeTruthy();
+    expect(
+      within(row()).getByText("Kleio works while home-server is open and awake."),
+    ).toBeTruthy();
+    expect(within(row()).queryByText(/trying Kleio out/)).toBeNull();
+    expect(steps()).toEqual([]);
+  });
+
+  it("says it couldn't check when the check failed, or the host is too old to say", async () => {
+    const couldnt = "Couldn't check whether home-server stays on.";
+    vi.mocked(askHostKind).mockResolvedValue({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "unknown", reasons: ["check_failed"] },
+    });
+    await renderPage();
+    expect(within(row()).getByText("Can't check")).toBeTruthy();
+    expect(within(row()).getByText(couldnt)).toBeTruthy();
+    expect(steps()).toEqual([]);
+    cleanup();
+
+    // A host from before alwaysOn.
+    vi.mocked(askHostKind).mockResolvedValue({ os: "darwin", laptop: false });
+    await renderPage();
+    expect(within(row()).getByText(couldnt)).toBeTruthy();
+    cleanup();
+
+    // Nothing asked, and nothing kept.
+    vi.mocked(askHostKind).mockResolvedValue(null);
+    await renderPage();
+    expect(within(row()).getByText(couldnt)).toBeTruthy();
+  });
+
+  it("can't ask the host: shows what it last said", async () => {
+    vi.mocked(askHostKind).mockResolvedValue(null);
+    vi.mocked(rememberedHostKind).mockReturnValue(maySleep("darwin", ["sleeps_on_ac"]));
+    await renderPage();
+    expect(within(row()).getByText("May sleep")).toBeTruthy();
+    expect(steps()).toHaveLength(2);
+  });
+
+  it("says it's checking until the host answers", async () => {
+    vi.mocked(askHostKind).mockReturnValue(new Promise(() => {}));
+    await renderPage();
+    expect(within(row()).getByText("Checking…")).toBeTruthy();
+    expect(within(row()).getByText("Checking whether home-server stays on…")).toBeTruthy();
   });
 });
