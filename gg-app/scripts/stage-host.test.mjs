@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -55,7 +55,7 @@ function files(dir) {
   return readdirSync(dir, { recursive: true })
     .map(String)
     .filter((p) => statSync(join(dir, p)).isFile())
-    .map((p) => relative(dir, join(dir, p)))
+    .map((p) => p.split(sep).join("/"))
     .sort();
 }
 
@@ -77,8 +77,11 @@ describe("stageHost", () => {
       "install-mini.sh",
       "package.json",
     ]);
-    expect(statSync(join(b.outDir, "bin", "kleio-link-host")).mode & 0o111).toBe(0o111);
-    expect(statSync(join(b.outDir, "dist", "bin", "kleio-capture")).mode & 0o111).toBe(0o111);
+    // Windows has no execute bits; the app that runs these is the Mac's.
+    if (process.platform !== "win32") {
+      expect(statSync(join(b.outDir, "bin", "kleio-link-host")).mode & 0o111).toBe(0o111);
+      expect(statSync(join(b.outDir, "dist", "bin", "kleio-capture")).mode & 0o111).toBe(0o111);
+    }
     expect(JSON.parse(readFileSync(join(b.outDir, "package.json"), "utf8"))).toEqual({
       type: "module",
     });
@@ -145,7 +148,7 @@ describe("parseArgs", () => {
   it("reads --link-bin and --no-capture", () => {
     expect(parseArgs([])).toEqual({ linkBin: undefined, capture: true });
     expect(parseArgs(["--link-bin", "/tmp/kleio-link-host", "--no-capture"])).toEqual({
-      linkBin: "/tmp/kleio-link-host",
+      linkBin: resolve("/tmp/kleio-link-host"),
       capture: false,
     });
   });
