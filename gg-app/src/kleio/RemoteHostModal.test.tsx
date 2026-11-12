@@ -9,6 +9,8 @@ import vectors from "../../../packages/kleio-link/tests/fixtures/tickets.json";
 import { RemoteHostModal } from "./RemoteHostModal";
 import { relTime } from "./relTime";
 import { KleioBadge } from "./KleioBadge";
+import { diagnoseLink, type Diagnosis } from "./connectionDiagnosis";
+import { useHostReachWords } from "./hostReach";
 import type { LinkStatus } from "./kleioLink";
 import { NOT_A_TICKET } from "./pairTicket";
 import { PAIR_STATE_POLL_MS } from "./PairingOffer";
@@ -24,6 +26,8 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn(async () => undefined) }));
+// What the link check says (HostReachProvider in the app): nothing unless a test says so.
+vi.mock("./hostReach", () => ({ useHostReachWords: vi.fn(() => null) }));
 vi.mock("@tauri-apps/plugin-barcode-scanner", () => ({
   Format: { QRCode: "QR_CODE" },
   scan: vi.fn(),
@@ -76,8 +80,73 @@ describe("KleioBadge", () => {
     rerender(<KleioBadge active={ACTIVE} onClick={onClick} />);
     const b = screen.getByRole("button", { name: /connected to kleio host/i });
     expect(b.textContent).toContain("on mac-mini-1");
+    expect(b.className).not.toContain("is-away");
     fireEvent.click(b);
     expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("isn't green while the link check says the host is silent: the chat headline's state", () => {
+    const NOW = Date.parse("2026-11-12T12:00:00Z");
+    const verdict = (over: Partial<LinkStatus>, laptop: boolean): Diagnosis =>
+      diagnoseLink(
+        {
+          link: {
+            paired: true,
+            active: true,
+            running: true,
+            error: null,
+            host: ACTIVE.host,
+            hostKey: "ab".repeat(32),
+            relay: null,
+            relayN0: true,
+            refused: null,
+            refusal: null,
+            connected: false,
+            dialling: false,
+            unreached: null,
+            lastReachedMs: NOW - 3 * 60_000,
+            path: null,
+            pathAddr: null,
+            pathN0: false,
+            rateLimited: false,
+            rttMs: null,
+            connectedSinceMs: null,
+            redials: 0,
+            lastResumeMs: null,
+            events: [],
+            debugBuild: false,
+            ...over,
+          },
+          health: { state: "error", kleioDown: false },
+          host: { os: "darwin", laptop },
+          hostLabel: "mac-mini-1",
+          device: "Mac",
+          online: true,
+        },
+        NOW,
+      );
+    const silent = { unreached: { kind: "host-silent" as const, relays: [] } };
+
+    // A laptop that's asleep, then a desktop host that's silent.
+    for (const [laptop, headline] of [
+      [true, "Kleio lives on mac-mini-1, which is asleep"],
+      [false, "mac-mini-1 is asleep or offline"],
+    ] as const) {
+      vi.mocked(useHostReachWords).mockReturnValue(verdict(silent, laptop));
+      render(<KleioBadge active={ACTIVE} onClick={() => {}} />);
+      const b = screen.getByRole("button", { name: `Kleio host ${ACTIVE.host}: ${headline}` });
+      expect(b.className).toContain("is-away");
+      expect(b.getAttribute("title")).toMatch(new RegExp(`^${headline}\\. `));
+      expect(b.textContent).toContain("on mac-mini-1");
+      cleanup();
+    }
+
+    // Still redialling, or another cause: not the silent state, so no change here.
+    vi.mocked(useHostReachWords).mockReturnValue(verdict({ dialling: true }, true));
+    render(<KleioBadge active={ACTIVE} onClick={() => {}} />);
+    const b = screen.getByRole("button", { name: /connected to kleio host/i });
+    expect(b.className).not.toContain("is-away");
+    vi.mocked(useHostReachWords).mockReturnValue(null);
   });
 });
 
