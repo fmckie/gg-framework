@@ -105,7 +105,7 @@ import {
 import { pruneDoneTasksSync } from "./core/tasks-store.js";
 import { initLogger, log } from "./core/logger.js";
 import { installTerminationHandlers } from "./core/shutdown.js";
-import { KeepAwake } from "./core/keep-awake.js";
+import { KeepAwake, WindowAwake, keepAwakeMaxHoldMs } from "./core/keep-awake.js";
 import { SettingsManager } from "./core/settings-manager.js";
 import { stopRadio } from "./core/radio.js";
 import { enrichProcessPath } from "./core/shell-path.js";
@@ -186,8 +186,9 @@ import { handleMcpRoutes } from "./app-sidecar/mcp-routes.js";
 import type { SessionRouteContext, DaemonRouteContext } from "./app-sidecar/route-context.js";
 
 /** App-wide idle-sleep guard: every window's runs share one OS assertion. The
- *  `keepAwake` setting is applied at daemon start and live via /keep-awake. */
-const keepAwake = new KeepAwake();
+ *  `keepAwake` setting is applied at daemon start and live via /keep-awake;
+ *  each hold lets go after 6 h unless GG_APP_KEEP_AWAKE_MAX_MS says otherwise. */
+const keepAwake = new KeepAwake({ maxHoldMs: keepAwakeMaxHoldMs() });
 
 /** Limit for re-reading git state in the background when git missed the usual 2 s. */
 const SLOW_GIT_READ_TIMEOUT_MS = 15_000;
@@ -1686,19 +1687,8 @@ async function createSession(
   // autopilot cycles (RunLifecycle state), Ken replies, and background
   // sub-agents that outlive their parent run. Released on settle (completed,
   // failed or cancelled) and on session dispose.
-  let releaseRunAwake: (() => void) | null = null;
-  let releaseSubagentAwake: (() => void) | null = null;
-  const activeSubagents = new Set<string>();
-  session.eventBus.on("subagent_state", (d) => {
-    if (d.state === "starting" || d.state === "running") activeSubagents.add(d.agent_id);
-    else activeSubagents.delete(d.agent_id);
-    if (activeSubagents.size > 0) {
-      releaseSubagentAwake ??= keepAwake.acquire("subagent");
-    } else {
-      releaseSubagentAwake?.();
-      releaseSubagentAwake = null;
-    }
-  });
+  const windowAwake = new WindowAwake(keepAwake);
+  session.eventBus.on("subagent_state", (d) => windowAwake.subagentState(d.agent_id, d.state));
 
   let running = false;
   // Closes the window between `/prompt` deciding to start a run and `runAgent`
@@ -1708,12 +1698,7 @@ async function createSession(
   const runLifecycle = new RunLifecycle(
     (runState) => {
       running = runState !== "idle";
-      if (running) {
-        releaseRunAwake ??= keepAwake.acquire("run");
-      } else {
-        releaseRunAwake?.();
-        releaseRunAwake = null;
-      }
+      windowAwake.runState(runState);
       if (runState === "cancelling") broadcast("run_cancelling", { runState });
     },
     // Durable run journal. Fire-and-forget on purpose: an unwritten journal
@@ -2854,10 +2839,7 @@ async function createSession(
     abortOwnedWork();
     idleWake?.dispose();
     cancelHfPull();
-    releaseRunAwake?.();
-    releaseRunAwake = null;
-    releaseSubagentAwake?.();
-    releaseSubagentAwake = null;
+    windowAwake.release();
     elicitations.cancelAll();
     asks.cancelAll();
     tasksPollStopped = true;

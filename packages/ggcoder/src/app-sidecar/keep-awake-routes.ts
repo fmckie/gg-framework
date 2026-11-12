@@ -13,8 +13,12 @@ export function handleKeepAwakeRoutes(
 ): boolean {
   // Keep-awake is app-wide (one OS assertion for every window), so its
   // setting lives at the daemon level and applies live to in-flight runs.
+  // `holding`: the OS assertion is held right now (kleio-host's GET /kleio/host).
   if (method === "GET" && url === "/keep-awake") {
-    daemonJson(res, 200, { enabled: daemon.keepAwake.isEnabled });
+    daemonJson(res, 200, {
+      enabled: daemon.keepAwake.isEnabled,
+      holding: daemon.keepAwake.asserting,
+    });
     return true;
   }
   if (method === "POST" && url === "/keep-awake") {

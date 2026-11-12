@@ -610,7 +610,18 @@ describe("GET /kleio/host", () => {
     await startHost({ hostInfo: { platform: "darwin", version: "9.8.7", run: pmset.run } });
     expect(await call("GET", PATH, P)).toEqual({
       status: 200,
-      body: { os: "darwin", version: "9.8.7", alwaysOn: { state: "yes", reasons: [] } },
+      body: {
+        os: "darwin",
+        version: "9.8.7",
+        alwaysOn: { state: "yes", reasons: [] },
+        keepAwake: "idle",
+      },
+    });
+    expect(sidecar.seen).toContainEqual({
+      method: "GET",
+      url: "/keep-awake",
+      host: `127.0.0.1:${sidecar.port}`,
+      token: sidecar.token,
     });
     expect(pmset.runs).toEqual(["/usr/bin/pmset -g batt", "/usr/bin/pmset -g custom"]);
     // What pmset printed is in the host log, never in an answer.
@@ -626,6 +637,84 @@ describe("GET /kleio/host", () => {
     expect(admin).toEqual(phone);
     expect(await call("GET", PATH, P)).toEqual(phone);
     expect(pmset.runs).toEqual(["/usr/bin/pmset -g batt", "/usr/bin/pmset -g custom"]);
+  });
+
+  it("carries whether the engine keeps the host awake, asked on every call", async () => {
+    const pmset = fakePmset();
+    await startHost({ hostInfo: { platform: "darwin", run: pmset.run } });
+    const keepAwake = async (): Promise<unknown> => (await call("GET", PATH, P)).body.keepAwake;
+
+    sidecar.keepAwake = { status: 200, body: { enabled: true, holding: true } };
+    expect(await keepAwake()).toBe("holding");
+    sidecar.keepAwake = { status: 200, body: { enabled: true, holding: false } };
+    expect(await keepAwake()).toBe("idle");
+    sidecar.keepAwake = { status: 200, body: { enabled: false, holding: false } };
+    expect(await keepAwake()).toBe("off");
+
+    // Unlike alwaysOn, which ran its check once.
+    expect(sidecar.seen.filter((s) => s.url === "/keep-awake")).toHaveLength(3);
+    expect(pmset.runs).toEqual(["/usr/bin/pmset -g batt", "/usr/bin/pmset -g custom"]);
+  });
+
+  it("says keepAwake unavailable when the engine doesn't answer in time", async () => {
+    sidecar.keepAwake = null;
+    await startHost({
+      hostInfo: { platform: "darwin", run: fakePmset().run, keepAwakeTimeoutMs: 100 },
+    });
+    const since = Date.now();
+    expect(await call("GET", PATH, P)).toEqual({
+      status: 200,
+      body: expect.objectContaining({
+        alwaysOn: { state: "yes", reasons: [] },
+        keepAwake: "unavailable",
+      }),
+    });
+    expect(Date.now() - since).toBeLessThan(2_000);
+    expect(sidecar.seen.some((s) => s.url === "/keep-awake")).toBe(true);
+  });
+
+  it("says keepAwake unavailable when the engine is down or not published", async () => {
+    await startHost({ hostInfo: { platform: "darwin", run: fakePmset().run } });
+    await sidecar.close();
+    expect((await call("GET", PATH, P)).body.keepAwake).toBe("unavailable");
+    sidecar = await fakeSidecar(); // afterEach closes it
+
+    rmSync(join(home, "sidecar.json"));
+    await startHost({ hostInfo: { platform: "darwin", run: fakePmset().run } });
+    expect(await call("GET", PATH, P)).toEqual({
+      status: 200,
+      body: expect.objectContaining({ keepAwake: "unavailable" }),
+    });
+  });
+
+  it("says keepAwake unavailable for an engine that errors or is too old to say", async () => {
+    await startHost({ hostInfo: { platform: "darwin", run: fakePmset().run } });
+    for (const answer of [
+      { status: 200, body: { enabled: true } },
+      { status: 200, body: { enabled: "yes", holding: true } },
+      { status: 200, body: null },
+      { status: 404, body: { error: "not found" } },
+      { status: 500, body: { enabled: true, holding: true } },
+    ]) {
+      sidecar.keepAwake = answer;
+      expect((await call("GET", PATH, P)).body.keepAwake).toBe("unavailable");
+    }
+  });
+
+  it("follows the engine to its new port after a restart", async () => {
+    await startHost({ hostInfo: { platform: "darwin", run: fakePmset().run } });
+    sidecar.keepAwake = { status: 200, body: { enabled: true, holding: true } };
+    expect((await call("GET", PATH, P)).body.keepAwake).toBe("holding");
+
+    // The engine dies mid-run (its caffeinate goes with it) and comes back idle.
+    await sidecar.close();
+    sidecar = await fakeSidecar();
+    writeFileSync(
+      join(home, "sidecar.json"),
+      JSON.stringify({ port: sidecar.port, token: sidecar.token, pid: 2, startedAt: "y" }),
+    );
+    expect((await call("GET", PATH, P)).body.keepAwake).toBe("idle");
+    expect(sidecar.seen.some((s) => s.url === "/keep-awake")).toBe(true);
   });
 
   it("is Kleio's release version unless a test says otherwise", async () => {
@@ -645,7 +734,7 @@ describe("GET /kleio/host", () => {
   it("adds nothing to /kleio/health", async () => {
     const health = await call("GET", "/kleio/health");
     expect(health.status).toBe(200);
-    for (const field of ["os", "version", "alwaysOn"])
+    for (const field of ["os", "version", "alwaysOn", "keepAwake"])
       expect(health.body).not.toHaveProperty(field);
   });
 });
