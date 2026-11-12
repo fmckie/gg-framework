@@ -240,6 +240,24 @@ disabled in launchd and cannot start, so this is cleanup, not a blocker).
     previews.
 - **`uninstall`** stops and removes all three jobs. The state stays.
 
+### From the Kleio app ("On this Mac")
+
+The Mac app carries the host in `Kleio.app/Contents/Resources/host/` (`gg-app/scripts/stage-host.mjs`)
+and runs its `install-mini.sh` in app mode. With none of these variables set, the installer does
+what it always did.
+
+- `KLEIO_HOST_MODE=app`: copies the host, the app's `ggnode` and its `sidecar/` from
+  `KLEIO_APP_CONTENTS` (`Kleio.app/Contents`) into `KLEIO_HOST_CODE`, a folder per version in
+  `~/Library/Application Support/Kleio/host-code/`, then installs the same three jobs from there.
+  The jobs also name the app (`AssociatedBundleIdentifiers`, `com.kleio.app`).
+- It retires no old jobs, so it runs no `sudo`, `pkill`, `osascript` or `pgrep`. It doesn't use
+  Tailscale, even when it's installed, so there are no site previews. It writes no `kleio-host`
+  command and leaves `~/.zprofile` alone.
+- A host installed the mini's way (jobs that run from outside `host-code/`) is left alone: the
+  installer stops before changing anything.
+- `uninstall` in app mode also removes `host-code/`. The state stays.
+- The app records the version that last answered `/kleio/health` in `host-code/current`.
+
 ## Develop against a local host
 
 `gg-app/scripts/dev-host.mjs` runs the real host and sidecar from this checkout on the laptop, in a
