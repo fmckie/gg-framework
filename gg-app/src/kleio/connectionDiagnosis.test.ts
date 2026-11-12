@@ -388,9 +388,34 @@ describe("diagnoseLink", () => {
       }
     });
 
-    it("a host that never said it's a laptop, or is too old to, keeps today's words", () => {
-      for (const host of [null, MAC_MINI, { os: "darwin", laptop: false }]) {
+    it("a desktop host that's silent keeps today's words, whatever its sleep settings", () => {
+      for (const alwaysOn of [
+        { state: "yes", reasons: [] },
+        { state: "may_sleep", reasons: ["sleeps_on_ac"] },
+        { state: "unknown", reasons: ["check_failed"] },
+      ] as const) {
+        const host: HostKind = {
+          os: "darwin",
+          laptop: false,
+          alwaysOn: { ...alwaysOn, reasons: [...alwaysOn.reasons] },
+        };
         const d = diagnoseLink(input(ASLEEP, NO_ANSWER, { host }), NOW);
+        expect(diagnosisText(d)).toBe("mac-mini-1 is asleep or offline. Last reached 3 min ago.");
+        expect(d.badge).toBe("Asleep or offline");
+        expect(d.fix[0]?.text).toBe("Make sure mac-mini-1 is switched on, awake and online.");
+        expect(d.hostSilent).toBe(true);
+      }
+    });
+
+    it("a host too old to report its type, or one never asked, keeps today's words", () => {
+      // From before alwaysOn: only the OS, and never a laptop.
+      const older = diagnoseLink(
+        input(ASLEEP, NO_ANSWER, { host: { os: "darwin", laptop: false } }),
+        NOW,
+      );
+      // Never asked (GET /kleio/host missing, or nothing kept).
+      const unknown = diagnoseLink(input(ASLEEP, NO_ANSWER, { host: null }), NOW);
+      for (const d of [older, unknown]) {
         expect(diagnosisText(d)).toBe("mac-mini-1 is asleep or offline. Last reached 3 min ago.");
         expect(d.badge).toBe("Asleep or offline");
         expect(d.hostSilent).toBe(true);
@@ -403,9 +428,14 @@ describe("diagnoseLink", () => {
         detail:
           "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 3 min ago.",
       });
+      // A desktop host, and a host too old to say: today's headline, at the same moment.
       expect(hostAway(diagnoseLink(input(ASLEEP), NOW))?.label).toBe(
         "mac-mini-1 is asleep or offline",
       );
+      expect(hostAway(diagnoseLink(input(ASLEEP, NO_ANSWER, { host: null }), NOW))).toEqual({
+        label: "mac-mini-1 is asleep or offline",
+        detail: "mac-mini-1 is asleep or offline. Last reached 3 min ago.",
+      });
       expect(hostAway(asleep(BLOCKED))).toBeNull();
       expect(hostAway(asleep(gone(null, { dialling: true })))).toBeNull();
       expect(hostAway(null)).toBeNull();
