@@ -213,6 +213,18 @@ const PROGRESS_EVENTS = new Set([
   "autopilot_error",
 ]);
 
+/**
+ * A chat that lost its event stream while the host is away (hostAway in
+ * kleio/connectionDiagnosis.ts) says why instead of "Reconnecting…". Display
+ * only: the reducer's state, and so the recovery on reconnect, is unchanged.
+ */
+export function withHostAway(
+  s: TaskActivity,
+  away: { label: string; detail: string } | null,
+): TaskActivity {
+  return s.connectionLost && away ? { ...s, label: away.label, detail: away.detail } : s;
+}
+
 /** Only event/evidence fields set outcomes. Assistant prose never determines success. */
 export function reduceTaskActivity(s: TaskActivity, e: SidecarEvent, now: number): TaskActivity {
   const d = e.data as Record<string, unknown>;

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SidecarEvent } from "./agent";
-import { INITIAL_ACTIVITY, reduceTaskActivity, type TaskActivity } from "./task-activity";
+import {
+  INITIAL_ACTIVITY,
+  reduceTaskActivity,
+  withHostAway,
+  type TaskActivity,
+} from "./task-activity";
 const event = (s: TaskActivity, type: string, data: Record<string, unknown> = {}, now = 1000) =>
   reduceTaskActivity(s, { type, data } as SidecarEvent, now);
 const start = () => event(INITIAL_ACTIVITY, "run_start", {}, 100);
@@ -337,5 +342,34 @@ describe("whole-task activity", () => {
         verification === "failed" ? "failed" : "unverified",
       );
     }
+  });
+});
+
+describe("a chat past a failed reconnect", () => {
+  const away = {
+    label: "Kleio lives on mac-mini-1, which is asleep",
+    detail: "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself.",
+  };
+
+  it("says the host is asleep instead of Reconnecting… once the link check says it's silent", () => {
+    const lost = event(start(), "connection_lost");
+    expect(lost.label).toBe("Reconnecting…");
+    // Until the link check says the host is silent, it's still reconnecting.
+    expect(withHostAway(lost, null)).toBe(lost);
+    const shown = withHostAway(lost, away);
+    expect(shown.label).toBe(away.label);
+    expect(shown.detail).toBe(away.detail);
+    expect(shown.phase).toBe("working");
+    expect(shown.connectionLost).toBe(true);
+  });
+
+  it("changes nothing for a chat that didn't lose its stream, and recovers as before", () => {
+    const working = start();
+    expect(withHostAway(working, away)).toBe(working);
+    const done = event(start(), "run_end", { verification: "passed", verifiedChecks: 1 });
+    expect(withHostAway(done, away)).toBe(done);
+    // Awake again: the stream's ready event clears the loss, so the words go too.
+    const resumed = event(event(start(), "connection_lost"), "ready", { running: true });
+    expect(withHostAway(resumed, away).label).toBe("Working on your request…");
   });
 });

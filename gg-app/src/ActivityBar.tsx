@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import type { TaskActivity } from "./task-activity";
+import { withHostAway, type TaskActivity } from "./task-activity";
 import { ThinkingOrb } from "thinking-orbs";
 import { theme } from "./theme";
 import { ShimmerText } from "./ShimmerText";
 import { outcomePhrase } from "./activity-copy";
+import { hostAway } from "./kleio/connectionDiagnosis";
+import { useHostReachWords } from "./kleio/hostReach";
 
 // Braille rotation spinner — the native language of CLI coding tools (ora,
 // npm, cargo). Smooth, monospace, and unmistakably "ours" rather than the
@@ -181,7 +183,7 @@ const SHORT_LABELS: Record<string, string> = {
 /** The existing animated row now represents a whole task, including Ken's review. */
 export function ActivityBar({
   running,
-  activity,
+  activity: taskActivity,
   runStartedAt = null,
   cancelling = false,
   tokens,
@@ -197,6 +199,10 @@ export function ActivityBar({
   const [now, setNow] = useState(0);
   const [fallbackStart, setFallbackStart] = useState(0);
   const [readyPhrase, setReadyPhrase] = useState(() => pickReadyPhrase());
+  // kleio: past a failed reconnect, the same words as the home pill (decision 12).
+  const away = hostAway(useHostReachWords());
+  const activity = taskActivity && withHostAway(taskActivity, away);
+  const hostAwayShown = activity !== taskActivity;
   const hasActivity = activity !== undefined && activity.phase !== "idle";
   const starting = running && typeof activity?.endedAt === "number";
   const active =
@@ -251,7 +257,10 @@ export function ActivityBar({
   const canCancel = running || active;
 
   return (
-    <div className="task-activity" data-phase={activity?.phase ?? (running ? "working" : "idle")}>
+    <div
+      className={`task-activity${hostAwayShown ? " is-host-away" : ""}`}
+      data-phase={activity?.phase ?? (running ? "working" : "idle")}
+    >
       <div className={`statusrow${active ? " running" : ""}`}>
         <div className="activity-summary">
           <span

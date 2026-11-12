@@ -1180,3 +1180,10 @@ img[data-enlarge],
     animation: none;
   }
 }
+
+/* A chat whose host is away says so whole (ActivityBar's host-away label):
+   over two lines on a narrow screen rather than cut at "which is as…". */
+.task-activity.is-host-away .statusrow,
+.task-activity.is-host-away .activity-label-reveal {
+  white-space: normal;
+}

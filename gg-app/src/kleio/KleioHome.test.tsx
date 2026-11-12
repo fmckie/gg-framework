@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
-import type { Diagnosis } from "./connectionDiagnosis";
+import { diagnoseLink, diagnosisText, type Diagnosis } from "./connectionDiagnosis";
 import { KleioHome } from "./KleioHome";
 import { shortHost } from "./host-name";
 import type * as VoiceCall from "./voiceCall";
@@ -171,6 +171,56 @@ describe("KleioHome", () => {
     expect(pill.className).toContain("is-down");
     fireEvent.click(pill);
     expect(p.onSettings).toHaveBeenCalledWith("connection");
+    await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
+  });
+
+  it("a laptop host that's asleep: the same words as everywhere, the rest on hover", async () => {
+    const NOW = Date.parse("2026-11-12T12:00:00Z");
+    const asleep = diagnoseLink(
+      {
+        link: {
+          paired: true,
+          active: true,
+          running: true,
+          error: null,
+          host: "mac-mini-1.x.ts.net",
+          hostKey: "ab".repeat(32),
+          relay: "https://euc1-1.relay.n0.iroh.link./",
+          relayN0: true,
+          refused: null,
+          refusal: null,
+          connected: false,
+          dialling: false,
+          unreached: { kind: "host-silent", relays: [] },
+          lastReachedMs: NOW - 3 * 60_000,
+          path: null,
+          pathAddr: null,
+          pathN0: false,
+          rateLimited: false,
+          rttMs: null,
+          connectedSinceMs: null,
+          redials: 0,
+          lastResumeMs: null,
+          events: [],
+          debugBuild: false,
+        },
+        health: { state: "error", kleioDown: false },
+        host: { os: "darwin", laptop: true, alwaysOn: { state: "laptop", reasons: [] } },
+        hostLabel: "mac-mini-1",
+        device: "iPhone",
+        online: true,
+      },
+      NOW,
+    );
+    reach.value = "disconnected";
+    reach.words = asleep;
+    renderHome();
+    const pill = screen.getByRole("button", { name: "Kleio lives on mac-mini-1, which is asleep" });
+    expect(pill.getAttribute("title")).toBe(
+      "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 3 min ago.",
+    );
+    expect(pill.getAttribute("title")).toBe(diagnosisText(asleep));
+    expect(pill.className).toContain("is-down");
     await waitFor(() => expect(getLocalModels).toHaveBeenCalled());
   });
 

@@ -265,7 +265,7 @@ describe("HostReachProvider over Kleio's link", () => {
     onTheLink(ASLEEP);
     await nextCheck("no reply");
     expect(words()).toBe(
-      "mac-mini-1 is asleep or offline. Last reached 10s ago. mac-mini-1 is a laptop: open it and keep it on power.",
+      "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 10s ago.",
     );
 
     // Kept for the next launch, for this host only.
@@ -273,7 +273,9 @@ describe("HostReachProvider over Kleio's link", () => {
     vi.setSystemTime(NOW + 2 * 60 * 60_000);
     renderPill();
     await nextCheck("no reply");
-    expect(words()).toMatch(/^mac-mini-1 is asleep or offline\. Last reached 2 h ago\./);
+    expect(words()).toBe(
+      "Kleio lives on mac-mini-1, which is asleep. Open it and Kleio reconnects by itself. Last reached 2 h ago.",
+    );
     expect(getHostKind).toHaveBeenCalledOnce();
   });
 
