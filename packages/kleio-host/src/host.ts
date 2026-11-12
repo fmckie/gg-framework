@@ -7,7 +7,8 @@
 //     sidecar's API, proxied with Host rewritten to loopback and x-gg-token
 //     added; plus GET /events, which is intercepted for id/replay, and
 //     GET /kleio/home, the pinned home thread (see home-thread.ts);
-//     GET /kleio/host, its OS, version and always-on check (host-info.ts);
+//     GET /kleio/host, its OS, version, always-on check and whether the
+//     engine keeps it awake for a run (host-info.ts);
 //     POST /kleio/home/new starts a fresh one. POST /kleio/chats starts a
 //     chat that works on its own in Kleio's projects folder (voice's
 //     start_chat, see started-chats.ts). /kleio/projects lists, tells,
@@ -345,7 +346,7 @@ export interface HostOptions {
    * no-op off Windows). A failed lock fails the save. Default: for this OS.
    */
   readonly secretLock?: SecretLock;
-  /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner… */
+  /** Test seams for GET /kleio/host (host-info.ts): version, platform, runner, keep-awake timeout… */
   readonly hostInfo?: HostInfoSeams;
   /** How a relay an admin adds is asked `GET /ping` (link-relays.ts). Tests fake it. */
   readonly pingRelay?: (relay: string) => Promise<RelayPing>;
@@ -792,7 +793,6 @@ export function createHost(options: HostOptions): Host {
   const apns = options.apns ? textlessPusher(options.apns, notificationSettings) : undefined;
   const secretLock =
     options.secretLock ?? createSecretLock({ platform: process.platform, env: process.env, log });
-  const hostInfo = createHostInfo({ ...options.hostInfo, log });
   // The static-site preview origin (preview.ts): tokens minted here, served there.
   const previews: PreviewStore | null =
     options.previewPort === undefined
@@ -1371,6 +1371,7 @@ export function createHost(options: HostOptions): Host {
   };
 
   const dictationSetup = createDictationSetup(sidecarCall);
+  const hostInfo = createHostInfo({ ...options.hostInfo, log, engine: sidecarCall });
 
   const home = options.homeCwd
     ? createHomeThreads({
@@ -3229,7 +3230,8 @@ export function createHost(options: HostOptions): Host {
         : json(res, 503, { error: "sessions_unavailable" });
     }
     // The host itself (host-info.ts), for any paired device: its OS, Kleio's
-    // version, and whether it stays on. Codes only; programs' output is logged.
+    // version, whether it stays on, and whether the engine keeps it awake for
+    // a run. Codes only; programs' output is logged.
     if (path === "/kleio/host") {
       if (req.method !== "GET") {
         res.setHeader("allow", "GET");

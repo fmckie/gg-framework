@@ -21,10 +21,14 @@
  * Reference-counted: overlapping runs (several windows, a run plus a Ken reply,
  * background sub-agents) share one OS assertion, which is dropped when the last
  * holder releases.
+ *
+ * Each hold has a ceiling (6 hours by default): a hold older than that lets go
+ * and logs, so a stuck run can't keep a laptop up indefinitely.
  */
 
 import { spawn } from "node:child_process";
 import { log } from "./logger.js";
+import type { RunState } from "./run-lifecycle.js";
 
 /** A platform tool invocation, always an argv array — never a shell string. */
 export interface KeepAwakeCommand {
@@ -60,6 +64,27 @@ export interface KeepAwakeOptions {
   log?: KeepAwakeLog;
   /** Registers a synchronous last-chance cleanup. Defaults to `process.once("exit")`. */
   onProcessExit?: (cleanup: () => void) => void;
+  /**
+   * The longest one hold lasts, in ms; older holds let go and log. Defaults
+   * to KEEP_AWAKE_MAX_HOLD_MS; `Infinity` for no ceiling.
+   */
+  maxHoldMs?: number;
+}
+
+/** The ceiling on one hold: 6 hours, the cap per run. */
+export const KEEP_AWAKE_MAX_HOLD_MS = 6 * 60 * 60 * 1000;
+
+/** Overrides the ceiling (ms) for the engine, e.g. a short one for a real check. */
+export const KEEP_AWAKE_MAX_HOLD_ENV = "GG_APP_KEEP_AWAKE_MAX_MS";
+
+/** setTimeout's largest delay; a longer one fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** The ceiling from KEEP_AWAKE_MAX_HOLD_ENV (a positive whole number of ms), else the default. */
+export function keepAwakeMaxHoldMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[KEEP_AWAKE_MAX_HOLD_ENV]?.trim() ?? "";
+  const ms = /^\d+$/.test(raw) ? Number(raw) : 0;
+  return ms > 0 && ms <= MAX_TIMER_MS ? ms : KEEP_AWAKE_MAX_HOLD_MS;
 }
 
 /** ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x00000001). */
@@ -156,9 +181,14 @@ export function spawnKeepAwakeProcess(cmd: KeepAwakeCommand): KeepAwakeProcess {
   };
 }
 
+interface Hold {
+  reason: string;
+  ceiling: ReturnType<typeof setTimeout> | null;
+}
+
 /** Reference-counted holder of one OS idle-sleep assertion. */
 export class KeepAwake {
-  private readonly holds = new Map<number, string>();
+  private readonly holds = new Map<number, Hold>();
   private nextId = 0;
   private enabled: boolean;
   private child: KeepAwakeProcess | null = null;
@@ -172,6 +202,7 @@ export class KeepAwake {
   private readonly spawner: KeepAwakeSpawner;
   private readonly logLine: KeepAwakeLog;
   private readonly onProcessExit: (cleanup: () => void) => void;
+  private readonly maxHoldMs: number;
 
   constructor(options: KeepAwakeOptions = {}) {
     this.platform = options.platform ?? process.platform;
@@ -181,17 +212,33 @@ export class KeepAwake {
     this.logLine =
       options.log ?? ((level, message, data) => log(level, "keep-awake", message, data));
     this.onProcessExit = options.onProcessExit ?? ((cleanup) => process.once("exit", cleanup));
+    this.maxHoldMs = options.maxHoldMs ?? KEEP_AWAKE_MAX_HOLD_MS;
   }
 
-  /** Hold the assertion until the returned release runs. Release is idempotent. */
+  /**
+   * Hold the assertion until the returned release runs, or the ceiling passes.
+   * Release is idempotent.
+   */
   acquire(reason: string): () => void {
     const id = ++this.nextId;
-    this.holds.set(id, reason);
+    let ceiling: ReturnType<typeof setTimeout> | null = null;
+    if (Number.isFinite(this.maxHoldMs)) {
+      ceiling = setTimeout(
+        () => this.expire(id),
+        Math.min(Math.max(this.maxHoldMs, 0), MAX_TIMER_MS),
+      );
+      // The ceiling must never keep the sidecar's event loop alive.
+      ceiling.unref?.();
+    }
+    this.holds.set(id, { reason, ceiling });
     this.sync();
     let released = false;
     return () => {
       if (released) return;
       released = true;
+      const hold = this.holds.get(id);
+      if (!hold) return;
+      if (hold.ceiling) clearTimeout(hold.ceiling);
       this.holds.delete(id);
       this.sync();
     };
@@ -220,9 +267,22 @@ export class KeepAwake {
 
   /** Drop every hold and the OS assertion (shutdown). */
   dispose(): void {
+    for (const hold of this.holds.values()) if (hold.ceiling) clearTimeout(hold.ceiling);
     this.holds.clear();
     this.suspended = false;
     this.stopChild();
+  }
+
+  /** A hold reached the ceiling: drop it as if released, and say so. */
+  private expire(id: number): void {
+    const hold = this.holds.get(id);
+    if (!hold) return;
+    this.holds.delete(id);
+    this.logLine("WARN", "keep-awake hold reached its limit; letting go", {
+      reason: hold.reason,
+      maxHoldMs: this.maxHoldMs,
+    });
+    this.sync();
   }
 
   private sync(): void {
@@ -267,7 +327,8 @@ export class KeepAwake {
     });
     this.logLine("INFO", "keep-awake on", {
       command: cmd.command,
-      reasons: [...new Set(this.holds.values())].join(","),
+      reasons: [...new Set([...this.holds.values()].map((hold) => hold.reason))].join(","),
+      maxHoldMs: this.maxHoldMs,
     });
   }
 
@@ -292,5 +353,48 @@ export class KeepAwake {
         error: error instanceof Error ? error.message : String(error),
       },
     );
+  }
+}
+
+/**
+ * One window's share of the hold: its run (RunLifecycle state, so autopilot
+ * cycles too) and its background sub-agents, which can outlive the run. Each
+ * holds while it's going and lets go when it settles or the window closes.
+ */
+export class WindowAwake {
+  private releaseRun: (() => void) | null = null;
+  private releaseSubagents: (() => void) | null = null;
+  private readonly subagents = new Set<string>();
+
+  constructor(private readonly keepAwake: KeepAwake) {}
+
+  /** RunLifecycle's state: held while the run isn't idle. */
+  runState(state: RunState): void {
+    if (state !== "idle") {
+      this.releaseRun ??= this.keepAwake.acquire("run");
+    } else {
+      this.releaseRun?.();
+      this.releaseRun = null;
+    }
+  }
+
+  /** A sub-agent's state: held while any is starting or running. */
+  subagentState(agentId: string, state: string): void {
+    if (state === "starting" || state === "running") this.subagents.add(agentId);
+    else this.subagents.delete(agentId);
+    if (this.subagents.size > 0) {
+      this.releaseSubagents ??= this.keepAwake.acquire("subagent");
+    } else {
+      this.releaseSubagents?.();
+      this.releaseSubagents = null;
+    }
+  }
+
+  /** The window is closing: let go of both. */
+  release(): void {
+    this.releaseRun?.();
+    this.releaseRun = null;
+    this.releaseSubagents?.();
+    this.releaseSubagents = null;
   }
 }

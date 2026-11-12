@@ -1,6 +1,6 @@
 // The fake gg-app sidecar the host tests talk to: loopback Host allowlist +
 // token like the real one, POST /session, /state, /events, /prompt, /complete,
-// /routines, DELETE /session/:id, GET /models and /dictation.
+// /routines, DELETE /session/:id, GET /models, /dictation and /keep-awake.
 
 import { createServer, type Server, type ServerResponse } from "node:http";
 
@@ -84,6 +84,11 @@ export interface FakeSidecar {
   dictation: { status: number; body: unknown };
   dictationPrepared: unknown;
   dictationCalls: string[];
+  /**
+   * GET /keep-awake answers this status and body, like the engine's
+   * (keep-awake-routes.ts); null = it never answers.
+   */
+  keepAwake: { status: number; body: unknown } | null;
   close(): Promise<void>;
 }
 
@@ -346,6 +351,11 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
       });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/keep-awake") {
+      if (!api.keepAwake) return; // hangs until close()
+      res.writeHead(api.keepAwake.status, { "content-type": "application/json" });
+      return res.end(JSON.stringify(api.keepAwake.body));
+    }
     if (req.method === "GET" && url.pathname.startsWith("/stored-sessions")) {
       api.storedCalls.push(url.pathname + url.search);
       if (url.pathname === "/stored-sessions") {
@@ -401,6 +411,7 @@ export async function fakeSidecar(): Promise<FakeSidecar> {
     dictation: { status: 200, body: { state: "absent", bytes: 138_853_314 } },
     dictationPrepared: undefined,
     dictationCalls: [],
+    keepAwake: { status: 200, body: { enabled: true, holding: false } },
     close: () =>
       new Promise((r) => {
         for (const set of streams.values()) for (const s of set) s.destroy();
