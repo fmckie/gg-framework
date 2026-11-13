@@ -1,0 +1,51 @@
+tailscale status --json
+launchctl bootout gui/@UID@/com.atlas.bridge
+launchctl print gui/@UID@/com.atlas.bridge
+launchctl bootout gui/@UID@/com.atlas.control
+launchctl print gui/@UID@/com.atlas.control
+launchctl bootout gui/@UID@/com.atlas.hermes.autoupdate
+launchctl print gui/@UID@/com.atlas.hermes.autoupdate
+launchctl bootout gui/@UID@/com.atlas.hermes.gateway
+launchctl print gui/@UID@/com.atlas.hermes.gateway
+launchctl bootout gui/@UID@/com.atlas.host
+launchctl print gui/@UID@/com.atlas.host
+launchctl bootout gui/@UID@/com.atlas.ios-ws-server
+launchctl print gui/@UID@/com.atlas.ios-ws-server
+launchctl bootout gui/@UID@/com.atlas.video-feature
+launchctl print gui/@UID@/com.atlas.video-feature
+launchctl bootout gui/@UID@/com.hermes.gateway
+launchctl print gui/@UID@/com.hermes.gateway
+launchctl bootout gui/@UID@/com.kleio.bridge
+launchctl print gui/@UID@/com.kleio.bridge
+launchctl bootout gui/@UID@/com.kleio.control
+launchctl print gui/@UID@/com.kleio.control
+launchctl bootout gui/@UID@/com.kleio.desktop-host
+launchctl print gui/@UID@/com.kleio.desktop-host
+launchctl bootout gui/@UID@/com.kleio.host-spike
+launchctl print gui/@UID@/com.kleio.host-spike
+launchctl bootout gui/@UID@/com.kleio.ios-ws-server
+launchctl print gui/@UID@/com.kleio.ios-ws-server
+launchctl bootout gui/@UID@/com.noledge.gateway
+launchctl print gui/@UID@/com.noledge.gateway
+launchctl bootout gui/@UID@/com.noledge.host
+launchctl print gui/@UID@/com.noledge.host
+pgrep -x Kleio
+launchctl bootout gui/@UID@/com.kleio.host.sidecar
+launchctl print gui/@UID@/com.kleio.host.sidecar
+launchctl bootstrap gui/@UID@ @HOME@/Library/LaunchAgents/com.kleio.host.sidecar.plist
+launchctl kickstart -k gui/@UID@/com.kleio.host.sidecar
+launchctl print gui/@UID@/com.kleio.host.sidecar
+launchctl bootout gui/@UID@/com.kleio.host.serve
+launchctl print gui/@UID@/com.kleio.host.serve
+launchctl bootstrap gui/@UID@ @HOME@/Library/LaunchAgents/com.kleio.host.serve.plist
+launchctl kickstart -k gui/@UID@/com.kleio.host.serve
+launchctl print gui/@UID@/com.kleio.host.serve
+launchctl bootout gui/@UID@/com.kleio.host.link
+launchctl print gui/@UID@/com.kleio.host.link
+launchctl bootstrap gui/@UID@ @HOME@/Library/LaunchAgents/com.kleio.host.link.plist
+launchctl kickstart -k gui/@UID@/com.kleio.host.link
+launchctl print gui/@UID@/com.kleio.host.link
+tailscale serve --https=8443 off
+tailscale serve --bg --https=8443 http://127.0.0.1:8443
+tailscale serve --https=8444 off
+tailscale serve --bg --https=8444 http://127.0.0.1:8444

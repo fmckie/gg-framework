@@ -1,0 +1,11 @@
+retired com.atlas.host
+{"args":["init"],"port":"8443"}
+added ~/.local/bin to PATH in ~/.zprofile
+command: @HOME@/.local/bin/kleio-host
+push notifications: off (no secrets/apns.env)
+
+kleio-host installed.
+  public:  https://mini.tailnet.ts.net:8443
+  preview: https://mini.tailnet.ts.net:8444
+  status:  (not yet up)
+  pair:    kleio-host pair   (new shells; or @HOME@/.local/bin/kleio-host pair)

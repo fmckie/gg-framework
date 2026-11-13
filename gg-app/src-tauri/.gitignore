@@ -6,6 +6,9 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
-# Staged distribution artifacts (built by scripts/stage-node + bundle-sidecar)
+# Staged distribution artifacts (built by scripts/stage-node, bundle-sidecar
+# and stage-host)
 /binaries/
 /sidecar/
+/host/
+/host.partial/

@@ -27,6 +27,8 @@ pub mod brief;
 pub mod commands;
 pub mod files;
 pub use commands::host_auth;
+#[cfg(target_os = "macos")]
+pub mod host_install;
 pub mod keychain;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod link;

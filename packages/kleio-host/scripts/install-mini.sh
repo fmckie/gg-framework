@@ -27,10 +27,44 @@
 # pages can never reach the API. Without Tailscale, phones pair and connect
 # over the link alone, and there are no site previews: they need Tailscale
 # for now.
+#
+# App mode (KLEIO_HOST_MODE=app): the Kleio app runs this from inside
+# Kleio.app to make this Mac the host ("On this Mac"). It copies the host from
+# the app, then installs the same three jobs, with these differences:
+#   - the code is a copy per version: KLEIO_HOST_CODE, a folder in
+#     ~/Library/Application Support/Kleio/host-code, copied from
+#     KLEIO_APP_CONTENTS (Kleio.app/Contents: Resources/host, Resources/sidecar
+#     and MacOS/ggnode, which the jobs run as their node). APFS clones where
+#     the disk allows; put together in <folder>.partial and renamed into place,
+#     so a failed copy leaves no version folder. A folder already complete is
+#     kept as it is.
+#   - no retiring of old jobs (so no sudo, pkill, osascript or pgrep), no
+#     Tailscale, no `kleio-host` command and no ~/.zprofile change;
+#   - the jobs carry AssociatedBundleIdentifiers, so Login Items lists them
+#     under Kleio;
+#   - a host installed the other way (jobs that run from outside host-code)
+#     is left alone: it stops before changing anything;
+#   - uninstall also removes host-code (the state is still kept).
+# The app records which version last answered /kleio/health (host-code/current)
+# and removes older copies; this script doesn't.
 set -eu
 
-CODE="$HOME/kleio-host"
-NODE="${KLEIO_NODE_BIN:-/opt/homebrew/bin/node}"
+APP=""
+case "${KLEIO_HOST_MODE:-}" in
+  "") ;;
+  app) APP=1 ;;
+  *) echo "KLEIO_HOST_MODE is app or unset, not ${KLEIO_HOST_MODE}" >&2; exit 2 ;;
+esac
+CODE_ROOT="$HOME/Library/Application Support/Kleio/host-code"
+APP_BUNDLE_ID="com.kleio.app"
+if [ -n "$APP" ]; then
+  case "$HOME" in /?*) ;; *) echo "HOME must be a folder, not '$HOME'" >&2; exit 2 ;; esac
+  CODE="${KLEIO_HOST_CODE:-}"
+  NODE="${KLEIO_NODE_BIN:-$CODE/bin/ggnode}"
+else
+  CODE="${KLEIO_HOST_CODE:-$HOME/kleio-host}"
+  NODE="${KLEIO_NODE_BIN:-/opt/homebrew/bin/node}"
+fi
 TS="${TAILSCALE_BIN:-/usr/local/bin/tailscale}"
 PORT="${KLEIO_HOST_PORT:-8443}"
 PREVIEW_PORT="${KLEIO_PREVIEW_PORT:-8444}"
@@ -162,6 +196,11 @@ SH
   echo "command: $BIN_DIR/kleio-host"
 }
 
+# App mode: the jobs belong to the Kleio app in Login Items.
+ASSOCIATED_XML=""
+[ -z "$APP" ] || ASSOCIATED_XML="  <key>AssociatedBundleIdentifiers</key><array><string>$APP_BUNDLE_ID</string></array>
+"
+
 write_plist() { # label, subcommand, extra-env-xml
   cat > "$AGENTS/$1.plist" <<PL
 <?xml version="1.0" encoding="UTF-8"?>
@@ -190,7 +229,7 @@ $3
   <key>ThrottleInterval</key><integer>5</integer>
   <key>StandardOutPath</key><string>$STATE/logs/$2.out.log</string>
   <key>StandardErrorPath</key><string>$STATE/logs/$2.err.log</string>
-</dict></plist>
+$ASSOCIATED_XML</dict></plist>
 PL
 }
 
@@ -227,7 +266,7 @@ write_link_plist() {
   <key>ThrottleInterval</key><integer>5</integer>
   <key>StandardOutPath</key><string>$STATE/logs/link.out.log</string>
   <key>StandardErrorPath</key><string>$STATE/logs/link.err.log</string>
-</dict></plist>
+$ASSOCIATED_XML</dict></plist>
 PL
 }
 
@@ -247,11 +286,85 @@ restart() {
   launchctl print "gui/$UID_/$1" >/dev/null 2>&1 || { echo "failed to start $1" >&2; exit 1; }
 }
 
+# App mode leaves a host installed the other way alone: one of the jobs
+# exists and runs from outside host-code. Reads only; changes nothing.
+refuse_other_install() {
+  for label in com.kleio.host.sidecar com.kleio.host.serve "$LINK_LABEL"; do
+    f="$AGENTS/$label.plist"
+    [ -f "$f" ] || continue
+    grep -Fq "<string>$CODE_ROOT/" "$f" && continue
+    echo "This Mac already runs a Kleio host that wasn't installed by the Kleio app" >&2
+    echo "($f runs from outside $CODE_ROOT)." >&2
+    echo "Nothing was changed. To use this Mac's host from the app, uninstall that one first." >&2
+    exit 1
+  done
+}
+
+# App mode: the code, copied from Kleio.app into its version's folder.
+code_complete() {
+  [ -f "$1/dist/cli.js" ] && [ -f "$1/sidecar/app-sidecar.mjs" ] && [ -x "$1/bin/kleio-link-host" ] &&
+    [ -x "$1/bin/ggnode" ] && [ -f "$1/package.json" ] && [ -f "$1/install-mini.sh" ]
+}
+
+# APFS clone (cp -c) where the disk allows, a plain copy otherwise.
+clone() {
+  cp -c -pR "$1" "$2" 2>/dev/null || { rm -rf "$2"; cp -pR "$1" "$2"; }
+}
+
+copy_app_code() {
+  contents="${KLEIO_APP_CONTENTS:-}"
+  [ -n "$contents" ] || { echo "KLEIO_APP_CONTENTS must be the Kleio.app/Contents folder to copy from" >&2; exit 1; }
+  src="$contents/Resources/host"
+  for f in "$src/dist/cli.js" "$src/bin/kleio-link-host" "$src/install-mini.sh" "$src/package.json" \
+    "$contents/Resources/sidecar/app-sidecar.mjs" "$contents/MacOS/ggnode"; do
+    [ -f "$f" ] || { echo "missing $f: is KLEIO_APP_CONTENTS ($contents) Kleio.app/Contents?" >&2; exit 1; }
+  done
+  # One plain name in host-code: never host-code itself, a folder above it, or current.
+  name="${CODE#"$CODE_ROOT"/}"
+  case "$CODE" in "$CODE_ROOT"/*) ;; *) name="" ;; esac
+  case "$name" in
+    "" | . | .. | current | *.partial | *[!A-Za-z0-9._+-]*)
+      echo "KLEIO_HOST_CODE must be a folder in $CODE_ROOT, not '$CODE'" >&2
+      exit 1
+      ;;
+  esac
+  if code_complete "$CODE"; then
+    echo "code: $CODE (already there)"
+    return 0
+  fi
+  partial="$CODE.partial"
+  rm -rf "$partial"
+  mkdir -p "$partial/bin"
+  if clone "$src/dist" "$partial/dist" &&
+    clone "$contents/Resources/sidecar" "$partial/sidecar" &&
+    clone "$src/bin/kleio-link-host" "$partial/bin/kleio-link-host" &&
+    clone "$contents/MacOS/ggnode" "$partial/bin/ggnode" &&
+    clone "$src/install-mini.sh" "$partial/install-mini.sh" &&
+    clone "$src/package.json" "$partial/package.json" &&
+    { [ ! -f "$src/VERSION" ] || clone "$src/VERSION" "$partial/VERSION"; }; then
+    rm -rf "$CODE"
+    mv "$partial" "$CODE"
+    echo "code: $CODE (copied from $contents)"
+  else
+    rm -rf "$partial"
+    echo "copying the host from $contents failed; nothing was installed" >&2
+    exit 1
+  fi
+}
+
+[ -z "$APP" ] || refuse_other_install
+
 if [ "${1:-}" = "uninstall" ]; then
   bootout "$LINK_LABEL"
   bootout com.kleio.host.serve
   bootout com.kleio.host.sidecar
-  rm -f "$AGENTS/$LINK_LABEL.plist" "$AGENTS/com.kleio.host.serve.plist" "$AGENTS/com.kleio.host.sidecar.plist" "$LINK_STARTED"
+  rm -f "$AGENTS/$LINK_LABEL.plist" "$AGENTS/com.kleio.host.serve.plist" "$AGENTS/com.kleio.host.sidecar.plist"
+  if [ -n "$APP" ]; then
+    rm -rf "$CODE_ROOT"
+    echo "kleio-host jobs and code removed; state kept under Application Support/Kleio/host"
+    exit 0
+  fi
+  rm -f "$LINK_STARTED"
   if [ -x "$TS" ]; then
     "$TS" serve --https="$PORT" off 2>/dev/null || true
     "$TS" serve --https="$PREVIEW_PORT" off 2>/dev/null || true
@@ -260,12 +373,16 @@ if [ "${1:-}" = "uninstall" ]; then
   exit 0
 fi
 
-[ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
-
 if [ "${1:-}" = "cli" ]; then
+  [ -z "$APP" ] || { echo "a host on this Mac installs no kleio-host command" >&2; exit 2; }
+  [ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
   install_cli
   exit 0
 fi
+
+[ -z "$APP" ] || copy_app_code
+
+[ -x "$NODE" ] || { echo "node not found at $NODE" >&2; exit 1; }
 
 [ -f "$CODE/dist/cli.js" ] || { echo "missing $CODE/dist/cli.js (rsync the package first)" >&2; exit 1; }
 # dist/ is ESM; without a package.json next to it Node reparses on every start.
@@ -277,7 +394,9 @@ fi
 # paired over Tailscale and for site previews.
 PUBLIC_URL=""
 PREVIEW_URL=""
-if [ -x "$TS" ]; then
+if [ -n "$APP" ]; then
+  echo "tailscale: not used by a host on this Mac, so phones pair and connect over Kleio's link alone, with no site previews"
+elif [ -x "$TS" ]; then
   DNS_NAME="$("$TS" status --json | "$NODE" -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).Self.DNSName.replace(/\.$/,"")')" ||
     { echo "tailscale is installed ($TS), but its status can't be read: start it and sign in, then re-run" >&2; exit 1; }
   [ -n "$DNS_NAME" ] || { echo "tailscale has no name for this Mac yet: sign in, then re-run" >&2; exit 1; }
@@ -289,8 +408,9 @@ fi
 URL_XML="$(url_env_xml)"
 STATE="$HOME/Library/Application Support/Kleio/host"
 mkdir -p "$STATE/logs"
+mkdir -p "$AGENTS"
 
-retire_legacy
+[ -n "$APP" ] || retire_legacy
 
 # Keys (the link's too), registry, first admin token (prints once; idempotent
 # afterwards).
@@ -299,7 +419,7 @@ KLEIO_HOST_PORT="$PORT" KLEIO_PUBLIC_URL="$PUBLIC_URL" "$NODE" "$CODE/dist/cli.j
 "$LINK_BIN" id --state-dir "$STATE" >/dev/null ||
   { echo "kleio-link-host ($LINK_BIN) can't run here, or refuses the link's key: see above" >&2; exit 1; }
 
-install_cli
+[ -n "$APP" ] || install_cli
 
 APNS_XML="$(apns_env_xml)" || { echo "fix $STATE/secrets/apns.env and re-run" >&2; exit 1; }
 [ -n "$APNS_XML" ] && echo "push notifications: on" || echo "push notifications: off (no secrets/apns.env)"
@@ -346,5 +466,9 @@ else
 fi
 echo "  status:  $(curl -s "http://127.0.0.1:$PORT/kleio/health" || echo '(not yet up)')"
 # kleio-host's own words for the link: running or not, on which relay, its key.
-"$BIN_DIR/kleio-host" status 2>/dev/null | sed -n '/^link: /,$p' | sed 's/^/  /' || true
-echo "  pair:    kleio-host pair   (new shells; or $BIN_DIR/kleio-host pair)"
+if [ -n "$APP" ]; then
+  KLEIO_HOST_PORT="$PORT" "$NODE" "$CODE/dist/cli.js" status 2>/dev/null | sed -n '/^link: /,$p' | sed 's/^/  /' || true
+else
+  "$BIN_DIR/kleio-host" status 2>/dev/null | sed -n '/^link: /,$p' | sed 's/^/  /' || true
+  echo "  pair:    kleio-host pair   (new shells; or $BIN_DIR/kleio-host pair)"
+fi

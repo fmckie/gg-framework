@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.kleio.host.sidecar</string>
+  <key>ProgramArguments</key><array>
+    <string>@NODE@</string>
+    <string>@HOME@/kleio-host/dist/cli.js</string>
+    <string>sidecar</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>@HOME@</string>
+    <key>KLEIO_HOST_PORT</key><string>8443</string>
+    <key>KLEIO_PREVIEW_PORT</key><string>8444</string>
+    <key>KLEIO_LINK_PORT</key><string>8445</string>
+    <key>KLEIO_PUBLIC_URL</key><string>https://mini.tailnet.ts.net:8443</string>
+    <key>KLEIO_PREVIEW_URL</key><string>https://mini.tailnet.ts.net:8444</string>
+    <key>KLEIO_SIDECAR_PATH</key><string>@HOME@/kleio-host/sidecar/app-sidecar.mjs</string>
+    <key>KLEIO_NODE_BIN</key><string>@NODE@</string>
+
+  </dict>
+  <key>WorkingDirectory</key><string>@HOME@</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>StandardOutPath</key><string>@HOME@/Library/Application Support/Kleio/host/logs/sidecar.out.log</string>
+  <key>StandardErrorPath</key><string>@HOME@/Library/Application Support/Kleio/host/logs/sidecar.err.log</string>
+</dict></plist>

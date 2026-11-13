@@ -123,6 +123,7 @@ function workflowInvariants(source) {
       "node bench/size-gate.mjs --only sidecar",
       "pnpm --filter gg-app build\nnode bench/size-gate.mjs --only frontend:initial",
       "pnpm --filter gg-app test",
+      "node gg-app/scripts/stage-host.mjs --link-bin packages/kleio-link/target/debug/kleio-link-host --no-capture",
       "cargo test",
       "pnpm smoke:packaged",
     ],
