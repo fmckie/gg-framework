@@ -117,6 +117,14 @@
   font-style: normal;
   font-display: swap;
 }
+/* The composer's draft face (SIL OFL, licence beside the file). */
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("./assets/fonts/MuktaMalar-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 @font-face {
   font-family: "Bungee Shade";
   src: url("./assets/fonts/BungeeShade-Regular.woff2") format("woff2");
@@ -1740,4 +1748,351 @@ html:not(.platform-ios) .app.app-session .chat-head .window-index {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   color: var(--kleio-muted);
+}
+
+/* ── Composer dock ── the bottom of a Code, Chat or Motion session: the
+   activity line and the text box as one flat box, square quiet buttons with a
+   crimson Send, and a small status row under it. Scoped to direct children of
+   the session root, so the composers inside overlays keep their look, and to
+   the desktop, like the session chrome above. */
+
+/* The box. Its top half is the activity line, its bottom half the composer. */
+html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-child {
+  margin: 8px var(--rail) 0;
+  border: 1px solid var(--kleio-rule-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: #1d1819;
+  transition: border-color var(--t-fast);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap {
+  box-sizing: border-box;
+  min-height: 56px;
+  margin-bottom: 0;
+  padding: 11px 9px 11px 8px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: #1d1819;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* Joined: square where the halves meet, with a dark groove and a faint lip. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .inputwrap {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+/* Focus and file-drop light the whole box, both halves. */
+html:not(.platform-ios) .app.app-session > .inputwrap:focus-within,
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(+ .inputwrap:focus-within)
+  > .task-activity:last-child {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap.dragover,
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(+ .inputwrap.dragover)
+  > .task-activity:last-child {
+  border-color: var(--kleio-lapis);
+  background: color-mix(in srgb, var(--kleio-lapis) 8%, #1d1819);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap.schedule-invalid {
+  border-color: var(--error);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .inputwrap:is(:focus-within, .dragover, .schedule-invalid) {
+  border-top-color: rgb(0 0 0 / 0.5);
+}
+/* The activity line and the Stop state already show a run. */
+html:not(.platform-ios) .app.app-session > .inputwrap .working-beam {
+  display: none;
+}
+
+/* Activity line: 40px, quiet text, quiet controls. */
+html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-child .statusrow {
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 14px;
+  border-top: 0;
+  color: var(--kleio-text-2);
+  font-size: 14px;
+}
+/* !important: the label's colour is inline. Problems keep their own colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  > .task-activity:is(
+    [data-phase="idle"],
+    [data-phase="working"],
+    [data-phase="reviewing"],
+    [data-phase="done"]
+  )
+  .activity-label-reveal
+  > span {
+  --shimmer-base: var(--kleio-text-2) !important;
+  color: var(--kleio-text-2) !important;
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .activity-meta {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .tools-toggle {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+/* !important: Stop's colour is inline. */
+html:not(.platform-ios) .app.app-session > .liveregion .task-activity .cancel {
+  padding: 4px 6px;
+  border-radius: 3px;
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .tools-toggle:is(:hover, :focus-visible) {
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .task-activity
+  .cancel:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis) !important;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .task-activity
+  :is(.tools-toggle, .cancel):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* The draft, in Mukta Malar. The @helper overlay and the Enhance animation
+   layer copy the textarea's metrics, so all three change together. */
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.input, .ken-input-highlight, .enh-diss) {
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.input, .ken-input-highlight) {
+  padding: 4.5px 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .enh-diss {
+  padding: 0 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .input:not(.input-ken),
+html:not(.platform-ios) .app.app-session > .inputwrap .ken-input-highlight {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .input::placeholder {
+  color: color-mix(in srgb, var(--kleio-muted) 70%, transparent);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .inputrow {
+  gap: 4px;
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .inputactions-trailing {
+  gap: 4px;
+}
+
+/* Attach and mic: 32px, borderless, muted. No swell on hover or press. */
+html:not(.platform-ios) .app.app-session > .inputwrap .icon-circle {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  width: 32px;
+  height: 32px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle:not(.icon-circle-primary, .is-recording) {
+  background: transparent;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle:not(.icon-circle-primary, .is-recording):is(:hover, :focus-visible):not(:disabled) {
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+/* Send, and Stop while a run is going. */
+html:not(.platform-ios) .app.app-session > .inputwrap .icon-circle-primary {
+  background: #c42638;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .icon-circle-primary:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  :is(.icon-circle, .enhance-pill):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Enhance: a bounded, flat button where the pill was. */
+html:not(.platform-ios) .app.app-session > .inputwrap .enhance-pill-host {
+  top: -13px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .enhance-pill {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  padding: 3px 9px;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  .enhance-pill:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+
+/* Status row: 11px, quiet. */
+html:not(.platform-ios) .app.app-session > .footer {
+  min-height: 44px;
+  padding: 10px calc(var(--rail) + 4px) 12px;
+  font-size: 11px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  :is(
+    .thinking-toggle,
+    .model-label,
+    .model-select-text,
+    .model-button,
+    .ctx-meter-pct,
+    .bgtasks-button
+  ) {
+  font-size: 11px;
+}
+/* !important here and below: these colours and borders are inline. */
+html:not(.platform-ios) .app.app-session > .footer > .footer-left {
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .footer-sep {
+  color: var(--kleio-rule-strong) !important;
+}
+/* Background tasks and schedules: a square lapis border. */
+html:not(.platform-ios) .app.app-session > .footer .bgtasks-button {
+  padding: 3px 8px;
+  border-color: var(--kleio-lapis) !important;
+  border-radius: 0;
+  color: var(--kleio-text-2) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .bgtasks-button:is(:hover, :focus-visible) {
+  background: #241f20;
+  color: var(--kleio-lapis) !important;
+}
+/* Context: a 36×3px track before the percentage. Amber and red stay. */
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct::before {
+  content: "";
+  width: 36px;
+  height: 3px;
+  background: linear-gradient(to right, currentColor var(--ctx-pct, 0%), #3a3334 0);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct[data-pressure="ok"] {
+  color: var(--kleio-muted) !important;
+}
+/* Thinking, coloured by level. Off and locked keep their dim inline colour. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle {
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .thinking-toggle:not(:disabled):not([data-level="off"]) {
+  color: var(--kleio-level) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="low"] {
+  --kleio-level: #a69c9d;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="medium"] {
+  --kleio-level: #f07880;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="high"] {
+  --kleio-level: #e8df70;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="xhigh"] {
+  --kleio-level: #8eb8f0;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="max"] {
+  --kleio-level: #c4a0ed;
+}
+/* xhigh and max: the flat level colour, with no pink sweep. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .shimmer-text {
+  animation: none;
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  font-weight: inherit;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:hover:not(:disabled) {
+  background: #241f20;
+  filter: none;
+}
+/* Model pickers. Helper's label and picker (the second pair) keep their colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .model-anchor:not(.model-anchor ~ .model-anchor)
+  .model-label {
+  color: var(--kleio-text-2) !important;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .model-anchor:not(.model-anchor ~ .model-anchor)
+  :is(.model-picker, .model-button) {
+  color: var(--kleio-muted) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-anchor {
+  gap: 6px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .model-picker:has(:is(.model-select, .model-button):not(:disabled)):hover
+  :is(.model-select-text, .model-button) {
+  color: var(--kleio-lapis) !important;
+  filter: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  :is(.thinking-toggle, .bgtasks-button, .model-button):focus-visible,
+html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-select:focus-visible) {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
 }

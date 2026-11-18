@@ -139,6 +139,8 @@ export function AppFooter({
                   <>
                     <button
                       className="thinking-toggle"
+                      // The desktop session colours the label by level in CSS.
+                      data-level={level ?? "off"}
                       style={{
                         color: locked ? theme.textDim : thinkingColor(level),
                         fontWeight: level === "high" ? 600 : 400,
