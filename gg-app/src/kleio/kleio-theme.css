@@ -108,6 +108,16 @@
   }
 }
 
+/* The wordmark's face: Bungee Shade's Latin subset from Google Fonts, under the SIL Open Font
+   License (assets/fonts/BungeeShade-OFL.txt). */
+@font-face {
+  font-family: "Bungee Shade";
+  src: url("./assets/fonts/BungeeShade-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
 .kleio-mark {
   display: flex;
@@ -124,21 +134,25 @@
   filter: drop-shadow(0 8px 28px rgb(0 0 0 / 0.55));
 }
 .kleio-wordmark {
-  font-family: Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-family: "Bungee Shade", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
   font-weight: 400;
-  font-size: 60px;
+  font-size: 46px;
   line-height: 1;
   /* The trailing letter-space is cancelled so the word stays centred. */
-  letter-spacing: 0.32em;
-  margin-right: -0.32em;
-  color: #fff;
-  text-shadow: 0 2px 24px rgb(0 0 0 / 0.5);
+  letter-spacing: 0.34em;
+  margin-right: -0.34em;
+  /* Bone: 6.68:1 on a bare lit wave dot (#9c0000), the brightest thing behind it. */
+  color: #e8e0dc;
+  /* The tight shadow fills the bevel cuts, so the waves' dots don't show through the letters. */
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.75),
+    0 2px 24px rgb(0 0 0 / 0.6);
 }
 .kleio-mark.is-small .kleio-mark-img {
   width: 84px;
 }
 .kleio-mark.is-small .kleio-wordmark {
-  font-size: 42px;
+  font-size: 39px;
 }
 
 /* ── Home ── Ken's layout and entry animation (.home and friends), with a
@@ -171,43 +185,278 @@
   font-size: 14px;
   color: var(--text-secondary);
 }
-.kleio-home .home-action.btn-primary {
-  background: var(--kleio-crimson);
-  color: #fff;
-}
-.kleio-home .home-action.btn-primary:hover:not(:disabled) {
-  background: var(--kleio-crimson-hi);
-  color: #fff;
-}
-.kleio-home .home-action.btn-ghost {
-  background: rgb(255 255 255 / 0.08);
-  color: var(--text);
-}
-.kleio-home .home-action.btn-ghost:hover:not(:disabled) {
-  background: rgb(255 255 255 / 0.14);
-}
-.kleio-status {
+/* ── Cloisonné: crimson enamel, domed, in a polished rim ──
+   Home's ways in: Kleio, Code and Specialists, and Talk to Kleio as .is-small. Two layers: the
+   rim, painted under the transparent border, and ::before, the enamel inside it. Nothing moves
+   at rest. Labels: #f6f1f1 on #b31d30 is 5.99:1, on hover #c42638 5.10:1; #f7e6e8 5.56:1 and
+   4.74:1. */
+.kleio-cloisonne {
+  --dome-crown: 0.22; /* highlight at the top centre */
+  --dome-foot: 0.26; /* shade toward the bottom edge */
+  --dome-ends: 0.14; /* shade toward the two ends */
+
+  position: relative;
+  isolation: isolate; /* keeps the enamel's z-index -1 over the rim and under the label */
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  height: 44px;
+  margin: 0;
+  padding: 0 22px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  /* The rim rests at 100%; hover slides it to 0%, so the shine crosses left to right. */
+  background: linear-gradient(
+      115deg,
+      #b6afb0,
+      #7d7475 4.5%,
+      #2c2526 20.5%,
+      #d9d2d2 38.5%,
+      #fbf8f8 50%,
+      #b3aaab 61.5%,
+      #625a5b 75.5%,
+      #2c2526 91.5%,
+      #574f50
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  /* A 2px contact edge, as deep as the press, over a soft shadow. */
+  box-shadow:
+    0 2px 0 rgb(0 0 0 / 0.6),
+    0 9px 16px -8px rgb(0 0 0 / 0.95);
+  color: #f6f1f1;
+  font: 600 15px/1 var(--sans);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The enamel. Layers top first: the crown's highlight, shade toward the ends, shade toward the
+   foot. */
+.kleio-cloisonne::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 8px;
+  background-color: #b31d30;
+  background-image:
+    radial-gradient(64% 30% at 50% 4%, rgb(255 240 242 / var(--dome-crown)), rgb(255 240 242 / 0)),
+    radial-gradient(60% 150% at 50% 30%, rgb(0 0 0 / 0) 55%, rgb(0 0 0 / var(--dome-ends))),
+    linear-gradient(180deg, rgb(0 0 0 / 0) 46%, rgb(0 0 0 / var(--dome-foot)));
+  background-repeat: no-repeat;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+.kleio-cloisonne > svg {
+  flex: none;
+}
+/* Home's buttons stay clickable when a model or folder is missing (they send people to
+   Settings), so "off" is aria-disabled, not :disabled. */
+.kleio-cloisonne:is(:hover, :focus-visible):not([aria-disabled="true"]) {
+  background-position: 0% 0;
+  color: #f6f1f1;
+}
+.kleio-cloisonne:is(:hover, :focus-visible):not([aria-disabled="true"])::before {
+  background-color: #c42638;
+}
+.kleio-cloisonne:focus {
+  outline: none;
+}
+.kleio-cloisonne:focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 3px;
+}
+/* Press: the face goes down 2px while the contact edge closes by the same 2px, so the shadow
+   holds still and nothing around it shifts. */
+.kleio-cloisonne:active:not([aria-disabled="true"]) {
+  transform: translateY(2px);
+  background-position: 40% 0;
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 7px 16px -8px rgb(0 0 0 / 0.95);
+}
+.kleio-cloisonne:active:not([aria-disabled="true"])::before {
+  background-color: #9a1728;
+}
+/* Dimmed: flat on hover, so it reads as not ready rather than interactive. */
+.kleio-cloisonne.is-dimmed,
+.kleio-cloisonne.is-dimmed:hover {
+  opacity: 0.5;
+  filter: none;
+}
+/* Small (Talk to Kleio): 32px tall, a 1.5px rim and 1.5px of press. */
+.kleio-cloisonne.is-small {
+  height: 32px;
+  padding: 0 15px;
+  border-width: 1.5px;
+  border-radius: 7px;
+  box-shadow:
+    0 1.5px 0 rgb(0 0 0 / 0.6),
+    0 6.5px 10px -6px rgb(0 0 0 / 0.95);
+  color: #f7e6e8;
+  font-size: 13px;
+}
+.kleio-cloisonne.is-small::before {
+  border-radius: 5.5px;
+}
+.kleio-cloisonne.is-small:active:not([aria-disabled="true"]) {
+  transform: translateY(1.5px);
+  box-shadow:
+    0 0 0 rgb(0 0 0 / 0.6),
+    0 5px 10px -6px rgb(0 0 0 / 0.95);
+}
+/* The shine sweeps slowly; a press goes down in 70ms and comes back up in 170ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-cloisonne {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 170ms cubic-bezier(0.3, 0.7, 0.4, 1),
+      transform 170ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  }
+  .kleio-cloisonne:active:not([aria-disabled="true"]) {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 70ms cubic-bezier(0.2, 0, 0.4, 1),
+      transform 70ms cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  .kleio-cloisonne::before {
+    transition: background-color 260ms ease;
+  }
+}
+
+/* Three equal ways in: every column takes the widest one's width. */
+.kleio-home .home-actions {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+/* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
+.kleio-home .home-kbd {
+  margin-left: 2px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: #f7e6e8;
+}
+html.platform-ios .kleio-home .home-kbd {
+  display: none;
+}
+
+/* ── Home's quiet controls: the status pill, Goals and Settings ──
+   Opaque black enamel in the same polished rim, one size down. No glass and no blur: they sit
+   on moving waves. */
+.kleio-status,
+.kleio-home .home-goals,
+.kleio-home .home-settings {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  border: 1.5px solid transparent;
+  border-radius: 7px;
+  background: linear-gradient(
+      115deg,
+      #b6afb0,
+      #7d7475 4.5%,
+      #2c2526 20.5%,
+      #d9d2d2 38.5%,
+      #fbf8f8 50%,
+      #b3aaab 61.5%,
+      #625a5b 75.5%,
+      #2c2526 91.5%,
+      #574f50
+    )
+    border-box;
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 8px 16px -8px rgb(0 0 0 / 0.95);
+  color: #d3c9ca;
+  font: 600 12px/1 var(--sans);
+  text-shadow: none;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 5.5px;
+  background-color: #151112;
+  box-shadow:
+    inset 0 1px 2px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.3);
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):is(:hover, :focus-visible) {
+  background-position: 0% 0;
+  color: #f6f1f1;
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):is(
+    :hover,
+    :focus-visible
+  )::before {
+  background-color: #201a1b;
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):active {
+  background-position: 40% 0;
+  box-shadow:
+    0 1px 0 rgb(0 0 0 / 0.7),
+    0 4px 8px -6px rgb(0 0 0 / 0.95);
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):active::before {
+  background-color: #0d0a0b;
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):focus {
+  outline: none;
+}
+:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .kleio-status,
+  .kleio-home .home-goals,
+  .kleio-home .home-settings {
+    transition:
+      background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
+      box-shadow 260ms ease,
+      color var(--t-fast);
+  }
+  :is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings)::before {
+    transition: background-color 260ms ease;
+  }
+}
+.kleio-status {
   height: 28px;
   padding: 0 13px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 0.07);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
-  color: var(--text-secondary);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--t-fast),
-    color var(--t-fast);
 }
-.kleio-status:hover {
-  background: rgb(255 255 255 / 0.12);
-  color: var(--text);
+.kleio-home .home-goals {
+  height: 32px;
+  padding: 0 15px;
+  font-size: 13px;
+}
+.kleio-home .home-settings {
+  position: absolute; /* the shared rule's `relative` would take it out of its corner */
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 /* A long reason ("Kleio's link isn't running on this iPhone") ends in an
    ellipsis rather than run off a narrow screen: Connection has it whole. */
@@ -227,14 +476,16 @@
 .kleio-status-dot {
   width: 7px;
   height: 7px;
+  flex: none;
   border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--success) 60%, transparent);
+  /* Connected: lit white (Home's palette has no green); the words carry the state too. */
+  background: #fff;
+  box-shadow: 0 0 7px rgb(255 255 255 / 0.45);
 }
 /* The Mac mini stopped answering (Tailscale dropped, or it's asleep): red, and
    the words say Disconnected, so colour isn't the only sign. */
 .kleio-status.is-down {
-  color: var(--text);
+  color: #f6f1f1;
 }
 .kleio-status.is-down .kleio-status-dot {
   background: var(--error);
@@ -263,39 +514,18 @@
 }
 
 /* ── "Brief me" (BriefPanel.tsx) ──
-   On the home screen: a quiet pill under the main buttons. The panel: a small
+   On the home screen: a small domed button under the main ones, beside Goals. The panel: a small
    card over any screen, bottom right (like a toast, above them), with the
    words as captions. Three bars breathe while Kleio speaks. */
-.home > .home-brief {
+.home > .home-quiet {
   position: relative;
-  animation: reveal-up 460ms var(--ease-out) 400ms both;
-}
-.home-brief {
-  display: inline-flex;
+  z-index: 1;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 15px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: rgb(255 255 255 / 0.07);
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.12);
-  color: var(--text-secondary);
-  font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--t-fast),
-    color var(--t-fast);
-}
-.home-brief:hover {
-  background: rgb(255 255 255 / 0.12);
-  color: var(--text);
-}
-.home-brief:focus-visible {
-  outline: 2px solid var(--kleio-crimson-hi);
-  outline-offset: 2px;
+  justify-content: center;
+  gap: 10px;
+  max-width: 100%;
+  animation: reveal-up 460ms var(--ease-out) 400ms both;
 }
 
 .brief-panel {
@@ -389,7 +619,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .home > .home-brief,
+  .home > .home-quiet,
   .brief-panel,
   .brief-orb.is-speaking > span {
     animation: none;

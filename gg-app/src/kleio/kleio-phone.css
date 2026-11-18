@@ -175,6 +175,7 @@ html.platform-ios .kleio-form-scroll {
 /* Three 132px pills don't fit side by side in 354px: stack them into one
    column of full-width pills — bigger targets, same order, same colours. */
 html.platform-ios .home-actions {
+  display: flex;
   flex-direction: column;
   align-items: stretch;
   width: min(100%, 320px);
@@ -185,6 +186,20 @@ html.platform-ios .home-action {
   height: 52px;
   justify-content: center;
   font-size: 17px;
+}
+/* The domed buttons at 52px: the rim's corners grow with them (the dome is in percentages). */
+html.platform-ios .home-action.kleio-cloisonne {
+  border-radius: 12px;
+}
+html.platform-ios .home-action.kleio-cloisonne::before {
+  border-radius: 10px;
+}
+/* Talk to Kleio and Goals: 44px, a full touch target. */
+html.platform-ios .home-quiet > .home-brief,
+html.platform-ios .kleio-home .home-quiet > .home-goals {
+  height: 44px;
+  padding: 0 18px;
+  font-size: 15px;
 }
 
 /* No window title bar to clear, so the desktop's 34–40px chrome gutters go;

@@ -2300,6 +2300,10 @@ html.platform-ios .conn-disclosure-summary {
   flex-direction: column;
   gap: 12px;
 }
+/* Its own width: the column would stretch it into a thin full-width bar. */
+.conn-pair-start > .btn {
+  align-self: flex-start;
+}
 /* The offer over the link: which device does what, the pairing text to
    copy, and the code to check. */
 .conn-pair-how {

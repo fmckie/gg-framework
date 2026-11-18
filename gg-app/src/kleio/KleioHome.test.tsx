@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { authStatusWithError, getLocalModels, getSettings } from "../agent";
 import { toast } from "../toast";
 import { diagnoseLink, diagnosisText, type Diagnosis } from "./connectionDiagnosis";
 import { KleioHome } from "./KleioHome";
+import { setVoiceReady } from "./VoiceMode";
 import { shortHost } from "./host-name";
 import type * as VoiceCall from "./voiceCall";
 
@@ -125,6 +126,45 @@ describe("KleioHome", () => {
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Goals" }));
     expect(p.onGoals).toHaveBeenCalledOnce();
+  });
+
+  it("dresses the three ways in and Talk to Kleio as domed buttons, with their shortcuts", async () => {
+    renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    // The host's answer (no voice here) can land late; set it until it holds.
+    const talk = await waitFor(() => {
+      act(() => setVoiceReady(true));
+      return screen.getByRole("button", { name: "Talk to Kleio" });
+    });
+    const kleio = screen.getByRole("button", { name: "Kleio" });
+    const code = screen.getByRole("button", { name: "Code" });
+    const specialists = screen.getByRole("button", { name: "Specialists" });
+    for (const button of [kleio, code, specialists, talk]) {
+      expect(button.classList.contains("kleio-cloisonne")).toBe(true);
+    }
+    expect(talk.classList.contains("is-small")).toBe(true);
+    expect(kleio.classList.contains("is-small")).toBe(false);
+    expect(specialists.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+L");
+    expect(talk.getAttribute("aria-keyshortcuts")).toBe("Meta+Shift+B");
+    for (const [button, keys] of [
+      [specialists, "⌘⇧L"],
+      [talk, "⌘⇧B"],
+    ] as const) {
+      const hint = button.querySelector("kbd");
+      expect(hint?.textContent).toBe(keys);
+      expect(hint?.getAttribute("aria-hidden")).toBe("true");
+    }
+    act(() => setVoiceReady(false));
+  });
+
+  it("keeps Goals as one quiet button outside the domed row", async () => {
+    renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    const goals = screen.getAllByRole("button", { name: "Goals" });
+    expect(goals).toHaveLength(1);
+    expect(goals[0]!.closest(".home-actions")).toBeNull();
+    expect(goals[0]!.classList.contains("kleio-cloisonne")).toBe(false);
+    expect(document.querySelectorAll(".home-actions > button")).toHaveLength(3);
   });
 
   it("holds its waves still while the voice screen covers it, so a call draws one set", async () => {
