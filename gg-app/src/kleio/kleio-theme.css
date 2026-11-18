@@ -108,8 +108,15 @@
   }
 }
 
-/* The wordmark's face: Bungee Shade's Latin subset from Google Fonts, under the SIL Open Font
-   License (assets/fonts/BungeeShade-OFL.txt). */
+/* The wordmark's faces: Bungee and Bungee Shade (Latin subsets from Google Fonts), under the SIL
+   Open Font License (assets/fonts/Bungee-OFL.txt). */
+@font-face {
+  font-family: "Bungee";
+  src: url("./assets/fonts/Bungee-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 @font-face {
   font-family: "Bungee Shade";
   src: url("./assets/fonts/BungeeShade-Regular.woff2") format("woff2");
@@ -134,7 +141,9 @@
   filter: drop-shadow(0 8px 28px rgb(0 0 0 / 0.55));
 }
 .kleio-wordmark {
-  font-family: "Bungee Shade", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  position: relative;
+  isolation: isolate;
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
   font-weight: 400;
   font-size: 46px;
   line-height: 1;
@@ -143,7 +152,18 @@
   margin-right: -0.34em;
   /* Bone: 6.68:1 on a bare lit wave dot (#9c0000), the brightest thing behind it. */
   color: #e8e0dc;
-  /* The tight shadow fills the bevel cuts, so the waves' dots don't show through the letters. */
+}
+/* Bungee's shade layer under solid bone letters: the shade alone reads as blocks, not letters. */
+.kleio-wordmark::after {
+  content: "KLEIO";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  font-family: "Bungee Shade", "Bungee", serif;
+  /* Shade's letters are 0.1em wider than Bungee's, so its tracking is 0.1em tighter. */
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+  color: var(--kleio-crimson);
   text-shadow:
     0 1px 2px rgb(0 0 0 / 0.75),
     0 2px 24px rgb(0 0 0 / 0.6);
