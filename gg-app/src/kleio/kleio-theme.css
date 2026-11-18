@@ -1472,6 +1472,8 @@ html:not(.platform-ios) .app.app-session {
   --kleio-rule-strong: rgb(255 255 255 / 0.12);
   --kleio-lapis: #94a2c4;
   --kleio-text: #e8e0dc;
+  --kleio-done: #66b48c;
+  --kleio-surface: #1d1819;
   /* The transcript and the dock share one centred 700px column. A percentage,
      so it resolves against whichever full-width box uses it. */
   --kleio-gutter: max(28px, calc((100% - 700px) / 2));
@@ -2111,8 +2113,9 @@ html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-sele
 /* ── Transcript column ── the conversation of a Code, Chat or Motion session,
    in the same centred column as the dock: flat bubbles for your messages,
    replies in Mukta Malar with lapis list markers, and a crimson lead dot
-   hanging in the margin so every line of text shares one edge. Code blocks,
-   tables, tool rows and Helper's colours keep their look for later slices. */
+   hanging in the margin so every line of text shares one edge. Blocks and the
+   rows between replies are in "Transcript blocks and rows" below; Helper's
+   colours keep their look. */
 html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript {
   padding: 30px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
 }
@@ -2212,7 +2215,7 @@ html:not(.platform-ios)
   font-weight: 400;
   line-height: 1.55;
 }
-/* Not prose: these keep the face they had. */
+/* Not prose: tables and the fold control stay in the sans face. */
 html:not(.platform-ios)
   .app.app-session
   > .transcript-frame
@@ -2330,6 +2333,374 @@ html:not(.platform-ios)
   box-shadow: none;
   color: var(--kleio-text-2);
   font-size: 0.85em;
+}
+
+/* ── Transcript blocks and rows ── code blocks, tables, quotes and rules, and
+   the rows between replies: flat, on the column. A row's mark sits at the text
+   edge in a 24px slot, so every row's words share a second edge; only the lead
+   dot hangs in the margin. Colours set inline as theme variables are changed
+   by re-pointing the variable on the row. */
+
+/* Code blocks. Long lines still wrap (App.css). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body) {
+  padding: 12px 36px 12px 14px;
+  border: 1px solid var(--kleio-rule);
+  border-radius: 8px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  color: var(--kleio-text-2);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body)
+  code {
+  font-family: inherit;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-copy {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-copy:is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-expand {
+  border-color: var(--kleio-rule);
+  border-radius: 3px;
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .code-expand:is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  :is(.code-copy, .code-expand, .md-table-scroll):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Tables: rules only. A wide one still scrolls sideways in its own frame. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown table {
+  margin: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  padding: 7px 12px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  :is(th, td):first-child {
+  padding-left: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown th {
+  border-bottom-color: var(--kleio-rule-strong);
+  color: var(--kleio-text-2);
+  font-weight: 600;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  tbody
+  tr:last-child
+  > td {
+  border-bottom: 0;
+}
+
+/* Quotes and rules. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown blockquote {
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--kleio-rule-strong);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown hr {
+  height: 0;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule);
+  background: none;
+}
+
+/* Plan steps: a bare verdigris tick. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-done {
+  gap: 0;
+  align-items: baseline;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-check {
+  display: inline-block;
+  width: 24px;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-step-label {
+  color: var(--kleio-text-2);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+/* Hook and compaction rows (an assistant row with no markdown): the dot comes
+   in from the margin to the slot. Hooks keep their tone colour. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown)) {
+  --success: var(--kleio-done);
+  --text-dim: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown))
+  > .assistant-dot {
+  left: 0;
+  /* The row's 4px, then centred on the x-height of 13.5px text. */
+  top: calc(4px + 0.81 * 13.5px - 4.5px);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(:has(> .assistant-text > .markdown))
+  > .assistant-text {
+  padding-left: 24px;
+  font-size: 13.5px;
+}
+
+/* Subagent feed: a lapis ring and lapis lines, no connecting line. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents {
+  --primary: var(--kleio-lapis);
+  --success: var(--kleio-done);
+  --text: var(--kleio-lapis);
+  --text-secondary: var(--kleio-lapis);
+  --text-dim: var(--kleio-muted);
+  margin: 10px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents-head {
+  --success: var(--kleio-lapis);
+  gap: 0;
+  align-items: center;
+  padding: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .subagents-head
+  > .tool-dot {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  margin-right: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagents-list {
+  gap: 2px;
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-row {
+  gap: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-icon {
+  flex: 0 0 24px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-icon.is-dot {
+  flex-basis: 9px;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  margin-right: 15px;
+  border-radius: 50%;
+  background: currentColor;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-name {
+  font-weight: 400;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  :is(.subagent-tokens, .subagent-summary) {
+  margin-left: 8px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-feed {
+  padding-left: 24px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .subagent-activity {
+  --text-dim: var(--kleio-lapis);
+  font-size: 14px;
+}
+
+/* Notices: error, security and plan-decision rows keep their words and colours. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .placeholder-notice {
+  gap: 0;
+  font-size: 14px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice
+  > .placeholder-dot {
+  margin-right: calc(24px - 0.5em);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .line.info {
+  --text-dim: var(--kleio-muted);
+  font-size: 13.5px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .task-row {
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .task-row-glyph {
+  --primary: var(--kleio-lapis);
+  display: inline-block;
+  width: 24px;
+}
+
+/* The question band. The chosen option keeps its crimson fill (Solid fills, above). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-band:not(.is-done, .is-closed) {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 8px;
+  background: var(--kleio-surface);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .ask-options .btn {
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:not(.btn-primary) {
+  border-color: var(--kleio-rule-strong);
+  background: #241f20;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:not(.btn-primary):is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ask-options
+  .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Tool rows, in the dock: verdigris when done, red when failed, a half-filled
+   ink ring while running. Verb colours stay. */
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-row {
+  gap: 0;
+  align-items: center;
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-dot {
+  --success: var(--kleio-done);
+  --primary: var(--kleio-ink);
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-right: 15px;
+  border-radius: 50%;
+  background: currentColor;
+  font-size: 0;
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-dot.blink {
+  width: 12px;
+  height: 12px;
+  margin-right: 12px;
+  border: 1.5px solid currentColor;
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .livetoolpanel .tool-line {
+  --text: var(--kleio-muted);
+  --text-dim: var(--kleio-muted);
+}
+/* A running row reads in ink, like its ring. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .livetoolpanel
+  .tool-row:has(> .tool-dot.blink)
+  .tool-line {
+  --text: var(--kleio-ink);
+  --text-dim: var(--kleio-ink);
 }
 
 /* Export chat: flat, lapis on hover and keyboard focus. */
