@@ -1443,3 +1443,301 @@ img[data-enlarge],
 .kleio-badge.is-away .kleio-badge-dot {
   background: var(--error);
 }
+
+/* ── Session chrome ── the two top rows of a Code, Chat or Motion session, and
+   the surface behind them: flat, quiet controls on hairline rules, lapis on
+   hover and keyboard focus, no glass or blur. Scoped to the session root
+   (`app-session`, App.tsx) so Home, the pickers and Settings keep their look,
+   and to the desktop: the iPhone restyles these rows in kleio-phone.css. */
+html:not(.platform-ios) .app.app-session {
+  --kleio-ink: #f6f1f1;
+  --kleio-text-2: #d3c9ca;
+  --kleio-muted: #a69c9d;
+  --kleio-rule: rgb(255 255 255 / 0.07);
+  --kleio-rule-strong: rgb(255 255 255 / 0.12);
+  --kleio-lapis: #94a2c4;
+  /* !important: App.tsx sets the `background` shorthand inline, which would
+     also clear the bloom. Oxblood #70161e at 50% in two corners, static. */
+  background-color: #161213 !important;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ) !important;
+}
+/* The bloom replaces the ambient glow, with its working and done colours. */
+html:not(.platform-ios) .app.app-session::before {
+  display: none;
+}
+
+/* The frame: one strong hairline under the chrome, a faint one between rows. */
+html:not(.platform-ios) .app.app-session .chat-head {
+  border-bottom: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .app.app-session .chat-head-strip {
+  gap: 16px;
+}
+html:not(.platform-ios) .app.app-session .chat-head-title {
+  font-size: 12px;
+  font-weight: 400;
+}
+/* Vertical padding only shows when a narrow window wraps the row. */
+html:not(.platform-ios) .app.app-session .chat-head-nav {
+  min-height: 46px;
+  gap: 12px;
+  row-gap: 8px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--kleio-rule);
+}
+
+/* Quiet controls: every button in the two rows. */
+html:not(.platform-ios) .app.app-session .chat-head :is(.btn, .nav-toggle, .kleio-badge) {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+html:not(.platform-ios) .app.app-session .chat-head .btn-icon {
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session .chat-head .nav-toggle {
+  min-width: 28px;
+  padding: 0;
+}
+html:not(.platform-ios) .app.app-session .chat-head .metal-button > .action-metal {
+  display: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  :is(.nav-toggle, .kleio-badge:not(.kleio-open)) {
+  color: var(--kleio-muted);
+}
+/* A commit that is ready keeps its green, as a label rather than a fill. */
+html:not(.platform-ios) .app.app-session .chat-head .btn-success {
+  color: var(--success);
+}
+/* The title's links are inline text, so they keep their size and truncation. */
+html:not(.platform-ios) .app.app-session .chat-head-cwd {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session :is(.chat-head-branch, .chat-head-github) {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head-sep {
+  color: var(--kleio-rule-strong);
+}
+
+/* Hover and keyboard focus: lapis. Disabled controls stay dimmed and still. */
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  :is(.btn, .nav-toggle, .kleio-badge, .chat-head-link, .chat-head-github, .title-usage-meter):is(
+    :hover,
+    :focus-visible
+  ):not(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(button, select, input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* The title clips its overflow, so its links draw the ring inside their own
+   box, widened a little so the ring clears the text. */
+html:not(.platform-ios) .app.app-session .chat-head-title :is(.chat-head-link, .chat-head-github) {
+  margin-inline: -4px;
+  padding-inline: 4px;
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session .chat-head-title button:focus-visible {
+  outline-offset: -2px;
+}
+/* The window-layout select is invisible over its icon: the icon reacts for it. */
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .winlayout:has(.winlayout-select:not(:disabled)):is(:hover, :focus-within)
+  .winlayout-icon-btn {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .winlayout:has(.winlayout-select:focus-visible)
+  .winlayout-icon-btn {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
+/* Rank: a bordered box, the level in lapis behind a divider, then the name. */
+html:not(.platform-ios) .app.app-session .chat-head .rank-badge {
+  height: 28px;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-badge:is(:hover, :focus-visible) {
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-glyph {
+  display: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-level {
+  padding-right: 7px;
+  border-right: 1px solid var(--kleio-rule-strong);
+  color: var(--kleio-lapis);
+  font-weight: 400;
+}
+html:not(.platform-ios) .app.app-session .chat-head .rank-name {
+  font-weight: 400;
+}
+
+/* Autopilot: a muted label and a small square switch. Off, the thumb sits
+   left; on, it sits right and brightens. */
+html:not(.platform-ios) .app.app-session .chat-head .autopilot-toggle {
+  height: 28px;
+}
+html:not(.platform-ios) .app.app-session .chat-head .autopilot-label {
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(.cl-toggle-switch, .cl-switch) {
+  height: 14px;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch {
+  width: 26px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > span::before {
+  float: none;
+  display: block;
+  box-sizing: border-box;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > span::after {
+  top: 3px;
+  right: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  scale: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:checked + span::before {
+  border-color: var(--kleio-text-2);
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:checked + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .autopilot-toggle:has(input:not(:disabled)):is(:hover, :focus-within)
+  .autopilot-label {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .autopilot-toggle:has(input:not(:disabled)):is(:hover, :focus-within)
+  .cl-switch
+  > span::before {
+  border-color: var(--kleio-lapis);
+}
+/* The checkbox is hidden, so keyboard focus rings its track. */
+html:not(.platform-ios) .app.app-session .chat-head .cl-switch > input:focus-visible {
+  outline: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  .chat-head
+  .cl-switch
+  > input:focus-visible
+  + span::before {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+
+/* Usage: mono 11px beside a flat 64×4px track, with no sheen. */
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-meter {
+  gap: 9px;
+  min-height: 28px;
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head :is(.title-usage-window, .title-usage-reset) {
+  color: inherit;
+  font-weight: 400;
+}
+/* !important: glass.css sets this track's fill that way. */
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-track {
+  width: 64px;
+  height: 4px;
+  border: 0;
+  border-radius: 0;
+  background: #3a3334 !important;
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-fill {
+  border-radius: 0;
+  background: var(--kleio-muted);
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-fill::before,
+html:not(.platform-ios) .app.app-session .chat-head .title-usage-particles {
+  display: none;
+}
+
+/* The "2/4" window counter. */
+html:not(.platform-ios) .app.app-session .chat-head .window-index {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+}

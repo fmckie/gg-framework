@@ -2855,7 +2855,7 @@ function App(): React.ReactElement {
 
   return (
     <div
-      className={`app${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
+      className={`app app-session${isFileDragOver ? " app-file-dragover" : ""}${windowFocused ? " window-focused" : ""}`}
       data-glow={glowState}
       style={{ background: theme.background, ...glowStyle }}
       onDragEnter={handleWindowDragEnter}
