@@ -117,11 +117,18 @@
   font-style: normal;
   font-display: swap;
 }
-/* The composer's draft face (SIL OFL, licence beside the file). */
+/* The draft's and the replies' face (SIL OFL, licence beside the files). */
 @font-face {
   font-family: "Mukta Malar";
   src: url("./assets/fonts/MuktaMalar-Regular.woff2") format("woff2");
   font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mukta Malar";
+  src: url("./assets/fonts/MuktaMalar-Bold.woff2") format("woff2");
+  font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
@@ -1464,6 +1471,10 @@ html:not(.platform-ios) .app.app-session {
   --kleio-rule: rgb(255 255 255 / 0.07);
   --kleio-rule-strong: rgb(255 255 255 / 0.12);
   --kleio-lapis: #94a2c4;
+  --kleio-text: #e8e0dc;
+  /* The transcript and the dock share one centred 700px column. A percentage,
+     so it resolves against whichever full-width box uses it. */
+  --kleio-gutter: max(28px, calc((100% - 700px) / 2));
   /* !important: App.tsx sets the `background` shorthand inline, which would
      also clear the bloom. Oxblood #70161e at 50% in two corners, static. */
   background-color: #161213 !important;
@@ -1758,7 +1769,7 @@ html:not(.platform-ios) .app.app-session .chat-head .window-index {
 
 /* The box. Its top half is the activity line, its bottom half the composer. */
 html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-child {
-  margin: 8px var(--rail) 0;
+  margin: 8px var(--kleio-gutter) 0;
   border: 1px solid var(--kleio-rule-strong);
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
@@ -1768,7 +1779,7 @@ html:not(.platform-ios) .app.app-session > .liveregion > .task-activity:last-chi
 html:not(.platform-ios) .app.app-session > .inputwrap {
   box-sizing: border-box;
   min-height: 56px;
-  margin-bottom: 0;
+  margin: 0 var(--kleio-gutter);
   padding: 11px 9px 11px 8px;
   border: 1px solid var(--kleio-rule-strong);
   border-radius: 12px;
@@ -2095,4 +2106,267 @@ html:not(.platform-ios)
 html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-select:focus-visible) {
   outline: 2px solid var(--kleio-lapis);
   outline-offset: 2px;
+}
+
+/* ── Transcript column ── the conversation of a Code, Chat or Motion session,
+   in the same centred column as the dock: flat bubbles for your messages,
+   replies in Mukta Malar with lapis list markers, and a crimson lead dot
+   hanging in the margin so every line of text shares one edge. Code blocks,
+   tables, tool rows and Helper's colours keep their look for later slices. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript {
+  padding: 30px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
+}
+/* The empty state fills the body, as before. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript:has(> .wake-screen) {
+  padding: 4px calc(var(--rail) - var(--scrollbar)) 16px var(--rail);
+}
+/* The rest of the dock follows the column; the tool panel's rule stays full width. */
+html:not(.platform-ios) .app.app-session > .liveregion :is(.livetoolpanel, .motion-starters),
+html:not(.platform-ios) .app.app-session > .liveregion .ken-statusrow {
+  padding-left: var(--kleio-gutter);
+  padding-right: var(--kleio-gutter);
+}
+
+/* Your messages: flat, with one tight corner. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg {
+  max-width: 76%;
+  /* With a reply's own 4px, 26px between turns. */
+  margin: 22px 0 22px auto;
+  padding: 9px 15px 10px;
+  border-radius: 14px 14px 4px 14px;
+  background: #241f20;
+  box-shadow: none;
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript > .user-msg:first-child {
+  margin-top: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg:not(.user-ken) {
+  color: var(--kleio-ink);
+}
+/* Queued and Helper bubbles keep their own border as the state signal. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg:not(.queued, .user-ken, .user-ken-sent) {
+  border-color: var(--kleio-rule);
+}
+/* Queued to sent: ends on the bubble's resting border, not a transparent one. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg.promoted {
+  animation-name: kleio-queued-promote;
+}
+@keyframes kleio-queued-promote {
+  from {
+    opacity: 0.5;
+    border-color: var(--border, rgb(255 255 255 / 0.18));
+  }
+}
+
+/* The lead dot: out of the row, 20px left of the text edge. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-msg {
+  position: relative;
+  gap: 0;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-dot {
+  position: absolute;
+  left: -20px;
+  /* The row's 4px, then centred on the first line's x-height (0.81em of 15px). */
+  top: calc(4px + 0.81 * 15px - 4.5px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  /* The glyph stays in the markup; the circle is drawn, so its size is exact. */
+  font-size: 0;
+  line-height: 0;
+}
+/* !important: the dot's colour is inline. Helper's dot and the compaction
+   notice's (no markdown inside) keep theirs. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-msg:not(.ken-msg):has(> .assistant-text > .markdown)
+  > .assistant-dot {
+  color: #c42638 !important;
+}
+
+/* Reply prose. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assistant-text {
+  color: var(--kleio-text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown {
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+/* Not prose: these keep the face they had. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(table, .code-expand) {
+  font-family: var(--sans);
+}
+/* 12px between blocks. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  > * {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  > :first-child {
+  margin-top: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(h1, h2, h3, h4) {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h1 {
+  font-size: 1.4em;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h2 {
+  font-size: 1.28em;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  h3 {
+  font-size: 1.17em;
+  line-height: 1.55;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(ul, ol) {
+  padding-left: 24px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  li {
+  margin: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :is(li + li, li > ul, li > ol) {
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  li::marker {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .assistant-text
+  .markdown
+  :not(pre)
+  > code {
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  box-shadow: none;
+  color: var(--kleio-text-2);
+  font-size: 0.85em;
+}
+
+/* Export chat: flat, lapis on hover and keyboard focus. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: #241f20;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .export-chat.visible:not(:disabled):is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+  box-shadow: none;
+  color: var(--kleio-lapis);
+}
+/* !important: the icon's colour is inline. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .export-chat.visible:not(:disabled):is(:hover, :focus-visible)
+  svg {
+  color: inherit !important;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disabled,
+html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disabled:hover {
+  border-color: var(--kleio-rule-strong);
+  background: #241f20;
+  box-shadow: none;
+  color: var(--kleio-muted);
 }
