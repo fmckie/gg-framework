@@ -40,7 +40,7 @@ export function brainCountText(memories: number, jiwa: number): string {
  * (KleioHome.tsx): a signed-in provider, or a private model that's running.
  * Unknown (the host didn't answer) doesn't block; the chat explains.
  */
-async function modelReady(): Promise<boolean> {
+export async function modelReady(): Promise<boolean> {
   const [auth, local] = await Promise.all([
     authStatusWithError().catch(() => null),
     getLocalModels().catch(() => null),

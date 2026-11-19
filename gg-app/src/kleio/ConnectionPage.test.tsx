@@ -1678,3 +1678,82 @@ describe("ConnectionPage — relays", () => {
     ).toBeTruthy();
   });
 });
+
+// The desktop's Overview says in its Host row whether the host stays on; the
+// steps to keep it on are here. The phone has them on Setup.
+describe("ConnectionPage — Always on", () => {
+  const alwaysOn = (): HTMLElement => screen.getByRole("region", { name: "Always on" });
+  const SLEEPS: HostInfo = {
+    kind: {
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac", "no_wake_for_network"] },
+    },
+    keepAwake: "off",
+  };
+
+  it("follows Host on the desktop, and says a host that stays on does", async () => {
+    await renderPage();
+    const card = await screen.findByRole("region", { name: "Always on" });
+    expect(
+      await within(card).findByText("Yes. mac-mini-1 stays on, so Kleio can answer any time."),
+    ).toBeTruthy();
+    expect(within(card).queryByRole("listitem")).toBeNull();
+    const regions = screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"));
+    expect(regions.indexOf("Always on")).toBe(regions.indexOf("Host") + 1);
+  });
+
+  it("gives the steps for the host's OS when it may fall asleep", async () => {
+    vi.mocked(getHostInfo).mockResolvedValue(SLEEPS);
+    await renderPage();
+    expect(
+      await within(alwaysOn()).findByText(
+        "mac-mini-1 may fall asleep. To keep it on, do this on mac-mini-1 itself:",
+      ),
+    ).toBeTruthy();
+    const steps = within(alwaysOn())
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(steps).toHaveLength(3);
+    expect(steps[0]).toContain("System Settings, then click Energy");
+    expect(steps[1]).toContain("Prevent automatic sleeping when the display is off");
+    expect(steps[2]).toContain("Wake for network access");
+  });
+
+  it("says it's checking until the host answers", async () => {
+    vi.mocked(getHostInfo).mockReturnValue(new Promise(() => {}));
+    await renderPage();
+    expect(within(alwaysOn()).getByText("Checking whether mac-mini-1 stays on…")).toBeTruthy();
+  });
+
+  it("can't ask the host: goes by what it last said, else says it couldn't check", async () => {
+    vi.mocked(getHostInfo).mockRejectedValue(new KleioApiError(404, "not found"));
+    localStorage.setItem("kleio.hostKind", JSON.stringify(SLEEPS.kind));
+    await renderPage();
+    expect(await within(alwaysOn()).findByText("May sleep")).toBeTruthy();
+    cleanup();
+
+    localStorage.clear();
+    await renderPage();
+    expect(
+      await within(alwaysOn()).findByText("Couldn't check whether mac-mini-1 stays on."),
+    ).toBeTruthy();
+  });
+
+  it("is absent on the phone, which has it on Setup", async () => {
+    document.documentElement.classList.add("platform-ios");
+    vi.mocked(getHostInfo).mockResolvedValue(SLEEPS);
+    await renderPage();
+    await waitFor(() => expect(getHostInfo).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Always on" })).toBeNull();
+  });
+
+  it("is absent until this device is paired with a host", async () => {
+    remote.status = { active: null, paired: null };
+    await renderPage();
+    expect(screen.getByRole("region", { name: "Host" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Always on" })).toBeNull();
+  });
+});

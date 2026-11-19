@@ -52,6 +52,7 @@ import { SettingsCard } from "../settings-section";
 import { SettingsHeaderAction, SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
 import { toast, type ToastTone } from "../toast";
+import { AlwaysOnCard } from "./AlwaysOn";
 import {
   diagnose,
   isKleioDown,
@@ -250,17 +251,22 @@ export function ConnectionPage(): React.ReactElement {
   // The host's kind, and whether its engine keeps it awake for a run. Can't
   // ask: what it last said of its kind, and nothing about the hold.
   const [hostInfo, setHostInfo] = useState<HostInfo | null>(null);
+  // Whether the host has said, or couldn't be asked: until then Always on is still checking.
+  const [hostAsked, setHostAsked] = useState(false);
   useEffect(() => {
     if (pairedId === null) return;
     let live = true;
     getHostInfo().then(
       (info) => {
-        if (live) setHostInfo(info);
+        if (!live) return;
+        setHostInfo(info);
+        setHostAsked(true);
       },
       () => {
         if (!live) return;
         const kind = rememberedHostKind();
         setHostInfo(kind ? { kind, keepAwake: "unavailable" } : null);
+        setHostAsked(true);
       },
     );
     return () => {
@@ -371,6 +377,15 @@ export function ConnectionPage(): React.ReactElement {
               active && <RestartNotice what="You just forgot the host." />
             )}
           </SettingsCard>
+
+          {/* On the desktop, whether the host stays on and how to keep it on: Overview's
+              Host row links here. The phone has it on Setup. */}
+          {!phone && active && (
+            <AlwaysOnCard
+              kind={hostAsked ? (hostInfo?.kind ?? null) : undefined}
+              name={hostLabel}
+            />
+          )}
 
           {active && (
             <NotificationsCard

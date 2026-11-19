@@ -17,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import { openUrl } from "../agent";
 import { Badge } from "../Badge";
+import { isPhone } from "../platform";
 import { SettingsCard } from "../settings-section";
 import { SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
@@ -26,11 +27,16 @@ import {
   listConnections,
   listToolkits,
   errorText,
+  getSetupStatus,
   KleioApiError,
+  removeSetupKey,
   type Connection,
+  type SetupStatus,
   type Toolkit,
 } from "./kleioApi";
-import { KeyForm } from "./KeyForm";
+import { connectionState, type ConnectionState } from "./connectionState";
+import { KeyForm, setupKeyError } from "./KeyForm";
+import { RemoveGroup, RemoveItem } from "./RemoveGroup";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
@@ -78,23 +84,8 @@ export function logoUrl(slug: string): string | null {
   return SLUG.test(slug) ? `${LOGO_ORIGIN}/api/${slug.toLowerCase()}` : null;
 }
 
-export type ConnectionState = "connected" | "pending" | "expired" | "failed" | "other";
-
-export function connectionState(status: string): ConnectionState {
-  switch (status.toUpperCase()) {
-    case "ACTIVE":
-      return "connected";
-    case "INITIATED":
-    case "INITIALIZING":
-      return "pending";
-    case "EXPIRED":
-      return "expired";
-    case "FAILED":
-      return "failed";
-    default:
-      return "other";
-  }
-}
+// In its own file so Overview can read an app's state without loading this page.
+export { connectionState, type ConnectionState };
 
 function stateText(status: string): string {
   switch (connectionState(status)) {
@@ -173,6 +164,20 @@ export function AppsPage(): React.ReactElement {
   /** Apps found to need no sign-in after a connect was refused (older hosts). */
   const [noSignIn, setNoSignIn] = useState<ReadonlySet<string>>(new Set());
   const query = useRef("");
+  // The desktop only: who may change the Composio key, and where it is kept.
+  // Null until the host says, and for an older host that can't: as before then.
+  // The phone has the key on Setup.
+  const [keys, setKeys] = useState<SetupStatus | null>(null);
+  const desktop = !isPhone();
+  const loadKeys = useCallback(async (): Promise<void> => {
+    if (!desktop) return;
+    try {
+      setKeys(await getSetupStatus());
+    } catch {
+      setKeys(null);
+    }
+  }, [desktop]);
+  useEffect(() => void loadKeys(), [loadKeys]);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -293,7 +298,17 @@ export function AppsPage(): React.ReactElement {
           Add a Composio API key and Gmail, Calendar, Notion and hundreds more can work for Kleio
           and every specialist.
         </p>
-        <KeyForm name="composio" onSaved={() => void load()} />
+        {keys && !keys.admin ? (
+          <p className="settings-desc">Only your admin device can add the key.</p>
+        ) : (
+          <KeyForm
+            name="composio"
+            onSaved={(status) => {
+              if (desktop) setKeys(status);
+              void load();
+            }}
+          />
+        )}
       </SettingsCard>
     );
   }
@@ -498,6 +513,29 @@ export function AppsPage(): React.ReactElement {
           </>
         )}
       </SettingsCard>
+
+      {keys?.keys.composio === "env" && (
+        <p className="app-key-note">
+          <span className="app-key-note-label">Composio key</span>
+          Set on the host itself, so it can't be changed here.
+        </p>
+      )}
+      {keys?.admin && keys.keys.composio === "saved" && (
+        <RemoveGroup>
+          <RemoveItem
+            what="Composio key, saved on your host"
+            ask="Remove Composio key"
+            confirm="Remove Composio key"
+            busyText="Removing…"
+            hint="Kleio and your specialists can't use your apps until a key is added again."
+            onRemove={async () => {
+              setKeys(await removeSetupKey("composio"));
+              await load();
+            }}
+            describeError={(e) => setupKeyError("composio", e)}
+          />
+        </RemoveGroup>
+      )}
     </>
   );
 }

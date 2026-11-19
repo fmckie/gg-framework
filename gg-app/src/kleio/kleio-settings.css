@@ -387,3 +387,855 @@ html:not(.platform-ios) .settings-screen .icon-circle:hover:not(:disabled) {
 html:not(.platform-ios) .settings-screen .icon-circle:is(:hover, :focus-visible):not(:disabled) {
   color: var(--kleio-lapis);
 }
+
+/* ═══ Slice 8b: Overview, Kleio and the Remove group ═══════════════════════
+   The desktop's two new pages (OverviewPage.tsx, KleioPage.tsx) and the group
+   a page ends with (RemoveGroup.tsx). Kleio's own sentences are set in Mukta
+   Malar, upright; everything else is the sans. Two small things move, and
+   only without reduced motion: the Host dot's slow breath while connected,
+   and the ring of the voice mark while her voice is ready. */
+
+/* ── Shared ── a small tracked label over a section. */
+html:not(.platform-ios) .settings-screen :is(.st-label, .ov-hero-eyebrow, .app-key-note-label) {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+/* Small buttons on these pages: a calm 30px rectangle. */
+html:not(.platform-ios) .settings-screen :is(.ov-page, .kl-page, .st-danger) .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+/* A quiet text button (Try again, Set up, Keep it on). */
+html:not(.platform-ios) .settings-screen :is(.st-text-btn, .ov-text-action) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ov-text-action {
+  text-decoration: underline;
+  text-decoration-color: var(--kleio-rule-strong);
+  text-underline-offset: 3px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.st-text-btn, .ov-text-action):is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}
+
+/* ── Overview ── */
+/* Neither page tightens its letters: Mukta Malar and the rows sit at their own spacing. */
+html:not(.platform-ios) .settings-screen :is(.ov-page, .kl-page) {
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding-top: 28px;
+}
+html:not(.platform-ios) .settings-screen .ov-page.is-loading {
+  min-height: 240px;
+}
+/* Kleio's own words: her face, upright, at its regular weight. */
+html:not(.platform-ios) .settings-screen .ov-headline {
+  margin: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 34px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-sub {
+  margin: 4px 0 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* Progress: one segment per needed step. */
+html:not(.platform-ios) .settings-screen .ov-progress {
+  display: flex;
+  gap: 6px;
+  max-width: 360px;
+  margin-top: 22px;
+}
+html:not(.platform-ios) .settings-screen .ov-seg {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgb(255 255 255 / 0.12);
+}
+html:not(.platform-ios) .settings-screen .ov-seg.is-next {
+  background: rgb(255 255 255 / 0.34);
+}
+html:not(.platform-ios) .settings-screen .ov-seg.is-done {
+  background: var(--kleio-done);
+}
+
+/* Healthy: one thing she remembers, which opens Kleio. */
+html:not(.platform-ios) .settings-screen .ov-memory {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 16px;
+  margin-top: 18px;
+  padding: 12px 8px;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+}
+html:not(.platform-ios) .settings-screen .ov-memory-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.ov-memory-label, .ov-memory-quote) {
+  font-family: "Mukta Malar", var(--sans);
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+}
+html:not(.platform-ios) .settings-screen .ov-memory-label {
+  font-size: 14px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-memory-quote {
+  font-size: 16px;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+/* A real memory can run to seven lines; two keep the rows on the first screen. Brain has the rest. */
+html:not(.platform-ios) .settings-screen :is(.ov-memory-quote, .kl-quote-text) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* First run: the next needed step, holding the page's one filled button. */
+html:not(.platform-ios) .settings-screen .ov-hero {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 20px;
+  margin-top: 26px;
+  padding: 22px 24px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgb(255 255 255 / 0.4);
+  border-radius: 50%;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-text {
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-eyebrow {
+  margin-bottom: 4px;
+}
+html:not(.platform-ios) .settings-screen .ov-hero-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-line {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-hero-cta {
+  height: 38px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+/* Rows: a glyph in a hairline ring with its state on the rim; what it does
+   for you first, its state second. */
+html:not(.platform-ios) .settings-screen .ov-rows {
+  margin: 26px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--kleio-rule);
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .ov-memory + .ov-rows {
+  margin-top: 8px;
+}
+html:not(.platform-ios) .settings-screen .ov-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .ov-row-main {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: 40px minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: 16px;
+  min-width: 0;
+  min-height: 64px;
+  box-sizing: border-box;
+  padding: 10px 8px;
+  border-radius: 7px;
+  color: inherit;
+  text-decoration: none;
+}
+/* Inside the row's own hairlines, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen :is(.ov-row-link, .ov-memory):focus-visible {
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .settings-screen :is(.ov-row-link, .ov-memory):hover {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .ov-glyph {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+/* The mark: verdigris filled when fine; a red ring for a fault; a lapis ring
+   when it waits on you; a muted hollow ring for the rest. Never amber. */
+html:not(.platform-ios) .settings-screen .ov-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-ok {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-fault {
+  border-color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .ov-dot:is(.is-unset, .is-signin) {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-waiting {
+  border-style: dashed;
+}
+html:not(.platform-ios) .settings-screen .ov-dot.is-checking {
+  border-style: dotted;
+}
+html:not(.platform-ios) .settings-screen .ov-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ov-benefit {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ov-status {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ov-row:is(.is-fault, .is-unset, .is-signin) .ov-status {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .ov-row:is(.is-optional, .is-waiting, .is-unknown, .is-checking)
+  .ov-benefit {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ov-chevron {
+  color: var(--kleio-muted);
+  opacity: 0;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.ov-row-link, .ov-memory):is(:hover, :focus-visible)
+  .ov-chevron {
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .ov-row-action {
+  flex: none;
+  padding-right: 8px;
+}
+/* Alive: the host's dot breathes, slowly, while it is connected. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .ov-row[data-row="host"].is-ok .ov-dot {
+    animation: kleio-ov-breathe 5s ease-in-out infinite;
+  }
+}
+@keyframes kleio-ov-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(102 180 140 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(102 180 140 / 0.16);
+  }
+}
+
+/* ── Kleio ── */
+html:not(.platform-ios) .settings-screen .kl-page {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding-top: 18px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice {
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 48px;
+  padding: 16px 0 40px;
+}
+/* The voice mark: ink hairlines, a dim ghost until her voice is ready. */
+html:not(.platform-ios) .settings-screen .kl-orb {
+  display: block;
+  width: 188px;
+  height: 188px;
+  overflow: visible;
+  color: var(--kleio-ink);
+  opacity: 0.42;
+}
+html:not(.platform-ios) .settings-screen .kl-orb.is-live {
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .kl-i {
+  fill: none;
+  stroke: currentColor;
+}
+html:not(.platform-ios) .settings-screen .kl-i-faint {
+  stroke-opacity: 0.16;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-bezel {
+  stroke-opacity: 0.3;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-major {
+  stroke-opacity: 0.6;
+  stroke-width: 1.1;
+}
+html:not(.platform-ios) .settings-screen .kl-i-arcs {
+  stroke-dasharray: 46 74 30 90 38 82;
+  stroke-opacity: 0.5;
+  stroke-width: 1.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-arcs-fine {
+  stroke-dasharray: 120 20 90 30 70 30;
+  stroke-opacity: 0.26;
+  stroke-width: 0.8;
+}
+html:not(.platform-ios) .settings-screen .kl-i-dots {
+  stroke-dasharray: 0 4;
+  stroke-linecap: round;
+  stroke-opacity: 0.42;
+  stroke-width: 1.3;
+}
+html:not(.platform-ios) .settings-screen .kl-i-dots-major {
+  stroke-dasharray: 0 60;
+  stroke-linecap: round;
+  stroke-opacity: 0.75;
+  stroke-width: 2.4;
+}
+html:not(.platform-ios) .settings-screen .kl-i-ring {
+  stroke-opacity: 0.95;
+  stroke-width: 1.3;
+}
+html:not(.platform-ios) .settings-screen .kl-i-index {
+  stroke-opacity: 0.75;
+  stroke-width: 1.1;
+}
+html:not(.platform-ios) .settings-screen .kl-i-rim {
+  fill: rgb(255 255 255 / 0.03);
+  stroke-opacity: 0.34;
+  stroke-width: 0.9;
+}
+html:not(.platform-ios) .settings-screen .kl-i-reticle {
+  stroke-opacity: 0.42;
+  stroke-width: 0.9;
+}
+/* The breath: the primary ring swells and settles, about ten seconds a
+   breath. The page's only motion, and only while her voice is ready. */
+html:not(.platform-ios) .settings-screen .kl-breath {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .kl-orb.is-live .kl-breath {
+    animation: kleio-kl-breathe 5.2s ease-in-out infinite alternate;
+  }
+}
+@keyframes kleio-kl-breathe {
+  from {
+    opacity: 0.5;
+    transform: scale(0.982);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.012);
+  }
+}
+html:not(.platform-ios) .settings-screen .kl-voice-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-line {
+  margin: 10px 0 18px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .kl-voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+html:not(.platform-ios) .settings-screen .kl-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-select-wrap > svg {
+  position: absolute;
+  right: 14px;
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .kl-select {
+  box-sizing: border-box;
+  width: 280px;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 38px 0 14px;
+  appearance: none;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 0.18);
+  font: inherit;
+  font-size: 14px;
+  color: var(--kleio-ink);
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .kl-select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+}
+html:not(.platform-ios) .settings-screen .kl-select:disabled {
+  border-style: dashed;
+  color: var(--kleio-muted);
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen .kl-select option {
+  background: #161213;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .kl-talk {
+  height: 38px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-key {
+  width: 100%;
+  max-width: 560px;
+}
+html:not(.platform-ios) .settings-screen .kl-voice-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-voice-controls + .kl-voice-note {
+  margin-top: 10px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-head + .kl-voice-note {
+  margin-top: 16px;
+}
+html:not(.platform-ios) .settings-screen .kl-error {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .kl-caption {
+  max-width: 560px;
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-guide {
+  margin: 8px 0 0 -8px;
+}
+
+/* What she kept: her own lines, quoted in her face, newest first. */
+html:not(.platform-ios) .settings-screen .kl-kept {
+  padding: 26px 0 30px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-count {
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quotes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 2px 0 2px 22px;
+  border-left: 1px solid var(--kleio-rule-strong);
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .kl-quote {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 24px;
+}
+/* The newest in full ink; older lines recede through text-2 and muted. */
+html:not(.platform-ios) .settings-screen .kl-quote-text {
+  min-width: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .kl-quote:nth-child(n + 2) .kl-quote-text {
+  font-size: 16px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-quote:nth-child(n + 3) .kl-quote-text {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quote-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quote-rest {
+  font-size: 13px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-empty {
+  max-width: 560px;
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-kept-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 24px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html:not(.platform-ios) .settings-screen .kl-kept-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* Quieter: Dictation and Group chats, side by side. */
+html:not(.platform-ios) .settings-screen .kl-quiet-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 56px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet {
+  min-width: 0;
+  padding: 24px 0 28px;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-line {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body .settings-desc {
+  margin: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-body :is(.modal-row, .setup-status) {
+  margin-top: 0;
+}
+html:not(.platform-ios) .settings-screen .kl-quiet-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--kleio-text-2);
+  list-style: none;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary::-webkit-details-marker {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-1px) rotate(-45deg);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose[open] > summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose > summary:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .kl-disclose .key-field {
+  margin-top: 12px;
+}
+/* The page's one filled button is the voice's (Talk now, or the OpenAI key's
+   Save), so the folded Typesafe form's Save is an outline like the rest. */
+html:not(.platform-ios) .settings-screen .kl-disclose .btn.btn-primary:not(:disabled),
+html:not(.platform-ios) .settings-screen .kl-disclose .btn.btn-primary:hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .kl-disclose
+  .btn.btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+
+/* ── Remove ── last on a page, quiet until asked: red words first, and only
+   the confirm step looks like a decision. */
+html:not(.platform-ios) .settings-screen .st-danger {
+  padding: 22px 0 6px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .st-danger-body {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+}
+html:not(.platform-ios) .settings-screen .st-danger-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 44px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .st-danger-what {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .st-danger-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+html:not(.platform-ios) .settings-screen :is(.st-danger-hint, .st-danger-error) {
+  flex-basis: 100%;
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .st-danger-error {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive:not(:disabled),
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  color: var(--error);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .st-danger
+  .btn-destructive:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--error) 45%, transparent);
+}
+html:not(.platform-ios) .settings-screen .st-danger .btn-destructive.is-confirm:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .st-danger
+  .btn-destructive.is-confirm:hover:not(:disabled) {
+  border-color: var(--error);
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+/* Apps (today's layout): a key the host set itself, said where Remove would be. */
+html:not(.platform-ios) .settings-screen .app-key-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--kleio-rule);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+
+/* ── Narrower windows ── the hero's button drops under its words; below the
+   two-column break the voice mark, the quiet sections and each quote stack. */
+@media (max-width: 1100px) {
+  html:not(.platform-ios) .settings-screen .ov-hero {
+    grid-template-columns: 60px minmax(0, 1fr);
+    row-gap: 16px;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-cta {
+    grid-column: 2;
+    justify-self: start;
+  }
+  html:not(.platform-ios) .settings-screen .kl-voice {
+    grid-template-columns: 164px minmax(0, 1fr);
+    column-gap: 36px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-orb {
+    width: 164px;
+    height: 164px;
+  }
+}
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .ov-hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-glyph {
+    display: none;
+  }
+  html:not(.platform-ios) .settings-screen .ov-hero-cta {
+    grid-column: 1;
+  }
+  html:not(.platform-ios) .settings-screen .ov-headline {
+    font-size: 28px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-voice {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 18px;
+    padding-bottom: 30px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-orb {
+    width: 112px;
+    height: 112px;
+  }
+  html:not(.platform-ios) .settings-screen .kl-select-wrap,
+  html:not(.platform-ios) .settings-screen .kl-select {
+    width: 100%;
+  }
+  html:not(.platform-ios) .settings-screen .kl-quiet-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  html:not(.platform-ios) .settings-screen .kl-quiet + .kl-quiet {
+    border-top: 1px solid var(--kleio-rule);
+  }
+  html:not(.platform-ios) .settings-screen .kl-quote {
+    flex-direction: column;
+  }
+}

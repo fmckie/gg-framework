@@ -15,9 +15,12 @@ import {
   KleioApiError,
   connectToolkit,
   disconnect,
+  getSetupStatus,
   listConnections,
   listToolkits,
+  removeSetupKey,
   setSetupKey,
+  type SetupStatus,
 } from "./kleioApi";
 import { openUrl } from "../agent";
 import type * as KleioApi from "./kleioApi";
@@ -34,8 +37,14 @@ vi.mock("./kleioApi", async (importOriginal) => {
     connectToolkit: vi.fn(),
     disconnect: vi.fn(),
     setSetupKey: vi.fn(),
+    getSetupStatus: vi.fn(),
+    removeSetupKey: vi.fn(),
   };
 });
+
+function setup(composio: SetupStatus["keys"]["composio"] = "saved", admin = true): SetupStatus {
+  return { admin, keys: { openai: "missing", composio, typesafe: "missing" } };
+}
 
 const GMAIL = {
   slug: "gmail",
@@ -62,12 +71,14 @@ const X = {
 };
 
 beforeEach(() => {
+  vi.mocked(getSetupStatus).mockResolvedValue(setup());
   vi.mocked(listConnections).mockResolvedValue({ configured: true, connections: [] });
   vi.mocked(listToolkits).mockResolvedValue({ toolkits: [GMAIL, NOTION], nextCursor: "c2" });
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  document.documentElement.classList.remove("platform-ios");
 });
 
 async function renderPage(): Promise<void> {
@@ -309,5 +320,145 @@ describe("AppsPage", () => {
     expect(connectionState("EXPIRED")).toBe("expired");
     expect(connectionState("FAILED")).toBe("failed");
     expect(connectionState("weird")).toBe("other");
+  });
+});
+
+// On the desktop the Composio key is added and removed here (the phone has it
+// on Setup), so this page says who may change it and where it is kept.
+describe("AppsPage's Composio key, on the desktop", () => {
+  const ask = (): HTMLElement => screen.getByRole("button", { name: "Remove Composio key…" });
+
+  it("ends with a Remove group that asks before removing the key", async () => {
+    await renderPage();
+    const group = screen.getByRole("region", { name: "Remove" });
+    expect(within(group).getByText("Composio key, saved on your host")).toBeTruthy();
+    expect(document.body.lastElementChild?.lastElementChild).toBe(group);
+
+    fireEvent.click(ask());
+    expect(removeSetupKey).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Keep" }));
+    expect(
+      screen.getByText(
+        "Kleio and your specialists can't use your apps until a key is added again.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(removeSetupKey).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(ask());
+  });
+
+  it("removes the key on the confirm click, then shows the form to add one", async () => {
+    vi.mocked(removeSetupKey).mockResolvedValue(setup("missing"));
+    await renderPage();
+    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
+
+    fireEvent.click(ask());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Composio key" }));
+    });
+
+    expect(removeSetupKey).toHaveBeenCalledExactlyOnceWith("composio");
+    expect(await screen.findByText("Apps aren't set up yet")).toBeTruthy();
+    expect(screen.getByLabelText("Composio API key")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+  });
+
+  it("says why the key couldn't be removed, and keeps the apps", async () => {
+    vi.mocked(removeSetupKey).mockRejectedValue(new KleioApiError(403, "forbidden"));
+    await renderPage();
+    fireEvent.click(ask());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Composio key" }));
+    });
+    expect(
+      within(screen.getByRole("region", { name: "Remove" })).getByRole("alert").textContent,
+    ).toBe("Only an admin device can change keys.");
+    expect(screen.getByText("Gmail")).toBeTruthy();
+  });
+
+  it("offers no Remove to a device that isn't the admin", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("saved", false));
+    await renderPage();
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remove Composio key/ })).toBeNull();
+  });
+
+  it("says a key set on the host can't be changed here, with no Remove", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("env"));
+    await renderPage();
+    const note = screen.getByText("Set on the host itself, so it can't be changed here.", {
+      exact: false,
+    });
+    expect(note.textContent).toBe(
+      "Composio keySet on the host itself, so it can't be changed here.",
+    );
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+  });
+
+  it("behaves as before on an older host: the apps, and no Remove", async () => {
+    vi.mocked(getSetupStatus).mockRejectedValue(new KleioApiError(404, "not found"));
+    await renderPage();
+    expect(screen.getByText("Gmail")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+    expect(screen.queryByText(/Set on the host itself/)).toBeNull();
+    cleanup();
+
+    // And the form to add a key, which the host itself turns away if it must.
+    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    expect(await screen.findByLabelText("Composio API key")).toBeTruthy();
+  });
+
+  it("tells a device that isn't the admin who can add the key, in place of the form", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("missing", false));
+    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    expect(await screen.findByText("Only your admin device can add the key.")).toBeTruthy();
+    expect(screen.getByText("Apps aren't set up yet")).toBeTruthy();
+    expect(screen.queryByLabelText("Composio API key")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  it("offers Remove as soon as a key is saved here", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("missing"));
+    vi.mocked(listConnections).mockResolvedValueOnce({ configured: false, connections: [] });
+    vi.mocked(setSetupKey).mockResolvedValue(setup("saved"));
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    fireEvent.change(await screen.findByLabelText("Composio API key"), {
+      target: { value: "ak_test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Gmail", {}, { timeout: 2000 });
+    expect(ask()).toBeTruthy();
+  });
+});
+
+describe("AppsPage's Composio key, on the phone", () => {
+  beforeEach(() => {
+    document.documentElement.classList.add("platform-ios");
+  });
+
+  it("is left to Setup: nothing is asked of the host, and nothing is offered", async () => {
+    await renderPage();
+    expect(getSetupStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Remove" })).toBeNull();
+    expect(screen.queryByText(/Set on the host itself/)).toBeNull();
+  });
+
+  it("keeps the form to add a key when the host has none", async () => {
+    vi.mocked(getSetupStatus).mockResolvedValue(setup("missing", false));
+    vi.mocked(listConnections).mockResolvedValue({ configured: false, connections: [] });
+    await act(async () => {
+      render(<AppsPage />);
+    });
+    expect(await screen.findByLabelText("Composio API key")).toBeTruthy();
+    expect(screen.queryByText("Only your admin device can add the key.")).toBeNull();
   });
 });

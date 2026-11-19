@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // Each page is exercised by its own tests; here they are stand-ins, so this
@@ -42,6 +42,20 @@ vi.mock("./kleio/SetupPage", () => ({
     </>
   ),
 }));
+vi.mock("./kleio/OverviewPage", () => ({
+  OverviewPage: ({ onOpenTab }: { onOpenTab: (tab: string) => void }) => (
+    <button type="button" onClick={() => onOpenTab("connection")}>
+      overview page
+    </button>
+  ),
+}));
+vi.mock("./kleio/KleioPage", () => ({
+  KleioPage: ({ onIntroduce }: { onIntroduce: () => Promise<void> }) => (
+    <button type="button" onClick={() => void onIntroduce()}>
+      introduce yourself
+    </button>
+  ),
+}));
 vi.mock("./kleio/AboutPage", () => ({ AboutPage: () => <p>about page</p> }));
 vi.mock("./LoginScreen", async () => {
   const { SettingsHeaderStatus } = await import("./settings-header");
@@ -58,12 +72,16 @@ vi.mock("./LoginScreen", async () => {
 });
 vi.mock("./agent", () => ({
   waitForReady: () => Promise.resolve(),
-  getSteroidsStatus: () => Promise.resolve({ installed: true, connected: true }),
+  getSteroidsStatus: vi.fn(),
   onSteroidsChange: () => () => {},
 }));
 
+import { getSteroidsStatus, type SteroidsStatus } from "./agent";
 import { SettingsScreen } from "./SettingsScreen";
 
+beforeEach(() => {
+  vi.mocked(getSteroidsStatus).mockResolvedValue({ installed: true, connected: true });
+});
 afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("platform-ios");
@@ -90,28 +108,29 @@ describe("SettingsScreen", () => {
     expect(heading()).toBe("General");
     expect(screen.getByText("general page")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
 
-    expect(heading()).toBe("MCP");
+    expect(heading()).toBe("Tools");
     expect(screen.getByText("mcp page")).toBeTruthy();
     expect(screen.queryByText("general page")).toBeNull();
   });
 
-  it("puts Setup first, still opens on General, and lets Setup switch tabs", async () => {
+  it("puts Overview first, still opens on General, and lets Overview switch tabs", async () => {
     await renderScreen();
-    expect(screen.getAllByRole("tab")[0]?.getAttribute("aria-label")).toBe("Setup");
+    expect(screen.getAllByRole("tab")[0]?.getAttribute("aria-label")).toBe("Overview");
     expect(heading()).toBe("General");
 
-    fireEvent.click(screen.getByRole("tab", { name: "Setup" }));
-    expect(heading()).toBe("Setup");
-    fireEvent.click(screen.getByRole("button", { name: "setup page" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(heading()).toBe("Overview");
+    fireEvent.click(screen.getByRole("button", { name: "overview page" }));
     expect(heading()).toBe("Connection");
     expect(screen.getByText("connection page")).toBeTruthy();
   });
 
-  it("hands Setup's Introduce yourself to the app", async () => {
+  it("hands Kleio's Introduce yourself to the app", async () => {
     const onIntroduce = vi.fn(async () => {});
-    await renderScreen({ initialTab: "setup", onIntroduce });
+    await renderScreen({ initialTab: "kleio", onIntroduce });
+    expect(heading()).toBe("Kleio");
 
     fireEvent.click(screen.getByRole("button", { name: "introduce yourself" }));
 
@@ -156,12 +175,13 @@ describe("SettingsScreen", () => {
 
     const labels = screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"));
     expect(labels).toEqual([
-      "Setup",
+      "Overview",
+      "Kleio",
       "General",
       "AI Providers",
       "Connection",
       "Apps",
-      "MCP",
+      "Tools",
       "Steroids",
       "About",
     ]);
@@ -179,7 +199,7 @@ describe("SettingsScreen", () => {
     await renderScreen({ initialTab: "connection" });
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
 
     expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
   });
@@ -190,12 +210,13 @@ describe("SettingsScreen", () => {
     const titles = screen.getAllByRole("tab").map((t) => t.getAttribute("title"));
     // General is open: it shows its label, so it needs no tooltip.
     expect(titles).toEqual([
-      "Setup",
+      "Overview",
+      "Kleio",
       null,
       "AI Providers",
       "Connection",
       "Apps",
-      "MCP",
+      "Tools",
       "Steroids",
       "About",
     ]);
@@ -214,5 +235,100 @@ describe("SettingsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
 
     expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// kleio/settingsLayout.tsx: the desktop's Overview and Kleio tabs, and the phone's Setup.
+describe("SettingsScreen's two layouts", () => {
+  const steroidsDot = (): Element | null =>
+    screen.getByRole("tab", { name: "Steroids" }).querySelector(".settings-tab-alert");
+
+  async function withSteroids(status: SteroidsStatus): Promise<void> {
+    vi.mocked(getSteroidsStatus).mockResolvedValue(status);
+    await renderScreen();
+  }
+
+  it("opens Overview on the desktop for the tab id Setup has always had", async () => {
+    await renderScreen({ initialTab: "setup" });
+
+    expect(heading()).toBe("Overview");
+    expect(screen.getByRole("button", { name: "overview page" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "setup page" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Overview" }).id).toBe("settings-tab-setup");
+    expect(screen.getByRole("tab", { name: "Tools" }).id).toBe("settings-tab-mcp");
+  });
+
+  it("keeps the phone's eight tabs, with Setup and MCP under their own names", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "setup" });
+
+    const labels = screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"));
+    expect(labels).toEqual([
+      "Setup",
+      "General",
+      "AI Providers",
+      "Connection",
+      "Apps",
+      "MCP",
+      "Steroids",
+      "About",
+    ]);
+    expect(heading()).toBe("Setup");
+    expect(screen.getByRole("button", { name: "setup page" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "overview page" })).toBeNull();
+  });
+
+  it("keeps the phone's Setup page able to switch tabs and to introduce you", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const onIntroduce = vi.fn(async () => {});
+    await renderScreen({ initialTab: "setup", onIntroduce });
+
+    fireEvent.click(screen.getByRole("button", { name: "introduce yourself" }));
+    expect(onIntroduce).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "setup page" }));
+    expect(heading()).toBe("Connection");
+  });
+
+  it("gives the phone its Setup page should anything ask it for the Kleio tab", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "kleio" });
+
+    expect(screen.getByRole("button", { name: "setup page" })).toBeTruthy();
+  });
+
+  it("keeps today's Steroids dot on the phone: on whenever it isn't connected", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await withSteroids({ installed: false, connected: false });
+
+    expect(steroidsDot()).not.toBeNull();
+  });
+
+  it("shows no Steroids dot on the desktop when it isn't installed", async () => {
+    await withSteroids({ installed: false, connected: false });
+
+    expect(steroidsDot()).toBeNull();
+  });
+
+  it("shows no Steroids dot on the desktop for an empty corpus", async () => {
+    await withSteroids({ installed: true, connected: false, repos: 0 });
+
+    expect(steroidsDot()).toBeNull();
+  });
+
+  it("shows the Steroids dot on the desktop when it's installed and failing", async () => {
+    await withSteroids({
+      installed: true,
+      connected: false,
+      error: "steroids: database is locked",
+    });
+
+    expect(steroidsDot()).not.toBeNull();
+    expect(document.querySelectorAll(".settings-tab-alert")).toHaveLength(1);
+  });
+
+  it("shows no Steroids dot while it works", async () => {
+    await withSteroids({ installed: true, connected: true, repos: 12 });
+
+    expect(steroidsDot()).toBeNull();
   });
 });
