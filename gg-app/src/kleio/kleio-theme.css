@@ -1474,6 +1474,12 @@ html:not(.platform-ios) .app.app-session {
   --kleio-text: #e8e0dc;
   --kleio-done: #66b48c;
   --kleio-surface: #1d1819;
+  /* Helper's gold: antique, with the deep and champagne stops of its gilt, and
+     the plate behind its prompt card and sent chip. */
+  --kleio-help: #b8975a;
+  --kleio-help-deep: #ae8848;
+  --kleio-help-light: #f1e4c3;
+  --kleio-help-plate: #201a17;
   /* The transcript and the dock share one centred 700px column. A percentage,
      so it resolves against whichever full-width box uses it. */
   --kleio-gutter: max(28px, calc((100% - 700px) / 2));
@@ -2075,7 +2081,7 @@ html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:hover:not(:d
   background: #241f20;
   filter: none;
 }
-/* Model pickers. Helper's label and picker (the second pair) keep their colour. */
+/* Model pickers. Helper's label (the second pair) keeps its own colour. */
 html:not(.platform-ios)
   .app.app-session
   > .footer
@@ -2083,11 +2089,7 @@ html:not(.platform-ios)
   .model-label {
   color: var(--kleio-text-2) !important;
 }
-html:not(.platform-ios)
-  .app.app-session
-  > .footer
-  .model-anchor:not(.model-anchor ~ .model-anchor)
-  :is(.model-picker, .model-button) {
+html:not(.platform-ios) .app.app-session > .footer .model-anchor :is(.model-picker, .model-button) {
   color: var(--kleio-muted) !important;
 }
 html:not(.platform-ios) .app.app-session > .footer .model-anchor {
@@ -2114,8 +2116,8 @@ html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-sele
    in the same centred column as the dock: flat bubbles for your messages,
    replies in Mukta Malar with lapis list markers, and a crimson lead dot
    hanging in the margin so every line of text shares one edge. Blocks and the
-   rows between replies are in "Transcript blocks and rows" below; Helper's
-   colours keep their look. */
+   rows between replies are in "Transcript blocks and rows" below, and Helper's
+   in "Helper's turns". */
 html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript {
   padding: 30px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
 }
@@ -2145,19 +2147,16 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user
 html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript > .user-msg:first-child {
   margin-top: 0;
 }
-html:not(.platform-ios)
-  .app.app-session
-  > .transcript-frame
-  > .transcript
-  .user-msg:not(.user-ken) {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg {
   color: var(--kleio-ink);
 }
-/* Queued and Helper bubbles keep their own border as the state signal. */
+/* A queued bubble keeps its own border as the state signal; the "Sent to
+   Kleio" chip has its own (see "Helper's turns"). */
 html:not(.platform-ios)
   .app.app-session
   > .transcript-frame
   > .transcript
-  .user-msg:not(.queued, .user-ken, .user-ken-sent) {
+  .user-msg:not(.queued, .user-ken-sent) {
   border-color: var(--kleio-rule);
 }
 /* Queued to sent: ends on the bubble's resting border, not a transparent one. */
@@ -2189,8 +2188,8 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .assi
   font-size: 0;
   line-height: 0;
 }
-/* !important: the dot's colour is inline. Helper's dot and the compaction
-   notice's (no markdown inside) keep theirs. */
+/* !important: the dot's colour is inline. Helper's dot (gold, through `--ken`)
+   and the compaction notice's (no markdown inside) keep theirs. */
 html:not(.platform-ios)
   .app.app-session
   > .transcript-frame
@@ -2740,4 +2739,332 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disa
   background: #241f20;
   box-shadow: none;
   color: var(--kleio-muted);
+}
+
+/* ── Helper's turns ── gold, and only Helper: a gold lead dot, its name above
+   each reply, a gold-framed prompt card with a text Send, and a small gold
+   "Sent to Kleio" chip. Its words are body text. Every Helper colour is the
+   one variable `--ken` (App.css, theme.ts), re-pointed here on the session's
+   own regions, so the phone, Home, the pickers, Settings and the overlays
+   keep theirs. */
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.transcript-frame, .liveregion, .inputwrap, .footer) {
+  --ken: var(--kleio-help);
+}
+
+/* The reply: no side rule, text on the column edge like Kleio's. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text {
+  padding-left: 0;
+  border-left: 0;
+}
+/* Its name, as generated text: not selectable, and not in an exported chat. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text::before {
+  content: "Helper";
+  display: block;
+  width: fit-content;
+  margin-bottom: 2px;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 24.8px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* The name's line is 24.8px, not the prose's 23.25px: half the difference. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-dot {
+  top: calc(4px + 0.81 * 15px - 4.5px + 0.775px);
+}
+/* Headings, bold and links take the reply's colours (App.css). */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  :is(h1, h2, h3, h4, strong) {
+  color: var(--text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  a {
+  color: var(--primary);
+  text-decoration-color: color-mix(in srgb, var(--primary) 40%, transparent);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  .assistant-text
+  .markdown
+  a:hover {
+  text-decoration-color: var(--primary);
+}
+
+/* A question to Helper: an ordinary bubble (see "Your messages" above) with
+   only the mention in gold. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken
+  .helper-mention {
+  font-weight: 500;
+}
+
+/* "Sent to Kleio": a small gold plate with a tick, still. The prompt card
+   shares the plate. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  :is(.user-msg.user-ken-sent, .markdown .ken-prompt-block) {
+  border: 1px solid rgb(184 151 90 / 0.26);
+  border-radius: 6px;
+  background: var(--kleio-help-plate);
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-msg.user-ken-sent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px 7px 11px;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken-sent::before {
+  content: "";
+  flex: none;
+  width: 13px;
+  height: 13px;
+  background: var(--kleio-help);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3.5 8.5 3 3 6-7'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+/* The label's colour is inline (`--ken`); its looping shimmer stops. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken-sent
+  .command-shimmer {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+}
+
+/* The prompt card. Nothing clips, so Send's focus ring shows whole. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block {
+  margin-top: 14px;
+  padding: 12px 15px 15px;
+  overflow: visible;
+}
+/* Its label, as generated text. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block::before {
+  content: "Prompt for Kleio";
+  display: block;
+  width: fit-content;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-body {
+  margin-top: 7px;
+  padding: 0;
+  /* glass.css recesses every pre. */
+  box-shadow: none;
+  color: var(--kleio-text);
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+}
+/* Send: gold letters over a thin underline, no box and no icon. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send {
+  display: flex;
+  width: fit-content;
+  height: 28px;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background-color: transparent;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: underline 1px var(--kleio-help-deep);
+  text-underline-offset: 4px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:hover:not(:disabled) {
+  text-decoration-color: var(--kleio-help-light);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 5px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:not(.sent)
+  svg {
+  display: none;
+}
+/* Sent: quiet text behind a gold tick. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send.sent {
+  gap: 6px;
+  color: var(--kleio-muted);
+  text-decoration: none;
+  opacity: 1;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send.sent
+  svg {
+  color: var(--kleio-help);
+}
+
+/* The gilt: a still deep, champagne and antique gradient, clipped to the
+   letters of Helper's name, its mention, the prompt label and Send. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .ken-msg
+  > .assistant-text::before,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .user-msg.user-ken
+  .helper-mention,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-block::before,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .markdown
+  .ken-prompt-send:not(.sent) {
+  background-color: transparent;
+  background-image: linear-gradient(
+    115deg,
+    var(--kleio-help-deep) 12%,
+    var(--kleio-help-light) 42%,
+    var(--kleio-help) 72%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: var(--kleio-help);
+  -webkit-text-fill-color: transparent;
+}
+/* Forced colours: plain system text, never transparent letters. */
+@media (forced-colors: active) {
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .ken-msg
+    > .assistant-text::before,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .user-msg.user-ken
+    .helper-mention,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .markdown
+    .ken-prompt-block::before,
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .markdown
+    .ken-prompt-send:not(.sent) {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+  html:not(.platform-ios)
+    .app.app-session
+    > .transcript-frame
+    > .transcript
+    .user-msg.user-ken-sent::before {
+    background: CanvasText;
+  }
 }

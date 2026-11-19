@@ -17,6 +17,7 @@ import { hasDoneMarker, segmentDoneMarkers } from "./plan-steps";
 import { AtIcon } from "@phosphor-icons/react";
 import { EnhancedSegments } from "./PromptEnhancement";
 import { basename } from "./tool-format";
+import { helperTokenParts } from "./helper-mention";
 import type { Item } from "./transcript-item";
 import { ErrorNotice } from "./placeholder/ErrorNotice";
 import { SecurityNotice } from "./placeholder/SecurityNotice";
@@ -127,6 +128,20 @@ function KenReply({
         <StreamingMarkdown text={text} streaming={streaming} onGrow={onGrow} />
       </div>
     </div>
+  );
+}
+
+// A question to Helper, with its leading mention in a span so the mention alone
+// can take Helper's colour. The text is unchanged.
+function HelperQuestion({ text }: { text: string }): React.ReactNode {
+  const parts = helperTokenParts(text);
+  if (!parts) return text;
+  return (
+    <>
+      {parts.lead}
+      <span className="helper-mention">{parts.token}</span>
+      {parts.rest}
+    </>
   );
 }
 
@@ -264,6 +279,8 @@ function TranscriptRowBody({
           )}
           {item.enhancements && item.enhancements.some((s) => s.kind === "term") ? (
             <EnhancedSegments segments={item.enhancements} />
+          ) : item.ken ? (
+            <HelperQuestion text={item.text} />
           ) : (
             item.text
           )}
