@@ -121,9 +121,8 @@ export function PlanReviewModal({
           </div>
         ) : (
           <>
-            <button className="btn btn-primary" onClick={onAccept}>
-              Accept
-            </button>
+            {/* Accept is last, so Tab reaches it after the two ways to say no.
+                The iPhone keeps its own visual order in CSS. */}
             <button
               ref={feedbackButtonRef}
               className="btn btn-ghost"
@@ -133,6 +132,9 @@ export function PlanReviewModal({
             </button>
             <button className="btn btn-ghost plan-reject" onClick={onReject}>
               Reject
+            </button>
+            <button className="btn btn-primary" onClick={onAccept}>
+              Accept
             </button>
           </>
         )}

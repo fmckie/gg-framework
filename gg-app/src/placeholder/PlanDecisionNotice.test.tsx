@@ -23,6 +23,14 @@ describe("PlanDecisionNotice", () => {
     expect(screen.getByRole("img", { name: "Working" })).toBeTruthy();
   });
 
+  it.each<PlanDecision>(["accepted", "feedback", "rejected"])(
+    "carries the %s decision for styling",
+    (decision) => {
+      render(<PlanDecisionNotice decision={decision} />);
+      expect(screen.getByRole("status").getAttribute("data-decision")).toBe(decision);
+    },
+  );
+
   it("marks a rejected plan as stopped", () => {
     render(<PlanDecisionNotice decision="rejected" />);
     expect(screen.getByRole("img", { name: "Stopped" })).toBeTruthy();

@@ -19,7 +19,7 @@ export function describePlanDecision(decision: PlanDecision): string {
 export function PlanDecisionNotice({ decision }: { decision: PlanDecision }): React.ReactElement {
   const rejected = decision === "rejected";
   return (
-    <div className="placeholder-notice" role="status">
+    <div className="placeholder-notice" role="status" data-decision={decision}>
       <StatusDot tone={rejected ? "neutral" : "active"} label={rejected ? "Stopped" : "Working"} />
       <span className={rejected ? "placeholder-muted" : "placeholder-attention"}>
         {describePlanDecision(decision)}

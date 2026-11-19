@@ -33,13 +33,22 @@ describe("PlanReviewModal", () => {
 
   it("keeps Tab inside and never resolves the plan on Escape", () => {
     const { onAccept, onReject } = renderPlan();
-    const reject = screen.getByRole("button", { name: "Reject" });
-    reject.focus();
+    const accept = screen.getByRole("button", { name: "Accept" });
+    accept.focus();
     fireEvent.keyDown(document, { key: "Tab" });
     expect(document.activeElement).toBe(screen.getByRole("region", { name: "Plan" }));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onAccept).not.toHaveBeenCalled();
     expect(onReject).not.toHaveBeenCalled();
+  });
+
+  it("orders the controls plan, Feedback, Reject, then Accept last", () => {
+    renderPlan();
+    const dialog = screen.getByRole("dialog", { name: "Review plan" });
+    const stops = Array.from(dialog.querySelectorAll("button, [tabindex='0']")).map(
+      (element) => element.getAttribute("aria-label") ?? element.textContent,
+    );
+    expect(stops).toEqual(["Plan", "Feedback", "Reject", "Accept"]);
   });
 
   it("returns focus to the Feedback button when feedback is cancelled", () => {

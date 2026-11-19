@@ -1480,6 +1480,11 @@ html:not(.platform-ios) .app.app-session {
   --kleio-help-deep: #ae8848;
   --kleio-help-light: #f1e4c3;
   --kleio-help-plate: #201a17;
+  /* Plan mode's gold: a state of the session, always flat, on the two carved
+     titles, the banner's reason and the footer's label, and on Accept.
+     Literals, so neither gold is derived from Helper's. */
+  --kleio-plan-title: #be9f67;
+  --kleio-plan: #b8975a;
   /* The transcript and the dock share one centred 700px column. A percentage,
      so it resolves against whichever full-width box uses it. */
   --kleio-gutter: max(28px, calc((100% - 700px) / 2));
@@ -2208,7 +2213,8 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .assistant-text
-  .markdown {
+  .markdown,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown {
   font-family: "Mukta Malar", var(--sans);
   font-size: 15px;
   font-weight: 400;
@@ -2221,6 +2227,12 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
+  :is(table, .code-expand),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   :is(table, .code-expand) {
   font-family: var(--sans);
 }
@@ -2231,7 +2243,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  > * {
+  > *,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown > * {
   margin-top: 12px;
   margin-bottom: 0;
 }
@@ -2241,6 +2254,12 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
+  > :first-child,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   > :first-child {
   margin-top: 0;
 }
@@ -2249,6 +2268,12 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .assistant-text
+  .markdown
+  :is(h1, h2, h3, h4),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
   .markdown
   :is(h1, h2, h3, h4) {
   font-weight: 700;
@@ -2260,7 +2285,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  h1 {
+  h1,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h1 {
   font-size: 1.4em;
 }
 html:not(.platform-ios)
@@ -2269,7 +2295,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  h2 {
+  h2,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 {
   font-size: 1.28em;
 }
 html:not(.platform-ios)
@@ -2278,7 +2305,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  h3 {
+  h3,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h3 {
   font-size: 1.17em;
   line-height: 1.55;
 }
@@ -2288,7 +2316,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  :is(ul, ol) {
+  :is(ul, ol),
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown :is(ul, ol) {
   padding-left: 24px;
 }
 html:not(.platform-ios)
@@ -2297,7 +2326,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  li {
+  li,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown li {
   margin: 0;
 }
 html:not(.platform-ios)
@@ -2305,6 +2335,12 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .assistant-text
+  .markdown
+  :is(li + li, li > ul, li > ol),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
   .markdown
   :is(li + li, li > ul, li > ol) {
   margin-top: 6px;
@@ -2316,7 +2352,8 @@ html:not(.platform-ios)
   > .transcript
   .assistant-text
   .markdown
-  li::marker {
+  li::marker,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown li::marker {
   color: var(--kleio-lapis);
 }
 html:not(.platform-ios)
@@ -2324,6 +2361,13 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .assistant-text
+  .markdown
+  :not(pre)
+  > code,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
   .markdown
   :not(pre)
   > code {
@@ -2347,6 +2391,13 @@ html:not(.platform-ios)
   > .transcript
   .markdown
   .code-block
+  pre:not(.ken-prompt-body),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-block
   pre:not(.ken-prompt-body) {
   padding: 12px 36px 12px 14px;
   border: 1px solid var(--kleio-rule);
@@ -2365,10 +2416,19 @@ html:not(.platform-ios)
   .markdown
   .code-block
   pre:not(.ken-prompt-body)
+  code,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  .code-block
+  pre:not(.ken-prompt-body)
   code {
   font-family: inherit;
 }
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-copy {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-copy,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown .code-copy {
   border-color: var(--kleio-rule-strong);
   border-radius: 3px;
   background: #241f20;
@@ -2383,12 +2443,19 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .markdown
+  .code-copy:is(:hover, :focus-visible),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   .code-copy:is(:hover, :focus-visible) {
   border-color: var(--kleio-lapis);
   background: #241f20;
   color: var(--kleio-lapis);
 }
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-expand {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown .code-expand,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown .code-expand {
   border-color: var(--kleio-rule);
   border-radius: 3px;
   color: var(--kleio-muted);
@@ -2399,6 +2466,12 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .markdown
+  .code-expand:is(:hover, :focus-visible),
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   .code-expand:is(:hover, :focus-visible) {
   border-color: var(--kleio-lapis);
   color: var(--kleio-lapis);
@@ -2408,19 +2481,27 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .markdown
+  :is(.code-copy, .code-expand, .md-table-scroll):focus-visible,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   :is(.code-copy, .code-expand, .md-table-scroll):focus-visible {
   outline: 2px solid var(--kleio-lapis);
   outline-offset: 2px;
 }
 
 /* Tables: rules only. A wide one still scrolls sideways in its own frame. */
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown table {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown table,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown table {
   margin: 0;
   border-radius: 0;
   background: none;
   box-shadow: none;
 }
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown :is(th, td) {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown :is(th, td),
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown :is(th, td) {
   border: 0;
   border-bottom: 1px solid var(--kleio-rule);
   border-radius: 0;
@@ -2433,10 +2514,17 @@ html:not(.platform-ios)
   > .transcript-frame
   > .transcript
   .markdown
+  :is(th, td):first-child,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
   :is(th, td):first-child {
   padding-left: 0;
 }
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown th {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown th,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown th {
   border-bottom-color: var(--kleio-rule-strong);
   color: var(--kleio-text-2);
   font-weight: 600;
@@ -2448,12 +2536,21 @@ html:not(.platform-ios)
   .markdown
   tbody
   tr:last-child
+  > td,
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body
+  .markdown
+  tbody
+  tr:last-child
   > td {
   border-bottom: 0;
 }
 
 /* Quotes and rules. */
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown blockquote {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown blockquote,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown blockquote {
   padding: 0 0 0 14px;
   border-left: 2px solid var(--kleio-rule-strong);
   border-radius: 0;
@@ -2461,7 +2558,8 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .mark
   box-shadow: none;
   color: var(--kleio-muted);
 }
-html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown hr {
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .markdown hr,
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown hr {
   height: 0;
   border: 0;
   border-top: 1px solid var(--kleio-rule);
@@ -2750,6 +2848,10 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .export-chat:disa
 html:not(.platform-ios)
   .app.app-session
   > :is(.transcript-frame, .liveregion, .inputwrap, .footer) {
+  --ken: var(--kleio-help);
+}
+/* The plan review sits outside those regions; its "reviewing" line is Helper speaking. */
+html:not(.platform-ios) .app.app-session > .plan-review {
   --ken: var(--kleio-help);
 }
 
@@ -3067,4 +3169,412 @@ html:not(.platform-ios)
     .user-msg.user-ken-sent::before {
     background: CanvasText;
   }
+}
+
+/* ── Plan mode ── the banner a plan starts under, the review of a finished
+   plan, and the row a decision leaves behind. Plan mode's gold is a state of
+   the session, not a speaker: flat, on the two carved titles, the banner's
+   reason, Accept and the footer's label, and never Helper's gilt. The review
+   is still the full-window dialog, and every word is the app's. */
+
+/* The banner: its title between two grooves, its reason under it. */
+html:not(.platform-ios) .app.app-session .plan-logo {
+  position: relative;
+  isolation: isolate;
+  margin: 22px 0;
+  padding: 22px 0 18px;
+  border-block: 1px solid rgb(0 0 0 / 0.5);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    0 1px 0 rgb(255 255 255 / 0.045);
+  text-align: center;
+}
+/* The block-glyph rows stay in the markup for the iPhone, and are not drawn here. */
+html:not(.platform-ios) .app.app-session .plan-logo-line {
+  display: none;
+}
+/* The title, as generated text: Bungee's solid letters over its shade layer,
+   like the wordmark's. */
+html:not(.platform-ios) .app.app-session .plan-logo::before,
+html:not(.platform-ios) .app.app-session .plan-logo::after {
+  content: "Plan mode";
+  display: block;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html:not(.platform-ios) .app.app-session .plan-logo::before {
+  /* The trailing letter-space is cancelled so the words stay centred. */
+  margin-right: -0.34em;
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  letter-spacing: 0.34em;
+  color: var(--kleio-plan-title);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.75);
+}
+html:not(.platform-ios) .app.app-session .plan-logo::after {
+  /* Empty alternative text, so the title is read aloud once; a browser without
+     that syntax keeps the plain string above. */
+  content: "Plan mode" / "";
+  position: absolute;
+  top: 22px;
+  right: -0.34em;
+  left: 0;
+  z-index: -1;
+  font-family: "Bungee Shade", "Bungee", serif;
+  /* Shade's letters are 0.1em wider than Bungee's, so its tracking is 0.1em tighter. */
+  letter-spacing: 0.24em;
+  color: #4d3b1f;
+}
+/* Kleio's reason for planning, in plan gold: it says what the plan is for. */
+html:not(.platform-ios) .app.app-session .plan-logo-reason {
+  max-width: 520px;
+  margin: 12px auto 0;
+  color: var(--kleio-plan-title);
+  font-size: 14px;
+  font-style: normal;
+  line-height: 1.55;
+}
+
+/* The review: the session's surface and bloom over the whole window, with the
+   title, the plan and the tray in the transcript's column. */
+html:not(.platform-ios) .app.app-session > .plan-review {
+  background-color: #161213;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    );
+  color: var(--kleio-text);
+}
+/* 40px above the title, as before: the window's own controls are up there. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-banner {
+  padding: 40px var(--kleio-gutter) 0;
+  border-bottom: 0;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo {
+  margin: 0;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::before,
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::after {
+  content: "Your plan";
+  font-size: 28px;
+}
+html:not(.platform-ios) .app.app-session > .plan-review .plan-logo::after {
+  content: "Your plan" / "";
+}
+/* The plan reads like a reply (see "Transcript column"). Its scrollbar stays
+   at the window's edge, the transcript's width. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body {
+  padding: 22px calc(var(--kleio-gutter) - var(--scrollbar)) 16px var(--kleio-gutter);
+  scrollbar-gutter: stable;
+  color: var(--kleio-text);
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body::-webkit-scrollbar {
+  width: var(--scrollbar);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-body::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--kleio-lapis);
+}
+/* A plan's own headings: its title, then small capitals over each section. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h1 {
+  color: var(--kleio-ink);
+  font-size: 19px;
+  line-height: 1.35;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 {
+  margin-top: 22px;
+  color: var(--kleio-text-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-body .markdown h2 + * {
+  margin-top: 8px;
+}
+/* "…is reviewing this plan…" is Helper speaking: its gold, flat, and no band. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-ken {
+  padding: 0 var(--kleio-gutter) 10px;
+  border-top: 0;
+  background: none;
+}
+
+/* The tray: one solid box in the column, 12px above the window's foot. Closed,
+   it holds Feedback, Reject and Accept; Feedback opens the box in its place. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions {
+  gap: 4px;
+  min-height: 56px;
+  margin: 0 var(--kleio-gutter) 12px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: inset 0 1px 0 rgb(0 0 0 / 0.4);
+}
+/* No glass and no swell: a button's size never changes. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  height: 34px;
+  border-radius: 7px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  :is(.btn, .plan-feedback-input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* Feedback: a quiet label filling the tray's left side. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-ghost:not(.plan-reject) {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  padding: 0 10px;
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-muted);
+  font-size: 15px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-ghost:not(.plan-reject):is(:hover, :focus-visible) {
+  background: none;
+  color: var(--kleio-lapis);
+}
+/* Reject: crimson lightened until it reads as text; filled on hover only. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions > .plan-reject {
+  --kleio-reject: color-mix(in srgb, #c42638 70%, #f6f1f1);
+  margin-left: 0;
+  padding: 0 10px;
+  border-color: var(--kleio-reject);
+  background: transparent;
+  color: var(--kleio-reject);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .plan-reject:hover:not(:disabled) {
+  border-color: #c42638;
+  background: #c42638;
+  color: var(--kleio-ink);
+}
+/* Accept: plan gold, filled on hover only. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions > .btn-primary {
+  padding: 0 15px;
+  border-color: var(--kleio-plan);
+  background: transparent;
+  color: var(--kleio-plan);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  > .btn-primary:hover:not(:disabled) {
+  background: var(--kleio-plan);
+  color: #161213;
+}
+/* The feedback box, open: the tray grows round a flat field. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions:has(> .plan-feedback) {
+  padding: 8px 10px 10px 6px;
+}
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .plan-feedback {
+  gap: 6px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--kleio-ink);
+  font-size: 15px;
+  line-height: 1.5;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input:focus-visible {
+  outline-offset: 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+/* The hint's colour is inline, as a theme variable. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-actions .plan-feedback-hint {
+  --text-dim: var(--kleio-muted);
+  padding-left: 10px;
+}
+/* Cancel as quiet text; Send feedback bounded and flat, like Enhance. */
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-primary {
+  border-color: var(--kleio-muted);
+  background: #241f20;
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: #241f20;
+}
+
+/* The row a decision leaves: an accepted plan gets a verdigris tick, like a
+   finished step; feedback a lapis dot; a rejection stays muted. No amber. */
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision] {
+  font-size: 15px;
+  line-height: 1.6;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-dot {
+  width: 24px;
+  height: auto;
+  margin-right: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-dot::before {
+  content: "\2713";
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="accepted"]
+  > .placeholder-attention {
+  color: var(--kleio-text);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="feedback"]
+  > .placeholder-dot {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .transcript
+  .placeholder-notice[data-decision="feedback"]
+  > .placeholder-attention {
+  color: var(--kleio-text-2);
+}
+
+/* The footer's "plan mode": plan gold, flat, with no sweep. The fill is set
+   too, because the sweep paints the letters through it. */
+html:not(.platform-ios) .app.app-session > .footer .footer-plan .shimmer-text {
+  animation: none;
+  background: none;
+  color: var(--kleio-plan-title);
+  -webkit-text-fill-color: var(--kleio-plan-title);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* The buttons are Feedback, Reject, Accept in the markup, for the desktop's
+   tray. The iPhone keeps its own order: Accept first. */
+html.platform-ios .plan-review-actions > .btn-primary {
+  order: -1;
 }
