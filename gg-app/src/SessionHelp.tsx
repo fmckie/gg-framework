@@ -132,8 +132,8 @@ export function sessionHelpSections(mode: WorkspaceMode, phone: boolean): HelpSe
           icon: ChatCircleTextIcon,
           title: "Ask Helper",
           body: phone
-            ? "Start a message with @helper, or tap the @helper button, to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
-            : "Start a message with @helper to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
+            ? "Start a message with @help, or tap the @help button, to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it."
+            : "Start a message with @help to ask Helper. It answers alongside Kleio's work without stopping it, and it can read your project but not change it.",
         },
         {
           id: "autopilot",

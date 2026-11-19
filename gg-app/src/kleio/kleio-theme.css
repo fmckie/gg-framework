@@ -1895,7 +1895,7 @@ html:not(.platform-ios)
   outline-offset: 2px;
 }
 
-/* The draft, in Mukta Malar. The @helper overlay and the Enhance animation
+/* The draft, in Mukta Malar. The @help overlay and the Enhance animation
    layer copy the textarea's metrics, so all three change together. */
 html:not(.platform-ios) .app.app-session > .inputwrap :is(.input, .ken-input-highlight, .enh-diss) {
   font-family: "Mukta Malar", var(--sans);

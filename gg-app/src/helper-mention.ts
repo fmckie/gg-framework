@@ -1,19 +1,19 @@
-// The composer's helper trigger. A draft that opens with `@helper` goes to the
+// The composer's helper trigger. A draft that opens with `@help` goes to the
 // read-only helper (the sidecar's mentor run, see `sendKenPrompt`) instead of
-// the coder, and that helper runs alongside a build. `@muse` and `@ken`, the
-// old triggers, still work but are no longer advertised.
+// the coder, and that helper runs alongside a build. `@helper`, `@muse` and
+// `@ken`, the old triggers, still work but are no longer advertised.
 
 /** The trigger the composer advertises and the iPhone chip inserts. */
-export const HELPER_MENTION = "@helper";
+export const HELPER_MENTION = "@help";
 
 // The token at the start of a draft, after any leading whitespace. It counts
 // only when followed by whitespace, a colon or the end of the draft, so file
-// mentions such as `@helper.ts`, `@helper-mention.ts`, `@museum.ts` and
+// mentions such as `@help.md`, `@helper.ts`, `@helper-mention.ts`, `@museum.ts` and
 // `@kennedy.ts` stay file mentions.
-const LEADING_TOKEN = /^(\s*)(@(?:helper|muse|ken))(?=[\s:]|$)/i;
+const LEADING_TOKEN = /^(\s*)(@(?:help(?:er)?|muse|ken))(?=[\s:]|$)/i;
 // The token as an address: the same end rule, an optional colon, then the
 // spaces after it.
-const ADDRESS = /^@(?:helper|muse|ken)(?=[\s:]|$):?\s*/i;
+const ADDRESS = /^@(?:help(?:er)?|muse|ken)(?=[\s:]|$):?\s*/i;
 
 /** Whether the draft is addressed to the helper. */
 export function addressesHelper(draft: string): boolean {

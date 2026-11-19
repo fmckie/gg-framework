@@ -251,7 +251,7 @@ export function Composer({
             />
           )}
           {/* Helper token active: a textarea can't color just one token, so we
-                mirror the input in an aligned overlay where the leading `@helper`
+                mirror the input in an aligned overlay where the leading `@help`
                 (or `@ken`) shimmers in Ken's color. The textarea text below is
                 made transparent (caret stays visible) so only this styled copy
                 shows. Metrics match `.input` 1:1 so wrapping/caret line up (the

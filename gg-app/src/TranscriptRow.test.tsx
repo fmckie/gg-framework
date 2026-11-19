@@ -12,12 +12,12 @@ afterEach(cleanup);
 
 describe("a question to Helper", () => {
   it("wraps its leading mention in a span and keeps its full text", () => {
-    const text = "@Helper how do I copy a block?";
+    const text = "@Help how do I copy a block?";
     const { container } = render(<TranscriptRow item={{ kind: "user", id: 1, text, ken: true }} />);
     const bubble = container.querySelector(".user-msg.user-ken");
     const mentions = container.querySelectorAll(".helper-mention");
     expect(mentions).toHaveLength(1);
-    expect(mentions[0]?.textContent).toBe("@Helper");
+    expect(mentions[0]?.textContent).toBe("@Help");
     expect(bubble?.textContent).toBe(text);
   });
 

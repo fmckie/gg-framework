@@ -77,7 +77,7 @@ html.platform-ios textarea,
 html.platform-ios select {
   font-size: max(16px, 1em);
 }
-/* The @helper highlight is a copy of the draft drawn under the textarea, whose
+/* The @help highlight is a copy of the draft drawn under the textarea, whose
    own text goes clear, so it takes the textarea's 16px too. At the desktop's
    15px it wrapped on different words from the textarea, and the caret, which
    the textarea draws, sat a line below the text you could see. */
@@ -422,7 +422,7 @@ html.platform-ios .icon-circle {
   width: 36px;
   height: 36px;
 }
-/* @helper beside the paperclip: one tap addresses the draft to the helper, with
+/* @help beside the paperclip: one tap addresses the draft to the helper, with
    no trip to the symbols keyboard for the @. The paperclip's glass circle,
    stretched to a pill around the trigger in Ken's colour, which a tap's
    sticky hover must not turn white. */

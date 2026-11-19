@@ -1632,7 +1632,7 @@ function App(): React.ReactElement {
   // Clamp so a shrinking match list never points past the end.
   const clampedSlashIndex = slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
 
-  // The helper trigger (`@helper`, or the old `@muse` and `@ken`) addresses the mentor agent,
+  // The helper trigger (`@help`, or the old `@helper`, `@muse` and `@ken`) addresses the mentor agent,
   // not a file. When the input leads with it (case-insensitive, word-boundary so
   // `@helperum.ts` still picks files), the file picker is suppressed and the token
   // shimmers in Ken's color, so it's obvious where the message goes.
@@ -1779,7 +1779,7 @@ function App(): React.ReactElement {
   }
 
   // Debounced file search whenever the active mention query changes. Skipped
-  // while the helper token leads the draft, so typing `@helper` never spawns a
+  // while the helper token leads the draft, so typing `@help` never spawns a
   // file lookup or picker.
   useEffect(() => {
     if (mention === null || kenActive) {
@@ -2173,16 +2173,13 @@ function App(): React.ReactElement {
       return;
     }
 
-    // `@helper <question>` (or the old `@muse` or `@ken`; any case, optional colon) goes to Ken Kai, the
+    // `@help <question>` (or the old `@helper`, `@muse` or `@ken`; any case, optional colon) goes to Ken Kai, the
     // read-only mentor agent — NOT GG Coder. Ken runs concurrently with any
     // build run; his reply streams into his own bubble via ken_* events. Enter
     // and the round button both land here.
     if (helperAsk !== null) {
       if (attachments.length > 0) {
-        toast(
-          "Helper cannot receive attachments. Remove @Helper to send them to Kleio.",
-          "warning",
-        );
+        toast("Helper cannot receive attachments. Remove @help to send them to Kleio.", "warning");
         return;
       }
       if (!helperAsk) return;
