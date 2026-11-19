@@ -1464,7 +1464,9 @@ img[data-enlarge],
    hover and keyboard focus, no glass or blur. Scoped to the session root
    (`app-session`, App.tsx) so Home, the pickers and Settings keep their look,
    and to the desktop: the iPhone restyles these rows in kleio-phone.css. */
-html:not(.platform-ios) .app.app-session {
+/* The palette, on the desktop's root so a screen outside a session can read it
+   (Settings: kleio-settings.css). Nothing reads it unless a rule asks. */
+html:not(.platform-ios) {
   --kleio-ink: #f6f1f1;
   --kleio-text-2: #d3c9ca;
   --kleio-muted: #a69c9d;
@@ -1474,6 +1476,8 @@ html:not(.platform-ios) .app.app-session {
   --kleio-text: #e8e0dc;
   --kleio-done: #66b48c;
   --kleio-surface: #1d1819;
+}
+html:not(.platform-ios) .app.app-session {
   /* Helper's gold: antique, with the deep and champagne stops of its gilt, and
      the plate behind its prompt card and sent chip. */
   --kleio-help: #b8975a;

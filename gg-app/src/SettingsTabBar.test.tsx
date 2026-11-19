@@ -17,7 +17,13 @@ const TABS: SettingsTab<Id>[] = [
   { id: "steroids", label: "Steroids", icon: SyringeIcon, alert: true },
 ];
 
-function Harness({ onSelect }: { onSelect?: (id: Id) => void }): React.ReactElement {
+function Harness({
+  onSelect,
+  tooltips,
+}: {
+  onSelect?: (id: Id) => void;
+  tooltips?: boolean;
+}): React.ReactElement {
   const [selected, setSelected] = useState<Id>("general");
   return (
     <SettingsTabBar
@@ -28,8 +34,13 @@ function Harness({ onSelect }: { onSelect?: (id: Id) => void }): React.ReactElem
         setSelected(id);
       }}
       panelId="panel"
+      {...(tooltips === undefined ? {} : { tooltips })}
     />
   );
+}
+
+function titles(): (string | null)[] {
+  return screen.getAllByRole("tab").map((t) => t.getAttribute("title"));
 }
 
 function selectedName(): string | null {
@@ -115,6 +126,29 @@ describe("SettingsTabBar", () => {
 
     const stops = screen.getAllByRole("tab").filter((t) => t.tabIndex === 0);
     expect(stops.map((t) => t.getAttribute("aria-label"))).toEqual(["General"]);
+  });
+
+  it("gives no tab a title unless asked", () => {
+    render(<Harness />);
+
+    expect(titles()).toEqual([null, null, null]);
+    fireEvent.click(screen.getByRole("tab", { name: "AI Providers" }));
+    expect(titles()).toEqual([null, null, null]);
+  });
+
+  it("names each unselected tab in its title when asked, and never the selected one", () => {
+    render(<Harness tooltips />);
+
+    expect(titles()).toEqual([null, "AI Providers", "Steroids"]);
+
+    fireEvent.click(screen.getByRole("tab", { name: "AI Providers" }));
+    expect(titles()).toEqual(["General", null, "Steroids"]);
+    // The accessible name is the label either way.
+    expect(screen.getAllByRole("tab").map((t) => t.getAttribute("aria-label"))).toEqual([
+      "General",
+      "AI Providers",
+      "Steroids",
+    ]);
   });
 
   it("marks a tab that needs attention", () => {

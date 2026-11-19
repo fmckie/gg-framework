@@ -1,0 +1,389 @@
+/* Settings on the desktop: the shell and the shared materials (redesign slice
+   8a). Every tab keeps its layout, words and behaviour; what changes is the
+   surface, the header, the tab tray and the controls the pages share, in the
+   colours and flat surfaces the session already has (kleio-theme.css).
+
+   Loaded after kleio-pages.css, so it wins ties with the pages' own rules, and
+   before kleio-phone.css. Everything is scoped to the desktop and to
+   `.settings-screen` (SettingsScreen.tsx), so the dialogs these pages open
+   (they mount on <body>), the tray's Settings dialog, the two other screens
+   that reuse the tab bar (KleioScreen, the Checklist) and the iPhone keep
+   today's look. */
+
+/* ── The surface ── the session's: matte, with the still oxblood bloom in two
+   corners. !important twice: App.tsx sets the `background` shorthand inline,
+   which would also clear the bloom. */
+html:not(.platform-ios) .app:has(> .settings-screen) {
+  background-color: #161213 !important;
+  background-image:
+    radial-gradient(
+      620px 500px at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      620px 500px at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ) !important;
+}
+/* The bloom replaces the moving ambient glow. */
+html:not(.platform-ios) .app:has(> .settings-screen)::before {
+  display: none;
+}
+
+/* ── Tokens ── the pages read the app's old tokens, so they are re-pointed
+   here rather than chased rule by rule. No amber: what waited in amber waits
+   in lapis; done is verdigris; a fault stays red (--error). The accent is ink,
+   so the one filled button on a page is ink with a dark label. */
+html:not(.platform-ios) .settings-screen {
+  /* What a page cuts out of itself (a status dot's ring) is the surface. */
+  --bg: #161213;
+  --text: var(--kleio-ink);
+  --text-secondary: var(--kleio-text-2);
+  --text-muted: var(--kleio-muted);
+  --text-dim: var(--kleio-muted);
+  --border: var(--kleio-rule);
+  --border-strong: var(--kleio-rule-strong);
+  --success: var(--kleio-done);
+  --warning: var(--kleio-lapis);
+  --glow: transparent;
+  --primary: var(--kleio-ink);
+  --primary-hi: #fff;
+  --on-primary: #161213;
+  --secondary: var(--kleio-ink);
+  /* Keyboard focus is the lapis outline below, never a glow. */
+  --focus-ring: none;
+}
+
+/* No glass anywhere in Settings: nothing blurs what is behind it. */
+html:not(.platform-ios) .settings-screen,
+html:not(.platform-ios) .settings-screen * {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Keyboard focus: a 2px lapis ring on every control. */
+html:not(.platform-ios)
+  .settings-screen
+  :is(button, a, input, select, textarea, summary, [tabindex], [role="tab"]):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── The header ── Back, the page's name and its status, on one strong
+   hairline like the session's chrome. */
+html:not(.platform-ios) .settings-screen > .picker-head {
+  border-bottom-color: var(--kleio-rule-strong);
+}
+/* The title outranks the section titles (15px). Its line is the control row's
+   height, so the header stays as tall as the session's. */
+html:not(.platform-ios) .settings-screen h1.picker-title {
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 28px;
+  letter-spacing: -0.02em;
+  color: var(--kleio-ink);
+}
+/* ── The tab tray ── in flow under the page, so nothing scrolls beneath it:
+   one solid box (the plan tray's surface and rule), no shadow. */
+html:not(.platform-ios) .settings-screen > .settings-scroll {
+  min-height: 0;
+}
+html:not(.platform-ios) .settings-screen > .settings-tab-dock {
+  position: static;
+  flex: none;
+  padding: 12px 0 16px;
+}
+html:not(.platform-ios) .settings-screen .settings-page {
+  padding-bottom: 24px;
+}
+html:not(.platform-ios) .settings-screen .settings-tabs {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+}
+/* The pill that travels to the selected tab: a flat plate. */
+html:not(.platform-ios) .settings-screen .settings-tabs-pill {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .settings-tab {
+  border-radius: 7px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .settings-tab:hover:not(.is-active) {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .settings-tab.is-active {
+  color: var(--kleio-ink);
+}
+/* Inside the tray's edge, so the ring is never cut by the window's foot. */
+html:not(.platform-ios) .settings-screen .settings-tab:focus-visible {
+  outline-offset: 1px;
+}
+/* Something on this tab needs attention: a still red dot, no glow. */
+html:not(.platform-ios) .settings-screen .settings-tab-alert {
+  background: var(--error);
+  box-shadow: none;
+}
+
+/* ── Sections ── a card is a hairline section: no fill, no rim. */
+html:not(.platform-ios) .settings-screen .settings-card {
+  padding: 20px 0 4px;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The first section of a page or a column starts under the header's own rule
+   (a panel's hidden heading comes before its first section). */
+html:not(.platform-ios) .settings-screen .settings-card:first-child,
+html:not(.platform-ios) .settings-screen .settings-panel > .sr-only:first-child + .settings-card {
+  padding-top: 0;
+  border-top: 0;
+}
+/* Narrow windows stack the columns, so the second column's first section
+   follows the first column's last and takes its rule back. */
+@media (max-width: 759px) {
+  html:not(.platform-ios)
+    .settings-screen
+    .settings-col
+    + .settings-col
+    > .settings-card:first-child {
+    padding-top: 20px;
+    border-top: 1px solid var(--kleio-rule);
+  }
+}
+html:not(.platform-ios) .settings-screen .settings-section-title {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen :is(.settings-desc, .modal-hint) {
+  font-size: 14px;
+  line-height: 1.5;
+}
+html:not(.platform-ios) .settings-screen .settings-desc {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .settings-card-sub {
+  color: var(--kleio-muted);
+}
+
+/* ── Buttons ── quiet rectangles that never change size. The page's one
+   filled button is ink; the rest are outlines that turn lapis on hover. */
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn, .icon-circle, .login-tile) {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+}
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn) {
+  border-radius: 7px;
+  box-shadow: none;
+  filter: none;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.btn-ghost, .modal-btn:not(.primary)),
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-ghost, .modal-btn:not(.primary)):hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+  filter: none;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-ghost, .modal-btn:not(.primary)):is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen :is(.btn-primary, .modal-btn.primary),
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-primary, .modal-btn.primary):hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--kleio-ink);
+  color: #161213;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.btn-primary, .modal-btn.primary):hover:not(:disabled) {
+  background: #fff;
+}
+/* Disabled: clearly off and still legible, not a 40% wash. */
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn):disabled {
+  opacity: 1;
+  border: 1px dashed var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-muted);
+}
+
+/* Back: a bare chevron, lapis on hover and focus. */
+html:not(.platform-ios) .settings-screen > .picker-head > .btn.btn-icon,
+html:not(.platform-ios) .settings-screen > .picker-head > .btn.btn-icon:hover:not(:disabled) {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .settings-screen
+  > .picker-head
+  > .btn.btn-icon:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  color: var(--kleio-lapis);
+}
+
+/* ── Fields ── a flat field on a hairline; lapis while it has focus.
+   !important: glass.css sets this background with !important. */
+html:not(.platform-ios) .settings-screen .modal-input {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(0 0 0 / 0.18) !important;
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .modal-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .modal-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+
+/* ── Switches ── the session's: a small square track; off, the thumb sits
+   left; on, it sits right and brightens. No bead, no halo, no swell. */
+html:not(.platform-ios) .settings-screen .cl-switch {
+  width: 26px;
+  height: 14px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input {
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input + span::before,
+html:not(.platform-ios) .settings-screen .cl-switch > input:active + span::before {
+  float: none;
+  display: block;
+  box-sizing: border-box;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input + span::after,
+html:not(.platform-ios) .settings-screen .cl-switch:hover > input:not(:disabled) + span::after,
+html:not(.platform-ios) .settings-screen .cl-switch > input:active:not(:disabled) + span::after {
+  top: 3px;
+  right: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  scale: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked + span::before,
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked:active + span::before {
+  border-color: var(--kleio-text-2);
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:checked + span::after,
+html:not(.platform-ios)
+  .settings-screen
+  .cl-switch:hover
+  > input:checked:not(:disabled)
+  + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios) .settings-screen .cl-switch:hover > input:not(:disabled) + span::before {
+  border-color: var(--kleio-lapis);
+}
+/* The checkbox is hidden, so keyboard focus rings its track. */
+html:not(.platform-ios) .settings-screen .cl-switch > input:focus-visible {
+  outline: none;
+}
+html:not(.platform-ios) .settings-screen .cl-switch > input:focus-visible + span::before {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+
+/* ── Badges ── status only: a flat outline pill, 12px. !important twice: a
+   coloured badge sets its gradient and its shadow inline (Badge.tsx). */
+html:not(.platform-ios) .settings-screen .badge {
+  padding: 1px 9px 2px;
+  border-color: var(--kleio-rule-strong);
+  background: none !important;
+  box-shadow: none !important;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── The pages' own boxes ── each tab keeps today's arrangement until its own
+   slice; meanwhile its boxes lose their fill, rim and glow and keep a
+   hairline. */
+html:not(.platform-ios) .settings-screen :is(.login-tile, .app-tile, .app-mine-row, .conn-device),
+html:not(.platform-ios) .settings-screen :is(.login-tile, .app-tile):hover {
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule);
+  filter: none;
+}
+html:not(.platform-ios) .settings-screen .app-tile:hover {
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .settings-screen .login-tile:is(:hover, :focus-visible) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+}
+/* A provider's "connected" dot, and an app's logo plate: no halo, no drop. */
+html:not(.platform-ios) .settings-screen .login-conn-dot {
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .app-logo {
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
+}
+/* Connection's map and verdict. */
+html:not(.platform-ios) .settings-screen :is(.conn-map, .conn-verdict, .setup-callout) {
+  border-radius: 12px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .conn-map {
+  border: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .conn-node-icon,
+html:not(.platform-ios) .settings-screen .conn-node.is-host .conn-node-icon {
+  border-radius: 10px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .conn-node.is-host .conn-node-icon {
+  color: var(--kleio-ink);
+}
+/* Round icon buttons (try dictation): an outline, lapis on hover. */
+html:not(.platform-ios) .settings-screen .icon-circle,
+html:not(.platform-ios) .settings-screen .icon-circle:hover:not(:disabled) {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .icon-circle:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-lapis);
+}

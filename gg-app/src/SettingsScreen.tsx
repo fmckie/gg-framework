@@ -23,6 +23,7 @@ import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
 import { toast } from "./toast";
+import { isPhone } from "./platform";
 
 export type SettingsTabId =
   "setup" | "general" | "providers" | "connection" | "apps" | "mcp" | "steroids" | "about";
@@ -146,7 +147,14 @@ export function SettingsScreen({
         </SettingsHeaderProvider>
       </div>
 
-      <SettingsTabBar tabs={tabs} selected={tab} onSelect={selectTab} panelId={PANEL_ID} />
+      <SettingsTabBar
+        tabs={tabs}
+        selected={tab}
+        onSelect={selectTab}
+        panelId={PANEL_ID}
+        // kleio: the desktop names the icon-only tabs on hover; the phone has no hover.
+        tooltips={!isPhone()}
+      />
     </div>
   );
 }

@@ -11,6 +11,8 @@ import { HostReachProvider } from "./kleio/hostReach";
 import "./kleio/kleio-theme.css";
 // Kleio's own pages (Blobs, Groups, Apps, Connection), on Ken's glass system.
 import "./kleio/kleio-pages.css";
+// Settings on the desktop, in the session's materials; after the pages so it wins ties.
+import "./kleio/kleio-settings.css";
 // Last: the iPhone layout, scoped to html.platform-ios (inert on the desktop).
 import "./kleio/kleio-phone.css";
 import { ZoomController } from "./ZoomController";

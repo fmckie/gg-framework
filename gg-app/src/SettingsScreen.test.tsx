@@ -66,6 +66,7 @@ import { SettingsScreen } from "./SettingsScreen";
 
 afterEach(() => {
   cleanup();
+  document.documentElement.classList.remove("platform-ios");
 });
 
 async function renderScreen(props: Partial<Parameters<typeof SettingsScreen>[0]> = {}) {
@@ -181,6 +182,30 @@ describe("SettingsScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
 
     expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+  });
+
+  it("names the unselected tabs in tooltips on the desktop", async () => {
+    await renderScreen();
+
+    const titles = screen.getAllByRole("tab").map((t) => t.getAttribute("title"));
+    // General is open: it shows its label, so it needs no tooltip.
+    expect(titles).toEqual([
+      "Setup",
+      null,
+      "AI Providers",
+      "Connection",
+      "Apps",
+      "MCP",
+      "Steroids",
+      "About",
+    ]);
+  });
+
+  it("gives the tabs no tooltips on the phone, which has no hover", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen();
+
+    for (const tab of screen.getAllByRole("tab")) expect(tab.hasAttribute("title")).toBe(false);
   });
 
   it("goes back with the Back button", async () => {

@@ -27,6 +27,8 @@ interface Props<Id extends string> {
   /** Accessible name and tab ids when this control is reused outside Settings. */
   label?: string;
   tabIdPrefix?: string;
+  /** Name each unselected tab in a tooltip; the selected one shows its label. */
+  tooltips?: boolean;
 }
 
 interface Box {
@@ -83,6 +85,7 @@ export function SettingsTabBar<Id extends string>({
   panelId,
   label = "Settings sections",
   tabIdPrefix = "settings-tab",
+  tooltips = false,
 }: Props<Id>): React.ReactElement {
   const barRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLSpanElement>(null);
@@ -223,6 +226,7 @@ export function SettingsTabBar<Id extends string>({
               data-tab-id={tab.id}
               id={`${tabIdPrefix}-${tab.id}`}
               aria-label={tab.label}
+              title={tooltips && !active ? tab.label : undefined}
               aria-selected={active}
               aria-controls={panelId}
               tabIndex={active ? 0 : -1}
