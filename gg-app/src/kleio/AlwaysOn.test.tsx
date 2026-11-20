@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { AlwaysOnCard, hostRowWords, stayOnSteps } from "./AlwaysOn";
+import { AlwaysOnCard, AlwaysOnSection, hostRowWords, stayOnSteps } from "./AlwaysOn";
 import type { AlwaysOnReason, HostKind } from "./kleioApi";
 
 afterEach(cleanup);
@@ -89,6 +89,70 @@ describe("AlwaysOnCard", () => {
       within(card).getByText("Yes. mac-mini stays on, so Kleio can answer any time."),
     ).toBeTruthy();
     expect(within(card).queryByRole("listitem")).toBeNull();
+  });
+});
+
+describe("AlwaysOnSection", () => {
+  const LAPTOP: HostKind = {
+    os: "darwin",
+    laptop: true,
+    alwaysOn: { state: "laptop", reasons: [] },
+  };
+  /** A host in each of the five states, with the word its state goes by. */
+  const STATES: [string, HostKind | null | undefined][] = [
+    ["Checking\u2026", undefined],
+    ["Yes", host("darwin", [], "yes")],
+    ["May sleep", host("darwin", ["sleeps_on_ac", "no_wake_for_network"])],
+    ["Laptop", LAPTOP],
+    ["Can't check", null],
+  ];
+
+  /** What a form says: its paragraphs and its steps, without the card's badge. */
+  function said(region: HTMLElement): { lines: (string | null)[]; steps: (string | null)[] } {
+    return {
+      lines: [...region.querySelectorAll("p")].map((p) => p.textContent),
+      steps: within(region)
+        .queryAllByRole("listitem")
+        .map((li) => li.textContent),
+    };
+  }
+
+  it("says the same as the card in all five states, with a mark named as the badge was", () => {
+    for (const [word, kind] of STATES) {
+      render(<AlwaysOnCard kind={kind} name="mac-mini" />);
+      const card = screen.getByRole("region", { name: "Always on" });
+      const cardSaid = said(card);
+      // The card's state is its badge's word.
+      expect(card.querySelector(".badge")?.textContent).toBe(word);
+      cleanup();
+
+      render(<AlwaysOnSection kind={kind} name="mac-mini" />);
+      const section = screen.getByRole("region", { name: "Always on" });
+      expect(said(section)).toEqual(cardSaid);
+      expect(section.querySelector(".badge")).toBeNull();
+      // The state in a word, for a screen reader and on hover: never by colour alone.
+      const mark = within(section).getByRole("img", { name: word });
+      expect(mark.getAttribute("title")).toBe(word);
+      cleanup();
+    }
+  });
+
+  it("doesn't take focus or scroll when the page was opened any other way", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<AlwaysOnSection kind={null} name="mac-mini" />);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("comes into view with focus on its heading when Keep it on opened the page", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<AlwaysOnSection kind={host("darwin", ["sleeps_on_ac"])} name="mac-mini" arrive />);
+    const heading = screen.getByRole("heading", { name: "Always on" });
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView.mock.contexts[0]).toBe(heading);
+    expect(document.activeElement).toBe(heading);
   });
 });
 

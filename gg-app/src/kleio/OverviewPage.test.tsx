@@ -24,6 +24,7 @@ import {
 import type * as KleioApi from "./kleioApi";
 import type { Diagnosis } from "./connectionDiagnosis";
 import { OverviewPage, REREAD_MS, SETTLE_MS } from "./OverviewPage";
+import { takeSettingsIntent } from "./settingsIntent";
 import { useKleioRemote } from "./useKleioRemote";
 
 vi.mock("../agent", () => ({
@@ -717,6 +718,50 @@ describe("OverviewPage when something needs a look", () => {
     await renderPage();
     expect(headline()).toBe("Good evening.");
     expect(status("dictation")).toBe("Downloading…");
+  });
+});
+
+// What Connection opens on is left as a one-shot note (settingsIntent.ts).
+describe("OverviewPage's notes for Connection", () => {
+  beforeEach(() => {
+    takeSettingsIntent();
+  });
+
+  it("Fix on the Host row asks Connection for its steps", async () => {
+    vi.mocked(useHostReach).mockReturnValue("disconnected");
+    const onOpenTab = await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Fix Host" }));
+    expect(onOpenTab).toHaveBeenCalledWith("connection");
+    expect(takeSettingsIntent()).toBe("connection-fix");
+  });
+
+  it("Keep it on asks Connection for Always on", async () => {
+    vi.mocked(askHostKind).mockResolvedValue({
+      os: "darwin",
+      laptop: false,
+      alwaysOn: { state: "may_sleep", reasons: ["sleeps_on_ac"] },
+    });
+    const onOpenTab = await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Keep it on" }));
+    expect(onOpenTab).toHaveBeenCalledWith("connection");
+    expect(takeSettingsIntent()).toBe("connection-always-on");
+  });
+
+  it("the Host row itself opens Connection with no note", async () => {
+    const onOpenTab = await renderPage();
+    fireEvent.click(within(row("host")).getByRole("link"));
+    expect(onOpenTab).toHaveBeenCalledWith("connection");
+    expect(takeSettingsIntent()).toBeNull();
+  });
+
+  it("no other row's Fix leaves a note", async () => {
+    vi.mocked(listMcpServers).mockResolvedValue([
+      server("linear", { ok: false, toolCount: 0, error: "spawn ENOENT" }),
+    ]);
+    const onOpenTab = await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Fix Tools" }));
+    expect(onOpenTab).toHaveBeenCalledWith("mcp");
+    expect(takeSettingsIntent()).toBeNull();
   });
 });
 

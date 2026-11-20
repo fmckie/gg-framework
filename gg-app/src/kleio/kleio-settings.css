@@ -1239,3 +1239,718 @@ html:not(.platform-ios) .settings-screen .app-key-note {
     flex-direction: column;
   }
 }
+
+/* ═══ Slice 8c: the scrollbar, AI Providers and Connection ═════════════════
+   The desktop's AI Providers page (ProvidersPage.tsx) and Connection page
+   (ConnectionPage.tsx, ConnectionPath.tsx). Both are set in the sans
+   throughout. One thing moves, and only without reduced motion: a slow light
+   along Connection's path while Kleio is connected. */
+
+/* ── The scrollbar ── the session's, on every tab: 8px, a hairline-coloured
+   thumb, no track. The gutter is always kept and the page gives up the same
+   8px on its right, so nothing moves sideways when a page starts to scroll. */
+html:not(.platform-ios) .settings-screen > .settings-scroll {
+  scrollbar-gutter: stable;
+}
+html:not(.platform-ios) .settings-screen > .settings-scroll > .settings-page {
+  padding-right: 12px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios)
+  .settings-screen
+  :is(.settings-scroll, .conn-link-events-box, .kleio-ticket)::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
+}
+
+/* ── Shared ── a section's later sentences, folded behind a quiet "More". */
+html:not(.platform-ios) .settings-screen .st-more-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -8px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  list-style: none;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .st-more-summary::-webkit-details-marker {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .st-more-summary::before {
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: translateY(-1px) rotate(-45deg);
+}
+html:not(.platform-ios) .settings-screen .st-more[open] > .st-more-summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+html:not(.platform-ios) .settings-screen .st-more-summary:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .st-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 2px;
+}
+
+/* ── AI Providers ── one hairline ring. Private models inside it; connected
+   cloud providers either side of it, a row each; the rest under Add a
+   provider. Nothing is filled and nothing moves. */
+html:not(.platform-ios) .settings-screen .pv-page {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-boundary {
+  --pv-d: 360px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pv-d) minmax(0, 1fr);
+  align-items: center;
+  column-gap: 36px;
+  padding-top: 8px;
+}
+html:not(.platform-ios) .settings-screen .pv-ring-wrap {
+  position: relative;
+  grid-row: 1 / span var(--pv-rows, 1);
+  grid-column: 2;
+  width: var(--pv-d);
+  height: var(--pv-d);
+}
+html:not(.platform-ios) .settings-screen .pv-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 50%;
+}
+html:not(.platform-ios) .settings-screen .pv-ring-label {
+  position: absolute;
+  top: 11%;
+  right: 0;
+  left: 0;
+  text-align: center;
+}
+/* Kleio's mark at the ring's heart, without its name or its drop shadow. */
+html:not(.platform-ios) .settings-screen .pv-core {
+  position: absolute;
+  top: 18.5%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+html:not(.platform-ios) .settings-screen .pv-core .kleio-mark-img {
+  width: calc(var(--pv-d) * 0.14);
+  filter: none;
+}
+html:not(.platform-ios) .settings-screen .pv-core .kleio-wordmark {
+  display: none;
+}
+/* The private models, in one row across the ring's widest part, placed by
+   the ring's own size so they stay inside it at every width. One row, so a
+   node's tooltip (drawn above it) never covers a neighbour. */
+html:not(.platform-ios) .settings-screen .pv-inside {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li {
+  position: absolute;
+  top: 38%;
+  width: 29%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(1) {
+  left: 6.5%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(2) {
+  left: 35.5%;
+}
+html:not(.platform-ios) .settings-screen .pv-inside > li:nth-child(3) {
+  right: 6.5%;
+}
+html:not(.platform-ios) .settings-screen :is(.pv-node, .pv-add-row) {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .pv-node {
+  border-radius: 10px;
+}
+html:not(.platform-ios) .settings-screen .pv-in {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 0;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .pv-orb {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .pv-in .pv-orb {
+  margin-bottom: 6px;
+}
+html:not(.platform-ios) .settings-screen .pv-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+html:not(.platform-ios) .settings-screen .pv-logo-letter {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+/* The mark: verdigris filled when it answers; a muted hollow ring otherwise. */
+html:not(.platform-ios) .settings-screen .pv-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .pv-dot.is-on {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .pv-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen :is(.pv-status, .pv-how) {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .pv-node:is(:hover, :focus-visible) .pv-orb {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+}
+html:not(.platform-ios) .settings-screen .pv-node:is(:hover, :focus-visible) .pv-name {
+  color: var(--kleio-lapis);
+}
+/* Outside the ring: the list's rows are the grid's, left and right in turn. */
+html:not(.platform-ios) .settings-screen .pv-outside {
+  display: contents;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li {
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(odd) {
+  grid-column: 1;
+  justify-self: end;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(even) {
+  grid-column: 3;
+  justify-self: start;
+}
+html:not(.platform-ios) .settings-screen .pv-out {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(odd) .pv-out {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+html:not(.platform-ios) .settings-screen .pv-node-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .pv-caption {
+  max-width: 600px;
+  margin: 22px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .pv-add {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .pv-add-line {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+/* The host's error: the fault mark (a red ring), then why, in words. */
+html:not(.platform-ios) .settings-screen .pv-add-line.is-fault {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+html:not(.platform-ios) .settings-screen .pv-add-line.is-fault::before {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--error);
+  border-radius: 50%;
+  content: "";
+}
+html:not(.platform-ios) .settings-screen .pv-add-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .pv-add-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px;
+  border-bottom: 1px solid var(--kleio-rule);
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .pv-add-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .pv-add-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .pv-add-how {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+}
+html:not(.platform-ios) .settings-screen .pv-add-row:hover {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .pv-add-row:is(:hover, :focus-visible) .pv-add-name {
+  color: var(--kleio-lapis);
+}
+/* Inside the row's own hairline, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen .pv-add-row:focus-visible {
+  outline-offset: -2px;
+}
+
+/* ── Connection ── the path, one verdict line, hairline sections, Remove. */
+html:not(.platform-ios) .settings-screen .cx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen .cx-page .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen .cx-path {
+  --cx-node: 148px;
+  padding: 10px 0 26px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+/* This Mac, the way through, the host: three nodes and the two hops between. */
+html:not(.platform-ios) .settings-screen .cx-route {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    var(--cx-node) minmax(56px, 1fr) var(--cx-node) minmax(56px, 1fr)
+    var(--cx-node);
+  align-items: start;
+  max-width: 860px;
+  margin: 0 auto;
+}
+html:not(.platform-ios) .settings-screen .cx-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .cx-orb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 50%;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-hub .cx-orb {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .cx-node-name {
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .cx-node-detail {
+  max-width: 100%;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+/* The marks: verdigris filled for fine; a red ring for a fault; a lapis ring
+   for waiting; a muted hollow ring for not known. Never amber. */
+html:not(.platform-ios) .settings-screen :is(.cx-dot, .cx-mark) {
+  box-sizing: border-box;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+}
+html:not(.platform-ios) .settings-screen .cx-dot {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 12px;
+  height: 12px;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-up .cx-dot,
+html:not(.platform-ios) .settings-screen .cx-mark.is-yes {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-down .cx-dot {
+  border-color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-wait .cx-dot,
+html:not(.platform-ios) .settings-screen .cx-mark.is-may_sleep {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .cx-mark.is-checking {
+  border-style: dotted;
+}
+/* The node that fails is dashed, in the colour of its mark. */
+html:not(.platform-ios) .settings-screen .cx-node.is-down .cx-orb {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--error) 70%, transparent);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-wait .cx-orb {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--kleio-lapis) 70%, transparent);
+}
+html:not(.platform-ios) .settings-screen .cx-node.is-unknown :is(.cx-orb, .cx-node-name) {
+  color: var(--kleio-text-2);
+}
+/* A hop: a hairline at the orbs' middle; dotted while not known; cut where
+   it fails, with Fix in the gap. */
+html:not(.platform-ios) .settings-screen .cx-leg {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 56px;
+}
+html:not(.platform-ios) .settings-screen .cx-seg {
+  flex: 1 1 0;
+  height: 0;
+  border-top: 1px solid rgb(255 255 255 / 0.28);
+}
+html:not(.platform-ios) .settings-screen .cx-leg.is-unknown .cx-seg,
+html:not(.platform-ios) .settings-screen .cx-seg.is-after {
+  border-top: 1px dotted rgb(255 255 255 / 0.34);
+}
+html:not(.platform-ios) .settings-screen .cx-leg.is-break-start .cx-seg:first-child,
+html:not(.platform-ios) .settings-screen .cx-leg.is-break-end .cx-seg.is-after {
+  flex: 0 0 12px;
+}
+html:not(.platform-ios) .settings-screen .cx-gap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 8px;
+}
+/* The light: a short ink line that crosses from this Mac to the host every
+   seven seconds, passing behind the way through. No glow. */
+html:not(.platform-ios) .settings-screen .cx-track {
+  position: absolute;
+  top: 27px;
+  right: calc(var(--cx-node) / 2);
+  left: calc(var(--cx-node) / 2);
+  display: none;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 34px,
+    #000 34px calc(50% - 34px),
+    transparent calc(50% - 34px) calc(50% + 34px),
+    #000 calc(50% + 34px) calc(100% - 34px),
+    transparent calc(100% - 34px)
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 34px,
+    #000 34px calc(50% - 34px),
+    transparent calc(50% - 34px) calc(50% + 34px),
+    #000 calc(50% + 34px) calc(100% - 34px),
+    transparent calc(100% - 34px)
+  );
+}
+/* It travels by `left`, so its own box never reaches past the track. */
+html:not(.platform-ios) .settings-screen .cx-light {
+  position: absolute;
+  top: 0;
+  left: -36px;
+  width: 36px;
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--kleio-ink) 35%,
+    var(--kleio-ink) 65%,
+    transparent
+  );
+}
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .cx-track {
+    display: block;
+  }
+  html:not(.platform-ios) .settings-screen .cx-light {
+    animation: kleio-cx-light 7s linear infinite;
+  }
+}
+@keyframes kleio-cx-light {
+  0% {
+    left: -36px;
+  }
+  42%,
+  100% {
+    left: 100%;
+  }
+}
+/* The verdict: one line under the path, in the sans; what it means only
+   when something is wrong. */
+html:not(.platform-ios) .settings-screen .cx-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 22px;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-line {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-detail {
+  max-width: 620px;
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .cx-verdict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps {
+  max-width: 620px;
+  margin: 20px auto 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps[hidden] {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .cx-fix-steps .conn-steps {
+  margin-top: 10px;
+  font-size: 14px;
+}
+/* A section's own state: its mark, then the line that says it. */
+html:not(.platform-ios) .settings-screen .cx-state {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+html:not(.platform-ios) .settings-screen .cx-mark {
+  flex: none;
+  width: 10px;
+  height: 10px;
+}
+html:not(.platform-ios) .settings-screen .cx-quiet {
+  color: var(--kleio-muted);
+}
+/* Relays and devices: hairline rows, their glyph in a hairline ring. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-devices {
+  gap: 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .cx-page .conn-device,
+html:not(.platform-ios) .settings-screen .cx-page .conn-device:hover {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  box-shadow: none;
+}
+html:not(.platform-ios) .settings-screen .cx-page .conn-device-icon {
+  border-radius: 50%;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
+}
+/* The link's path events: no box, one rule down their left. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-link-events-box {
+  padding: 2px 0 2px 12px;
+  border: 0;
+  border-left: 1px solid var(--kleio-rule-strong);
+  border-radius: 0;
+  background: none;
+}
+/* One filled button at rest: Fix when something is broken, else Show pairing
+   QR. Switch to Kleio's link, the relays' Save and Use it now, and Pair under
+   Advanced are outlines; so is Show pairing QR while Fix is filled. */
+html:not(.platform-ios) .settings-screen .cx-page .conn-row .btn-primary:not(:disabled),
+html:not(.platform-ios) .settings-screen .cx-page .conn-row .btn-primary:hover:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:hover:not(:disabled) {
+  border-color: var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page
+  .conn-row
+  .btn-primary:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios)
+  .settings-screen
+  .cx-page:has(.cx-fix.btn-primary)
+  .conn-pair-start
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
+  color: var(--kleio-lapis);
+}
+
+/* ── Narrower windows ── below the two-column break the connected providers
+   sit in a row under the ring, Add a provider is one column, and the path's
+   nodes draw closer. */
+@media (min-width: 1300px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    --pv-d: 400px;
+  }
+}
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    row-gap: 14px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-ring-wrap {
+    grid-row: auto;
+    grid-column: 1;
+  }
+  html:not(.platform-ios) .settings-screen .pv-outside {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px 10px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-outside > li:nth-child(n) .pv-out {
+    flex-direction: row;
+    text-align: left;
+  }
+  html:not(.platform-ios) .settings-screen .pv-add-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  html:not(.platform-ios) .settings-screen .cx-path {
+    --cx-node: 104px;
+  }
+}
+@media (max-width: 480px) {
+  html:not(.platform-ios) .settings-screen .pv-boundary {
+    --pv-d: 300px;
+  }
+  html:not(.platform-ios) .settings-screen .pv-in .pv-orb {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 4px;
+  }
+  /* In the gap of a short hop, Fix is as narrow as its word allows. */
+  html:not(.platform-ios) .settings-screen .cx-gap {
+    padding: 0 4px;
+  }
+  html:not(.platform-ios) .settings-screen .cx-page .cx-fix {
+    padding: 0 10px;
+  }
+}

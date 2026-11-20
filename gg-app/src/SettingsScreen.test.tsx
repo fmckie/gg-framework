@@ -57,6 +57,20 @@ vi.mock("./kleio/KleioPage", () => ({
   ),
 }));
 vi.mock("./kleio/AboutPage", () => ({ AboutPage: () => <p>about page</p> }));
+// The desktop's AI Providers page, and the phone's.
+vi.mock("./kleio/ProvidersPage", async () => {
+  const { SettingsHeaderStatus } = await import("./settings-header");
+  return {
+    ProvidersPage: () => (
+      <>
+        <SettingsHeaderStatus>
+          <span>3 connected</span>
+        </SettingsHeaderStatus>
+        <p>providers page</p>
+      </>
+    ),
+  };
+});
 vi.mock("./LoginScreen", async () => {
   const { SettingsHeaderStatus } = await import("./settings-header");
   return {
@@ -65,7 +79,7 @@ vi.mock("./LoginScreen", async () => {
         <SettingsHeaderStatus>
           <span>3 connected</span>
         </SettingsHeaderStatus>
-        <p>providers page</p>
+        <p>phone providers page</p>
       </>
     ),
   };
@@ -276,6 +290,25 @@ describe("SettingsScreen's two layouts", () => {
     expect(heading()).toBe("Setup");
     expect(screen.getByRole("button", { name: "setup page" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "overview page" })).toBeNull();
+  });
+
+  it("opens the ring for AI Providers on the desktop", async () => {
+    await renderScreen({ initialTab: "providers" });
+
+    expect(heading()).toBe("AI Providers");
+    expect(screen.getByText("providers page")).toBeTruthy();
+    expect(screen.queryByText("phone providers page")).toBeNull();
+    expect(screen.getByText("3 connected")).toBeTruthy();
+  });
+
+  it("keeps the phone's AI Providers page, with its count in the header", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "providers" });
+
+    expect(heading()).toBe("AI Providers");
+    expect(screen.getByText("phone providers page")).toBeTruthy();
+    expect(screen.queryByText("providers page")).toBeNull();
+    expect(screen.getByText("3 connected")).toBeTruthy();
   });
 
   it("keeps the phone's Setup page able to switch tabs and to introduce you", async () => {

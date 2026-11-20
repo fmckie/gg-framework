@@ -47,6 +47,7 @@ import {
 } from "./kleioApi";
 import { quotableMemories } from "./quotableMemories";
 import { privateServers } from "./privateModels";
+import { leaveSettingsIntent } from "./settingsIntent";
 import { useKleioRemote } from "./useKleioRemote";
 import { VOICE_LABELS } from "./VoiceCard";
 
@@ -517,6 +518,12 @@ export function OverviewPage({
             quiet={Boolean(next)}
             primary={row.id === firstFix}
             onOpen={() => onOpenTab(row.tab)}
+            onAct={() => {
+              // Connection opens on what was asked for: its steps, or Always on.
+              if (row.id === "host")
+                leaveSettingsIntent(row.extra ? "connection-always-on" : "connection-fix");
+              onOpenTab(row.tab);
+            }}
             onRetry={() => again(true)}
           />
         ))}
@@ -530,6 +537,7 @@ function OverviewRow({
   quiet,
   primary,
   onOpen,
+  onAct,
   onRetry,
 }: {
   row: Row;
@@ -538,6 +546,8 @@ function OverviewRow({
   /** The first row that needs fixing: its Fix is the page's one filled button. */
   primary: boolean;
   onOpen: () => void;
+  /** Fix, or the row's quiet extra: opens its page on what was asked for. */
+  onAct: () => void;
   /** Asks for everything again. */
   onRetry: () => void;
 }): React.ReactElement {
@@ -562,7 +572,7 @@ function OverviewRow({
       <button
         type="button"
         className={`btn ${primary ? "btn-primary" : "btn-ghost"} btn-sm ov-action`}
-        onClick={onOpen}
+        onClick={onAct}
         aria-label={`Fix ${row.area}`}
       >
         Fix
@@ -596,7 +606,7 @@ function OverviewRow({
         Set up
       </button>
     ) : row.extra ? (
-      <button type="button" className="ov-text-action" onClick={onOpen}>
+      <button type="button" className="ov-text-action" onClick={onAct}>
         {row.extra}
       </button>
     ) : null;

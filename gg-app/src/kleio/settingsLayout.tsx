@@ -1,15 +1,18 @@
 // kleio: the one place Settings' two layouts part ways. The phone keeps today's
-// eight tabs and its Setup page. The desktop relabels Setup to Overview and MCP
-// to Tools (the ids stay, so deep links still land), adds the Kleio tab second,
-// and shows Steroids' dot only for a fault.
+// eight tabs, its Setup page and its AI Providers page (LoginScreen). The
+// desktop relabels Setup to Overview and MCP to Tools (the ids stay, so deep
+// links still land), adds the Kleio tab second, draws AI Providers as the ring
+// (ProvidersPage), and shows Steroids' dot only for a fault.
 
 import { PulseIcon, SparkleIcon } from "@phosphor-icons/react";
 import type { SteroidsStatus } from "../agent";
+import { LoginScreen } from "../LoginScreen";
 import { isPhone } from "../platform";
 import type { SettingsTabId } from "../SettingsScreen";
 import type { SettingsTab } from "../SettingsTabBar";
 import { KleioPage } from "./KleioPage";
 import { OverviewPage } from "./OverviewPage";
+import { ProvidersPage } from "./ProvidersPage";
 import { SetupPage } from "./SetupPage";
 
 /** The tab bar's tabs for this device, from the screen's own list. */
@@ -44,17 +47,18 @@ export function kleioSettingsTabs(
   });
 }
 
-/** The page for the `setup` and `kleio` tabs. */
+/** The page for the `setup`, `kleio` and `providers` tabs. */
 export function KleioSettingsPage({
   tab,
   onOpenTab,
   onIntroduce,
 }: {
-  tab: "setup" | "kleio";
+  tab: "setup" | "kleio" | "providers";
   onOpenTab: (tab: SettingsTabId) => void;
   /** Starts the Introduce-yourself chat. */
   onIntroduce: () => Promise<void>;
 }): React.ReactElement {
+  if (tab === "providers") return isPhone() ? <LoginScreen /> : <ProvidersPage />;
   // The phone has no Kleio tab; should anything ask for it there, Setup has its cards.
   if (isPhone()) return <SetupPage onOpenTab={onOpenTab} onIntroduce={onIntroduce} />;
   return tab === "kleio" ? (

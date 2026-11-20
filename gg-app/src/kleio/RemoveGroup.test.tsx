@@ -95,6 +95,52 @@ describe("RemoveGroup", () => {
     expect(ask()).toBeTruthy();
   });
 
+  it("brings what removing does into view when asked, and why it couldn't, but never on arrival", async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderItem(
+      vi.fn(async () => {
+        throw new Error("forbidden");
+      }),
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.click(ask());
+    const item = screen.getByText("Talk now stops until a key is added again.").closest("div");
+    expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts[0]).toBe(item);
+
+    await act(async () => {
+      fireEvent.click(confirm());
+    });
+    expect(item?.contains(screen.getByRole("alert"))).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(scrollIntoView.mock.contexts[1]).toBe(item);
+  });
+
+  it("names the first button for its thing when given a name, and keeps its words", () => {
+    render(
+      <RemoveGroup>
+        <RemoveItem
+          what="Sam's iPhone · Paired 2 h ago"
+          ask="Revoke this device"
+          label="Revoke this device: Sam's iPhone"
+          confirm="Revoke"
+          busyText="Revoke"
+          hint="It's cut off straight away."
+          onRemove={vi.fn(async () => {})}
+          describeError={String}
+        />
+      </RemoveGroup>,
+    );
+    const first = screen.getByRole("button", { name: "Revoke this device: Sam's iPhone" });
+    expect(first.textContent).toBe("Revoke this device…");
+    fireEvent.click(first);
+    // The confirm step's own buttons keep their words.
+    expect(screen.getByRole("button", { name: "Revoke" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Keep" })).toBeTruthy();
+  });
+
   it("says why it couldn't, as an alert, and stays on the confirm step", async () => {
     renderItem(
       vi.fn(async () => {

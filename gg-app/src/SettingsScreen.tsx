@@ -12,7 +12,6 @@ import {
 import { BackButton } from "./BackButton";
 import { EmbeddedModal } from "./modal-embed";
 import { SettingsModal } from "./SettingsModal";
-import { LoginScreen } from "./LoginScreen";
 import { McpModal } from "./McpModal";
 import { SteroidsModal } from "./SteroidsModal";
 import { ConnectionPage } from "./kleio/LazyConnectionPage";
@@ -131,7 +130,7 @@ export function SettingsScreen({
       >
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: actionsSlot }}>
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
-            {(tab === "setup" || tab === "kleio") && (
+            {(tab === "setup" || tab === "kleio" || tab === "providers") && (
               <KleioSettingsPage tab={tab} onOpenTab={selectTab} onIntroduce={onIntroduce} />
             )}
             {tab === "general" && (
@@ -142,7 +141,6 @@ export function SettingsScreen({
                 />
               </EmbeddedModal>
             )}
-            {tab === "providers" && <LoginScreen />}
             {tab === "connection" && <ConnectionPage />}
             {tab === "apps" && <AppsPage />}
             {tab === "mcp" && (
