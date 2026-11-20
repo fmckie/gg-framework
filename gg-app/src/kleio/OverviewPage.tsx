@@ -522,6 +522,9 @@ export function OverviewPage({
               // Connection opens on what was asked for: its steps, or Always on.
               if (row.id === "host")
                 leaveSettingsIntent(row.extra ? "connection-always-on" : "connection-fix");
+              // Apps and Tools open on what needs fixing.
+              if (row.id === "apps") leaveSettingsIntent("apps-fix");
+              if (row.id === "tools") leaveSettingsIntent("tools-fix");
               onOpenTab(row.tab);
             }}
             onRetry={() => again(true)}

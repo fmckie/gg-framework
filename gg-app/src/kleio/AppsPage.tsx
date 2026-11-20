@@ -3,6 +3,9 @@
 // catalogue below is a searchable grid. Sign-in happens in the browser, and the
 // page notices when it's done.
 //
+// This file loads, searches, connects and disconnects for both layouts. The
+// phone's markup is below; the desktop's is the shelf (AppsShelf.tsx).
+//
 // Logos come from Composio's logo CDN, addressed by the app's slug — never
 // from the catalogue's free-form logo links, which can point anywhere. The
 // app's content security policy allows images from that one origin only.
@@ -35,8 +38,9 @@ import {
   type Toolkit,
 } from "./kleioApi";
 import { connectionState, type ConnectionState } from "./connectionState";
-import { KeyForm, setupKeyError } from "./KeyForm";
-import { RemoveGroup, RemoveItem } from "./RemoveGroup";
+import { AppsShelf } from "./AppsShelf";
+import { KeyForm } from "./KeyForm";
+import { takeSettingsIntent } from "./settingsIntent";
 
 /** The one image origin the CSP allows (src-tauri/tauri.conf.json). */
 export const LOGO_ORIGIN = "https://logos.composio.dev";
@@ -158,7 +162,8 @@ export function AppsPage(): React.ReactElement {
   const [loadingMore, setLoadingMore] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** The last thing that went wrong. `list`: the host couldn't be asked for your apps. */
+  const [error, setError] = useState<{ text: string; list: boolean } | null>(null);
   /** The last connect needs the user's own keys in Composio: offer the way there. */
   const [setupFor, setSetupFor] = useState<string | null>(null);
   /** Apps found to need no sign-in after a connect was refused (older hosts). */
@@ -186,7 +191,7 @@ export function AppsPage(): React.ReactElement {
       setConnections(r.connections);
       setError(null);
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: true });
     }
   }, []);
 
@@ -225,7 +230,7 @@ export function AppsPage(): React.ReactElement {
           setToolkits(p.toolkits);
           setCursor(p.nextCursor);
         })
-        .catch((e: unknown) => live && setError(errorText(e)));
+        .catch((e: unknown) => live && setError({ text: errorText(e), list: false }));
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       live = false;
@@ -247,7 +252,7 @@ export function AppsPage(): React.ReactElement {
       });
       setCursor(p.nextCursor);
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: false });
     } finally {
       setLoadingMore(false);
     }
@@ -266,7 +271,7 @@ export function AppsPage(): React.ReactElement {
         // Nothing to connect: show the app as ready instead of an error.
         setNoSignIn((s) => new Set(s).add(slug));
       } else {
-        setError(appErrorText(e));
+        setError({ text: appErrorText(e), list: false });
         if (needsSetup(e)) setSetupFor(slug);
       }
     } finally {
@@ -282,10 +287,59 @@ export function AppsPage(): React.ReactElement {
       setConfirmRemove(null);
       await load();
     } catch (e) {
-      setError(errorText(e));
+      setError({ text: errorText(e), list: false });
     } finally {
       setPending(null);
     }
+  }
+
+  // What Overview's Fix asked the desktop's page for, if it did: read once.
+  const [toReconnect] = useState(() => desktop && takeSettingsIntent() === "apps-fix");
+  if (desktop) {
+    const connected = connections.filter((c) => connectionState(c.status) === "connected");
+    return (
+      <>
+        <SettingsHeaderStatus>
+          {configured === true && (
+            <Badge color={connected.length > 0 ? theme.success : undefined}>
+              {`${connected.length} connected`}
+            </Badge>
+          )}
+        </SettingsHeaderStatus>
+        <AppsShelf
+          words={{ logoUrl, categoryLabel, authConfigsUrl: COMPOSIO_AUTH_CONFIGS_URL }}
+          configured={configured}
+          connections={connections}
+          listFailed={error?.list === true}
+          error={error && !error.list ? error.text : null}
+          needsOwnKeys={setupFor !== null}
+          search={search}
+          onSearch={setSearch}
+          toolkits={toolkits}
+          hasMore={cursor !== null}
+          loadingMore={loadingMore}
+          onMore={() => void more()}
+          pending={pending}
+          noSignIn={noSignIn}
+          keys={keys}
+          focusReconnect={toReconnect}
+          onConnect={(slug) => void connect(slug)}
+          onRetry={() => void load()}
+          onDisconnect={async (c) => {
+            await disconnect(c.id);
+            await load();
+          }}
+          onKeySaved={(status) => {
+            setKeys(status);
+            void load();
+          }}
+          onRemoveKey={async () => {
+            setKeys(await removeSetupKey("composio"));
+            await load();
+          }}
+        />
+      </>
+    );
   }
 
   if (configured === false) {
@@ -298,17 +352,7 @@ export function AppsPage(): React.ReactElement {
           Add a Composio API key and Gmail, Calendar, Notion and hundreds more can work for Kleio
           and every specialist.
         </p>
-        {keys && !keys.admin ? (
-          <p className="settings-desc">Only your admin device can add the key.</p>
-        ) : (
-          <KeyForm
-            name="composio"
-            onSaved={(status) => {
-              if (desktop) setKeys(status);
-              void load();
-            }}
-          />
-        )}
+        <KeyForm name="composio" onSaved={() => void load()} />
       </SettingsCard>
     );
   }
@@ -333,7 +377,7 @@ export function AppsPage(): React.ReactElement {
 
       {error && (
         <div className="kleio-error app-error" role="alert">
-          <span>{error}</span>
+          <span>{error.text}</span>
           {setupFor && (
             <button
               type="button"
@@ -513,29 +557,6 @@ export function AppsPage(): React.ReactElement {
           </>
         )}
       </SettingsCard>
-
-      {keys?.keys.composio === "env" && (
-        <p className="app-key-note">
-          <span className="app-key-note-label">Composio key</span>
-          Set on the host itself, so it can't be changed here.
-        </p>
-      )}
-      {keys?.admin && keys.keys.composio === "saved" && (
-        <RemoveGroup>
-          <RemoveItem
-            what="Composio key, saved on your host"
-            ask="Remove Composio key"
-            confirm="Remove Composio key"
-            busyText="Removing…"
-            hint="Kleio and your specialists can't use your apps until a key is added again."
-            onRemove={async () => {
-              setKeys(await removeSetupKey("composio"));
-              await load();
-            }}
-            describeError={(e) => setupKeyError("composio", e)}
-          />
-        </RemoveGroup>
-      )}
     </>
   );
 }

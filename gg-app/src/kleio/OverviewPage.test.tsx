@@ -754,13 +754,63 @@ describe("OverviewPage's notes for Connection", () => {
     expect(takeSettingsIntent()).toBeNull();
   });
 
-  it("no other row's Fix leaves a note", async () => {
+  it("no other row leaves a note: Models, Voice, Dictation and Brain", async () => {
+    vi.mocked(authStatusWithError).mockResolvedValue({ providers: [], error: "not answering" });
+    vi.mocked(getDictationSetup).mockResolvedValue({
+      state: "failed",
+      reason: "offline",
+      bytes: 138_853_314,
+    });
+    vi.mocked(getVoiceStatus).mockResolvedValue(voice(false));
+    const onOpenTab = await renderPage();
+    for (const [name, tab] of [
+      ["Fix Models", "providers"],
+      ["Fix Dictation", "kleio"],
+      ["Set up Voice", "kleio"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      expect(onOpenTab).toHaveBeenLastCalledWith(tab);
+      expect(takeSettingsIntent()).toBeNull();
+    }
+    fireEvent.click(within(row("brain")).getByRole("link"));
+    expect(onOpenTab).toHaveBeenLastCalledWith("kleio");
+    expect(takeSettingsIntent()).toBeNull();
+  });
+});
+
+describe("OverviewPage's notes for Apps and Tools", () => {
+  beforeEach(() => {
+    takeSettingsIntent();
+  });
+
+  it("Fix on the Apps row asks Apps for what needs reconnecting", async () => {
+    vi.mocked(listConnections).mockResolvedValue({
+      configured: true,
+      connections: [app("Gmail", "EXPIRED"), app("Slack")],
+    });
+    const onOpenTab = await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Fix Apps" }));
+    expect(onOpenTab).toHaveBeenCalledWith("apps");
+    expect(takeSettingsIntent()).toBe("apps-fix");
+  });
+
+  it("Fix on the Tools row asks Tools for what needs fixing", async () => {
     vi.mocked(listMcpServers).mockResolvedValue([
       server("linear", { ok: false, toolCount: 0, error: "spawn ENOENT" }),
     ]);
     const onOpenTab = await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Fix Tools" }));
     expect(onOpenTab).toHaveBeenCalledWith("mcp");
+    expect(takeSettingsIntent()).toBe("tools-fix");
+  });
+
+  it("the Apps and Tools rows themselves open their pages with no note", async () => {
+    const onOpenTab = await renderPage();
+    fireEvent.click(within(row("apps")).getByRole("link"));
+    expect(onOpenTab).toHaveBeenLastCalledWith("apps");
+    expect(takeSettingsIntent()).toBeNull();
+    fireEvent.click(within(row("tools")).getByRole("link"));
+    expect(onOpenTab).toHaveBeenLastCalledWith("mcp");
     expect(takeSettingsIntent()).toBeNull();
   });
 });

@@ -1954,3 +1954,739 @@ html:not(.platform-ios)
     padding: 0 10px;
   }
 }
+
+/* ═══ Slice 8d: Apps and Tools ═════════════════════════════════════════════
+   The desktop's Apps page (AppsShelf.tsx) is set in the sans throughout. Tools
+   (ToolsPage.tsx) sets its bench in the app's mono: the ruler, names, counts,
+   each server's kind and short form, commands and the fields. Its headings,
+   buttons, sentences, notes and steps are in the sans. Nothing moves on
+   either page. */
+
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) .btn-sm {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-page, .tl-page) > .st-danger,
+html:not(.platform-ios) .settings-screen .ap-page > .app-key-note {
+  margin-top: 30px;
+}
+html:not(.platform-ios) .settings-screen .st-text-btn:disabled {
+  cursor: default;
+}
+
+/* ── Apps ── the shelf: every connection stands on one hairline, its state on
+   the rim of its tile and in a line under its name. */
+html:not(.platform-ios) .settings-screen .ap-shelf-wrap {
+  /* One app's place on the shelf; AppsShelf.tsx reads it to fill each row. */
+  --ap-item: 224px;
+  padding: 8px 0 28px;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+/* The shelf itself: one plain hairline under the icons' feet, fading at both
+   ends. No light under it. */
+html:not(.platform-ios) .settings-screen .ap-shelf-row::before {
+  position: absolute;
+  top: 62px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: rgb(255 255 255 / 0.22);
+  content: "";
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 16%, #000 84%, transparent);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ap-shelf.is-empty .ap-shelf-row::before {
+  opacity: 0.6;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-item, .ap-slot) {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--ap-item);
+  padding: 6px 10px 0;
+}
+html:not(.platform-ios) .settings-screen .ap-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+/* A place nothing stands on yet. */
+html:not(.platform-ios) .settings-screen .ap-slot {
+  height: 74px;
+}
+html:not(.platform-ios) .settings-screen .ap-slot::before {
+  display: block;
+  box-sizing: border-box;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto;
+  border: 1px dashed rgb(255 255 255 / 0.2);
+  border-radius: 24%;
+  content: "";
+}
+/* An app's tile: a hairline around its first letter. Once its logo has
+   loaded the tile turns light, so a dark mark stays legible: the page's one
+   filled thing. */
+html:not(.platform-ios) .settings-screen .ap-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid rgb(255 255 255 / 0.26);
+  border-radius: 24%;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ap-icon.has-logo {
+  border-color: transparent;
+  background: #f3efef;
+}
+html:not(.platform-ios) .settings-screen .ap-icon img {
+  display: block;
+  object-fit: contain;
+}
+/* Still loading: in place, so it does load, and not yet seen. */
+html:not(.platform-ios) .settings-screen .ap-icon:not(.has-logo) img {
+  position: absolute;
+  opacity: 0;
+}
+html:not(.platform-ios) .settings-screen .ap-icon-letter {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+html:not(.platform-ios) .settings-screen .ap-item .ap-icon-letter {
+  font-size: 21px;
+  font-weight: 400;
+}
+/* The mark: verdigris filled when connected; a lapis ring while it waits on
+   you (signing in, expired, didn't connect); a muted hollow ring otherwise. */
+html:not(.platform-ios) .settings-screen .ap-dot {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+  background: var(--bg);
+}
+html:not(.platform-ios) .settings-screen .ap-dot.is-connected {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .ap-dot:is(.is-pending, .is-expired, .is-failed) {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-name {
+  max-width: 100%;
+  margin-top: 14px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+/* The line wraps and is never cut. */
+html:not(.platform-ios) .settings-screen .ap-line {
+  max-width: 100%;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .settings-screen
+  .ap-item:is(.is-pending, .is-expired, .is-failed)
+  .ap-line {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn {
+  margin-left: 8px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  color: var(--kleio-lapis);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--kleio-lapis) 50%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ap-inline-btn:disabled {
+  color: var(--kleio-muted);
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen :is(.ap-shelf-line, .ap-notice) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  margin: 16px 0 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-notice {
+  margin-top: 12px;
+  font-size: 14px;
+}
+html:not(.platform-ios) .settings-screen .ap-caption {
+  max-width: 560px;
+  margin: 12px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-setup {
+  max-width: 560px;
+  margin: 0 auto;
+}
+html:not(.platform-ios) .settings-screen .ap-setup-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+  text-align: center;
+}
+/* A connect that didn't work: the fault mark (a red ring), then why, in words. */
+html:not(.platform-ios) .settings-screen .ap-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  margin: 0 0 24px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ap-error > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  text-align: left;
+}
+html:not(.platform-ios) .settings-screen .ap-error > span::before {
+  flex: none;
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--error);
+  border-radius: 50%;
+  content: "";
+}
+
+/* Add an app: a labelled search, then two columns of hairline rows, quieter
+   than the shelf. Each row is one button. */
+html:not(.platform-ios) .settings-screen .ap-add {
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .ap-search {
+  position: relative;
+  display: block;
+  margin-top: 14px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-search > svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px 0 36px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--kleio-ink);
+  -webkit-appearance: none;
+  appearance: none;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-search-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input:disabled {
+  border-style: dashed;
+  cursor: not-allowed;
+}
+/* The field's clear button, in the page's muted ink rather than the system's. */
+html:not(.platform-ios) .settings-screen .ap-search-input::-webkit-search-cancel-button {
+  width: 14px;
+  height: 14px;
+  background: var(--kleio-muted);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 4l8 8M12 4l-8 8' stroke='black' stroke-width='1.3' stroke-linecap='round'/></svg>")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 4l8 8M12 4l-8 8' stroke='black' stroke-width='1.3' stroke-linecap='round'/></svg>")
+    center / contain no-repeat;
+}
+html:not(.platform-ios) .settings-screen .ap-search-input::-webkit-search-cancel-button:hover {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-add-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-add-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .ap-add-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .ap-add-row.is-ready,
+html:not(.platform-ios) .settings-screen button.ap-add-row:disabled {
+  cursor: default;
+}
+html:not(.platform-ios) .settings-screen button.ap-add-row:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.03);
+}
+html:not(.platform-ios) .settings-screen .ap-add-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .ap-add-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .ap-add-cat {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-add-how {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  white-space: nowrap;
+}
+html:not(.platform-ios)
+  .settings-screen
+  button.ap-add-row:is(:hover, :focus-visible):not(:disabled)
+  :is(.ap-add-name, .ap-add-how) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .ap-add-how.is-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kleio-done);
+}
+/* Inside the row's own hairline, so the ring is never cut by a neighbour. */
+html:not(.platform-ios) .settings-screen .ap-add-row:focus-visible {
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .settings-screen .ap-add-empty {
+  margin: 16px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ap-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+/* ── Tools ── the workbench: one row per server, its tools as ticks on one
+   shared scale. */
+html:not(.platform-ios) .settings-screen .tl-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+html:not(.platform-ios) .settings-screen .tl-head-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Global or Project: two pressed segments. */
+html:not(.platform-ios) .settings-screen .tl-scope {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn {
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  cursor: pointer;
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-scope-btn.is-selected {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.32);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-lede {
+  margin: 6px 0 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-text-2);
+}
+/* The fields: a hairline box with no fill, lapis while it has focus (and the
+   ring every control gets). */
+html:not(.platform-ios) .settings-screen .tl-input {
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .settings-screen .tl-project {
+  display: block;
+  width: 100%;
+  margin: 0 0 14px;
+}
+
+html:not(.platform-ios) .settings-screen .tl-bench {
+  border-top: 1px solid rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-ruler, .tl-row) {
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 220px) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 14px;
+}
+html:not(.platform-ios) .settings-screen .tl-ruler {
+  height: 34px;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-ruler-name {
+  grid-column: 2;
+}
+html:not(.platform-ios) .settings-screen .tl-ruler-scale {
+  position: relative;
+  grid-column: 3;
+  align-self: stretch;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .tl-mark {
+  position: absolute;
+  bottom: 9px;
+  left: calc(var(--n) * var(--tl-pitch));
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  transform: translateX(-50%);
+}
+html:not(.platform-ios) .settings-screen .tl-mark::after {
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  width: 1px;
+  height: 5px;
+  background: rgb(255 255 255 / 0.32);
+  content: "";
+}
+html:not(.platform-ios) .settings-screen .tl-unit {
+  position: absolute;
+  bottom: 9px;
+  left: calc(var(--n) * var(--tl-pitch) + 20px);
+}
+html:not(.platform-ios) .settings-screen .tl-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+html:not(.platform-ios) .settings-screen .tl-row {
+  row-gap: 4px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+/* The mark: verdigris filled for working; a lapis ring for "needs sign-in"; a
+   red ring for "failed" and "held back". The word is on the row too. */
+html:not(.platform-ios) .settings-screen .tl-dot {
+  justify-self: center;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--kleio-done);
+  border-radius: 50%;
+  background: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .tl-row.is-auth .tl-dot {
+  border-color: var(--kleio-lapis);
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .tl-row:is(.is-failed, .is-held) .tl-dot {
+  border-color: var(--error);
+  background: none;
+}
+html:not(.platform-ios) .settings-screen .tl-name {
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .tl-track {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+/* Ticks: one per tool, every fifth taller, on the ruler's pitch. A line holds
+   as many as the ruler shows (ToolsPage.tsx measures it), then they wrap. */
+html:not(.platform-ios) .settings-screen .tl-ticks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px calc(var(--tl-pitch) - 1px);
+  box-sizing: border-box;
+  max-width: calc(var(--tl-per-row, 60) * var(--tl-pitch));
+  min-height: 16px;
+  padding-left: calc(var(--tl-pitch) - 1px);
+}
+html:not(.platform-ios) .settings-screen .tl-tick {
+  flex: none;
+  width: 1px;
+  height: 11px;
+  background: rgb(246 241 241 / 0.8);
+}
+html:not(.platform-ios) .settings-screen .tl-tick:nth-child(5n) {
+  height: 16px;
+}
+html:not(.platform-ios) .settings-screen .tl-row:not(.is-ok) .tl-tick {
+  background: rgb(246 241 241 / 0.22);
+}
+html:not(.platform-ios) .settings-screen .tl-tick-run {
+  flex: 0 0 56px;
+  align-self: center;
+  height: 0;
+  border-top: 1px dotted rgb(255 255 255 / 0.26);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-more, .tl-count) {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .settings-screen .tl-more {
+  align-self: center;
+  font-size: 11px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-count {
+  flex: none;
+  margin-left: 10px;
+  font-size: 12px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .tl-row.is-auth .tl-count {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .tl-row:is(.is-failed, .is-held) .tl-count {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .tl-action {
+  justify-self: end;
+}
+html:not(.platform-ios) .settings-screen :is(.tl-where, .tl-held, .tl-notes, .tl-fix) {
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+html:not(.platform-ios) .settings-screen .tl-where {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--kleio-muted);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen :is(.tl-held, .tl-notes) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .tl-why {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen :is(.tl-next, .tl-note-flag) {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .tl-note-rest {
+  color: var(--kleio-muted);
+}
+/* Fix's steps: no box, one rule down their left. */
+html:not(.platform-ios) .settings-screen .tl-fix {
+  margin-top: 10px;
+  padding: 4px 0 4px 16px;
+  border-left: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .settings-screen .tl-fix[hidden] {
+  display: none;
+}
+html:not(.platform-ios) .settings-screen .tl-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .tl-empty {
+  margin: 0;
+  padding: 22px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .tl-caption {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+/* Add a server: the field and Add on one row. */
+html:not(.platform-ios) .settings-screen .tl-add {
+  margin-top: 32px;
+  padding-top: 22px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .settings-screen .tl-add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+html:not(.platform-ios) .settings-screen .tl-add-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 20px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .settings-screen .tl-note {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--kleio-muted);
+}
+
+/* ── Narrower windows ── Add an app is one column; the shelf's places draw
+   closer; a server's ticks go under its name. */
+@media (max-width: 759px) {
+  html:not(.platform-ios) .settings-screen .ap-add-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  html:not(.platform-ios) .settings-screen .ap-shelf-wrap {
+    --ap-item: 208px;
+  }
+  html:not(.platform-ios) .settings-screen :is(.tl-ruler, .tl-row) {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+  }
+  html:not(.platform-ios) .settings-screen .tl-ruler-name {
+    display: none;
+  }
+  html:not(.platform-ios) .settings-screen .tl-ruler-scale {
+    grid-column: 2 / -1;
+  }
+  html:not(.platform-ios) .settings-screen .tl-track {
+    grid-row: 2;
+    grid-column: 2 / -1;
+  }
+}

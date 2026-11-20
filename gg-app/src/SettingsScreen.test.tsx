@@ -5,7 +5,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 // Each page is exercised by its own tests; here they are stand-ins, so this
 // file covers only the screen: the header, the tabs, and Back.
 vi.mock("./SettingsModal", () => ({ SettingsModal: () => <p>general page</p> }));
-vi.mock("./McpModal", () => ({ McpModal: () => <p>mcp page</p> }));
+// The desktop's Tools page, and the phone's MCP page.
+vi.mock("./kleio/ToolsPage", () => ({ ToolsPage: () => <p>tools page</p> }));
+vi.mock("./McpModal", () => ({ McpModal: () => <p>phone mcp page</p> }));
 vi.mock("./SteroidsModal", () => ({ SteroidsModal: () => <p>steroids page</p> }));
 vi.mock("./kleio/LazyConnectionPage", async () => {
   const { SettingsHeaderAction, SettingsHeaderStatus } = await import("./settings-header");
@@ -125,7 +127,7 @@ describe("SettingsScreen", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
 
     expect(heading()).toBe("Tools");
-    expect(screen.getByText("mcp page")).toBeTruthy();
+    expect(screen.getByText("tools page")).toBeTruthy();
     expect(screen.queryByText("general page")).toBeNull();
   });
 
@@ -309,6 +311,23 @@ describe("SettingsScreen's two layouts", () => {
     expect(screen.getByText("phone providers page")).toBeTruthy();
     expect(screen.queryByText("providers page")).toBeNull();
     expect(screen.getByText("3 connected")).toBeTruthy();
+  });
+
+  it("opens the workbench for Tools on the desktop", async () => {
+    await renderScreen({ initialTab: "mcp" });
+
+    expect(heading()).toBe("Tools");
+    expect(screen.getByText("tools page")).toBeTruthy();
+    expect(screen.queryByText("phone mcp page")).toBeNull();
+  });
+
+  it("keeps the phone's MCP page, drawn as a page", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "mcp" });
+
+    expect(heading()).toBe("MCP");
+    expect(screen.getByText("phone mcp page")).toBeTruthy();
+    expect(screen.queryByText("tools page")).toBeNull();
   });
 
   it("keeps the phone's Setup page able to switch tabs and to introduce you", async () => {

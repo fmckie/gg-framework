@@ -8,6 +8,14 @@ describe("settingsIntent", () => {
     expect(takeSettingsIntent()).toBeNull();
   });
 
+  it("reads the notes for Apps and for Tools once each", () => {
+    for (const note of ["apps-fix", "tools-fix"] as const) {
+      leaveSettingsIntent(note);
+      expect(takeSettingsIntent()).toBe(note);
+      expect(takeSettingsIntent()).toBeNull();
+    }
+  });
+
   it("has nothing to read when none was left", () => {
     expect(takeSettingsIntent()).toBeNull();
   });
