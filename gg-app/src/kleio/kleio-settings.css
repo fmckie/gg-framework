@@ -2690,3 +2690,278 @@ html:not(.platform-ios) .settings-screen .tl-note {
     grid-column: 2 / -1;
   }
 }
+
+/* ═══ Slice 8e: General, Steroids and About ════════════════════════════════
+   General (GeneralPage.tsx) and Steroids (SteroidsPage.tsx) are set in the
+   sans, but for the folder's field, which is in the app's mono. About
+   (AboutColophon.tsx) is the maker's page: the wordmark in Bungee, his one
+   statement in Mukta Malar, the rest in the sans. One thing moves on the
+   three pages, once, and only without reduced motion: the pen that signs
+   About's mark the first time the page is opened. */
+
+html:not(.platform-ios) .settings-screen :is(.gn-page, .sr-page) {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  padding-top: 18px;
+  letter-spacing: 0;
+}
+/* Each page leads with one section: its label, one line, then what it holds. */
+html:not(.platform-ios) .settings-screen :is(.gn-lead, .sr-lead) {
+  padding: 16px 0 40px;
+}
+
+/* ── Shared ── a state said in words, with its mark: done is verdigris, a next
+   step lapis, a fault red, and what isn't there muted and dashed. */
+html:not(.platform-ios) .settings-screen .settings-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  /* As wide as its words, so the ring it takes with focus fits them. */
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .settings-status > svg {
+  flex: none;
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-good > svg {
+  color: var(--kleio-done);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-next > svg {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-bad > svg {
+  color: var(--error);
+}
+html:not(.platform-ios) .settings-screen .settings-status:is(.is-none, .is-checking),
+html:not(.platform-ios) .settings-screen .settings-status.is-none > svg {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .settings-status.is-none .sr-state {
+  color: var(--kleio-ink);
+}
+/* A button at work (Saving…, Installing…) keeps keyboard focus and reads as
+   off; `:not(.primary)` so it outranks the outline buttons' hover and focus. */
+html:not(.platform-ios)
+  .settings-screen
+  :is(.gn-page, .sr-page)
+  .modal-btn[aria-disabled="true"]:not(.primary) {
+  border: 1px dashed var(--kleio-rule-strong);
+  background: none;
+  color: var(--kleio-muted);
+  cursor: default;
+}
+/* A link out of the app: underlined ink with a small arrow, lapis on hover. */
+html:not(.platform-ios) .settings-screen .ab-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  color: var(--kleio-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--kleio-muted);
+  text-underline-offset: 4px;
+}
+html:not(.platform-ios) .settings-screen .ab-link:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+  text-decoration-color: currentColor;
+}
+html:not(.platform-ios) .settings-screen .ab-link-arrow {
+  flex: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ab-link:is(:hover, :focus-visible) .ab-link-arrow {
+  color: currentColor;
+}
+
+/* ── General ── the folder's field keeps a measure, with Browse and Save
+   beside it; Permissions and Effects are Kleio's quiet row. */
+html:not(.platform-ios) .settings-screen .gn-lead .tl-add-row {
+  max-width: 640px;
+  margin-top: 0;
+}
+html:not(.platform-ios) .settings-screen .gn-lead .modal-btn {
+  flex: none;
+  height: 38px;
+  padding: 0 20px;
+}
+/* The quiet body stretches its children; Grant is as wide as its words. */
+html:not(.platform-ios) .settings-screen .gn-grant {
+  align-self: flex-start;
+}
+html:not(.platform-ios) .settings-screen .gn-page .kl-quiet-body .kl-quiet-note {
+  margin: 0;
+}
+
+/* ── Steroids ── the corpus's figures beside the state, quieter; the hint or
+   the error under it; Install; then that it's free, and the README. */
+html:not(.platform-ios) .settings-screen .sr-corpus {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .sr-detail {
+  max-width: 720px;
+  margin: 8px 0 0;
+}
+/* The error is the tool's own: its lines are kept, and a long path wraps. */
+html:not(.platform-ios) .settings-screen .kl-error.sr-detail {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .settings-screen .sr-install {
+  height: 38px;
+  margin-top: 18px;
+  padding: 0 20px;
+}
+/* The link's own padding is taken back, so its words meet the column's edge. */
+html:not(.platform-ios) .settings-screen .sr-readme {
+  margin: 8px 0 0 -4px;
+}
+
+/* ── About ── one centred 520px measure, like the last page of a book: the
+   mark and the rule it draws, the maker, the colophon, the version. */
+html:not(.platform-ios) .settings-screen .ab-page {
+  width: 520px;
+  max-width: 100%;
+  margin: 0 auto;
+  padding-top: 28px;
+  letter-spacing: 0;
+  text-align: center;
+}
+/* The signature's SVG lies over the head: the mark, 112px wide, at its top,
+   and the rule along its last pixel row, 220px down. The mark is 106px tall;
+   the wordmark starts 22px under it. */
+html:not(.platform-ios) .settings-screen .ab-head {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 221px;
+  padding-top: 128px;
+}
+html:not(.platform-ios) .settings-screen .ab-sign {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  /* The view box's own height at the full measure, at any width. */
+  height: calc(520px * 752 / 1769);
+  pointer-events: none;
+}
+html:not(.platform-ios) .settings-screen .ab-pen {
+  fill: none;
+  stroke: var(--kleio-ink);
+  stroke-width: 34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html:not(.platform-ios) .settings-screen .ab-rule {
+  fill: var(--kleio-rule-strong);
+}
+/* The brand's wordmark as it is everywhere (kleio-theme.css), smaller. */
+html:not(.platform-ios) .settings-screen .ab-wordmark {
+  font-size: 30px;
+  line-height: 1;
+}
+html:not(.platform-ios) .settings-screen .ab-tagline {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ab-maker {
+  margin-top: 40px;
+}
+html:not(.platform-ios) .settings-screen .ab-credit {
+  margin: 0;
+}
+/* Tracked caps end on a letter-space; this pad keeps the words centred. */
+html:not(.platform-ios) .settings-screen .ab-credit .st-label {
+  display: block;
+  padding-left: 0.14em;
+}
+html:not(.platform-ios) .settings-screen .ab-name {
+  display: block;
+  margin-top: 10px;
+  font-size: 34px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .settings-screen .ab-role {
+  margin: 6px 0 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--kleio-muted);
+}
+/* The one sentence on the page a person says: the face that carries what you
+   type and what Kleio replies, upright, with no quotation marks. */
+html:not(.platform-ios) .settings-screen .ab-statement {
+  /* Two even lines at the full measure. */
+  max-width: 500px;
+  margin: 22px auto 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 17px;
+  line-height: 1.55;
+  text-wrap: balance;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .settings-screen .ab-elsewhere {
+  margin: 18px 0 0;
+}
+html:not(.platform-ios) .settings-screen .ab-colophon {
+  margin-top: 36px;
+}
+html:not(.platform-ios) .settings-screen .ab-short-rule {
+  width: 48px;
+  height: 0;
+  margin: 0 auto 24px;
+  border: 0;
+  border-top: 1px solid var(--kleio-rule-strong);
+}
+html:not(.platform-ios) .settings-screen :is(.ab-colophon-line, .ab-version) {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  /* A line that wraps breaks evenly, not one word short. */
+  text-wrap: balance;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .settings-screen .ab-version {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* The signature: once, on the first open, with motion welcome. The pen masks
+   the mark only while it signs (AboutColophon.tsx); at rest the mark is
+   unmasked, so the page ends on the brand's own mark, which is also the
+   reduced-motion frame. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not(.platform-ios) .settings-screen .ab-sign.is-signing .ab-pen {
+    stroke-dasharray: 1 2;
+    animation: kleio-ab-sign 2.2s var(--ease-glow) 320ms both;
+  }
+}
+/* The mark takes the first 60% (its stroke is 0.523 of the pen's length); the
+   flourish and the rule take the rest. */
+@keyframes kleio-ab-sign {
+  from {
+    stroke-dashoffset: 1;
+  }
+  60% {
+    stroke-dashoffset: 0.477;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}

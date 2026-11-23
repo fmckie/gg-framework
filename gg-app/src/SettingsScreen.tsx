@@ -10,17 +10,12 @@ import {
   SyringeIcon,
 } from "@phosphor-icons/react";
 import { BackButton } from "./BackButton";
-import { EmbeddedModal } from "./modal-embed";
-import { SettingsModal } from "./SettingsModal";
-import { SteroidsModal } from "./SteroidsModal";
 import { ConnectionPage } from "./kleio/LazyConnectionPage";
 import { AppsPage } from "./kleio/LazyAppsPage";
-import { AboutPage } from "./kleio/AboutPage";
 import { KleioSettingsPage, kleioSettingsTabs } from "./kleio/settingsLayout";
 import { SettingsTabBar, type SettingsTab } from "./SettingsTabBar";
 import { SettingsHeaderProvider } from "./settings-header";
 import { waitForReady, getSteroidsStatus, onSteroidsChange, type SteroidsStatus } from "./agent";
-import { toast } from "./toast";
 import { isPhone } from "./platform";
 
 // kleio: "kleio" is the desktop's ninth tab (kleio/settingsLayout.tsx).
@@ -100,9 +95,6 @@ export function SettingsScreen({
   const tabs = kleioSettingsTabs(allTabs, steroids);
   const current = tabs.find((t) => t.id === tab);
 
-  // Pages stay put after their own Save/Close (the Back button leaves).
-  const stay = (): void => {};
-
   function selectTab(id: SettingsTabId): void {
     setSwitched(true);
     setTab(id);
@@ -129,25 +121,18 @@ export function SettingsScreen({
       >
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: actionsSlot }}>
           <div className={`settings-page ${switched ? "is-switching" : "is-entering"}`}>
-            {(tab === "setup" || tab === "kleio" || tab === "providers" || tab === "mcp") && (
-              <KleioSettingsPage tab={tab} onOpenTab={selectTab} onIntroduce={onIntroduce} />
-            )}
-            {tab === "general" && (
-              <EmbeddedModal>
-                <SettingsModal
-                  onClose={stay}
-                  onSaved={() => toast("Project folder saved.", "success")}
-                />
-              </EmbeddedModal>
+            {/* kleio: every page but these two is picked per device (settingsLayout.tsx). */}
+            {tab !== "connection" && tab !== "apps" && (
+              <KleioSettingsPage
+                tab={tab}
+                onOpenTab={selectTab}
+                onIntroduce={onIntroduce}
+                steroids={steroids}
+                onSteroids={setSteroids}
+              />
             )}
             {tab === "connection" && <ConnectionPage />}
             {tab === "apps" && <AppsPage />}
-            {tab === "steroids" && (
-              <EmbeddedModal>
-                <SteroidsModal status={steroids} onStatus={setSteroids} onClose={stay} />
-              </EmbeddedModal>
-            )}
-            {tab === "about" && <AboutPage />}
           </div>
         </SettingsHeaderProvider>
       </div>

@@ -323,7 +323,7 @@
         "flags": "giu"
       },
       "expectedOccurrences": {
-        "tracked": 1579,
+        "tracked": 1575,
         "packed": 0
       },
       "bucket": "compatibility",
@@ -8257,44 +8257,6 @@
       "owner": "Kleio framework maintainers",
       "reason": "Kleio Desktop names GG Coder (and its ~/.gg / com.ggcoder.app / ggcoder identifiers) only to keep the two apps apart: separate app id, state dir and labels.",
       "removeWhen": "Only if GG Coder and Kleio Desktop stop sharing a Mac, or the separation guard moves elsewhere."
-    },
-    {
-      "id": "kleio-separation-gg-app-src-kleio-aboutpage-test-tsx",
-      "path": "gg-app/src/kleio/AboutPage.test.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:expect\\(screen\\.getByText\\(\"Built on GG Coder by Ken Kai\"\\)\\)\\.toBeDefined\\(\\);)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
-      "removeWhen": "Only if the credit line or the separation note is removed."
-    },
-    {
-      "id": "kleio-separation-gg-app-src-kleio-aboutpage-tsx",
-      "path": "gg-app/src/kleio/AboutPage.tsx",
-      "scope": "content",
-      "targets": [
-        "tracked"
-      ],
-      "match": {
-        "regex": "(?:<p className=\"about-credit\">Built on GG Coder by Ken Kai<\\/p>)",
-        "flags": "gu"
-      },
-      "expectedOccurrences": {
-        "tracked": 1
-      },
-      "bucket": "compatibility",
-      "owner": "Kleio framework maintainers",
-      "reason": "Kleio Desktop names GG Coder only to credit Ken's work on its About page in Settings, or to state that the two apps stay apart.",
-      "removeWhen": "Only if the credit line or the separation note is removed."
     },
     {
       "id": "kleio-separation-gg-app-src-kleio-kleio-theme-css",

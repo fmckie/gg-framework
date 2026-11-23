@@ -4,11 +4,60 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 // Each page is exercised by its own tests; here they are stand-ins, so this
 // file covers only the screen: the header, the tabs, and Back.
-vi.mock("./SettingsModal", () => ({ SettingsModal: () => <p>general page</p> }));
+// The desktop's General page, and the phone's (SettingsModal, drawn as a page).
+// Each saves when pressed, and the phone's says how it is drawn.
+vi.mock("./kleio/GeneralPage", () => ({
+  GeneralPage: ({ onSaved }: { onSaved?: (root: string) => void }) => (
+    <button type="button" onClick={() => onSaved?.("/Users/you/Code")}>
+      general page
+    </button>
+  ),
+}));
+vi.mock("./SettingsModal", async () => {
+  const { useModalEmbedState } = await import("./modal-embed");
+  return {
+    SettingsModal: ({ onSaved }: { onSaved?: (root: string) => void }) => {
+      const drawn = useModalEmbedState();
+      return (
+        <button type="button" onClick={() => onSaved?.("/Users/you/Code")}>
+          {`phone general page (${drawn})`}
+        </button>
+      );
+    },
+  };
+});
 // The desktop's Tools page, and the phone's MCP page.
 vi.mock("./kleio/ToolsPage", () => ({ ToolsPage: () => <p>tools page</p> }));
 vi.mock("./McpModal", () => ({ McpModal: () => <p>phone mcp page</p> }));
-vi.mock("./SteroidsModal", () => ({ SteroidsModal: () => <p>steroids page</p> }));
+// The desktop's Steroids page, and the phone's (SteroidsModal, drawn as a page).
+// Each shows the status the screen holds, and reports a fault when pressed.
+vi.mock("./kleio/SteroidsPage", () => ({
+  SteroidsPage: ({
+    status,
+    onStatus,
+  }: {
+    status: { connected: boolean } | null;
+    onStatus: (s: { installed: boolean; connected: boolean; error?: string }) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onStatus({ installed: true, connected: false, error: "database is locked" })}
+    >
+      {`steroids page (${status ? (status.connected ? "connected" : "not connected") : "unknown"})`}
+    </button>
+  ),
+}));
+vi.mock("./SteroidsModal", async () => {
+  const { useModalEmbedState } = await import("./modal-embed");
+  return {
+    SteroidsModal: ({ status }: { status: { connected: boolean } | null }) => {
+      const drawn = useModalEmbedState();
+      return (
+        <p>{`phone steroids page (${drawn}, ${status?.connected ? "connected" : "not connected"})`}</p>
+      );
+    },
+  };
+});
 vi.mock("./kleio/LazyConnectionPage", async () => {
   const { SettingsHeaderAction, SettingsHeaderStatus } = await import("./settings-header");
   return {
@@ -91,15 +140,18 @@ vi.mock("./agent", () => ({
   getSteroidsStatus: vi.fn(),
   onSteroidsChange: () => () => {},
 }));
+vi.mock("./toast", () => ({ toast: vi.fn() }));
 
 import { getSteroidsStatus, type SteroidsStatus } from "./agent";
 import { SettingsScreen } from "./SettingsScreen";
+import { toast } from "./toast";
 
 beforeEach(() => {
   vi.mocked(getSteroidsStatus).mockResolvedValue({ installed: true, connected: true });
 });
 afterEach(() => {
   cleanup();
+  vi.mocked(toast).mockClear();
   document.documentElement.classList.remove("platform-ios");
 });
 
@@ -160,6 +212,7 @@ describe("SettingsScreen", () => {
     expect(screen.getByRole("tab", { name: "Steroids" }).getAttribute("aria-selected")).toBe(
       "true",
     );
+    expect(screen.getByText("steroids page (connected)")).toBeTruthy();
   });
 
   it("shows a page's status in the header only while that page is open", async () => {
@@ -382,5 +435,82 @@ describe("SettingsScreen's two layouts", () => {
     await withSteroids({ installed: true, connected: true, repos: 12 });
 
     expect(steroidsDot()).toBeNull();
+  });
+
+  it("opens the folder page for General on the desktop", async () => {
+    await renderScreen({ initialTab: "general" });
+
+    expect(heading()).toBe("General");
+    expect(screen.getByRole("button", { name: "general page" })).toBeTruthy();
+    expect(screen.queryByText(/phone general page/)).toBeNull();
+    // Save is on the page now: nothing is put in the header.
+    expect(document.querySelector(".settings-head-actions")?.childNodes).toHaveLength(0);
+  });
+
+  it("keeps the phone's General page, drawn as a page", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "general" });
+
+    expect(heading()).toBe("General");
+    expect(screen.getByRole("button", { name: "phone general page (embed)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "general page" })).toBeNull();
+  });
+
+  it("says the folder was saved when the desktop's General page saves", async () => {
+    await renderScreen({ initialTab: "general" });
+    expect(toast).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "general page" }));
+
+    expect(toast).toHaveBeenCalledOnce();
+    expect(toast).toHaveBeenCalledWith("Project folder saved.", "success");
+  });
+
+  it("says the folder was saved when the phone's General page saves", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "general" });
+
+    fireEvent.click(screen.getByRole("button", { name: "phone general page (embed)" }));
+
+    expect(toast).toHaveBeenCalledOnce();
+    expect(toast).toHaveBeenCalledWith("Project folder saved.", "success");
+  });
+
+  it("opens the one-section page for Steroids on the desktop, with the status the screen holds", async () => {
+    await renderScreen({ initialTab: "steroids" });
+
+    expect(heading()).toBe("Steroids");
+    expect(screen.getByRole("button", { name: "steroids page (connected)" })).toBeTruthy();
+    expect(screen.queryByText(/phone steroids page/)).toBeNull();
+  });
+
+  it("keeps the phone's Steroids page, drawn as a page, with the status the screen holds", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "steroids" });
+
+    expect(heading()).toBe("Steroids");
+    expect(screen.getByText("phone steroids page (embed, connected)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^steroids page/ })).toBeNull();
+  });
+
+  it("puts the dot on the Steroids tab when its page reports a fault", async () => {
+    await renderScreen({ initialTab: "steroids" });
+    expect(steroidsDot()).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "steroids page (connected)" }));
+
+    expect(screen.getByRole("button", { name: "steroids page (not connected)" })).toBeTruthy();
+    expect(steroidsDot()).not.toBeNull();
+    expect(document.querySelectorAll(".settings-tab-alert")).toHaveLength(1);
+  });
+
+  it("opens About through the one entry both layouts share", async () => {
+    await renderScreen({ initialTab: "about" });
+    expect(screen.getByText("about page")).toBeTruthy();
+    cleanup();
+
+    document.documentElement.classList.add("platform-ios");
+    await renderScreen({ initialTab: "about" });
+    expect(screen.getByText("about page")).toBeTruthy();
   });
 });
