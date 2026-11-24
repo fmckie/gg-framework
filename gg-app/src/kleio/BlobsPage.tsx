@@ -2,7 +2,8 @@
 // desktop the list is a cast on a shelf (CastList.tsx); on the iPhone, rows
 // laid out like Chats and Code. A specialist opens into its chat with a sidebar of cards on the left (job,
 // schedules, recent activity) that collapses from the header. New and edit are
-// full-page forms. Every change goes to the Mac mini, so the phone sees it too.
+// full-page forms: the Cast's on the desktop (CastForm.tsx), today's on the
+// iPhone. Every change goes to the Mac mini, so the phone sees it too.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
@@ -18,6 +19,7 @@ import { AgentAvatar, BlobAvatar } from "./BlobAvatar";
 import { BlobForm } from "./BlobForm";
 import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
+import { CastForm } from "./CastForm";
 import { CastList } from "./CastList";
 import { shortHost } from "./host-name";
 import {
@@ -104,14 +106,14 @@ export function BlobsPage({
 
   if (view.kind === "create" || view.kind === "edit") {
     const blob = view.kind === "edit" ? byId(view.id) : undefined;
-    return (
-      <BlobForm
-        {...(blob ? { blob } : {})}
-        others={(blobs ?? []).filter((b) => b.id !== blob?.id)}
-        onSaved={saved}
-        onCancel={() => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" })}
-      />
-    );
+    const form = {
+      ...(blob ? { blob } : {}),
+      others: (blobs ?? []).filter((b) => b.id !== blob?.id),
+      onSaved: saved,
+      onCancel: () => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" }),
+    };
+    // The iPhone keeps today's form; schedules stay in its chat's sidebar.
+    return isPhone() ? <BlobForm {...form} /> : <CastForm {...form} onChanged={load} />;
   }
 
   if (view.kind === "detail") {

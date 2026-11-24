@@ -53,17 +53,37 @@ vi.mock("./ThreadChat", async () => {
 vi.mock("./BlobSchedules", () => ({
   Schedules: ({ blob }: { blob: Blob }) => <p>schedules for {blob.name}</p>,
 }));
+// Both forms as one stand-in, marked with which it is: today's (the iPhone) or the Cast's.
+const formStub = vi.hoisted(
+  () =>
+    (which: string) =>
+    ({
+      blob,
+      onCancel,
+      onChanged,
+    }: {
+      blob?: Blob;
+      onCancel: () => void;
+      onChanged?: () => Promise<void>;
+    }) => (
+      <div data-form={which}>
+        <p>{blob ? `editing ${blob.name}` : "new agent form"}</p>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        {onChanged && (
+          <button type="button" onClick={() => void onChanged()}>
+            schedule changed
+          </button>
+        )}
+      </div>
+    ),
+);
 vi.mock("./BlobForm", async (importOriginal) => ({
   ...(await importOriginal<typeof BlobFormModule>()),
-  BlobForm: ({ blob, onCancel }: { blob?: Blob; onCancel: () => void }) => (
-    <div>
-      <p>{blob ? `editing ${blob.name}` : "new agent form"}</p>
-      <button type="button" onClick={onCancel}>
-        Cancel
-      </button>
-    </div>
-  ),
+  BlobForm: formStub("today"),
 }));
+vi.mock("./CastForm", () => ({ CastForm: formStub("cast") }));
 vi.mock("./kleioApi", async (importOriginal) => {
   const real = await importOriginal<typeof KleioApi>();
   return {
@@ -545,7 +565,7 @@ describe("the Cast shelf", () => {
     await renderCast(7);
     const courier = profile("Courier");
     expect(within(courier).getByText("since 14:08")).toBeTruthy();
-    expect(within(courier).getByText(/^Claude Haiku 4\.5 · Cloud/)).toBeTruthy();
+    expect(within(courier).getByText("Claude Haiku 4.5 · cloud")).toBeTruthy();
     const calls = within(courier).getByRole("list", { name: "Courier’s tool calls, oldest first" });
     expect(within(calls).getAllByRole("listitem")).toHaveLength(3);
     expect(within(calls).getByText(/^live · /)).toBeTruthy();
@@ -561,7 +581,7 @@ describe("the Cast shelf", () => {
     const runs = within(ledger).getAllByRole("listitem");
     expect(runs[0]?.className).toBe("is-failed");
     expect(runs[0]?.textContent).toContain("Gmail needs signing in");
-    expect(within(ledger).getByText(/Qwen3 14B · Private/)).toBeTruthy();
+    expect(within(ledger).getByText("Qwen3 14B · private, runs on your host")).toBeTruthy();
     expect(within(ledger).queryByText(/^since /)).toBeNull();
     // Only what the list can already do: no fix, run or schedule buttons here.
     expect(
@@ -575,12 +595,17 @@ describe("the Cast shelf", () => {
     await pick("Scout");
     expect(within(profile("Scout")).getByText("How to use it")).toBeTruthy();
     expect(within(profile("Scout")).getByText(/^No schedules\./)).toBeTruthy();
-    expect(within(profile("Scout")).getByText(/^Default · Claude Sonnet 4\.5/)).toBeTruthy();
+    expect(within(profile("Scout")).getByText("Default · Claude Sonnet 4.5 · cloud")).toBeTruthy();
     expect(listRuns).not.toHaveBeenCalled();
 
     // Paused: its schedule reads off.
     await pick("Gardener");
     expect(within(profile("Gardener")).getByText("Mon at 08:00 · off")).toBeTruthy();
+    expect(
+      within(profile("Gardener")).getByText(
+        "Llama 3.3 70B (Tinfoil) · private, in Tinfoil’s sealed cloud",
+      ),
+    ).toBeTruthy();
 
     fireEvent.click(within(profile("Gardener")).getByRole("button", { name: "Edit" }));
     expect(screen.getByText("editing Gardener")).toBeTruthy();
@@ -619,7 +644,7 @@ describe("the Cast shelf", () => {
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s && !s.includes("::"));
-    expect(still).toEqual([".cast-dot", ".cast-page *"]);
+    expect(still).toEqual([".cast-dot", ".cast-page *", ".cast-form *"]);
     // The hover lift is a plain transform, so it is switched off by name.
     expect(block?.[1]).toMatch(/\.cast-actor:hover \.cast-figure \{\s*transform: none;/);
 
@@ -653,6 +678,47 @@ describe("the Cast shelf", () => {
     ].map((m) => (m[1] ?? "").trim());
     expect(animated.length).toBeGreaterThan(16);
     for (const sel of animated) expect(sel).toMatch(/^\.cast-/);
+  });
+
+  it("opens the Cast's form on the desktop, and reads the specialists again when a schedule changes", async () => {
+    await renderCast(7);
+    await pick("Chef");
+    fireEvent.click(within(profile("Chef")).getByRole("button", { name: "Edit" }));
+    expect(screen.getByText("editing Chef").closest("[data-form]")?.getAttribute("data-form")).toBe(
+      "cast",
+    );
+    vi.mocked(listBlobs).mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "schedule changed" }));
+    await settle();
+    expect(listBlobs).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    cleanup();
+
+    await renderCast(7);
+    fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
+    expect(
+      screen.getByText("new agent form").closest("[data-form]")?.getAttribute("data-form"),
+    ).toBe("cast");
+  });
+
+  it("keeps today's form on the iPhone, for a new specialist and for an edit", async () => {
+    await asPhone(async () => {
+      await renderCast(7);
+      fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
+      const made = screen.getByText("new agent form").closest("[data-form]");
+      expect(made?.getAttribute("data-form")).toBe("today");
+      // Today's form takes no schedules: they stay in the chat's sidebar.
+      expect(screen.queryByRole("button", { name: "schedule changed" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await settle();
+
+      fireEvent.click(actor("Chef"));
+      expect(screen.getByText("schedules for Chef")).toBeTruthy();
+      fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0] as HTMLElement);
+      const edit = screen.getByText("editing Chef").closest("[data-form]");
+      expect(edit?.getAttribute("data-form")).toBe("today");
+      expect(document.querySelector('[data-form="cast"]')).toBeNull();
+    });
   });
 
   it("is never drawn on the iPhone, which keeps its rows and its own first run", async () => {

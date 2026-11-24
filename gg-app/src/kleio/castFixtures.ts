@@ -37,8 +37,14 @@ const daily = (time: string): When => ({ kind: "daily" satisfies ScheduleKind, t
 const every = (everyMinutes: number): When => ({ kind: "interval", everyMinutes });
 const WEEKDAYS = [1, 2, 3, 4, 5];
 
-/** label, when, next run (null = switched off), set by the host from the job. */
-type Sched = readonly [label: string, when: When, next: string | null, auto?: boolean];
+/** label, when, next run (null = switched off), set by the host from the job, its own prompt. */
+type Sched = readonly [
+  label: string,
+  when: When,
+  next: string | null,
+  auto?: boolean,
+  prompt?: string,
+];
 type Ran = readonly [ok: boolean, startedAt: string, text: string];
 type Tool = readonly [name: string, summary: string, startedAt: string, endedAt?: string];
 
@@ -79,7 +85,13 @@ const MEMBERS: readonly Member[] = [
     job: "Every Sunday at 5pm, plan three dinners for the week from what’s in season, with a shopping list.",
     schedules: [
       ["Sunday dinners", weekly([0], "17:00"), at(6, 17, 0), true],
-      ["Thursday top-up", weekly([4], "18:30"), at(3, 18, 30)],
+      [
+        "Thursday top-up",
+        weekly([4], "18:30"),
+        at(3, 18, 30),
+        false,
+        "Check what’s left from Sunday’s list and suggest a top-up shop.",
+      ],
     ],
     runs: [
       [
@@ -351,10 +363,10 @@ const name = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 const member = (id: string): Member | undefined => MEMBERS.find((m) => m.id === id);
 
 function schedulesOf(m: Member): Schedule[] {
-  return (m.schedules ?? []).map(([label, when, next, auto], i) => ({
+  return (m.schedules ?? []).map(([label, when, next, auto, prompt], i) => ({
     id: `${m.id}-s${i + 1}`,
     label,
-    prompt: m.job,
+    prompt: prompt ?? m.job,
     ...when,
     timezone: "Europe/London",
     enabled: next !== null,

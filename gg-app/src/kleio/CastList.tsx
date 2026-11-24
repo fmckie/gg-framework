@@ -20,7 +20,7 @@ import { ListSkeleton } from "../Skeleton";
 import { buildSummaryLineParts } from "../tool-format";
 import { useWindowFocused } from "../useWindowFocused";
 import { AgentAvatar, BlobAvatar, BlobOutline } from "./BlobAvatar";
-import { whereItRuns } from "./BlobForm";
+import { whereItRunsShort } from "./BlobForm";
 import { describeSchedule, formatClock, formatWhen, plainSummary } from "./blobFormat";
 import { castFoot, castKind, castOf, SHELVES_SHOWN, type CastActor } from "./castLayout";
 import { AppsButton, KleioHead } from "./KleioChrome";
@@ -498,7 +498,7 @@ function Profile({
             ) : (
               <CloudIcon size={13} weight="bold" aria-hidden="true" />
             )}
-            {`${blob.model === null ? "Default · " : ""}${model.label} · ${whereItRuns(model)}`}
+            {`${blob.model === null ? "Default · " : ""}${model.label} · ${whereItRunsShort(model)}`}
           </p>
         )}
       </div>

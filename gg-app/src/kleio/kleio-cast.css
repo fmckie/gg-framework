@@ -1,5 +1,6 @@
 /* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
-   a lit shelf, the selected one in a spotlight with its profile underneath.
+   a lit shelf, the selected one in a spotlight with its profile underneath,
+   and the form that makes or changes one (CastForm.tsx, CastSchedules.tsx).
    Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
    the page sets how many places the widest shelf has (--cols), and the profile
    which place its pointer is under (--col). The iPhone never draws this. */
@@ -1147,14 +1148,658 @@
   }
 }
 
+/* ── the form (CastForm.tsx): who it is on the left, what it does on the right ── */
+.cast-form {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --card: rgba(255, 255, 255, 0.028);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* No specificity: the app's own notes and errors keep their spacing in here. */
+:where(.cast-form) :where(h2, p, ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cast-form :is(button, input, textarea):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-form > .kleio-page-error {
+  margin-bottom: 6px;
+}
+.cast-creator {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.cast-creator-grid {
+  flex: none;
+  display: grid;
+  grid-template-columns: 384px minmax(0, 1fr);
+  column-gap: 22px;
+  padding: 6px 28px 18px 22px;
+}
+.cast-who {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.cast-mini {
+  --size: 124px;
+  --floor: 26px;
+  --cone-w: 210px;
+  --cone-h: 176px;
+  --cone-foot: 18px;
+  position: relative;
+  flex: none;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 196px;
+}
+.cast-mini .cast-slot.is-hero {
+  --size: 124px;
+  height: 100%;
+}
+.cast-mini .cast-shelf {
+  left: 40px;
+  right: 40px;
+}
+.cast-shuffle {
+  position: absolute;
+  right: 74px;
+  top: 74px;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-shuffle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cast-name-input {
+  width: 240px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 0;
+  outline: none;
+  background: none;
+  text-align: center;
+  font: 650 26px var(--rounded);
+  color: var(--text);
+}
+.cast-name-input::placeholder {
+  color: var(--text-dim);
+}
+.cast-name-input:focus,
+.cast-form .cast-name-input:focus-visible {
+  border-bottom-style: solid;
+  border-bottom-color: var(--text-secondary);
+  box-shadow: none;
+}
+
+/* The look and the brain. The rows are LookPicker's, drawn smaller. */
+.cast-pickers {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.cast-pickers .kleio-look-row {
+  gap: 0;
+}
+.cast-pickers .kleio-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cast-pickers .kleio-look-current {
+  margin-left: 0;
+  font: 500 12.5px var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+}
+.cast-pickers .kleio-look-options {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.cast-pickers .kleio-look-option {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  background: none;
+  transition: background 240ms var(--ease-glow);
+}
+.cast-pickers .kleio-look-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.cast-pickers .kleio-look-option:active {
+  transform: none;
+}
+.cast-pickers .kleio-look-option[aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.78);
+}
+.cast-pickers .kleio-look-option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-pickers .kleio-look-option .blob-av {
+  width: 100%;
+  height: 100%;
+}
+.cast-pickers .is-colours .kleio-look-options {
+  gap: 3px;
+}
+.cast-pickers .is-colours .kleio-look-option {
+  width: 26px;
+  height: 26px;
+  padding: 2px;
+  border-radius: 9px;
+}
+.cast-brain {
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.cast-brain .dropdown-trigger {
+  height: 34px;
+  padding: 0 10px 0 12px;
+  border-color: var(--border-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 13.5px;
+  font-weight: 400;
+}
+.cast-form .dropdown-trigger {
+  box-shadow: none;
+}
+/* Both menus open upwards: their triggers sit near the foot of the window. */
+.cast-form .dropdown-menu {
+  --enter-y: 4px;
+  top: auto;
+  bottom: calc(100% + 6px);
+  transform-origin: bottom center;
+}
+.cast-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cast-note > svg {
+  flex: none;
+}
+
+/* The job and the schedules. */
+.cast-what {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  padding-top: 8px;
+}
+.cast-card {
+  min-width: 0;
+  padding: 15px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.cast-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 22px;
+}
+.cast-card-head .kleio-text-btn {
+  align-self: center;
+  margin-left: auto;
+}
+.cast-hint {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cast-count {
+  margin-left: 8px;
+  color: var(--text-dim);
+}
+.cast-card > :is(.kleio-error, .kleio-note, .kleio-empty) {
+  margin: 10px 0 0;
+}
+.cast-job-text {
+  display: block;
+  width: 100%;
+  min-height: 87px;
+  max-height: 38vh;
+  margin-top: 10px;
+  padding: 11px 13px;
+  resize: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  outline: none;
+  background: rgba(0, 0, 0, 0.2);
+  font: 14px/1.5 var(--sans);
+  color: var(--text);
+}
+.cast-job-text::placeholder,
+.cast-se :is(input, textarea)::placeholder {
+  color: var(--text-dim);
+}
+.cast-card .kleio-count-line {
+  margin: 6px 0 0;
+}
+.cast-card .kleio-examples {
+  margin-top: 10px;
+}
+.cast-card .kleio-setting {
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+.cast-card .kleio-setting-text {
+  gap: 1px;
+}
+.cast-card .kleio-setting-desc {
+  line-height: 1.4;
+}
+.cast-switch {
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: 30px;
+  height: 18px;
+}
+.cast-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.cast-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  pointer-events: none;
+  transition: background 240ms var(--ease-glow);
+}
+.cast-switch span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: transform 240ms var(--ease-glow);
+}
+.cast-switch input:checked + span {
+  background: var(--kleio-crimson);
+}
+.cast-switch input:checked + span::after {
+  transform: translateX(12px);
+}
+.cast-form .cast-switch input:focus-visible + span {
+  box-shadow: var(--focus-ring);
+}
+
+/* This week: a mark where each schedule falls. */
+.cast-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+.cast-week li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 82px;
+  padding: 8px 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.cast-wd {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.cast-mark {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  max-width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  font: 650 13px var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  cursor: pointer;
+}
+.cast-mark + .cast-mark {
+  margin-top: 4px;
+}
+.cast-mark small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.cast-mark.is-auto {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: transparent;
+}
+.cast-mark.is-off {
+  opacity: 0.5;
+}
+.cast-mark.is-sel {
+  border-style: solid;
+  border-color: transparent;
+  background: var(--text);
+  color: #170e0f;
+}
+.cast-mark.is-sel small {
+  color: #5a4c4e;
+}
+/* Under the week: a repeat, or a one-off in another week. */
+.cast-loose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.cast-loose .cast-mark {
+  max-width: 200px;
+  margin-top: 0;
+}
+.cast-legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.cast-key {
+  flex: none;
+  width: 16px;
+  height: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+}
+
+/* The selected schedule, open for editing. */
+.cast-se {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.cast-se-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cast-se-name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  outline: none;
+  background: none;
+  font: 600 14px var(--sans);
+  color: var(--text);
+}
+.cast-se-next,
+.cast-se-late {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cast-se-late {
+  margin-top: 4px;
+  white-space: normal;
+}
+.cast-se-prompt {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  outline: none;
+  background: rgba(255, 255, 255, 0.03);
+  font: 13px/18px var(--sans);
+  color: var(--text);
+}
+.cast-se-when {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cast-seg {
+  display: inline-grid;
+  grid-template-columns: repeat(4, auto);
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.cast-seg button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 12.5px var(--sans);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cast-seg [aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.cast-days {
+  display: flex;
+  gap: 3px;
+}
+.cast-days button {
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: none;
+  font: 600 11.5px var(--sans);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.cast-days [aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--text);
+  color: #170e0f;
+}
+.cast-field,
+.cast-se-when .dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: none;
+  font: 13px var(--sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  color-scheme: dark;
+}
+/* The time is typed; without the clock button it fits beside the days. */
+input[type="time"].cast-field::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.cast-se-when .dropdown-menu {
+  right: auto;
+  min-width: 170px;
+}
+.cast-se-foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 10px;
+}
+.cast-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.cast-grow {
+  flex: 1;
+}
+.cast-se .kleio-text-btn {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.cast-se .kleio-text-btn:hover {
+  color: var(--text);
+}
+.cast-se .kleio-text-btn.is-danger,
+.cast-se .kleio-text-btn.is-danger:hover {
+  color: var(--primary);
+}
+.cast-se-save {
+  height: 26px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #f6f1f1;
+  font: 600 12px var(--sans);
+  color: #170e0f;
+  cursor: pointer;
+}
+.cast-se-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cast-se > .kleio-error {
+  margin: 10px 0 0;
+}
+
+@media (min-width: 1400px) {
+  .cast-creator-grid {
+    grid-template-columns: 480px minmax(0, 640px);
+    justify-content: center;
+    column-gap: 56px;
+    margin-block: auto;
+    padding-bottom: 60px;
+  }
+  .cast-mini {
+    --size: 168px;
+    --cone-h: 230px;
+    height: 250px;
+  }
+  .cast-mini .cast-slot.is-hero {
+    --size: 168px;
+  }
+  .cast-shuffle {
+    right: 98px;
+    top: 90px;
+  }
+  .cast-name-input {
+    height: 44px;
+    font-size: 30px;
+  }
+  .cast-pickers {
+    gap: 12px;
+    margin-top: 18px;
+    padding: 16px 20px 18px;
+  }
+  .cast-pickers .is-colours .kleio-look-option {
+    width: 30px;
+    height: 30px;
+  }
+  .cast-what {
+    gap: 18px;
+    padding-top: 30px;
+  }
+  .cast-card {
+    padding: 18px 22px 20px;
+  }
+}
+
 /* ── reduced motion: nothing on the shelf moves ──
    No bounce, blink, drifting z's or bob; the spotlight and the profile's
-   pointer jump to the selection; hovering lifts nothing. */
+   pointer jump to the selection; hovering lifts nothing. The same in the
+   form: its character holds still, and its switches and menus don't slide. */
 @media (prefers-reduced-motion: reduce) {
   .cast-dot,
   .cast-page *,
   .cast-page *::before,
-  .cast-page *::after {
+  .cast-page *::after,
+  .cast-form *,
+  .cast-form *::before,
+  .cast-form *::after {
     animation: none !important;
     transition: none !important;
   }

@@ -29,15 +29,15 @@ import {
 } from "./kleioApi";
 
 const DEFAULT = "";
-const NAME_MAX = 40;
-const JOB_MAX = 8000;
+export const NAME_MAX = 40;
+export const JOB_MAX = 8000;
 /** Only count characters once the job is long enough for the limit to matter. */
-const JOB_COUNT_FROM = 6000;
+export const JOB_COUNT_FROM = 6000;
 /** Hosts from before agent looks accept only the original six colours. */
 const ORIGINAL_COLORS: readonly BlobColor[] = BLOB_COLORS.slice(0, 6);
 
 /** Starting points for a first job; clicking one fills the Job box. */
-const JOB_EXAMPLES: readonly { label: string; job: string }[] = [
+export const JOB_EXAMPLES: readonly { label: string; job: string }[] = [
   {
     label: "Morning news",
     job: "Every weekday at 7:30, send me the three most important news stories in two lines each.",
@@ -60,6 +60,13 @@ export function whereItRuns(m: KleioModel): string {
   return "Private — runs on your host";
 }
 
+/** The same three, short enough for one line of a profile. */
+export function whereItRunsShort(m: KleioModel): string {
+  if (!m.private) return "cloud";
+  if (/tinfoil/i.test(m.label)) return "private, in Tinfoil’s sealed cloud";
+  return "private, runs on your host";
+}
+
 export function modelOptions(list: ModelList | null): DropdownOption[] {
   const def = list?.models.find((m) => m.id === list.defaultBlobModel);
   return [
@@ -76,19 +83,17 @@ export function modelOptions(list: ModelList | null): DropdownOption[] {
   ];
 }
 
-export function BlobForm({
-  blob,
-  others = [],
-  onSaved,
-  onCancel,
-}: {
+export interface BlobFormProps {
   /** Absent = create. */
   blob?: Blob;
   /** The other agents: a new one gets a look unlike theirs. */
   others?: readonly Blob[];
   onSaved: (saved: BlobSaved) => void;
   onCancel: () => void;
-}): React.ReactElement {
+}
+
+/** Everything the form holds and how it saves; today's form and the Cast's draw it. */
+export function useBlobForm({ blob, others = [], onSaved }: Omit<BlobFormProps, "onCancel">) {
   // A host that knows looks sends `shape` on every agent; with none to go
   // by, assume it does (a mismatch shows the host's own error on save).
   const looksKnown = others.length === 0 || others.some((b) => b.shape !== undefined);
@@ -103,13 +108,6 @@ export function BlobForm({
   const [models, setModels] = useState<ModelList | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const windowFocused = useWindowFocused();
-  const formId = useId();
-  const ids = {
-    form: `${formId}-form`,
-    name: `${formId}-name`,
-    job: `${formId}-job`,
-  };
   const timezone = systemTimezone();
   const jobChanged = !blob || job.trim() !== blob.job;
   const reading = jobChanged && readTiming;
@@ -158,6 +156,76 @@ export function BlobForm({
   const chosen = models?.models.find((m) => m.id === (model || models.defaultBlobModel));
   const canSave = !saving && Boolean(name.trim()) && Boolean(job.trim());
   const title = blob ? `Edit ${blob.name}` : "New specialist";
+
+  const saveLabel = saving
+    ? reading
+      ? "Saving… reading the job"
+      : "Saving…"
+    : blob
+      ? "Save"
+      : "Create";
+  return {
+    ...{ name, setName, look, setLook, job, setJob, model, setModel },
+    ...{ readTiming, setReadTiming, models, colors, timezone, chosen },
+    ...{ saving, error, canSave, title, saveLabel, save },
+  };
+}
+
+/** The form's header: Back, its title, Cancel and Save, with a failed save under it.
+ *  It sits outside the <form>: its Back, radio and window buttons are plain
+ *  <button>s that would otherwise submit it. Save reaches the form through its
+ *  `form` attribute instead. */
+export function BlobFormHead({
+  form,
+  formId,
+  onCancel,
+}: {
+  form: Pick<ReturnType<typeof useBlobForm>, "title" | "saveLabel" | "canSave" | "error">;
+  formId: string;
+  onCancel: () => void;
+}): React.ReactElement {
+  const windowFocused = useWindowFocused();
+  return (
+    <>
+      <KleioHead
+        onBack={onCancel}
+        title={form.title}
+        actions={
+          <>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+              Cancel
+            </button>
+            <MetalButton
+              type="submit"
+              form={formId}
+              className="btn btn-primary btn-sm"
+              windowFocused={windowFocused}
+              disabled={!form.canSave}
+            >
+              {form.saveLabel}
+            </MetalButton>
+          </>
+        }
+      />
+      {form.error && (
+        <p className="kleio-error kleio-page-error" role="alert">
+          {form.error}
+        </p>
+      )}
+    </>
+  );
+}
+
+export function BlobForm({ blob, others, onSaved, onCancel }: BlobFormProps): React.ReactElement {
+  const form = useBlobForm({ ...(blob ? { blob } : {}), ...(others ? { others } : {}), onSaved });
+  const { name, setName, look, setLook, job, setJob, model, setModel } = form;
+  const { readTiming, setReadTiming, models, colors, timezone, chosen, title, save } = form;
+  const formId = useId();
+  const ids = {
+    form: `${formId}-form`,
+    name: `${formId}-name`,
+    job: `${formId}-job`,
+  };
 
   const main = (
     <div className="kleio-form-main">
@@ -283,42 +351,9 @@ export function BlobForm({
     </>
   );
 
-  // The header sits outside the <form>: its Back, radio and window buttons are
-  // plain <button>s that would otherwise submit it. Create reaches the form
-  // through its `form` attribute instead.
   return (
     <div className="kleio-form-page">
-      <KleioHead
-        onBack={onCancel}
-        title={title}
-        actions={
-          <>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
-              Cancel
-            </button>
-            <MetalButton
-              type="submit"
-              form={ids.form}
-              className="btn btn-primary btn-sm"
-              windowFocused={windowFocused}
-              disabled={!canSave}
-            >
-              {saving
-                ? reading
-                  ? "Saving… reading the job"
-                  : "Saving…"
-                : blob
-                  ? "Save"
-                  : "Create"}
-            </MetalButton>
-          </>
-        }
-      />
-      {error && (
-        <p className="kleio-error kleio-page-error" role="alert">
-          {error}
-        </p>
-      )}
+      <BlobFormHead form={form} formId={ids.form} onCancel={onCancel} />
       <form
         id={ids.form}
         className="kleio-form-scroll"

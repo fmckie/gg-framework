@@ -3,9 +3,9 @@
 // same on every roster and testable without a page.
 
 import { agentRowState } from "./AgentRow";
-import { formatWhenShort, nextRun } from "./blobFormat";
+import { describeSchedule, formatClock, formatWhen, formatWhenShort, nextRun } from "./blobFormat";
 import { lookOf, type BlobFaceKind, type BlobShape } from "./blobLook";
-import type { Blob } from "./kleioApi";
+import type { Blob, Schedule } from "./kleioApi";
 
 /** One character large, one shelf, two shelves, or three and more. */
 export type CastTier = "solo" | "one" | "two" | "crowd";
@@ -137,4 +137,53 @@ export function castOf(blobs: readonly Blob[], now: Date = new Date()): Cast {
     }
   });
   return { layout, actors };
+}
+
+// ─── the form's week: where each schedule falls, Monday to Sunday ───────────
+
+/** One schedule on one day, or under the week when it has no day. */
+export interface WeekMark {
+  schedule: Schedule;
+  /** Its time on that day ("18:30"); with no day, when it runs in words. */
+  text: string;
+}
+
+export interface CastWeek {
+  /** Monday first; `day` counts from Sunday = 0, as schedules do. */
+  days: { day: number; marks: WeekMark[] }[];
+  /** No day this week: a repeat, or a one-off in another week. */
+  loose: WeekMark[];
+}
+
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/** The schedules laid out over this week: daily on all seven days, weekly on
+ *  its days, a one-off on its day if that is this week (the viewer's zone). */
+export function castWeek(schedules: readonly Schedule[], now: Date = new Date()): CastWeek {
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const nextMonday = new Date(monday);
+  nextMonday.setDate(monday.getDate() + 7);
+  const days = WEEK_ORDER.map((day) => ({ day, marks: [] as WeekMark[] }));
+  const loose: WeekMark[] = [];
+  const put = (day: number, schedule: Schedule, text: string): void => {
+    days.find((d) => d.day === day)?.marks.push({ schedule, text });
+  };
+  for (const s of schedules) {
+    const time = s.time ?? "--:--";
+    const at = s.kind === "once" && s.at ? new Date(s.at) : null;
+    if (s.kind === "daily") WEEK_ORDER.forEach((day) => put(day, s, time));
+    else if (s.kind === "weekly" && s.days?.length) s.days.forEach((day) => put(day, s, time));
+    else if (at && at >= monday && at < nextMonday) put(at.getDay(), s, formatClock(s.at ?? ""));
+    else if (at) loose.push({ schedule: s, text: formatWhen(s.at ?? "", now) });
+    else loose.push({ schedule: s, text: describeSchedule(s) });
+  }
+  for (const d of days) d.marks.sort((a, b) => a.text.localeCompare(b.text));
+  return { days, loose };
+}
+
+/** The schedule the form opens on: the next one to run, else the first. */
+export function soonest(schedules: readonly Schedule[]): Schedule | null {
+  const next = nextRun(schedules);
+  return schedules.find((s) => s.enabled && s.nextRunAt === next) ?? schedules[0] ?? null;
 }
