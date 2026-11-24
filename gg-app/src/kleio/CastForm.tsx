@@ -3,8 +3,9 @@
 // on the right (the job, and its schedules once it exists). It holds and saves
 // exactly what today's form does (useBlobForm); the iPhone keeps that form.
 
-import { useId, useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CloudIcon, LockSimpleIcon, ShuffleIcon } from "@phosphor-icons/react";
+import { ConfirmModal } from "../ConfirmModal";
 import { Dropdown } from "../Dropdown";
 import { BlobAvatar } from "./BlobAvatar";
 import {
@@ -42,6 +43,14 @@ export function CastForm({
   const formId = useId();
   const ids = { form: `${formId}-form`, name: `${formId}-name`, job: `${formId}-job` };
   const jobRef = useRef<HTMLTextAreaElement>(null);
+  // A schedule saves by its own button, not the header's: leaving with one
+  // changed and unsaved would lose it without a word, so ask first.
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  const guarded = (leave: () => void): void => {
+    if (scheduleDirty) setLeaving(() => leave);
+    else leave();
+  };
 
   // The job box is as tall as the job, from three lines up to its CSS limit.
   useLayoutEffect(() => {
@@ -53,7 +62,7 @@ export function CastForm({
 
   return (
     <div className="cast-form">
-      <BlobFormHead form={form} formId={ids.form} onCancel={onCancel} />
+      <BlobFormHead form={form} formId={ids.form} onCancel={() => guarded(onCancel)} />
       <div className="cast-creator">
         <div className="cast-creator-grid">
           {/* The job's fields join this form by its id: the schedules beside
@@ -64,7 +73,7 @@ export function CastForm({
             aria-label={form.title}
             onSubmit={(e) => {
               e.preventDefault();
-              void form.save();
+              guarded(() => void form.save());
             }}
           >
             <div className="cast-mini">
@@ -193,11 +202,25 @@ export function CastForm({
             <CastSchedules
               {...(blob ? { blob } : {})}
               onChanged={onChanged}
+              onDirty={setScheduleDirty}
               {...(now ? { now } : {})}
             />
           </div>
         </div>
       </div>
+      {leaving && (
+        <ConfirmModal
+          title="Discard schedule changes?"
+          message="The schedule you were editing has changes that aren't saved. Schedules save with their own Save schedule button."
+          confirmLabel="Discard"
+          cancelLabel="Keep editing"
+          onConfirm={() => {
+            setLeaving(null);
+            leaving();
+          }}
+          onClose={() => setLeaving(null)}
+        />
+      )}
     </div>
   );
 }

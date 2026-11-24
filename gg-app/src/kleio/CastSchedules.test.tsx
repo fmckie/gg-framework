@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { systemTimezone } from "./blobFormat";
 import { CAST_NOW, castRoster } from "./castFixtures";
-import { castWeek, soonest } from "./castLayout";
+import { castWeek, markName, soonest } from "./castLayout";
 import { CastSchedules } from "./CastSchedules";
 import {
   addSchedule,
@@ -124,6 +124,16 @@ describe("the week in the form", () => {
     expect(soonest([])).toBeNull();
   });
 
+  it("drops a name's leading weekday only under that day, and only when a name is left", () => {
+    expect(markName("Thursday top-up", 4)).toBe("Top-up");
+    expect(markName("sunday dinners", 0)).toBe("Dinners");
+    // Under another day the weekday is what tells them apart.
+    expect(markName("Thursday top-up", 5)).toBe("Thursday top-up");
+    expect(markName("Thursday", 4)).toBe("Thursday");
+    expect(markName("Weekday news", 1)).toBe("Weekday news");
+    expect(markName("Thursdays with Ann", 4)).toBe("Thursdays with Ann");
+  });
+
   it("draws Chef's week: the top-up selected on Thursday, the dinners dashed on Sunday", async () => {
     await draw(chef());
     const card = screen.getByRole("region", { name: /^Schedules/ });
@@ -138,10 +148,13 @@ describe("the week in the form", () => {
     const topUp = mark(/^Thursday top-up, Thursday 18:30$/);
     expect(topUp.getAttribute("aria-pressed")).toBe("true");
     expect(topUp.className).toBe("cast-mark is-sel");
-    expect(topUp.textContent).toBe("18:30Thursday top-up");
+    // Under its own day the name drops the day; its tooltip keeps the whole name.
+    expect(topUp.textContent).toBe("18:30Top-up");
+    expect(topUp.title).toBe("Thursday top-up");
     const dinners = mark(/^Sunday dinners, Sunday 17:00, read from the job$/);
     expect(dinners.getAttribute("aria-pressed")).toBe("false");
     expect(dinners.className).toBe("cast-mark is-auto");
+    expect(dinners.textContent).toBe("17:00Dinners");
     expect(dinners.title).toBe("Read from the job");
     expect(screen.getByText(/^Dashed: read from the job/)).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Not on a day this week" })).toBeNull();

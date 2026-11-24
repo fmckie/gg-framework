@@ -644,7 +644,7 @@ describe("the Cast shelf", () => {
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s && !s.includes("::"));
-    expect(still).toEqual([".cast-dot", ".cast-page *", ".cast-form *"]);
+    expect(still).toEqual([".cast-dot", ".cast-page *", ".cast-form *", ".cast-room *"]);
     // The hover lift is a plain transform, so it is switched off by name.
     expect(block?.[1]).toMatch(/\.cast-actor:hover \.cast-figure \{\s*transform: none;/);
 

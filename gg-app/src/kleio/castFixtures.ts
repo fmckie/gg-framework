@@ -1,6 +1,7 @@
 // Fake specialists for the Cast shelf's tests: the redesign mockup's cast of 26
 // in every state (working, last run failed, next run, on call, paused), as the
-// host would list them. Nothing in the app imports this.
+// host would list them, and its group chat of four and of eight. Nothing in the
+// app imports this.
 //
 // It is Monday 9 November 2026, 14:10, in whatever zone the tests run in: every
 // time is built in local time, so "tomorrow 07:30" reads the same anywhere.
@@ -9,6 +10,9 @@ import type { BlobFaceKind, BlobShape } from "./blobLook";
 import type {
   Blob,
   BlobColor,
+  Group,
+  GroupMessage,
+  GroupMessagesPage,
   ModelList,
   Run,
   Schedule,
@@ -429,4 +433,128 @@ export function castRoster(size: RosterSize): Blob[] {
     const m = member(id);
     return m ? [blobOf(m)] : [];
   });
+}
+
+// ─── the group: Lisbon offsite, as the mockup's room of four and of eight ────
+
+const ROOMS = {
+  4: ["scout", "ledger", "quill", "courier"],
+  8: ["scout", "ledger", "courier", "atlas", "tempo", "chef", "quill", "concierge"],
+} as const;
+export type RoomSize = keyof typeof ROOMS;
+
+/** author ("you" or a member), when, what they said. */
+type Said = readonly [author: string, at: string, text: string];
+
+const DINNER = [
+  "Three places near the hotel can seat 12 on Saturday:",
+  "",
+  "- **Taberna do Largo**, 4 min walk. 20:00, set menu €38 a head; over 10 needs a €100 deposit.",
+  "- **Cervejaria Trindade**, 6 min. 19:30 or 21:30, about €32 a head.",
+  "- **Prado**, 9 min. 20:30 only, tasting menu €65 a head.",
+  "",
+  "They are side by side in [Dinner options](out/dinner-options.md).",
+  "",
+  "@Ledger can you check these against the offsite budget?",
+].join("\n");
+
+const BUDGET = [
+  "Taberna do Largo fits: €456 for 12, plus a €100 deposit that comes back on the night. That leaves €544 of the €1,000 food budget in the [Offsite budget](out/offsite-budget.xlsx). Prado would be €780, over the €600 cap.",
+  "",
+  "@Quill over to you for the invite: Taberna do Largo, Saturday at 20:00.",
+].join("\n");
+
+/** The fourth file is Quill's in the room of four, Atlas's in the room of eight. */
+const said = (size: RoomSize): readonly Said[] => [
+  ["you", at(0, 11, 40), "Where do we stand on arrivals and the agenda for Lisbon?"],
+  [
+    "scout",
+    at(0, 11, 42),
+    "Everything is within ten minutes of the hotel: here is a [Chiado walking map](site/index.html).",
+  ],
+  size === 4
+    ? [
+        "quill",
+        at(0, 11, 47),
+        "The [Lisbon agenda (draft)](out/lisbon-agenda.docx) is ready to read.",
+      ]
+    : [
+        "atlas",
+        at(0, 11, 47),
+        "Airport to hotel is covered in the [Transfer plan](out/transfer-plan.md).",
+      ],
+  [
+    "courier",
+    at(0, 11, 52),
+    "Two flights land after 22:00. They are in [Late arrivals](out/late-arrivals.csv).",
+  ],
+  [
+    "you",
+    at(0, 14, 5),
+    "Dinner for 12 on Saturday the 14th, near the hotel in Chiado. Find a few options, check them against the budget, then draft the invite to the team.",
+  ],
+  ["scout", at(0, 14, 7), DINNER],
+  ["ledger", at(0, 14, 9), BUDGET],
+];
+
+/** What Quill is doing as the room opens: two files read, the invite under way. */
+const QUILL_TOOLS: readonly Tool[] = [
+  ["read", "dinner-options.md", at(0, 14, 9, 50), at(0, 14, 9, 51)],
+  ["read", "lisbon-agenda.docx", at(0, 14, 9, 53), at(0, 14, 9, 54)],
+  ["write", "invite-draft.md", at(0, 14, 9, 56)],
+];
+
+/** The mockup's group mid-turn: Scout and Ledger have replied, Ledger's
+ *  @mention has handed over to Quill, who is replying; the rest sat it out. */
+export function castGroup(size: RoomSize): {
+  group: Group;
+  blobs: Blob[];
+  page: GroupMessagesPage;
+} {
+  const ids: readonly string[] = ROOMS[size];
+  const messages = said(size).map(([author, when, text], i): GroupMessage => ({
+    seq: i + 1,
+    id: `lisbon-m${i + 1}`,
+    author,
+    authorName: author === "you" ? "You" : name(author),
+    emoji: "",
+    text,
+    at: when,
+  }));
+  const last = messages[messages.length - 1];
+  return {
+    group: {
+      id: "lisbon",
+      name: "Lisbon offsite",
+      emoji: "💬",
+      color: "lilac",
+      members: [...ids],
+      createdAt: at(-20, 9, 0),
+      updatedAt: at(0, 14, 9),
+      typing: ["quill"],
+      ...(last ? { lastMessage: last } : {}),
+    },
+    blobs: ids.flatMap((id) => {
+      const m = member(id);
+      return m ? [blobOf(m)] : [];
+    }),
+    page: {
+      messages,
+      typing: ["quill"],
+      lastSeq: messages.length,
+      activity: {
+        quill: QUILL_TOOLS.map(([tool, summary, startedAt, endedAt], i) => ({
+          id: `quill-g${i + 1}`,
+          name: tool,
+          summary,
+          startedAt,
+          ...(endedAt ? { status: "done", endedAt } : { status: "running" }),
+        })),
+      },
+      outcomes: {
+        scout: { kind: "replied", reason: "" },
+        ledger: { kind: "replied", reason: "" },
+      },
+    },
+  };
 }

@@ -148,6 +148,8 @@ describe("GroupsPage", () => {
   });
 
   it("opens a group into its chat, with replies formatted and members alongside", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
     const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
@@ -155,6 +157,28 @@ describe("GroupsPage", () => {
     const side = screen.getByRole("complementary", { name: "Morning Desk details" });
     expect(within(side).getByText("Agent 1")).toBeTruthy();
     expect(within(side).getByText("Agent 2")).toBeTruthy();
+  });
+
+  it("draws the Cast's room on the desktop, and keeps today's chat on the iPhone", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
+    expect(document.querySelector(".cast-room .cast-room-stage")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Members" })).toBeTruthy();
+    expect(document.querySelector(".kleio-split, .kleio-chat")).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Morning Desk details" })).toBeNull();
+    cleanup();
+
+    vi.mocked(isPhone).mockReturnValue(true);
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
+    expect(document.querySelector(".cast-room, .cast-room-stage, .cast-tiles")).toBeNull();
+    expect(document.querySelector(".kleio-split .kleio-chat")).toBeTruthy();
+    const side = screen.getByRole("complementary", { name: "Morning Desk details" });
+    expect(within(side).getByRole("heading", { name: "Members" })).toBeTruthy();
+    expect(within(side).getByRole("heading", { name: "How it works" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hide sidebar" })).toBeTruthy();
   });
 
   it("on the iPhone, puts the group's member count under its name", async () => {
@@ -169,6 +193,8 @@ describe("GroupsPage", () => {
   });
 
   it("shows each member's tool calls and how its last turn ended, outside the transcript", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     // A member replying turns on the composer's beam, which reads matchMedia.
     stubMatchMedia();
     const now = pinClock();
@@ -231,6 +257,8 @@ describe("GroupsPage", () => {
   });
 
   it("names each member in the live feed when several reply at once, newest last", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     stubMatchMedia();
     const now = Date.now();
     const at = (agoMs: number): string => new Date(now - agoMs).toISOString();
@@ -254,6 +282,8 @@ describe("GroupsPage", () => {
   });
 
   it("shows no activity for an older host that doesn't report it", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
@@ -378,6 +408,8 @@ describe("GroupsPage", () => {
   });
 
   it("shows an empty Assets panel before anything is shared", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
@@ -407,6 +439,8 @@ describe("GroupsPage", () => {
   });
 
   it("lists the files members shared under Assets, newest first, one row per file", async () => {
+    // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     vi.mocked(listGroupMessages).mockResolvedValue({
       messages: [
         {

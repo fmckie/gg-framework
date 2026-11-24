@@ -1,11 +1,13 @@
 // The Cast shelf's rules: how many shelves a number of specialists stands on,
-// where each one stands, and what each is doing. Pure, so the layout is the
-// same on every roster and testable without a page.
+// where each one stands, and what each is doing; then the form's week and a
+// group's room. Pure, so the layout is the same on every roster and testable
+// without a page.
 
 import { agentRowState } from "./AgentRow";
 import { describeSchedule, formatClock, formatWhen, formatWhenShort, nextRun } from "./blobFormat";
 import { lookOf, type BlobFaceKind, type BlobShape } from "./blobLook";
-import type { Blob, Schedule } from "./kleioApi";
+import { OUTCOME_LABEL, outcomeTone } from "./groupOutcome";
+import type { Blob, GroupMessage, GroupTurnOutcome, Schedule } from "./kleioApi";
 
 /** One character large, one shelf, two shelves, or three and more. */
 export type CastTier = "solo" | "one" | "two" | "crowd";
@@ -157,6 +159,25 @@ export interface CastWeek {
 
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
+export const DAY_FULL = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+/** A schedule's name on a mark under its own day, where the day goes without
+ *  saying: "Thursday top-up" under Thursday reads "Top-up". */
+export function markName(label: string, day: number): string {
+  const name = DAY_FULL[day]?.toLowerCase();
+  if (!name || !label.toLowerCase().startsWith(`${name} `)) return label;
+  const rest = label.slice(name.length).trim();
+  return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : label;
+}
+
 /** The schedules laid out over this week: daily on all seven days, weekly on
  *  its days, a one-off on its day if that is this week (the viewer's zone). */
 export function castWeek(schedules: readonly Schedule[], now: Date = new Date()): CastWeek {
@@ -186,4 +207,119 @@ export function castWeek(schedules: readonly Schedule[], now: Date = new Date())
 export function soonest(schedules: readonly Schedule[]): Schedule | null {
   const next = nextRun(schedules);
   return schedules.find((s) => s.enabled && s.nextRunAt === next) ?? schedules[0] ?? null;
+}
+
+// ─── the room: a group's members on one shelf ───────────────────────────────
+
+/** From this many members they stand closer: smaller figures, shorter labels. */
+export const ROOM_CROWD_FROM = 6;
+
+/** Replying, stopped by an error, skipped, sat this turn out, or nothing to mark. */
+export type RoomTone = "live" | "failed" | "warn" | "idle" | "plain";
+
+export interface RoomMember {
+  blob: Blob;
+  tone: RoomTone;
+  /** Under its name: replying, how its last turn ended, or its job. */
+  state: string;
+  /** Why its last turn ended as it did ("took over 2 min"); "" for none. */
+  reason: string;
+  foot: number;
+  /** Not replying, with open eyes: its blink clock, as on the shelf. */
+  clock?: string;
+  /** It handed the turn to the one replying. */
+  from: boolean;
+}
+
+export interface Room {
+  crowd: boolean;
+  members: RoomMember[];
+  /** The handoff under way, as places along the shelf. */
+  handoff: { from: number; to: number } | null;
+}
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The members a text @mentions, read as the host reads it (kleio-host
+ *  groups.ts): the name, then no letter, digit or underscore; longest first. */
+function mentioned(text: string, members: readonly Blob[]): string[] {
+  let rest = text;
+  const out: string[] = [];
+  for (const b of [...members].sort((a, c) => c.name.length - a.name.length)) {
+    const re = new RegExp(`@${escapeRegExp(b.name)}(?![\\p{L}\\p{N}_])`, "giu");
+    if (rest.search(re) < 0) continue;
+    out.push(b.id);
+    rest = rest.replace(re, (m) => " ".repeat(m.length));
+  }
+  return out;
+}
+
+/** The host doesn't say who handed over to whom, so it is read off the
+ *  conversation: the newest message is a member's, and it @mentions one who is
+ *  now replying. A message of yours hands over to nobody. */
+function handoffOf(
+  members: readonly Blob[],
+  typing: readonly string[],
+  messages: readonly GroupMessage[],
+): Room["handoff"] {
+  const last = messages[messages.length - 1];
+  const from = last ? members.findIndex((b) => b.id === last.author) : -1;
+  if (!last || from < 0) return null;
+  const others = members.filter((b) => b.id !== last.author);
+  const next = mentioned(last.text, others).find((id) => typing.includes(id));
+  const to = members.findIndex((b) => b.id === next);
+  return to < 0 ? null : { from, to };
+}
+
+/** Everyone in the room, in member order, with what each is doing. */
+export function roomOf(
+  members: readonly Blob[],
+  live: {
+    typing: readonly string[];
+    outcomes: Readonly<Record<string, GroupTurnOutcome>>;
+    messages: readonly GroupMessage[];
+  },
+): Room {
+  const crowd = members.length >= ROOM_CROWD_FROM;
+  const handoff = handoffOf(members, live.typing, live.messages);
+  // Someone sat a turn out only if a turn has happened.
+  const turn = members.some((b) => live.typing.includes(b.id) || live.outcomes[b.id]);
+  let blinking = 0;
+  return {
+    crowd,
+    handoff,
+    members: members.map((blob, i) => {
+      const look = lookOf(blob);
+      const outcome = live.outcomes[blob.id];
+      const from = handoff?.from === i;
+      let tone: RoomTone = "plain";
+      let state = "";
+      if (live.typing.includes(blob.id)) {
+        tone = "live";
+        state = "Replying…";
+      } else if (outcome) {
+        // A newer host may send a kind this build doesn't know.
+        const label = OUTCOME_LABEL[outcome.kind] ?? "Ended";
+        const shade = outcomeTone(outcome.kind);
+        tone = shade === " is-error" ? "failed" : shade === " is-warning" ? "warn" : "plain";
+        state = !from ? label : crowd ? "Handed over" : `${label} · handed over`;
+      } else if (from) {
+        state = "Handed over";
+      } else if (!crowd) {
+        // With room to spare, one who took no part shows its job instead.
+        tone = turn ? "idle" : "plain";
+        state = blob.job;
+      }
+      const blinks = tone !== "live" && tone !== "idle" && BLINKING.includes(look.face);
+      return {
+        blob,
+        tone,
+        state,
+        reason: tone === "live" ? "" : (outcome?.reason ?? ""),
+        foot: FOOT[look.shape],
+        ...(blinks ? { clock: `${crowd ? "c" : "b"}${(blinking++ % BLINK_CLOCKS) + 1}` } : {}),
+        from,
+      };
+    }),
+  };
 }

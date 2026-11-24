@@ -1,6 +1,7 @@
 /* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
    a lit shelf, the selected one in a spotlight with its profile underneath,
-   and the form that makes or changes one (CastForm.tsx, CastSchedules.tsx).
+   the form that makes or changes one (CastForm.tsx, CastSchedules.tsx), and a
+   group's room (CastRoom.tsx).
    Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
    the page sets how many places the widest shelf has (--cols), and the profile
    which place its pointer is under (--col). The iPhone never draws this. */
@@ -1788,10 +1789,667 @@ input[type="time"].cast-field::-webkit-calendar-picker-indicator {
   }
 }
 
+/* ── the group's room (CastRoom.tsx): who is in it, then the conversation ──
+   The members stand on one shelf as the cast does (.cast-actor), so the room
+   sets that shelf's sizes itself. Each has a place --pitch wide, which is what
+   the handoff arc measures in: from place --b-lo, --b-span places along. */
+.cast-room {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --card: rgba(255, 255, 255, 0.028);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* No specificity: a reply's own paragraphs and lists keep their spacing. */
+:where(.cast-room) :where(h2, p, ol, ul) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cast-room .picker-title {
+  font-family: var(--rounded);
+}
+.cast-room-body button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* The panel is on the right, so its button's icon faces that way. */
+.cast-side-btn svg {
+  transform: scaleX(-1);
+}
+.cast-room-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.cast-room-body.has-side:not(.is-narrow) {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.cast-room-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cast-room-stage {
+  --slot: 112px;
+  --pitch: 142px;
+  --size: 48px;
+  --floor: 44px;
+  --pad-b: 6px;
+  --name-gap: 8px;
+  --name-fs: 12.5px;
+  --name-lh: 16px;
+  --state-fs: 11px;
+  --state-lh: 14px;
+  --cone-w: 120px;
+  --cone-h: 128px;
+  --cone-foot: 10px;
+  --bubble-gap: 6px;
+  position: relative;
+  flex: none;
+  height: 128px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cast-room-stage .cast-shelf {
+  left: 12%;
+  right: 12%;
+}
+.cast-room-members {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
+  align-items: end;
+  width: min(100%, calc(var(--n) * var(--pitch)));
+  height: 100%;
+  margin: 0 auto;
+}
+.cast-member {
+  padding-inline: 8px;
+}
+.cast-room-stage .cast-state {
+  min-height: var(--state-lh);
+}
+/* The one replying stands in the spotlight. */
+.cast-room-stage .cast-actor::before {
+  clip-path: polygon(36% 0, 64% 0, 100% 100%, 0 100%);
+}
+.cast-member.is-live::before {
+  opacity: 1;
+}
+.cast-member.is-live .cast-name {
+  color: var(--text);
+}
+.cast-member.is-live .cast-state {
+  color: var(--primary-hi);
+}
+.cast-member.is-warn .cast-state {
+  color: var(--warning);
+}
+.cast-member.is-from .cast-state {
+  color: var(--text-secondary);
+}
+.cast-member.is-idle .cast-figure .blob-av {
+  filter: saturate(0.55) brightness(0.8);
+}
+/* Why a turn stopped, said the way the shelf says a failed run. */
+.cast-room-stage .cast-bubble {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+}
+.cast-bubble.is-typing {
+  left: 78%;
+  bottom: calc(var(--floor) + var(--size) - 2px);
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 11px;
+}
+.cast-bubble.is-typing::after {
+  left: 20%;
+}
+.cast-bubble.is-typing i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: cast-typing 1.3s var(--ease-glow) infinite;
+}
+.cast-bubble.is-typing i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.cast-bubble.is-typing i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes cast-typing {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* The baton: one member's @mention handing the turn to the next. */
+.cast-baton {
+  --b-len: calc(var(--pitch) * var(--b-span) * 0.95);
+  position: absolute;
+  top: 18px;
+  left: calc(100% / var(--n) * (var(--b-lo) + 0.5));
+  width: calc(100% / var(--n) * var(--b-span));
+  height: 30px;
+  overflow: visible;
+  pointer-events: none;
+}
+.cast-baton[data-back] {
+  transform: scaleX(-1);
+}
+.cast-baton path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.cast-baton-arc {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
+}
+.cast-baton-spark {
+  stroke: var(--primary-hi);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 9px 2000px;
+  stroke-dashoffset: 9px;
+  animation: cast-baton 2.6s var(--ease-glow) infinite;
+}
+@keyframes cast-baton {
+  0% {
+    stroke-dashoffset: 9px;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: calc(var(--b-len) * -1);
+    opacity: 0;
+  }
+}
+/* In a full room the arc is long: its track brightens toward whoever has the
+   turn (the direction, even with motion off), and a light sweeps along it. */
+.cast-baton.is-long {
+  top: 16px;
+  height: calc(100% - var(--floor) - var(--size) - 22px);
+}
+.cast-baton.is-long svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.cast-baton-track {
+  stroke-width: 1.4;
+  stroke-dasharray: 3 4;
+}
+.cast-baton-glow {
+  stroke: var(--primary-hi);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.cast-baton-sweep {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 40%, #000 60%, transparent);
+  -webkit-mask-size: 14% 100%;
+  mask-size: 14% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: -20% 0;
+  mask-position: -20% 0;
+  animation: cast-sweep 3.4s var(--ease-glow) infinite;
+}
+@keyframes cast-sweep {
+  0% {
+    -webkit-mask-position: -20% 0;
+    mask-position: -20% 0;
+  }
+  80%,
+  100% {
+    -webkit-mask-position: 120% 0;
+    mask-position: 120% 0;
+  }
+}
+
+/* A full room: six to eight stand closer, with smaller figures. */
+.cast-room-stage.is-crowd {
+  --slot: 80px;
+  --pitch: 110px;
+  --size: 40px;
+  --floor: 40px;
+  --cone-w: 104px;
+  --cone-h: 138px;
+  height: 146px;
+}
+.cast-room-stage.is-crowd .cast-shelf {
+  left: 4%;
+  right: 4%;
+}
+.cast-room-stage.is-crowd .cast-member {
+  padding-inline: 2px;
+}
+.cast-room-note {
+  flex: none;
+  padding: 6px 28px 0;
+  font-size: 11.5px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+/* ── the conversation ── */
+.cast-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0 28px;
+  outline: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 44px);
+  mask-image: linear-gradient(to bottom, transparent, #000 44px);
+}
+/* A short conversation rests on the composer; a long one scrolls. */
+.cast-thread-inner {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 640px;
+  margin: auto auto 0;
+  padding: 20px 0 6px;
+}
+.cast-thread-inner > * {
+  min-width: 0;
+}
+.cast-msg {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+}
+.cast-msg > .kleio-member-gone {
+  width: 30px;
+  height: 30px;
+}
+.cast-msg-body {
+  min-width: 0;
+}
+.cast-msg.is-you {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cast-msg.is-you .cast-bub {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--user-bg);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cast-msg.is-you time {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cast-msg-who {
+  margin-bottom: 4px;
+  font: 600 12.5px var(--rounded);
+  color: var(--text-secondary);
+}
+.cast-msg-who time {
+  margin-left: 6px;
+  font: 400 11px var(--sans);
+  color: var(--text-dim);
+}
+.cast-msg-body .cast-bub {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px 18px 18px 18px;
+  background: var(--surface-1);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: normal;
+  color: var(--text);
+}
+.cast-bub .markdown > :first-child {
+  margin-top: 0;
+}
+.cast-bub .markdown > :last-child {
+  margin-bottom: 0;
+}
+.cast-msg-body > .kleio-files {
+  margin-top: 6px;
+}
+.cast-live-word {
+  font: 400 12px var(--sans);
+  color: var(--primary-hi);
+}
+.cast-steps {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 6px 16px 16px 16px;
+}
+.cast-steps .tool-row {
+  padding: 0;
+}
+
+/* ── the composer ── */
+.cast-composer {
+  flex: none;
+  padding: 8px 28px 16px;
+}
+.cast-composer > .kleio-error,
+.cast-mentions,
+.cast-input {
+  max-width: 640px;
+  margin-inline: auto;
+}
+.cast-composer > .kleio-error {
+  margin-bottom: 8px;
+}
+.cast-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cast-mentions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  font: 600 12.5px var(--rounded);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    border-color 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-mentions button:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.cast-mentions .blob-av {
+  width: 18px;
+  height: 18px;
+}
+/* Eight chips fit one line; if names run long they wrap rather than overflow. */
+.cast-mentions.is-crowd {
+  gap: 4px 3px;
+}
+.cast-mentions.is-crowd button {
+  gap: 2px;
+  height: 24px;
+  padding: 0 6px 0 2px;
+  font-size: 11.5px;
+}
+.cast-mentions.is-crowd .blob-av {
+  width: 16px;
+  height: 16px;
+}
+.cast-input {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-height: 48px;
+  padding: 6px 7px 6px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.035);
+  transition: border-color 240ms var(--ease-glow);
+}
+.cast-input:focus-within {
+  border-color: rgba(255, 255, 255, 0.26);
+}
+/* One line sits level with the buttons; more lines grow upward from them. */
+.cast-input textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  max-height: 154px;
+  margin: 6px 0;
+  padding: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 22px;
+  color: var(--text);
+}
+.cast-input textarea::placeholder {
+  color: var(--text-dim);
+}
+.cast-input .dictate-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+}
+.cast-input .dictate-btn:not(.is-recording) {
+  background: transparent;
+  box-shadow: none;
+}
+.cast-send {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kleio-crimson);
+  color: #fff;
+  cursor: pointer;
+}
+.cast-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── the side panel: what they shared, newest first ── */
+.cast-room-side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border-left: 1px solid var(--border);
+}
+.cast-room-side[hidden] {
+  display: none;
+}
+/* In a narrow window the panel lies over the room. */
+.cast-room-body.is-narrow .cast-room-side {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 3;
+  width: min(300px, 100%);
+  background: var(--bg);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.45);
+}
+.cast-room-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+.cast-side-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cast-room-side .cast-p-note {
+  margin-top: 12px;
+}
+.cast-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.cast-tiles button {
+  display: grid;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 240ms var(--ease-glow),
+    background 240ms var(--ease-glow);
+}
+.cast-tiles button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.05);
+}
+.cast-t-kind {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 70px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text-muted);
+}
+.cast-t-kind em {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  font: 700 9px var(--sans);
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+/* The newest is the large one; a spreadsheet shows as a sheet of cells. */
+.cast-tiles li:first-child {
+  grid-column: span 2;
+}
+.cast-tiles li:first-child .cast-t-kind {
+  height: 92px;
+}
+.cast-tiles li:first-child .cast-t-kind.is-sheet {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px) 0 0 / 100% 16px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px) 0 0 / 54px 100%,
+    rgba(255, 255, 255, 0.035);
+}
+.cast-tiles li:first-child .cast-t-kind.is-sheet svg {
+  display: none;
+}
+.cast-t-name {
+  overflow: hidden;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+.cast-t-by {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.cast-t-by .blob-av {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+@media (min-width: 1400px) {
+  .cast-room-body.has-side:not(.is-narrow) {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+  .cast-room-side {
+    padding: 22px 26px;
+  }
+  .cast-room-stage {
+    --slot: 124px;
+    --pitch: 168px;
+    --size: 64px;
+    --floor: 46px;
+    --pad-b: 8px;
+    height: 160px;
+  }
+  .cast-member {
+    padding-inline: 14px;
+  }
+  .cast-baton:not(.is-long) {
+    top: 26px;
+    height: 34px;
+  }
+  .cast-room-stage.is-crowd {
+    --slot: 100px;
+    --pitch: 125px;
+    --size: 56px;
+    --floor: 46px;
+    --cone-w: 130px;
+    --cone-h: 168px;
+    height: 176px;
+  }
+  .cast-thread-inner,
+  .cast-composer > .kleio-error,
+  .cast-mentions,
+  .cast-input {
+    max-width: 720px;
+  }
+  .cast-msg-body .cast-bub,
+  .cast-msg.is-you .cast-bub {
+    font-size: 14.5px;
+  }
+  .cast-t-kind {
+    height: 88px;
+  }
+  .cast-tiles li:first-child .cast-t-kind {
+    height: 120px;
+  }
+}
+
 /* ── reduced motion: nothing on the shelf moves ──
    No bounce, blink, drifting z's or bob; the spotlight and the profile's
    pointer jump to the selection; hovering lifts nothing. The same in the
-   form: its character holds still, and its switches and menus don't slide. */
+   form: its character holds still, and its switches and menus don't slide.
+   And in the room: nobody bounces or blinks, no dots type, and the baton is
+   its arc alone, which still says who handed over to whom. */
 @media (prefers-reduced-motion: reduce) {
   .cast-dot,
   .cast-page *,
@@ -1799,11 +2457,17 @@ input[type="time"].cast-field::-webkit-calendar-picker-indicator {
   .cast-page *::after,
   .cast-form *,
   .cast-form *::before,
-  .cast-form *::after {
+  .cast-form *::after,
+  .cast-room *,
+  .cast-room *::before,
+  .cast-room *::after {
     animation: none !important;
     transition: none !important;
   }
   .cast-actor:hover .cast-figure {
     transform: none;
+  }
+  .cast-baton-sweep {
+    display: none;
   }
 }

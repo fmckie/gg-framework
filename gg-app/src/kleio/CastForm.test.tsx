@@ -292,6 +292,52 @@ describe("the Cast's form, editing a specialist", () => {
     expect(onCancel).toHaveBeenCalledTimes(2);
     expect(updateBlob).not.toHaveBeenCalled();
   });
+
+  it("asks before Cancel or Back loses a schedule edit, and stays when you keep editing", async () => {
+    await draw(chef());
+    const scheduleName = (): HTMLInputElement => screen.getByLabelText("Schedule name");
+    type(scheduleName(), "Thursday shop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const ask = screen.getByRole("dialog", { name: "Discard schedule changes?" });
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(within(ask).getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(scheduleName().value).toBe("Thursday shop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Discard schedule changes?" })).getByRole(
+        "button",
+        { name: "Discard" },
+      ),
+    );
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("asks before the header's Save leaves a schedule edit behind, then saves the specialist alone", async () => {
+    await draw(chef());
+    type(screen.getByLabelText("Schedule name"), "Thursday shop");
+    type(nameBox(), "Cook");
+    await press(submit("Save"));
+    const ask = screen.getByRole("dialog", { name: "Discard schedule changes?" });
+    expect(updateBlob).not.toHaveBeenCalled();
+    await press(within(ask).getByRole("button", { name: "Discard" }));
+    expect(updateBlob).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(updateBlob).mock.calls[0]?.[1]).toMatchObject({ name: "Cook" });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't ask once the schedule edit is put back", async () => {
+    await draw(chef());
+    type(screen.getByLabelText("Schedule name"), "Thursday shop");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel schedule changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the Cast's form, making a specialist", () => {
@@ -400,7 +446,7 @@ describe("the Cast's form with reduced motion", () => {
     // And every transition the form's own styles declare is on something inside it.
     const eased = [
       ...castCss
-        .slice(castCss.indexOf("/* ── the form"), block?.index)
+        .slice(castCss.indexOf("/* ── the form"), castCss.indexOf("/* ── the group's room"))
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .matchAll(/([^{}]+)\{[^{}]*\btransition:/g),
     ].map((m) => (m[1] ?? "").trim());

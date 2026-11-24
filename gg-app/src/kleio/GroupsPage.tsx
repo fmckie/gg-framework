@@ -1,9 +1,10 @@
 // Groups: a group chat with several specialists at once, from the Kleio host. A
-// list laid out like Chats and Code; a group opens into its chat with a
-// sidebar of its members on the left (collapsible from the header), and
-// new/edit are full-page forms. A group's picture is its members' blobs.
+// list laid out like Chats and Code; a group opens into its chat, and new/edit
+// are full-page forms. On the desktop the chat is the Cast's room (CastRoom.tsx);
+// on the iPhone it has a sidebar of its members (collapsible from the header).
+// A group's picture is its members' blobs.
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   ArrowUpIcon,
   CaretRightIcon,
@@ -13,26 +14,23 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import { ActionMetal } from "../ActionMetal";
-import { isAskUserPrompt, type AskAnswers, type AskUserPrompt } from "../ask-user";
 import { Badge } from "../Badge";
-import { autosizeComposer } from "../composer-autosize";
 import { ConfirmModal } from "../ConfirmModal";
-import { appendDictation, DictateButton, DictationStatus } from "../DictateButton";
+import { DictateButton, DictationStatus } from "../DictateButton";
 import { LinkHandlerProvider, Markdown } from "../Markdown";
 import { MetalButton } from "../MetalButton";
-import { supportsDictation } from "../platform";
+import { isPhone } from "../platform";
 import { ListSkeleton } from "../Skeleton";
 import { theme } from "../theme";
-import { toast } from "../toast";
-import { useDictation } from "../useDictation";
 import { useWindowFocused } from "../useWindowFocused";
 import { WorkingBeam } from "../WorkingBeam";
 import { AgentRowContent, type RowState } from "./AgentRow";
 import { AgentAvatar, BlobAvatar, GroupAvatar } from "./BlobAvatar";
 import { BLOB_COLOR_LABEL, BLOB_TONES } from "./blobLook";
-import { ChatAsk, typedAnswer } from "./ChatAsk";
+import { CastRoom } from "./CastRoom";
+import { ChatAsk } from "./ChatAsk";
 import { FileCards } from "./FileCard";
-import { AssetsPanel, collectAssets } from "./AssetsPanel";
+import { AssetsPanel } from "./AssetsPanel";
 import {
   AppsButton,
   KleioHead,
@@ -42,48 +40,32 @@ import {
   SideToggle,
   useSidebar,
 } from "./KleioChrome";
-import { isSitePath } from "./filePaths";
-import { useOpenFile } from "./viewerContext";
-import { fileErrorText, fileLinks, fileOwner, ownerFilePath, siteErrorText } from "./kleioFiles";
-import { startLiveActivity } from "./liveActivity";
+import { fileLinks, fileOwner } from "./kleioFiles";
 import { LiveToolFeed, ToolCallRow } from "./LiveToolFeed";
 import { relTime } from "./relTime";
 import {
-  answerGroupAsk,
   BLOB_COLORS,
   createGroup,
   deleteGroup,
   listBlobs,
-  listGroupMessages,
   listGroups,
-  newGroupSession,
-  sendGroupMessage,
-  stopGroup,
   updateGroup,
   errorText,
   type Blob,
   type BlobColor,
   type Group,
   type ToolActivityEntry,
-  type GroupMessage,
   type GroupTurnOutcome,
-  type GroupTurnOutcomeKind,
 } from "./kleioApi";
-import { useFollowLatest } from "./useFollowLatest";
+import { OUTCOME_LABEL, outcomeTone } from "./groupOutcome";
+import { groupMembers, MESSAGE_MAX, plural, useGroupChat } from "./useGroupChat";
 
 /** The host allows 1–8 agents in a group. */
 const MAX_MEMBERS = 8;
 const NAME_MAX = 40;
-const MESSAGE_MAX = 4000;
-const GROUP_POLL_MS = 1500;
 const LIST_REFRESH_MS = 10_000;
 /** Hosts from before agent looks accept only the original six colours. */
 const ORIGINAL_COLORS: readonly BlobColor[] = BLOB_COLORS.slice(0, 6);
-
-/** The agents in a group that still exist, in member order. */
-function groupMembers(g: Pick<Group, "members">, byId: ReadonlyMap<string, Blob>): Blob[] {
-  return g.members.map((id) => byId.get(id)).filter((b): b is Blob => b !== undefined);
-}
 
 /** How the host runs a group chat (see kleio-host groups.ts). */
 const HOW_IT_WORKS = [
@@ -111,10 +93,6 @@ function ErrorLine({ error }: { error: string | null }): React.ReactElement | nu
   ) : null;
 }
 
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? "" : "s"}`;
-}
-
 /** The short state at the right of a group's row. */
 function groupRowState(g: Group, now: number = Date.now()): RowState {
   if (g.typing.length > 0) return { text: "Replying…", tone: "live" };
@@ -130,42 +108,6 @@ function groupRowSub(g: Group): string {
 }
 
 type View = { kind: "list" } | { kind: "chat"; id: string } | { kind: "form"; id: string | null };
-
-const OUTCOME_LABEL: Record<GroupTurnOutcomeKind, string> = {
-  replied: "Replied",
-  passed: "Passed",
-  timed_out: "Stopped",
-  failed: "Failed",
-  unavailable: "Couldn't start",
-  budget_exhausted: "Not reached",
-};
-
-/** The colour an outcome shows in: a stop is an error, a skipped turn a warning. */
-function outcomeTone(kind: GroupTurnOutcomeKind): "" | " is-error" | " is-warning" {
-  if (kind === "timed_out" || kind === "failed" || kind === "unavailable") return " is-error";
-  return kind === "budget_exhausted" ? " is-warning" : "";
-}
-
-const sameIds = (a: readonly string[], b: readonly string[]): boolean =>
-  a.length === b.length && a.every((id, i) => id === b[i]);
-
-/** The questions the host reports, keeping only well-formed ones. */
-export function validAsks(raw: Record<string, unknown> | undefined): Record<string, AskUserPrompt> {
-  const out: Record<string, AskUserPrompt> = {};
-  for (const [bid, p] of Object.entries(raw ?? {})) if (isAskUserPrompt(p)) out[bid] = p;
-  return out;
-}
-
-/** `next`, but the same object when nothing changed (a band keeps what you picked). */
-function sameAsks(
-  cur: Record<string, AskUserPrompt>,
-  next: Record<string, AskUserPrompt>,
-): Record<string, AskUserPrompt> {
-  const keys = Object.keys(next);
-  const same =
-    keys.length === Object.keys(cur).length && keys.every((k) => cur[k]?.id === next[k]?.id);
-  return same ? cur : next;
-}
 
 /**
  * A member's tool calls for its current or last turn, oldest first, and how
@@ -305,15 +247,18 @@ export function GroupsPage({
 
   if (view.kind === "chat") {
     const group = groups?.find((g) => g.id === view.id);
-    if (group)
+    if (group) {
+      // The desktop draws the Cast's room; the iPhone keeps today's chat.
+      const Chat = isPhone() ? GroupChat : CastRoom;
       return (
-        <GroupChat
+        <Chat
           group={group}
           blobs={blobs}
           onBack={toList}
           onEdit={() => setView({ kind: "form", id: group.id })}
         />
       );
+    }
     if (groups === null)
       return (
         <>
@@ -718,229 +663,45 @@ function GroupChat({
   onBack: () => void;
   onEdit: () => void;
 }): React.ReactElement {
-  const [messages, setMessages] = useState<GroupMessage[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [typing, setTyping] = useState<string[]>([]);
-  const [activity, setActivity] = useState<Record<string, ToolActivityEntry[]>>({});
-  const [outcomes, setOutcomes] = useState<Record<string, GroupTurnOutcome>>({});
-  /** Members' questions waiting on you, by member id. */
-  const [asks, setAsks] = useState<Record<string, AskUserPrompt>>({});
-  const [polledAt, setPolledAt] = useState(0);
-  /** Members whose activity is expanded. */
-  const [openActivity, setOpenActivity] = useState<ReadonlySet<string>>(() => new Set());
-  const wasTyping = useRef<readonly string[]>([]);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmNew, setConfirmNew] = useState(false);
-  const [starting, setStarting] = useState(false);
+  const {
+    messages,
+    loaded,
+    typing,
+    activity,
+    outcomes,
+    asks,
+    polledAt,
+    openActivity,
+    toggleActivity,
+    draft,
+    setDraft,
+    sending,
+    stopping,
+    error,
+    setError,
+    confirmNew,
+    setConfirmNew,
+    starting,
+    logRef,
+    inputRef,
+    followHandlers,
+    showDictation,
+    dictation,
+    byId,
+    members,
+    linkHandler,
+    assets,
+    answerAsk,
+    startFresh,
+    send,
+    stop,
+    mention,
+    typingNames,
+    busy,
+  } = useGroupChat(group, blobs);
   const sidebar = useSidebar();
-  const lastSeq = useRef(0);
-  /** Messages up to this seq belong to a conversation a new session cleared. */
-  const clearedThrough = useRef(0);
-  const logRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const windowFocused = useWindowFocused();
-  const { following, catchUp, follow, handlers: followHandlers } = useFollowLatest(logRef);
-  // Dictation (iPhone and Mac): the transcript joins the draft for review before sending.
-  const showDictation = supportsDictation();
-  const dictation = useDictation({
-    onText: (text) => setDraft((prev) => appendDictation(prev, text, MESSAGE_MAX)),
-    onError: (message) => toast(message, "error"),
-  });
   const sideId = useId();
-  const byId = useMemo(() => new Map(blobs.map((b) => [b.id, b])), [blobs]);
-  const members = groupMembers(group, byId);
-
-  // A click on a link to a member's file opens it: in the file viewer when
-  // Kleio draws its kind, as a site for a web page, else in its app. Links in
-  // a message point into its author's own folder inside the group.
-  const openAt = useOpenFile();
-  const linkHandler = useCallback(
-    (authorId: string) =>
-      (href: string): boolean => {
-        const owner = fileOwner(authorId, group.id);
-        const path = ownerFilePath(href, owner);
-        if (!path) return false;
-        openAt(owner, path).catch((e: unknown) =>
-          setError(isSitePath(path) ? siteErrorText(e) : fileErrorText(e)),
-        );
-        return true;
-      },
-    [group.id, openAt],
-  );
-
-  useEffect(() => {
-    let live = true;
-    lastSeq.current = 0;
-    clearedThrough.current = 0;
-    setMessages([]);
-    setActivity({});
-    setOutcomes({});
-    setAsks({});
-    setOpenActivity(new Set());
-    wasTyping.current = [];
-    setLoaded(false);
-    follow();
-    const tick = async (): Promise<void> => {
-      if (document.hidden) return;
-      try {
-        const page = await listGroupMessages(group.id, { after: lastSeq.current, limit: 200 });
-        if (!live) return;
-        // A new session (from any device) clears what came before it.
-        const cleared = Math.max(clearedThrough.current, page.clearedThrough ?? 0);
-        const fresh = page.messages.filter((m) => m.seq > cleared);
-        if (page.messages.length) lastSeq.current = page.lastSeq;
-        if (fresh.length || cleared > clearedThrough.current) {
-          clearedThrough.current = cleared;
-          setMessages((cur) => [...cur.filter((m) => m.seq > cleared), ...fresh]);
-        }
-        // The same list keeps the same array: an idle poll changes nothing.
-        setTyping((cur) => (sameIds(cur, page.typing) ? cur : page.typing));
-        // Older hosts send neither.
-        setActivity(page.activity ?? {});
-        setOutcomes(page.outcomes ?? {});
-        // Same questions: keep the objects, so a band keeps what you picked.
-        setAsks((cur) => sameAsks(cur, validAsks(page.asks)));
-        setPolledAt(Date.now());
-        setLoaded(true);
-        setError(null);
-      } catch (e) {
-        if (live) setError(errorText(e));
-      }
-    };
-    void tick();
-    const id = window.setInterval(() => void tick(), GROUP_POLL_MS);
-    return () => {
-      live = false;
-      window.clearInterval(id);
-    };
-  }, [group.id, follow]);
-
-  // New messages carry along only a reader at the newest one, never one
-  // scrolled up to read. Only real changes: a catch-up on every poll lands
-  // on a scroll the reader has just begun and snaps it back down.
-  useEffect(() => {
-    catchUp();
-  }, [messages, typing, asks, catchUp]);
-
-  // Every file the members linked, newest first, for the Assets panel.
-  const assets = useMemo(
-    () =>
-      collectAssets(
-        messages,
-        (m) => (m.author === "you" ? null : fileOwner(m.author, group.id)),
-        (m) => m.authorName,
-      ),
-    [messages, group.id],
-  );
-
-  async function answerAsk(bid: string, prompt: AskUserPrompt, answers: AskAnswers): Promise<void> {
-    await answerGroupAsk(group.id, prompt.id, "answer", answers);
-    setAsks((cur) => {
-      if (cur[bid]?.id !== prompt.id) return cur;
-      const { [bid]: _answered, ...rest } = cur;
-      return rest;
-    });
-  }
-
-  async function startFresh(): Promise<void> {
-    setStarting(true);
-    setError(null);
-    try {
-      const g = await newGroupSession(group.id);
-      clearedThrough.current = Math.max(clearedThrough.current, g.clearedThrough ?? 0);
-      setMessages([]);
-      setTyping([]);
-      setActivity({});
-      setOutcomes({});
-      setAsks({});
-      setOpenActivity(new Set());
-      follow();
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setStarting(false);
-      setConfirmNew(false);
-    }
-  }
-
-  // A member that starts replying opens its activity; it stays open after, to
-  // show how the turn ended, until the user closes it.
-  useEffect(() => {
-    const started = typing.filter((id) => !wasTyping.current.includes(id));
-    wasTyping.current = typing;
-    if (started.length) setOpenActivity((cur) => new Set([...cur, ...started]));
-  }, [typing]);
-
-  const toggleActivity = useCallback((id: string) => {
-    setOpenActivity((cur) => {
-      const next = new Set(cur);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    autosizeComposer(inputRef.current, logRef.current, following());
-  }, [draft, following]);
-
-  async function send(): Promise<void> {
-    const text = draft.trim();
-    if (!text || sending) return;
-    // A member's question is waiting: what's typed answers it (its turn is
-    // blocked on it), rather than going in as a new message.
-    const waiting = Object.entries(asks)[0];
-    const typed = waiting ? typedAnswer(waiting[1], text) : null;
-    if (waiting && typed) {
-      setSending(true);
-      setDraft("");
-      try {
-        await answerAsk(waiting[0], waiting[1], typed);
-      } catch (e) {
-        setError(errorText(e));
-        setDraft(text);
-      } finally {
-        setSending(false);
-      }
-      return;
-    }
-    setSending(true);
-    setDraft("");
-    // Sending means following the replies, wherever the reader had scrolled.
-    follow();
-    try {
-      await sendGroupMessage(group.id, text);
-      void startLiveActivity("group", group.name, { groupId: group.id });
-    } catch (e) {
-      setError(errorText(e));
-      setDraft(text);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function stop(): Promise<void> {
-    if (stopping) return;
-    setStopping(true);
-    setError(null);
-    try {
-      await stopGroup(group.id);
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setStopping(false);
-    }
-  }
-
-  function mention(name: string): void {
-    setDraft((d) => `${d}${d && !d.endsWith(" ") ? " " : ""}@${name} `);
-    inputRef.current?.focus();
-  }
-
-  const typingNames = typing.map((id) => byId.get(id)?.name ?? "Someone");
-  const busy = typing.length > 0;
 
   const chat = (
     <div className="kleio-chat">

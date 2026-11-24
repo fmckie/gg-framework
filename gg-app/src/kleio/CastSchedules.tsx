@@ -4,7 +4,7 @@
 // sidebar (BlobSchedules.tsx): the switch, Run now and Delete at once, edits
 // to the words and the timing when its own Save is pressed.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { PlayIcon, PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { ConfirmModal } from "../ConfirmModal";
 import { Dropdown } from "../Dropdown";
@@ -17,7 +17,7 @@ import {
   KINDS,
   useScheduleDraft,
 } from "./BlobSchedules";
-import { castWeek, soonest, type WeekMark } from "./castLayout";
+import { castWeek, DAY_FULL, markName, soonest, type WeekMark } from "./castLayout";
 import { shortHost } from "./host-name";
 import {
   addSchedule,
@@ -30,7 +30,6 @@ import {
 } from "./kleioApi";
 import { useKleioRemote } from "./useKleioRemote";
 
-const DAY_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const NEW = "new";
 
 /** What the host holds for a schedule's editable parts: a change remounts its editor. */
@@ -62,7 +61,7 @@ function Mark({
       onClick={onPick}
     >
       {mark.text}
-      <small>{s.label}</small>
+      <small>{day === undefined ? s.label : markName(s.label, day)}</small>
     </button>
   );
 }
@@ -70,11 +69,14 @@ function Mark({
 export function CastSchedules({
   blob,
   onChanged,
+  onDirty,
   now,
 }: {
   /** Absent on a new specialist: nothing to schedule until it is saved. */
   blob?: Blob;
   onChanged: () => Promise<void>;
+  /** Told when the open schedule has changes its own Save hasn't sent. */
+  onDirty?: (dirty: boolean) => void;
   /** Hold the clock still (tests). */
   now?: Date;
 }): React.ReactElement {
@@ -169,6 +171,7 @@ export function CastSchedules({
           hostLabel={host ? shortHost(host) : "your host"}
           now={clock}
           act={act}
+          {...(onDirty ? { onDirty } : {})}
           onSaved={async (id) => {
             setPicked(id);
             await onChanged();
@@ -200,6 +203,7 @@ function Editor({
   hostLabel,
   now,
   act,
+  onDirty,
   onSaved,
   onCancel,
   onDelete,
@@ -210,6 +214,7 @@ function Editor({
   hostLabel: string;
   now: Date;
   act: (work: () => Promise<unknown>, done?: string) => Promise<void>;
+  onDirty?: (dirty: boolean) => void;
   onSaved: (id: string) => Promise<void>;
   onCancel: () => void;
   onDelete: () => void;
@@ -220,6 +225,13 @@ function Editor({
   const [error, setError] = useState<string | null>(null);
   const late = schedule ? ranLate(schedule.lastRun, schedule.timezone, hostLabel) : null;
   const what = schedule ? "schedule changes" : "new schedule";
+  const { dirty } = draft;
+
+  // The form asks before leaving with these unsaved; a closed editor has none.
+  useEffect(() => {
+    onDirty?.(dirty);
+    return () => onDirty?.(false);
+  }, [dirty, onDirty]);
 
   async function save(): Promise<void> {
     setSaving(true);

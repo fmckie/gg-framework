@@ -55,13 +55,11 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-function AssetRow({
-  asset,
-  onError,
-}: {
-  asset: Asset;
-  onError: (message: string) => void;
-}): React.ReactElement {
+/** What a row or tile shows of an asset, and how it opens. */
+export function useAssetOpen(
+  asset: Asset,
+  onError: (message: string) => void,
+): { opening: boolean; open: () => Promise<void>; site: boolean; name: string; kind: string } {
   const [opening, setOpening] = useState(false);
   const openAt = useOpenFile();
   const site = isSitePath(asset.path);
@@ -77,6 +75,17 @@ function AssetRow({
       setOpening(false);
     }
   }
+  return { opening, open, site, name, kind };
+}
+
+function AssetRow({
+  asset,
+  onError,
+}: {
+  asset: Asset;
+  onError: (message: string) => void;
+}): React.ReactElement {
+  const { opening, open, site, name, kind } = useAssetOpen(asset, onError);
   return (
     <li>
       <button
