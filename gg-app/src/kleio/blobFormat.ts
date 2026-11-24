@@ -102,15 +102,33 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-/** "today 08:00", "tomorrow 08:00", "Thu 3 Oct 08:00" in the viewer's zone. */
-export function formatWhen(iso: string, now: Date = new Date()): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const time = new Intl.DateTimeFormat("en-GB", {
+function clockTime(d: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
   }).format(d);
+}
+
+/** "14:08" in the viewer's zone, or "" for a time that doesn't parse. */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : clockTime(d);
+}
+
+/** A next run in the least room, for a full shelf: "Today 15:00", "Tue 07:30". */
+export function formatWhenShort(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  if (dayKey(d) === dayKey(now)) return `Today ${clockTime(d)}`;
+  return `${new Intl.DateTimeFormat("en-GB", { weekday: "short" }).format(d)} ${clockTime(d)}`;
+}
+
+/** "today 08:00", "tomorrow 08:00", "Thu 3 Oct 08:00" in the viewer's zone. */
+export function formatWhen(iso: string, now: Date = new Date()): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = clockTime(d);
   const tomorrow = new Date(now);
   tomorrow.setDate(now.getDate() + 1);
   if (dayKey(d) === dayKey(now)) return `today ${time}`;

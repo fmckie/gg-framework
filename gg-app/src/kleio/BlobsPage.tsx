@@ -1,5 +1,6 @@
-// Specialists (Blobs in the code): Kleio's helpers, each with one job. A list
-// laid out like Chats and Code; a specialist opens into its chat with a sidebar of cards on the left (job,
+// Specialists (Blobs in the code): Kleio's helpers, each with one job. On the
+// desktop the list is a cast on a shelf (CastList.tsx); on the iPhone, rows
+// laid out like Chats and Code. A specialist opens into its chat with a sidebar of cards on the left (job,
 // schedules, recent activity) that collapses from the header. New and edit are
 // full-page forms. Every change goes to the Mac mini, so the phone sees it too.
 
@@ -9,6 +10,7 @@ import { Badge } from "../Badge";
 import { ConfirmModal } from "../ConfirmModal";
 import { MetalButton } from "../MetalButton";
 import { ListSkeleton } from "../Skeleton";
+import { isPhone } from "../platform";
 import { theme } from "../theme";
 import { useWindowFocused } from "../useWindowFocused";
 import { AgentRowContent, agentRowState } from "./AgentRow";
@@ -16,6 +18,8 @@ import { AgentAvatar, BlobAvatar } from "./BlobAvatar";
 import { BlobForm } from "./BlobForm";
 import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
+import { CastList } from "./CastList";
+import { shortHost } from "./host-name";
 import {
   AppsButton,
   KleioHead,
@@ -39,6 +43,7 @@ import {
   type BlobSaved,
 } from "./kleioApi";
 import { ThreadChat } from "./ThreadChat";
+import { useKleioRemote } from "./useKleioRemote";
 
 const REFRESH_MS = 10_000;
 
@@ -145,16 +150,35 @@ export function BlobsPage({
     );
   }
 
+  // The iPhone keeps the list of rows; the desktop shows everyone as a cast.
+  const List = isPhone() ? AgentList : DesktopList;
   return (
-    <AgentList
+    <List
       blobs={blobs}
       error={error}
       onClose={onClose}
       onCreate={() => setView({ kind: "create" })}
       onOpen={(id) => setView({ kind: "detail", id })}
+      onEdit={(id) => setView({ kind: "edit", id })}
       {...(onOpenApps ? { onOpenApps } : {})}
     />
   );
+}
+
+interface ListProps {
+  blobs: Blob[] | null;
+  error: string | null;
+  onClose: () => void;
+  onCreate: () => void;
+  onOpen: (id: string) => void;
+  onEdit: (id: string) => void;
+  onOpenApps?: () => void;
+}
+
+/** The cast, told which host the specialists work on. */
+function DesktopList(props: ListProps): React.ReactElement {
+  const host = useKleioRemote().status?.active?.host;
+  return <CastList {...props} hostLabel={host ? shortHost(host) : "your host"} />;
 }
 
 // ─── the list ─────────────────────────────────────────────────────────────────────────
@@ -166,14 +190,7 @@ function AgentList({
   onCreate,
   onOpen,
   onOpenApps,
-}: {
-  blobs: Blob[] | null;
-  error: string | null;
-  onClose: () => void;
-  onCreate: () => void;
-  onOpen: (id: string) => void;
-  onOpenApps?: () => void;
-}): React.ReactElement {
+}: ListProps): React.ReactElement {
   const [query, setQuery] = useState("");
   const windowFocused = useWindowFocused();
   const working = blobs?.filter((b) => b.running).length ?? 0;

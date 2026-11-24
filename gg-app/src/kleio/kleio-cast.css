@@ -1,0 +1,1164 @@
+/* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
+   a lit shelf, the selected one in a spotlight with its profile underneath.
+   Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
+   the page sets how many places the widest shelf has (--cols), and the profile
+   which place its pointer is under (--col). The iPhone never draws this. */
+
+.cast-page {
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;
+  --inset: 44px;
+  --slot: min(var(--slot-max), calc((100cqw - 2 * var(--inset)) / var(--cols, 1)));
+  --size: min(var(--size-max), calc(var(--slot) * var(--size-k)));
+  --floor: calc(var(--pad-b) + var(--name-gap) + var(--name-lh) + var(--state-lh));
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  container-type: inline-size;
+}
+.cast-page > * {
+  flex-shrink: 0;
+}
+/* Room under the page for the Specialists/Groups switcher (a spacer: WebKit
+   leaves a flex column's bottom padding out of what it scrolls). */
+.kleio-screen.has-dock .cast-page::after {
+  content: "";
+  flex: 0 0 96px;
+}
+.cast-page :where(h2, h3, p, ol, ul) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cast-error {
+  margin: 12px var(--inset) 0;
+}
+.cast-page > .list-skeleton {
+  padding: 12px var(--inset) 0;
+}
+.cast-none {
+  color: var(--text-muted);
+}
+
+/* Solo: one character, large, with a place for the next. */
+.cast-page[data-tier="solo"] {
+  --slot-max: 180px;
+  --size-max: 124px;
+  --size-k: 0.8;
+  --row-h: 300px;
+  --pad-b: 8px;
+  --name-gap: 10px;
+  --name-fs: 15px;
+  --name-lh: 19px;
+  --state-fs: 11.5px;
+  --state-lh: 15px;
+  --cone-w: 230px;
+  --cone-h: 270px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+  --prof-gap: 18px;
+}
+/* One shelf, up to 9. */
+.cast-page[data-tier="one"] {
+  --slot-max: 150px;
+  --size-max: 84px;
+  --size-k: 0.7;
+  --row-h: 300px;
+  --pad-b: 8px;
+  --name-gap: 10px;
+  --name-fs: 14px;
+  --name-lh: 18px;
+  --state-fs: 11.5px;
+  --state-lh: 15px;
+  --cone-w: 210px;
+  --cone-h: 260px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+  --prof-gap: 18px;
+}
+/* Two shelves, 10 to 24. */
+.cast-page[data-tier="two"] {
+  --slot-max: 150px;
+  --size-max: 58px;
+  --size-k: 0.72;
+  --row-h: 142px;
+  --pad-b: 4px;
+  --name-gap: 7px;
+  --name-fs: 12.5px;
+  --name-lh: 16px;
+  --state-fs: 11px;
+  --state-lh: 14px;
+  --cone-w: calc(var(--slot) * 1.6);
+  --cone-h: calc(var(--row-h) - var(--floor) + 6px);
+  --cone-foot: 10px;
+  --bubble-gap: 7px;
+  --prof-gap: 12px;
+}
+/* Three shelves from 25; past 36 the shelves scroll. */
+.cast-page[data-tier="crowd"] {
+  --slot-max: 130px;
+  --size-max: 46px;
+  --size-k: 0.6;
+  --row-h: 116px;
+  --pad-b: 3px;
+  --name-gap: 6px;
+  --name-fs: 12px;
+  --name-lh: 15px;
+  --state-fs: 10.5px;
+  --state-lh: 13px;
+  --cone-w: calc(var(--slot) * 1.6);
+  --cone-h: calc(var(--row-h) - var(--floor) + 6px);
+  --cone-foot: 10px;
+  --bubble-gap: 6px;
+  --prof-gap: 10px;
+}
+
+/* ── the header's counts ── */
+.cast-pills {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cast-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.cast-pill.is-live {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary-hi);
+}
+.cast-pill.is-failed {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.cast-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: cast-breathe 2.6s var(--ease-glow) infinite;
+}
+@keyframes cast-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+}
+
+/* ── the shelves ── */
+.cast {
+  padding: var(--cast-top, 0px) var(--inset) 0;
+}
+.cast[data-scroll] {
+  max-height: calc(var(--row-h) * 3 + var(--cast-top, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+/* Under the fade at the foot of the shelves, on its own line. */
+.cast-more {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  margin: 4px 0 0;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.cast-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n, var(--cols)), var(--slot));
+  justify-content: center;
+  height: var(--row-h);
+}
+.cast-shelf {
+  position: absolute;
+  left: calc(20px - var(--inset));
+  right: calc(20px - var(--inset));
+  bottom: var(--floor);
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2) 14%,
+    rgba(255, 255, 255, 0.2) 86%,
+    transparent
+  );
+}
+.cast-shelf::after {
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 1px;
+  height: 64px;
+  background: radial-gradient(
+    50% 100% at 50% 0,
+    color-mix(in srgb, var(--glow) 26%, transparent),
+    transparent 72%
+  );
+}
+/* Lower shelves get a quieter glow, so a crowd doesn't read as red. */
+.cast-row + .cast-row .cast-shelf::after {
+  opacity: 0.55;
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-shelf::after {
+  height: 44px;
+}
+
+/* ── one character ── */
+.cast-actor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: 0 4px var(--pad-b);
+  border: 0;
+  border-radius: 14px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cast-actor:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-actor {
+  padding-inline: 1px;
+}
+/* The selected character stands in a soft spotlight. */
+.cast-actor::before,
+.cast-slot.is-hero::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--floor) - var(--cone-foot));
+  width: var(--cone-w);
+  height: var(--cone-h);
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 10% at 50% 93%, rgba(255, 236, 236, 0.16), transparent 100%),
+    linear-gradient(to bottom, rgba(255, 236, 236, 0), rgba(255, 236, 236, 0.07));
+  clip-path: polygon(38% 0, 62% 0, 100% 100%, 0 100%);
+  transition: opacity 600ms var(--ease-glow);
+}
+.cast-actor[aria-pressed="true"]::before,
+.cast-slot.is-hero::before {
+  opacity: 1;
+}
+.cast-figure {
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  transition: transform 400ms var(--ease-out);
+}
+/* Each body's own foot meets the shelf. */
+.cast-figure .blob-av {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  translate: 0 var(--foot, 8%);
+}
+.cast-figure::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: -5px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, 0.7), transparent);
+}
+.cast-actor:hover .cast-figure {
+  transform: translateY(-3px);
+}
+/* Working characters bounce, each on its own beat. */
+.cast-actor .blob-av.is-live .blob-av-body {
+  animation-delay: var(--bd, 0s);
+}
+.cast-actor.is-paused .cast-figure .blob-av {
+  filter: saturate(0.45) brightness(0.8);
+}
+.cast-actor.is-add .cast-figure::after {
+  display: none;
+}
+.cast-name,
+.cast-state {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-name {
+  margin-top: var(--name-gap);
+  font: 600 var(--name-fs) / var(--name-lh) var(--rounded);
+  color: var(--text-secondary);
+}
+.cast-state {
+  font-size: var(--state-fs);
+  line-height: var(--state-lh);
+  color: var(--text-dim);
+}
+.cast-actor[aria-pressed="true"] .cast-name {
+  color: var(--text);
+}
+.cast-actor.is-working .cast-state {
+  color: var(--primary-hi);
+}
+.cast-actor.is-failed .cast-state {
+  color: var(--primary);
+}
+.cast-actor.is-add .cast-name {
+  color: var(--text-muted);
+}
+
+/* Sleepers. In a crowd their z's hold still. */
+.cast-zz {
+  position: absolute;
+  z-index: 3;
+  left: 60%;
+  bottom: calc(var(--floor) + var(--size) - 4px);
+  font: 600 14px var(--rounded);
+  color: var(--text-dim);
+}
+.cast-zz i {
+  display: inline-block;
+  font-style: normal;
+  animation: cast-zz 3.2s var(--ease-glow) infinite;
+}
+.cast-zz i + i {
+  margin-left: 1px;
+  font-size: 11px;
+  animation-delay: 1.6s;
+}
+@keyframes cast-zz {
+  0% {
+    opacity: 0;
+    transform: translate(0, 4px);
+  }
+  30%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(5px, -8px);
+  }
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz {
+  left: 62%;
+  bottom: calc(var(--floor) + var(--size) - 6px);
+  font-size: 11px;
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz i {
+  animation: none;
+  opacity: 0.75;
+}
+
+/* What a character is saying: only the ones with something to say. One line
+   each, since a wrapped bubble would climb into the shelf above; the whole
+   reason is in the profile, so a long one ends in an ellipsis. */
+.cast-bubble {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(var(--floor) + var(--size) + var(--bubble-gap));
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(var(--slot) * 2.2);
+  height: 28px;
+  padding: 0 11px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.cast-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+.cast-bubble > svg {
+  flex: none;
+}
+.cast-btxt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cast-actor.is-failed .cast-bubble {
+  border-color: color-mix(in srgb, var(--primary) 38%, var(--border-strong));
+  color: var(--text);
+}
+.cast-actor.is-failed .cast-bubble > svg {
+  color: var(--primary);
+}
+.cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-bubble {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+}
+/* Neighbours who both need you lean apart, and the ends of a shelf lean in,
+   so no two bubbles overlap and none leaves the window. */
+.cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble,
+.cast-actor.is-failed:last-of-type .cast-bubble {
+  transform: translateX(calc(-100% + 22px));
+}
+.cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble::after,
+.cast-actor.is-failed:last-of-type .cast-bubble::after {
+  left: calc(100% - 22px);
+}
+.cast-actor.is-failed + .cast-actor.is-failed .cast-bubble,
+.cast-actor.is-failed:first-of-type .cast-bubble {
+  transform: translateX(-22px);
+}
+.cast-actor.is-failed + .cast-actor.is-failed .cast-bubble::after,
+.cast-actor.is-failed:first-of-type .cast-bubble::after {
+  left: 22px;
+}
+/* A third in a row keeps only its sign; its words are in its profile. */
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble {
+  transform: translateX(-50%);
+}
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-bubble::after {
+  left: 50%;
+}
+.cast-actor.is-failed + .cast-actor.is-failed:has(+ .cast-actor.is-failed) .cast-btxt {
+  display: none;
+}
+/* A pair at the end of a shelf: the neighbour leans away from the edge (the
+   pair rules above), and the one at the edge keeps only its sign. */
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-bubble,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-bubble {
+  transform: translateX(-50%);
+}
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-bubble::after,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-bubble::after {
+  left: 50%;
+}
+.cast-actor.is-failed:first-of-type:has(+ .cast-actor.is-failed) .cast-btxt,
+.cast-actor.is-failed + .cast-actor.is-failed:last-of-type .cast-btxt {
+  display: none;
+}
+
+/* ── the selected character's profile, under the shelves ── */
+.cast-profile {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1.3fr) minmax(0, 1fr);
+  column-gap: 26px;
+  margin: var(--prof-gap, 18px) var(--inset) 0;
+  padding: 20px 24px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: #130f10;
+}
+/* The pointer sits under the selected character's place; a short shelf is
+   centred, so --col can be a half. Only the front shelf is within reach. */
+.cast-profile::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: calc((100% - var(--slot) * var(--cols)) / 2 + var(--slot) * (var(--col, 0) + 0.5));
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%) rotate(45deg);
+  border-top: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-strong);
+  background: #130f10;
+  opacity: var(--notch, 1);
+  transition: left 420ms var(--ease-out);
+}
+.cast-p-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cast-p-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 650 26px/1.1 var(--rounded);
+  color: var(--text);
+}
+.cast-p-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.cast-p-job {
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.cast-p-brain {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.cast-p-brain > svg {
+  flex: none;
+}
+.cast-p-col {
+  min-width: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+}
+.cast-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.cast-p-col .cast-label + * {
+  margin-top: 10px;
+}
+.cast-p-col * + .cast-label {
+  margin-top: 16px;
+}
+.cast-p-note {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.cast-tools {
+  font-size: 12.5px;
+}
+.cast-tools .tool-row {
+  padding: 4px 0;
+}
+.cast-tools .tool-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The app's tool rows (ToolRow sets its colours inline), in the shelf's
+   palette: crimson only for the call under way. */
+.cast-tools .tool-dot {
+  color: var(--text-dim) !important;
+  font-size: 8px;
+}
+.cast-tools .tool-dot.blink {
+  color: var(--primary) !important;
+}
+.cast-tools .tool-line > span {
+  color: var(--text-muted) !important;
+}
+.cast-tools .tool-line > span:first-child {
+  color: var(--text-secondary) !important;
+}
+.cast-tools .kleio-activity-time.is-live {
+  color: var(--primary-hi);
+}
+.cast-runs li,
+.cast-s-last {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 7px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.cast-runs li {
+  padding: 3px 0;
+}
+.cast-runs svg,
+.cast-s-last svg {
+  margin-top: 3px;
+}
+.cast-runs li.is-failed {
+  color: var(--text-secondary);
+}
+.cast-runs li.is-failed svg {
+  color: var(--primary);
+}
+.cast-runs time,
+.cast-s-last time {
+  margin-right: 4px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.cast-s-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cast-s-when {
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cast-scheds li + li {
+  margin-top: 8px;
+}
+.cast-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  vertical-align: 1px;
+}
+.cast-p-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* Three shelves leave less room, so the profile tightens: the state sits
+   beside the name, and a wider first column keeps the job to two lines. */
+.cast-page[data-tier="crowd"] .cast-profile {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  padding: 13px 20px 11px;
+}
+.cast-page[data-tier="crowd"] .cast-p-id {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  align-content: start;
+  column-gap: 12px;
+}
+.cast-page[data-tier="crowd"] .cast-p-head h2 {
+  font-size: 21px;
+}
+.cast-page[data-tier="crowd"] .cast-p-head .blob-av {
+  width: 30px;
+  height: 30px;
+}
+.cast-page[data-tier="crowd"] .cast-p-state {
+  margin-top: 0;
+}
+.cast-page[data-tier="crowd"] :is(.cast-p-job, .cast-p-brain) {
+  grid-column: 1 / -1;
+}
+.cast-page[data-tier="crowd"] .cast-p-job {
+  display: -webkit-box;
+  margin-top: 8px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.cast-page[data-tier="crowd"] .cast-p-brain {
+  margin-top: 6px;
+}
+.cast-page[data-tier="crowd"] .cast-p-col .cast-label + * {
+  margin-top: 7px;
+}
+.cast-page[data-tier="crowd"] .cast-p-col * + .cast-label {
+  margin-top: 11px;
+}
+.cast-page[data-tier="crowd"] .cast-p-actions {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+/* ── the first run: one blob in the spotlight, places waiting either side ── */
+.cast-first {
+  --size: 84px;
+  --floor: 51px;
+  --cone-w: 210px;
+  --cone-h: 260px;
+  --cone-foot: 18px;
+  --bubble-gap: 16px;
+}
+.cast-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+  height: 330px;
+  padding: 0 calc(var(--inset) + 90px);
+}
+.cast-stage .cast-shelf {
+  left: 20px;
+  right: 20px;
+}
+.cast-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0 var(--floor);
+}
+.cast-slot.is-place {
+  opacity: 0.7;
+}
+.cast-slot.is-place.is-far {
+  opacity: 0.4;
+}
+.cast-slot.is-place .cast-figure::after {
+  display: none;
+}
+.cast-slot.is-hero {
+  --size: 112px;
+}
+.cast-slot.is-hero .cast-bubble {
+  max-width: none;
+  height: auto;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+}
+.cast-bob {
+  animation: cast-bob 4.8s var(--ease-glow) infinite;
+}
+@keyframes cast-bob {
+  50% {
+    transform: translateY(-5px);
+  }
+}
+.cast-welcome {
+  display: grid;
+  justify-items: center;
+  margin-top: 14px;
+  padding: 0 var(--inset);
+  text-align: center;
+}
+.cast-welcome h2 {
+  font: 650 28px/1.15 var(--rounded);
+  color: var(--text);
+}
+.cast-welcome p {
+  max-width: 470px;
+  margin-top: 8px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.cast-welcome .metal-button {
+  margin-top: 20px;
+}
+.cast-btn-lg {
+  height: 38px;
+  padding: 0 18px 0 14px;
+  border-radius: 12px;
+  font-size: 14px;
+}
+.cast-welcome .cast-tip {
+  max-width: none;
+  margin-top: 16px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cast-tip kbd {
+  font: 500 11px/1 var(--sans);
+  letter-spacing: 0.04em;
+}
+
+/* ── a wide window ── */
+@media (min-width: 1400px) {
+  .cast-page {
+    --inset: max(60px, calc((100cqw - 1400px) / 2));
+  }
+  .cast-page[data-tier="solo"] {
+    --slot-max: 240px;
+    --size-max: 172px;
+    --row-h: 500px;
+    --name-gap: 12px;
+    --name-fs: 17px;
+    --name-lh: 22px;
+    --state-fs: 12.5px;
+    --state-lh: 16px;
+    --cone-w: 320px;
+    --cone-h: 400px;
+    --prof-gap: 32px;
+  }
+  .cast-page[data-tier="one"] {
+    --slot-max: 200px;
+    --size-max: 140px;
+    --row-h: 500px;
+    --name-fs: 16px;
+    --name-lh: 20px;
+    --state-fs: 12.5px;
+    --state-lh: 16px;
+    --cone-w: 300px;
+    --cone-h: 380px;
+    --prof-gap: 32px;
+  }
+  .cast-page[data-tier="two"] {
+    --slot-max: 180px;
+    --size-max: 100px;
+    --row-h: 210px;
+    --cast-top: 36px;
+    --pad-b: 6px;
+    --name-gap: 9px;
+    --name-fs: 14.5px;
+    --name-lh: 18px;
+    --state-fs: 12px;
+    --state-lh: 15px;
+    --bubble-gap: 10px;
+    --prof-gap: 22px;
+  }
+  .cast-page[data-tier="crowd"] {
+    --slot-max: 170px;
+    --size-max: 80px;
+    --row-h: 172px;
+    --cast-top: 12px;
+    --pad-b: 5px;
+    --name-gap: 8px;
+    --name-fs: 14px;
+    --name-lh: 18px;
+    --state-fs: 11.5px;
+    --state-lh: 15px;
+    --bubble-gap: 8px;
+    --prof-gap: 20px;
+  }
+  .cast-zz {
+    font-size: 19px;
+  }
+  .cast-zz i + i {
+    font-size: 15px;
+  }
+  .cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-zz {
+    font-size: 14px;
+  }
+  .cast-bubble {
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 16px;
+    font-size: 13px;
+  }
+  .cast-page:is([data-tier="two"], [data-tier="crowd"]) .cast-bubble {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 14px;
+    font-size: 12.5px;
+  }
+  .cast-profile {
+    padding: 26px 30px 20px;
+    column-gap: 34px;
+    border-radius: 24px;
+  }
+  .cast-p-head h2 {
+    font-size: 32px;
+  }
+  .cast-p-head .blob-av {
+    width: 44px;
+    height: 44px;
+  }
+  .cast-p-job {
+    font-size: 14.5px;
+  }
+  .cast-p-col {
+    padding-left: 30px;
+  }
+  .cast-tools,
+  .cast-runs li,
+  .cast-s-last {
+    font-size: 13px;
+  }
+  .cast-first {
+    --size: 140px;
+    --floor: 54px;
+    --cone-w: 300px;
+    --cone-h: 380px;
+  }
+  .cast-stage {
+    height: 470px;
+  }
+  .cast-slot.is-hero {
+    --size: 150px;
+  }
+  .cast-welcome {
+    margin-top: 20px;
+  }
+  .cast-welcome h2 {
+    font-size: 34px;
+  }
+  .cast-welcome p {
+    max-width: 520px;
+    font-size: 16px;
+  }
+}
+
+/* ── blinking ──
+   Idle eyes blink on separate clocks, so a shelf never blinks in step: eight
+   lively ones (5 to 9 s) for a single shelf, eight calm ones (11 to 19 s) from
+   ten specialists up. Every blink takes 0.36 s, as the app's 5.2 s blink does
+   (93% and 96% of it), whatever the period. */
+.cast-actor[data-clock="b1"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b1 5.2s ease-in-out -0.7s infinite;
+}
+@keyframes cast-blink-b1 {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  96% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b2"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b2 6.4s ease-in-out -3.9s infinite;
+}
+@keyframes cast-blink-b2 {
+  0%,
+  94.31%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.75% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b3"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b3 7.1s ease-in-out -2.2s infinite;
+}
+@keyframes cast-blink-b3 {
+  0%,
+  94.87%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.07% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b4"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b4 5.8s ease-in-out -4.6s infinite;
+}
+@keyframes cast-blink-b4 {
+  0%,
+  93.72%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.41% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b5"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b5 7.9s ease-in-out -1.5s infinite;
+}
+@keyframes cast-blink-b5 {
+  0%,
+  95.39%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.37% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b6"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b6 6.7s ease-in-out -5.3s infinite;
+}
+@keyframes cast-blink-b6 {
+  0%,
+  94.57%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.9% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b7"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b7 8.6s ease-in-out -0.2s infinite;
+}
+@keyframes cast-blink-b7 {
+  0%,
+  95.77%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.58% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="b8"] .blob-av .blob-av-eyes {
+  animation: cast-blink-b8 6.1s ease-in-out -2.9s infinite;
+}
+@keyframes cast-blink-b8 {
+  0%,
+  94.03%,
+  100% {
+    transform: scaleY(1);
+  }
+  96.59% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c1"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c1 11.3s ease-in-out -2.1s infinite;
+}
+@keyframes cast-blink-c1 {
+  0%,
+  96.78%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.16% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c2"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c2 13.7s ease-in-out -8.4s infinite;
+}
+@keyframes cast-blink-c2 {
+  0%,
+  97.34%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.48% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c3"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c3 12.4s ease-in-out -5s infinite;
+}
+@keyframes cast-blink-c3 {
+  0%,
+  97.06%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.32% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c4"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c4 16.9s ease-in-out -11.2s infinite;
+}
+@keyframes cast-blink-c4 {
+  0%,
+  97.85%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.77% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c5"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c5 14.6s ease-in-out -0.9s infinite;
+}
+@keyframes cast-blink-c5 {
+  0%,
+  97.51%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.58% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c6"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c6 18.3s ease-in-out -6.7s infinite;
+}
+@keyframes cast-blink-c6 {
+  0%,
+  98.01%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.86% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c7"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c7 15.2s ease-in-out -13.1s infinite;
+}
+@keyframes cast-blink-c7 {
+  0%,
+  97.61%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.63% {
+    transform: scaleY(0.12);
+  }
+}
+.cast-actor[data-clock="c8"] .blob-av .blob-av-eyes {
+  animation: cast-blink-c8 17.5s ease-in-out -3.6s infinite;
+}
+@keyframes cast-blink-c8 {
+  0%,
+  97.92%,
+  100% {
+    transform: scaleY(1);
+  }
+  98.81% {
+    transform: scaleY(0.12);
+  }
+}
+
+/* ── reduced motion: nothing on the shelf moves ──
+   No bounce, blink, drifting z's or bob; the spotlight and the profile's
+   pointer jump to the selection; hovering lifts nothing. */
+@media (prefers-reduced-motion: reduce) {
+  .cast-dot,
+  .cast-page *,
+  .cast-page *::before,
+  .cast-page *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .cast-actor:hover .cast-figure {
+    transform: none;
+  }
+}

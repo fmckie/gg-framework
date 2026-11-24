@@ -292,6 +292,35 @@ export function BlobAvatar({
   );
 }
 
+/** A dashed, empty silhouette: a place waiting for a specialist. */
+export function BlobOutline({
+  shape,
+  size = 44,
+}: {
+  shape: BlobShape;
+  size?: number;
+}): React.ReactElement {
+  return (
+    <svg
+      className="blob-av blob-av-outline"
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d={(SHAPES[shape] ?? SHAPES.orb).body}
+        fill="rgba(255,255,255,.025)"
+        stroke="rgba(255,255,255,.34)"
+        strokeWidth={1.6}
+        strokeDasharray="4.5 4"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
 /** An agent's blob from its stored look (older hosts: the id's default). */
 export function AgentAvatar({
   agent,
