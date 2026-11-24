@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { JOB_EXAMPLES } from "./BlobForm";
 import { systemTimezone } from "./blobFormat";
 import { CAST_MODELS, CAST_NOW, castRoster } from "./castFixtures";
 import { CastForm } from "./CastForm";
@@ -361,6 +362,35 @@ describe("the Cast's form, making a specialist", () => {
     expect(within(schedules).getAllByRole("listitem")).toHaveLength(7);
     expect(within(schedules).getByText(`Times are in ${systemTimezone()}.`)).toBeTruthy();
     expect(within(schedules).queryByRole("button")).toBeNull();
+  });
+
+  it("starts from the job of an example picked on the first run", async () => {
+    const startJob = JOB_EXAMPLES[1]?.job ?? "";
+    render(
+      <CastForm
+        others={[]}
+        startJob={startJob}
+        onSaved={onSaved}
+        onCancel={onCancel}
+        onChanged={onChanged}
+        now={CAST_NOW}
+      />,
+    );
+    await act(async () => {});
+    expect(startJob).toMatch(/^Every Sunday at 5pm/);
+    expect(jobBox().value).toBe(startJob);
+    // The job is there, so the form's own examples step aside; the name is still to give.
+    expect(screen.queryByRole("group", { name: "Example jobs" })).toBeNull();
+    expect(nameBox().value).toBe("");
+    expect(document.activeElement).toBe(nameBox());
+    expect(submit("Create").disabled).toBe(true);
+    type(nameBox(), "Chef");
+    await press(submit("Create"));
+    expect(vi.mocked(createBlob).mock.calls[0]?.[0]).toMatchObject({
+      name: "Chef",
+      job: startJob,
+      autoSchedule: true,
+    });
   });
 
   it("fills the job from an example, then creates it on this Mac's clock", async () => {

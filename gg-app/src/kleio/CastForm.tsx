@@ -31,14 +31,22 @@ export function CastForm({
   onSaved,
   onCancel,
   onChanged,
+  startJob,
   now,
 }: BlobFormProps & {
   /** A schedule changed on the host: read the specialists again. */
   onChanged: () => Promise<void>;
+  /** A new specialist's job to start from (an example picked on the first run). */
+  startJob?: string;
   /** Hold the clock still (tests). */
   now?: Date;
 }): React.ReactElement {
-  const form = useBlobForm({ ...(blob ? { blob } : {}), ...(others ? { others } : {}), onSaved });
+  const form = useBlobForm({
+    ...(blob ? { blob } : {}),
+    ...(others ? { others } : {}),
+    ...(startJob ? { startJob } : {}),
+    onSaved,
+  });
   const { name, look, job, colors, chosen } = form;
   const formId = useId();
   const ids = { form: `${formId}-form`, name: `${formId}-name`, job: `${formId}-job` };

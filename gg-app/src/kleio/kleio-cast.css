@@ -668,6 +668,21 @@
   padding-top: 14px;
   border-top: 1px solid var(--border);
 }
+/* A button's own word on what it did: that the run started, or why it didn't. */
+.cast-p-started {
+  margin-left: 4px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+/* The page's reset of every <p> would take the error's own padding. */
+.cast-profile > .cast-p-error {
+  grid-column: 1 / -1;
+  margin: 14px 0 0;
+  padding: 9px 12px;
+}
+.cast-profile > .cast-p-error + .cast-p-actions {
+  margin-top: 12px;
+}
 /* Three shelves leave less room, so the profile tightens: the state sits
    beside the name, and a wider first column keeps the job to two lines. */
 .cast-page[data-tier="crowd"] .cast-profile {
@@ -798,6 +813,38 @@
   border-radius: 12px;
   font-size: 14px;
 }
+/* Three jobs to start from, each with a waiting place's outline. */
+.cast-examples {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+.cast-ex-label {
+  margin-right: 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.cast-example {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 240ms var(--ease-glow),
+    color 240ms var(--ease-glow);
+}
+.cast-example:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
 .cast-welcome .cast-tip {
   max-width: none;
   margin-top: 16px;
@@ -807,6 +854,16 @@
 .cast-tip kbd {
   font: 500 11px/1 var(--sans);
   letter-spacing: 0.04em;
+}
+/* A short window (720 high): the stage gives up the empty air above the
+   bubble, so the example jobs and the tip stay clear of the switcher. */
+@media (max-height: 770px) {
+  .cast-first {
+    --cone-h: 228px;
+  }
+  .cast-first .cast-stage {
+    height: 282px;
+  }
 }
 
 /* ── a wide window ── */

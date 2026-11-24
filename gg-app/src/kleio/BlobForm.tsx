@@ -93,7 +93,15 @@ export interface BlobFormProps {
 }
 
 /** Everything the form holds and how it saves; today's form and the Cast's draw it. */
-export function useBlobForm({ blob, others = [], onSaved }: Omit<BlobFormProps, "onCancel">) {
+export function useBlobForm({
+  blob,
+  others = [],
+  onSaved,
+  startJob = "",
+}: Omit<BlobFormProps, "onCancel"> & {
+  /** A new specialist's job to start from (an example picked on the first run). */
+  startJob?: string;
+}) {
   // A host that knows looks sends `shape` on every agent; with none to go
   // by, assume it does (a mismatch shows the host's own error on save).
   const looksKnown = others.length === 0 || others.some((b) => b.shape !== undefined);
@@ -102,7 +110,7 @@ export function useBlobForm({ blob, others = [], onSaved }: Omit<BlobFormProps, 
   const [look, setLook] = useState<BlobLook>(() =>
     blob ? lookOf(blob) : freshLook(others.map(lookOf), colors),
   );
-  const [job, setJob] = useState(blob?.job ?? "");
+  const [job, setJob] = useState(blob?.job ?? startJob);
   const [model, setModel] = useState(blob?.model ?? DEFAULT);
   const [readTiming, setReadTiming] = useState(true);
   const [models, setModels] = useState<ModelList | null>(null);

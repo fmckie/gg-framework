@@ -51,13 +51,14 @@ const REFRESH_MS = 10_000;
 
 type View =
   | { kind: "list" }
-  | { kind: "create" }
+  | { kind: "create"; job?: string }
   | { kind: "edit"; id: string }
   | { kind: "detail"; id: string; note?: string };
 
 export function BlobsPage({
   onClose,
   onListChange,
+  onCountChange,
   onOpenApps,
   openId,
 }: {
@@ -65,6 +66,8 @@ export function BlobsPage({
   onClose: () => void;
   /** Told whether the list is showing, so the screen can show its switcher. */
   onListChange?: (atList: boolean) => void;
+  /** Told how many specialists there are (null until read): none yet means no groups yet. */
+  onCountChange?: (count: number | null) => void;
   /** Open the Apps page (a "Connect apps" button on the list). */
   onOpenApps?: () => void;
   /** Open straight into this agent's chat (a tapped notification). */
@@ -95,6 +98,11 @@ export function BlobsPage({
     onListChange?.(view.kind === "list");
   }, [view.kind, onListChange]);
 
+  const count = blobs?.length ?? null;
+  useEffect(() => {
+    onCountChange?.(count);
+  }, [count, onCountChange]);
+
   function saved(r: BlobSaved): void {
     void load();
     const note = describeAutoSchedules(r.autoSchedules);
@@ -113,7 +121,9 @@ export function BlobsPage({
       onCancel: () => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" }),
     };
     // The iPhone keeps today's form; schedules stay in its chat's sidebar.
-    return isPhone() ? <BlobForm {...form} /> : <CastForm {...form} onChanged={load} />;
+    if (isPhone()) return <BlobForm {...form} />;
+    const startJob = view.kind === "create" ? view.job : undefined;
+    return <CastForm {...form} {...(startJob ? { startJob } : {})} onChanged={load} />;
   }
 
   if (view.kind === "detail") {
@@ -160,6 +170,8 @@ export function BlobsPage({
       error={error}
       onClose={onClose}
       onCreate={() => setView({ kind: "create" })}
+      onCreateFrom={(job) => setView({ kind: "create", job })}
+      onChanged={load}
       onOpen={(id) => setView({ kind: "detail", id })}
       onEdit={(id) => setView({ kind: "edit", id })}
       {...(onOpenApps ? { onOpenApps } : {})}
@@ -172,6 +184,10 @@ interface ListProps {
   error: string | null;
   onClose: () => void;
   onCreate: () => void;
+  /** The desktop's first run: a new specialist starting from an example job. */
+  onCreateFrom: (job: string) => void;
+  /** The desktop's profile changed something on the host: read the list again. */
+  onChanged: () => Promise<void>;
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
   onOpenApps?: () => void;

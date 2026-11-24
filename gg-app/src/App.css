@@ -1492,6 +1492,13 @@ select {
   padding: 0 14px;
   color: var(--text);
 }
+/* Not available yet (Groups before the first specialist): dim, and hover leaves it alone. */
+.settings-tab[aria-disabled="true"],
+.settings-tab[aria-disabled="true"]:hover:not(.is-active) {
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
 .settings-tab-icon {
   position: relative;
   display: flex;

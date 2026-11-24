@@ -1,8 +1,8 @@
 // Specialists on the desktop, as a cast: everyone stands on a lit shelf. The
 // one working bounces, the paused ones sleep, and whoever needs you says so in
 // a bubble. Clicking a character puts it in the spotlight and shows its profile
-// underneath; the profile opens its chat or its form. The iPhone keeps the list
-// of rows (BlobsPage.tsx).
+// underneath; the profile opens its chat or its form, runs its schedule now or
+// turns its schedules back on. The iPhone keeps the list of rows (BlobsPage.tsx).
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,6 +12,7 @@ import {
   LockSimpleIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
+  PlayIcon,
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -20,9 +21,9 @@ import { ListSkeleton } from "../Skeleton";
 import { buildSummaryLineParts } from "../tool-format";
 import { useWindowFocused } from "../useWindowFocused";
 import { AgentAvatar, BlobAvatar, BlobOutline } from "./BlobAvatar";
-import { whereItRunsShort } from "./BlobForm";
+import { JOB_EXAMPLES, whereItRunsShort } from "./BlobForm";
 import { describeSchedule, formatClock, formatWhen, plainSummary } from "./blobFormat";
-import { castFoot, castKind, castOf, SHELVES_SHOWN, type CastActor } from "./castLayout";
+import { castFoot, castKind, castOf, castOffer, SHELVES_SHOWN, type CastActor } from "./castLayout";
 import { AppsButton, KleioHead } from "./KleioChrome";
 import { LIVE_TOOL_ROWS, ToolCallRow } from "./LiveToolFeed";
 import {
@@ -30,6 +31,8 @@ import {
   getBlobActivity,
   listModels,
   listRuns,
+  runScheduleNow,
+  updateSchedule,
   type Blob,
   type ModelList,
   type Run,
@@ -41,6 +44,10 @@ import "./kleio-cast.css";
 const RUNS_SHOWN = 2;
 /** How often the shelf's "today" and "tomorrow" are read again. */
 const CLOCK_MS = 30_000;
+/** How long the profile says a run has started. */
+const STARTED_MS = 2500;
+/** The first run's example jobs (JOB_EXAMPLES), each with a place's outline. */
+const EXAMPLE_SHAPES = ["orb", "mochi", "drop"] as const;
 
 const vars = (v: Record<string, string | number>): React.CSSProperties => v as React.CSSProperties;
 
@@ -92,6 +99,8 @@ export function CastList({
   hostLabel,
   onClose,
   onCreate,
+  onCreateFrom,
+  onChanged,
   onOpen,
   onEdit,
   onOpenApps,
@@ -99,6 +108,8 @@ export function CastList({
   loadRuns = listRuns,
   loadActivity = getBlobActivity,
   loadModels = listModels,
+  runNow = runScheduleNow,
+  setEnabled = (id, sid, enabled) => updateSchedule(id, sid, { enabled }),
 }: {
   blobs: Blob[] | null;
   error: string | null;
@@ -106,6 +117,10 @@ export function CastList({
   hostLabel: string;
   onClose: () => void;
   onCreate: () => void;
+  /** A new specialist starting from one of the first run's example jobs. */
+  onCreateFrom: (job: string) => void;
+  /** The profile ran or switched on a schedule: read the specialists again. */
+  onChanged: () => Promise<void>;
   /** Open this specialist's chat. */
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
@@ -115,6 +130,8 @@ export function CastList({
   loadRuns?: (id: string) => Promise<Run[]>;
   loadActivity?: (id: string) => Promise<ToolActivityEntry[]>;
   loadModels?: () => Promise<ModelList>;
+  runNow?: (id: string, scheduleId: string) => Promise<unknown>;
+  setEnabled?: (id: string, scheduleId: string, enabled: boolean) => Promise<unknown>;
 }): React.ReactElement {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -255,7 +272,12 @@ export function CastList({
           </p>
         )}
         {blobs !== null && !some && (
-          <FirstRun hostLabel={hostLabel} onCreate={onCreate} windowFocused={windowFocused} />
+          <FirstRun
+            hostLabel={hostLabel}
+            onCreate={onCreate}
+            onCreateFrom={onCreateFrom}
+            windowFocused={windowFocused}
+          />
         )}
         {some && shown.length === 0 && (
           <div className="picker-empty cast-none">No specialists match “{query.trim()}”.</div>
@@ -320,6 +342,9 @@ export function CastList({
               windowFocused={windowFocused}
               onOpen={() => onOpen(selected.blob.id)}
               onEdit={() => onEdit(selected.blob.id)}
+              onChanged={onChanged}
+              runNow={runNow}
+              setEnabled={setEnabled}
             />
           </>
         )}
@@ -441,6 +466,9 @@ function Profile({
   windowFocused,
   onOpen,
   onEdit,
+  onChanged,
+  runNow,
+  setEnabled,
 }: {
   actor: CastActor;
   shelves: number;
@@ -452,8 +480,73 @@ function Profile({
   windowFocused: boolean;
   onOpen: () => void;
   onEdit: () => void;
+  onChanged: () => Promise<void>;
+  runNow: (id: string, scheduleId: string) => Promise<unknown>;
+  setEnabled: (id: string, scheduleId: string, enabled: boolean) => Promise<unknown>;
 }): React.ReactElement {
   const { blob, kind } = actor;
+  // What its button is doing, for the one it was pressed on: the profile
+  // stays in place while the spotlight moves, so this must not follow it.
+  const [act, setAct] = useState<{
+    id: string;
+    busy?: boolean;
+    started?: boolean;
+    error?: string;
+  } | null>(null);
+  const mine = act?.id === blob.id ? act : null;
+  const busy = Boolean(mine?.busy);
+  const offer = castOffer(blob);
+  const lead = offer?.kind === "resume" || Boolean(offer?.kind === "run" && offer.lead);
+
+  useEffect(() => {
+    if (!act?.started) return;
+    const id = window.setTimeout(() => setAct(null), STARTED_MS);
+    return () => window.clearTimeout(id);
+  }, [act]);
+
+  async function press(work: () => Promise<unknown>, started: boolean): Promise<void> {
+    const id = blob.id;
+    setAct({ id, busy: true });
+    try {
+      await work();
+      await onChanged();
+      setAct(started ? { id, started } : null);
+    } catch (e) {
+      setAct({ id, error: errorText(e) });
+    }
+  }
+
+  const chat = (first: boolean): React.ReactElement =>
+    first ? (
+      <MetalButton
+        windowFocused={windowFocused}
+        className="btn btn-primary btn-sm"
+        onClick={onOpen}
+      >
+        Open chat
+      </MetalButton>
+    ) : (
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onOpen}>
+        Open chat
+      </button>
+    );
+  const edit = (
+    <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+      <PencilSimpleIcon size={14} weight="bold" aria-hidden="true" />
+      Edit
+    </button>
+  );
+  const run = offer?.kind === "run" && {
+    title: `Run “${offer.schedule.label}” now`,
+    disabled: busy,
+    onClick: () => void press(() => runNow(blob.id, offer.schedule.id), true),
+    children: (
+      <>
+        <PlayIcon size={12} weight="fill" aria-hidden="true" />
+        {busy ? "Starting…" : "Run now"}
+      </>
+    ),
+  };
   const ended = (runs?.value ?? []).filter((r) => r.endedAt);
   const model = models?.models.find((m) => m.id === (blob.model ?? models.defaultBlobModel));
   const since =
@@ -574,18 +667,42 @@ function Profile({
         )}
       </div>
 
+      {mine?.error && (
+        <p className="kleio-error cast-p-error" role="alert">
+          {mine.error}
+        </p>
+      )}
       <div className="cast-p-actions">
-        <MetalButton
-          windowFocused={windowFocused}
-          className="btn btn-primary btn-sm"
-          onClick={onOpen}
-        >
-          Open chat
-        </MetalButton>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
-          <PencilSimpleIcon size={14} weight="bold" aria-hidden="true" />
-          Edit
-        </button>
+        {offer?.kind === "resume" && (
+          <MetalButton
+            windowFocused={windowFocused}
+            className="btn btn-primary btn-sm"
+            disabled={busy}
+            onClick={() =>
+              void press(
+                () => Promise.all(offer.schedules.map((s) => setEnabled(blob.id, s.id, true))),
+                false,
+              )
+            }
+          >
+            {busy
+              ? "Turning on…"
+              : offer.schedules.length === 1
+                ? "Turn schedule on"
+                : "Turn schedules on"}
+          </MetalButton>
+        )}
+        {run && lead && (
+          <MetalButton windowFocused={windowFocused} className="btn btn-primary btn-sm" {...run} />
+        )}
+        {chat(!lead)}
+        {edit}
+        {run && !lead && <button type="button" className="btn btn-ghost btn-sm" {...run} />}
+        {mine?.started && (
+          <span className="cast-p-started" role="status">
+            Started. The result will show in Recent runs.
+          </span>
+        )}
       </div>
     </section>
   );
@@ -596,10 +713,12 @@ function Profile({
 function FirstRun({
   hostLabel,
   onCreate,
+  onCreateFrom,
   windowFocused,
 }: {
   hostLabel: string;
   onCreate: () => void;
+  onCreateFrom: (job: string) => void;
   windowFocused: boolean;
 }): React.ReactElement {
   const place = (shape: "mochi" | "drop" | "star" | "ghost", far: boolean): React.ReactElement => (
@@ -644,6 +763,21 @@ function FirstRun({
         >
           + Create your first specialist
         </MetalButton>
+        <div className="cast-examples" role="group" aria-label="Example jobs">
+          <span className="cast-ex-label">Or start from</span>
+          {JOB_EXAMPLES.map((x, i) => (
+            <button
+              key={x.label}
+              type="button"
+              className="cast-example"
+              title={x.job}
+              onClick={() => onCreateFrom(x.job)}
+            >
+              <BlobOutline shape={EXAMPLE_SHAPES[i] ?? "orb"} size={18} />
+              {x.label}
+            </button>
+          ))}
+        </div>
         <p className="cast-tip">
           Open Specialists from anywhere with <kbd>⌘⇧L</kbd>
         </p>

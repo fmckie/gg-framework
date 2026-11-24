@@ -23,6 +23,8 @@ import {
   listModels,
   listRuns,
   newBlobSession,
+  runScheduleNow,
+  updateSchedule,
   type Blob,
   type Schedule,
 } from "./kleioApi";
@@ -61,13 +63,16 @@ const formStub = vi.hoisted(
       blob,
       onCancel,
       onChanged,
+      startJob,
     }: {
       blob?: Blob;
       onCancel: () => void;
       onChanged?: () => Promise<void>;
+      startJob?: string;
     }) => (
       <div data-form={which}>
         <p>{blob ? `editing ${blob.name}` : "new agent form"}</p>
+        {startJob && <p>{`starting job: ${startJob}`}</p>}
         <button type="button" onClick={onCancel}>
           Cancel
         </button>
@@ -95,6 +100,8 @@ vi.mock("./kleioApi", async (importOriginal) => {
     listRuns: vi.fn(),
     getBlobActivity: vi.fn(),
     listModels: vi.fn(),
+    runScheduleNow: vi.fn(),
+    updateSchedule: vi.fn(),
   };
 });
 vi.mock("./useKleioRemote", () => ({ useKleioRemote: vi.fn() }));
@@ -155,6 +162,9 @@ async function asPhone(run: () => Promise<void>): Promise<void> {
 }
 
 beforeEach(() => {
+  // Back to answering at once: a test that holds a run open must not hold the next one's.
+  vi.mocked(runScheduleNow).mockReset();
+  vi.mocked(updateSchedule).mockReset();
   vi.mocked(listRuns).mockResolvedValue([]);
   vi.mocked(getBlobActivity).mockResolvedValue([]);
   vi.mocked(listModels).mockResolvedValue(CAST_MODELS);
@@ -395,6 +405,33 @@ const actor = (name: string): HTMLElement =>
 const shelves = (): number[] =>
   [...document.querySelectorAll(".cast-row")].map((r) => r.querySelectorAll(".cast-actor").length);
 const profile = (name: string): HTMLElement => screen.getByRole("region", { name });
+/** The profile's buttons, in the order they stand. */
+const offered = (name: string): (string | null)[] =>
+  within(profile(name))
+    .getAllByRole("button")
+    .map((b) => b.textContent);
+const press = async (el: HTMLElement): Promise<void> => {
+  await act(async () => {
+    fireEvent.click(el);
+  });
+};
+/** One whose chat failed: its last run belonged to no schedule. */
+const stuck = (error = "Couldn't open Gmail."): Blob =>
+  blob({
+    id: "stuck",
+    name: "Stuck",
+    schedules: [],
+    lastRun: {
+      id: "r",
+      blobId: "stuck",
+      scheduleId: null,
+      label: "Receipts",
+      startedAt: "2026-11-06T16:00:00.000Z",
+      endedAt: "2026-11-06T16:00:40.000Z",
+      outcome: "error",
+      error,
+    },
+  });
 
 describe("the Cast shelf", () => {
   it("shows a working specialist bouncing, in the spotlight, saying what it's doing", async () => {
@@ -440,22 +477,7 @@ describe("the Cast shelf", () => {
 
   it("shows a specialist that needs you saying why, in a bubble and in the header", async () => {
     const long = "Couldn't open Gmail: the sign-in expired on Friday and needs doing again.";
-    const stuck = blob({
-      id: "stuck",
-      name: "Stuck",
-      schedules: [],
-      lastRun: {
-        id: "r",
-        blobId: "stuck",
-        scheduleId: null,
-        label: "Receipts",
-        startedAt: "2026-11-06T16:00:00.000Z",
-        endedAt: "2026-11-06T16:00:40.000Z",
-        outcome: "error",
-        error: long,
-      },
-    });
-    await renderCast(7, [stuck]);
+    await renderCast(7, [stuck(long)]);
     const ledger = actor("Ledger");
     expect(ledger.className).toContain("is-failed");
     expect(within(ledger).getByText("Last run failed")).toBeTruthy();
@@ -583,12 +605,8 @@ describe("the Cast shelf", () => {
     expect(runs[0]?.textContent).toContain("Gmail needs signing in");
     expect(within(ledger).getByText("Qwen3 14B · private, runs on your host")).toBeTruthy();
     expect(within(ledger).queryByText(/^since /)).toBeNull();
-    // Only what the list can already do: no fix, run or schedule buttons here.
-    expect(
-      within(ledger)
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["Open chat", "Edit"]);
+    // What failed can run again, before the chat and the form.
+    expect(offered("Ledger")).toEqual(["Run now", "Open chat", "Edit"]);
 
     // On call: how to use it, and no runs asked for.
     vi.mocked(listRuns).mockClear();
@@ -633,6 +651,172 @@ describe("the Cast shelf", () => {
     expect(listModels).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /Create your first specialist/ }));
     expect(screen.getByText("new agent form")).toBeTruthy();
+  });
+
+  it("offers Run now after the chat and the form, for the schedule next due", async () => {
+    await renderCast(7);
+    await pick("Herald");
+    expect(offered("Herald")).toEqual(["Open chat", "Edit", "Run now"]);
+    const chat = within(profile("Herald")).getByRole("button", { name: "Open chat" });
+    expect(chat.className).toContain("btn-primary");
+
+    // The host runs a schedule, not a specialist: of Chef's two, Thursday's is next.
+    await pick("Chef");
+    const run = within(profile("Chef")).getByRole("button", { name: "Run now" });
+    expect(run.title).toBe("Run “Thursday top-up” now");
+    expect(run.className).not.toContain("btn-primary");
+    let land: () => void = () => undefined;
+    vi.mocked(runScheduleNow).mockImplementationOnce(
+      () => new Promise((ok) => (land = () => ok(castRuns("chef")[0] as never))),
+    );
+    vi.mocked(listBlobs).mockClear();
+    await press(run);
+    expect(runScheduleNow).toHaveBeenCalledWith("chef", "chef-s2");
+    const starting = within(profile("Chef")).getByRole("button", { name: "Starting…" });
+    expect((starting as HTMLButtonElement).disabled).toBe(true);
+    expect(listBlobs).not.toHaveBeenCalled();
+    await act(async () => land());
+    // The list is read again, and the profile says so in words.
+    expect(listBlobs).toHaveBeenCalledTimes(1);
+    expect(within(profile("Chef")).getByRole("status").textContent).toBe(
+      "Started. The result will show in Recent runs.",
+    );
+    expect(offered("Chef")).toEqual(["Open chat", "Edit", "Run now"]);
+    // That word is Chef's alone.
+    await pick("Herald");
+    expect(within(profile("Herald")).queryByRole("status")).toBeNull();
+
+    // Nothing to run while one works, or for one with no schedule.
+    for (const name of ["Courier", "Scout"]) {
+      await pick(name);
+      expect(offered(name)).toEqual(["Open chat", "Edit"]);
+    }
+    expect(runScheduleNow).toHaveBeenCalledTimes(1);
+    expect(updateSchedule).not.toHaveBeenCalled();
+  });
+
+  it("puts a failed schedule's Run now first, and offers a failed chat nothing to run", async () => {
+    await renderCast(7, [stuck()]);
+    await pick("Ledger");
+    expect(offered("Ledger")).toEqual(["Run now", "Open chat", "Edit"]);
+    const run = within(profile("Ledger")).getByRole("button", { name: "Run now" });
+    expect(run.className).toContain("btn-primary");
+    expect(run.title).toBe("Run “Friday receipts” now");
+    expect(
+      within(profile("Ledger")).getByRole("button", { name: "Open chat" }).className,
+    ).not.toContain("btn-primary");
+    await press(run);
+    expect(runScheduleNow).toHaveBeenCalledWith("ledger", "ledger-s1");
+
+    // The host says only that it failed, not which app: no sign-in button to draw.
+    await pick("Stuck");
+    expect(offered("Stuck")).toEqual(["Open chat", "Edit"]);
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+  });
+
+  it("turns a paused specialist's schedules back on, one or all of them", async () => {
+    const off = { enabled: false, nextRunAt: null };
+    const napper = blob({
+      id: "napper",
+      name: "Napper",
+      schedules: [
+        { ...DAILY, ...off, id: "n1" },
+        { ...DAILY, ...off, id: "n2", label: "Evening news" },
+      ],
+    });
+    await renderCast(7, [napper]);
+    await pick("Gardener");
+    expect(offered("Gardener")).toEqual(["Turn schedule on", "Open chat", "Edit"]);
+    const on = within(profile("Gardener")).getByRole("button", { name: "Turn schedule on" });
+    expect(on.className).toContain("btn-primary");
+    vi.mocked(listBlobs).mockClear();
+    await press(on);
+    expect(updateSchedule).toHaveBeenCalledWith("gardener", "gardener-s1", { enabled: true });
+    expect(listBlobs).toHaveBeenCalledTimes(1);
+    // Nothing started: there is no word about a run.
+    expect(within(profile("Gardener")).queryByRole("status")).toBeNull();
+
+    await pick("Napper");
+    expect(offered("Napper")).toEqual(["Turn schedules on", "Open chat", "Edit"]);
+    vi.mocked(updateSchedule).mockClear();
+    await press(within(profile("Napper")).getByRole("button", { name: "Turn schedules on" }));
+    expect(vi.mocked(updateSchedule).mock.calls).toEqual([
+      ["napper", "n1", { enabled: true }],
+      ["napper", "n2", { enabled: true }],
+    ]);
+    expect(runScheduleNow).not.toHaveBeenCalled();
+  });
+
+  it("says why a run couldn't start, on that specialist's profile only, and lets you try again", async () => {
+    await renderCast(7);
+    await pick("Herald");
+    vi.mocked(runScheduleNow).mockRejectedValueOnce(new Error("The host is asleep."));
+    vi.mocked(listBlobs).mockClear();
+    await press(within(profile("Herald")).getByRole("button", { name: "Run now" }));
+    expect(within(profile("Herald")).getByRole("alert").textContent).toBe("The host is asleep.");
+    expect(listBlobs).not.toHaveBeenCalled();
+    expect(within(profile("Herald")).queryByRole("status")).toBeNull();
+    const again = within(profile("Herald")).getByRole("button", { name: "Run now" });
+    expect((again as HTMLButtonElement).disabled).toBe(false);
+
+    await pick("Chef");
+    expect(within(profile("Chef")).queryByRole("alert")).toBeNull();
+
+    await pick("Herald");
+    await press(within(profile("Herald")).getByRole("button", { name: "Run now" }));
+    expect(within(profile("Herald")).queryByRole("alert")).toBeNull();
+    expect(within(profile("Herald")).getByRole("status")).toBeTruthy();
+  });
+
+  it("starts the first specialist from an example job", async () => {
+    await renderCast(0);
+    const examples = screen.getByRole("group", { name: "Example jobs" });
+    expect(within(examples).getByText("Or start from")).toBeTruthy();
+    const jobs = within(examples).getAllByRole("button");
+    expect(jobs.map((b) => b.textContent)).toEqual([
+      "Morning news",
+      "Weekly meal plan",
+      "Research on request",
+    ]);
+    // Each wears a waiting place's outline, and says its job when pointed at.
+    for (const b of jobs) expect(b.querySelectorAll(".blob-av-outline")).toHaveLength(1);
+    const plan = jobs[1] as HTMLElement;
+    expect(plan.title).toMatch(/^Every Sunday at 5pm, plan three dinners/);
+    fireEvent.click(plan);
+    const form = screen.getByText("new agent form").closest("[data-form]");
+    expect(form?.getAttribute("data-form")).toBe("cast");
+    expect(screen.getByText(`starting job: ${plan.title}`)).toBeTruthy();
+    // The big button still starts from nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Create your first specialist/ }));
+    expect(screen.getByText("new agent form")).toBeTruthy();
+    expect(screen.queryByText(/^starting job:/)).toBeNull();
+  });
+
+  it("holds the profile's buttons and the example jobs still with reduced motion", async () => {
+    const block = /@media \(prefers-reduced-motion: reduce\) \{\n([\s\S]*?)\n\}\n?$/.exec(castCss);
+    const still = (/^\s*([^{]+)\{/.exec(block?.[1] ?? "")?.[1] ?? "")
+      .split(",")
+      .map((s) => s.trim());
+    expect(still).toContain(".cast-page *");
+    await renderCast(7);
+    await pick("Herald");
+    await press(within(profile("Herald")).getByRole("button", { name: "Run now" }));
+    const parts = [...document.querySelectorAll(".cast-p-actions > *")];
+    expect(parts.length).toBe(4);
+    for (const el of parts) expect(el.matches(".cast-page *")).toBe(true);
+    cleanup();
+    await renderCast(0);
+    const examples = [...document.querySelectorAll(".cast-example, .cast-ex-label")];
+    expect(examples).toHaveLength(4);
+    for (const el of examples) expect(el.matches(".cast-page *")).toBe(true);
+    // They only change colour under the pointer, which the block switches off; nothing of theirs is animated.
+    const rules = castCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const m of rules.matchAll(
+      /([^{}]*\.cast-(?:example|ex-label|p-started|p-error)[^{}]*)\{([^{}]*)\}/g,
+    ))
+      expect(m[2]).not.toMatch(/\banimation/);
   });
 
   it("holds everything still with reduced motion", async () => {
@@ -737,6 +921,23 @@ describe("the Cast shelf", () => {
       expect(document.querySelector(".kleio-first")).toBeTruthy();
       expect(document.querySelector(".cast-first, .cast-stage")).toBeNull();
       expect(screen.getByRole("button", { name: "+ New specialist" })).toBeTruthy();
+    });
+  });
+
+  it("offers the iPhone no example jobs and no run or schedule buttons on its list", async () => {
+    await asPhone(async () => {
+      await renderCast(0);
+      expect(screen.queryByRole("group", { name: "Example jobs" })).toBeNull();
+      expect(screen.queryByText("Or start from")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "+ Create your first specialist" }));
+      expect(screen.queryByText(/^starting job:/)).toBeNull();
+      cleanup();
+
+      await renderCast(7, [stuck()]);
+      for (const name of ["Run now", "Turn schedule on", "Turn schedules on"])
+        expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(runScheduleNow).not.toHaveBeenCalled();
+      expect(updateSchedule).not.toHaveBeenCalled();
     });
   });
 });

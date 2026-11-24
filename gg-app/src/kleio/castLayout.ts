@@ -209,6 +209,26 @@ export function soonest(schedules: readonly Schedule[]): Schedule | null {
   return schedules.find((s) => s.enabled && s.nextRunAt === next) ?? schedules[0] ?? null;
 }
 
+/** What the profile offers beyond the chat and the form: run a schedule now
+ *  (first, when that schedule's last run failed) or turn the schedules back on. */
+export type CastOffer =
+  { kind: "run"; schedule: Schedule; lead: boolean } | { kind: "resume"; schedules: Schedule[] };
+
+/** The host runs a schedule, not a specialist: a failure offers the schedule
+ *  that failed, anything else the next one due. Nothing while it works. */
+export function castOffer(blob: Blob): CastOffer | null {
+  const kind = castKind(blob);
+  if (kind === "working" || kind === "oncall") return null;
+  if (kind === "paused") {
+    const off = blob.schedules.filter((s) => !s.enabled);
+    return off.length > 0 ? { kind: "resume", schedules: off } : null;
+  }
+  const failed =
+    kind === "failed" ? blob.schedules.find((s) => s.id === blob.lastRun?.scheduleId) : undefined;
+  const schedule = failed ?? soonest(blob.schedules);
+  return schedule ? { kind: "run", schedule, lead: Boolean(failed) } : null;
+}
+
 // ─── the room: a group's members on one shelf ───────────────────────────────
 
 /** From this many members they stand closer: smaller figures, shorter labels. */
