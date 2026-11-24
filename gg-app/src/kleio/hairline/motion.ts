@@ -1,5 +1,5 @@
 // The Hairline instrument's motion: every timing, envelope and per-mood pose.
-// Pure functions of time, ported from the selected mockup.
+// Pure functions of time and of the levels heard, ported from the selected mockup.
 
 import type { OrbMood } from "../VoiceOrb";
 
@@ -25,6 +25,20 @@ export interface Pose {
   outer: number;
 }
 
+/** One frame's measured levels, 0–1 each; null where nothing was measured. */
+export interface Heard {
+  /** Her voice now. */
+  readonly out: number | null;
+  /** Her voice as the ring showed it ECHO_DELAY ago. */
+  readonly echo: number | null;
+  /** The person's voice. */
+  readonly in: number | null;
+}
+
+export const UNHEARD: Heard = { out: null, echo: null, in: null };
+/** How far the echo trace runs behind the ring, in seconds. */
+export const ECHO_DELAY = 0.16;
+
 export interface Detents {
   seg: number;
   dots: number;
@@ -43,7 +57,7 @@ const wrap = (t: number, period: number): number => ((t % period) + period) % pe
 
 type Beats = readonly (readonly [at: number, power: number])[];
 
-// Her voice without audio: a fixed 6.8 s phrase of eight syllables with rests.
+// Her voice before it is measured: a fixed 6.8 s phrase of eight syllables with rests.
 const PHRASE = 6.8;
 const SYLLABLES: Beats = [
   [0.42, 0.72],
@@ -61,23 +75,6 @@ export function voiceAt(t: number): number {
   let v = 0;
   for (const [at, power] of SYLLABLES) v += power * Math.exp(-(((phrase - at) / 0.23) ** 2));
   return clamp01(v * (0.86 + 0.14 * Math.sin(t * 19.7) * Math.sin(t * 7.3 + 1.1)));
-}
-
-// The person's turn without a microphone: one short utterance every 6.5 s.
-const UTTERANCE = 6.5;
-const SPOKEN: Beats = [
-  [1.15, 0.6],
-  [1.55, 0.9],
-  [2.05, 0.55],
-  [2.6, 0.85],
-  [3.15, 0.6],
-];
-
-export function inputAt(t: number): number {
-  const phrase = wrap(t, UTTERANCE);
-  let v = 0;
-  for (const [at, power] of SPOKEN) v += power * Math.exp(-(((phrase - at) / 0.2) ** 2));
-  return clamp01(v);
 }
 
 // Thinking indexes each layer by a detent, then holds: never a free spin.
@@ -100,8 +97,17 @@ export function thinkingAt(t: number): Detents {
   return { seg: at("seg"), dots: at("dots"), outer: at("outer"), scan: at("scan") };
 }
 
-/** The pose `t` seconds into `mood`; `clock` runs across moods, so the drift never restarts. */
-export function poseAt(mood: OrbMood, t: number, clock: number, reduced = false): Pose {
+/**
+ * The pose `t` seconds into `mood`; `clock` runs across moods, so the drift
+ * never restarts. `heard` moves the voice traces; the still poses ignore it.
+ */
+export function poseAt(
+  mood: OrbMood,
+  t: number,
+  clock: number,
+  reduced = false,
+  heard: Heard = UNHEARD,
+): Pose {
   const p: Pose = {
     assemble: 1,
     live: 0.92,
@@ -143,7 +149,8 @@ export function poseAt(mood: OrbMood, t: number, clock: number, reduced = false)
     case "idle":
     case "listening":
       drift(1);
-      p.inAmp = reduced ? 0 : 0.009 * inputAt(t);
+      // Unmeasured, the person's voice is never imitated: the track stays quiet.
+      p.inAmp = reduced ? 0 : 0.009 * (heard.in ?? 0);
       p.phase = reduced ? 0 : clock;
       if (mood === "idle") p.dim = 0.75;
       break;
@@ -156,8 +163,8 @@ export function poseAt(mood: OrbMood, t: number, clock: number, reduced = false)
     case "speaking": {
       drift(0.6);
       p.live = 1;
-      const v = reduced ? 0.55 : voiceAt(t);
-      const echo = reduced ? 0.45 : voiceAt(t - 0.16);
+      const v = reduced ? 0.55 : (heard.out ?? voiceAt(t));
+      const echo = reduced ? 0.45 : (heard.echo ?? voiceAt(t - ECHO_DELAY));
       p.amp = 0.024 * v;
       p.echoAmp = 0.018 * echo;
       p.extend = v;

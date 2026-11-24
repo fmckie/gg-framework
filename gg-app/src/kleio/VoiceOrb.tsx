@@ -17,7 +17,7 @@ export interface OrbLevels {
 
 export interface VoiceOrbProps {
   readonly mood: OrbMood;
-  /** Read every frame; a null level is imitated from the mood. */
+  /** Read every frame a voice shows; a null level isn't measured. */
   readonly levels?: () => OrbLevels;
   /** The orb's ramp, darkest to lightest (four colours). */
   readonly palette?: Palette;
@@ -35,10 +35,10 @@ const VoiceOrbClassic = lazy(() =>
 
 export function VoiceOrb(props: VoiceOrbProps): React.ReactElement {
   if (isPhone()) return <VoiceOrbClassic {...props} />;
-  // The instrument plays fixed phrases for now; it doesn't read `levels` yet.
   return (
     <HairlineOrb
       mood={props.mood}
+      levels={props.levels}
       reducedMotion={props.reducedMotion}
       className={props.className}
     />

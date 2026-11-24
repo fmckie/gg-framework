@@ -1,6 +1,7 @@
 // Test doubles for the Hairline orb: jsdom has no WebGL and no frame clock.
 
 import { vi } from "vitest";
+import type { OrbLevels } from "../VoiceOrb";
 
 export interface FakeGl {
   readonly gl: WebGL2RenderingContext;
@@ -77,6 +78,31 @@ export function fakeFrames(): Frames {
     },
     pending: () => queue.size,
   };
+}
+
+export interface FakeLevels {
+  /** Her level and yours, as the next read will report them. */
+  out: number | null;
+  in: number | null;
+  /** The orb's `levels`: counts every read. */
+  readonly read: () => OrbLevels;
+  /** How many times the orb has read. */
+  readonly reads: () => number;
+}
+
+/** Stands in for the call's meters: set `out` and `in` between frames. */
+export function fakeLevels(out: number | null = null, input: number | null = null): FakeLevels {
+  let count = 0;
+  const fake: FakeLevels = {
+    out,
+    in: input,
+    read: () => {
+      count++;
+      return { out: fake.out, in: fake.in };
+    },
+    reads: () => count,
+  };
+  return fake;
 }
 
 /** Stands a fake WebGL2 context (or none, for `null`) in for jsdom's canvas. */

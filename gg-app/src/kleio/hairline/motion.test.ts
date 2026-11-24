@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OrbMood } from "../VoiceOrb";
-import { CYCLE, inputAt, poseAt, STEPS, thinkingAt, voiceAt } from "./motion";
+import { CYCLE, ECHO_DELAY, poseAt, STEPS, thinkingAt, UNHEARD, voiceAt } from "./motion";
 
 const MOODS: OrbMood[] = [
   "idle",
@@ -65,19 +65,43 @@ describe("the Hairline instrument's poses", () => {
     }
   });
 
-  it("listening stays quiet: no voice trace, no rotation, input only in the fixed utterance", () => {
-    for (let t = 0; t < 30; t += 0.5) {
+  it("listening stays quiet until a voice is measured: no trace, no rotation, no imitation", () => {
+    for (let t = 0; t < 30; t += 0.1) {
       const p = poseAt("listening", t, t);
       expect(p.amp).toBe(0);
+      expect(p.inAmp).toBe(0);
       expect(p.seg + p.dots + p.outer).toBe(0);
-      expect(p.inAmp).toBeLessThanOrEqual(0.009);
     }
-    expect(inputAt(1.55)).toBeGreaterThan(0.8);
-    expect(inputAt(0.2)).toBeLessThan(0.02);
-    expect(inputAt(5)).toBeLessThan(0.02);
-    expect(inputAt(1.55 + 6.5)).toBeCloseTo(inputAt(1.55), 10);
-    expect(poseAt("listening", 1.55, 1.55).inAmp).toBeGreaterThan(0.007);
-    expect(poseAt("listening", 5, 5).inAmp).toBeLessThan(5e-4);
+  });
+
+  it.each(["listening", "idle"] as const)(
+    "%s shows the person's level on the inner track",
+    (mood) => {
+      const at = (level: number): number =>
+        poseAt(mood, 3, 3, false, { ...UNHEARD, in: level, out: 1, echo: 1 }).inAmp;
+      expect(at(1)).toBeCloseTo(0.009, 10);
+      expect(at(0.5)).toBeCloseTo(0.0045, 10);
+      expect(at(0)).toBe(0);
+      expect(poseAt(mood, 3, 3, false, { out: 1, echo: 1, in: 1 }).amp).toBe(0);
+    },
+  );
+
+  it("speaking shows her level on the ring and the arcs, and the echo's own level", () => {
+    const p = poseAt("speaking", 2.55, 2.55, false, { out: 0.5, echo: 0.25, in: 1 });
+    expect(p.amp).toBeCloseTo(0.012, 10);
+    expect(p.extend).toBe(0.5);
+    expect(p.echoAmp).toBeCloseTo(0.0045, 10);
+    expect(p.inAmp).toBe(0);
+    const silent = poseAt("speaking", 2.55, 2.55, false, { out: 0, echo: 0, in: null });
+    expect(silent).toMatchObject({ amp: 0, echoAmp: 0, extend: 0 });
+    // Unmeasured, the fixed phrase stands in, whatever the person's level is.
+    expect(poseAt("speaking", 2.55, 2.55, false, { out: null, echo: null, in: 1 })).toEqual(
+      poseAt("speaking", 2.55, 2.55),
+    );
+  });
+
+  it.each(["connecting", "thinking", "muted", "ended"] as const)("%s shows no level", (mood) => {
+    expect(poseAt(mood, 3, 3, false, { out: 1, echo: 1, in: 1 })).toEqual(poseAt(mood, 3, 3));
   });
 
   it("idle is listening at three quarters brightness", () => {
@@ -104,7 +128,8 @@ describe("the Hairline instrument's poses", () => {
     expect(loud.amp).toBeGreaterThan(rest.amp + 0.018);
     expect(loud.extend).toBeGreaterThan(0.8);
     // The echo is the same phrase 0.16 s late.
-    expect(poseAt("speaking", 2.71, 0).echoAmp / 0.018).toBeCloseTo(voiceAt(2.55), 10);
+    expect(poseAt("speaking", 2.55 + ECHO_DELAY, 0).echoAmp / 0.018).toBeCloseTo(voiceAt(2.55), 10);
+    expect(ECHO_DELAY).toBe(0.16);
   });
 
   it("reduced motion makes every mood one still pose", () => {
@@ -116,6 +141,11 @@ describe("the Hairline instrument's poses", () => {
     expect(speaking.amp).toBeCloseTo(0.024 * 0.55, 10);
     expect(speaking.echoAmp).toBeCloseTo(0.018 * 0.45, 10);
     expect(speaking.extend).toBe(0.55);
+    // The still poses take no level.
+    for (const mood of MOODS)
+      expect(poseAt(mood, 0, 0, true, { out: 1, echo: 1, in: 1 })).toEqual(
+        poseAt(mood, 0, 0, true),
+      );
   });
 
   it("muted and ended are still with or without reduced motion", () => {

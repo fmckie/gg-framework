@@ -3,7 +3,14 @@ import { Suspense } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { RESTORE_MS } from "./hairline/engine";
-import { fakeFrames, fakeGl, stubCanvas, type FakeGl, type Frames } from "./hairline/testGl";
+import {
+  fakeFrames,
+  fakeGl,
+  fakeLevels,
+  stubCanvas,
+  type FakeGl,
+  type Frames,
+} from "./hairline/testGl";
 import type { OrbLevels, OrbMood, VoiceOrbProps } from "./VoiceOrb";
 
 const classic = vi.hoisted(() => ({ props: [] as unknown[] }));
@@ -95,6 +102,44 @@ describe("VoiceOrb on the desktop", () => {
     expect(frames.pending()).toBe(0);
   });
 
+  it("shows the levels it is given, and the latest ones when they change", () => {
+    const first = fakeLevels(1, 1);
+    const { rerender } = show({ mood: "listening", levels: first.read });
+    frames.run(1);
+    expect(first.reads()).toBe(60);
+    expect(glx.uniforms.get("uInAmp")).toBe(0.009);
+    rerender({ mood: "speaking", levels: first.read });
+    frames.run(1);
+    expect(glx.uniforms.get("uAmp")).toBe(0.024);
+    expect(glx.uniforms.get("uEchoAmp")).toBe(0.018);
+    expect(glx.uniforms.get("uInAmp")).toBe(0);
+    const reads = first.reads();
+    const second = fakeLevels(0.5, 0);
+    rerender({ mood: "speaking", levels: second.read });
+    frames.run(1);
+    expect(first.reads()).toBe(reads);
+    expect(second.reads()).toBe(60);
+    expect(glx.uniforms.get("uAmp")).toBeCloseTo(0.012, 10);
+    expect(document.querySelectorAll(".voice-orb canvas")).toHaveLength(1);
+  });
+
+  it("with no levels at all, plays her fixed phrase and keeps your track quiet", () => {
+    const { rerender } = show({ mood: "listening", levels: undefined });
+    frames.run(7);
+    expect(Math.max(...glx.drawn.map((frame) => frame.uInAmp ?? Number.NaN))).toBe(0);
+    rerender({ mood: "speaking", levels: undefined });
+    frames.run(2.55);
+    expect(glx.uniforms.get("uAmp")).toBeGreaterThan(0.015);
+  });
+
+  it("reads no levels under reduced motion", () => {
+    const heard = fakeLevels(1, 1);
+    show({ mood: "speaking", levels: heard.read, reducedMotion: true });
+    frames.run(1);
+    expect(heard.reads()).toBe(0);
+    expect(glx.uniforms.get("uAmp")).toBeCloseTo(0.024 * 0.55, 10);
+  });
+
   it("removes its canvas when the screen closes", () => {
     const { container, unmount } = show();
     const box = container.querySelector(".voice-orb");
@@ -119,6 +164,15 @@ describe("VoiceOrb without WebGL2", () => {
     expect(container.textContent).toBe("");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(frames.pending()).toBe(0);
+  });
+
+  it("never reads the levels", () => {
+    const heard = fakeLevels(1, 1);
+    const { rerender } = show({ mood: "speaking", levels: heard.read });
+    rerender({ mood: "listening", levels: heard.read });
+    frames.run(2);
+    expect(flat()).not.toBeNull();
+    expect(heard.reads()).toBe(0);
   });
 
   it("keeps each mood's own look", () => {

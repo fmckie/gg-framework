@@ -1,10 +1,11 @@
 // The Hairline instrument's renderer: one transparent WebGL2 canvas in the
-// orb's box. Each frame it works out the pose, cross-fades toward it and
-// draws only when something changed; it stops its loop once settled.
+// orb's box. Each frame it reads the voices' levels, works out the pose,
+// cross-fades toward it and draws only when something changed; it stops its
+// loop once settled.
 
 import { pageZoom } from "../flip";
-import type { OrbMood } from "../VoiceOrb";
-import { poseAt, type Pose } from "./motion";
+import type { OrbLevels, OrbMood } from "../VoiceOrb";
+import { ECHO_DELAY, poseAt, UNHEARD, voiceAt, type Heard, type Pose } from "./motion";
 import { FRAG, VERT } from "./shader";
 
 export interface Hairline {
@@ -51,6 +52,12 @@ const POSE_UNIFORMS: readonly (readonly [string, keyof Shown])[] = [
 const OTHER_UNIFORMS = ["uRes", "uDpr", "uCursor", "uCursorLag"];
 // These moods hold one pose, so their loop can stop once the fade lands.
 const STILL: ReadonlySet<OrbMood> = new Set<OrbMood>(["muted", "ended"]);
+// These moods show a voice; the levels are read in no other.
+const HEARS: ReadonlySet<OrbMood> = new Set<OrbMood>(["speaking", "listening", "idle"]);
+
+// A measured level as the traces take it: 0 to 1, and 0 when it isn't a number at all.
+const level = (measured: number | null | undefined): number | null =>
+  measured === null || measured === undefined ? null : measured > 0 ? Math.min(measured, 1) : 0;
 const MAX_PIXEL_RATIO = 2;
 /** How long a lost context may take to come back before the orb gives WebGL up. */
 export const RESTORE_MS = 1000;
@@ -68,8 +75,13 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
 /**
  * Starts the instrument in `host`. Throws when WebGL2 or the shader isn't
  * there; calls `onFail` (after cleaning up) if a lost context stays lost.
+ * `levels` is read once a frame, and only while a voice is on show.
  */
-export function createHairline(host: HTMLElement, onFail: (reason: unknown) => void): Hairline {
+export function createHairline(
+  host: HTMLElement,
+  onFail: (reason: unknown) => void,
+  levels?: () => OrbLevels | null | undefined,
+): Hairline {
   const canvas = document.createElement("canvas");
   canvas.style.cssText = "display:block;width:100%;height:100%;pointer-events:none";
   host.append(canvas);
@@ -130,6 +142,8 @@ export function createHairline(host: HTMLElement, onFail: (reason: unknown) => v
   const base = { seg: 0, dots: 0, outer: 0, scan: 0 };
   let cursor = 0;
   let cursorLag = 0;
+  // What the ring was last given, oldest first: the echo repeats it late.
+  let ringPast: { at: number; level: number }[] = [];
   let ratio = 1;
   let lost = false;
   let disposed = false;
@@ -155,8 +169,38 @@ export function createHairline(host: HTMLElement, onFail: (reason: unknown) => v
     wake();
   };
 
+  // The ring's level `at` on the clock; 0 before there is any past that old.
+  const ringAt = (at: number): number => {
+    let i = 0;
+    while (i + 1 < ringPast.length && (ringPast[i + 1]?.at ?? at) <= at) i++;
+    // Older samples can never be asked for again.
+    if (i > 0) ringPast = ringPast.slice(i);
+    const [before, after] = ringPast;
+    if (!before || before.at > at) return 0;
+    if (!after || after.at <= before.at) return before.level;
+    return (
+      before.level + ((after.level - before.level) * (at - before.at)) / (after.at - before.at)
+    );
+  };
+
+  // A meter's read moves its own smoothing, so this runs once a frame, never per pose.
+  const hear = (): Heard => {
+    if (reduced || !HEARS.has(mood)) {
+      ringPast = [];
+      return UNHEARD;
+    }
+    const read = levels?.();
+    const out = level(read?.out);
+    if (mood !== "speaking") {
+      ringPast = [];
+      return { out, echo: null, in: level(read?.in) };
+    }
+    ringPast.push({ at: clock, level: out ?? voiceAt(age) });
+    return { out, echo: out === null ? null : ringAt(clock - ECHO_DELAY), in: level(read?.in) };
+  };
+
   const targetAt = (): Shown => {
-    const pose = poseAt(mood, age, clock, reduced);
+    const pose = poseAt(mood, age, clock, reduced, hear());
     const lag = poseAt(mood, Math.max(0, age - 0.12), clock - 0.12, reduced);
     let cursorAmt = 0;
     if (mood === "thinking") {
