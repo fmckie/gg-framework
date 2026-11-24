@@ -2965,3 +2965,116 @@ html:not(.platform-ios) .settings-screen .ab-version {
     stroke-dashoffset: 0;
   }
 }
+
+/* ── Slice 8f: Overview's moments ─────────────────────────────────────────────
+   The welcome on a new device's first open, one line the first time a needed
+   step is seen done, and the finish (OverviewMoments.tsx). Desktop only. The
+   words are Kleio's, so they are in her face. Nothing glows. */
+
+/* Welcome: the mark, a greeting and one line, centred, for a moment. */
+html:not(.platform-ios) .settings-screen .ov-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 14vh;
+  text-align: center;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-mark {
+  gap: 14px;
+  margin-bottom: 24px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-mark-img {
+  width: 56px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome .kleio-wordmark {
+  font-size: 24px;
+}
+html:not(.platform-ios) .settings-screen .ov-welcome :is(.ov-headline, .ov-sub) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* A step just done: one line under the bar, in verdigris, which is "done" here.
+   Empty, the region takes no room; once it has held a line it keeps the room. */
+html:not(.platform-ios) .settings-screen .ov-said.has-room {
+  margin-top: 12px;
+}
+html:not(.platform-ios) .settings-screen .ov-said-line {
+  margin: 0;
+  font-family: "Mukta Malar", var(--sans);
+  font-size: 15px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--kleio-done);
+  overflow-wrap: anywhere;
+}
+/* A just-done segment's fill is a layer, for the visit; at rest it is 8b's colour. */
+html:not(.platform-ios) .settings-screen .ov-seg.is-fresh {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Not held once it ends: a held rise keeps the page on its own layer, and the
+     list would be drawn a shade differently from the same list at rest. */
+  html:not(.platform-ios) .settings-screen :is(.ov-welcome, .ov-page.is-arriving) {
+    animation: kleio-ov-rise 0.6s var(--ease-glow) backwards;
+  }
+  /* The line appears at once and fades as it leaves (LINE_FADE_MS). */
+  html:not(.platform-ios) .settings-screen .ov-said-line {
+    transition: opacity 0.6s var(--ease-glow);
+  }
+  html:not(.platform-ios) .settings-screen .ov-said.is-leaving .ov-said-line {
+    opacity: 0;
+  }
+  html:not(.platform-ios) .settings-screen .ov-dot.is-fresh {
+    animation: kleio-ov-dot-fill 0.9s var(--ease-glow) both;
+  }
+  /* The host's dot breathes again once its fill is over. */
+  html:not(.platform-ios) .settings-screen .ov-row[data-row="host"].is-ok .ov-dot.is-fresh {
+    animation:
+      kleio-ov-dot-fill 0.9s var(--ease-glow) both,
+      kleio-ov-breathe 5s ease-in-out 0.9s infinite;
+  }
+  html:not(.platform-ios) .settings-screen .ov-seg.is-done.is-fresh {
+    background: rgb(255 255 255 / 0.12);
+  }
+  html:not(.platform-ios) .settings-screen .ov-seg.is-done.is-fresh::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--kleio-done);
+    transform-origin: left center;
+    animation: kleio-ov-seg-fill 0.9s var(--ease-glow) both;
+  }
+}
+@keyframes kleio-ov-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* From the hollow lapis ring of a step not set up; no halo. */
+@keyframes kleio-ov-dot-fill {
+  from {
+    border-color: var(--kleio-lapis);
+    background: var(--bg);
+  }
+  to {
+    border-color: var(--kleio-done);
+    background: var(--kleio-done);
+  }
+}
+@keyframes kleio-ov-seg-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}

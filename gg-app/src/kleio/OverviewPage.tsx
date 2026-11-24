@@ -4,7 +4,8 @@
 // with its own glyph and at most one action. While a needed step is left, the
 // next one is a hero holding the page's one filled button, under a bar of one
 // segment per needed step. No forms: every row leads to the tab that has them.
-// The phone keeps the Setup page (settingsLayout.tsx).
+// Its three moments (the welcome, a step done, the finish) are in
+// OverviewMoments.tsx. The phone keeps the Setup page (settingsLayout.tsx).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -46,6 +47,14 @@ import {
   type VoiceStatus,
 } from "./kleioApi";
 import { quotableMemories } from "./quotableMemories";
+import {
+  FINISH_HEADLINE,
+  finishLine,
+  OverviewStepLine,
+  OverviewWelcome,
+  stepLine,
+  useOverviewMoments,
+} from "./OverviewMoments";
 import { privateServers } from "./privateModels";
 import { leaveSettingsIntent } from "./settingsIntent";
 import { useKleioRemote } from "./useKleioRemote";
@@ -391,11 +400,21 @@ export function OverviewPage({
   const required = rows.filter((r) => REQUIRED.includes(r.id));
   const done = required.filter((r) => r.mark === "ok").length;
   const settled = remote !== null && rows.every((r) => !r.pending);
+  const needs = rows.find((r) => r.mark === "fault" || r.mark === "signin");
 
-  if (!settled && !waited) return <div className="ov-page is-loading" aria-busy="true" />;
+  const moments = useOverviewMoments({
+    marks: { host: host_.mark, models: models_.mark, voice: voice_.mark, apps: apps_.mark },
+    settled,
+    fault: needs !== undefined,
+    hostName: host ? shortHost(host) : null,
+    hostKnown: remote !== null,
+  });
+
+  if (moments.welcome === "showing") return <OverviewWelcome line={moments.welcomeLine} />;
+  if (moments.welcome || (!settled && !waited))
+    return <div className="ov-page is-loading" aria-busy="true" />;
 
   // ── what to say ────────────────────────────────────────────────────────────
-  const needs = rows.find((r) => r.mark === "fault" || r.mark === "signin");
   // The next needed step this device can take; a key only the admin can add isn't one.
   const next =
     settled && !offline && !needs
@@ -403,6 +422,11 @@ export function OverviewPage({
       : undefined;
   const left = settled && !offline && !needs && required.some((r) => r.mark === "unset");
   const quoted = mems ? quotableMemories(mems)[0] : undefined;
+  // The finish keeps the headline for the visit, unless something needs a look.
+  const finishing = moments.finish && settled && !needs && done === REQUIRED.length;
+  /** A step first seen done on this visit, still done: its dot and segment fill. */
+  const fresh = (row: Row): boolean =>
+    row.mark === "ok" && (moments.fresh as readonly RowId[]).includes(row.id);
 
   let headline: string;
   let sub: string | null;
@@ -420,6 +444,9 @@ export function OverviewPage({
   } else if (left) {
     headline = "Let's get Kleio ready.";
     sub = null;
+  } else if (finishing) {
+    headline = FINISH_HEADLINE;
+    sub = finishLine(rows.some((r) => r.mark === "optional"));
   } else {
     headline = `Good ${partOfDay(new Date().getHours())}.`;
     sub = `I'm on ${hostName}, and everything's running.`;
@@ -432,7 +459,7 @@ export function OverviewPage({
 
   return (
     <div
-      className={`ov-page${left ? " is-onboarding" : ""}`}
+      className={`ov-page${left ? " is-onboarding" : ""}${moments.arriving ? " is-arriving" : ""}`}
       aria-busy={settled ? undefined : true}
     >
       {/* Kleio speaks once every answer is in, so the headline never changes under you. */}
@@ -449,7 +476,7 @@ export function OverviewPage({
         </p>
       )}
 
-      {left && (
+      {(left || finishing) && (
         <div
           className="ov-progress"
           role="progressbar"
@@ -462,13 +489,19 @@ export function OverviewPage({
           {required.map((r) => (
             <span
               key={r.id}
-              className={`ov-seg${r.mark === "ok" ? " is-done" : ""}${r.id === next?.id ? " is-next" : ""}`}
+              className={`ov-seg${r.mark === "ok" ? " is-done" : ""}${r.id === next?.id ? " is-next" : ""}${fresh(r) ? " is-fresh" : ""}`}
             />
           ))}
         </div>
       )}
 
-      {settled && !left && !offline && !needs && quoted && mems && (
+      <OverviewStepLine
+        lines={moments.said.map((step) => stepLine(step, host ? shortHost(host) : null))}
+        leaving={moments.leaving}
+        finishSaid={moments.finishSaid}
+      />
+
+      {settled && !left && !finishing && !offline && !needs && quoted && mems && (
         <a
           className="ov-memory"
           href="#kleio"
@@ -516,6 +549,7 @@ export function OverviewPage({
             key={row.id}
             row={row}
             quiet={Boolean(next)}
+            fresh={fresh(row)}
             primary={row.id === firstFix}
             onOpen={() => onOpenTab(row.tab)}
             onAct={() => {
@@ -538,12 +572,15 @@ export function OverviewPage({
 function OverviewRow({
   row,
   quiet,
+  fresh,
   primary,
   onOpen,
   onAct,
   onRetry,
 }: {
   row: Row;
+  /** Just seen done for the first time: its dot fills. */
+  fresh: boolean;
   /** A hero holds the page's one filled button, so rows stay quiet. */
   quiet: boolean;
   /** The first row that needs fixing: its Fix is the page's one filled button. */
@@ -559,7 +596,7 @@ function OverviewRow({
     <>
       <span className="ov-glyph" aria-hidden="true">
         <Glyph size={18} weight="light" />
-        <span className={`ov-dot is-${row.mark}`} />
+        <span className={`ov-dot is-${row.mark}${fresh ? " is-fresh" : ""}`} />
       </span>
       <span className="ov-text">
         <span className="ov-benefit">{row.benefit}</span>

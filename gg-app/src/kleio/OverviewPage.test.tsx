@@ -104,6 +104,8 @@ const MINI_ON: HostKind = { os: "darwin", laptop: false, alwaysOn: { state: "yes
 /** Everything set up and working. */
 beforeEach(() => {
   localStorage.clear();
+  // Not a new device: no welcome (OverviewPage.moments.test.tsx has the moments).
+  localStorage.setItem("kleio.overview.welcomed", "1");
   vi.spyOn(Date.prototype, "getHours").mockReturnValue(20);
   vi.mocked(useHostReach).mockReturnValue("connected");
   vi.mocked(useHostReachWords).mockReturnValue(null);
@@ -323,6 +325,12 @@ describe("OverviewPage's first run", () => {
     // Dictation, Brain and Tools are still not set up: they don't count.
     vi.mocked(getSetupStatus).mockResolvedValue(setup());
     vi.mocked(listConnections).mockResolvedValue({ configured: true, connections: [] });
+    await renderPage();
+    // The last step, seen done for the first time: the finish, under a full bar.
+    expect(headline()).toBe("Kleio's ready.");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("4 of 4 ready");
+    cleanup();
+
     await renderPage();
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(headline()).toBe("Good evening.");
