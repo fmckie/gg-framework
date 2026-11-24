@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { AppSettings, PermissionsStatus } from "../agent";
 
@@ -27,16 +27,17 @@ const FOLDER = "/Users/you/gg-projects";
 const GRANTED: PermissionsStatus = { applicable: true, granted: true };
 const NOT_GRANTED: PermissionsStatus = { applicable: true, granted: false };
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
+// The clock is fake, so no test waits on a real timer inside an act.
+const flush = (): Promise<void> => act(async () => {});
 
 async function renderPage(
   opts: { settings?: AppSettings | null; permissions?: PermissionsStatus } = {},
@@ -48,7 +49,7 @@ async function renderPage(
   vi.mocked(saveSettings).mockResolvedValue(undefined);
   const onSaved = vi.fn();
   const view = render(<GeneralPage onSaved={onSaved} />);
-  await settle();
+  await flush();
   return { onSaved, ...view };
 }
 
@@ -68,7 +69,7 @@ const comeBack = async (): Promise<void> => {
   act(() => {
     window.dispatchEvent(new Event("focus"));
   });
-  await settle();
+  await flush();
 };
 
 describe("GeneralPage: the project folder", () => {
@@ -101,7 +102,7 @@ describe("GeneralPage: the project folder", () => {
 
     saveButton().focus();
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
 
     expect(saveSettings).toHaveBeenCalledOnce();
     expect(saveSettings).toHaveBeenCalledWith("/Users/you/Code");
@@ -134,7 +135,7 @@ describe("GeneralPage: the project folder", () => {
     const form = field().closest("form");
     expect(form).not.toBeNull();
     if (form) fireEvent.submit(form);
-    await settle();
+    await flush();
 
     expect(saveSettings).toHaveBeenCalledWith("/Users/you/Code");
     expect(onSaved).toHaveBeenCalledWith("/Users/you/Code");
@@ -152,7 +153,7 @@ describe("GeneralPage: the project folder", () => {
     type("/Users/you/Code");
     saveButton().focus();
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
 
     expect(saveButton().textContent).toBe("Saving…");
     expect(saveButton().getAttribute("aria-disabled")).toBe("true");
@@ -161,11 +162,11 @@ describe("GeneralPage: the project folder", () => {
     expect(filled()).toEqual([]);
 
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
     expect(saveSettings).toHaveBeenCalledOnce();
 
     finish();
-    await settle();
+    await flush();
     expect(saveButton().textContent).toBe("Save");
     expect(saveButton().hasAttribute("aria-disabled")).toBe(false);
     expect(saveButton().disabled).toBe(true);
@@ -179,7 +180,7 @@ describe("GeneralPage: the project folder", () => {
     expect(filled()).toEqual(["Save"]);
 
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
 
     expect(saveSettings).toHaveBeenCalledWith(FOLDER);
     expect(onSaved).toHaveBeenCalledWith(FOLDER);
@@ -195,7 +196,7 @@ describe("GeneralPage: the project folder", () => {
     expect(saveButton().hasAttribute("title")).toBe(false);
     const form = field().closest("form");
     if (form) fireEvent.submit(form);
-    await settle();
+    await flush();
 
     expect(saveSettings).not.toHaveBeenCalled();
   });
@@ -206,7 +207,7 @@ describe("GeneralPage: the project folder", () => {
     type("  /Users/you/Code ");
 
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
 
     expect(toast).toHaveBeenCalledOnce();
     expect(toast).toHaveBeenCalledWith("Couldn't save: the disk is full", "error");
@@ -223,7 +224,7 @@ describe("GeneralPage: the project folder", () => {
     vi.mocked(open).mockResolvedValue("/Users/you/Documents/Work");
 
     fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
-    await settle();
+    await flush();
 
     expect(open).toHaveBeenCalledWith({
       directory: true,
@@ -240,7 +241,7 @@ describe("GeneralPage: the project folder", () => {
     vi.mocked(open).mockResolvedValue(null);
 
     fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
-    await settle();
+    await flush();
 
     expect(field().value).toBe(FOLDER);
     expect(saveButton().disabled).toBe(true);
@@ -289,7 +290,7 @@ describe("GeneralPage: permissions", () => {
     grantButton().focus();
     fireEvent.click(grantButton());
     // Opening System Settings changes nothing here by itself.
-    await settle();
+    await flush();
     expect(screen.queryByText("Full Disk Access is granted.")).toBeNull();
 
     vi.mocked(getPermissionsStatus).mockResolvedValue(GRANTED);
@@ -340,7 +341,7 @@ describe("GeneralPage: one filled button, Effects and the header", () => {
     expect(filled()).toEqual(["Save"]);
 
     fireEvent.click(saveButton());
-    await settle();
+    await flush();
 
     expect(filled()).toEqual(["Grant Permissions…"]);
   });
@@ -385,7 +386,7 @@ describe("GeneralPage: one filled button, Effects and the header", () => {
         <GeneralPage />
       </SettingsHeaderProvider>,
     );
-    await settle();
+    await flush();
     type("/Users/you/Code");
 
     expect(status.childNodes).toHaveLength(0);

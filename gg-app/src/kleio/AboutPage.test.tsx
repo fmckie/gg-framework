@@ -10,6 +10,9 @@ vi.mock("../agent", () => ({ openUrl: vi.fn(async () => undefined) }));
 
 import { openUrl } from "../agent";
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -20,12 +23,8 @@ afterEach(() => {
   document.documentElement.classList.remove("platform-ios");
 });
 
-// A macrotask runs only after the lookup (or its failure) has settled.
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
+// The clock is fake, so the 3 s unmask never fires unless a test walks to it.
+const flush = (): Promise<void> => act(async () => {});
 
 const TAGLINE = "Talk to your work: chat, code and specialists in one app.";
 /** Every line of text on the phone's card, in order. */
@@ -40,7 +39,8 @@ describe("AboutPage on the phone", () => {
   it("shows the mark, the tagline and the version, and no credit line", async () => {
     render(<AboutPage />);
     expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
-    expect(await screen.findByText("Version 0.73.2")).toBeDefined();
+    await flush();
+    expect(screen.getByText("Version 0.73.2")).toBeDefined();
     expect(cardLines()).toEqual([TAGLINE, "Version 0.73.2"]);
     expect(document.querySelector(".about-credit")).toBeNull();
     // Kleio's voice moved to the Setup page.
@@ -50,7 +50,7 @@ describe("AboutPage on the phone", () => {
   it("keeps the tagline and drops the version when it can't be read", async () => {
     vi.mocked(getVersion).mockRejectedValueOnce(new Error("not in the desktop app"));
     render(<AboutPage />);
-    await settle();
+    await flush();
     expect(getVersion).toHaveBeenCalledOnce();
     expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
     expect(screen.queryByText(/^Version/)).toBeNull();
@@ -59,7 +59,7 @@ describe("AboutPage on the phone", () => {
 
   it("keeps its card, and none of the desktop's page", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     expect(document.querySelector(".settings-card.about-card")).not.toBeNull();
     expect(document.querySelector(".ab-page")).toBeNull();
@@ -126,7 +126,7 @@ function endAnimation(animationName: string): void {
 describe("AboutPage on the desktop", () => {
   it("sets the copy, exactly and in order, ending on the version", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     expect(copy()).toEqual([...COPY, "Version 0.73.2"]);
     expect(screen.getByRole("region", { name: "About Kleio" })).toBeTruthy();
@@ -136,7 +136,7 @@ describe("AboutPage on the desktop", () => {
   it("drops the version line, and leaves nothing empty, when it can't be read", async () => {
     vi.mocked(getVersion).mockRejectedValueOnce(new Error("not in the desktop app"));
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     expect(getVersion).toHaveBeenCalledOnce();
     expect(copy()).toEqual(COPY);
@@ -149,7 +149,7 @@ describe("AboutPage on the desktop", () => {
 
   it("carries no credit line, and claims nothing was built from scratch", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     const said = document.querySelector(".ab-page")?.textContent;
     expect(said).not.toMatch(/Built on/);
@@ -161,7 +161,7 @@ describe("AboutPage on the desktop", () => {
 
   it("holds one image, the mark named Kleio, and no button", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     const images = screen.getAllByRole("img");
     expect(images).toHaveLength(1);
@@ -175,7 +175,7 @@ describe("AboutPage on the desktop", () => {
 
   it("has one link, GitHub, which says it opens the browser and opens without navigating", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     expect(screen.getAllByRole("link")).toHaveLength(1);
     const link = screen.getByRole("link", { name: "GitHub (opens in your browser)" });
@@ -200,7 +200,7 @@ describe("AboutPage's signature", () => {
     motion(true);
     const Page = await freshPage();
     render(<Page />);
-    await settle();
+    await flush();
 
     expect(signing()).toBe(true);
     expect(masked()).toBe(true);
@@ -217,7 +217,7 @@ describe("AboutPage's signature", () => {
 
   it("is drawn with one stroke", async () => {
     render(<AboutPage />);
-    await settle();
+    await flush();
 
     const d = document.querySelector("path.ab-pen")?.getAttribute("d") ?? "";
     expect(d.match(/[Mm]/g)).toHaveLength(1);
@@ -227,12 +227,12 @@ describe("AboutPage's signature", () => {
     motion(true);
     const Page = await freshPage();
     const first = render(<Page />);
-    await settle();
+    await flush();
     expect(signing()).toBe(true);
     first.unmount();
 
     render(<Page />);
-    await settle();
+    await flush();
 
     expect(signing()).toBe(false);
     expect(masked()).toBe(false);
@@ -243,7 +243,7 @@ describe("AboutPage's signature", () => {
     localStorage.setItem("kleio.about.signed", "1");
     const Page = await freshPage();
     render(<Page />);
-    await settle();
+    await flush();
 
     expect(signing()).toBe(false);
     expect(masked()).toBe(false);
@@ -253,7 +253,7 @@ describe("AboutPage's signature", () => {
     motion(false);
     const Page = await freshPage();
     const first = render(<Page />);
-    await settle();
+    await flush();
     expect(signing()).toBe(false);
     expect(masked()).toBe(false);
     expect(localStorage.getItem("kleio.about.signed")).toBe("1");
@@ -261,7 +261,7 @@ describe("AboutPage's signature", () => {
 
     motion(true);
     render(<Page />);
-    await settle();
+    await flush();
     expect(signing()).toBe(false);
   });
 
@@ -275,12 +275,12 @@ describe("AboutPage's signature", () => {
     });
     const Page = await freshPage();
     const first = render(<Page />);
-    await settle();
+    await flush();
     expect(signing()).toBe(true);
     first.unmount();
 
     render(<Page />);
-    await settle();
+    await flush();
 
     expect(signing()).toBe(false);
     expect(masked()).toBe(false);
@@ -308,7 +308,7 @@ describe("AboutPage's signature", () => {
     motion(true);
     const Page = await freshPage();
     render(<Page />);
-    await settle();
+    await flush();
 
     endAnimation("something-else");
 

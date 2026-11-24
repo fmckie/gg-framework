@@ -180,7 +180,7 @@ html:not(.platform-ios) .settings-screen .settings-card-sub {
 
 /* ── Buttons ── quiet rectangles that never change size. The page's one
    filled button is ink; the rest are outlines that turn lapis on hover. */
-html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn, .icon-circle, .login-tile) {
+html:not(.platform-ios) .settings-screen :is(.btn, .modal-btn, .icon-circle) {
   --glass-hover-scale: 1;
   --glass-press-scale: 1;
 }
@@ -334,48 +334,23 @@ html:not(.platform-ios) .settings-screen .badge {
   font-weight: 500;
 }
 
-/* ── The pages' own boxes ── each tab keeps today's arrangement until its own
-   slice; meanwhile its boxes lose their fill, rim and glow and keep a
-   hairline. */
-html:not(.platform-ios) .settings-screen :is(.login-tile, .app-tile, .app-mine-row, .conn-device),
-html:not(.platform-ios) .settings-screen :is(.login-tile, .app-tile):hover {
+/* ── A device's or a relay's row ── no fill, rim or glow; a hairline. */
+html:not(.platform-ios) .settings-screen .conn-device {
   border: 0;
   border-radius: 12px;
   background: none;
   box-shadow: inset 0 0 0 1px var(--kleio-rule);
   filter: none;
 }
-html:not(.platform-ios) .settings-screen .app-tile:hover {
-  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
-}
-html:not(.platform-ios) .settings-screen .login-tile:is(:hover, :focus-visible) {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kleio-lapis) 55%, transparent);
-}
-/* A provider's "connected" dot, and an app's logo plate: no halo, no drop. */
+/* A provider's "connected" dot: no halo. */
 html:not(.platform-ios) .settings-screen .login-conn-dot {
   box-shadow: none;
 }
-html:not(.platform-ios) .settings-screen .app-logo {
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.06);
-}
-/* Connection's map and verdict. */
-html:not(.platform-ios) .settings-screen :is(.conn-map, .conn-verdict, .setup-callout) {
+/* Setup's callout. */
+html:not(.platform-ios) .settings-screen .setup-callout {
   border-radius: 12px;
   background: none;
   box-shadow: none;
-}
-html:not(.platform-ios) .settings-screen .conn-map {
-  border: 1px solid var(--kleio-rule);
-}
-html:not(.platform-ios) .settings-screen .conn-node-icon,
-html:not(.platform-ios) .settings-screen .conn-node.is-host .conn-node-icon {
-  border-radius: 10px;
-  background: none;
-  box-shadow: inset 0 0 0 1px var(--kleio-rule-strong);
-  color: var(--kleio-text-2);
-}
-html:not(.platform-ios) .settings-screen .conn-node.is-host .conn-node-icon {
-  color: var(--kleio-ink);
 }
 /* Round icon buttons (try dictation): an outline, lapis on hover. */
 html:not(.platform-ios) .settings-screen .icon-circle,

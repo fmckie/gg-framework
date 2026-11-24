@@ -46,18 +46,17 @@ const README = "https://github.com/KenKaiii/agent-steroids#readme";
 const HINT = "No repos yet. Ask the agent: “curate a Steroids corpus for this project”.";
 
 beforeEach(() => {
+  vi.useFakeTimers();
   followers.clear();
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
+// The clock is fake, so no test waits on a real timer inside an act.
+const flush = (): Promise<void> => act(async () => {});
 
 /** The page under the screen's own arrangement: the screen holds the status. */
 function Held({
@@ -79,7 +78,7 @@ async function renderPage(probe: SteroidsStatus, first: SteroidsStatus | null = 
   vi.mocked(getSteroidsStatus).mockResolvedValue(probe);
   const seen = vi.fn();
   const view = render(<Held first={first} seen={seen} />);
-  await settle();
+  await flush();
   return { seen, ...view };
 }
 
@@ -105,7 +104,7 @@ describe("SteroidsPage: reading the status", () => {
   it("says Checking… on one still line until the status arrives", async () => {
     vi.mocked(getSteroidsStatus).mockReturnValue(new Promise(() => {}));
     render(<Held first={null} seen={vi.fn()} />);
-    await settle();
+    await flush();
 
     expect(stateLine().textContent).toBe("Checking…");
     expect(document.querySelector(".skeleton, .list-skeleton")).toBeNull();
@@ -207,7 +206,7 @@ describe("SteroidsPage: Install", () => {
     installButton().focus();
 
     fireEvent.click(installButton());
-    await settle();
+    await flush();
 
     expect(installSteroids).toHaveBeenCalledOnce();
     expect(seen).toHaveBeenLastCalledWith(EMPTY);
@@ -225,7 +224,7 @@ describe("SteroidsPage: Install", () => {
     const link = screen.getByRole("link");
     fireEvent.click(installButton());
     link.focus();
-    await settle();
+    await flush();
 
     expect(stateWords()).toBe("Empty corpus");
     expect(document.activeElement).toBe(link);
@@ -241,7 +240,7 @@ describe("SteroidsPage: Install", () => {
     );
     installButton().focus();
     fireEvent.click(installButton());
-    await settle();
+    await flush();
 
     expect(installButton().textContent).toBe("Installing…");
     expect(installButton().getAttribute("aria-disabled")).toBe("true");
@@ -250,11 +249,11 @@ describe("SteroidsPage: Install", () => {
     expect(filled()).toEqual([]);
 
     fireEvent.click(installButton());
-    await settle();
+    await flush();
     expect(installSteroids).toHaveBeenCalledOnce();
 
     finish(EMPTY);
-    await settle();
+    await flush();
     expect(screen.queryByRole("button")).toBeNull();
   });
 
@@ -265,7 +264,7 @@ describe("SteroidsPage: Install", () => {
     installButton().focus();
 
     fireEvent.click(installButton());
-    await settle();
+    await flush();
 
     expect(toast).toHaveBeenCalledOnce();
     expect(toast).toHaveBeenCalledWith("Install failed: the checksum didn't match", "error");
