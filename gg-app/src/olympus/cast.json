@@ -98,7 +98,9 @@
       "hand": [64.8, 28.7],
       "acts": { "look": { "pose": "look" }, "think": { "pose": "think" } },
       "lift": {},
+      "card": 0,
       "fp": { "stand": [22.3, 53], "speak": [22, 65], "look": [18.2, 61.5], "think": [11.5, 52.8] },
+      "top": { "stand": 3, "speak": 2.7, "look": 3, "think": 2.1 },
       "step": 520,
       "at": { "look": [16.2, 48], "think": [9.5, 46] },
       "seal": [43, 42.5],
@@ -188,6 +190,7 @@
         "think": { "pose": "think" }
       },
       "lift": {},
+      "card": 8,
       "fp": {
         "stand": [16.3, 49],
         "speak": [15.7, 63],
@@ -195,6 +198,7 @@
         "web": [10, 57],
         "think": [15.5, 45.8]
       },
+      "top": { "stand": 10, "speak": 10, "look": 10.7, "web": 9.8, "think": 10.4 },
       "step": 600,
       "at": { "look": [9.5, 51], "web": [8, 51], "think": [13.5, 35] },
       "seal": [40, 44.5],
@@ -287,6 +291,7 @@
         "think": { "pose": "think" }
       },
       "lift": {},
+      "card": 3,
       "fp": {
         "stand": [16.3, 49.3],
         "speak": [13.7, 63.3],
@@ -295,6 +300,7 @@
         "run": [-17, 69],
         "think": [-1, 56]
       },
+      "top": { "stand": 6, "speak": 6, "look": 6.4, "make": 20, "run": 11.7, "think": 13.1 },
       "step": 300,
       "at": { "look": [9.5, 52], "make": [-14, 75], "run": [-19, 90], "think": [-3, 61] },
       "seal": [40.5, 43],
@@ -386,6 +392,7 @@
         "think": { "pose": "think" }
       },
       "lift": {},
+      "card": 5.2,
       "fp": {
         "stand": [18, 50],
         "speak": [17, 65],
@@ -394,6 +401,7 @@
         "run": [-3, 95.3],
         "think": [6, 48.3]
       },
+      "top": { "stand": 7, "speak": 7, "look": 7.4, "make": 7.4, "run": 20.1, "think": 10.7 },
       "step": 560,
       "at": { "look": [12.8, 51], "make": [0, 89], "run": [-5, 103], "think": [4, 47] },
       "seal": [42, 42],
@@ -485,6 +493,7 @@
         "think": { "pose": "think" }
       },
       "lift": {},
+      "card": 6,
       "fp": {
         "stand": [13.3, 50],
         "speak": [12.3, 63.3],
@@ -493,6 +502,7 @@
         "run": [10.3, 51.6],
         "think": [15.2, 45.2]
       },
+      "top": { "stand": 9, "speak": 9, "look": 9, "web": 9.5, "run": 8.5, "think": 9 },
       "step": 500,
       "at": { "look": [-22, 89], "web": [2, 67], "run": [8.3, 46], "think": [13.2, 34] },
       "seal": [42.5, 41],
@@ -585,6 +595,7 @@
         "think": { "pose": "think-r", "verdict": { "confirmed": "think-r", "dropped": "think-l" } }
       },
       "lift": {},
+      "card": 4,
       "fp": {
         "stand": [18.7, 52.3],
         "speak": [18, 65.3],
@@ -593,6 +604,15 @@
         "run": [11.1, 77.8],
         "think-r": [19, 81.7],
         "think-l": [19, 80]
+      },
+      "top": {
+        "stand": 6,
+        "speak": 6.3,
+        "look": 7.5,
+        "web": 6,
+        "run": 7.5,
+        "think-r": 6.1,
+        "think-l": 6
       },
       "step": 640,
       "at": {
@@ -696,6 +716,7 @@
         "think": { "pose": "think" }
       },
       "lift": { "look": 8 },
+      "card": -2,
       "fp": {
         "stand": [13.7, 48],
         "speak": [13.7, 60.7],
@@ -704,6 +725,7 @@
         "run": [-12, 58],
         "think": [12.9, 63.6]
       },
+      "top": { "stand": 8, "speak": 8, "look": 7.9, "make": 7.9, "run": 4.1, "think": 5.1 },
       "step": 360,
       "at": { "look": [-8, 99], "make": [9, 55], "run": [-14, 74], "think": [10.9, 55] },
       "seal": [39, 45],

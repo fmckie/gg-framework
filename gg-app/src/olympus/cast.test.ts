@@ -143,6 +143,36 @@ describe("the cast data", () => {
     expect(Math.min(...CAST.gods.nike.envol.map(([y]) => y))).toBeLessThan(0);
   });
 
+  it("gives every pose the lane draws its top in the cell", () => {
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      expect(Object.keys(god.top).sort()).toEqual(Object.keys(god.fp).sort());
+      for (const y of Object.values(god.top)) {
+        expect(y).toBeGreaterThanOrEqual(0);
+        expect(y).toBeLessThan(30);
+      }
+    }
+  });
+
+  it("holds each god's card at one height at its work: at or over the top of every pose it acts, lifted", () => {
+    expect(Object.fromEntries(ids.map((id) => [id, CAST.gods[id].card]))).toEqual({
+      athena: 0,
+      herodotus: 8,
+      hermes: 3,
+      hephaestus: 5.2,
+      argus: 6,
+      themis: 4,
+      nike: -2,
+    });
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      for (const pose of Object.keys(god.at) as Skill[])
+        expect(god.card).toBeLessThanOrEqual(god.top[pose]! - (god.lift[pose] ?? 0));
+      // And never so high that its caret leaves the lane's frame: its foot is within 9px of the lane's top.
+      expect(3 + god.card - 10).toBeGreaterThanOrEqual(-9);
+    }
+  });
+
   it("has every picture at twice the size it is drawn, lossless", () => {
     expect(Object.keys(FILES)).toHaveLength(14 + 26);
     for (const id of ids) {

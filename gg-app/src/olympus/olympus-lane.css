@@ -1,17 +1,20 @@
-/* Olympus, parts 2 and 3: the lane, as stills and cuts. A marble stylobate
-   over the composer; each subagent at work is a god on it, acting its agent's
-   latest tool, its name carved in the step's face under it. The engine
-   (floor.ts) builds every god, puts it in its place and says which pose shows;
-   here is only how each still looks. Drawn only on the desktop (LaneMount.tsx).
+/* Olympus, parts 2 to 4: the lane, as stills and cuts, and its card. A marble
+   stylobate over the composer; each subagent at work is a god on it, acting
+   its agent's latest tool, its name carved in the step's face under it. The
+   engine (floor.ts) builds every god, puts it in its place and says which pose
+   shows; here is only how each still looks. Drawn only on the desktop
+   (LaneMount.tsx).
    Nothing here moves: a god is in its place or it isn't, one pose is cut to
    the next, a ribbon shows whole, the seal, the dimming and the crack are there
-   or they aren't, and the lane is open or shut. Travel and the floor mosaic are
-   later parts.
+   or they aren't, the card is up or it isn't, and the lane is open or shut.
+   Travel and the floor mosaic are later parts.
 
    Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
    6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
    9.7:1 and its crimson initial (#c42638) 3.7:1; the ink seal 6.2:1 on the
-   ivory scroll; the crack 4.7:1 on the dimmed figure. */
+   ivory scroll; the crack 4.7:1 on the dimmed figure; the focused name's
+   cartouche, in the names' own ink, 6.5:1; on the card's plate (#1f1a1b) the
+   god's name in slate teal 6.3:1. */
 .oly-lane {
   --oly-tread: 22px;
   --oly-parch: #d8d0c4;
@@ -76,6 +79,17 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   bottom: var(--oly-tread);
   width: 73px;
   height: 100px;
+}
+/* The frame takes no pointer; a god does, for its card: its cell, the pose it
+   shows, its ribbon, and its carved name. A hidden pose, wider than the cell,
+   is hidden outright (visibility), so it is not there to be pointed at. A god
+   is one of the lane's toolbar; its focus is shown on its name. */
+.oly-cell,
+.oly-ins {
+  pointer-events: auto;
+}
+.oly-cell:focus {
+  outline: none;
 }
 .oly-cell.is-speaking {
   z-index: 3; /* in front while it speaks; floor.ts keeps its ribbon clear of every neighbour */
@@ -228,6 +242,13 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   white-space: nowrap;
   color: #3b3133;
 }
+/* The focused god's name, from the keyboard: a cartouche, 2px off the carving.
+   It fits inside the step, and inside the 12px the names keep between them. */
+.oly-ins.is-focus {
+  outline: 2px solid #3b3133;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 
 /* Two plain antae close the frieze. */
 .oly-anta {
@@ -245,4 +266,153 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 .oly-anta.is-r {
   right: 0;
   box-shadow: -1px 0 0 rgb(0 0 0 / 0.5);
+}
+
+/* The card: one card, over the god the pointer or the keyboard is on. It
+   stands above the lane, which clips, so it is in a frame of its own before
+   the lane: no height, the lane's width. floor.ts gives it its left, its foot
+   (--oly-ty, in the lane) and its caret; OlympusLane.tsx fills it from the
+   god's record, as its row is filled. */
+.oly-card-anchor {
+  position: relative;
+  display: flow-root; /* so the lane's margin stays under it */
+  height: 0;
+  margin: 0 var(--kleio-gutter);
+}
+.oly-card {
+  --oly-agent: #7aa8b9;
+  --oly-live: #cc4454;
+  position: absolute;
+  z-index: 3;
+  left: 1px; /* the lane's rule */
+  /* Its foot, from the lane's inner top: under the lane's 8px margin and its rule. */
+  bottom: calc(-9px - var(--oly-ty, 0px));
+  display: none;
+  box-sizing: border-box;
+  width: 272px;
+  padding: 11px 13px 12px;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--kleio-text-2);
+}
+.oly-card.is-shown {
+  display: block;
+}
+.oly-card::after {
+  content: "";
+  position: absolute;
+  left: var(--oly-caret, 28px);
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-right: 1px solid var(--kleio-rule-strong);
+  border-bottom: 1px solid var(--kleio-rule-strong);
+  background: var(--surface-2);
+  transform: rotate(45deg);
+}
+/* Its lines sit close, as the mockup draws them: only the rule over what it is doing parts them. */
+.oly-card p,
+.oly-card dl,
+.oly-card dd {
+  margin: 0;
+}
+.oly-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+/* The god's name as its row has it. */
+.oly-card-god {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--oly-agent);
+}
+/* Its state: a crimson dot at work, the row's check when done, a muted dot
+   when it failed or was stopped. */
+.oly-card-state {
+  margin-left: auto;
+  color: var(--kleio-ink);
+}
+.oly-card-state::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--oly-live);
+  vertical-align: 1px;
+}
+.oly-card-state.is-done::before {
+  content: none;
+}
+.oly-card-state:is(.is-fail, .is-stop) {
+  color: var(--kleio-text-2);
+}
+.oly-card-state:is(.is-fail, .is-stop)::before {
+  background: var(--kleio-muted);
+}
+.oly-card-tick {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: var(--kleio-done);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* A brief's first line and a report's are as long as they like: three lines each. */
+.oly-card-task,
+.oly-card-now {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.oly-card-task {
+  font-size: 13.5px;
+  color: var(--kleio-ink);
+}
+.oly-card-now {
+  padding-top: 8px;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* A long code chip may break anywhere rather than run out of the card. */
+.oly-card code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 0.055);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--kleio-text-2);
+  overflow-wrap: anywhere;
+}
+.oly-card-now code {
+  font-size: 11.5px;
+}
+.oly-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 0 22px;
+}
+.oly-card-stats dt {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--kleio-muted);
+}
+.oly-card-stats dd {
+  font-size: 13px;
+  color: var(--kleio-ink);
+  font-variant-numeric: tabular-nums;
 }

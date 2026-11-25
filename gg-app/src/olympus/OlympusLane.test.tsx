@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentsAt,
@@ -13,11 +13,14 @@ import {
 import type { Floor } from "./floor";
 import laneCss from "./olympus-lane.css?raw";
 import rowsCss from "./olympus-rows.css?raw";
-import { laneAgents, OlympusLane, type LaneGroup, type LaneStage } from "./OlympusLane";
+import { cardAgent, laneAgents, OlympusLane, type LaneGroup, type LaneStage } from "./OlympusLane";
+import { OlympusRows } from "./OlympusRows";
+import type { SubAgentLine } from "../SubAgentFeed";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 /** A lane on a clock that moves only when told to. */
@@ -126,15 +129,32 @@ describe("the records the lane is given", () => {
 });
 
 describe("the lane", () => {
-  it("is a shut frame, hidden from assistive technology, with nothing to focus", () => {
+  it("is a shut frame round an empty toolbar: every part hidden from assistive technology, nothing to focus", () => {
     const stage = staged();
     const { container } = render(<OlympusLane groups={[]} stage={stage} />);
     const lane = container.querySelector(".oly-lane")!;
     expect(lane.className).toBe("oly-lane is-shut");
-    expect(lane.getAttribute("aria-hidden")).toBe("true");
+    // The toolbar is hidden while it is empty; the step and the antae always.
+    expect(lane.hasAttribute("aria-hidden")).toBe(false);
+    expect([...lane.children].map((el) => [el.className, el.getAttribute("aria-hidden")])).toEqual([
+      ["oly-gods", "true"],
+      ["oly-stylobate", "true"],
+      ["oly-anta is-l", "true"],
+      ["oly-anta is-r", "true"],
+    ]);
+    const toolbar = lane.querySelector(".oly-gods")!;
+    expect(toolbar.getAttribute("role")).toBe("toolbar");
+    expect(toolbar.getAttribute("aria-label")).toBe("Subagents on the lane");
     expect(lane.querySelector(".oly-stylobate .oly-names")).not.toBeNull();
-    expect(lane.querySelectorAll(".oly-anta")).toHaveLength(2);
-    expect(container.querySelectorAll("[role], [tabindex], button, a, input")).toHaveLength(0);
+    expect([...container.querySelectorAll("[role]")]).toEqual([toolbar]);
+    expect(container.querySelectorAll("[tabindex], button, a, input")).toHaveLength(0);
+    // Before the lane, the card's frame: hidden too, with nobody's card in it.
+    const anchor = container.firstElementChild!;
+    expect(anchor.className).toBe("oly-card-anchor");
+    expect(anchor.getAttribute("aria-hidden")).toBe("true");
+    expect(anchor.nextElementSibling).toBe(lane);
+    expect(container.children).toHaveLength(2);
+    expect(anchor.innerHTML).toBe('<div class="oly-card"></div>');
   });
 
   it("stands the run's agents as their gods, in the order they were sent", () => {
@@ -150,9 +170,30 @@ describe("the lane", () => {
       "Argus",
       "Nike",
     ]);
-    // With gods on it, it is still hidden and has nothing to focus.
-    expect(container.querySelectorAll("[role], [tabindex], button, a, input")).toHaveLength(0);
-    expect(container.querySelectorAll("[aria-hidden]")).toHaveLength(1);
+    // The gods are the toolbar's buttons, each under its own name and described by its agent's
+    // row, with nothing to press yet; one of them is the lane's tab stop.
+    const cells = [...container.querySelectorAll<HTMLElement>(".oly-cell")];
+    expect([...container.querySelectorAll("[role='button']")]).toEqual(cells);
+    expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual([
+      "Athena",
+      "Hephaestus",
+      "Argus",
+      "Nike",
+    ]);
+    expect(cells.map((cell) => cell.getAttribute("aria-describedby"))).toEqual([
+      "oly-row-owl-1",
+      "oly-row-bee-1",
+      "oly-row-auditor-1",
+      "oly-row-unnamed-1",
+    ]);
+    expect(cells.every((cell) => cell.getAttribute("aria-disabled") === "true")).toBe(true);
+    expect(cells.map((cell) => cell.tabIndex)).toEqual([0, -1, -1, -1]);
+    expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
+    // The toolbar is no longer hidden; the card's frame, the step and the antae still are.
+    expect(container.querySelector(".oly-gods")!.hasAttribute("aria-hidden")).toBe(false);
+    expect(
+      [...container.querySelectorAll("[aria-hidden]")].map((el) => el.className.split(" ")[0]),
+    ).toEqual(["oly-card-anchor", "oly-stylobate", "oly-anta", "oly-anta"]);
   });
 
   it("follows the records as they change, and shuts when the run is over", () => {
@@ -339,8 +380,34 @@ describe("the lane's CSS", () => {
     expect([...mine].filter((name) => name.startsWith("oly-") && rows.has(name))).toEqual([]);
   });
 
-  it("takes no pointer, so nothing on it can be pressed or hovered yet", () => {
+  it("takes no pointer on its frame; a god's cell and its name do, and a hidden pose is not there to point at", () => {
     expect(rules).toMatch(/\.oly-lane \{[^}]*pointer-events: none;/);
+    expect(rules).toContain(".oly-cell,\n.oly-ins {\n  pointer-events: auto;\n}");
+    // Nothing else is given the pointer back, and a pose not shown is hidden outright.
+    expect(rules.match(/pointer-events/g)).toHaveLength(2);
+    expect(rules).toMatch(/\.oly-pose \{\n {2}display: block;\n {2}visibility: hidden;\n\}/);
+    expect(rules).not.toMatch(/cursor/); // nothing to press yet
+  });
+
+  it("shows focus on a god by a cartouche round its carved name, not by an outline on its cell", () => {
+    expect(rules).toContain(".oly-cell:focus {\n  outline: none;\n}");
+    expect(rules).toContain(
+      ".oly-ins.is-focus {\n  outline: 2px solid #3b3133;\n  outline-offset: 2px;\n  border-radius: 2px;\n}",
+    );
+  });
+
+  it("shows the card by a cut, in a frame of no height before the lane", () => {
+    expect(rules).toMatch(/\.oly-card \{[^}]*display: none;[^}]*width: 272px;/);
+    expect(rules).toContain(".oly-card.is-shown {\n  display: block;\n}");
+    expect(rules).toMatch(
+      /\.oly-card-anchor \{\n {2}position: relative;\n {2}display: flow-root;[^}]*\n {2}height: 0;\n {2}margin: 0 var\(--kleio-gutter\);/,
+    );
+    // Its foot is the engine's, counted from the lane's inner top: under an 8px margin and a 1px rule.
+    expect(rules).toMatch(/\.oly-card \{[^}]*bottom: calc\(-9px - var\(--oly-ty, 0px\)\);/);
+    expect(rules).toMatch(
+      /\.oly-lane \{[^}]*margin: 8px var\(--kleio-gutter\) 0;[^}]*border: 1px solid/,
+    );
+    expect(rules).toMatch(/\.oly-card::after \{[^}]*left: var\(--oly-caret, 28px\);/);
   });
 
   it("shows one pose at a time, by a cut", () => {
@@ -374,5 +441,294 @@ describe("the lane's CSS", () => {
     expect(rules).toMatch(
       /\.oly-lane\.is-shut \{\n {2}height: 0;\n {2}margin-top: 0;\n {2}border-width: 0;/,
     );
+  });
+});
+
+describe("the card's words", () => {
+  const KEY = "it";
+  const record = (
+    status: keyof typeof STATE_AGENTS,
+    over: Partial<SubAgentLine> = {},
+  ): SubAgentLine => ({
+    ...STATE_AGENTS[status],
+    toolCallId: KEY,
+    ...over,
+  });
+
+  /** A turn's rows, its lane and the composer's text box, as a session has them. */
+  function Session({
+    agents,
+    aborted = false,
+    stage,
+    onEscape,
+  }: {
+    agents: readonly SubAgentLine[];
+    aborted?: boolean;
+    stage: LaneStage;
+    onEscape?: () => void;
+  }): React.ReactElement {
+    return (
+      <>
+        <OlympusRows agents={agents} aborted={aborted} />
+        <OlympusLane groups={[{ agents, aborted }]} stage={stage} />
+        <textarea
+          data-composer-input=""
+          onKeyDown={(e) => {
+            if (e.key === "Escape") onEscape?.();
+          }}
+        />
+      </>
+    );
+  }
+
+  /** The mockup's clock for a row: twelve seconds after its agent was sent. */
+  function pinned(): ReturnType<typeof staged> {
+    vi.useFakeTimers();
+    vi.setSystemTime(12_000);
+    return staged();
+  }
+
+  /** A god at its work with the pointer on it, then its agent's record as it is now. */
+  function pointedAt(now: SubAgentLine, aborted = false): HTMLElement {
+    const stage = pinned();
+    const first = now.status === "starting" ? now : record("running");
+    const view = render(<Session agents={[first]} stage={stage} />);
+    act(() => stage.host.advance(2200));
+    const cell = view.container.querySelector(".oly-cell")!;
+    expect(cell.getAttribute("data-pose")).not.toBe("speak");
+    act(() => void cell.dispatchEvent(new Event("pointerenter")));
+    view.rerender(<Session agents={[now]} aborted={aborted} stage={stage} />);
+    act(() => stage.host.advance(0));
+    return view.container;
+  }
+
+  const text = (el: Element | null | undefined): string => el?.textContent ?? "";
+  /** What a row says, piece by piece. */
+  function rowSays(container: HTMLElement): Record<string, unknown> {
+    const row = container.querySelector("li.oly-row")!;
+    const line = row.querySelector(".oly-line")!.cloneNode(true) as HTMLElement;
+    for (const el of line.querySelectorAll(".oly-god, .sr-only")) el.remove();
+    return {
+      look: row.className.replace("oly-row is-", ""),
+      god: text(row.querySelector(".oly-god")),
+      state: text(row.querySelector(".oly-state")),
+      tick: row.querySelector(".oly-check") !== null,
+      task: text(line),
+      now: [...row.querySelectorAll(".oly-now")].map((el) => text(el).replace(/^ · /, "")),
+      time: text(row.querySelector(".oly-time")),
+      chips: [...row.querySelectorAll("code")].map(text),
+    };
+  }
+  /** And what the card says of the same. */
+  function cardSays(container: HTMLElement): Record<string, unknown> {
+    const card = container.querySelector(".oly-card")!;
+    expect(card.className).toBe("oly-card is-shown");
+    const state = card.querySelector(".oly-card-state")!;
+    return {
+      look: state.className.replace("oly-card-state is-", ""),
+      god: text(card.querySelector(".oly-card-god")),
+      state: text(state),
+      tick: card.querySelector(".oly-card-tick") !== null,
+      task: text(card.querySelector(".oly-card-task")),
+      now: [...card.querySelectorAll(".oly-card-now")].map(text),
+      // A time the row has none of is a dash in the card's own slot for it.
+      time: text(card.querySelectorAll(".oly-card-stats dd")[2]).replace("\u2013", ""),
+      chips: [...card.querySelectorAll("code")].map(text),
+    };
+  }
+  const stats = (container: HTMLElement): string[] =>
+    [...container.querySelectorAll(".oly-card-stats > div")].map(text);
+
+  it.each([
+    ["starting", false, "Starting", [], "0:12"],
+    ["running", false, "Running", ["Searching for bcrypt.compare("], "0:12"],
+    ["done", false, "Done", ["One early return leaks timing; fix noted"], "0:25"],
+    ["error", false, "Failed", ["Lost track of verifyPassword()"], "0:09"],
+    ["idle", false, "Idle", ["One early return leaks timing; fix noted"], "1:01"],
+    ["interrupted", false, "Interrupted", [], "0:07"],
+    ["running", true, "Interrupted", [], ""],
+  ] as const)("%s (run stopped: %s): the row's words, %s", (status, aborted, word, now, time) => {
+    const container = pointedAt(record(status), aborted);
+    const card = cardSays(container);
+    expect(card).toEqual(rowSays(container));
+    expect(card).toMatchObject({
+      god: "Argus",
+      state: word,
+      now,
+      tick: word === "Done" || word === "Idle",
+    });
+    // Then what only the card has: its tokens, its tools and its time.
+    expect(stats(container)).toEqual(["Tokens4.7k", "Tools2", `Time${time || "–"}`]);
+  });
+
+  it("a god whose agent has no activity yet: no line for what it is doing, as in its row", () => {
+    const container = pointedAt(record("running", { activities: [], toolUseCount: 0 }));
+    expect(cardSays(container)).toEqual(rowSays(container));
+    expect(cardSays(container)).toMatchObject({ state: "Running", now: [] });
+    expect(container.querySelector(".oly-card-now")).toBeNull();
+    expect(stats(container)[1]).toBe("Tools0");
+  });
+
+  it("a spawned agent: its task name for a task; an agent with neither: no task line", () => {
+    const spawned = pointedAt(
+      record("running", { async: true, agentName: "audit-login", task: undefined }),
+    );
+    expect(cardSays(spawned)).toEqual(rowSays(spawned));
+    expect(cardSays(spawned)).toMatchObject({ god: "Argus", task: "audit-login" });
+    cleanup();
+    const bare = pointedAt(
+      record("running", { agentName: undefined, agentType: undefined, task: undefined }),
+    );
+    expect(cardSays(bare)).toEqual(rowSays(bare));
+    expect(cardSays(bare)).toMatchObject({ god: "Nike", task: "" });
+    expect(bare.querySelector(".oly-card-task")).toBeNull();
+  });
+
+  it("sets code in chips as the row does, and counts tokens as one figure", () => {
+    const container = pointedAt(record("done"));
+    expect(cardSays(container).chips).toEqual(["login.ts"]);
+    cleanup();
+    const usage = (input: number, output: number, cached = 0): SubAgentLine =>
+      record("running", { tokenUsage: { input, output, cacheRead: cached, cacheWrite: 100 } });
+    expect(stats(pointedAt(usage(0, 0)))[0]).toBe("Tokens100");
+    cleanup();
+    // What it re-read from the cache is left out: it would swamp the rest.
+    expect(stats(pointedAt(usage(19_800, 2_200, 480_000)))[0]).toBe("Tokens22.1k");
+    cleanup();
+    expect(stats(pointedAt(record("running", { tokenUsage: { input: 0, output: 0 } })))[0]).toBe(
+      "Tokens0",
+    );
+  });
+
+  it("its time ticks once a second while its agent works, on a clock of its own", () => {
+    const stage = pinned();
+    const view = render(<Session agents={[record("running")]} stage={stage} />);
+    act(() => stage.host.advance(2200));
+    act(
+      () =>
+        void view.container.querySelector(".oly-cell")!.dispatchEvent(new Event("pointerenter")),
+    );
+    expect(stats(view.container)[2]).toBe("Time0:12");
+    const waiting = stage.host.pending();
+    act(() => void vi.advanceTimersByTime(3000));
+    expect(stats(view.container)[2]).toBe("Time0:15");
+    expect(cardSays(view.container)).toEqual(rowSays(view.container));
+    expect(stage.host.pending()).toBe(waiting); // nothing of it on the lane's clock
+  });
+
+  it("is empty until a god is pointed at, and again 150ms after the pointer has gone", () => {
+    const stage = pinned();
+    const { container } = render(<Session agents={[record("running")]} stage={stage} />);
+    act(() => stage.host.advance(2200));
+    const card = container.querySelector(".oly-card")!;
+    expect(card.outerHTML).toBe('<div class="oly-card"></div>');
+    const cell = container.querySelector(".oly-cell")!;
+    act(() => void cell.dispatchEvent(new Event("pointerenter")));
+    expect(card.className).toBe("oly-card is-shown");
+    expect(card.getAttribute("style")).toMatch(
+      /^transform: translate3d\([\d.]+px, 0(px)?, 0(px)?\); --oly-ty: -1\.0px; --oly-caret: 30\.0px;$/,
+    );
+    act(() => void cell.dispatchEvent(new Event("pointerleave")));
+    act(() => stage.host.advance(149));
+    expect(card.className).toBe("oly-card is-shown");
+    act(() => stage.host.advance(1));
+    expect(card.className).toBe("oly-card");
+    expect(card.innerHTML).toBe("");
+  });
+
+  it("two agents as one god: each god's card is its own agent's", () => {
+    const stage = pinned();
+    const two = [
+      record("running", {
+        toolCallId: "a",
+        agentName: undefined,
+        agentType: undefined,
+        task: "First",
+      }),
+      record("running", {
+        toolCallId: "b",
+        agentName: undefined,
+        agentType: undefined,
+        task: "Second",
+      }),
+    ];
+    const { container } = render(<Session agents={two} stage={stage} />);
+    act(() => stage.host.advance(6000));
+    const cells = [...container.querySelectorAll(".oly-cell")];
+    expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual(["Nike", "Nike"]);
+    expect(cells.map((cell) => cell.getAttribute("aria-describedby"))).toEqual([
+      "oly-row-a",
+      "oly-row-b",
+    ]);
+    for (const [i, task] of ["First", "Second"].entries()) {
+      act(() => void cells[i]!.dispatchEvent(new Event("pointerenter")));
+      expect(text(container.querySelector(".oly-card-task"))).toBe(task);
+      // The row that describes it is there, under that id, and says the same.
+      const row = document.getElementById(cells[i]!.getAttribute("aria-describedby")!)!;
+      expect(text(row.querySelector(".oly-line"))).toContain(task);
+    }
+  });
+
+  it("finds a card's record as the lane takes its records: live ones, the first with its key", () => {
+    const live = record("running");
+    const groups: LaneGroup[] = [
+      { agents: [...RESUMED_AGENTS] },
+      { agents: [live], aborted: true },
+      { agents: [record("done")] },
+    ];
+    expect(cardAgent(groups, KEY)).toEqual({ agent: live, aborted: true });
+    expect(cardAgent(groups, "history-0")).toBeNull();
+    expect(cardAgent(groups, "nobody")).toBeNull();
+    expect(cardAgent(groups, null)).toBeNull();
+  });
+
+  it("Esc with the pointer on a god hides its card and still reaches the composer; with no card, it only reaches it", () => {
+    const stage = pinned();
+    const onEscape = vi.fn();
+    const { container } = render(
+      <Session agents={[record("running")]} stage={stage} onEscape={onEscape} />,
+    );
+    act(() => stage.host.advance(2200));
+    const box = container.querySelector("textarea")!;
+    box.focus();
+    act(() => void fireEvent.keyDown(box, { key: "Escape" }));
+    expect(onEscape).toHaveBeenCalledTimes(1);
+    act(() => void container.querySelector(".oly-cell")!.dispatchEvent(new Event("pointerenter")));
+    expect(container.querySelector(".oly-card")!.className).toBe("oly-card is-shown");
+    act(() => void fireEvent.keyDown(box, { key: "Escape" }));
+    expect(onEscape).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".oly-card")!.className).toBe("oly-card");
+  });
+
+  it("when the last god leaves with focus, focus goes to the composer's text box", () => {
+    const stage = pinned();
+    const view = render(<Session agents={[record("running")]} stage={stage} />);
+    act(() => stage.host.advance(2200));
+    const cell = view.container.querySelector<HTMLElement>(".oly-cell")!;
+    act(() => {
+      fireEvent.keyDown(document.body, { key: "Tab" });
+      cell.focus();
+    });
+    expect(view.container.querySelector(".oly-card")!.className).toBe("oly-card is-shown");
+    expect(view.container.querySelector(".oly-ins")!.className).toBe("oly-ins is-focus");
+    view.rerender(<Session agents={[]} stage={stage} />);
+    act(() => stage.host.advance(0));
+    expect(view.container.querySelectorAll(".oly-cell")).toHaveLength(0);
+    expect(document.activeElement).toBe(view.container.querySelector("textarea"));
+    expect(view.container.querySelector(".oly-card")!.className).toBe("oly-card");
+  });
+
+  it("unmounted with a card up: nothing is left on the clock, and its keys are no longer heard", () => {
+    const stage = pinned();
+    const view = render(<Session agents={[record("running")]} stage={stage} />);
+    act(() => stage.host.advance(2200));
+    const cell = view.container.querySelector(".oly-cell")!;
+    act(() => void cell.dispatchEvent(new Event("pointerenter")));
+    act(() => void cell.dispatchEvent(new Event("pointerleave"))); // a grace is waiting
+    view.unmount();
+    expect(stage.host.pending()).toBe(0);
+    const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
   });
 });

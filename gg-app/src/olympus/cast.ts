@@ -86,6 +86,10 @@ export interface CastGod {
   readonly at: Readonly<Partial<Record<Skill, readonly [number, number]>>>;
   /** How far off the floor a pose is held. */
   readonly lift: Readonly<Partial<Record<Skill, number>>>;
+  /** Each pose's top in the cell. */
+  readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
+  /** The height its card holds while it works: over the highest it reaches at its place. */
+  readonly card: number;
   /** Where the seal is pressed on its rolled scroll. */
   readonly seal: readonly [number, number];
   /** The crack across its standing figure. */

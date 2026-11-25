@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SubAgentLine } from "../SubAgentFeed";
 import { CAST, POSE_URLS } from "./cast";
 import { createFloor, rng, type Floor, type FloorOptions, type LaneAgent } from "./floor";
 import { agentTypeOf, godOf } from "./gods";
-import { rowState } from "./OlympusRows";
-import { createSim, type SimHost } from "./sim";
+import { clock, Rich, rowId, rowState, rowWords, useNow } from "./OlympusRows";
+import { createSim, windowHost, type SimHost } from "./sim";
 import { toolFamilyOf } from "./tool-family";
 import "./olympus-lane.css";
 
@@ -36,6 +36,91 @@ export function laneAgents(groups: readonly LaneGroup[]): LaneAgent[] {
   return agents;
 }
 
+/** The record a god's card is filled from: the first with its key, as the lane takes it. */
+export function cardAgent(
+  groups: readonly LaneGroup[],
+  key: string | null,
+): { agent: SubAgentLine; aborted: boolean } | null {
+  if (key === null) return null;
+  for (const group of groups)
+    for (const agent of group.agents)
+      if (agent.startedAt !== undefined && agent.toolCallId === key)
+        return { agent, aborted: group.aborted === true };
+  return null;
+}
+
+/** A count of tokens, as the mockup's card has it: 22.1k. */
+function tokens(usage: SubAgentLine["tokenUsage"]): string {
+  // What it has read anew and written; what it re-read from the cache would swamp both.
+  const n = usage ? usage.input + (usage.cacheWrite ?? 0) + usage.output : 0;
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+/**
+ * What a card says: its agent's row over again (the god, its state, the task,
+ * what it is doing now or how it ended), then its tokens, its tools and its time.
+ */
+function CardWords({
+  agent,
+  aborted,
+}: {
+  agent: SubAgentLine;
+  aborted: boolean;
+}): React.ReactElement {
+  const now = useNow(agent.startedAt !== undefined && rowState(agent, aborted).live);
+  const { look, word, god, task, activity, result, ms } = rowWords(agent, aborted, now);
+  return (
+    <>
+      <p className="oly-card-head">
+        <span className="oly-card-god">{god.name}</span>
+        <span className={`oly-card-state is-${look}`}>
+          {look === "done" && (
+            <svg className="oly-card-tick" viewBox="0 0 24 24">
+              <path d="M5 12.5l4.5 4.5L19 7.5" />
+            </svg>
+          )}
+          {word}
+        </span>
+      </p>
+      {task && (
+        <p className="oly-card-task">
+          <Rich text={task} />
+        </p>
+      )}
+      {activity?.lead && (
+        <p className="oly-card-now">
+          {activity.lead}
+          {activity.subject && (
+            <>
+              {" "}
+              <code>{activity.subject}</code>
+            </>
+          )}
+        </p>
+      )}
+      {result && (
+        <p className="oly-card-now">
+          <Rich text={result} />
+        </p>
+      )}
+      <dl className="oly-card-stats">
+        <div>
+          <dt>Tokens</dt>
+          <dd>{tokens(agent.tokenUsage)}</dd>
+        </div>
+        <div>
+          <dt>Tools</dt>
+          <dd>{agent.toolUseCount}</dd>
+        </div>
+        <div>
+          <dt>Time</dt>
+          <dd>{ms === undefined ? "\u2013" : clock(ms)}</dd>
+        </div>
+      </dl>
+    </>
+  );
+}
+
 /** For tests and previews: a clock, dice and measures of their own. */
 export interface LaneStage extends Pick<FloorOptions, "width" | "measure" | "reduced"> {
   readonly host?: SimHost;
@@ -50,11 +135,15 @@ interface Props {
 
 /**
  * The lane over the composer on the desktop: the frame, the stylobate and the
- * antae, and the engine that stands the gods on it. Everything on it is also in
- * the transcript's rows, so all of it is hidden from assistive technology.
+ * antae, and the engine that stands the gods on it; and, before it, the card
+ * the engine stands over one god at a time. The gods are a toolbar, each
+ * described by its row in the transcript. Everything else, the card included,
+ * only repeats those rows, and is hidden from assistive technology.
  */
 export function OlympusLane({ groups, stage }: Props): React.ReactElement {
   const laneRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [cardKey, setCardKey] = useState<string | null>(null);
   const floorRef = useRef<Floor | null>(null);
   // The stage is read once, as the lane is built.
   const stageRef = useRef(stage);
@@ -62,7 +151,7 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
   useEffect(() => {
     const lane = laneRef.current;
     if (!lane) return;
-    const { host, seed, onFloor, width, measure, reduced } = stageRef.current ?? {};
+    const { host = windowHost(), seed, onFloor, width, measure, reduced } = stageRef.current ?? {};
     const sim = createSim(host);
     const floor = createFloor(lane, {
       sim,
@@ -72,6 +161,12 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
       width,
       measure,
       reduced,
+      card: cardRef.current,
+      onCard: setCardKey,
+      describe: rowId,
+      // The composer's text box, as the app marks it.
+      away: () => document.querySelector<HTMLElement>("textarea[data-composer-input]"),
+      timer: host,
     });
     floorRef.current = floor;
     onFloor?.(floor);
@@ -96,31 +191,51 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
     floorRef.current?.sync(laneAgents(groups));
   }, [groups]);
 
+  const card = cardAgent(groups, cardKey);
+
   return (
-    <div className="oly-lane is-shut" ref={laneRef} aria-hidden="true">
-      <div className="oly-gods" />
-      <div className="oly-stylobate">
-        <svg className="oly-marble" preserveAspectRatio="none">
-          <filter
-            id="oly-marble-grain"
-            x="0"
-            y="0"
-            width="100%"
-            height="100%"
-            colorInterpolationFilters="sRGB"
-          >
-            <feTurbulence type="fractalNoise" baseFrequency="0.004 0.11" numOctaves="4" seed="9" />
-            <feColorMatrix
-              type="matrix"
-              values="0 0 0 0 0.42  0 0 0 0 0.38  0 0 0 0 0.36  -2.6 0 0 0 1.45"
-            />
-          </filter>
-          <rect width="100%" height="100%" filter="url(#oly-marble-grain)" opacity="0.3" />
-        </svg>
-        <div className="oly-names" />
+    <>
+      {/* Before the lane, so the lane still meets the activity line or the text box. */}
+      <div className="oly-card-anchor" aria-hidden="true">
+        <div className={`oly-card${card ? " is-shown" : ""}`} ref={cardRef}>
+          {card && <CardWords agent={card.agent} aborted={card.aborted} />}
+        </div>
       </div>
-      <span className="oly-anta is-l" />
-      <span className="oly-anta is-r" />
-    </div>
+      <div className="oly-lane is-shut" ref={laneRef}>
+        <div
+          className="oly-gods"
+          role="toolbar"
+          aria-label="Subagents on the lane"
+          aria-hidden="true"
+        />
+        <div className="oly-stylobate" aria-hidden="true">
+          <svg className="oly-marble" preserveAspectRatio="none">
+            <filter
+              id="oly-marble-grain"
+              x="0"
+              y="0"
+              width="100%"
+              height="100%"
+              colorInterpolationFilters="sRGB"
+            >
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.004 0.11"
+                numOctaves="4"
+                seed="9"
+              />
+              <feColorMatrix
+                type="matrix"
+                values="0 0 0 0 0.42  0 0 0 0 0.38  0 0 0 0 0.36  -2.6 0 0 0 1.45"
+              />
+            </filter>
+            <rect width="100%" height="100%" filter="url(#oly-marble-grain)" opacity="0.3" />
+          </svg>
+          <div className="oly-names" />
+        </div>
+        <span className="oly-anta is-l" aria-hidden="true" />
+        <span className="oly-anta is-r" aria-hidden="true" />
+      </div>
+    </>
   );
 }

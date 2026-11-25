@@ -21,10 +21,14 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Per god, whole: its envelope at a place, that envelope's outline, its open
- * hand, the pose it acts each family of tool in, and how far a pose is lifted.
+ * hand, the pose it acts each family of tool in, how far a pose is lifted, and
+ * the height its card holds while it works.
  */
-const GOD_KEYS = ["name", "env", "envol", "hand", "acts", "lift"];
-/** The poses every god has; a god's footprint (`fp`) is kept for each, and for its skill poses. */
+const GOD_KEYS = ["name", "env", "envol", "hand", "acts", "lift", "card"];
+/**
+ * The poses every god has; a god's footprint (`fp`) and its top (`top`) are
+ * kept for each, and for its skill poses.
+ */
 const POSES = ["stand", "speak"];
 
 const dir = process.argv[2];
@@ -89,9 +93,12 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out[key] = god[key];
   }
   out.fp = {};
+  out.top = {};
   for (const pose of POSES) {
     if (!god.fp[pose]) throw new Error(`${id}: no footprint for ${pose}`);
+    if (typeof god.top[pose] !== "number") throw new Error(`${id}: no top for ${pose}`);
     out.fp[pose] = god.fp[pose];
+    out.top[pose] = god.top[pose];
   }
   // Its beat at its place: its move's step, which its cuts fall on.
   out.step = cast.moves[god.move]?.step;
@@ -109,7 +116,8 @@ for (const [id, god] of Object.entries(cast.gods)) {
     const img = new RegExp(
       `<img class="pose p-${pose}" src="assets/${id}-${pose}\\.png" alt="" style="left:(-?[\\d.]+)px;width:([\\d.]+)px`,
     ).exec(template);
-    if (!img || !god.fp[pose]) throw new Error(`${id}: no picture or footprint for ${pose}`);
+    if (!img || !god.fp[pose] || typeof god.top[pose] !== "number")
+      throw new Error(`${id}: no picture, footprint or top for ${pose}`);
     const [left, width] = [Number(img[1]), Number(img[2])];
     // The mockup's picture is three times the size it is drawn.
     const png = readFileSync(join(resolve(dir), "assets", `${id}-${pose}.png`));
@@ -117,6 +125,7 @@ for (const [id, god] of Object.entries(cast.gods)) {
       throw new Error(`${id}-${pose}.png is not ${3 * width}×${3 * cast.cell.h}`);
     out.at[pose] = [left, width];
     out.fp[pose] = god.fp[pose];
+    out.top[pose] = god.top[pose];
     if (picturesOnly) console.log(`${id}-${pose} ${2 * width}`);
   }
   // Where the seal is pressed on the rolled scroll, in the cell.

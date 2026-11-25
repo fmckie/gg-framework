@@ -1,5 +1,5 @@
-// The lane's engine, parts 2 and 3 of Olympus: the mockup's floor.js, as stills
-// and cuts.
+// The lane's engine, parts 2 to 4 of Olympus: the mockup's floor.js, as stills
+// and cuts, with its card and its keyboard.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
@@ -30,15 +30,28 @@
 // - From the sixth agent working at once, an agent waits unseen and lands,
 //   oldest first, once a god has left its place.
 // - An ending never waits for a dwell, nor does a god asked to step aside.
+// - The card: over the god the pointer is on, else the god focused from the
+//   keyboard. While its god works it holds one height, over the highest the
+//   god can reach there; otherwise it stands over the pose shown. Its caret
+//   stays on its straight edge. It stays while the pointer is on the god, its
+//   name or the card, and a moment after; Esc hides it. The floor says whose
+//   card is up and where it stands; the words in it are the caller's.
+// - The keyboard: the gods are one toolbar, one tab stop, the arrows and Home
+//   and End along the lane in floor order; the focused god's card shows, and
+//   a cartouche frames its carved name. When the focused god goes, focus goes
+//   to the nearest, and from the last to the composer. A god has nothing to
+//   press yet, and says so: startling one is a later part.
 // Every change is a cut: nothing here travels, fades or eases. Those, the
-// mosaic, the card and the pool's medallions are later parts. So reduced
-// motion takes nothing away; it only doubles the dwell.
-// It runs on sim.ts's clock, each step put on it for its moment.
+// mosaic and the pool's medallions are later parts. So reduced motion takes
+// nothing away; it only doubles the dwell.
+// It runs on sim.ts's clock, each step put on it for its moment. The card and
+// the keyboard are no part of the run: they put nothing on that clock and
+// never draw the floor's dice, so a run plays the same whoever looks at it.
 
 import type { Cast, CastGod, Pictures, Pose, Skill, SvgNode } from "./cast";
 import { POSES } from "./cast";
 import type { GodId } from "./gods";
-import type { Sim, SimEvent } from "./sim";
+import type { Sim, SimEvent, SimHost } from "./sim";
 import type { ToolFamily } from "./tool-family";
 
 /** How an agent's record reads, as its row has it (OlympusRows' rowState). */
@@ -68,6 +81,16 @@ export interface FloorOptions {
   readonly measure?: (el: HTMLElement) => number;
   /** Whether the reader asks for less motion; the window's setting unless given. */
   readonly reduced?: () => boolean;
+  /** The card's frame, which the floor stands over a god. What it says is the caller's. */
+  readonly card?: HTMLElement | null;
+  /** Whose card is up now: an agent's key, or nobody's. */
+  readonly onCard?: (key: string | null) => void;
+  /** The id of an agent's row in the transcript: its god is described by it. */
+  readonly describe?: (key: string) => string | undefined;
+  /** Where focus goes when the last god leaves with it: the composer. */
+  readonly away?: () => HTMLElement | null;
+  /** The card's grace is a wait on the window's clock, never a step on the sim's. */
+  readonly timer?: Pick<SimHost, "defer" | "cancel">;
 }
 
 /** What the floor holds, for tests and previews. */
@@ -98,6 +121,13 @@ export interface FloorPeek {
     readonly ribbon: readonly [number, number] | null;
     readonly ending: Exclude<LaneLook, "run"> | null;
   }[];
+  /** The card: whose it is, its left and its foot in the lane, and its caret along it. */
+  readonly card: {
+    readonly key: string;
+    readonly left: number;
+    readonly foot: number;
+    readonly caret: number;
+  } | null;
 }
 
 export interface Floor {
@@ -149,6 +179,13 @@ const BYE_STUCK = 1200; // but if nothing round it will make room, the longest w
 // ── A god at its work, ms ──
 const DWELL = 900; // a pose shown is held this long at least, or two of the god's steps if that is longer
 const STORM = { cuts: 3, within: 6000, calm: 3000 }; // so many cuts so close double the dwell, until a pose has held
+
+// ── The card ──
+const TIP_W = 272;
+const CARD_AIR = 10; // its foot over the highest its god reaches: its caret's tip clears that by 2px and more
+const CELL_Y = LANE_H - 1 - TREAD - 100; // a cell's top in the lane, under its 1px groove
+const CARET_IN = 16; // the caret's least distance from the card's ends: on its straight edge, clear of a corner
+const HOVER_GRACE = 150; // ms it stays once the pointer has left the god and the card (WCAG 1.4.13)
 
 // Greetings and farewells, in Kleio's voice: short, a little dry. Most are one
 // god's own; two of each anyone may say.
@@ -302,6 +339,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     opts.reduced ??
     ((): boolean =>
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const card = opts.card ?? null;
+  const wall: Pick<SimHost, "defer" | "cancel"> = opts.timer ?? {
+    defer: (fn, ms) => window.setTimeout(fn, ms),
+    cancel: (handle) => window.clearTimeout(handle as number),
+  };
   const gods = new Map<string, God>(); // by agent key: landed, waiting to land, or waiting for a place
   const queue: God[] = []; // waiting to land, in the order they were sent
   const pool: God[] = []; // waiting unseen for a place, oldest first
@@ -320,6 +362,21 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let W = WIDE;
   const edgeL = EDGE;
   let edgeR = W - EDGE;
+
+  // The card and the keyboard: the god the pointer is over; the god whose card
+  // the pointer holds up, which outlasts the pointer by a grace; whether the
+  // pointer is on the card; the god with focus; whether the keyboard is in use
+  // (from a key until the next press of a pointer); the god whose card Esc
+  // hid; the god the lane's one tab stop is on; and the card as it stands.
+  let overKey: string | null = null;
+  let hoverKey: string | null = null;
+  let onCard = false;
+  let grace: unknown = null;
+  let focusKey: string | null = null;
+  let kbd = false;
+  let dismissed: string | null = null;
+  let rove: HTMLElement | null = null;
+  let shown: FloorPeek["card"] = null;
 
   // Every god's standing pictures, fetched once up front, so no god is set
   // before its own is in. A god's skill poses are fetched as it is made, a
@@ -815,6 +872,13 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const c = CAST.gods[a.god];
     const el = html("div", "oly-cell");
     el.dataset.god = a.god;
+    // One of the lane's toolbar. It has nothing to press until it can be startled, and says so.
+    el.setAttribute("role", "button");
+    el.tabIndex = -1;
+    el.setAttribute("aria-label", c.name);
+    el.setAttribute("aria-disabled", "true");
+    const row = opts.describe?.(a.key);
+    if (row) el.setAttribute("aria-describedby", row); // its row in the transcript is the record
     el.style.setProperty("--oly-ex", `${c.seal[0]}px`);
     el.style.setProperty("--oly-ey", `${c.seal[1]}px`);
     const fig = html("div", "oly-fig");
@@ -849,7 +913,25 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     fig.append(poses, seal, fissure);
     el.append(fig);
     const label = html("p", "oly-ins");
-    label.textContent = c.name; // the god's own name; the agent's is in its row
+    label.textContent = c.name; // the god's own name; the agent's is in its row and its card
+    const key = a.key;
+    for (const node of [el, label]) {
+      node.addEventListener("pointerenter", () => {
+        overKey = hoverKey = key;
+        stay();
+        attend();
+      });
+      node.addEventListener("pointerleave", () => {
+        if (overKey === key) overKey = null;
+        if (dismissed !== key) return linger();
+        // Esc hid its card: it stays hidden as the pointer goes, with no grace to flash it back.
+        if (hoverKey === key) hoverKey = null;
+        if (focusKey !== key) dismissed = null;
+        attend();
+      });
+      // A press does nothing yet, and never takes the caret out of the text box.
+      node.addEventListener("mousedown", (e) => e.preventDefault());
+    }
     const god: God = {
       key: a.key,
       gid: a.god,
@@ -1033,6 +1115,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     godsEl.append(god.el);
     namesEl.append(god.label);
     god.labelW = measure(god.label);
+    roveFix();
     speak(god, t, "greet");
   }
 
@@ -1133,9 +1216,15 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (god.seg?.timer) sim.cancel(god.seg.timer);
     sim.cancel(god.swap);
     god.seat = null;
+    refocus(god);
     god.el.remove();
     god.label.remove();
     gods.delete(god.key);
+    if (hoverKey === god.key) hoverKey = null;
+    if (overKey === god.key) overKey = null;
+    if (focusKey === god.key) focusKey = null;
+    if (dismissed === god.key) dismissed = null;
+    roveFix();
     const i = queue.indexOf(god);
     if (i >= 0) queue.splice(i, 1);
     const k = pool.indexOf(god);
@@ -1283,10 +1372,192 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       );
   }
 
+  // ───────── the card ─────────
+  // Whose card is up: the god hovered, else the one focused from the keyboard; nobody's if Esc hid it.
+  function cardFor(): string | null {
+    const key = hoverKey ?? (kbd ? focusKey : null);
+    return key === dismissed ? null : key;
+  }
+
+  function hideCard(): void {
+    onCard = false;
+    if (!shown) return;
+    shown = null;
+    opts.onCard?.(null);
+  }
+
+  // Where it stands: its left a little before its god's head line, inside the
+  // lane; its foot over the highest the god reaches at its work, or over the
+  // pose it shows; its caret at the head line, on the card's straight edge.
+  function placeCard(): void {
+    const key = cardFor();
+    const god = key === null ? undefined : gods.get(key);
+    if (!god || !out(god) || !open) return hideCard();
+    const head = god.x + HEAD;
+    const left = clamp(head - 30, 6, W - 6 - TIP_W);
+    const top = working(god) ? god.c.card : (god.c.top[god.pose] ?? god.c.top.stand);
+    const foot = CELL_Y + top - CARD_AIR;
+    const caret = clamp(head - left, CARET_IN, TIP_W - CARET_IN);
+    const was = shown;
+    if (was?.key === key && was.left === left && was.foot === foot && was.caret === caret) return;
+    shown = { key: god.key, left, foot, caret };
+    if (card) {
+      card.style.transform = `translate3d(${left.toFixed(2)}px, 0, 0)`;
+      card.style.setProperty("--oly-ty", `${foot.toFixed(1)}px`);
+      card.style.setProperty("--oly-caret", `${caret.toFixed(1)}px`);
+    }
+    if (was?.key !== key) opts.onCard?.(god.key);
+  }
+
+  // What the pointer and the keyboard have changed goes on the page at once:
+  // it is no step of the run, and waits for none.
+  function attend(): void {
+    if (disposed) return;
+    for (const god of gods.values()) {
+      if (!out(god)) continue;
+      const label = god.label;
+      put(god, "focus", kbd && focusKey === god.key, (on) =>
+        label.classList.toggle("is-focus", on),
+      );
+    }
+    placeCard();
+  }
+
+  function stay(): void {
+    if (grace !== null) wall.cancel(grace);
+    grace = null;
+  }
+
+  // The pointer has left a god or the card: the card stays a moment, and while either is under it.
+  function linger(): void {
+    stay();
+    grace = wall.defer(() => {
+      grace = null;
+      if (overKey === null && !onCard) hoverKey = null;
+      attend();
+    }, HOVER_GRACE);
+  }
+
+  const onCardEnter = (): void => {
+    onCard = true;
+    stay();
+  };
+  const onCardLeave = (): void => {
+    onCard = false;
+    linger();
+  };
+  card?.addEventListener("pointerenter", onCardEnter);
+  card?.addEventListener("pointerleave", onCardLeave);
+
+  // ───────── the keyboard: the gods are one toolbar, its one tab stop on one of them ─────────
+  // In floor order: along the lane, left to right.
+  const items = (): God[] => [...gods.values()].filter(out).sort((a, b) => a.x - b.x);
+  const godAt = (node: EventTarget | null): God | undefined =>
+    node instanceof Node ? [...gods.values()].find((g) => g.el.contains(node)) : undefined;
+
+  function roveTo(el: HTMLElement): void {
+    if (rove && rove !== el) rove.tabIndex = -1;
+    rove = el;
+    if (el.tabIndex !== 0) el.tabIndex = 0;
+  }
+
+  // The tab stop stays on one god; with none on the lane the toolbar is hidden, being empty.
+  function roveFix(): void {
+    const list = items();
+    const first = list[0];
+    if (!first) {
+      rove = null;
+      godsEl.setAttribute("aria-hidden", "true");
+      return;
+    }
+    godsEl.removeAttribute("aria-hidden");
+    roveTo(list.find((g) => g.el === rove)?.el ?? first.el);
+  }
+
+  // One with focus is going: focus goes to the nearest left on the lane, or
+  // from the last to the composer. Focus anywhere else is left where it is.
+  function refocus(god: God): void {
+    if (!god.el.contains(document.activeElement)) return;
+    const near = items().sort((a, b) => Math.abs(a.x - god.x) - Math.abs(b.x - god.x))[0];
+    if (near) {
+      roveTo(near.el);
+      near.el.focus({ preventScroll: true });
+    } else opts.away?.()?.focus({ preventScroll: true });
+  }
+
+  const onFocusIn = (e: FocusEvent): void => {
+    const god = godAt(e.target);
+    if (!god) return;
+    // Focus has moved: a card Esc hid may show again, unless the pointer is still on its god.
+    if (dismissed !== god.key && dismissed !== overKey) dismissed = null;
+    focusKey = god.key;
+    roveTo(god.el);
+    attend();
+  };
+  const onFocusOut = (e: FocusEvent): void => {
+    if (e.relatedTarget instanceof Node && godsEl.contains(e.relatedTarget)) return;
+    focusKey = null;
+    if (dismissed !== overKey) dismissed = null;
+    attend();
+  };
+  const onToolbarKey = (e: KeyboardEvent): void => {
+    const god = godAt(e.target);
+    if (!god || e.altKey || e.ctrlKey || e.metaKey) return;
+    // Nothing to press yet: the key is taken, so the page doesn't scroll, and nothing happens.
+    if (e.key === "Enter" || e.key === " ") return e.preventDefault();
+    const list = items();
+    const i = list.indexOf(god);
+    const to = {
+      ArrowLeft: list[Math.max(0, i - 1)],
+      ArrowRight: list[Math.min(list.length - 1, i + 1)],
+      Home: list[0],
+      End: list[list.length - 1],
+    }[e.key];
+    if (!to) return;
+    e.preventDefault();
+    roveTo(to.el);
+    to.el.focus({ preventScroll: true });
+  };
+  // From a key until the next press of a pointer the keyboard is in use, as
+  // :focus-visible has it; only then does the card follow focus. Esc hides the
+  // card that is up. One the pointer holds up lets the key go on to whatever
+  // else it is for: with the caret in the text box it stops a run, and still
+  // does. One shown for the keyboard uses it up, and stays hidden until focus
+  // moves.
+  const onKeyDown = (e: KeyboardEvent): void => {
+    const up = shown?.key ?? null;
+    kbd = true;
+    if (e.key === "Escape" && up !== null) {
+      if (hoverKey === up) {
+        if (overKey === up)
+          dismissed = up; // until the pointer leaves its god
+        else hoverKey = null; // only the card, or the grace, held it up
+        stay();
+      } else {
+        dismissed = up;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+    attend();
+  };
+  const onPointerDown = (): void => {
+    if (!kbd) return;
+    kbd = false;
+    attend();
+  };
+  godsEl.addEventListener("focusin", onFocusIn);
+  godsEl.addEventListener("focusout", onFocusOut);
+  godsEl.addEventListener("keydown", onToolbarKey);
+  document.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("pointerdown", onPointerDown, true);
+  roveFix();
+
   sim.view(() => {
     if (disposed) return false;
     for (const god of gods.values()) if (out(god)) renderGod(god);
     renderNames();
+    attend();
     return false; // stills: nothing moves between one step and the next
   });
 
@@ -1368,8 +1639,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
           ending: g.ending,
         };
       }),
+      card: shown,
     }),
     dispose() {
+      if (disposed) return;
+      const focused = godsEl.contains(document.activeElement);
       disposed = true;
       for (const god of gods.values()) {
         god.gone = true;
@@ -1387,6 +1661,20 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       landTimer = null;
       preload.length = 0;
       shut();
+      // The card and the keyboard go with it; focus on a god goes to the composer.
+      stay();
+      overKey = hoverKey = focusKey = dismissed = null;
+      kbd = false;
+      hideCard();
+      roveFix();
+      if (focused) opts.away?.()?.focus({ preventScroll: true });
+      card?.removeEventListener("pointerenter", onCardEnter);
+      card?.removeEventListener("pointerleave", onCardLeave);
+      godsEl.removeEventListener("focusin", onFocusIn);
+      godsEl.removeEventListener("focusout", onFocusOut);
+      godsEl.removeEventListener("keydown", onToolbarKey);
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
     },
   };
 }

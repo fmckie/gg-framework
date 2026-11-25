@@ -12,7 +12,7 @@ import {
 import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from "./floor";
 import type { GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
-import { createSim } from "./sim";
+import { createSim, type Sim } from "./sim";
 import type { ToolFamily } from "./tool-family";
 
 const GREETINGS: Readonly<Record<GodId | "any", readonly string[]>> = {
@@ -60,12 +60,24 @@ interface Stage {
   sync(agents: readonly LaneAgent[]): void;
   peek(): FloorPeek;
   cell(key: string): HTMLElement | undefined;
+  /** Its carved name. */
+  label(key: string): HTMLElement | undefined;
   cells(): HTMLElement[];
+  /** The card's frame, and whose card the floor said was up, in order. */
+  readonly card: HTMLElement;
+  readonly cards: (string | null)[];
+  /** The composer's text box, after the lane. */
+  readonly box: HTMLTextAreaElement;
+  /** How often the floor has put a step on the clock or woken it, and drawn its dice. */
+  readonly asked: { clock: number; dice: number };
   names(): string[];
   setWidth(width: number): void;
   resize(): void;
   dispose(): void;
 }
+
+/** Every floor a test has made: each is taken down after it, with its listeners on the page. */
+const stages: { dispose(): void }[] = [];
 
 /** A lane with a clock that moves only when told to; a letter is 5.5px wide. */
 function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): Stage {
@@ -73,23 +85,51 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
     '<div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
-  document.body.append(lane);
+  const card = document.createElement("div");
+  card.className = "oly-card";
+  const box = document.createElement("textarea");
+  document.body.append(card, lane, box);
   const host = manualHost();
   let w = width;
+  const asked = { clock: 0, dice: 0 };
+  const cards: (string | null)[] = [];
+  const clock = createSim(host);
+  const sim: Sim = {
+    ...clock,
+    at: (t, fn) => (asked.clock++, clock.at(t, fn)),
+    after: (ms, fn) => (asked.clock++, clock.after(ms, fn)),
+    soon: (fn) => (asked.clock++, clock.soon(fn)),
+    wake: () => (asked.clock++, clock.wake()),
+  };
+  const dice = rng(seed);
   const floor = createFloor(lane, {
-    sim: createSim(host),
+    sim,
     cast: CAST,
     poses: POSE_URLS,
-    random: rng(seed),
+    random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
     reduced: () => reduced,
+    card,
+    onCard: (key) => cards.push(key),
+    describe: (key) => `row-${key}`,
+    away: () => box,
+    timer: host,
   });
   const order = new Map<string, HTMLElement>();
   const cells = (): HTMLElement[] => [...lane.querySelectorAll<HTMLElement>(".oly-cell")];
+  stages.push(floor);
   return {
     lane,
     host,
+    card,
+    cards,
+    box,
+    asked,
+    label(key) {
+      const i = floor.peek().gods.findIndex((god) => god.key === key);
+      return i < 0 ? undefined : [...lane.querySelectorAll<HTMLElement>(".oly-ins")][i];
+    },
     sync(agents) {
       floor.sync(agents);
       host.advance(0);
@@ -134,6 +174,7 @@ function expectApart(peek: FloorPeek): void {
 }
 
 afterEach(() => {
+  for (const floor of stages.splice(0)) floor.dispose();
   document.body.replaceChildren();
 });
 
@@ -731,7 +772,7 @@ describe("the floor's housekeeping", () => {
     expect(s.cells().map((cell) => cell.dataset.god)).toEqual(["athena"]);
   });
 
-  it("builds each god from its pictures, its seal and its crack, and nothing to focus", () => {
+  it("builds each god from its pictures, its seal and its crack, as a button of the toolbar", () => {
     const s = stage();
     s.sync([agent("a", "themis")]);
     s.host.advance(500);
@@ -760,7 +801,8 @@ describe("the floor's housekeeping", () => {
     expect(cell.querySelectorAll(".oly-fissure path")).toHaveLength(3);
     expect(cell.style.getPropertyValue("--oly-ex")).toBe("43.5px");
     expect(cell.style.getPropertyValue("--oly-ey")).toBe("43px");
-    expect(s.lane.querySelectorAll("[role], [tabindex], button, a, input")).toHaveLength(0);
+    // The god is all there is to focus, and its pictures say nothing.
+    expect([...s.lane.querySelectorAll("[role], [tabindex], button, a, input")]).toEqual([cell]);
   });
 
   it("disposed: empty and shut, and it takes no more records", () => {
@@ -1154,5 +1196,627 @@ describe("skills: the pose a god acts its agent's tool in", () => {
     s.host.advance(5000);
     expect(shut(s)).toBe(true);
     expect(s.host.pending()).toBe(0);
+  });
+});
+
+// ── Part 4: the card and the keyboard ──
+const TIP_W = 272;
+const HEAD = 33;
+const CELL_Y = 3;
+const CARD_AIR = 10;
+
+const enter = (el: Element | undefined): void => void el!.dispatchEvent(new Event("pointerenter"));
+const leave = (el: Element | undefined): void => void el!.dispatchEvent(new Event("pointerleave"));
+/** A press of the pointer, anywhere: the keyboard is no longer in use. */
+const press = (): void =>
+  void document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+function keydown(target: EventTarget, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  const e = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(e);
+  return e;
+}
+
+/** Gods at their places, each under its own name as its key. */
+function crowd(ids: readonly GodId[], opts: Parameters<typeof stage>[0] = {}): Stage {
+  const s = stage(opts);
+  s.sync(ids.map((god) => agent(god, god)));
+  s.host.advance(12_000);
+  expect(s.peek().gods.map((god) => god.step)).toEqual(ids.map(() => "work"));
+  return s;
+}
+
+/** Where a god's card stands, with its foot over `top` in the god's cell. */
+function placeOf(s: Stage, key: string, top: number): NonNullable<FloorPeek["card"]> {
+  const { gods, width } = s.peek();
+  const head = gods.find((god) => god.key === key)!.x + HEAD;
+  const left = Math.min(Math.max(head - 30, 6), width - 6 - TIP_W);
+  return {
+    key,
+    left,
+    foot: CELL_Y + top - CARD_AIR,
+    caret: Math.min(Math.max(head - left, 16), TIP_W - 16),
+  };
+}
+
+/** The keys along the lane, left to right. */
+const along = (s: Stage): string[] =>
+  [...s.peek().gods].sort((a, b) => a.x - b.x).map((god) => god.key);
+
+describe("the card: where it stands", () => {
+  it("is nobody's until a god is pointed at; then it is up at once, and the caller is told whose", () => {
+    const s = crowd(["athena", "nike"]);
+    expect(s.peek().card).toBeNull();
+    expect(s.cards).toEqual([]);
+    enter(s.cell("nike"));
+    expect(s.peek().card?.key).toBe("nike");
+    expect(s.cards).toEqual(["nike"]);
+  });
+
+  it.each(ALL)(
+    "%s at its work: one height, over the highest it reaches, whatever it does there",
+    (god) => {
+      const s = crowd([god]);
+      enter(s.cell(god));
+      const at = placeOf(s, god, CAST.gods[god].card);
+      expect(s.peek().card).toEqual(at);
+      // Its left a little before its god's head line, and its caret on that line.
+      expect(at.left + at.caret).toBeCloseTo(s.peek().gods[0]!.x + HEAD, 6);
+      expect(s.card.style.transform).toContain(`translate3d(${at.left.toFixed(2)}px,`);
+      expect(s.card.style.getPropertyValue("--oly-ty")).toBe(`${at.foot.toFixed(1)}px`);
+      expect(s.card.style.getPropertyValue("--oly-caret")).toBe(`${at.caret.toFixed(1)}px`);
+      const families: ToolFamily[] = ["look", "web", "make", "run", "think"];
+      families.forEach((family, i) => {
+        s.sync([agent(god, god, "run", family, i + 1)]);
+        s.host.advance(4000);
+        expect(s.peek().card).toEqual(at);
+      });
+      expect(s.cards).toEqual([god]); // told once: it never went down
+    },
+  );
+
+  it("the one who flies: her card is over her lift, so her cut up and down never moves it", () => {
+    const s = crowd(["nike"]);
+    enter(s.cell("nike"));
+    const at = s.peek().card;
+    expect(at?.foot).toBe(CELL_Y - 2 - CARD_AIR);
+    s.sync([agent("nike", "nike", "run", "look", 1)]);
+    s.host.advance(4000);
+    expect(s.peek().gods[0]).toMatchObject({ pose: "look", lift: 8 });
+    expect(s.peek().card).toEqual(at);
+    // 2px over the top of her look, lifted.
+    expect(CAST.gods.nike.top.look! - 8 - CAST.gods.nike.card).toBeCloseTo(1.9, 6);
+  });
+
+  it("not at its work, it stands over the pose shown: the greeting, then the work, then the ending", () => {
+    const s = stage();
+    const top = CAST.gods.hermes.top;
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(500);
+    expect(s.peek().gods[0]).toMatchObject({ step: "greet", pose: "speak" });
+    enter(s.cell("a"));
+    expect(s.peek().card).toEqual(placeOf(s, "a", top.speak));
+    s.host.advance(1700);
+    expect(s.peek().gods[0]!.step).toBe("work");
+    expect(s.peek().card).toEqual(placeOf(s, "a", CAST.gods.hermes.card));
+    s.sync([agent("a", "hermes", "done")]);
+    s.host.advance(0);
+    expect(s.peek().gods[0]).toMatchObject({ step: "report", pose: "speak" });
+    expect(s.peek().card).toEqual(placeOf(s, "a", top.speak));
+    s.host.advance(1700);
+    expect(s.peek().gods[0]).toMatchObject({ step: "seal", pose: "stand" });
+    expect(s.peek().card).toEqual(placeOf(s, "a", top.stand));
+    expect(s.cards).toEqual(["a"]); // up all the while
+  });
+
+  it.each([698, 602])(
+    "on a %ipx lane every card is inside the lane, at both ends, its caret on its god's head line",
+    (width) => {
+      const s = crowd(["athena", "hermes", "hephaestus", "argus", "nike"], { width });
+      const order = along(s);
+      const seen = order.map((key) => {
+        enter(s.cell(key));
+        const at = s.peek().card!;
+        expect(at).toEqual(placeOf(s, key, CAST.gods[key as GodId].card));
+        expect(at.left).toBeGreaterThanOrEqual(6);
+        expect(at.left + TIP_W).toBeLessThanOrEqual(width - 6);
+        expect(at.caret).toBeGreaterThanOrEqual(16);
+        expect(at.caret).toBeLessThanOrEqual(TIP_W - 16);
+        expect(at.left + at.caret).toBeCloseTo(
+          s.peek().gods.find((god) => god.key === key)!.x + HEAD,
+          6,
+        );
+        leave(s.cell(key));
+        return at;
+      });
+      // The first stands where its god's head asks; the last is flush with the lane's end.
+      expect(seen[0]!.caret).toBe(30);
+      expect(seen[4]!.left).toBe(width - 6 - TIP_W);
+      expect(seen[4]!.caret).toBeGreaterThan(30);
+    },
+  );
+
+  it("cuts with its god when the lane's width changes and the god steps aside", () => {
+    const s = crowd(["athena", "hermes", "hephaestus", "argus"]);
+    const last = along(s)[3]!;
+    enter(s.cell(last));
+    const wide = s.peek().card!;
+    const x = s.peek().gods.find((god) => god.key === last)!.x;
+    s.setWidth(602);
+    s.resize();
+    expect(s.peek().gods.find((god) => god.key === last)!.x).toBeLessThan(x);
+    const narrow = s.peek().card!;
+    expect(narrow).toEqual(placeOf(s, last, CAST.gods[last as GodId].card));
+    expect(narrow.left).toBe(602 - 6 - TIP_W);
+    expect(narrow.left).toBeLessThan(wide.left);
+    expect(s.cards).toEqual([last]); // the same card, moved
+  });
+
+  it("stays through its god's ending, and is down at once when the god goes", () => {
+    const s = crowd(["argus", "athena"]);
+    enter(s.cell("argus"));
+    s.sync([agent("argus", "argus", "fail"), agent("athena", "athena")]);
+    s.host.advance(2999);
+    expect(s.peek().gods.find((god) => god.key === "argus")).toMatchObject({ step: "fail" });
+    expect(s.peek().card).toEqual(placeOf(s, "argus", CAST.gods.argus.top.stand));
+    s.host.advance(1);
+    expect(s.peek().gods.map((god) => god.key)).toEqual(["athena"]);
+    expect(s.peek().card).toBeNull();
+    expect(s.cards).toEqual(["argus", null]);
+    // Nothing is left waiting for it: the pointer that was on it holds nothing up.
+    s.host.advance(1000);
+    expect(s.cards).toEqual(["argus", null]);
+  });
+
+  it("is down when its agent is gone from the records, and when the floor is taken down", () => {
+    const s = crowd(["argus", "athena"]);
+    enter(s.cell("argus"));
+    s.sync([agent("athena", "athena")]);
+    expect(s.peek().card).toBeNull();
+    enter(s.cell("athena"));
+    expect(s.peek().card?.key).toBe("athena");
+    s.dispose();
+    expect(s.peek().card).toBeNull();
+    expect(s.cards).toEqual(["argus", null, "athena", null]);
+  });
+
+  it("an agent sent on again while the pointer rests where its god was: no card until it is pointed at", () => {
+    const s = stage();
+    const [, idle, again] = SENT_ON_AGAIN;
+    s.sync(laneAgents([{ agents: [SENT_ON_AGAIN[0]!] }]));
+    s.host.advance(2200);
+    enter(s.cell("s-again"));
+    s.sync(laneAgents([{ agents: [idle!] }]));
+    s.host.advance(4000);
+    expect(s.cells()).toHaveLength(0);
+    s.sync(laneAgents([{ agents: [again!] }]));
+    s.host.advance(3000);
+    expect(s.cells()).toHaveLength(1);
+    expect(s.peek().card).toBeNull();
+  });
+
+  it("stands the same with reduced motion asked for: it was a cut already", () => {
+    const at = (reduced: boolean): FloorPeek["card"] => {
+      const s = crowd(["hephaestus"], { reduced });
+      enter(s.cell("hephaestus"));
+      return s.peek().card;
+    };
+    expect(at(true)).toEqual(at(false));
+    expect(at(true)).not.toBeNull();
+  });
+});
+
+describe("the card: the pointer", () => {
+  it("stays while the pointer is on the god, its name or the card, and 150ms after", () => {
+    const s = crowd(["athena", "nike"]);
+    enter(s.label("athena"));
+    expect(s.peek().card?.key).toBe("athena");
+    leave(s.label("athena"));
+    s.host.advance(149);
+    expect(s.peek().card?.key).toBe("athena");
+    enter(s.card); // across the gap, onto the card
+    s.host.advance(5000);
+    expect(s.peek().card?.key).toBe("athena");
+    leave(s.card);
+    s.host.advance(149);
+    expect(s.peek().card?.key).toBe("athena");
+    s.host.advance(1);
+    expect(s.peek().card).toBeNull();
+    expect(s.cards).toEqual(["athena", null]);
+  });
+
+  it("from the god to its name, or back inside the grace, it never goes down", () => {
+    const s = crowd(["athena"]);
+    enter(s.cell("athena"));
+    leave(s.cell("athena"));
+    enter(s.label("athena"));
+    s.host.advance(1000);
+    leave(s.label("athena"));
+    s.host.advance(100);
+    enter(s.cell("athena"));
+    s.host.advance(1000);
+    expect(s.cards).toEqual(["athena"]);
+  });
+
+  it("goes from one god's to the next's at once", () => {
+    const s = crowd(["athena", "nike"]);
+    enter(s.cell("athena"));
+    leave(s.cell("athena"));
+    enter(s.cell("nike"));
+    expect(s.cards).toEqual(["athena", "nike"]);
+    s.host.advance(1000); // the first god's grace is over: the second's card is not taken down
+    expect(s.cards).toEqual(["athena", "nike"]);
+  });
+
+  it("is not opened by a picture: only a god's cell and its name listen", () => {
+    const s = crowd(["hermes"]);
+    const cell = s.cell("hermes")!;
+    expect(cell.dataset.pose).toBe("think");
+    for (const picture of cell.querySelectorAll(".oly-pose"))
+      picture.dispatchEvent(new Event("pointerenter"));
+    expect(s.peek().card).toBeNull();
+    expect(s.cards).toEqual([]);
+  });
+
+  it("a press on a god or its name does nothing, and never takes focus", () => {
+    const s = crowd(["athena"]);
+    s.box.focus();
+    for (const el of [s.cell("athena")!, s.label("athena")!]) {
+      const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      el.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+      el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    }
+    expect(document.activeElement).toBe(s.box);
+    expect(s.peek().gods[0]).toMatchObject({ step: "work", pose: "think" });
+  });
+});
+
+describe("the card: Esc", () => {
+  /** What the composer's own handler hears, as it stops a run on Esc. */
+  function runHears(s: Stage): { escapes: number } {
+    const heard = { escapes: 0 };
+    s.box.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !e.defaultPrevented) heard.escapes += 1;
+    });
+    s.box.focus();
+    return heard;
+  }
+
+  it("with no card up, Esc is not the lane's: it reaches the run", () => {
+    const s = crowd(["athena", "nike"]);
+    const run = runHears(s);
+    expect(keydown(s.box, "Escape").defaultPrevented).toBe(false);
+    expect(run.escapes).toBe(1);
+  });
+
+  it("hides a card the pointer holds up, and still reaches the run", () => {
+    const s = crowd(["athena"]);
+    const run = runHears(s);
+    enter(s.cell("athena"));
+    const e = keydown(s.box, "Escape");
+    expect(e.defaultPrevented).toBe(false);
+    expect(run.escapes).toBe(1);
+    expect(s.peek().card).toBeNull();
+    // Hidden for as long as the pointer rests on its god, with no grace to flash it back.
+    s.host.advance(1000);
+    leave(s.cell("athena"));
+    s.host.advance(1000);
+    expect(s.cards).toEqual(["athena", null]);
+    enter(s.cell("athena"));
+    expect(s.peek().card?.key).toBe("athena");
+  });
+
+  it("hides a card only the grace or the card itself holds up, and lets go of it", () => {
+    const s = crowd(["athena"]);
+    const run = runHears(s);
+    enter(s.cell("athena"));
+    leave(s.cell("athena"));
+    enter(s.card);
+    keydown(s.box, "Escape");
+    expect(run.escapes).toBe(1);
+    expect(s.peek().card).toBeNull();
+    s.host.advance(1000);
+    expect(s.host.pending()).toBe(0); // no grace is left waiting
+    enter(s.cell("athena"));
+    expect(s.peek().card?.key).toBe("athena");
+  });
+
+  it("hides a card shown for the keyboard and is used up; the card shows again when focus moves", () => {
+    const s = crowd(["athena", "nike"]);
+    let heard = 0;
+    const onKey = (e: KeyboardEvent): void => void (e.key === "Escape" && heard++);
+    document.addEventListener("keydown", onKey);
+    keydown(document.body, "Tab");
+    s.cell("athena")!.focus();
+    expect(s.peek().card?.key).toBe("athena");
+    const e = keydown(s.cell("athena")!, "Escape");
+    document.removeEventListener("keydown", onKey);
+    expect(e.defaultPrevented).toBe(true);
+    expect(heard).toBe(0);
+    expect(s.peek().card).toBeNull();
+    keydown(s.cell("athena")!, "Escape"); // nothing is up: this one is not the lane's
+    s.cell("nike")!.focus();
+    expect(s.peek().card?.key).toBe("nike");
+    s.cell("athena")!.focus();
+    expect(s.peek().card?.key).toBe("athena");
+  });
+});
+
+describe("the keyboard: the gods are one toolbar", () => {
+  const tabStops = (s: Stage): string[] =>
+    s
+      .peek()
+      .gods.filter((god) => s.cell(god.key)!.tabIndex === 0)
+      .map((god) => god.key);
+
+  it("is hidden while it is empty, and not once a god is on the lane", () => {
+    const s = stage();
+    const toolbar = s.lane.querySelector(".oly-gods")!;
+    expect(toolbar.getAttribute("aria-hidden")).toBe("true");
+    s.sync([agent("a", "athena")]);
+    expect(toolbar.getAttribute("aria-hidden")).toBe("true"); // the lane is open, and nobody is on it yet
+    s.host.advance(500);
+    expect(toolbar.hasAttribute("aria-hidden")).toBe(false);
+    s.sync([]);
+    expect(toolbar.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("names each god by its own name, describes it by its row, and says it has nothing to press", () => {
+    const s = crowd(["athena", "nike"]);
+    for (const [key, name] of [
+      ["athena", "Athena"],
+      ["nike", "Nike"],
+    ] as const) {
+      const cell = s.cell(key)!;
+      expect(cell.getAttribute("role")).toBe("button");
+      expect(cell.getAttribute("aria-label")).toBe(name);
+      expect(cell.getAttribute("aria-describedby")).toBe(`row-${key}`);
+      expect(cell.getAttribute("aria-disabled")).toBe("true");
+      expect(cell.hasAttribute("title")).toBe(false);
+    }
+  });
+
+  it("has one tab stop: the first god to land, until the arrows move it", () => {
+    const s = stage();
+    s.sync(ALL.slice(0, 4).map((god) => agent(god, god)));
+    s.host.advance(500);
+    expect(tabStops(s)).toEqual(["athena"]);
+    s.host.advance(12_000);
+    expect(s.cells()).toHaveLength(4);
+    expect(tabStops(s)).toEqual(["athena"]);
+    expect(
+      s
+        .cells()
+        .map((cell) => cell.tabIndex)
+        .sort(),
+    ).toEqual([-1, -1, -1, 0]);
+  });
+
+  it("ArrowLeft, ArrowRight, Home and End go along the lane in floor order, and stop at its ends", () => {
+    const s = crowd(["athena", "hermes", "hephaestus", "argus"]);
+    const order = along(s);
+    const focused = (): string | undefined =>
+      s.peek().gods.find((god) => s.cell(god.key) === document.activeElement)?.key;
+    keydown(document.body, "Tab");
+    s.cell(order[1]!)!.focus();
+    expect(tabStops(s)).toEqual([order[1]]);
+    const walk: [string, number][] = [
+      ["ArrowRight", 2],
+      ["ArrowRight", 3],
+      ["ArrowRight", 3],
+      ["Home", 0],
+      ["ArrowLeft", 0],
+      ["End", 3],
+      ["ArrowLeft", 2],
+    ];
+    for (const [key, to] of walk) {
+      const e = keydown(document.activeElement!, key);
+      expect(e.defaultPrevented).toBe(true);
+      expect(focused()).toBe(order[to]);
+      expect(tabStops(s)).toEqual([order[to]]);
+      // The card follows focus, and the cartouche is round that god's name alone.
+      expect(s.peek().card?.key).toBe(order[to]);
+      expect(order.filter((k) => s.label(k)!.classList.contains("is-focus"))).toEqual([order[to]]);
+    }
+    // With a modifier a key is not the lane's; nor is any other key.
+    expect(keydown(document.activeElement!, "ArrowLeft", { metaKey: true }).defaultPrevented).toBe(
+      false,
+    );
+    expect(keydown(document.activeElement!, "a").defaultPrevented).toBe(false);
+    expect(focused()).toBe(order[2]);
+  });
+
+  it("Enter and Space are taken and do nothing: a god has nothing to press yet", () => {
+    const s = crowd(["hermes"]);
+    const before = s.lane.innerHTML;
+    keydown(document.body, "Tab");
+    s.cell("hermes")!.focus();
+    const focusedMarkup = s.lane.innerHTML;
+    const { clock, dice } = s.asked;
+    for (const key of ["Enter", " "])
+      expect(keydown(s.cell("hermes")!, key).defaultPrevented).toBe(true);
+    s.host.advance(5000);
+    expect(s.lane.innerHTML).toBe(focusedMarkup);
+    expect(focusedMarkup).not.toBe(before); // only its tab stop and its cartouche came with focus
+    expect(s.asked).toEqual({ clock, dice });
+  });
+
+  it("the card follows focus only while the keyboard is in use: from a key until the next press", () => {
+    const s = crowd(["athena", "nike"]);
+    s.cell("athena")!.focus(); // not from the keyboard
+    expect(s.peek().card).toBeNull();
+    expect(s.label("athena")!.classList.contains("is-focus")).toBe(false);
+    keydown(s.cell("athena")!, "Shift");
+    expect(s.peek().card?.key).toBe("athena");
+    expect(s.label("athena")!.classList.contains("is-focus")).toBe(true);
+    press();
+    expect(s.peek().card).toBeNull();
+    expect(s.label("athena")!.classList.contains("is-focus")).toBe(false);
+    // The pointer's own card comes first.
+    keydown(s.cell("athena")!, "Shift");
+    enter(s.cell("nike"));
+    expect(s.peek().card?.key).toBe("nike");
+    leave(s.cell("nike"));
+    s.host.advance(150);
+    expect(s.peek().card?.key).toBe("athena");
+    s.box.focus();
+    expect(s.peek().card).toBeNull();
+  });
+
+  it("when the focused god goes, focus goes to the nearest along the lane, and the card with it", () => {
+    const s = crowd(["athena", "hermes", "hephaestus", "argus"]);
+    const order = along(s);
+    const gods = s.peek().gods;
+    const xOf = (key: string): number => gods.find((god) => god.key === key)!.x;
+    const going = order[1]!;
+    const nearest = [order[0]!, order[2]!, order[3]!].sort(
+      (a, b) => Math.abs(xOf(a) - xOf(going)) - Math.abs(xOf(b) - xOf(going)),
+    )[0]!;
+    keydown(document.body, "Tab");
+    s.cell(going)!.focus();
+    s.sync(order.filter((key) => key !== going).map((key) => agent(key, key as GodId)));
+    expect(s.peek().gods.map((god) => god.key)).not.toContain(going);
+    expect(document.activeElement).toBe(s.cell(nearest));
+    expect(tabStops(s)).toEqual([nearest]);
+    expect(s.peek().card?.key).toBe(nearest);
+    expect(s.label(nearest)!.classList.contains("is-focus")).toBe(true);
+  });
+
+  it("when the last god goes with focus, focus goes to the composer", () => {
+    const s = crowd(["athena"]);
+    keydown(document.body, "Tab");
+    s.cell("athena")!.focus();
+    s.sync([agent("athena", "athena", "fail")]);
+    s.host.advance(2999);
+    expect(document.activeElement).toBe(s.cell("athena")); // it is ending, and still there
+    s.host.advance(1);
+    expect(s.cells()).toHaveLength(0);
+    expect(document.activeElement).toBe(s.box);
+    expect(s.peek().card).toBeNull();
+    expect(s.lane.querySelector(".oly-gods")!.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("a god leaving never moves focus that is anywhere else: not while you type", () => {
+    const s = crowd(["athena", "nike"]);
+    s.box.focus();
+    s.box.value = "half a sentence";
+    s.sync([agent("nike", "nike")]);
+    expect(s.cells()).toHaveLength(1);
+    expect(document.activeElement).toBe(s.box);
+    s.sync([]);
+    expect(s.cells()).toHaveLength(0);
+    expect(document.activeElement).toBe(s.box);
+    const other = document.createElement("button");
+    document.body.append(other);
+    const t = crowd(["argus"]);
+    other.focus();
+    t.sync([]);
+    expect(document.activeElement).toBe(other);
+  });
+
+  it("the tab stop moves to a god still there when its own goes, without taking focus", () => {
+    const s = crowd(["athena", "nike"]);
+    expect(tabStops(s)).toEqual(["athena"]);
+    s.box.focus();
+    s.sync([agent("nike", "nike")]);
+    expect(tabStops(s)).toEqual(["nike"]);
+    expect(document.activeElement).toBe(s.box);
+  });
+
+  it("taken down with focus on a god: focus goes to the composer, and its listeners are gone", () => {
+    const s = crowd(["athena"]);
+    keydown(document.body, "Tab");
+    s.cell("athena")!.focus();
+    s.dispose();
+    expect(document.activeElement).toBe(s.box);
+    expect(s.cards).toEqual(["athena", null]);
+    keydown(document.body, "Escape");
+    press();
+    expect(s.cards).toEqual(["athena", null]);
+  });
+});
+
+describe("the card and the keys are no part of the run", () => {
+  /** The mockup's crowd from a seed, frame by frame, with someone at the lane or nobody. */
+  function play(meddle: ((s: Stage, ms: number) => void) | null): {
+    frames: string;
+    peeks: string;
+    asked: Stage["asked"];
+    cards: number;
+  } {
+    const s = stage({ seed: 5 });
+    const frames: string[] = [];
+    const peeks: string[] = [];
+    for (let ms = 0; ms <= 30_000; ms += 100) {
+      s.sync(laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]));
+      meddle?.(s, ms);
+      // The tab stop and the cartouche are the keyboard's own marks on the lane.
+      frames.push(
+        s.lane.innerHTML.replace(/ tabindex="-?\d"/g, "").replace(/oly-ins is-focus/g, "oly-ins"),
+      );
+      const { card: _card, ...run } = s.peek();
+      peeks.push(JSON.stringify(run));
+      s.host.advance(100);
+    }
+    const out = {
+      frames: frames.join("\n"),
+      peeks: peeks.join("\n"),
+      asked: { ...s.asked },
+      cards: s.cards.length,
+    };
+    s.dispose();
+    return out;
+  }
+
+  it("the same run from the same seed plays the same with the card shown, hidden, or never asked for", () => {
+    const alone = play(null);
+    // A pointer that wanders over every god, its name and the card, and an Esc now and then.
+    const hovered = play((s, ms) => {
+      const cells = s.cells();
+      const names = [...s.lane.querySelectorAll(".oly-ins")];
+      const i = (ms / 100) % 7;
+      if (cells.length === 0) return;
+      const at = Math.floor(ms / 700) % cells.length;
+      if (i === 0) enter(cells[at]);
+      if (i === 2) leave(cells[at]);
+      if (i === 3) enter(names[at]);
+      if (i === 4) leave(names[at]);
+      if (i === 5) enter(s.card);
+      if (i === 6) leave(s.card);
+      if (ms % 1900 === 0) keydown(document.body, "Escape");
+    });
+    // A keyboard that walks the toolbar end to end, with Enter, Space and Esc on the way.
+    const keyed = play((s, ms) => {
+      const cells = s.cells();
+      if (cells.length === 0) return;
+      if (!s.lane.contains(document.activeElement)) cells[0]!.focus();
+      const keys = ["ArrowRight", "Enter", "End", " ", "ArrowLeft", "Escape", "Home", "Tab"];
+      keydown(document.activeElement!, keys[(ms / 100) % keys.length]!);
+      if (ms % 2300 === 0) press();
+    });
+    expect(hovered.cards).toBeGreaterThan(20);
+    expect(keyed.cards).toBeGreaterThan(20);
+    for (const run of [hovered, keyed]) {
+      expect(run.frames).toBe(alone.frames);
+      expect(run.peeks).toBe(alone.peeks);
+      // Not one more step on the clock, wake of it, or throw of the dice.
+      expect(run.asked).toEqual(alone.asked);
+    }
+    expect(alone.cards).toBe(0);
+    expect(alone.asked.clock).toBeGreaterThan(50);
+    expect(alone.asked.dice).toBeGreaterThan(10);
+  });
+
+  it("the grace waits on the window's clock, and never on the run's", () => {
+    const s = crowd(["athena"]);
+    const { clock, dice } = s.asked;
+    const idle = s.host.pending();
+    enter(s.cell("athena"));
+    leave(s.cell("athena"));
+    expect(s.host.pending()).toBe(idle + 1); // the grace, a wait of its own
+    s.host.advance(150);
+    expect(s.host.pending()).toBe(idle);
+    expect(s.peek().card).toBeNull();
+    expect(s.asked).toEqual({ clock, dice });
   });
 });

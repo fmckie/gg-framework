@@ -58,14 +58,25 @@ describe("where the lane goes in a session", () => {
     expect(laneChunk.loads).toBe(0);
   });
 
-  it("on the desktop, once an agent is at work: the lane, hidden from assistive technology", async () => {
+  it("on the desktop, once an agent is at work: the card's frame, hidden, and then the lane", async () => {
     document.documentElement.classList.add("platform-macos");
     const { container, rerender } = render(<LaneMount items={[text, resumed]} />);
     rerender(<LaneMount items={[text, resumed, live]} />);
     expect(container.querySelector(".oly-lane")).toBeNull(); // nothing stands in while it loads
     await waitFor(() => expect(container.querySelector(".oly-lane")).not.toBeNull());
     expect(laneChunk.loads).toBe(1);
-    expect(container.children).toHaveLength(1);
+    // Two children of the session's live region, the lane last: it still meets what comes after it.
+    expect([...container.children].map((el) => el.classList[0])).toEqual([
+      "oly-card-anchor",
+      "oly-lane",
+    ]);
     expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".oly-card")?.childElementCount).toBe(0);
+    // The lane is no longer hidden whole: its gods are a toolbar.
+    const lane = container.lastElementChild!;
+    expect(lane.hasAttribute("aria-hidden")).toBe(false);
+    expect(lane.querySelector("[role='toolbar']")?.getAttribute("aria-label")).toBe(
+      "Subagents on the lane",
+    );
   });
 });
