@@ -271,7 +271,7 @@ export interface FloorOptions {
 export interface CrowdAct {
   readonly t: number;
   readonly key: string;
-  readonly kind: "clear" | "stretch";
+  readonly kind: "clear" | "stretch" | "step" | "brief";
   readonly what: string | null;
 }
 
@@ -419,6 +419,8 @@ const BYE_STUCK = 1200; // but if nothing round it will make room, the longest w
 
 // ── Room in a crowd ──
 const SPOT_EACH = 6; // a god may be set anywhere in its own stretch, its spots this far apart
+const SAY_EACH = 4; // a god with no room for its line looks along its stretch this far apart
+const SAY_REACH = 50; // and no further, for a step to speak
 
 // ── A god at its work, ms ──
 const DWELL = 900; // a pose shown is held this long at least, or two of the god's steps if that is longer
@@ -458,6 +460,23 @@ const LINES: Readonly<Record<"greeting" | "farewell", readonly Line[]>> = {
     ["Nothing got past me.", "argus"],
     ["Weighed, and found true.", "themis"],
     ["Victory, as promised.", "nike"],
+  ],
+};
+
+// Brief lines, said only when no full line fits anywhere a god may stand: any
+// god's, four of each, so a god still never says what the last three said.
+const BRIEF: Readonly<Record<"greeting" | "farewell", readonly Line[]>> = {
+  greeting: [
+    ["Here.", "*"],
+    ["Present.", "*"],
+    ["Ready.", "*"],
+    ["At hand.", "*"],
+  ],
+  farewell: [
+    ["Done.", "*"],
+    ["Yours.", "*"],
+    ["Sealed.", "*"],
+    ["Written.", "*"],
   ],
 };
 
@@ -578,7 +597,7 @@ interface Seg {
   readonly x1?: number;
   readonly ease?: Ease;
   /** A walk, or a stop on one: to its place, or off the lane. */
-  readonly purpose?: "seat" | "leave";
+  readonly purpose?: "seat" | "leave" | "speak";
   /** A walk that ends in a stop to look round: where it goes on to after. */
   readonly glanceTo?: number | null;
   /** A stop to look round: where it goes on to. */
@@ -663,6 +682,10 @@ interface God {
   said: string | null;
   /** Since when it has waited for room. */
   waiting: number | null;
+  /** It has stepped to say the line it is trying to say; the line it stepped for; and what that is, a greeting or a farewell. */
+  stepped: boolean;
+  stepLine: string | null;
+  stepFor: Saying | null;
   x: number;
   dir: number;
   /** The way it faces at its place: toward the middle of the lane. */
@@ -1672,6 +1695,74 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return said;
   }
 
+  // No room for its line where it stands: a full line after a step along its
+  // own stretch, else a brief line where it stands, else a brief one after a
+  // step. A step is walked in stride and stand, never stopping to look round,
+  // so no dice are drawn, and its neighbours stay where they are; under reduced
+  // motion it is one cut. The ribbon to say here, "step", or null.
+  function roomToSpeak(god: God, t: number, kind: Saying, near: Near): Rib | "step" | null {
+    const lk = kind === "report" ? "farewell" : "greeting";
+    const steps = god.stepped ? [] : sayingSpots(god, t);
+    const at = spotAt(god, steps, near);
+    if (steps.length) {
+      const own = kind === "report" ? null : god.line;
+      let said: Choice<Spot> | null;
+      if (own) {
+        const there = at(own);
+        said = there && { text: own, w: 0, at: there };
+      } else said = pickLine(lk, god, at);
+      if (said) return stepTo(god, t, kind, said, "full");
+    }
+    const here = (text: string): Rib | null => placeRibbon(god, god.x, text, near);
+    const brief = pickLine(lk, god, here, BRIEF[lk]);
+    if (brief) {
+      act("brief", god, t, brief.text);
+      god.line = null;
+      return brief.at;
+    }
+    if (steps.length) {
+      const after = pickLine(lk, god, at, BRIEF[lk]);
+      if (after) {
+        act("brief", god, t, after.text);
+        god.line = null;
+        return stepTo(god, t, kind, after, "brief");
+      }
+    }
+    return null;
+  }
+
+  // Where a god may step to speak: along its stretch, as far as SAY_REACH, not walking through a line.
+  function sayingSpots(god: God, t: number): number[] {
+    const x = god.x;
+    const held = ribbons(god);
+    return stretchSpots(god, x, claims(god, t), SAY_EACH, SAY_REACH).filter(
+      (s) => !held.some((q) => across(q, way(god, x, s))),
+    );
+  }
+
+  function stepTo(
+    god: God,
+    t: number,
+    kind: Saying,
+    said: Choice<Spot>,
+    how: "full" | "brief",
+  ): "step" {
+    god.stepped = true;
+    god.stepLine = said.text;
+    god.stepFor = kind;
+    act(
+      "step",
+      god,
+      t,
+      `${how}, ${Math.round(Math.abs(said.at.x - god.x))}px, to say “${said.text}”`,
+    );
+    if (reduced()) {
+      god.x = said.at.x;
+      speak(god, t, kind);
+    } else walk(god, t, said.at.x, "speak", true);
+    return "step";
+  }
+
   // A line for a god to say, of those fit(text) finds room for: its own most
   // often, or one any god may, and never what the last three gods said. With
   // where it fits, or null if none does.
@@ -1871,6 +1962,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       line: null,
       said: null,
       waiting: null,
+      stepped: false,
+      stepLine: null,
+      stepFor: null,
       x: 0,
       dir: 1,
       face: 1,
@@ -2427,6 +2521,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         if (seg.glanceTo != null)
           return void enter(god, "glance", t, GLANCE, { to: seg.glanceTo, purpose: seg.purpose });
         if (seg.purpose === "leave") return depart(god, t);
+        if (seg.purpose === "speak") return speak(god, t, god.stepFor!);
         return god.ending ? outro(god, t) : toSeat(god, t);
       case "glance":
         if (seg.purpose === "leave") return walk(god, t, seg.to!, "leave", true);
@@ -2487,15 +2582,29 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const x = god.x;
     const report = kind === "report";
     // Ended while it waited for room to greet: it has nothing to say now.
-    if (!report && god.ending) return ending(god, t);
+    if (!report && god.ending) {
+      // and a step it took to greet was for nothing
+      god.stepLine = null;
+      god.stepped = false;
+      return ending(god, t);
+    }
     const near = around(god, t);
     const fits = (text: string): Rib | null => placeRibbon(god, x, text, near);
     let r: Rib | null;
-    if (report) r = pickLine("farewell", god, fits)?.at ?? null;
+    if (god.stepLine) {
+      // Come from a step to speak: the line it stepped for, if it fits here still.
+      r = fits(god.stepLine);
+      god.stepLine = null;
+    } else if (report) r = pickLine("farewell", god, fits)?.at ?? null;
     else if (god.line)
       // The room kept for its greeting, if nothing has come into it; else wherever the line fits.
       r = god.rib && clear(god, x, god.rib, near) ? god.rib : fits(god.line);
     else r = pickLine("greeting", god, fits)?.at ?? null;
+    if (!r && crowd) {
+      const room = roomToSpeak(god, t, kind, near);
+      if (room === "step") return;
+      r = room;
+    }
     if (!r) {
       god.rib = null;
       god.waiting ??= t;
@@ -2513,6 +2622,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       // No room came: it goes on without a word.
       god.waiting = null;
       god.line = null;
+      god.stepped = false;
       if (!report) return god.ending ? ending(god, t) : toSeat(god, t);
       return seal(god, t);
     }
@@ -2535,6 +2645,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     god.out.u = null;
     god.said = r.text;
     god.line = null;
+    god.stepped = false;
     const dur = quiet ? SAID : UNFURL + SAY + FURL;
     const seg = enter(god, report ? "report" : "greet", t, dur);
     // The frames it is furled on begin here.
@@ -2572,7 +2683,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     god: God,
     t: number,
     to: number,
-    purpose: "seat" | "leave",
+    purpose: "seat" | "leave" | "speak",
     glanced: boolean,
   ): void {
     halt(god, t);
@@ -2582,9 +2693,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       return wait(god, t, (t2) =>
         purpose === "leave"
           ? leave(god, t2)
-          : god.ending
-            ? outro(god, t2)
-            : toSeat(god, t2, glanced),
+          : purpose === "speak"
+            ? speak(god, t2, god.stepFor!)
+            : god.ending
+              ? outro(god, t2)
+              : toSeat(god, t2, glanced),
       );
     const { speed, pause, ease } = god.c.move;
     const dist = Math.abs(to - from);

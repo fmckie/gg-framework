@@ -265,7 +265,7 @@ describe("the lane", () => {
     step(12_900);
     expect(gods(view.container)).toEqual(["athena", "hephaestus", "argus", "nike"]);
     expect([...seen].filter((what) => / is-/.test(what))).toEqual([]);
-    step(18_000); // the owl has finished: its god sealed its scroll, walked off and went
+    step(18_500); // the owl has finished: its god stepped aside to say its farewell, sealed its scroll, walked off and went
     expect(gods(view.container)).toEqual(["hephaestus", "argus", "nike"]);
     expect(seen).toContain("athena is-sealed");
     step(21_500); // the bee's god is sealed and on its way; the agent with no name failed 20.14s after it was sent

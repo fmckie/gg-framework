@@ -7327,18 +7327,18 @@ describe("room in a crowd: a god is set in a crowd", () => {
     to(bare, 2700);
     expect(Math.abs(out(bare, "g2").x - seatOf(out(bare, "g2")))).toBeGreaterThan(62);
 
-    // The fourth of four: nowhere to stand at any of the five. It is set 72px along, with no line kept.
-    const set = sent(4, { seed: 3, width: 560, crowd: true });
-    to(set, 5550);
-    const fourth = out(set, "g3");
-    expect(fourth.step).toBe("assemble");
-    expect(Math.abs(fourth.x - seatOf(fourth))).toBeCloseTo(72, 6);
+    // The fifth of five: nowhere to stand at any of the five. It is set 18px along, with no line kept.
+    const set = sent(5, { seed: 12, width: 560, crowd: true });
+    to(set, 8000);
+    const fifth = out(set, "g4");
+    expect(fifth.step).toBe("assemble");
+    expect(Math.abs(fifth.x - seatOf(fifth))).toBeCloseTo(18, 6);
     expect(set.peek().queue).toEqual([]);
     // As it was, its landing was held back.
-    const held = sent(4, { seed: 3, width: 560 });
-    to(held, 5550);
-    expect(held.peek().queue).toEqual(["g3"]);
-    expect(held.peek().gods.map((god) => god.key)).toEqual(["g0", "g1", "g2"]);
+    const held = sent(5, { seed: 12, width: 560 });
+    to(held, 8000);
+    expect(held.peek().queue).toEqual(["g4"]);
+    expect(held.peek().gods.map((god) => god.key)).toEqual(["g0", "g1", "g2", "g3"]);
     for (const s of [lined, set]) {
       settle(s, s.peek().gods.length + s.peek().queue.length);
       expectApart(s.peek());
@@ -7346,10 +7346,11 @@ describe("room in a crowd: a god is set in a crowd", () => {
   });
 
   it("each thing a crowd fix did is logged: when, for whose god, which fix and what; and with the fixes off nothing ever is", () => {
+    /** What the fixes did as gods were set: a god's room to speak has its own. */
     const acts = (n: number, opts: Parameters<typeof stage>[0]): Stage["crowded"] => {
       const s = sent(n, opts);
       s.host.run(12_000, 16);
-      return s.crowded;
+      return s.crowded.filter((act) => act.kind === "clear" || act.kind === "stretch");
     };
     expect(acts(3, { seed: 10, crowd: true })).toEqual([
       {
@@ -7362,11 +7363,14 @@ describe("room in a crowd: a god is set in a crowd", () => {
     expect(acts(3, { seed: 17, width: 560, crowd: true })).toEqual([
       { t: 2700, key: "g2", kind: "stretch", what: "“Here, and listening.”, 30px from its place" },
     ]);
-    expect(acts(4, { seed: 3, width: 560, crowd: true })).toEqual([
-      { t: 5550, key: "g3", kind: "stretch", what: "set in its stretch, with no line" },
+    expect(acts(5, { seed: 12, width: 560, crowd: true })).toEqual([
+      { t: 8000, key: "g4", kind: "stretch", what: "set in its stretch, with no line" },
     ]);
-    for (const opts of [{ seed: 10 }, { seed: 17, width: 560 }, { seed: 3, width: 560 }])
-      expect(acts(4, opts)).toEqual([]);
+    for (const opts of [{ seed: 10 }, { seed: 17, width: 560 }, { seed: 12, width: 560 }]) {
+      const off = sent(5, opts);
+      off.host.run(12_000, 16);
+      expect(off.crowded).toEqual([]);
+    }
   });
 
   it("a seeded crowd with the fixes on matches its twin with them off, frame by frame, up to the first thing logged; and asks the same of its clock and dice when nothing is", () => {
@@ -7398,5 +7402,158 @@ describe("room in a crowd: a god is set in a crowd", () => {
     expect(quiet.on.asked).toEqual(quiet.off.asked);
     expect(quiet.on.asked.dice).toBeGreaterThan(0);
     expect(quiet.on.peek().gods.map((god) => god.step)).toEqual(["work", "work", "work"]);
+  });
+});
+
+describe("room in a crowd: room to speak", () => {
+  const SAY_EACH = 4;
+  const SAY_REACH = 50;
+  const BRIEF = {
+    greeting: ["Here.", "Present.", "Ready.", "At hand."],
+    farewell: ["Done.", "Yours.", "Sealed.", "Written."],
+  };
+  /** A first crowd of `n`, sent together. */
+  const sent = (n: number, opts: Parameters<typeof stage>[0]): Stage => {
+    const s = stage({ crowd: true, ...opts });
+    s.sync(ALL.slice(0, n).map((god, i) => agent(`g${i}`, god)));
+    return s;
+  };
+  /** And all done together at 14 s, each with a farewell to say. */
+  const ended = (n: number, opts: Parameters<typeof stage>[0]): Stage => {
+    const s = sent(n, opts);
+    s.host.run(14_000, 16);
+    s.sync(ALL.slice(0, n).map((god, i) => agent(`g${i}`, god, "done")));
+    return s;
+  };
+  const to = (s: Stage, at: number): void => {
+    while (s.host.now() + 16 <= at) s.host.advance(16);
+    s.host.advance(at - s.host.now());
+  };
+  const over = (a: readonly [number, number], b: readonly [number, number]): boolean =>
+    a[0] < b[1] && b[0] < a[1];
+  const said = (s: Stage, key: string): CrowdAct[] =>
+    s.crowded.filter((act) => act.key === key && (act.kind === "step" || act.kind === "brief"));
+
+  it("with no room for its line where it stands, a god says a full line after a step along its stretch: within its reach, and through nobody's line", () => {
+    const s = ended(4, { seed: 7 });
+    expect(said(s, "g2")).toEqual([
+      { t: 14_000, key: "g2", kind: "step", what: "full, 40px, to say “Done before you asked.”" },
+    ]);
+    const from = out(s, "g2").x;
+    expect(out(s, "g2")).toMatchObject({ step: "walk", line: null });
+    let frames = 0;
+    while (out(s, "g2").step === "walk") {
+      // Stride or stand, its figure is never in a line another holds out.
+      const { figure, pose } = out(s, "g2");
+      expect(["stride", "stand"]).toContain(pose);
+      for (const god of s.peek().gods)
+        if (god.key !== "g2" && god.ribbon) expect(over(figure, god.ribbon)).toBe(false);
+      s.host.advance(16);
+      frames++;
+    }
+    expect(frames).toBeGreaterThan(5);
+    expect(out(s, "g2")).toMatchObject({ step: "report", line: "Done before you asked." });
+    expect(Math.abs(out(s, "g2").x - from)).toBeCloseTo(40, 6);
+    expect(said(s, "g2")).toHaveLength(1);
+
+    // Whatever the crowd, a step is a whole number of spots along, and never past its reach.
+    let steps = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const any = ended(5, { seed });
+      any.host.run(6000, 16);
+      for (const act of any.crowded) {
+        if (act.kind !== "step") continue;
+        const px = Number(/, (\d+)px, /.exec(act.what!)![1]);
+        expect(px % SAY_EACH).toBe(0);
+        expect(px).toBeGreaterThan(0);
+        expect(px).toBeLessThanOrEqual(SAY_REACH);
+        steps++;
+      }
+    }
+    expect(steps).toBeGreaterThan(12);
+  });
+
+  it("a brief line is said where no full one fits: where the god stands, or else after a step", () => {
+    // The fourth of four stands by for room. None comes for a full greeting, here or a step away: a brief one, where it stands.
+    const here = sent(4, { seed: 9 });
+    to(here, 5750 - 16);
+    const stood = out(here, "g3");
+    expect(stood).toMatchObject({ step: "hold", line: null });
+    to(here, 5750);
+    expect(BRIEF.greeting).toContain("At hand.");
+    expect(out(here, "g3")).toMatchObject({ step: "greet", line: "At hand.", x: stood.x });
+    expect(said(here, "g3")).toEqual([{ t: 5750, key: "g3", kind: "brief", what: "At hand." }]);
+
+    // Not even a brief one where it stands: a brief one after a step.
+    const after = sent(4, { seed: 3 });
+    to(after, 4950);
+    expect(said(after, "g3")).toEqual([
+      { t: 4950, key: "g3", kind: "brief", what: "Ready." },
+      { t: 4950, key: "g3", kind: "step", what: "brief, 24px, to say “Ready.”" },
+    ]);
+    const from = out(after, "g3").x;
+    expect(out(after, "g3")).toMatchObject({ step: "walk", line: null });
+    until(after, () => out(after, "g3").step !== "walk");
+    expect(out(after, "g3")).toMatchObject({ step: "greet", line: "Ready." });
+    expect(Math.abs(out(after, "g3").x - from)).toBeCloseTo(24, 6);
+
+    // And a farewell's are its own four.
+    const bye = ended(5, { seed: 10 });
+    const briefs = bye.crowded.filter((act) => act.kind === "brief" && act.t === 14_000);
+    expect(briefs.length).toBeGreaterThan(1);
+    for (const act of briefs) expect(BRIEF.farewell).toContain(act.what);
+  });
+
+  it("a god steps once for a line it is saying: the step throws no dice, its neighbours stay where they are, and if the line no longer fits it says a brief one there, and steps no more", () => {
+    const s = ended(4, { seed: 8 });
+    const from = out(s, "g0").x;
+    const dice = s.asked.dice;
+    const others = (): number[] => ["g1", "g2", "g3"].map((key) => out(s, key).x);
+    const stood = others();
+    expect(out(s, "g0").step).toBe("walk");
+    to(s, 14_374);
+    // Walked straight there, with no stop to look round: no throw, and nobody moved over for it.
+    expect(out(s, "g0").step).toBe("walk");
+    expect(s.asked.dice).toBe(dice);
+    expect(others()).toEqual(stood);
+    to(s, 14_375);
+    expect(out(s, "g0")).toMatchObject({ step: "report", line: "Sealed." });
+    expect(Math.abs(out(s, "g0").x - from)).toBeCloseTo(24, 6);
+    const there = out(s, "g0").x;
+    until(s, () => out(s, "g0").step !== "report");
+    expect(out(s, "g0").x).toBe(there);
+    expect(said(s, "g0").filter((act) => act.t >= 14_000)).toEqual([
+      { t: 14_000, key: "g0", kind: "step", what: "full, 24px, to say “Sealed, and yours.”" },
+      { t: 14_375, key: "g0", kind: "brief", what: "Sealed." },
+    ]);
+  });
+
+  it("under reduced motion a step to speak is a cut: the god is there, its line held out whole, and nobody ever walks", () => {
+    const s = sent(4, { seed: 2, reduced: true });
+    const steps = new Set<string>();
+    for (let ms = 0; ms < 14_000; ms += 16) {
+      s.host.advance(16);
+      for (const god of s.peek().gods) steps.add(god.step);
+    }
+    s.host.advance(14_000 - s.host.now());
+    const before = out(s, "g2").x;
+    expect(before).toBe(seatOf(out(s, "g2")));
+    s.sync(ALL.slice(0, 4).map((god, i) => agent(`g${i}`, god, "done")));
+    expect(said(s, "g2")).toEqual([
+      { t: 14_000, key: "g2", kind: "step", what: "full, 40px, to say “Done before you asked.”" },
+    ]);
+    expect(out(s, "g2")).toMatchObject({
+      step: "report",
+      line: "Done before you asked.",
+      unrolled: 1,
+    });
+    expect(Math.abs(out(s, "g2").x - before)).toBeCloseTo(40, 6);
+    for (let ms = 0; ms < 6000; ms += 16) {
+      s.host.advance(16);
+      for (const god of s.peek().gods) steps.add(god.step);
+    }
+    expect(steps.has("report")).toBe(true);
+    expect(steps.has("walk")).toBe(false);
+    expect(steps.has("glance")).toBe(false);
   });
 });
