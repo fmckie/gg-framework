@@ -13,6 +13,7 @@ import {
   type RecentSession,
 } from "./agent";
 import { ChatPicker } from "./ChatPicker";
+import themeCss from "./kleio/kleio-theme.css?raw";
 
 vi.mock("./agent", () => ({
   arrangeAllWindows: vi.fn(),
@@ -339,6 +340,73 @@ describe("the Chats browser", () => {
     await screen.findByText("Plan my week");
     expect(restoreTargetMock).not.toHaveBeenCalled();
     expect(screen.queryByText("Current session")).toBeNull();
+  });
+
+  describe("its gutter, with the real theme loaded", () => {
+    const gutter = (element: Element | null): string =>
+      element ? getComputedStyle(element).getPropertyValue("--kleio-gutter").trim() : "missing";
+
+    // As App.tsx mounts it: in a plain `.app`, beside a session and another picker.
+    function mount(): HTMLElement {
+      const style = document.createElement("style");
+      style.textContent = themeCss;
+      document.head.append(style);
+      const { container } = render(
+        <>
+          <div className="app">
+            <ChatPicker onChosen={vi.fn()} />
+          </div>
+          <div className="app app-session">
+            <div className="inputwrap" />
+          </div>
+          <div className="app">
+            <div className="picker project-picker">
+              <div className="picker-list" />
+            </div>
+          </div>
+        </>,
+      );
+      return container;
+    }
+
+    afterEach(() => {
+      for (const style of document.head.querySelectorAll("style")) style.remove();
+    });
+
+    it("gives the heading and the list the session's own gutter", async () => {
+      ready([session, other]);
+      const container = mount();
+      await screen.findByText("Plan my week");
+
+      const sessionGutter = gutter(container.querySelector(".app-session > .inputwrap"));
+      expect(sessionGutter).toMatch(/^max\(28px,/);
+      expect(container.querySelector(".chat-browser")?.parentElement?.className).toBe("app");
+      expect(gutter(container.querySelector(".chat-browser-heading"))).toBe(sessionGutter);
+      expect(gutter(container.querySelector(".chat-browser > .picker-list"))).toBe(sessionGutter);
+    });
+
+    it("gives it to no other screen in a plain .app", async () => {
+      ready([session]);
+      const container = mount();
+      await screen.findByText("Plan my week");
+
+      expect(gutter(container.querySelector(".project-picker > .picker-list"))).toBe("");
+      expect(gutter(container.querySelector(".chat-browser")?.parentElement ?? null)).toBe("");
+    });
+
+    it("gives the iPhone's picker none", async () => {
+      document.documentElement.classList.add("platform-ios");
+      try {
+        ready([session]);
+        const container = mount();
+        await screen.findByText("Plan my week");
+        expect(container.querySelector(".chat-browser")).toBeNull();
+        expect(gutter(container.querySelector(".chat-picker > .picker-list"))).toBe("");
+        expect(gutter(container.querySelector(".app-session > .inputwrap"))).toBe("");
+      } finally {
+        document.documentElement.classList.remove("platform-ios");
+      }
+    });
   });
 
   it("keeps today's picker on the iPhone: no search, no marker, the old row", async () => {

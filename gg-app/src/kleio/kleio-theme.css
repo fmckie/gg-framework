@@ -4375,6 +4375,11 @@ html.platform-ios .plan-review-actions > .btn-primary {
 /* ── The Chats browser ── the desktop's session list for Chat and Motion:
    count, search and New chat in one heading, then flat rows on hairlines.
    The iPhone keeps the old picker's markup (ChatPicker.tsx). Nothing moves. */
+/* The browser sits in a plain `.app`, outside `.app-session`, so the session's
+   gutter never reached it: it sets the same 700px column here, for itself. */
+html:not(.platform-ios) .chat-browser {
+  --kleio-gutter: max(28px, calc((100% - 700px) / 2));
+}
 html:not(.platform-ios) .chat-browser-heading {
   flex: none;
   display: flex;
