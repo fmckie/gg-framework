@@ -635,7 +635,7 @@ describe("the lane's CSS", () => {
       rules.lastIndexOf('.oly-cell[data-pose="think-r"] .oly-p-think-r'),
     );
     // A god at its work shows it can be pressed, and that is all the sheet says of startling.
-    expect(rules.match(/is-startable/g)).toHaveLength(1);
+    expect(rules.match(/is-startable/g)).toHaveLength(2); // and a medallion's
   });
 
   it("shows the crown in place of the pose the record asks for, by a cut: the engine says when, and every other reaction is its transform and its facing", () => {
@@ -698,11 +698,11 @@ describe("the lane's CSS", () => {
     expect(rules).toMatch(/\.oly-lane \{[^}]*pointer-events: none;/);
     expect(rules).toContain(".oly-cell,\n.oly-ins {\n  pointer-events: auto;\n}");
     // Nothing else is given the pointer back, and a pose not shown is hidden outright.
-    expect(rules.match(/pointer-events/g)).toHaveLength(2);
+    expect(rules.match(/pointer-events/g)).toHaveLength(3); // and a medallion
     expect(rules).toMatch(/\.oly-pose \{\n {2}display: block;\n {2}visibility: hidden;\n\}/);
     // Only a god at its work has something to press.
     expect(rules).toContain(".oly-cell.is-startable {\n  cursor: pointer;\n}");
-    expect(rules.match(/cursor/g)).toHaveLength(1);
+    expect(rules.match(/cursor/g)).toHaveLength(2); // and a medallion hanging still
   });
 
   it("turns a figure and a part about the box's own corner, so a pivot is where the cast data says", () => {

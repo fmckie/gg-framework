@@ -730,6 +730,31 @@ interface Medal {
   goneAt: number | null;
   slide: { from: number; t0: number } | null;
   drawn: string;
+  /** How far down it hung as last drawn: its card stands over that. */
+  y: number | null;
+  /** Its latest rock on its peg; and when the one before that was over. */
+  rock: Rock | null;
+  rockLast: number;
+  /** Whether it has something to press. */
+  startable: boolean;
+  /** Whether it shows the keyboard's focus. */
+  focus: boolean;
+}
+
+/** A medallion's rock on its peg: when it begins, when something ended it, its beats and its tilt, degrees; off if it was ended before it began. */
+interface Rock {
+  readonly start: number;
+  end: number;
+  off: boolean;
+  readonly beats: number;
+  readonly tilt: number;
+}
+
+/** One in the toolbar, a god or a medallion: whose, its element, and where along the lane it is. */
+interface BarItem {
+  readonly god: God;
+  readonly el: HTMLElement;
+  readonly x: number;
 }
 
 export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
@@ -759,6 +784,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     opts.startle !== false && opts.starts?.[id] ? CAST.gods[id].st : undefined;
   // The gods the reader has pressed since the last frame: the next begins their starts.
   const pressed = new Set<God>();
+  // Startles are not off: a medallion rocks whole, so it needs no picture.
+  const startling = opts.startle !== false;
+  // The medallions the reader has pressed since the last frame: the next begins their rocks.
+  const knocked = new Set<Medal>();
   const wall: Pick<SimHost, "defer" | "cancel"> = opts.timer ?? {
     defer: (fn, ms) => window.setTimeout(fn, ms),
     cancel: (handle) => window.clearTimeout(handle as number),
@@ -2476,7 +2505,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     sim.cancel(god.seg?.nudge);
     uncue(god);
     god.seat = null;
-    refocus(god);
+    refocus(god.el, drawnX(god));
     god.el.remove();
     god.label.remove();
     gods.delete(god.key);
@@ -2568,6 +2597,60 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return lerp(m.slide.from, to, smooth((now - m.slide.t0) / POOL.slide));
   }
 
+  const inBar = (m: Medal): boolean => m.downAt === null;
+
+  // ───────── a medallion rocks on its peg ─────────
+  // A click on one, or Enter or Space on it, leaves a mark and wakes the clock,
+  // as a press on a god does; the frame that follows begins the rock. One
+  // hanging still cuts to its tilt, the bottom toward the lane, on its god's
+  // next quarter-beat, counted from when it was hung, and swings back through
+  // a part of that to rest over its god's start beats. Again within the
+  // startle's again, a part of the tilt, for fewer beats. One being set,
+  // taken down or moving up a slot ignores the press. Under reduced motion the
+  // tilt is a still, held twice its beats. Each frame is worked out from the
+  // record and the time.
+  function knock(m: Medal): void {
+    if (disposed || !startling) return;
+    knocked.add(m);
+    sim.wake();
+  }
+  const hangsStill = (m: Medal, t: number): boolean =>
+    inBar(m) && (m.cut || t >= m.t0 + POOL.set + POOL.reveal) && !queue.includes(m.god);
+  const rockEnd = (m: Medal, k: Rock): number =>
+    Math.min(k.end, k.start + k.beats * m.god.c.step * (reduced() ? 2 : 1));
+  function endRock(m: Medal, t: number): void {
+    const k = m.rock;
+    if (!k || k.off) return;
+    if (k.start >= t) k.off = true;
+    else k.end = Math.min(k.end, t);
+  }
+  function rock(m: Medal, t: number): void {
+    if (!medals.includes(m) || !hangsStill(m, t)) return;
+    if (m.slide && t < m.slide.t0 + POOL.slide) return; // moving up a slot
+    const was = m.rock && !m.rock.off ? m.rock : null;
+    const last = was ? rockEnd(m, was) : m.rockLast;
+    if (was && t < last) return; // already rocking
+    const start = quarter(m.t0, m.god.c.step, t);
+    const small = start - last < ST.again;
+    m.rockLast = last;
+    m.rock = {
+      start,
+      end: Infinity,
+      off: false,
+      beats: small ? ST.againBeats : m.god.c.st.beats,
+      tilt: m.side * m.god.c.medal.tilt * (small ? POOL.again : 1),
+    };
+  }
+  function rockAt(m: Medal, now: number): number {
+    const k = m.rock;
+    if (!k || k.off || now < k.start || now >= rockEnd(m, k)) return 0;
+    if (reduced()) return k.tilt;
+    const u = (now - k.start) / (k.beats * m.god.c.step);
+    return u < 0.5
+      ? k.tilt * lerp(1, -POOL.back, smooth(u / 0.5))
+      : -k.tilt * POOL.back * (1 - smooth((u - 0.5) / 0.5));
+  }
+
   // Those whose time is up are gone, the earliest first; the ones under each
   // move up a slot, and whoever still waits unhung takes what that frees.
   function settleMedals(t: number): void {
@@ -2585,6 +2668,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         const from = slideY(o, at);
         o.slot -= 1;
         o.slide = reduced() ? null : { from, t0: at };
+        endRock(o, at);
       }
       hang(at);
     }
@@ -2604,8 +2688,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       const el = html("div", "oly-medal");
       el.dataset.god = god.gid;
       el.dataset.key = god.key;
-      // It has a name, and nothing to press yet, and says so.
+      // It has a name, and is in the gods' toolbar; until it hangs still it
+      // has nothing to press, and says so.
       el.setAttribute("role", "button");
+      el.tabIndex = -1;
       el.setAttribute("aria-label", CAST.gods[god.gid].name);
       el.setAttribute("aria-disabled", "true");
       const row = opts.describe?.(god.key);
@@ -2620,6 +2706,24 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       const cut = reduced();
       if (!cut) el.style.opacity = "0"; // under reduced motion it is never part way
       godsEl.append(el);
+      const key = god.key;
+      el.addEventListener("pointerenter", () => {
+        overKey = hoverKey = key;
+        stay();
+        attend();
+      });
+      el.addEventListener("pointerleave", () => {
+        if (overKey === key) overKey = null;
+        if (dismissed !== key) return linger();
+        // Esc hid its card: it stays hidden as the pointer goes, as a god's does.
+        if (hoverKey === key) hoverKey = null;
+        if (focusKey !== key) dismissed = null;
+        attend();
+      });
+      el.addEventListener("click", () => {
+        const m = medals.find((o) => o.el === el);
+        if (m) knock(m);
+      });
       medals.push({
         god,
         el,
@@ -2631,7 +2735,13 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         goneAt: null,
         slide: null,
         drawn: "",
+        focus: false,
+        y: null,
+        rock: null,
+        rockLast: -Infinity,
+        startable: false,
       });
+      roveFix();
     }
   }
 
@@ -2756,9 +2866,20 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const m = medals.find((o) => o.god === god);
     if (!m || m.downAt !== null) return;
     settleMedals(t);
+    // Focus on it goes to its god as it is set; to the nearest left in the
+    // toolbar if it ended waiting.
+    if (m.el.contains(document.activeElement) && out(god)) {
+      roveTo(god.el);
+      god.el.focus({ preventScroll: true });
+    } else refocus(m.el, medalX(m));
+    endRock(m, t);
     m.downAt = t;
     m.goneAt = reduced() ? t : t + POOL.scatter;
+    // Out of the toolbar the moment it is taken down.
     m.el.setAttribute("aria-hidden", "true");
+    m.el.tabIndex = -1;
+    if (rove === m.el) rove = null;
+    roveFix();
     settleMedals(t);
   }
 
@@ -2776,14 +2897,35 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     for (const m of medals) {
       if (m.slide && now >= m.slide.t0 + POOL.slide) m.slide = null;
       const a = medalShown(m, now);
-      const css = `${medalX(m).toFixed(2)},${slideY(m, now).toFixed(2)},${a.toFixed(3)}`;
+      m.y = slideY(m, now);
+      // Its tilt as it rocks, about its peg's top; none at rest.
+      const rot = rockAt(m, now).toFixed(3);
+      const tilt = Number(rot) === 0 ? "" : rot;
+      const css = `${medalX(m).toFixed(2)},${m.y.toFixed(2)},${a.toFixed(3)},${tilt}`;
       if (css !== m.drawn) {
         m.drawn = css;
         // Written whole, so what the element says never depends on which frames fell.
-        const at = `transform: translate(${medalX(m).toFixed(2)}px,${slideY(m, now).toFixed(2)}px);`;
+        const to = `translate(${medalX(m).toFixed(2)}px,${m.y.toFixed(2)}px)`;
+        const at = tilt
+          ? `transform-origin: 50% -${POOL.peg}px; transform: ${to} rotate(${tilt}deg);`
+          : `transform: ${to};`;
         m.el.style.cssText = Number(a.toFixed(3)) >= 1 ? at : `${at} opacity: ${a.toFixed(3)};`;
       }
-      if (m.slide || m.goneAt !== null || (!m.cut && now < m.t0 + POOL.set + POOL.reveal))
+      // Hanging still it can be rocked: then it is a button with something to press.
+      const can = startling && hangsStill(m, now);
+      if (can !== m.startable) {
+        m.startable = can;
+        m.el.classList.toggle("is-startable", can);
+        if (can) m.el.removeAttribute("aria-disabled");
+        else m.el.setAttribute("aria-disabled", "true");
+      }
+      const rocking = m.rock !== null && !m.rock.off && now < rockEnd(m, m.rock);
+      if (
+        rocking ||
+        m.slide ||
+        m.goneAt !== null ||
+        (!m.cut && now < m.t0 + POOL.set + POOL.reveal)
+      )
         moving = true;
     }
     return moving;
@@ -2792,6 +2934,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function clearMedals(): void {
     for (const m of medals) m.el.remove();
     medals.length = 0;
+    knocked.clear();
     pooledAt.clear();
   }
 
@@ -3071,6 +3214,20 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function placeCard(): void {
     const key = cardFor();
     const god = key === null ? undefined : gods.get(key);
+    const m = god && !god.landed ? medals.find((o) => o.god === god) : undefined;
+    if (god && m) {
+      // Over a medallion: the same card, its caret on the medallion, its foot
+      // over the peg; one height while it hangs in its slot, and moving up with it.
+      if (!inBar(m) || m.y === null || mode !== "open") return hideCard();
+      const mid = medalX(m) + (POOL.w + 2 * POOL.rim) / 2;
+      const at = clamp(mid - 30, 6, W - 6 - TIP_W);
+      return putCard(
+        god.key,
+        at,
+        CELL_Y + m.y - POOL.peg - TOP - CARD_AIR,
+        clamp(mid - at, CARET_IN, TIP_W - CARET_IN),
+      );
+    }
     const kind = god?.seg?.kind;
     if (!god || !out(god) || mode !== "open" || kind === "unset") return hideCard();
     const v = god.vis;
@@ -3082,16 +3239,19 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         ? god.c.top.stand - god.c.move.lift
         : (god.c.top[v?.pose ?? god.pose] ?? god.c.top.stand) + (v?.y ?? 0);
     const foot = CELL_Y + top - CARD_AIR;
-    const caret = clamp(head - left, CARET_IN, TIP_W - CARET_IN);
+    putCard(god.key, left, foot, clamp(head - left, CARET_IN, TIP_W - CARET_IN));
+  }
+
+  function putCard(key: string, left: number, foot: number, caret: number): void {
     const was = shown;
     if (was?.key === key && was.left === left && was.foot === foot && was.caret === caret) return;
-    shown = { key: god.key, left, foot, caret };
+    shown = { key, left, foot, caret };
     if (card) {
       card.style.transform = `translate3d(${left.toFixed(2)}px, 0, 0)`;
       card.style.setProperty("--oly-ty", `${foot.toFixed(1)}px`);
       card.style.setProperty("--oly-caret", `${caret.toFixed(1)}px`);
     }
-    if (was?.key !== key) opts.onCard?.(god.key);
+    if (was?.key !== key) opts.onCard?.(key);
   }
 
   // What the pointer and the keyboard have changed goes on the page at once:
@@ -3104,6 +3264,12 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       put(god, "focus", kbd && focusKey === god.key, (on) =>
         label.classList.toggle("is-focus", on),
       );
+    }
+    for (const m of medals) {
+      const on = kbd && inBar(m) && document.activeElement === m.el;
+      if (on === m.focus) continue;
+      m.focus = on;
+      m.el.classList.toggle("is-focus", on);
     }
     placeCard();
   }
@@ -3134,12 +3300,27 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   card?.addEventListener("pointerenter", onCardEnter);
   card?.addEventListener("pointerleave", onCardLeave);
 
-  // ───────── the keyboard: the gods are one toolbar, its one tab stop on one of them ─────────
-  // In floor order: along the lane, left to right, each where it was last drawn.
+  // ───────── the keyboard: the gods and the medallions are one toolbar, its one tab stop on one of them ─────────
+  // In floor order: the left pier's medallions top to bottom, the gods along
+  // the lane, left to right, each where it was last drawn, then the right
+  // pier's medallions top to bottom.
   const drawnX = (god: God): number => god.vis?.x ?? god.x;
-  const items = (): God[] => [...gods.values()].filter(out).sort((a, b) => drawnX(a) - drawnX(b));
+  function items(): BarItem[] {
+    const hung = (side: -1 | 1): BarItem[] =>
+      medals
+        .filter((m) => m.side === side && inBar(m))
+        .sort((a, b) => a.slot - b.slot)
+        .map((m) => ({ god: m.god, el: m.el, x: medalX(m) }));
+    const floor = [...gods.values()]
+      .filter(out)
+      .sort((a, b) => drawnX(a) - drawnX(b))
+      .map((g) => ({ god: g, el: g.el, x: drawnX(g) }));
+    return [...hung(-1), ...floor, ...hung(1)];
+  }
   const godAt = (node: EventTarget | null): God | undefined =>
     node instanceof Node ? [...gods.values()].find((g) => g.el.contains(node)) : undefined;
+  const medalOf = (node: EventTarget | null): Medal | undefined =>
+    node instanceof Node ? medals.find((m) => m.el.contains(node)) : undefined;
 
   function roveTo(el: HTMLElement): void {
     if (rove && rove !== el) rove.tabIndex = -1;
@@ -3157,15 +3338,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       return;
     }
     godsEl.removeAttribute("aria-hidden");
-    roveTo(list.find((g) => g.el === rove)?.el ?? first.el);
+    roveTo(list.find((o) => o.el === rove)?.el ?? first.el);
   }
 
-  // One with focus is going: focus goes to the nearest left on the lane, or
+  // One with focus is going: focus goes to the nearest left in the toolbar, or
   // from the last to the composer. Focus anywhere else is left where it is.
-  function refocus(god: God): void {
-    if (!god.el.contains(document.activeElement)) return;
-    const x = drawnX(god);
-    const near = items().sort((a, b) => Math.abs(drawnX(a) - x) - Math.abs(drawnX(b) - x))[0];
+  function refocus(el: HTMLElement, x: number): void {
+    if (!el.contains(document.activeElement)) return;
+    const near = items()
+      .filter((o) => o.el !== el)
+      .sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x))[0];
     if (near) {
       roveTo(near.el);
       near.el.focus({ preventScroll: true });
@@ -3173,12 +3355,13 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   const onFocusIn = (e: FocusEvent): void => {
-    const god = godAt(e.target);
+    const m = medalOf(e.target);
+    const god = m?.god ?? godAt(e.target);
     if (!god) return;
     // Focus has moved: a card Esc hid may show again, unless the pointer is still on its god.
     if (dismissed !== god.key && dismissed !== overKey) dismissed = null;
     focusKey = god.key;
-    roveTo(god.el);
+    roveTo(m?.el ?? god.el);
     attend();
   };
   const onFocusOut = (e: FocusEvent): void => {
@@ -3188,17 +3371,21 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     attend();
   };
   const onToolbarKey = (e: KeyboardEvent): void => {
-    const god = godAt(e.target);
+    const m = medalOf(e.target);
+    const god = m?.god ?? godAt(e.target);
     if (!god || e.altKey || e.ctrlKey || e.metaKey) return;
     // The key is taken, so the page doesn't scroll. It startles the god, if it
     // can be: once, however long it is held.
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      if (!e.repeat) press(god);
+      if (e.repeat) return;
+      if (m) knock(m);
+      else press(god);
       return;
     }
     const list = items();
-    const i = list.indexOf(god);
+    const at = m?.el ?? god.el;
+    const i = list.findIndex((o) => o.el === at);
     const to = {
       ArrowLeft: list[Math.max(0, i - 1)],
       ArrowRight: list[Math.min(list.length - 1, i + 1)],
@@ -3317,6 +3504,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (pressed.size) {
       for (const god of pressed) poke(god, now);
       pressed.clear();
+    }
+    if (knocked.size) {
+      for (const m of knocked) rock(m, now);
+      knocked.clear();
     }
     let moving = renderLane(now);
     moving = renderFloor(now) || moving;

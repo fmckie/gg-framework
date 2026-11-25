@@ -421,6 +421,21 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   width: 15px;
   height: 20px;
 }
+/* In the gods' toolbar: its ring, from the keyboard, is floor.ts's to show. */
+.oly-medal {
+  pointer-events: auto;
+}
+.oly-medal.is-startable {
+  cursor: pointer;
+}
+.oly-medal:focus {
+  outline: none;
+}
+.oly-medal.is-focus {
+  outline: 2px solid #e9e2da;
+  outline-offset: 2px;
+  border-radius: 50%;
+}
 
 /* The card: one card, over the god the pointer or the keyboard is on. It
    stands above the lane, which clips, so it is in a frame of its own before

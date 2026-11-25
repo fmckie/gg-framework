@@ -2823,7 +2823,10 @@ describe("the card and the keys are no part of the run", () => {
       meddle?.(s, ms);
       // The tab stop and the cartouche are the keyboard's own marks on the lane.
       frames.push(
-        s.lane.innerHTML.replace(/ tabindex="-?\d"/g, "").replace(/oly-ins is-focus/g, "oly-ins"),
+        s.lane.innerHTML
+          .replace(/ tabindex="-?\d"/g, "")
+          .replace(/oly-ins is-focus/g, "oly-ins")
+          .replace(/oly-medal is-focus/g, "oly-medal"),
       );
       const { card: _card, ...run } = s.peek();
       peeks.push(JSON.stringify(run));
@@ -6199,6 +6202,10 @@ describe("startles: the reader presses a god at its work", () => {
     function sheet(run: Ran, held: ReadonlySet<string>, i: number): string {
       const lane = run.looks[i]!.page.cloneNode(true) as HTMLElement;
       for (const picture of lane.querySelectorAll(".oly-p-start")) picture.remove();
+      for (const hung of lane.querySelectorAll(".oly-medal")) {
+        hung.classList.remove("is-startable");
+        hung.removeAttribute("aria-disabled");
+      }
       [...lane.querySelectorAll<HTMLElement>(".oly-cell")].forEach((cell, n) => {
         const { god, pose } = cell.dataset as { god: GodId; pose: Skill };
         cell.classList.remove("is-startable");
@@ -6316,6 +6323,9 @@ describe("startles: the reader presses a god at its work", () => {
   });
 });
 
+/** What the unpressed run below asks of its clock and dice, and its wakes: read off the engine as it was at ffd08552. */
+const UNPRESSED_ASKED = '[{"clock":59,"dice":51},{"times":0}]';
+
 describe("the pool's medallions: a god waiting for a place is seen", () => {
   const CROWD: readonly GodId[] = [
     "athena",
@@ -6361,7 +6371,9 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     expect(el.getAttribute("aria-label")).toBe("Herodotus");
     expect(el.getAttribute("aria-disabled")).toBe("true");
     expect(el.getAttribute("aria-describedby")).toBe("row-g5");
-    expect(el.hasAttribute("tabindex")).toBe(false);
+    // In the toolbar: the first hung has its tab stop while no god is on the lane yet.
+    expect(el.getAttribute("tabindex")).toBe("0");
+    expect(medal(s, "g6")!.getAttribute("tabindex")).toBe("-1");
     expect(el.hasAttribute("aria-hidden")).toBe(false);
     expect(el.querySelector("img")!.getAttribute("src")).toBe(GODS.herodotus.cameo);
     expect(el.querySelector("img")!.alt).toBe("");
@@ -6567,6 +6579,245 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     on.dispose();
     expect(medals(on)).toEqual([]);
     expect(on.peek().medallions).toEqual([]);
+  });
+
+  // ── O8c: a medallion is a control ──
+  const failing = (n: number, key: string): LaneAgent[] =>
+    sent(n).map((a) => (a.key === key ? { ...a, look: "fail" } : a));
+  const tiltOf = (el: HTMLElement): number =>
+    Number(/rotate\((-?[\d.]+)deg\)/.exec(el.style.transform)?.[1] ?? 0);
+  const asked = (s: Stage): string => JSON.stringify([s.asked, s.woken]);
+  /** Eight sent, five at their work, three hung and through: g6 on the left pier, g5 over g7 on the right. */
+  function hungStill(options: Parameters<typeof stage>[0] = {}): Stage {
+    const s = stage(options);
+    s.sync(sent(8));
+    settle(s, 5);
+    s.host.advance(POOL.widen + POOL.set + POOL.reveal);
+    expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
+    return s;
+  }
+
+  it("a hung medallion is in the gods' one toolbar: the left pier's, the gods along the lane, then the right pier's top to bottom, and it takes the tab stop and the ring as a god does", () => {
+    const s = hungStill();
+    const stops = (): Element[] => [...s.lane.querySelectorAll('[tabindex="0"]')];
+    expect(stops()).toHaveLength(1);
+    // The first hung took it, the lane being empty yet, and keeps it.
+    expect(stops()).toEqual([medal(s, "g5")]);
+    const byX = [...s.peek().gods].sort((a, b) => a.x - b.x).map((god) => s.cell(god.key)!);
+    const order = [medal(s, "g6")!, ...byX, medal(s, "g5")!, medal(s, "g7")!];
+    keydown(byX[2]!, "Home");
+    const walked: (Element | null)[] = [document.activeElement];
+    for (let i = 1; i < order.length; i++) {
+      keydown(document.activeElement!, "ArrowRight");
+      walked.push(document.activeElement);
+    }
+    expect(walked).toEqual(order);
+    keydown(document.activeElement!, "ArrowRight"); // the end: it stays
+    expect(document.activeElement).toBe(medal(s, "g7"));
+    expect(stops()).toEqual([medal(s, "g7")]);
+    expect(medal(s, "g7")!.classList.contains("is-focus")).toBe(true);
+    expect(medal(s, "g5")!.classList.contains("is-focus")).toBe(false);
+    keydown(document.activeElement!, "Home");
+    expect(document.activeElement).toBe(medal(s, "g6"));
+    expect(stops()).toEqual([medal(s, "g6")]);
+    keydown(document.activeElement!, "End");
+    expect(document.activeElement).toBe(medal(s, "g7"));
+    // The ring is the keyboard's: a press of the pointer puts it away.
+    press();
+    expect(s.lane.querySelector(".oly-medal.is-focus")).toBeNull();
+    s.dispose();
+  });
+
+  it("a medallion leaves the toolbar the moment it is taken down: focus on it goes to its god as that is set, and from one that ended waiting to the nearest left in the toolbar", () => {
+    const s = hungStill();
+    const m5 = medal(s, "g5")!;
+    keydown(s.cells()[0]!, "End");
+    keydown(document.activeElement!, "ArrowLeft");
+    expect(document.activeElement).toBe(m5);
+    s.sync(failing(8, "g0"));
+    until(s, () => s.peek().gods.some((god) => god.key === "g5"));
+    expect(m5.isConnected).toBe(true); // still going
+    expect(m5.getAttribute("aria-hidden")).toBe("true");
+    expect(m5.getAttribute("tabindex")).toBe("-1");
+    expect(m5.classList.contains("is-focus")).toBe(false);
+    expect(document.activeElement).toBe(s.cell("g5"));
+    expect(s.cell("g5")!.getAttribute("tabindex")).toBe("0");
+    // It is no longer reached: the end of the toolbar is the one that hung under it.
+    keydown(document.activeElement!, "End");
+    const m7 = medal(s, "g7")!;
+    expect(document.activeElement).toBe(m7);
+    keydown(m7, "ArrowLeft");
+    expect(document.activeElement!.classList.contains("oly-cell")).toBe(true);
+    // One that ends while it waits: focus goes to the nearest left, the god furthest right.
+    keydown(document.activeElement!, "End");
+    expect(document.activeElement).toBe(m7);
+    s.sync(failing(8, "g0").filter((a) => a.key !== "g7"));
+    s.host.advance(0);
+    expect(m7.getAttribute("aria-hidden")).toBe("true");
+    const last = [...s.peek().gods].sort((a, b) => b.x - a.x)[0]!;
+    expect(document.activeElement).toBe(s.cell(last.key));
+    expect(s.lane.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    s.dispose();
+  });
+
+  it("a medallion's card is its row's, as a god's is: on the pointer and on focus, its foot over the peg and its caret on the medallion, Esc hiding it, and not a step, wake or throw asked for it", () => {
+    const s = hungStill();
+    const before = asked(s);
+    const foot = CELL_Y + POOL.y - POOL.peg - 4 - CARD_AIR; // the cell's top is 4px down the floor
+    enter(medal(s, "g6"));
+    expect(s.peek().card).toEqual({ key: "g6", left: 6, foot, caret: 16 });
+    expect(s.cards[s.cards.length - 1]).toBe("g6");
+    expect(s.card.style.transform).toBe("translate3d(6.00px, 0, 0)");
+    expect(s.card.style.getPropertyValue("--oly-ty")).toBe(`${foot.toFixed(1)}px`);
+    expect(s.card.style.getPropertyValue("--oly-caret")).toBe("16.0px");
+    // Esc hides the one the pointer holds up, and lets the key go on.
+    expect(keydown(document.body, "Escape").defaultPrevented).toBe(false);
+    expect(s.peek().card).toBeNull();
+    leave(medal(s, "g6"));
+    press();
+    // On focus, from the keyboard: the lower one on the right pier, its card as far right as it goes.
+    keydown(s.cells()[0]!, "End");
+    expect(document.activeElement).toBe(medal(s, "g7"));
+    expect(s.peek().card).toEqual({
+      key: "g7",
+      left: 698 - 6 - TIP_W,
+      foot: foot + POOL.pitch,
+      caret: TIP_W - 16,
+    });
+    // Esc hides the one shown for the keyboard, and uses the key up; it shows again as focus moves.
+    expect(keydown(document.activeElement!, "Escape").defaultPrevented).toBe(true);
+    expect(s.peek().card).toBeNull();
+    keydown(document.activeElement!, "ArrowLeft");
+    expect(s.peek().card?.key).toBe("g5");
+    expect(s.peek().card?.foot).toBe(foot);
+    expect(asked(s)).toBe(before);
+    s.dispose();
+  });
+
+  it("a press, Enter or Space rocks a medallion on its peg: cut to its god's tilt, the bottom toward the lane, back through a third of it to rest; a second press soon rocks it half as far; a wake for each press, none without", () => {
+    const s = hungStill({ startle: true });
+    const el = medal(s, "g5")!; // Herodotus, on the right pier
+    expect(el.classList.contains("is-startable")).toBe(true);
+    expect(el.hasAttribute("aria-disabled")).toBe(false);
+    const { tilt } = CAST.gods.herodotus.medal;
+    const step = CAST.gods.herodotus.step;
+    const wakes = s.woken.times;
+    const steps = s.asked.clock - wakes;
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(s.woken.times).toBe(wakes + 1);
+    until(s, () => tiltOf(el) !== 0, step / 4 + 1);
+    expect(tiltOf(el)).toBeCloseTo(tilt, 1); // the cut, on its quarter-beat
+    expect(el.style.transformOrigin).toBe(`50% -${POOL.peg}px`);
+    expect(el.style.transform).toMatch(/^translate\(674\.50px,4\.50px\) rotate\(/);
+    // Pressed again while it rocks: nothing more than the wake.
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const half = (CAST.gods.herodotus.st.beats * step) / 2;
+    s.host.advance(half);
+    expect(tiltOf(el)).toBeCloseTo(-tilt * POOL.back, 1);
+    s.host.advance(half);
+    expect(el.style.transform).toBe("translate(674.50px,4.50px)");
+    expect(el.style.transformOrigin).toBe("");
+    // Again soon, by Enter: half the tilt, for the startle's shorter beats.
+    expect(keydown(el, "Enter").defaultPrevented).toBe(true);
+    keydown(el, "Enter", { repeat: true }); // held: once
+    let most = 0;
+    const again = CAST.startle.againBeats * step;
+    for (let ms = 0; ms < again + step / 4; ms++) {
+      s.host.advance(1);
+      most = Math.max(most, Math.abs(tiltOf(el)));
+    }
+    expect(most).toBeCloseTo(tilt * POOL.again, 1);
+    expect(tiltOf(el)).toBe(0);
+    // Space, on the left pier: the other way, its bottom toward the lane too.
+    const left = medal(s, "g6")!; // Hephaestus
+    expect(keydown(left, " ").defaultPrevented).toBe(true);
+    until(s, () => tiltOf(left) !== 0, CAST.gods.hephaestus.step / 4 + 1);
+    expect(tiltOf(left)).toBeCloseTo(-CAST.gods.hephaestus.medal.tilt, 1);
+    // A wake for each press, the held key apart; and not a step or a throw.
+    expect(s.woken.times).toBe(wakes + 4);
+    expect(s.asked.clock - s.woken.times).toBe(steps);
+    // With startles off it has nothing to press, says so, and a press wakes nothing.
+    const off = hungStill();
+    const still = medal(off, "g5")!;
+    expect(still.classList.contains("is-startable")).toBe(false);
+    expect(still.getAttribute("aria-disabled")).toBe("true");
+    const quiet = asked(off);
+    still.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    keydown(still, "Enter");
+    off.host.advance(1000);
+    expect(tiltOf(still)).toBe(0);
+    expect(asked(off)).toBe(quiet);
+    s.dispose();
+    off.dispose();
+  });
+
+  it("one being set, or taken down, is not rocked; and a rock is over the moment its medallion is taken down", () => {
+    const s = stage({ startle: true });
+    s.sync(sent(8));
+    s.host.advance(POOL.widen + POOL.set); // hung, and not yet through
+    const el = medal(s, "g5")!;
+    expect(el.classList.contains("is-startable")).toBe(false);
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    s.host.advance(POOL.reveal);
+    expect(el.classList.contains("is-startable")).toBe(true);
+    settle(s, 5);
+    expect(tiltOf(el)).toBe(0);
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    until(s, () => tiltOf(el) !== 0, 200);
+    s.sync(failing(8, "g0"));
+    until(s, () => s.peek().gods.some((god) => god.key === "g5"));
+    expect(tiltOf(el)).toBe(0);
+    expect(el.classList.contains("is-startable")).toBe(false);
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    s.host.advance(200);
+    expect(tiltOf(el)).toBe(0);
+    s.dispose();
+  });
+
+  it("under reduced motion a rock is a still: the whole tilt, held twice its beats, then at rest, and nothing is ever part way", () => {
+    const s = hungStill({ reduced: true, startle: true });
+    const el = medal(s, "g5")!;
+    const { tilt } = CAST.gods.herodotus.medal;
+    const held = 2 * CAST.gods.herodotus.st.beats * CAST.gods.herodotus.step;
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const seen = new Set<number>();
+    let ms = 0;
+    for (let t = 0; t < held + 400; t += 10) {
+      s.host.advance(10);
+      seen.add(tiltOf(el));
+      if (tiltOf(el) !== 0) ms += 10;
+      expect(el.style.cssText).not.toMatch(/opacity|scale\(|height/);
+    }
+    expect([...seen].sort()).toEqual([0, tilt]);
+    expect(ms).toBe(held);
+    expect(el.style.transform).toBe("translate(674.50px,4.50px)");
+    s.dispose();
+  });
+
+  it("a run nobody presses asks what it did at ffd08552, before a medallion was a control: every step, wake and throw; and pointing at the medallions and tabbing through them asks nothing more", () => {
+    const run = (meddle: boolean): string => {
+      const s = stage({ startle: true });
+      oldestSet(s, 8);
+      for (let ms = 0; ms < 3000; ms += 100) {
+        if (meddle) {
+          const els = medals(s);
+          const el = els[(ms / 100) % els.length]!;
+          enter(el);
+          keydown(s.cells()[0]!, ms % 200 ? "End" : "Home");
+          keydown(document.activeElement!, "ArrowLeft");
+          leave(el);
+          if (ms % 700 === 0) keydown(document.body, "Escape");
+        }
+        s.host.run(100, 16);
+      }
+      const out = asked(s);
+      s.dispose();
+      return out;
+    };
+    expect(run(false)).toBe(UNPRESSED_ASKED);
+    expect(run(true)).toBe(UNPRESSED_ASKED);
   });
 });
 

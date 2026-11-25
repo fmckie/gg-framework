@@ -231,6 +231,8 @@ export interface CastGod {
   readonly rx: { readonly crown?: Crown };
   /** Its start, when the reader presses it at its work. */
   readonly st: StartOf;
+  /** Its medallion: how far it tilts as it rocks on its peg, degrees. */
+  readonly medal: { readonly tilt: number };
   /** Each pose's top in the cell. */
   readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
   /** The height its card holds while it works: over the highest it reaches at its place. */
@@ -283,7 +285,9 @@ export interface Cast {
    * the lane's corner, how wide the pier it hangs on is, how wide an anta is
    * before it widens to one, and where the floor's edge is inside a pier; and
    * for how long one is set, shows through, is taken down, and moves up a
-   * slot, and the antae widen, ms.
+   * slot, and the antae widen, ms; and as it rocks on its peg, how far back
+   * through rest it swings and how much smaller a second rock soon after is,
+   * as parts of its tilt.
    */
   readonly pool: {
     readonly w: number;
@@ -302,6 +306,8 @@ export interface Cast {
     readonly scatter: number;
     readonly slide: number;
     readonly widen: number;
+    readonly back: number;
+    readonly again: number;
   };
   readonly gods: Readonly<Record<GodId, CastGod>>;
 }

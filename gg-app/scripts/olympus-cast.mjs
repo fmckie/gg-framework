@@ -428,6 +428,9 @@ for (const [id, god] of Object.entries(cast.gods)) {
     }
     starts.push({ id, top, up, outside });
     out.st = { hop: st.hop, beats: st.beats, at: [left, width], top, ol: bands };
+    // Its medallion's tilt as it rocks on its peg, degrees.
+    if (!(god.medal?.tilt > 0)) throw new Error(`${id}: its medallion has no tilt`);
+    out.medal = { tilt: god.medal.tilt };
     if (picturesOnly) console.log(`${id}-start ${2 * width}`);
   }
   // All a fidget and a notice cover is inside the envelope the places and the
@@ -519,8 +522,12 @@ if (
 const pool = cast.pool ?? {};
 const POOL_KEYS = ["w", "h", "rim", "peg", "slots", "pitch", "x", "y", "pier", "anta", "edge"];
 const POOL_TIMES = ["set", "reveal", "scatter", "slide", "widen"];
+// And how one rocks on its peg when pressed: how far back through rest it
+// swings, and how much smaller a second rock soon after is, as parts of its tilt.
+const POOL_ROCK = ["back", "again"];
 if (
   ![...POOL_KEYS, ...POOL_TIMES].every((key) => pool[key] > 0) ||
+  !POOL_ROCK.every((key) => pool[key] > 0 && pool[key] <= 1) ||
   !Number.isInteger(pool.slots) ||
   pool.pitch < pool.h + 2 * pool.rim + pool.peg ||
   pool.y + (pool.slots - 1) * pool.pitch + pool.h + 2 * pool.rim > 104 ||
@@ -541,7 +548,9 @@ const data = {
     againBeats: startle.again_beats,
     line: startle.line,
   },
-  pool: Object.fromEntries([...POOL_KEYS, ...POOL_TIMES].map((key) => [key, pool[key]])),
+  pool: Object.fromEntries(
+    [...POOL_KEYS, ...POOL_TIMES, ...POOL_ROCK].map((key) => [key, pool[key]]),
+  ),
   gods,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");
