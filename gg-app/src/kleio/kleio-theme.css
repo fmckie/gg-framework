@@ -46,6 +46,13 @@
   --wake-rain: rgba(200, 40, 58, 0.55);
   --wake-fade: rgba(12, 9, 10, 0.18);
 }
+/* Desktop: the approved empty chat's rain, one crimson, bold and larger. */
+html:not(.platform-ios) {
+  --wake-rain-lead: #ed7380;
+  --wake-rain: #ed7380;
+  --wake-rain-size: 20;
+  --wake-rain-weight: 700;
+}
 
 /* ── Solid fills: crimson with a white label, like the icon ── */
 .modal-btn.primary,
@@ -326,6 +333,18 @@
 .kleio-cloisonne.is-dimmed:hover {
   opacity: 0.5;
   filter: none;
+}
+/* Desktop: the approved "off" instead: a grey label, a flat rim and dark
+   enamel. Still clickable (it sends people to Settings). */
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed,
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed:hover {
+  opacity: 1;
+  color: #a19798;
+  background: linear-gradient(#3b3435, #3b3435) border-box;
+}
+html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
+  background-color: #1d1819;
+  box-shadow: none;
 }
 /* Small (Talk to Kleio): 32px tall, a 1.5px rim and 1.5px of press. */
 .kleio-cloisonne.is-small {
@@ -2171,9 +2190,38 @@ html:not(.platform-ios) .usage-popover .usage-close:is(:hover, :focus-visible) {
 /* Thinking: text only, in the Model panel's level colours. Locked by a run it
    keeps its dim inline colour; held by the open panel it keeps the level's. */
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 6px;
   border-radius: 3px;
   font-weight: 700 !important;
+}
+/* The effort bars: one per step up from low, each 2px taller than the last. */
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .effort-mark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .effort-mark i {
+  width: 2px;
+  background: #94a2c4;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(1) {
+  height: 2px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(2) {
+  height: 4px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(3) {
+  height: 6px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(4) {
+  height: 8px;
+}
+html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child(5) {
+  height: 10px;
 }
 html:not(.platform-ios)
   .app.app-session
@@ -2810,6 +2858,35 @@ html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript {
 /* The empty state fills the body, as before. */
 html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript:has(> .wake-screen) {
   padding: 4px calc(var(--rail) - var(--scrollbar)) 16px var(--rail);
+}
+/* The empty chat: a strong rain kept clear of the two lines by the mask's
+   middle, a crimson cursor, and the line under the invitation. */
+html:not(.platform-ios) .app.app-session .wake-screen {
+  flex-direction: column;
+  gap: 12px;
+}
+html:not(.platform-ios) .app.app-session .wake-rain {
+  opacity: 0.85;
+  mask-image:
+    linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent),
+    radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%);
+  -webkit-mask-image:
+    linear-gradient(to bottom, transparent, #000 60px, #000 calc(100% - 100px), transparent),
+    radial-gradient(ellipse 70% 80% at 50% 50%, #000 35%, transparent 100%),
+    radial-gradient(ellipse 260px 80px at 50% 50%, transparent 70%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+html:not(.platform-ios) .app.app-session :is(.wake-cursor, .wake-cursor-rest) {
+  color: #ed7380;
+}
+html:not(.platform-ios) .app.app-session .wake-sub {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 /* The rest of the dock follows the column; the tool panel's rule stays full width. */
 html:not(.platform-ios) .app.app-session > .liveregion :is(.livetoolpanel, .motion-starters),

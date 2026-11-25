@@ -58,6 +58,26 @@ describe("AppFooter thinking toggle", () => {
     expect(button?.textContent).toBe(`Thinking ${level}`);
   });
 
+  it.each([
+    ["low", 1],
+    ["medium", 2],
+    ["high", 3],
+    ["xhigh", 4],
+    ["max", 5],
+  ])("draws the %s level's effort as %i bars, hidden from a screen reader", (level, bars) => {
+    const { container } = renderFooter(level);
+    const mark = container.querySelector(".thinking-toggle > .effort-mark");
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.querySelectorAll("i")).toHaveLength(bars);
+    expect(mark?.nextSibling?.textContent).toBe(`Thinking ${level}`);
+  });
+
+  it("draws no effort bars for off, for Ultra, or on the iPhone", () => {
+    expect(renderFooter(null).container.querySelector(".effort-mark")).toBeNull();
+    expect(renderFooter("ultra").container.querySelector(".effort-mark")).toBeNull();
+    expect(renderFooter("high", false, 0, true).container.querySelector(".effort-mark")).toBeNull();
+  });
+
   it("uses off when thinking is off", () => {
     const { container } = renderFooter(null);
     expect(container.querySelector<HTMLButtonElement>(".thinking-toggle")?.dataset.level).toBe(

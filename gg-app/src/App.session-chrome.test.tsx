@@ -191,3 +191,30 @@ describe("the composer's trigger row and More", () => {
     expect(container.querySelector(".more-panel")).not.toBeNull();
   });
 });
+
+describe("the empty chat and the idle line", () => {
+  const idleLine = (container: HTMLElement) =>
+    container.querySelector(".task-activity .activity-label-reveal")?.textContent;
+
+  it("reads Ready for your next message under a reopened chat's messages", async () => {
+    const container = open({ mode: "chat", cwd: STATE.cwd, sessionPath: "/sessions/a.jsonl" }, [
+      { role: "user", text: "Plan my week" },
+      { role: "assistant", text: "Gladly." },
+    ]);
+    await screen.findByRole("heading", { name: "Plan my week" });
+    await waitFor(() => expect(idleLine(container)).toBe("Ready for your next message"));
+    expect(container.querySelector(".wake-screen")).toBeNull();
+  });
+
+  it("shows the second line in a chat with no messages, over a rotating idle line", async () => {
+    const container = open({ mode: "chat", cwd: STATE.cwd, sessionPath: null });
+    await screen.findByRole("button", { name: "Chats" });
+    await waitFor(() =>
+      expect(container.querySelector(".wake-screen > .wake-sub")?.textContent).toBe(
+        "A new conversation in this project.",
+      ),
+    );
+    expect(idleLine(container)).toBeTruthy();
+    expect(idleLine(container)).not.toBe("Ready for your next message");
+  });
+});

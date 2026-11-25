@@ -33,6 +33,10 @@ const MAX_POWER_COLOR = "#db2777";
 
 const MAX_POWER_SHIMMER = "#f472b6";
 
+// kleio: the approved bars beside the level, one more per step. Off has none,
+// and Ultra has none because the mockup stops at max.
+const EFFORT_BARS: Record<string, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
+
 function thinkingColor(level: string | null | undefined): string {
   if (!level) return theme.textDim;
   if (level === "low") return theme.textMuted;
@@ -182,6 +186,13 @@ export function AppFooter({
                       disabled={locked || previewing}
                       onClick={() => void cycleThinking()}
                     >
+                      {!phoneHeader && level && EFFORT_BARS[level] ? (
+                        <span className="effort-mark" aria-hidden="true">
+                          {Array.from({ length: EFFORT_BARS[level] }, (_, bar) => (
+                            <i key={bar} />
+                          ))}
+                        </span>
+                      ) : null}
                       {maxPower && !locked ? (
                         <ShimmerText base={MAX_POWER_COLOR} bright={MAX_POWER_SHIMMER}>
                           {label}

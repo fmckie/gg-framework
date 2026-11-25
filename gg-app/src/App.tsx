@@ -3261,6 +3261,9 @@ function App(): React.ReactElement {
               cancelling={cancelling}
               tokens={tokens}
               doneStatus={doneStatus}
+              idleLine={
+                !phoneHeader && items.length > 0 ? "Ready for your next message" : undefined
+              }
               isThinking={isThinking}
               thinkingStartTs={thinkingStartTs}
               thinkingAccumMs={thinkingAccumMs}

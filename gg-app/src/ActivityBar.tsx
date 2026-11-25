@@ -83,6 +83,8 @@ interface Props {
   tokens: number;
   /** Done-status phrase shown when a run just finished (e.g. "Brewed up a response in 12s"). */
   doneStatus: string | null;
+  /** kleio: a fixed line for the bare idle state, in place of the rotating one. */
+  idleLine?: string;
   /** True while the model is actively emitting reasoning/thinking. */
   isThinking: boolean;
   /** Timestamp (ms) the current thinking span began, or null when not thinking. */
@@ -188,6 +190,7 @@ export function ActivityBar({
   cancelling = false,
   tokens,
   doneStatus,
+  idleLine,
   planTotal = 0,
   planDone = 0,
   onCancel,
@@ -249,7 +252,7 @@ export function ActivityBar({
           ? "Working on your request…"
           : doneStatus
             ? "Response ready"
-            : readyPhrase;
+            : (idleLine ?? readyPhrase);
   const label =
     (!active && outcomePhrase(fullLabel, activity?.startedAt ?? 0)) ||
     SHORT_LABELS[fullLabel] ||

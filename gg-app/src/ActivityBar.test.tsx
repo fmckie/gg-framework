@@ -284,3 +284,38 @@ describe("ActivityBar timer", () => {
     }
   });
 });
+
+describe("ActivityBar idle line", () => {
+  const idle = { ...baseProps, running: false };
+
+  it("reads the given line when idle, in place of a rotating phrase", () => {
+    const { container } = render(<ActivityBar {...idle} idleLine="Ready for your next message" />);
+    expect(container.querySelector(".activity-label-reveal")?.textContent).toBe(
+      "Ready for your next message",
+    );
+    expect(container.querySelector(".task-activity")?.getAttribute("data-phase")).toBe("idle");
+  });
+
+  it("gives way to a run and to a finished reply", () => {
+    const { container, rerender } = render(
+      <ActivityBar {...baseProps} idleLine="Ready for your next message" />,
+    );
+    expect(container.textContent).not.toContain("Ready for your next message");
+    rerender(
+      <ActivityBar
+        {...idle}
+        doneStatus="Brewed up a response"
+        idleLine="Ready for your next message"
+      />,
+    );
+    expect(container.querySelector(".activity-label-reveal")?.textContent).toMatch(/ready/i);
+    expect(container.textContent).not.toContain("Ready for your next message");
+  });
+
+  it("keeps a rotating phrase when no line is given", () => {
+    const { container } = render(<ActivityBar {...idle} />);
+    const label = container.querySelector(".activity-label-reveal")?.textContent ?? "";
+    expect(label).not.toBe("");
+    expect(label).not.toBe("Ready for your next message");
+  });
+});
