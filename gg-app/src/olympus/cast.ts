@@ -37,6 +37,7 @@ import herodotusStand from "./poses/herodotus-stand.webp";
 import herodotusStride from "./poses/herodotus-stride.webp";
 import herodotusThink from "./poses/herodotus-think.webp";
 import herodotusWeb from "./poses/herodotus-web.webp";
+import nikeCrown from "./poses/nike-crown.webp";
 import nikeLook from "./poses/nike-look.webp";
 import nikeLookB from "./poses/nike-look-b.webp";
 import nikeMake from "./poses/nike-make.webp";
@@ -126,6 +127,32 @@ export interface Fidget {
   readonly moves: readonly FidgetMove[];
 }
 
+/** What a god may notice: another arriving, finishing, or failing. */
+export type Noticed = "arrive" | "done" | "fail";
+
+/**
+ * How a pose notices: the floor under its front, which a glance leans about,
+ * and under its heel, for a glance back, each in the cell; how far it leans,
+ * in degrees; and whether it may turn to face what is behind it.
+ */
+export interface NoticeOf {
+  readonly front: readonly [number, number];
+  readonly back: readonly [number, number];
+  readonly lean: number;
+  readonly turn: boolean;
+}
+
+/**
+ * The crown, raised toward a god that has finished: how late it may begin,
+ * ms, for how many of her beats it is held, and where its picture sits in the
+ * cell: left, width.
+ */
+export interface Crown {
+  readonly late: number;
+  readonly beats: number;
+  readonly at: readonly [number, number];
+}
+
 /** A pose's cut-out part: polygons in the pose's own picture, px. */
 export interface Part {
   readonly name: string;
@@ -174,6 +201,12 @@ export interface CastGod {
   readonly parts: Readonly<Partial<Record<Skill, Part>>>;
   /** What each pose does while it is held; a pose with nothing is a still. */
   readonly fid: Readonly<Partial<Record<Skill, Fidget>>>;
+  /** How each of its skill poses notices. */
+  readonly nt: Readonly<Partial<Record<Skill, NoticeOf>>>;
+  /** How likely it is to notice each kind of event, by its nature: 0 to 1. */
+  readonly chance: Readonly<Record<Noticed, number>>;
+  /** Its reaction to a finish, if it has one of its own: Nike's crown. */
+  readonly rx: { readonly crown?: Crown };
   /** Each pose's top in the cell. */
   readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
   /** The height its card holds while it works: over the highest it reaches at its place. */
@@ -195,6 +228,19 @@ export interface Cast {
   readonly source: string;
   readonly cell: { readonly w: number; readonly h: number; readonly head: number };
   readonly seal: { readonly viewBox: string; readonly nodes: readonly SvgNode[] };
+  /**
+   * How the gods notice each other: how far along the floor, px; how long a
+   * god rests before it notices again, and how late a notice may begin, ms;
+   * how long a lean eases in and out, and how long each notice is held, in the
+   * god's own beats.
+   */
+  readonly notice: {
+    readonly reach: number;
+    readonly rest: number;
+    readonly late: number;
+    readonly ease: number;
+    readonly beats: Readonly<Record<Noticed, number>>;
+  };
   readonly gods: Readonly<Record<GodId, CastGod>>;
 }
 
@@ -278,3 +324,6 @@ export const FRAME_URLS: Readonly<Partial<Record<GodId, Frames>>> = {
   hephaestus: { make: hephaestusMakeB },
   nike: { look: nikeLookB },
 };
+
+/** The crown's picture, for the one who gives it: 200 high, as a skill pose's is. */
+export const CROWN_URLS: Readonly<Partial<Record<GodId, string>>> = { nike: nikeCrown };

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { CAST, FRAME_URLS, POSE_URLS, type Skill } from "./cast";
+import { CAST, CROWN_URLS, FRAME_URLS, POSE_URLS, type Skill } from "./cast";
 import {
   agentsAt,
   type CountingBrush,
@@ -96,7 +96,8 @@ const stages: { dispose(): void }[] = [];
  * moment each advance ends on (framedHost); a letter is 5.5px wide. Its
  * canvases count what is drawn on them, the gods' tesserae on one and the
  * floor's mosaic on the other: jsdom draws none. Its gods hold their poses
- * still unless it is asked for their fidgets: the run is the same either way.
+ * still unless it is asked for their fidgets, and take no notice of each other
+ * unless it is asked for their reactions: the run is the same either way.
  */
 function stage({
   seed = 7,
@@ -104,6 +105,8 @@ function stage({
   letter = 5.5,
   reduced = false,
   fidget = false,
+  react = false,
+  cast = CAST,
 } = {}): Stage {
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
@@ -137,10 +140,12 @@ function stage({
   const dice = rng(seed);
   const floor = createFloor(lane, {
     sim,
-    cast: CAST,
+    cast,
     poses: POSE_URLS,
     frames: FRAME_URLS,
     fidget,
+    crowns: CROWN_URLS,
+    react,
     random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
@@ -4003,5 +4008,1105 @@ describe("fidgets: a god alive at its work", () => {
     expect(s.peek().gods[0]!.fidget).toBeNull();
     expect(cell.dataset.part).toBeUndefined();
     expect(s.host.pending()).toBe(0);
+  });
+});
+
+describe("notices and the crown: the gods notice each other", () => {
+  type Opts = Parameters<typeof stage>[0];
+  type Spec = readonly [god: GodId, family?: ToolFamily];
+  const posesOf = (cell: HTMLElement): HTMLElement =>
+    cell.querySelector<HTMLElement>(".oly-poses")!;
+  const turnOf = (pivot: readonly [number, number], deg: number): string =>
+    `translate(${pivot[0]}px, ${pivot[1]}px) rotate(${deg.toFixed(3)}deg) translate(${-pivot[0]}px, ${-pivot[1]}px)`;
+
+  interface Lane extends Stage {
+    /** When each god took its place: its beats count from then. */
+    readonly at: Readonly<Record<string, number>>;
+    /** Change one agent's record, and hand them all over. */
+    set(key: string, change: Partial<LaneAgent>): void;
+    seen(key: string): Seen;
+    /** On to so long after `key` took its place. */
+    to(key: string, ms: number): void;
+    /** Their keys along the lane, left to right. */
+    order(): string[];
+  }
+
+  /**
+   * Gods sent together, k0, k1 and so on, each at its work in the pose it
+   * acts a family of tool in (its look, unless told), and noticing each other.
+   * Of three sent together, the first is on the right, the second on the left
+   * and the third in the middle, facing left: the left one is in front of it;
+   * it is the last to its place, some 3.3s after the others.
+   */
+  function lane(specs: readonly Spec[], opts: Opts = {}): Lane {
+    const s = stage({ react: true, ...opts });
+    let agents = specs.map(([god, family = "look"], i) => agent(`k${i}`, god, "run", family, 1));
+    s.sync(agents);
+    const at: Record<string, number> = {};
+    for (let ms = 0; ; ms++) {
+      const { gods } = s.peek();
+      for (const god of gods) if (god.step === "work") at[god.key] ??= s.host.now();
+      if (gods.length === specs.length && gods.every((god) => god.step === "work")) break;
+      if (ms > 60_000) throw new Error("they never came to their work");
+      s.host.advance(1);
+    }
+    return Object.assign(s, {
+      at,
+      set(key: string, change: Partial<LaneAgent>): void {
+        agents = agents.map((a) => (a.key === key ? { ...a, ...change } : a));
+        s.sync(agents);
+      },
+      seen: (key: string): Seen => out(s, key),
+      to(key: string, ms: number): void {
+        const on = at[key]! + ms - s.host.now();
+        if (on < 0) throw new Error(`${key} took its place more than ${ms}ms ago`);
+        s.host.advance(on);
+      },
+      order: (): string[] => along(s),
+    });
+  }
+
+  /** The clock moved on a ms at a time: from when to when `key` next shows a reaction, counted from now. */
+  function shows(
+    s: Lane,
+    key: string,
+    within = 4000,
+  ): { from: number; to: number; how: string; of: string } | null {
+    let found: { from: number; how: string; of: string } | null = null;
+    for (let ms = 0; ms <= within; ms++) {
+      const r = s.seen(key).react;
+      if (r && !found) found = { from: ms, ...r };
+      if (!r && found) return { ...found, to: ms };
+      s.host.advance(1);
+    }
+    return found && { ...found, to: Infinity };
+  }
+
+  /** Athena on the right, Hermes on the left, and Herodotus, who misses nothing, between them. */
+  const three = (opts: Opts = {}): Lane => lane([["athena"], ["hermes"], ["herodotus"]], opts);
+
+  it("a god in front is glanced at by the nearest god at its work that side: on its own quarter-beat, a lean about the floor under its front, eased in and out over half a beat", () => {
+    const s = three();
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    expect(s.seen("k2")).toMatchObject({ god: "herodotus", face: -1, pose: "look" });
+    expect(s.seen("k2").x - s.seen("k1").x).toBeLessThan(200);
+    const cell = s.cell("k2")!;
+    // His beat is 600ms. Hermes, in front of him, is done a second after he took his place.
+    s.to("k2", 1000);
+    s.set("k1", { look: "done" });
+    expect(s.seen("k2").react).toBeNull(); // not at once: a quarter-beat after, on his quarter-beat
+    s.to("k2", 1199);
+    expect(s.seen("k2").react).toBeNull();
+    expect(cell.dataset.react).toBeUndefined();
+    s.to("k2", 1200);
+    expect(s.seen("k2").react).toEqual({ how: "glance", of: "k1" });
+    expect(cell.dataset.react).toBe("glance");
+    const { front } = CAST.gods.herodotus.nt.look!;
+    const lean = (ms: number): string => (s.to("k2", 1200 + ms), posesOf(cell).style.transform);
+    expect(lean(0)).toBe("");
+    expect(lean(150)).toBe(turnOf(front, 0.75));
+    expect(lean(300)).toBe(turnOf(front, 1.5));
+    expect(lean(899)).toBe(turnOf(front, 1.5));
+    expect(lean(1050)).toBe(turnOf(front, 0.75));
+    // The pose is the record's all the while, and he still faces as he did.
+    expect(cell.dataset.pose).toBe("look");
+    expect(s.seen("k2")).toMatchObject({ pose: "look", want: "look", dir: -1, step: "work" });
+    expect(lean(1150)).not.toBe("");
+    s.to("k2", 2399);
+    expect(s.seen("k2").react).toEqual({ how: "glance", of: "k1" });
+    // Two of his beats, and he is back at his work.
+    expect(lean(1200)).toBe("");
+    expect(s.seen("k2").react).toBeNull();
+    expect(cell.dataset.react).toBeUndefined();
+    // Athena, beyond him, is not the nearest that side: she saw nothing.
+    const s2 = three();
+    s2.to("k2", 1000);
+    s2.set("k1", { look: "done" });
+    expect(shows(s2, "k0", 2500)).toBeNull();
+  });
+
+  it("one behind is turned to, where the pose may turn: a cut, held its beats, and a cut back", () => {
+    const s = three();
+    const cell = s.cell("k2")!;
+    expect(CAST.gods.herodotus.nt.look!.turn).toBe(true);
+    s.to("k2", 1000);
+    s.set("k0", { look: "done" }); // Athena, on his right: behind him
+    s.to("k2", 1199);
+    expect(cell.classList.contains("is-left")).toBe(true);
+    s.to("k2", 1200);
+    expect(s.seen("k2")).toMatchObject({ react: { how: "turn", of: "k0" }, dir: 1, pose: "look" });
+    expect(s.seen("k2").fidget).toMatchObject({ tx: "", turn: true });
+    expect(cell.classList.contains("is-left")).toBe(false);
+    expect(cell.dataset.react).toBe("turn");
+    expect(posesOf(cell).style.transform).toBe(""); // no lean: a cut
+    s.to("k2", 2399);
+    expect(cell.classList.contains("is-left")).toBe(false);
+    s.to("k2", 2400);
+    expect(s.seen("k2")).toMatchObject({ react: null, dir: -1 });
+    expect(cell.classList.contains("is-left")).toBe(true);
+    expect(cell.dataset.react).toBeUndefined();
+  });
+
+  it("where the pose may not turn, one behind gets a glance back: a lean the other way, about the floor under its heel", () => {
+    // Argus at his look holds his lamp out: he cannot turn. He sees every failure.
+    const s = lane([["athena"], ["hermes"], ["argus"]]);
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    const { back, turn, lean } = CAST.gods.argus.nt.look!;
+    expect(turn).toBe(false);
+    expect(CAST.gods.argus.chance.fail).toBe(1);
+    const face = s.seen("k2").face;
+    const behind = face < 0 ? "k0" : "k1";
+    s.to("k2", 1000);
+    s.set(behind, { look: "fail" });
+    const cell = s.cell("k2")!;
+    const seen = shows(s, "k2", 1900)!;
+    // Three of his beats of 500ms for a failure, begun a quarter-beat or two after it.
+    expect(seen).toMatchObject({ how: "back", of: behind });
+    expect(seen.from).toBeGreaterThanOrEqual(125);
+    expect(seen.from).toBeLessThanOrEqual(250);
+    expect(seen.to - seen.from).toBe(1500);
+    const s2 = lane([["athena"], ["hermes"], ["argus"]]);
+    s2.to("k2", 1000);
+    s2.set(behind, { look: "fail" });
+    s2.host.advance(seen.from + 250);
+    expect(posesOf(s2.cell("k2")!).style.transform).toBe(turnOf(back, -lean));
+    expect(s2.seen("k2").dir).toBe(face); // not turned
+    expect(cell.dataset.react).toBeUndefined();
+  });
+
+  it("a god arriving is noticed as it lands, by the nearest god at its work", () => {
+    const s = lane([["herodotus"]]);
+    s.to("k0", 2000);
+    s.sync([agent("k0", "herodotus", "run", "look", 1), agent("k1", "athena", "run", "look", 1)]);
+    // The lane is open: she lands at once, beside him, and is set from her stones.
+    expect(s.seen("k1")).toMatchObject({ god: "athena", step: "assemble" });
+    expect(Math.abs(s.seen("k1").x - s.seen("k0").x)).toBeLessThan(200);
+    const ahead = Math.sign(s.seen("k1").x - s.seen("k0").x) === s.seen("k0").face;
+    const seen = shows(s, "k0", 2000)!;
+    expect(seen).toMatchObject({ how: ahead ? "glance" : "turn", of: "k1" });
+    expect(seen.from).toBeGreaterThanOrEqual(150);
+    expect(seen.from).toBeLessThanOrEqual(300);
+    expect(seen.to - seen.from).toBe(1200); // two of his beats
+    expect(s.seen("k0").step).toBe("work"); // and he never left his work for her
+  });
+
+  it("a crown that cannot begin in time is dropped, and she gives no glance in its place", () => {
+    // A cast whose crown must begin within a millisecond of the record: it never can.
+    const nike = CAST.gods.nike;
+    const hasty = {
+      ...CAST,
+      gods: { ...CAST.gods, nike: { ...nike, rx: { crown: { ...nike.rx.crown!, late: 1 } } } },
+    };
+    const s = lane([["herodotus"], ["nike", "make"], ["athena"]], { cast: hasty });
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    s.set("k2", { look: "done" });
+    expect(shows(s, "k1", 2500)).toBeNull();
+    expect(s.cell("k1")!.dataset.react).toBeUndefined();
+    // With the cast's own crown she raised it.
+    const patient = lane([["herodotus"], ["nike", "make"], ["athena"]]);
+    patient.set("k2", { look: "done" });
+    expect(shows(patient, "k1", 2500)).toMatchObject({ how: "crown", of: "k2" });
+  });
+
+  it("a stop is noticed as a failure is: by the same chance, for the same three beats", () => {
+    const s = lane([["athena"], ["hermes"], ["argus"]]);
+    const behind = s.order()[s.seen("k2").face < 0 ? 2 : 0]!;
+    s.to("k2", 1000);
+    s.set(behind, { look: "stop" });
+    const seen = shows(s, "k2", 1900)!;
+    expect(seen).toMatchObject({ how: "back", of: behind });
+    expect(seen.to - seen.from).toBe(1500);
+  });
+
+  /** Whether the smith, who is absorbed, looked up when `key` beside him finished; and the dice the floor threw as it did. */
+  function smith(key: string, seed: number, react = true): { looked: boolean; thrown: number } {
+    const s = stage({ seed, react });
+    const agents = [
+      agent("smith", "hephaestus", "run", "look", 1),
+      agent(key, "athena", "run", "look", 1),
+    ];
+    s.sync(agents);
+    s.host.advance(14_000);
+    const [a, b] = s.peek().gods;
+    expect([a!.step, b!.step]).toEqual(["work", "work"]);
+    expect(Math.abs(a!.x - b!.x)).toBeLessThan(200);
+    const { dice } = s.asked;
+    s.sync([agents[0]!, { ...agents[1]!, look: "done" }]);
+    let looked = false;
+    for (let ms = 0; ms < 800; ms += 20) {
+      s.host.advance(20);
+      looked ||= out(s, "smith").react !== null;
+    }
+    const thrown = s.asked.dice - dice;
+    s.dispose();
+    return { looked, thrown };
+  }
+
+  it("whether it notices is thrown on dice of its own, by its nature: the same for the same two agents and event whatever the floor's dice, and not a throw of the floor's", () => {
+    expect(CAST.gods.hephaestus.chance.done).toBe(0.2);
+    const keys = Array.from({ length: 40 }, (_, i) => `owl-${i}`);
+    const looks = keys.map((key) => smith(key, 7));
+    // One finish in five, give or take: by the agents' keys, so these forty are always the same forty.
+    const looked = looks.filter((it) => it.looked).length;
+    expect(looked).toBeGreaterThan(3);
+    expect(looked).toBeLessThan(14);
+    // Another seed for the floor's dice: other lines, other strides, the same answers.
+    keys.slice(0, 12).forEach((key, i) => expect(smith(key, 31).looked).toBe(looks[i]!.looked));
+    // And the floor threw its dice as it does with nobody noticing anything.
+    keys.slice(0, 12).forEach((key, i) => {
+      const still = smith(key, 7, false);
+      expect(still.looked).toBe(false);
+      expect(still.thrown).toBe(looks[i]!.thrown);
+    });
+    expect(looks.some((it) => it.thrown > 0)).toBe(true); // the farewell's line is the floor's to pick
+  });
+
+  /** Herodotus on the right, Nike on the left at her making, on the floor, and Athena between them. */
+  const withNike = (family: ToolFamily = "make", opts: Opts = {}): Lane =>
+    lane([["herodotus"], ["nike", family], ["athena"]], opts);
+
+  it("when a god finishes, Nike at her work raises her crown toward it: its picture in place of her pose, for four of her beats, and data-pose stays the record's", () => {
+    const s = withNike();
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    expect(s.seen("k1")).toMatchObject({ god: "nike", face: 1, pose: "make", lift: 0 });
+    const cell = s.cell("k1")!;
+    // Built with her: the crown's picture, sat in her cell as a skill pose is.
+    const crown = cell.querySelector<HTMLImageElement>(".oly-pose.oly-p-crown")!;
+    expect(crown.getAttribute("src")).toBe(CROWN_URLS.nike);
+    expect(crown.style.left).toBe("11px");
+    expect(crown.style.width).toBe("67px");
+    expect(CAST.gods.nike.rx.crown).toEqual({ late: 3000, beats: 4, at: [11, 67] });
+    // Her beat is 360ms. Athena, in front of her, is done half way between two of her quarter-beats.
+    const to = (ms: number): void => s.to("k1", 3600 + ms);
+    to(945);
+    s.set("k2", { look: "done" });
+    to(1079);
+    expect(s.seen("k1").react).toBeNull();
+    to(1080); // a quarter-beat after, on her next quarter-beat
+    expect(s.seen("k1")).toMatchObject({ react: { how: "crown", of: "k2" }, dir: 1, lift: 0 });
+    expect(s.seen("k1").fidget).toBeNull(); // she faces it already
+    expect(cell.dataset.react).toBe("crown");
+    expect(cell.dataset.pose).toBe("make");
+    expect(s.seen("k1")).toMatchObject({ pose: "make", want: "make", step: "work" });
+    to(1080 + 1439);
+    expect(cell.dataset.react).toBe("crown");
+    to(1080 + 1440);
+    expect(s.seen("k1").react).toBeNull();
+    expect(cell.dataset.react).toBeUndefined();
+    expect(cell.dataset.pose).toBe("make");
+    // Herodotus, on Athena's other side, glanced at her; Nike gave her crown instead of a glance.
+    const s2 = withNike();
+    s2.set("k2", { look: "done" });
+    expect(shows(s2, "k0", 1000)).toMatchObject({ how: "glance", of: "k2" });
+  });
+
+  it("she turns about for one behind her, whatever her pose; never crowns a failure, a stop, or her own finish", () => {
+    // Nike between them, facing left: Athena on the right is behind her.
+    const s = lane([["athena"], ["herodotus"], ["nike", "run"]]);
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    expect(s.seen("k2")).toMatchObject({ god: "nike", face: -1 });
+    const cell = s.cell("k2")!;
+    s.to("k2", 945);
+    s.set("k0", { look: "done" });
+    s.to("k2", 1080);
+    expect(s.seen("k2")).toMatchObject({ react: { how: "crown", of: "k0" }, dir: 1 });
+    expect(s.seen("k2").fidget).toMatchObject({ tx: "", turn: true });
+    expect(cell.classList.contains("is-left")).toBe(false);
+    expect(cell.dataset.react).toBe("crown");
+    s.to("k2", 1080 + 1440);
+    expect(s.seen("k2")).toMatchObject({ react: null, dir: -1 });
+    expect(cell.classList.contains("is-left")).toBe(true);
+    // A failure and a stop are noticed, if at all, as any god notices: never crowned.
+    for (const look of ["fail", "stop"] as const) {
+      const sad = withNike();
+      sad.set("k2", { look });
+      const seen = shows(sad, "k1", 2500);
+      if (seen) expect(seen.how).toBe("glance");
+      expect(sad.cell("k1")!.dataset.react).toBeUndefined();
+    }
+    // Her own finish: nobody crowns it, and she is not at her work to.
+    const own = withNike();
+    own.set("k1", { look: "done" });
+    for (let ms = 0; ms < 2500; ms += 10) {
+      own.host.advance(10);
+      expect(own.peek().gods.every((god) => god.react?.how !== "crown")).toBe(true);
+    }
+  });
+
+  it("the one who flies comes down for her crown as for a cut, her wings still, and rises after it; her wingbeat waits for its next bar, and begins it from rest", () => {
+    const s = withNike("look", { fidget: true });
+    const cell = s.cell("k1")!;
+    const lift = (): number => Number(s.seen("k1").lift.toFixed(3));
+    // Ten of her beats after she took her place, five of her bars: Athena is last to hers.
+    const to = (ms: number): void => s.to("k1", 3600 + ms);
+    to(2000);
+    expect(lift()).toBeGreaterThanOrEqual(6); // riding on her wings
+    s.set("k2", { look: "done" });
+    // A quarter-beat after, and 180ms to come down: her crown begins on her quarter-beat at 2340.
+    const start = 2340;
+    to(start - 180);
+    let last = lift();
+    expect(last).toBeGreaterThanOrEqual(6);
+    for (let ms = start - 170; ms < start; ms += 10) {
+      to(ms);
+      expect(lift()).toBeLessThan(last); // down, eased, from the height she had
+      last = lift();
+      expect(cell.dataset.frame).toBeUndefined(); // her wings as they were carved
+      expect(s.seen("k1").react).toBeNull();
+      expect(cell.dataset.react).toBeUndefined();
+    }
+    to(start);
+    expect(s.seen("k1")).toMatchObject({
+      react: { how: "crown", of: "k2" },
+      lift: 0,
+      pose: "look",
+    });
+    expect(cell.style.transform).toMatch(/px, 0, 0\)$/); // on the floor
+    expect(cell.dataset.pose).toBe("look");
+    to(start + 1439);
+    expect(s.seen("k1")).toMatchObject({ react: { how: "crown", of: "k2" }, lift: 0 });
+    // Her look cuts back in, and she rises over 240ms, to her lift.
+    to(start + 1440);
+    expect(s.seen("k1")).toMatchObject({ react: null, lift: 0 });
+    to(start + 1440 + 120);
+    expect(lift()).toBe(7);
+    to(start + 1440 + 240);
+    expect(lift()).toBe(8);
+    // Her bars are 720ms from her cut: the crown ended at 3780, so her wings wait for 4320.
+    for (let ms = start + 1440 + 250; ms < 4320; ms += 10) {
+      to(ms);
+      expect(cell.dataset.frame).toBeUndefined();
+      expect(s.seen("k1").fidget).toBeNull();
+      expect(lift()).toBe(8);
+    }
+    to(4320);
+    expect(cell.dataset.frame).toBe("b"); // down
+    expect(lift()).toBe(8); // from rest: she does not drop to 6 to rise again
+    to(4320 + 180);
+    expect(lift()).toBe(8);
+    to(4320 + 360 + 150);
+    expect(lift()).toBe(7); // and sinks as her wings come up, as ever
+    to(4320 + 720 + 150);
+    expect(lift()).toBe(7); // come round: rising from 6
+    // Her card held its one height throughout, over her lift.
+    const carded = withNike("look", { fidget: true });
+    enter(carded.cell("k1"));
+    carded.host.advance(100);
+    const foot = carded.peek().card!.foot;
+    expect(carded.peek().card).toEqual(placeOf(carded, "k1", CAST.gods.nike.card));
+    carded.set("k2", { look: "done" });
+    for (let ms = 0; ms < 2400; ms += 20) {
+      carded.host.advance(20);
+      expect(carded.peek().card).toMatchObject({ key: "k1", foot });
+    }
+  });
+
+  it("with several Nikes at their work, the nearest who is free crowns; she may crown another Nike", () => {
+    // Two Nikes and Athena between them: the nearer to Athena crowns her, and the other does not.
+    const s = lane([["nike", "make"], ["nike", "make"], ["athena"]]);
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    const far = (key: string): number => Math.abs(s.seen(key).x - s.seen("k2").x);
+    const [near, other] = far("k0") < far("k1") ? ["k0", "k1"] : ["k1", "k0"];
+    s.to("k2", 500);
+    s.set("k2", { look: "done" });
+    const crowns: Record<string, boolean> = { k0: false, k1: false };
+    for (let ms = 0; ms < 2500; ms += 10) {
+      s.host.advance(10);
+      for (const key of ["k0", "k1"]) crowns[key] ||= s.seen(key).react?.how === "crown";
+    }
+    expect(crowns).toEqual({ [near!]: true, [other!]: false });
+    // Whichever was sent first: of four, left to right a Nike, Herodotus, Athena, a Nike.
+    const four = (): Lane => lane([["nike", "make"], ["herodotus"], ["nike", "make"], ["athena"]]);
+    const crowner = (ended: string): string[] => {
+      const it = four();
+      expect(it.order()).toEqual(["k2", "k1", "k3", "k0"]);
+      it.host.advance(500);
+      it.set(ended, { look: "done" });
+      const who = new Set<string>();
+      for (let ms = 0; ms < 2500; ms += 10) {
+        it.host.advance(10);
+        for (const god of it.peek().gods) if (god.react?.how === "crown") who.add(god.key);
+      }
+      return [...who];
+    };
+    expect(crowner("k3")).toEqual(["k0"]); // Athena: the Nike on her right, the first sent
+    expect(crowner("k1")).toEqual(["k2"]); // Herodotus: the Nike on his left, sent after her
+    // Two Nikes alone: one finishes, and the other crowns her.
+    const two = lane([
+      ["nike", "make"],
+      ["nike", "make"],
+    ]);
+    two.host.advance(500);
+    two.set("k1", { look: "done" });
+    expect(shows(two, "k0", 1000)).toMatchObject({ how: "crown", of: "k1" });
+  });
+
+  it("a finish while the nearest Nike is crowning goes to the next who is free; two finishing together are crowned by two", () => {
+    // Left to right: Athena, Herodotus, a Nike, a Nike.
+    const four = (): Lane => {
+      const s = lane([["nike", "make"], ["herodotus"], ["athena"], ["nike", "make"]]);
+      expect(s.order().map((key) => s.seen(key).god)).toEqual([
+        "athena",
+        "herodotus",
+        "nike",
+        "nike",
+      ]);
+      return s;
+    };
+    const s = four();
+    const [athena, herodotus, inner, outer] = s.order() as [string, string, string, string];
+    s.host.advance(1000);
+    s.set(herodotus, { look: "done" });
+    s.host.advance(400);
+    expect(s.seen(inner).react).toEqual({ how: "crown", of: herodotus });
+    s.set(athena, { look: "done" }); // the nearer Nike is taken
+    const crowned: Record<string, string> = {};
+    for (let ms = 0; ms < 2500; ms += 10) {
+      s.host.advance(10);
+      for (const key of [inner, outer]) {
+        const r = s.seen(key).react;
+        if (r?.how === "crown") crowned[key] = r.of;
+      }
+    }
+    expect(crowned).toEqual({ [inner]: herodotus, [outer]: athena });
+    // Both in one look at the records: each gets a crown.
+    const twice: Record<string, string> = {};
+    const together = four();
+    together.host.advance(1000);
+    together.sync(
+      together.order().map((key, i) => {
+        const seen = together.seen(key);
+        return agent(key, seen.god, i < 2 ? "done" : "run", i < 2 ? "look" : "make", 1);
+      }),
+    );
+    for (let ms = 0; ms < 2500; ms += 10) {
+      together.host.advance(10);
+      for (const key of [inner, outer]) {
+        const r = together.seen(key).react;
+        if (r?.how === "crown") twice[key] = r.of;
+      }
+    }
+    expect(Object.values(twice).sort()).toEqual([athena, herodotus].sort());
+  });
+
+  it("two finishing together with one Nike: she crowns the nearer", () => {
+    // Nike on the right; Hermes far off on the left, Athena beside her.
+    const s = lane([["nike", "make"], ["hermes"], ["athena"]]);
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    s.host.advance(1000);
+    s.sync([
+      agent("k0", "nike", "run", "make", 1),
+      agent("k1", "hermes", "done", "look", 1), // the farther, and the first the floor hears of
+      agent("k2", "athena", "done", "look", 1),
+    ]);
+    expect(shows(s, "k0", 1000)).toMatchObject({ how: "crown", of: "k2" });
+  });
+
+  it("a cut of the god's own already coming goes first: the notice begins after it has landed, in the pose it cut to", () => {
+    const s = three();
+    const cell = s.cell("k2")!;
+    // Herodotus is handed a search: his cut to it falls on his beat once his look has had its dwell, at 1200.
+    s.to("k2", 100);
+    s.set("k2", { family: "web", tools: 2 });
+    s.to("k2", 200);
+    s.set("k1", { look: "done" });
+    for (let ms = 200; ms < 1200; ms += 10) {
+      s.to("k2", ms);
+      expect(s.seen("k2").react).toBeNull(); // it waits for the cut
+      expect(cell.dataset.pose).toBe("look");
+    }
+    s.to("k2", 1200);
+    expect(cell.dataset.pose).toBe("web"); // the cut, when it was always going to fall
+    expect(s.seen("k2").react).toBeNull();
+    s.to("k2", 1349);
+    expect(s.seen("k2").react).toBeNull();
+    s.to("k2", 1350); // a quarter-beat after the cut
+    expect(s.seen("k2")).toMatchObject({ react: { how: "glance", of: "k1" }, pose: "web" });
+    s.to("k2", 1650);
+    expect(posesOf(cell).style.transform).toBe(turnOf(CAST.gods.herodotus.nt.web!.front, 1.5));
+    s.to("k2", 1350 + 1200);
+    expect(s.seen("k2").react).toBeNull();
+    // With no frame asked for but the lane's own, the clock wakes for its start: to the ms.
+    const asleep = three();
+    asleep.to("k2", 100);
+    asleep.set("k2", { family: "web", tools: 2 });
+    asleep.to("k2", 200);
+    asleep.set("k1", { look: "done" });
+    asleep.host.run(1149); // through the cut, and Hermes's line held out, still
+    expect(asleep.cell("k2")!.dataset.pose).toBe("web");
+    expect(asleep.cell("k2")!.dataset.react).toBeUndefined();
+    const { frames } = asleep.drawn;
+    asleep.host.run(1);
+    expect(asleep.cell("k2")!.dataset.react).toBe("glance");
+    expect(asleep.drawn.frames).toBeGreaterThan(frames); // a frame of its own, and the lean's after it
+  });
+
+  it("a cut landing ends a notice at once, and falls when it would have with nobody noticing", () => {
+    const cutAt = (react: boolean): number => {
+      const s = three({ react });
+      const cell = s.cell("k2")!;
+      s.to("k2", 1300);
+      s.set("k1", { look: "done" }); // noticed from 1500, for two beats: until 2700
+      s.to("k2", 1600);
+      if (react) expect(s.seen("k2").react).toEqual({ how: "glance", of: "k1" });
+      s.set("k2", { family: "web", tools: 2 });
+      let at = 1600;
+      while (cell.dataset.pose === "look") s.to("k2", ++at);
+      expect(cell.dataset.pose).toBe("web");
+      // The lean is gone with the pose it was in.
+      expect(s.seen("k2").react).toBeNull();
+      expect(cell.dataset.react).toBeUndefined();
+      expect(posesOf(cell).style.transform).toBe("");
+      s.to("k2", at + 600);
+      expect(s.seen("k2").react).toBeNull(); // and it does not come back
+      return at;
+    };
+    expect(cutAt(true)).toBe(1800);
+    expect(cutAt(false)).toBe(1800);
+  });
+
+  it("a notice that cannot begin in time is dropped: its cut landed too late", () => {
+    // Asked for less motion, a pose is held twice as long: the cut to his search falls at 2400.
+    const s = three({ reduced: true });
+    const face = s.seen("k2").face;
+    const behind = s.order()[face < 0 ? 2 : 0]!;
+    s.to("k2", 100);
+    s.set("k2", { family: "web", tools: 2 });
+    s.to("k2", 200);
+    s.set(behind, { look: "done" });
+    expect(shows(s, "k2", 6000)).toBeNull(); // 1.5s after the record, it is too late
+    expect(s.cell("k2")!.dataset.pose).toBe("web");
+    // With no cut in the way, he turned to face it.
+    const free = three({ reduced: true });
+    free.to("k2", 200);
+    free.set(behind, { look: "done" });
+    expect(shows(free, "k2", 6000)).toMatchObject({ how: "turn", of: behind });
+  });
+
+  it("leaving its work ends a notice at once: a step aside, or its own ending; and one not begun never plays", () => {
+    // The lane narrows under them in the middle of a glance: he sets off for his new place, as he would have.
+    const s = three();
+    s.to("k2", 1000);
+    s.set("k1", { look: "done" });
+    s.to("k2", 1600);
+    expect(s.seen("k2").react).toEqual({ how: "glance", of: "k1" });
+    expect(posesOf(s.cell("k2")!).style.transform).not.toBe("");
+    s.setWidth(460);
+    s.resize();
+    // He has left his work: he waits for Hermes's line to be furled, and then walks.
+    expect(s.seen("k2")).toMatchObject({ react: null, step: "hold" });
+    expect(s.cell("k2")!.dataset.react).toBeUndefined();
+    expect(posesOf(s.cell("k2")!).style.transform).toBe("");
+    until(s, () => s.seen("k2").step === "work");
+    expect(shows(s, "k2", 3000)).toBeNull(); // back at his work, it does not come back
+    // His own record ends in the middle of a turn: he is turned back, and stands for his farewell
+    // (he waits his turn to say it: Athena's line is still out).
+    const done = three();
+    done.to("k2", 1000);
+    done.set("k0", { look: "done" });
+    done.to("k2", 1600);
+    expect(done.seen("k2")).toMatchObject({ react: { how: "turn", of: "k0" }, dir: 1 });
+    done.set("k2", { look: "done" });
+    expect(done.seen("k2")).toMatchObject({ react: null, step: "hold", pose: "stand", dir: -1 });
+    expect(done.cell("k2")!.dataset.react).toBeUndefined();
+    // A notice that never began does not use up his rest: back at his work, he turns to the next.
+    const again = three();
+    again.to("k2", 1000);
+    again.set("k1", { look: "done" }); // due at 1200
+    again.to("k2", 1100);
+    again.setWidth(460);
+    again.resize(); // and he has left his work before it
+    until(again, () => again.seen("k2").step === "work");
+    expect(again.host.now() - again.at.k2!).toBeLessThan(8000);
+    again.set("k0", { look: "done" });
+    expect(shows(again, "k2", 1000)).toMatchObject({ how: "turn", of: "k0" });
+    // Ended before his notice began: it never does.
+    const early = three();
+    early.to("k2", 1000);
+    early.set("k1", { look: "done" });
+    early.to("k2", 1100);
+    early.set("k2", { look: "fail" });
+    for (let ms = 1100; ms < 4000; ms += 20) {
+      early.to("k2", ms);
+      expect(early.seen("k2").react).toBeNull();
+      expect(posesOf(early.cell("k2")!).style.transform).toBe("");
+    }
+  });
+
+  it("only a god at its work notices, and only within reach; a god that noticed rests eight seconds before it notices again", () => {
+    // Herodotus is still walking to his place when Hermes is done: he does not look up, then or later.
+    const s = stage({ react: true });
+    const agents = [agent("k0", "athena"), agent("k1", "hermes"), agent("k2", "herodotus")];
+    s.sync(agents);
+    until(s, () => s.peek().gods.length === 3 && out(s, "k1").step === "work");
+    expect(out(s, "k2").step).not.toBe("work");
+    s.sync([agents[0]!, { ...agents[1]!, look: "done" }, agents[2]!]);
+    for (let ms = 0; ms < 8000; ms += 20) {
+      s.host.advance(20);
+      expect(s.peek().gods.every((god) => god.react === null)).toBe(true);
+    }
+    // Beyond his reach: Athena is done 329px away, with nobody between them.
+    const far = lane([["athena"], ["herodotus"], ["hermes"]]);
+    expect(far.order()).toEqual(["k1", "k2", "k0"]);
+    far.set("k2", { look: "done" });
+    until(far, () => far.peek().gods.length === 2);
+    far.host.advance(9000); // and he has had his rest since he glanced at Hermes
+    expect(far.seen("k1")).toMatchObject({ god: "herodotus", step: "work" });
+    expect(far.seen("k0").x - far.seen("k1").x).toBeGreaterThan(200);
+    far.set("k0", { look: "done" });
+    expect(shows(far, "k1", 3000)).toBeNull();
+    // His rest: he glanced at Hermes; Athena is done 7.9s after that glance began, and he does not turn.
+    const rested = (ms: number): ReturnType<typeof shows> => {
+      const it = three();
+      it.to("k2", 1000);
+      it.set("k1", { look: "done" });
+      it.to("k2", 1200);
+      expect(it.seen("k2").react).toEqual({ how: "glance", of: "k1" });
+      it.to("k2", 1200 + ms);
+      it.set("k0", { look: "done" });
+      return shows(it, "k2", 2000);
+    };
+    expect(rested(7900)).toBeNull();
+    expect(rested(8000)).toMatchObject({ how: "turn", of: "k0" });
+  });
+
+  it("puts nothing on the clock, wakes it never and throws no dice: the clock sleeps until a notice begins, through a turn, and while a lean is held", () => {
+    function run(react: boolean, behind: boolean): { s: Lane; frames: number[] } {
+      const s = three({ react });
+      s.to("k2", 1000);
+      s.set(behind ? "k0" : "k1", { look: "done" });
+      // Its farewell unrolls for 650ms, with frames of its own; then it is held out, still, for
+      // 1400. The frames drawn in each 50ms, as a window gives them: one that falls on a
+      // moment is in the 50ms that ends there.
+      const frames: number[] = [];
+      for (let ms = 0; ms < 2000; ms += 50) {
+        const { frames: was } = s.drawn;
+        s.host.run(50, 16);
+        frames.push(s.drawn.frames - was);
+      }
+      return { s, frames };
+    }
+    const count = (frames: number[], from: number, to: number): number =>
+      frames.slice(from / 50, to / 50).reduce((sum, n) => sum + n, 0);
+    // A turn, from 200 to 1400: one frame for its end, and not one more than with nobody noticing.
+    const turn = run(true, true);
+    const still = run(false, true);
+    expect(count(still.frames, 650, 2000)).toBe(0);
+    expect(count(turn.frames, 650, 1350)).toBe(0);
+    expect(count(turn.frames, 1350, 1400)).toBe(1);
+    expect(count(turn.frames, 1400, 2000)).toBe(0);
+    expect(count(turn.frames, 0, 650)).toBe(count(still.frames, 0, 650)); // its start fell on a frame that ran anyway
+    expect(turn.s.asked).toEqual(still.s.asked);
+    // A glance, from 200: it eases in until 500, is held until 1100, and eases back until 1400.
+    const glance = run(true, false);
+    const calm = run(false, false);
+    expect(count(calm.frames, 650, 2000)).toBe(0);
+    expect(count(glance.frames, 650, 1050)).toBe(0);
+    expect(count(glance.frames, 1050, 1400)).toBeGreaterThan(25); // frame by frame, as the window gives them
+    expect(count(glance.frames, 1050, 1400)).toBeLessThan(40);
+    expect(count(glance.frames, 1400, 2000)).toBe(0);
+    expect(glance.s.asked).toEqual(calm.s.asked);
+    expect(glance.s.asked.dice).toBeGreaterThan(0);
+    // The floor at rest was not drawn again for any of it.
+    expect(glance.s.bed.wipes).toBe(calm.s.bed.wipes);
+    expect(glance.s.bed.filled).toBe(calm.s.bed.filled);
+    expect(glance.s.fx.wipes).toBe(calm.s.fx.wipes);
+  });
+
+  it("its fidget rests from a notice's start until the first bar after it, and a glance leans in from wherever the fidget had the figure", () => {
+    // The smith at his bellows, between the others: a bar of two beats of 560ms, leaning in and back.
+    const s = lane([["athena"], ["hermes"], ["hephaestus", "run"]], { fidget: true });
+    expect(s.order()).toEqual(["k1", "k2", "k0"]);
+    const cell = s.cell("k2")!;
+    const bellows = CAST.gods.hephaestus.fid.run!.moves[0]!.pivot!;
+    const { front, lean } = CAST.gods.hephaestus.nt.run!;
+    const face = s.seen("k2").face;
+    const ahead = s.order()[face < 0 ? 0 : 2]!;
+    expect(CAST.gods.hephaestus.chance.fail).toBe(0.98);
+    // Into his fourth bar, the one in front of him fails; half a beat in, leant right over the bellows, he looks up.
+    s.to("k2", 3430);
+    s.set(ahead, { look: "fail" });
+    const seen = shows(s, "k2", 210)!;
+    expect(seen).toMatchObject({ how: "glance", of: ahead, to: Infinity });
+    const start = 3430 + seen.from;
+    expect(start).toBe(3640); // a quarter-beat after, on his quarter-beat
+    const at = (ms: number): string => (s.to("k2", start + ms), posesOf(cell).style.transform);
+    // As it begins, where the bellows had him, and no jump; then the one eases out as the other eases in.
+    const turns = (tx: string): number[] =>
+      [...tx.matchAll(/rotate\((-?[\d.]+)deg\)/g)].map((m) => Number(m[1]));
+    const first = at(10);
+    expect(first).toContain(`translate(${bellows[0]}px, ${bellows[1]}px)`);
+    expect(turns(first)[0]).toBeGreaterThan(0.95); // all but a whole degree, as the bellows had him
+    const half = at(140);
+    expect(half).toContain(`translate(${front[0]}px, ${front[1]}px)`);
+    expect(turns(half)).toEqual([0.5, lean / 2]); // half of the one, half of the other
+    // Half a beat in, only the lean; and so it stays, the bellows at rest, for three beats in all.
+    expect(at(280)).toBe(turnOf(front, lean));
+    expect(at(1000)).toBe(turnOf(front, lean));
+    expect(at(3 * 560)).toBe("");
+    expect(s.seen("k2").react).toBeNull();
+    // It ended 5320ms after his cut; his bars fall every 1120: he waits for the one at 5600.
+    for (let ms = 5320; ms < 5600; ms += 20) {
+      s.to("k2", ms);
+      expect(posesOf(cell).style.transform).toBe("");
+      expect(s.seen("k2").fidget).toBeNull();
+    }
+    s.to("k2", 5600 + 140);
+    expect(posesOf(cell).style.transform).toBe(turnOf(bellows, 0.5)); // and leans in again, as ever
+    // The hammer: no blow falls from the notice's start until the bar after it.
+    const hammer = lane([["athena"], ["hermes"], ["hephaestus", "make"]], { fidget: true });
+    const anvil = hammer.cell("k2")!;
+    hammer.to("k2", 4000);
+    hammer.set(ahead, { look: "fail" });
+    const struck = shows(hammer, "k2", 200)!;
+    expect(struck).toMatchObject({ how: "glance", of: ahead });
+    const began = 4000 + struck.from;
+    expect(began).toBe(4200);
+    // His bars are 2240ms: the notice ends at 5880, in the bar that began at 4480: he waits for 6720.
+    for (let ms = began + 20; ms < 6720; ms += 20) {
+      hammer.to("k2", ms);
+      expect(anvil.dataset.frame).toBeUndefined();
+    }
+    hammer.to("k2", 6720);
+    expect(anvil.dataset.frame).toBe("b"); // down, as the bar begins
+  });
+
+  it("under reduced motion a notice is only a turn to face, and the crown a still, each a cut held twice as long; a lean shows nothing; the one who flies is simply down for her crown", () => {
+    // Behind him: a turn, for four of his beats, not two.
+    const s = three({ reduced: true });
+    const cell = s.cell("k2")!;
+    s.to("k2", 1000);
+    s.set("k0", { look: "done" });
+    s.to("k2", 1199);
+    expect(s.seen("k2").react).toBeNull();
+    s.to("k2", 1200);
+    expect(s.seen("k2")).toMatchObject({ react: { how: "turn", of: "k0" }, dir: 1 });
+    s.to("k2", 1200 + 2399);
+    expect(s.seen("k2")).toMatchObject({ react: { how: "turn", of: "k0" }, dir: 1 });
+    expect(cell.dataset.react).toBe("turn");
+    s.to("k2", 1200 + 2400);
+    expect(s.seen("k2")).toMatchObject({ react: null, dir: -1 });
+    // In front of him: a glance is motion, so nothing shows.
+    const front = three({ reduced: true });
+    front.to("k2", 1000);
+    front.set("k1", { look: "done" });
+    for (let ms = 1000; ms < 4000; ms += 20) {
+      front.to("k2", ms);
+      expect(front.seen("k2").react).toBeNull();
+      expect(posesOf(front.cell("k2")!).style.transform).toBe("");
+      expect(front.cell("k2")!.dataset.react).toBeUndefined();
+    }
+    // The crown from the air: up, down for eight of her beats, and up, with nothing between.
+    const air = withNike("look", { reduced: true, fidget: true });
+    expect(air.seen("k1")).toMatchObject({ lift: 8, fidget: null });
+    air.host.advance(945 - ((air.host.now() - air.at.k1!) % 90)); // half way between two of her quarter-beats
+    const t = air.host.now() - air.at.k1!;
+    air.set("k2", { look: "done" });
+    const begins = t + 135; // no time to come down: a quarter-beat after, on her quarter-beat
+    const { frames } = air.drawn;
+    const lifts = new Set<number>();
+    for (let ms = t; ms < begins + 2880 + 400; ms += 5) {
+      air.to("k1", ms);
+      const seen = air.seen("k1");
+      lifts.add(seen.lift);
+      const crowning = ms >= begins && ms < begins + 2880;
+      expect(seen.react).toEqual(crowning ? { how: "crown", of: "k2" } : null);
+      expect(seen.lift).toBe(crowning ? 0 : 8);
+      expect(air.cell("k1")!.dataset.frame).toBeUndefined();
+    }
+    expect([...lifts].sort()).toEqual([0, 8]);
+    expect(air.cell("k1")!.style.transform).toMatch(/px, -8px, 0\)$/);
+    void frames;
+  });
+
+  it("reduced motion asked for in the middle of a reaction: a lean is a cut to rest at the next frame drawn, and a turn is held to twice its beats", () => {
+    // While the lean eases, frames are running: the very next one.
+    const s = three();
+    const cell = s.cell("k2")!;
+    s.to("k2", 1000);
+    s.set("k1", { look: "done" });
+    s.to("k2", 1300);
+    expect(posesOf(cell).style.transform).not.toBe("");
+    s.quiet(true);
+    s.host.advance(16);
+    expect(posesOf(cell).style.transform).toBe("");
+    expect(s.seen("k2").react).toBeNull();
+    expect(cell.dataset.react).toBeUndefined();
+    // A turn under way is held twice as long, from when it began.
+    const turn = three();
+    turn.to("k2", 1000);
+    turn.set("k0", { look: "done" });
+    turn.to("k2", 1500);
+    expect(turn.seen("k2").react).toEqual({ how: "turn", of: "k0" });
+    turn.quiet(true);
+    turn.to("k2", 1200 + 2399);
+    expect(turn.seen("k2")).toMatchObject({ react: { how: "turn", of: "k0" }, dir: 1 });
+    turn.to("k2", 1200 + 2400);
+    expect(turn.seen("k2")).toMatchObject({ react: null, dir: -1 });
+    // And asked for no longer, one held past its own beats ends at the next frame drawn.
+    const back = three({ reduced: true });
+    back.to("k2", 1000);
+    back.set("k0", { look: "done" });
+    back.to("k2", 1200 + 1500);
+    expect(back.seen("k2").react).toEqual({ how: "turn", of: "k0" });
+    back.quiet(false);
+    back.host.advance(16);
+    expect(back.seen("k2")).toMatchObject({ react: null, dir: -1 });
+  });
+
+  it("an ending falls when it would have with nobody crowning: she holds her crown while she comes down, and then says her farewell", () => {
+    function run(react: boolean): { steps: string[]; crowned: number[]; lifts: number[] } {
+      const s = withNike("look", { react });
+      const cell = s.cell("k1")!;
+      const to = (ms: number): void => s.to("k1", 3600 + ms);
+      to(2000);
+      s.set("k2", { look: "done" }); // her crown, from 2340
+      to(2700);
+      s.set("k1", { look: "done" }); // and her own record ends in the middle of it
+      const steps: string[] = [];
+      const crowned: number[] = [];
+      const lifts: number[] = [];
+      for (let ms = 2700; ms < 3200; ms += 10) {
+        to(ms);
+        steps.push(s.seen("k1").step);
+        if (cell.dataset.react === "crown") crowned.push(ms);
+        lifts.push(Number(s.seen("k1").lift.toFixed(2)));
+        expect(cell.dataset.pose).toBe(s.seen("k1").step === "alight" ? "look" : "speak");
+      }
+      return { steps, crowned, lifts };
+    }
+    const on = run(true);
+    const off = run(false);
+    // With nobody crowning she was aloft, and took 180ms to come down before her farewell: so she does here.
+    expect(off.steps.slice(0, 18).every((step) => step === "alight")).toBe(true);
+    expect(off.steps[18]).toBe("report");
+    expect(on.steps).toEqual(off.steps);
+    expect(off.lifts[0]).toBe(8);
+    expect(off.crowned).toEqual([]);
+    // On the floor already, she holds the crown for those 180ms, and no longer.
+    expect(on.lifts.every((lift) => lift === 0)).toBe(true);
+    expect(on.crowned).toEqual(Array.from({ length: 18 }, (_, i) => 2700 + 10 * i));
+  });
+
+  it("with its reactions off a lane is built and held as it was: no crown's picture, and nobody notices anything", () => {
+    const s = lane([["herodotus"], ["nike", "make"], ["athena"]], { react: false });
+    expect(s.lane.querySelectorAll(".oly-p-crown")).toHaveLength(0);
+    s.set("k2", { look: "done" });
+    for (let ms = 0; ms < 3000; ms += 20) {
+      s.host.advance(20);
+      expect(s.peek().gods.every((god) => god.react === null)).toBe(true);
+      expect(s.lane.querySelector("[data-react]")).toBeNull();
+    }
+    // On, only the god that gives a crown has its picture.
+    const on = lane([["herodotus"], ["nike", "make"], ["athena"]]);
+    expect(on.lane.querySelectorAll(".oly-p-crown")).toHaveLength(1);
+    expect(on.cell("k1")!.querySelectorAll(".oly-p-crown")).toHaveLength(1);
+  });
+
+  it("the card and the keys over reacting gods put nothing on the clock, wake it never, and throw no dice", () => {
+    function run(look: boolean): { asked: { clock: number; dice: number }; peeks: string } {
+      const s = withNike("look", { fidget: true });
+      const peeks: string[] = [];
+      for (let ms = 0; ms < 7000; ms += 100) {
+        if (ms === 500) s.set("k2", { look: "done" });
+        if (look) {
+          const cells = s.cells();
+          if (ms % 600 === 0) enter(cells[(ms / 600) % cells.length]);
+          if (ms % 600 === 300) leave(cells[((ms - 300) / 600) % cells.length]);
+          if (ms % 1000 === 500) keydown(document.body, "Tab");
+          if (ms % 1000 === 700) keydown(cells[0]!, "ArrowRight");
+          if (ms === 4000) keydown(document.body, "Escape");
+        }
+        s.host.run(100);
+        const { card: _card, ...rest } = s.peek();
+        peeks.push(JSON.stringify(rest));
+      }
+      return { asked: { ...s.asked }, peeks: peeks.join("\n") };
+    }
+    const alone = run(false);
+    const looked = run(true);
+    expect(looked.asked).toEqual(alone.asked);
+    expect(looked.peeks).toBe(alone.peeks);
+    expect(alone.peeks).toMatch(/"how":"crown"/);
+    expect(alone.peeks).toMatch(/"how":"glance"/);
+  });
+
+  interface Ran {
+    readonly peeks: FloorPeek[];
+    readonly looks: { page: HTMLElement; height: string }[];
+    readonly asked: { clock: number; dice: number };
+    readonly cards: (string | null)[];
+  }
+
+  /**
+   * A run of records, their gods alive at their work, looked at every 250ms,
+   * with the frames between as a window gives them, and the pointer on one
+   * god after another.
+   */
+  function ran(records: (ms: number) => LaneAgent[], react: boolean, reduced = false): Ran {
+    const s = stage({ seed: 5, fidget: true, react, reduced });
+    const peeks: FloorPeek[] = [];
+    const looks: Ran["looks"] = [];
+    for (let ms = 0; ms <= 32_000; ms += 250) {
+      s.sync(records(ms));
+      const cells = s.cells();
+      if (cells.length) enter(cells[(ms / 250) % cells.length]);
+      peeks.push(s.peek());
+      looks.push({ page: s.lane.cloneNode(true) as HTMLElement, height: s.lane.style.height });
+      s.host.run(250, 16);
+    }
+    const run: Ran = { peeks, looks, asked: { ...s.asked }, cards: [...s.cards] };
+    s.dispose();
+    return run;
+  }
+
+  /** The mockup's run and its three extras: six gods, a failure, a crowd. */
+  const crowdRun = (ms: number): LaneAgent[] => laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]);
+  /** Five through a tool of every family, three seconds a tool; then one is done and one fails. */
+  const FIVE: readonly GodId[] = ["nike", "hermes", "themis", "argus", "hephaestus"];
+  const FAMILIES: readonly ToolFamily[] = ["look", "run", "make", "web", "think"];
+  const fiveRun = (ms: number): LaneAgent[] =>
+    FIVE.map((god, i) => {
+      const tools = Math.max(0, Math.floor((ms - 300 * i) / 3000));
+      const look = i === 1 && ms >= 21_000 ? "done" : i === 3 && ms >= 24_000 ? "fail" : "run";
+      return agent(god, god, look, tools ? FAMILIES[(tools + i) % 5]! : "think", tools);
+    });
+  /**
+   * A run of notices: three at their work, Nike aloft among them, each holding
+   * its tool; one fails, one is handed another tool, one finishes, one is
+   * stopped, and two more are sent.
+   */
+  const noticesRun = (ms: number): LaneAgent[] => [
+    agent("a", "athena", ms >= 19_000 ? "done" : "run", "look", 1),
+    agent("b", "nike", ms >= 28_000 ? "stop" : "run", "look", 1),
+    agent("c", "herodotus", "run", ms >= 16_000 ? "web" : "look", ms >= 16_000 ? 2 : 1),
+    ...(ms >= 3000 ? [agent("d", "hermes", ms >= 13_000 ? "fail" : "run", "look", 1)] : []),
+    ...(ms >= 21_000 ? [agent("e", "argus", "run", "look", 1)] : []),
+    ...(ms >= 23_000 ? [agent("f", "themis", ms >= 30_000 ? "done" : "run", "think", 0)] : []),
+  ];
+
+  /**
+   * Whether a reaction has a god in hand at a look: it shows one then, or did
+   * within the three seconds before, while its fidget may still be resting
+   * for it; or it is about to, the one who flies already coming down.
+   */
+  function touched(on: readonly FloorPeek[], i: number, key: string): boolean {
+    for (let j = Math.max(0, i - 12); j <= Math.min(on.length - 1, i + 1); j++)
+      if (on[j]!.gods.some((god) => god.key === key && god.react)) return true;
+    return false;
+  }
+
+  /**
+   * A look at the lane with what only a reaction writes taken off: the
+   * reaction itself; of a god one has in hand, its facing and its fidget; and
+   * the height of the one who flies, who comes down for her crown.
+   */
+  function plain(peek: FloorPeek, on: readonly FloorPeek[], i: number): unknown {
+    return {
+      ...peek,
+      gods: peek.gods.map((god) => {
+        const { react: _react, ...rest } = god;
+        const held = touched(on, i, god.key);
+        return {
+          ...rest,
+          fidget: held ? null : god.fidget,
+          dir: held ? 0 : god.dir,
+          figure: held ? null : god.figure,
+          lift: CAST.gods[god.god].lift[god.pose as Skill] ? "aloft" : god.lift,
+        };
+      }),
+    };
+  }
+
+  /** The page at a look, with the same taken off, and the crown's picture a reacting lane is built with. */
+  function sheet(run: Ran, on: readonly FloorPeek[], i: number): string {
+    const lane = run.looks[i]!.page.cloneNode(true) as HTMLElement;
+    for (const crown of lane.querySelectorAll(".oly-p-crown")) crown.remove();
+    [...lane.querySelectorAll<HTMLElement>(".oly-cell")].forEach((cell, n) => {
+      const { god, pose } = cell.dataset as { god: GodId; pose: Skill };
+      delete cell.dataset.react;
+      if (touched(on, i, run.peeks[i]!.gods[n]!.key)) {
+        delete cell.dataset.frame;
+        delete cell.dataset.part;
+        cell.classList.remove("is-left");
+        cell.querySelector(".oly-poses")!.removeAttribute("style");
+        for (const part of cell.querySelectorAll<HTMLElement>(".oly-part"))
+          part.style.transform = "";
+      }
+      if (CAST.gods[god].lift[pose])
+        cell.style.transform = cell.style.transform.replace(/, [^,]+, 0\)$/, ", 0, 0)");
+    });
+    return `${run.looks[i]!.height} ${lane.innerHTML}`.replace(/ style=""/g, "");
+  }
+
+  it.each([
+    ["the crowd's run", crowdRun],
+    ["five through every family of tool", fiveRun],
+    ["a run of notices", noticesRun],
+  ] as const)(
+    "the same seeded run plays the same with reactions on and off: every step, cut, place, line, card and throw of the dice; only the reaction differs (%s)",
+    (name, records) => {
+      const off = ran(records, false);
+      const on = ran(records, true);
+      // The run with reactions on did react.
+      const hows = on.peeks.flatMap((peek) => peek.gods.flatMap((god) => god.react?.how ?? []));
+      expect(off.peeks.every((peek) => peek.gods.every((god) => god.react === null))).toBe(true);
+      expect(off.looks.every(({ page }) => !page.querySelector("[data-react], .oly-p-crown"))).toBe(
+        true,
+      );
+      expect(new Set(hows).size).toBeGreaterThan(0);
+      if (name === "a run of notices")
+        expect([...new Set(hows)].sort()).toEqual(["crown", "glance", "turn"]);
+      if (name !== "the crowd's run") expect(hows).toContain("crown");
+      expect(on.looks.some(({ page }) => page.querySelector("[data-react]"))).toBe(true);
+      // And everything else is the same, look for look: what the floor holds, and the page.
+      on.peeks.forEach((peek, i) => {
+        expect(JSON.stringify(plain(peek, on.peeks, i))).toBe(
+          JSON.stringify(plain(off.peeks[i]!, on.peeks, i)),
+        );
+        expect(sheet(on, on.peeks, i)).toBe(sheet(off, on.peeks, i));
+      });
+      // A god no reaction has in hand is compared whole, its fidget and its facing too: most of them, most of the time.
+      const all = on.peeks.flatMap((peek, i) =>
+        peek.gods.map((god) => touched(on.peeks, i, god.key)),
+      );
+      expect(all.filter((held) => !held).length).toBeGreaterThan(all.length / 2);
+      expect(on.peeks.flatMap((peek) => peek.gods).some((god) => god.fidget)).toBe(true);
+      expect(on.cards).toEqual(off.cards);
+      expect(on.cards.length).toBeGreaterThan(20);
+      // Not a step, a wake or a throw of the floor's dice more.
+      expect(on.asked).toEqual(off.asked);
+      expect(on.asked.dice).toBeGreaterThan(10);
+    },
+  );
+
+  it("under reduced motion the same runs play the same with reactions on and off, but for a turn or a crown held as a still", () => {
+    const seen = new Set<string>();
+    for (const records of [crowdRun, fiveRun, noticesRun]) {
+      const off = ran(records, false, true);
+      const on = ran(records, true, true);
+      for (const peek of on.peeks)
+        for (const god of peek.gods) if (god.react) seen.add(god.react.how);
+      on.peeks.forEach((peek, i) => {
+        expect(JSON.stringify(plain(peek, on.peeks, i))).toBe(
+          JSON.stringify(plain(off.peeks[i]!, on.peeks, i)),
+        );
+        expect(sheet(on, on.peeks, i)).toBe(sheet(off, on.peeks, i));
+        // Nothing eases: no figure is ever leant, no frame flipped, no part moved.
+        for (const god of peek.gods)
+          if (god.fidget)
+            expect(god.fidget).toEqual({
+              ...god.fidget,
+              tx: "",
+              frame: "",
+              part: "",
+              ptx: "",
+              turn: true,
+            });
+      });
+      expect(on.asked).toEqual(off.asked);
+      expect(on.cards).toEqual(off.cards);
+    }
+    expect([...seen].sort()).toEqual(["crown", "turn"]);
   });
 });

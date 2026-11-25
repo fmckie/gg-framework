@@ -13,7 +13,7 @@
 //
 // The pictures are cut from the mockup's too, at twice the size they are
 // drawn; with --pictures it writes nothing and lists each skill pose's, each
-// second frame's and each stride's name and width:
+// second frame's, each stride's and the crown's name and width:
 //   node scripts/olympus-cast.mjs <v4> --pictures | while read name w; do
 //     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o src/olympus/poses/$name.webp
 //   done
@@ -42,6 +42,10 @@ const TILED = ["speak", "stand"];
 const STATE_KEYS = ["dx", "dy", "rot", "turn", "frame", "lift", "gone"];
 /** A gesture, as the lane plays it. */
 const MOVE_SHAPE = ["keys", "ease", "w", "part", "pivot", "end"];
+/** How far a pose turned to face may stand outside the mockup's sweep of it, px: that sweep's grain. */
+const TURN_SLACK = 0.25;
+/** The events a god may notice. */
+const NOTICED = ["arrive", "done", "fail"];
 
 /** A CSS polygon's points, in px: [[x, y], ...]. */
 function points(polygon, what) {
@@ -273,18 +277,96 @@ for (const [id, god] of Object.entries(cast.gods)) {
     }
     out.fid[pose] = fid;
   }
-  // All a fidget covers is inside the envelope the places and the ribbons are
-  // planned with, at every height of the one who flies: the mockup's sweep of
-  // each moving pose, band by band, against the outline this file keeps.
+  // How it notices another god, a skill pose each: the floor under its front,
+  // which a glance leans about, and under its heel, for a glance back; how far
+  // it leans, in degrees; and whether the pose may turn to face.
+  out.nt = {};
+  for (const [pose, nt] of Object.entries(god.nt)) {
+    if (
+      !skills.has(pose) ||
+      Object.keys(nt).join() !== "front,back,lean,turn" ||
+      !(nt.lean > 0) ||
+      typeof nt.turn !== "boolean" ||
+      [nt.front, nt.back].some(
+        (pivot) => pivot.length !== 2 || !Number.isFinite(pivot[0]) || pivot[1] !== cast.cell.h,
+      )
+    )
+      throw new Error(`${id}: ${pose}'s notice is not a lean about the floor, and a turn or none`);
+    out.nt[pose] = nt;
+  }
+  for (const pose of skills)
+    if (!out.nt[pose]) throw new Error(`${id}: no notice for ${pose}, which an act names`);
+  // How readily it notices each kind of event: its trait's, by the table's.
+  out.chance = {};
+  for (const [kind, [trait, by]] of Object.entries(cast.notice.chance)) {
+    const chance = Math.min(1, cast.traits[god.trait]?.[trait] * by);
+    if (!(chance > 0)) throw new Error(`${id}: no chance of noticing: ${kind}`);
+    out.chance[kind] = Math.round(chance * 1e4) / 1e4;
+  }
+  // Its crown, if it gives one: for how many of its beats it is held, how late
+  // it may begin, ms, and where its picture sits in the cell, as a skill
+  // pose's does. It is shown in place of the pose the record asks for.
+  out.rx = {};
+  for (const [name, rx] of Object.entries(god.rx)) {
+    const img = new RegExp(
+      `<img class="pose p-crown" src="assets/${id}-crown\\.png" alt="" style="left:(-?[\\d.]+)px;width:([\\d.]+)px">`,
+    ).exec(template);
+    const beats = rx.keys?.[1]?.[0];
+    if (
+      name !== "crown" ||
+      !img ||
+      rx.on !== "done" ||
+      !(rx.late > 0) ||
+      !(beats > 0) ||
+      (beats * 4) % 1 !== 0 ||
+      JSON.stringify(rx.keys) !==
+        JSON.stringify([
+          [0, { pose: "crown" }],
+          [beats, {}],
+        ]) ||
+      !god.ol.crown
+    )
+      throw new Error(`${id}: ${name} is not a crown for a finish, shown and then put away`);
+    const [left, width] = [Number(img[1]), Number(img[2])];
+    const png = readFileSync(join(resolve(dir), "assets", `${id}-crown.png`));
+    if (png.readUInt32BE(16) !== 3 * width || png.readUInt32BE(20) !== 3 * cast.cell.h)
+      throw new Error(`${id}-crown.png is not ${3 * width}×${3 * cast.cell.h}`);
+    out.rx.crown = { late: rx.late, beats, at: [left, width] };
+    if (picturesOnly) console.log(`${id}-crown ${2 * width}`);
+  }
+  // All a fidget and a notice cover is inside the envelope the places and the
+  // ribbons are planned with, at every height of the one who flies: the
+  // mockup's sweep of each skill pose (its moves, its leans and its turn),
+  // band by band, against the outline this file keeps.
   const outline = new Map(god.envol.map(([y, a, b]) => [y, [a, b]]));
-  for (const pose of Object.keys(out.fid)) {
-    if (!god.sw[pose]) throw new Error(`${id}: no sweep for ${pose}, which fidgets`);
+  const axis = 2 * cast.cell.head; // facing the other way, a figure is mirrored about its head line
+  const inside = (y, a, b, slack) => {
+    const band = outline.get(y);
+    return band !== undefined && a >= band[0] - slack && b <= band[1] + slack;
+  };
+  for (const pose of skills) {
+    if (!god.sw[pose]) throw new Error(`${id}: no sweep for ${pose}, which fidgets and notices`);
     for (const [y, a, b] of god.sw[pose]) {
       for (let up = 0; up <= (god.lift[pose] ?? 0); up += 2) {
-        const band = outline.get(y - up);
-        if (!band || a < band[0] || b > band[1])
-          throw new Error(`${id}: ${pose}'s fidget leaves the envelope at ${y - up}`);
+        if (!inside(y - up, a, b, 0))
+          throw new Error(`${id}: ${pose}'s fidget or notice leaves the envelope at ${y - up}`);
       }
+    }
+    // Turned to face, the pose's own outline, mirrored. The mockup sweeps it
+    // on a canvas of thirds of a px, so it may stand that far out: TURN_SLACK.
+    if (!out.nt[pose].turn) continue;
+    for (const [y, a, b] of god.ol[pose]) {
+      for (let up = 0; up <= (god.lift[pose] ?? 0); up += 2) {
+        if (!inside(y - up, axis - b, axis - a, TURN_SLACK))
+          throw new Error(`${id}: ${pose}, turned to face, leaves the envelope at ${y - up}`);
+      }
+    }
+  }
+  // The crown is held on the floor, facing either way: its own outline.
+  if (out.rx.crown) {
+    for (const [y, a, b] of god.ol.crown) {
+      if (!inside(y, a, b, 1e-6) || !inside(y, axis - b, axis - a, 1e-6))
+        throw new Error(`${id}: its crown leaves the envelope at ${y}`);
     }
   }
   // Its tesserae: the two poses it is set from and goes back to, each cut in
@@ -320,10 +402,25 @@ if (seals.size !== 1) throw new Error("the gods' seals differ: keep one each");
 
 if (picturesOnly) process.exit(0);
 
+// How the gods notice each other: how far along the floor a god notices, px;
+// how long it rests before it notices again, and how late a notice may begin,
+// ms; how long a lean eases in and out, and how long each notice is held, in
+// the god's own beats.
+const { reach, rest, late, ease, beats } = cast.notice;
+if (
+  ![reach, rest, late, ease].every((n) => n > 0) ||
+  Object.keys(beats).join() !== NOTICED.join() ||
+  Object.keys(cast.notice.chance).join() !== NOTICED.join() ||
+  !NOTICED.every((kind) => beats[kind] > 2 * ease && (beats[kind] * 4) % 1 === 0) ||
+  (ease * 4) % 1 !== 0
+)
+  throw new Error("the notices are not a reach, a rest, a latest start, an ease and beats each");
+
 const data = {
   source: `gg-framework-ui mockups/subagents/v4/olympus.html at ${commit}${dirty ? " (with uncommitted changes)" : ""}`,
   cell: cast.cell,
   seal: inner([...seals][0], "seal"),
+  notice: { reach, rest, late, ease, beats },
   gods,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");

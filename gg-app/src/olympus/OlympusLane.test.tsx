@@ -13,7 +13,7 @@ import {
   RESUMED_AGENTS,
   STATE_AGENTS,
 } from "./fixtures";
-import { FRAME_URLS } from "./cast";
+import { CROWN_URLS, FRAME_URLS } from "./cast";
 import type { Floor } from "./floor";
 import laneCss from "./olympus-lane.css?raw";
 import rowsCss from "./olympus-rows.css?raw";
@@ -54,6 +54,7 @@ afterEach(() => {
 function staged(
   seed = 7,
   fidget = false,
+  react = false,
 ): LaneStage & { host: ManualHost; floors: (Floor | null)[] } {
   const host = framedHost();
   const floors: (Floor | null)[] = [];
@@ -62,6 +63,7 @@ function staged(
     floors,
     seed,
     fidget,
+    react,
     width: () => 698,
     measure: (el) => Math.round((el.textContent ?? "").length * 5.5) + 21,
     onFloor: (floor) => floors.push(floor),
@@ -531,8 +533,54 @@ describe("fidgets on the lane", () => {
   });
 });
 
+describe("notices on the lane", () => {
+  /** The run, record by record: Nike's cell, and every reaction any god was seen in. */
+  function watched(stage: ReturnType<typeof staged>): { nike: HTMLElement; seen: Set<string> } {
+    const view = render(<OlympusLane groups={run(600)} stage={stage} />);
+    const seen = new Set<string>();
+    let nike: HTMLElement | null = null;
+    for (let ms = 600; ms < 30_000; ms += 20) {
+      if (ms % 100 === 0) view.rerender(<OlympusLane groups={run(ms)} stage={stage} />);
+      stage.host.advance(20);
+      nike = view.container.querySelector<HTMLElement>('.oly-cell[data-god="nike"]') ?? nike;
+      for (const cell of view.container.querySelectorAll<HTMLElement>(".oly-cell[data-react]"))
+        seen.add(`${cell.dataset.god} ${cell.dataset.react}`);
+    }
+    return { nike: nike!, seen };
+  }
+
+  it("as the app mounts it, Nike comes with her crown's picture, and raises it when another god finishes", () => {
+    // Nothing said of reactions, as LaneMount says nothing.
+    const { nike, seen } = watched({ ...staged(), react: undefined });
+    const crown = nike.querySelector<HTMLImageElement>(".oly-pose.oly-p-crown")!;
+    expect(crown.getAttribute("src")).toBe(CROWN_URLS.nike);
+    expect(crown.style.left).toBe("11px");
+    expect(crown.style.width).toBe("67px");
+    expect([...seen]).toContain("nike crown");
+  });
+
+  it("a stage may hold them off: then she is built as she was, and nobody notices anything", () => {
+    const { nike, seen } = watched(staged());
+    expect(nike.querySelector(".oly-p-crown")).toBeNull();
+    expect([...seen]).toEqual([]);
+  });
+});
+
 describe("the lane's CSS", () => {
   const rules = laneCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it("shows the crown in place of the pose the record asks for, by a cut: the engine says when, and every other reaction is its transform and its facing", () => {
+    expect(rules).toContain(
+      '.oly-cell[data-react="crown"] .oly-pose {\n  visibility: hidden;\n}\n.oly-cell[data-react="crown"] .oly-pose.oly-p-crown {\n  visibility: visible;\n}',
+    );
+    // Nothing else is said of a reaction: a glance, a glance back and a turn need no rule.
+    expect(rules.match(/data-react/g)).toHaveLength(2);
+    expect(rules.match(/\.oly-p-crown\b/g)).toHaveLength(1);
+    // After the rules that show a pose by the record's, so it wins over them.
+    expect(rules.indexOf('[data-react="crown"]')).toBeGreaterThan(
+      rules.lastIndexOf('.oly-cell[data-pose="think-r"] .oly-p-think-r'),
+    );
+  });
 
   it("only places the floor's canvas, on the bed and under the tesserae's: the engine draws on it, and nothing of its reaches the sheet", () => {
     expect(rules).toContain(

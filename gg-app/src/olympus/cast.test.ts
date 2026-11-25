@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CAST,
+  CROWN_URLS,
   FRAME_URLS,
   POSES,
   POSE_URLS,
@@ -21,7 +22,7 @@ const FILES = import.meta.glob<string>("./poses/*.webp", {
 });
 
 /** A lossless WebP's width and height, from its header. */
-function sizeOf(god: GodId, pose: Pose | `${Skill}-b`): [number, number] {
+function sizeOf(god: GodId, pose: Pose | `${Skill}-b` | "crown"): [number, number] {
   const bytes = atob(FILES[`./poses/${god}-${pose}.webp`]!.split(",")[1]!);
   expect(bytes.slice(0, 4) + bytes.slice(8, 16)).toBe("RIFFWEBPVP8L");
   const at = (i: number): number => bytes.charCodeAt(i);
@@ -270,7 +271,7 @@ describe("the cast data", () => {
   });
 
   it("has every picture at twice the size it is drawn, lossless", () => {
-    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3);
+    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3 + 1);
     for (const id of ids) {
       for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
       for (const [pose, at] of Object.entries(CAST.gods[id].at))
@@ -384,6 +385,72 @@ describe("the cast data", () => {
     expect(CAST.gods.hermes.fid.look!.bar * CAST.gods.hermes.step).toBeLessThan(
       (CAST.gods.themis.fid.look!.bar * CAST.gods.themis.step) / 3,
     );
+  });
+
+  it("says how the gods notice each other: a reach, a rest, the latest a notice may begin, and its beats", () => {
+    expect(CAST.notice).toEqual({
+      reach: 200,
+      rest: 8000,
+      late: 1500,
+      ease: 0.5,
+      beats: { arrive: 2, done: 2, fail: 3 },
+    });
+  });
+
+  it("gives every skill pose its notice: a lean about the floor under its front, or under its heel, and whether it may turn", () => {
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      expect(Object.keys(god.nt).sort()).toEqual(Object.keys(god.at).sort());
+      for (const [pose, nt] of Object.entries(god.nt) as [
+        Skill,
+        NonNullable<typeof god.nt.look>,
+      ][]) {
+        const [a, b] = god.fp[pose]!;
+        // On the floor, under the figure: its front before its heel, as it faces.
+        for (const [x, y] of [nt.front, nt.back]) {
+          expect(y).toBe(100);
+          expect(x).toBeGreaterThanOrEqual(a - 0.001);
+          expect(x).toBeLessThanOrEqual(b + 0.001);
+        }
+        expect(nt.front[0]).toBeGreaterThan(nt.back[0]);
+        // Small: no more than a fidget may turn a figure.
+        expect(nt.lean).toBeGreaterThan(0);
+        expect(nt.lean).toBeLessThanOrEqual(1.5);
+        expect(typeof nt.turn).toBe("boolean");
+      }
+    }
+    // Some poses hold something out, and cannot turn about inside their god's room.
+    expect(CAST.gods.argus.nt.look!.turn).toBe(false);
+    expect(CAST.gods.athena.nt.look!.turn).toBe(true);
+  });
+
+  it("gives every god its chance of noticing, by its nature: the curious an arrival, the watchful a failure", () => {
+    expect(Object.fromEntries(ids.map((id) => [id, CAST.gods[id].chance]))).toEqual({
+      athena: { arrive: 0.4, done: 0.4, fail: 0.84 },
+      herodotus: { arrive: 1, done: 1, fail: 0.7 },
+      hermes: { arrive: 0.6, done: 0.6, fail: 0.56 },
+      hephaestus: { arrive: 0.2, done: 0.2, fail: 0.98 },
+      argus: { arrive: 0.35, done: 0.35, fail: 1 },
+      themis: { arrive: 0.3, done: 0.3, fail: 0.77 },
+      nike: { arrive: 0.65, done: 0.65, fail: 0.7 },
+    });
+  });
+
+  it("only Nike gives a crown: four of her beats, its picture twice the size it is drawn, inside her envelope on the floor", () => {
+    for (const id of ids)
+      expect(CAST.gods[id].rx).toEqual(
+        id === "nike" ? { crown: { late: 3000, beats: 4, at: [11, 67] } } : {},
+      );
+    expect(Object.keys(CROWN_URLS)).toEqual(["nike"]);
+    expect(CROWN_URLS.nike).toMatch(/nike-crown/);
+    const [left, width] = CAST.gods.nike.rx.crown!.at;
+    expect(sizeOf("nike", "crown")).toEqual([2 * width, 200]);
+    // Facing either way: the picture's box, and its mirror about her head line.
+    const [lo, hi] = CAST.gods.nike.env;
+    expect(left).toBeGreaterThanOrEqual(lo);
+    expect(left + width).toBeLessThanOrEqual(hi);
+    expect(66 - (left + width)).toBeGreaterThanOrEqual(lo);
+    expect(66 - left).toBeLessThanOrEqual(hi);
   });
 
   it("leaves room for the five widest gods on the narrowest lane", () => {

@@ -7,7 +7,9 @@
 // All of it is worked out from the time alone: what a pose is doing so many
 // beats after its cut, and when that will next change. Nothing here knows the
 // lane's clock or its dice; an idling pose's bars are dealt by dice the caller
-// seeds from the god, the pose, the cut and the bar.
+// seeds from the god, the pose, the cut and the bar. Nor does it know of the
+// gods' notices (react.ts): the lane rests a fidget for one, and says which
+// bar a rhythm then starts again with (`fresh`).
 
 import type { Fidget, FidgetMove, FidgetState } from "./cast";
 
@@ -50,11 +52,16 @@ interface Playing {
  * cut; in a rhythm, the bar's, from the bar's start; idling, the one this bar
  * was dealt, if any, from the beat it was dealt.
  */
-function moveAt(f: Fidget, b: number, dealt: (n: number) => Dealt | null): Playing | null {
+function moveAt(
+  f: Fidget,
+  b: number,
+  dealt: (n: number) => Dealt | null,
+  fresh?: (n: number) => boolean,
+): Playing | null {
   if (f.cut) return { move: f.cut, from: 0, round: false };
   const n = Math.floor(b / f.bar + SLACK);
-  // A rhythm comes round as its last bar left it.
-  if (!f.idle) return { move: f.moves[0]!, from: n * f.bar, round: n > 0 };
+  // A rhythm comes round as its last bar left it; a bar it starts again with, from rest.
+  if (!f.idle) return { move: f.moves[0]!, from: n * f.bar, round: n > 0 && !fresh?.(n) };
   const d = dealt(n);
   return d && { move: d.move, from: d.start, round: false };
 }
@@ -88,6 +95,8 @@ export interface FidgetAt {
   readonly dy: number;
   readonly rot: number;
   readonly pivot: readonly [number, number] | null;
+  /** Whether its move eases the figure, or its part, into each state: it can be eased out of. */
+  readonly eased?: boolean;
   /** The cut-out part that is moved, if not the whole figure; and whether it is gone. */
   readonly part: string;
   readonly gone: boolean;
@@ -100,7 +109,8 @@ export interface FidgetAt {
 
 /**
  * What a pose is doing b beats after the cut that showed it, on a beat of
- * `step` ms; null at rest. `lift` is how far the pose is held off the floor.
+ * `step` ms; null at rest. `lift` is how far the pose is held off the floor;
+ * `fresh` says whether a rhythm starts a bar from rest, having rested.
  */
 export function fidgetAt(
   f: Fidget,
@@ -108,8 +118,9 @@ export function fidgetAt(
   step: number,
   lift: number,
   dealt: (n: number) => Dealt | null,
+  fresh?: (n: number) => boolean,
 ): FidgetAt | null {
-  const at = moveAt(f, b, dealt);
+  const at = moveAt(f, b, dealt, fresh);
   const s = at && keyed(at.move, b - at.from, step, at.round);
   if (!at || !s) return null;
   const num = (key: "dx" | "dy" | "rot" | "lift", rest = 0): number =>
@@ -119,6 +130,7 @@ export function fidgetAt(
     dy: num("dy"),
     rot: num("rot"),
     pivot: at.move.pivot,
+    eased: at.move.ease > 0,
     part: at.move.part ?? "",
     gone: s.now.gone === true,
     frame: s.now.frame ?? "",
@@ -192,13 +204,20 @@ export const STILL: Shown = Object.freeze({
   ptx: "",
 });
 
-// A shift and a turn, as a transform about the box's own corner: the shift,
-// then the turn about its pivot.
-function shifted(dx: number, dy: number, rot: number, pivot: FidgetAt["pivot"]): string {
+/**
+ * A shift and turns, as a transform about the box's own corner: the shift,
+ * then each turn about its pivot.
+ */
+export function shifted(
+  dx: number,
+  dy: number,
+  turns: readonly (readonly [rot: number, pivot: FidgetAt["pivot"]])[],
+): string {
   let tx = "";
   if (Math.abs(dx) >= 0.005 || Math.abs(dy) >= 0.005)
     tx = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px)`;
-  if (pivot && Math.abs(rot) >= 0.0005) {
+  for (const [rot, pivot] of turns) {
+    if (!pivot || Math.abs(rot) < 0.0005) continue;
     const [px, py] = pivot;
     tx += `${tx && " "}translate(${px}px, ${py}px) rotate(${rot.toFixed(3)}deg) translate(${-px}px, ${-py}px)`;
   }
@@ -208,7 +227,7 @@ function shifted(dx: number, dy: number, rot: number, pivot: FidgetAt["pivot"]):
 /** What to write for a fidget; STILL if nothing shows of it. */
 export function shown(s: FidgetAt | null, lift: number): Shown {
   if (!s) return STILL;
-  const tx = s.gone ? "scale(0)" : shifted(s.dx, s.dy, s.rot, s.pivot);
+  const tx = s.gone ? "scale(0)" : shifted(s.dx, s.dy, [[s.rot, s.pivot]]);
   if (s.part) return tx ? { ...STILL, part: s.part, ptx: tx } : STILL;
   if (!tx && !s.frame && !s.turn && (s.lift === null || s.lift === lift)) return STILL;
   return { tx, frame: s.frame, turn: s.turn, lift: s.lift, part: "", ptx: "" };

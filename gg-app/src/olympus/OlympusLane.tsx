@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { SubAgentLine } from "../SubAgentFeed";
-import { CAST, FRAME_URLS, POSE_URLS } from "./cast";
+import { CAST, CROWN_URLS, FRAME_URLS, POSE_URLS } from "./cast";
 import { createFloor, rng, type Floor, type FloorOptions, type LaneAgent } from "./floor";
 import { agentTypeOf, godOf } from "./gods";
 import { SCENES, type SceneId } from "./mosaic";
@@ -130,7 +130,7 @@ const nextScene = (): SceneId => SCENES[turn++ % SCENES.length]!;
 /** For tests and previews: a clock, dice, measures and scenes of their own. */
 export interface LaneStage extends Pick<
   FloorOptions,
-  "width" | "measure" | "reduced" | "scene" | "fidget"
+  "width" | "measure" | "reduced" | "scene" | "fidget" | "react"
 > {
   readonly host?: SimHost;
   readonly seed?: number;
@@ -170,6 +170,7 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
       reduced,
       scene = nextScene,
       fidget,
+      react,
     } = stageRef.current ?? {};
     const sim = createSim(host);
     const floor = createFloor(lane, {
@@ -178,6 +179,8 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
       poses: POSE_URLS,
       frames: FRAME_URLS,
       fidget,
+      crowns: CROWN_URLS,
+      react,
       random: rng(seed ?? (Math.random() * 2 ** 32) >>> 0),
       width,
       measure,

@@ -39,6 +39,13 @@
       }
     ]
   },
+  "notice": {
+    "reach": 200,
+    "rest": 8000,
+    "late": 1500,
+    "ease": 0.5,
+    "beats": { "arrive": 2, "done": 2, "fail": 3 }
+  },
   "gods": {
     "athena": {
       "name": "Athena",
@@ -152,6 +159,12 @@
           ]
         }
       },
+      "nt": {
+        "look": { "front": [49.5, 100], "back": [18.2, 100], "lean": 1.5, "turn": true },
+        "think": { "front": [42.5, 100], "back": [11.8, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 0.4, "done": 0.4, "fail": 0.84 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#302728",
@@ -421,6 +434,13 @@
           ]
         }
       },
+      "nt": {
+        "look": { "front": [55.8, 100], "back": [16.5, 100], "lean": 1.5, "turn": true },
+        "web": { "front": [38, 100], "back": [14.3, 100], "lean": 1.5, "turn": true },
+        "think": { "front": [45.2, 100], "back": [19.5, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 1, "done": 1, "fail": 0.7 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#2b2224",
@@ -714,6 +734,14 @@
           ]
         }
       },
+      "nt": {
+        "run": { "front": [-6, 100], "back": [-11, 100], "lean": 1.5, "turn": false },
+        "look": { "front": [42.2, 100], "back": [25.8, 100], "lean": 1.5, "turn": true },
+        "make": { "front": [58.3, 100], "back": [-11, 100], "lean": 1.5, "turn": false },
+        "think": { "front": [54.7, 100], "back": [5.7, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 0.6, "done": 0.6, "fail": 0.56 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#2f2526",
@@ -996,6 +1024,14 @@
           "moves": []
         }
       },
+      "nt": {
+        "make": { "front": [75.3, 100], "back": [2.3, 100], "lean": 1.5, "turn": false },
+        "run": { "front": [93.7, 100], "back": [15.7, 100], "lean": 1.5, "turn": false },
+        "look": { "front": [43.5, 100], "back": [18.8, 100], "lean": 1.5, "turn": true },
+        "think": { "front": [47.7, 100], "back": [6.3, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 0.2, "done": 0.2, "fail": 0.98 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#2e2425",
@@ -1282,6 +1318,14 @@
           ]
         }
       },
+      "nt": {
+        "look": { "front": [20.3, 100], "back": [8.3, 100], "lean": 1.5, "turn": false },
+        "run": { "front": [51, 100], "back": [20.3, 100], "lean": 1.5, "turn": true },
+        "web": { "front": [51.7, 100], "back": [10.7, 100], "lean": 0.5, "turn": true },
+        "think": { "front": [41.5, 100], "back": [21.9, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 0.35, "done": 0.35, "fail": 1 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#2c2324",
@@ -1693,6 +1737,15 @@
           ]
         }
       },
+      "nt": {
+        "think-l": { "front": [52.3, 100], "back": [19.3, 100], "lean": 1.5, "turn": false },
+        "think-r": { "front": [52.3, 100], "back": [19.7, 100], "lean": 1.5, "turn": false },
+        "look": { "front": [49.2, 100], "back": [16.2, 100], "lean": 1.5, "turn": true },
+        "web": { "front": [52.8, 100], "back": [20.2, 100], "lean": 1.5, "turn": true },
+        "run": { "front": [71.1, 100], "back": [11.4, 100], "lean": 1.5, "turn": false }
+      },
+      "chance": { "arrive": 0.3, "done": 0.3, "fail": 0.77 },
+      "rx": {},
       "tiles": {
         "palette": [
           "#2f2527",
@@ -1984,6 +2037,14 @@
           ]
         }
       },
+      "nt": {
+        "look": { "front": [32.7, 100], "back": [30, 100], "lean": 1.5, "turn": false },
+        "make": { "front": [44, 100], "back": [16.7, 100], "lean": 1.5, "turn": true },
+        "run": { "front": [37, 100], "back": [30.3, 100], "lean": 0.75, "turn": true },
+        "think": { "front": [46.9, 100], "back": [18.6, 100], "lean": 1.5, "turn": true }
+      },
+      "chance": { "arrive": 0.65, "done": 0.65, "fail": 0.7 },
+      "rx": { "crown": { "late": 3000, "beats": 4, "at": [11, 67] } },
       "tiles": {
         "palette": [
           "#332828",

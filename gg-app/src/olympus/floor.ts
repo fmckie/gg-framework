@@ -1,6 +1,6 @@
-// The lane's engine, parts 2 to 6b of Olympus: the mockup's floor.js, with its
-// card, its keyboard, its travel, the gods' tesserae, the floor's mosaic and
-// the gods' fidgets.
+// The lane's engine, parts 2 to 6c of Olympus: the mockup's floor.js, with its
+// card, its keyboard, its travel, the gods' tesserae, the floor's mosaic, the
+// gods' fidgets, and their notices and the crown.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
@@ -38,6 +38,21 @@
 //   a cut, a cut ends it at once, and the run plays the same with fidgets off.
 //   The one who flies rides on hers, and comes down for a cut from the height
 //   she had, her wings still.
+// - Notices: when a god arrives, finishes, fails or is stopped, the nearest
+//   god at its work each side, within reach, may notice (notice(), from land()
+//   and from the records: never a timer), by dice of its own and its nature:
+//   a glance toward it, a turn to face it where its pose may turn, else a
+//   glance back, for a few of its own beats. When a god finishes, the nearest
+//   Nike at her work who is free raises the laurel wreath toward it instead:
+//   her crown, shown in place of the pose her record asks for; she comes down
+//   for it as for a cut, and rises after. A reaction is a record on the god
+//   (react.ts), played from it and the time alone, as a fidget is: nothing is
+//   put on the clock for it, it never delays a cut (a cut of the god's own
+//   already coming goes first, and one landing ends it), it never draws the
+//   floor's dice, and data-pose stays what the record asks for, so the run
+//   plays the same with reactions off. Its fidget rests from the reaction's
+//   start until the first bar after it, and an ending falls when it would
+//   have with no reaction.
 // - Places: every god has an envelope, all the floor it can cover at its
 //   place, and two places are never nearer than their envelopes and a gap. A
 //   first crowd is spread over the lane; a later god takes the gap with most
@@ -82,7 +97,9 @@
 //   seal, the dimming and the crack are there or they aren't, and the dwell is
 //   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel,
 //   and no tessera is drawn: a god is there, and then it isn't. Nobody
-//   fidgets: every pose is its first frame, untouched. Asked for in
+//   fidgets: every pose is its first frame, untouched. A notice is only a turn
+//   to face, and the crown a still, each a cut held twice as long; the one who
+//   flies is simply down for her crown, and simply up after it. Asked for in
 //   the middle of a setting or an unsetting, that is cut too. The floor is
 //   laid whole as the lane opens and gone as it shuts; asked for while its
 //   stones are set or prised up, it is whole until the lane shuts.
@@ -93,13 +110,26 @@
 // run plays the same however the frames fall. A tessera's flight is cut from
 // dice of its god's own, and a floor stone's from its scene's: never the
 // floor's; and an idling god's gestures are dealt by dice of its own, from its
-// agent, its pose, the cut and the bar. The clock sleeps unless something on
-// the lane is changing: between two gestures it sleeps until the next, which
-// the frame tells it of, with no step put on it. The card and the keyboard are no part of
+// agent, its pose, the cut and the bar; and whether a god notices is thrown on
+// dice of its own, from the two agents and the event. The clock sleeps unless
+// something on the lane is changing: between two gestures, and before a
+// reaction begins, it sleeps until the next, which the frame tells it of, with
+// no step put on it. The card and the keyboard are no part of
 // the run: they put nothing on that clock and never draw the floor's dice, so
 // a run plays the same whoever looks at it.
 
-import type { Cast, CastGod, Fidget, Frames, Pictures, Pose, Skill, SvgNode } from "./cast";
+import type {
+  Cast,
+  CastGod,
+  Crown,
+  Fidget,
+  Frames,
+  Noticed,
+  Pictures,
+  Pose,
+  Skill,
+  SvgNode,
+} from "./cast";
 import { POSES } from "./cast";
 import {
   deal,
@@ -112,6 +142,17 @@ import {
   type Shown,
 } from "./fidget";
 import type { GodId } from "./gods";
+import {
+  armed,
+  begun,
+  hushUntil,
+  over,
+  played,
+  quarter,
+  TURNED,
+  type How,
+  type Reaction,
+} from "./react";
 import {
   cropFloor,
   drawFloor,
@@ -178,6 +219,10 @@ export interface FloorOptions {
   readonly frames?: Readonly<Partial<Record<GodId, Frames>>>;
   /** Whether a god at its work fidgets: it does unless this is false, for tests and previews. */
   readonly fidget?: boolean;
+  /** The crown's picture, for the god that gives one. */
+  readonly crowns?: Readonly<Partial<Record<GodId, string>>>;
+  /** Whether the gods notice each other: they do unless this is false, for tests and previews. */
+  readonly react?: boolean;
 }
 
 /** What the floor holds, for tests and previews. */
@@ -215,8 +260,10 @@ export interface FloorPeek {
     readonly want: Pose;
     /** How far off the floor it is held. */
     readonly lift: number;
-    /** Its fidget, while anything shows of it: what is written for it. */
+    /** Its fidget, or a lean, while anything shows of it: what is written for it. */
     readonly fidget: Shown | null;
+    /** Its reaction, while it shows one: how, and to whose record. */
+    readonly react: { readonly how: How; readonly of: string } | null;
     /** How far its figure shows, and its ribbon is unrolled, its seal pressed in, and it is dimmed: 0 to 1. */
     readonly shown: number;
     /** Its tesserae, while any are drawn: how they go, and whether in its dimmed ivories. */
@@ -468,8 +515,9 @@ interface Seg {
   readonly glanceTo?: number | null;
   /** A stop to look round: where it goes on to. */
   readonly to?: number;
-  /** Coming down: from how high. */
+  /** Coming down: from how high; and, if she was crowning, whether turned about for it. */
   readonly h?: number;
+  readonly crowned?: boolean | null;
   /** A walk cut short: where it had got to is where the god is. */
   halted?: boolean;
   timer?: SimEvent;
@@ -500,8 +548,10 @@ interface Vis {
     readonly a: number;
     readonly dim: boolean;
   } | null;
-  /** Its fidget at its work; STILL at rest, and anywhere else. */
+  /** Its fidget at its work, or a notice's lean or turn; STILL at rest, and anywhere else. */
   fid: Shown;
+  /** The reaction it shows, if any. */
+  react: How | "";
   /** Whether the next frame will draw it otherwise. */
   moving: boolean;
   /** If not, when its fidget will next move it of itself; never, if nothing is to come. */
@@ -525,6 +575,12 @@ interface God {
   moved: HTMLElement | null;
   /** The bars of idling dealt so far, in the pose it holds since its last cut. */
   readonly deals: { held: string; readonly bars: Map<number, Dealt | null> };
+  /** Its latest reaction, a notice or the crown; her latest crown; and the latest that began, for the rest between notices. */
+  react: Reaction | null;
+  crowned: Reaction | null;
+  noticed: Reaction | null;
+  /** When its fidget rests for a reaction: in the pose cut in at `at`, from when until when. */
+  hush: Hush[];
   readonly sealEl: SVGElement;
   readonly label: HTMLElement;
   labelW: number;
@@ -571,6 +627,16 @@ interface God {
   out: Record<string, unknown>;
 }
 
+interface Hush {
+  readonly r: Reaction;
+  readonly at: number;
+  readonly from: number;
+  readonly until: number;
+}
+
+/** A reaction that has begun. */
+type Begun = Reaction & { start: number };
+
 interface Placed {
   readonly g: God;
   readonly x: number;
@@ -611,6 +677,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const card = opts.card ?? null;
   const fidgeting = opts.fidget !== false;
+  const reacting = opts.react !== false;
+  const N = CAST.notice;
+  // The crown of the god that gives one, where the lane was handed its picture.
+  const crownOf = (id: GodId): Crown | undefined =>
+    reacting && opts.crowns?.[id] ? CAST.gods[id].rx.crown : undefined;
   const wall: Pick<SimHost, "defer" | "cancel"> = opts.timer ?? {
     defer: (fn, ms) => window.setTimeout(fn, ms),
     cancel: (handle) => window.clearTimeout(handle as number),
@@ -1374,7 +1445,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const fig = html("div", "oly-fig");
     const poses = html("div", "oly-poses");
     const urls = opts.poses[a.god];
-    const picture = (pose: Pose, url: string): HTMLImageElement => {
+    const picture = (pose: Pose | "crown", url: string): HTMLImageElement => {
       const img = document.createElement("img");
       img.className = `oly-pose oly-p-${pose}`;
       img.src = url;
@@ -1429,6 +1500,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         parts.set(pose, part);
       }
     }
+    // The crown, for the god that gives one: shown in place of the pose its
+    // record asks for while it is raised, and sat in the cell as a skill pose is.
+    const crown = crownOf(a.god);
+    if (crown) {
+      const img = picture("crown", opts.crowns![a.god]!);
+      img.style.left = `${crown.at[0]}px`;
+      img.style.width = `${crown.at[1]}px`;
+    }
     const seal = svg("svg", { class: "oly-seal", viewBox: CAST.seal.viewBox });
     grow(seal, CAST.seal.nodes);
     const fissure = svg("svg", {
@@ -1470,6 +1549,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       parts,
       moved: null,
       deals: { held: "", bars: new Map() },
+      react: null,
+      crowned: null,
+      noticed: null,
+      hush: [],
       sealEl: seal,
       label,
       labelW: 0,
@@ -1500,7 +1583,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       dim: 0,
       crack: 0,
       vis: null,
-      out: { fid: "", frame: "", part: "" }, // at rest, as built: nothing to write until it fidgets
+      out: { fid: "", frame: "", part: "", react: "" }, // at rest, as built: nothing to write until it fidgets
     };
     god.want = poseFor(god);
     return god;
@@ -1546,7 +1629,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const pose = poseFor(god);
     if (pose === god.want) return;
     god.want = pose;
-    if (working(god)) cue(god, t);
+    if (!working(god)) return;
+    cue(god, t);
+    settle(god, t);
   }
 
   // How far off the floor a pose is held at its work: the one who flies, at her look.
@@ -1585,13 +1670,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (!working(god)) return;
     if (god.want === god.pose) {
       god.upAt = t; // not after all: she was down for the cut, and rises again
-      return;
+      return settle(god, t);
     }
     calm(god, t);
     show(god, god.want, t);
     god.cuts.push(t);
     while (god.cuts[0]! <= t - STORM.within + 1) god.cuts.shift(); // on a beat, to the ms: not within
     if (god.cuts.length >= STORM.cuts) god.storm = true;
+    settle(god, t); // a reaction under way ends here; one waiting on this cut begins after it
   }
 
   function show(god: God, pose: Skill, t: number): void {
@@ -1604,12 +1690,21 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
 
   // How far off the floor the one who flies is at her work: up as her pose
   // cuts in, to her lift or to the height her fidget rides at (`to`), and down
-  // again in time for the cut that is coming. Under reduced motion she is
-  // simply up.
-  function aloft(god: God, now: number, to?: number | null): number {
+  // again in time for the cut that is coming; down for her crown, as for a
+  // cut, and up again after it. Under reduced motion she is simply up, and
+  // simply down for her crown. `bare`, her height with no crown: whether an
+  // ending finds her up.
+  function aloft(god: God, now: number, to?: number | null, bare = false): number {
     const lift = working(god) ? liftOf(god) : 0;
-    if (!lift || reduced()) return lift;
+    if (!lift) return 0;
+    const c = bare ? null : crowning(god);
+    if (reduced()) return c && now >= c.start && now < endOf(god, c) ? 0 : lift;
     let h = (to ?? lift) * outCubic(clamp01((now - god.upAt) / HOVER_UP));
+    if (c) {
+      const end = endOf(god, c);
+      if (now < end) h *= 1 - smooth((now - (c.start - HOVER_DOWN)) / HOVER_DOWN);
+      else h *= outCubic(clamp01((now - end) / HOVER_UP));
+    }
     if (god.swap) h *= 1 - smooth((now - (god.swap.t - HOVER_DOWN)) / HOVER_DOWN);
     return h;
   }
@@ -1636,7 +1731,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // of itself: `now` while a figure eases, the moment of its next key, or
   // never. Only at its work; under reduced motion, or switched off, never.
   // Times are in the god's own beats, counted from the cut that showed the
-  // pose. Nothing is put on the clock for it.
+  // pose. Nothing is put on the clock for it. It rests while a reaction stills
+  // it, until the first bar after: then it will next move in that bar.
   const AT_REST = { s: null, wake: Infinity } as const;
   function fidget(
     god: God,
@@ -1647,16 +1743,184 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (!f) return AT_REST;
     const step = god.c.step;
     const lift = liftOf(god);
-    // The one who flies comes down for a cut as she is: her wings still, from the height she had.
-    const down = god.swap && lift ? god.swap.t - HOVER_DOWN : Infinity;
-    const b = (Math.min(now, down) - god.shownAt) / step;
+    // The one who flies comes down for a cut, or for her crown, as she is: her
+    // wings still, from the height she had.
+    let down = god.swap && lift ? god.swap.t - HOVER_DOWN : Infinity;
+    const c = lift ? crowning(god) : null;
+    if (c && now < endOf(god, c)) down = Math.min(down, c.start - HOVER_DOWN);
+    const at = Math.min(now, down);
     const deals = (n: number): Dealt | null => dealt(god, f, n);
-    let s = fidgetAt(f, b, step, lift, deals);
+    const rest = god.hush.length ? hushedUntil(god, at) : null;
+    if (rest !== null) {
+      if (rest === Infinity || now >= down) return AT_REST;
+      const from = (rest - god.shownAt) / step;
+      const wake = god.shownAt + Math.max(nextAt(f, from, step, deals), from) * step;
+      return { s: null, wake: wake < down ? wake : Infinity };
+    }
+    const b = (at - god.shownAt) / step;
+    const fresh = god.hush.length ? (n: number): boolean => resumes(god, n * f.bar) : undefined;
+    let s = fidgetAt(f, b, step, lift, deals, fresh);
     if (s && (now >= down || !god.seconds.has(god.pose))) s = { ...s, frame: "" };
     if (now >= down) return { s: s && { ...s, turn: false }, wake: Infinity };
     const next = nextAt(f, b, step, deals);
     const wake = next <= b ? now : god.shownAt + next * step;
     return { s, wake: wake < down ? wake : Infinity }; // from there the cut's own frames run
+  }
+
+  // ───────── notices: the gods notice each other ─────────
+  // Only a record changing starts one (notice(), from land() and reconcile()),
+  // and only in a god at its work. A reaction is a record on the god, when it
+  // begins and what it is, and the frames are worked out from it and the time,
+  // as a fidget's are: nothing is put on the clock for it, so it never delays
+  // a cut, and a cut of the god's own ends it. It begins on the god's
+  // quarter-beat, a quarter-beat after the event; if a cut of its own is
+  // coming, after that cut has landed; and not at all if that is too late.
+  const atWork = (g: God): boolean => out(g) && !g.ending && working(g);
+  // When a reaction that has begun is over: its beats, twice as many under
+  // reduced motion, unless a cut or an ending came first.
+  const endOf = (god: God, r: Reaction): number => over(r, god.c.step, reduced() ? 2 : 1);
+  // Her crown in the pose she is in, if it has begun or is due.
+  function crowning(god: God): Begun | null {
+    const c = god.crowned;
+    return c && !c.off && c.start !== null && c.shownAt === god.shownAt ? (c as Begun) : null;
+  }
+
+  function reactingNow(god: God, t: number): boolean {
+    const r = god.react;
+    if (!r || r.off) return false;
+    return r.start === null ? t <= r.late : r.shownAt === god.shownAt && t < endOf(god, r);
+  }
+
+  // Until when its fidget rests for a reaction at t, in the pose it is in,
+  // if it does; and whether a bar (b beats from the cut) is the one it starts
+  // again with.
+  const hushes = (god: God): Hush[] => god.hush.filter((w) => w.at === god.shownAt && !w.r.off);
+  function hushedUntil(god: God, t: number): number | null {
+    let until: number | null = null;
+    for (const w of hushes(god))
+      if (t >= w.from && t < w.until) until = Math.max(until ?? -Infinity, w.until);
+    return until;
+  }
+  const resumes = (god: God, b: number): boolean =>
+    hushes(god).some((w) => Math.abs(w.until - (god.shownAt + b * god.c.step)) < 1e-3);
+
+  // A record has changed: the gods near it may notice. The nearest god at its
+  // work on each side, within reach of its head line, not already reacting
+  // and not one that noticed lately, by dice of its own (the two agents and
+  // the event: never the floor's) and its nature. For a finish, the nearest
+  // Nike at her work who is free gives her crown instead, wherever she is; if
+  // none is free, one armed this very moment for a farther finish turns to
+  // the nearer.
+  function notice(ev: God, kind: Noticed, t: number): void {
+    if (!reacting) return;
+    const x = xAt(ev, t);
+    const others = [...gods.values()].filter((g) => g !== ev && atWork(g));
+    let crowner: God | null = null;
+    if (kind === "done") {
+      const far = (g: God): number => Math.abs(g.x - x);
+      const nikes = others.filter((g) => crownOf(g.gid)).sort((a, b) => far(a) - far(b));
+      crowner =
+        nikes.find((g) => !reactingNow(g, t)) ??
+        nikes.find((g) => {
+          const r = g.react!;
+          return r.crown && r.at === t && far(g) < Math.abs(r.x - g.x);
+        }) ??
+        null;
+      if (crowner) arm(crowner, ev, kind, x, t, true);
+    }
+    for (const side of [-1, 1]) {
+      let near: God | null = null;
+      for (const g of others) {
+        const d = (g.x - x) * side;
+        if (d > 0 && d <= N.reach && (!near || d < (near.x - x) * side)) near = g;
+      }
+      if (!near || near === crowner || reactingNow(near, t)) continue;
+      const last = near.noticed;
+      if (last && !last.off && last.start !== null && t - last.start < N.rest) continue;
+      if (rng(hash(`${near.key} ${ev.key} ${kind}`))() >= near.c.chance[kind]) continue;
+      arm(near, ev, kind, x, t, false);
+    }
+  }
+
+  function arm(god: God, ev: God, kind: Noticed, x: number, t: number, crown: boolean): void {
+    const old = god.react;
+    if (old && !old.off && (old.start === null || old.start > t)) old.off = true; // not begun: replaced
+    const r = armed(
+      ev.key,
+      kind,
+      x,
+      t,
+      N.late,
+      N.beats[kind],
+      crown ? crownOf(god.gid) : undefined,
+    );
+    god.react = r;
+    if (crown) god.crowned = r;
+    if (!god.swap) begin(god, r, t);
+  }
+
+  // When and how a reaction begins, now that no cut of its own is coming
+  // first. The one who flies is down for her crown when it begins. A lean
+  // begins from wherever its fidget has the figure then. Its fidget rests
+  // from then until the first bar after it is over; a move on the cut doesn't
+  // come back.
+  function begin(god: God, r: Reaction, t: number): void {
+    const step = god.c.step;
+    const quiet = reduced();
+    const pose = god.pose as Skill;
+    const down = r.crown && liftOf(god) && !quiet ? HOVER_DOWN : 0;
+    const start = quarter(god.beat0, step, t + step / 4 + down);
+    if (start > r.late) {
+      r.off = true;
+      return;
+    }
+    const front = Math.sign(r.x - god.x) === god.dir;
+    const from = r.crown || quiet ? null : fidget(god, start - 1e-3, false).s;
+    begun(r, start, god.shownAt, front, god.c.nt[pose]!, N.ease, step, from);
+    god.noticed = r;
+    god.hush = hushes(god);
+    const until = hushUntil(god.c.fid[pose], god.shownAt, start + r.beats * step, step);
+    if (until !== null) god.hush.push({ r, at: god.shownAt, from: start, until });
+  }
+
+  // A cut of the god's own has landed (swap), or its record has changed
+  // (heed): a reaction under way when a cut lands ends there, as a fidget
+  // does; one not begun begins after the cut, or waits for the one coming.
+  function settle(god: God, t: number): void {
+    const r = god.react;
+    if (!r || r.off) return;
+    const cut = r.start !== null && r.shownAt !== god.shownAt;
+    if (cut && r.start! <= t) r.end = Math.min(r.end, t);
+    else if (cut || r.start === null) {
+      r.start = null;
+      if (!god.swap) begin(god, r, t);
+    }
+  }
+
+  // It leaves its work: a reaction ends with it (at `at`), and one not begun never does.
+  function endReact(god: God, t: number, at = t): void {
+    const r = god.react;
+    if (!r || r.off) return;
+    if (r.start === null || r.start > t) r.off = true;
+    else r.end = Math.min(r.end, at);
+  }
+
+  // What a god at its work shows at `now`: its reaction if it is in one, else
+  // its fidget; and when it will next be drawn otherwise: a reaction that is
+  // due begins on a frame of its own.
+  function motion(
+    god: God,
+    now: number,
+    quiet: boolean,
+  ): { readonly shown: Shown; readonly react: How | ""; readonly wake: number } {
+    const lift = liftOf(god);
+    const r = reacting ? god.react : null;
+    const live = r && !r.off && r.start !== null && r.shownAt === god.shownAt ? (r as Begun) : null;
+    const at = live && played(live, now, god.c.step, quiet, lift);
+    if (live && at) return { shown: at.shown, react: live.how!, wake: at.wake };
+    const f = fidget(god, now, quiet);
+    const due = live && now < live.start && !(quiet && live.move) ? live.start : Infinity;
+    return { shown: shownAs(f.s, lift), react: "", wake: Math.min(f.wake, due) };
   }
 
   // At its place: it starts its work, in the pose its record asks for now, and
@@ -1679,16 +1943,20 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   // It leaves its work, to step aside or for its ending: the cut that was
-  // coming is dropped, its fidget with it, and the one who flies comes down
-  // first. Then it stands. Whether she comes down first is her height with no
-  // fidget, so an ending falls when it would without one; she comes down from
-  // the height she had.
+  // coming is dropped, its fidget and its reaction with it, and the one who
+  // flies comes down first. Then it stands. Whether she comes down first is
+  // her height with no fidget and no crown, so an ending falls when it would
+  // without them; she comes down from the height she had, and if she was
+  // crowning on the floor, holds the crown until then.
   function quit(god: God, t: number, then: (t: number) => void): void {
     const quiet = reduced();
-    const up = aloft(god, t) > 0 && !quiet;
-    const h = up ? aloft(god, t, fidget(god, t, quiet).s?.lift) : 0;
+    const up = aloft(god, t, null, true) > 0 && !quiet;
+    const m = motion(god, t, quiet);
+    const h = up ? aloft(god, t, m.shown.lift) : 0;
+    const crowned = m.react === "crown" && up ? m.shown.turn : null;
+    endReact(god, t, crowned !== null ? t + HOVER_DOWN : t);
     uncue(god);
-    if (up) return void enter(god, "alight", t, HOVER_DOWN, { h, then });
+    if (up) return void enter(god, "alight", t, HOVER_DOWN, { h, then, crowned });
     god.pose = "stand";
     then(t);
   }
@@ -1785,6 +2053,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     namesEl.append(god.label);
     god.labelW = measure(god.label);
     roveFix();
+    notice(god, "arrive", t);
     // It is set from its tesserae, shows through them, and then greets; under
     // reduced motion it is there, greeting.
     if (reduced()) return speak(god, t, "greet");
@@ -2122,6 +2391,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       press: 1,
       tiles: null,
       fid: STILL,
+      react: "",
       moving: false,
       wake: Infinity,
     };
@@ -2167,20 +2437,36 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         break;
       case "work": {
         const lift = liftOf(god);
-        const f = fidget(god, now, quiet);
-        v.fid = shownAs(f.s, lift);
+        const m = motion(god, now, quiet);
+        v.fid = m.shown;
+        v.react = m.react;
         v.y = -aloft(god, now, v.fid.lift);
         if (v.fid.turn) v.dir = -god.dir; // an about-face, as the walk's look round is
-        v.wake = f.wake;
+        v.wake = m.wake;
         v.moving =
-          f.wake <= now ||
+          m.wake <= now ||
           (lift > 0 &&
             !quiet &&
             (now < god.upAt + HOVER_UP || (god.swap !== null && now >= god.swap.t - HOVER_DOWN)));
+        // The one who flies comes down for her crown, and rises after it.
+        const c = lift > 0 && !quiet ? crowning(god) : null;
+        if (c) {
+          const end = endOf(god, c);
+          const down = c.start - HOVER_DOWN;
+          if (now < down) v.wake = Math.min(v.wake, down);
+          else if (now < c.start || (now >= end && now < end + HOVER_UP)) v.moving = true;
+        }
         break;
       }
       case "alight":
         v.y = -s.h! * (1 - smooth(u / HOVER_DOWN));
+        if (s.crowned != null) {
+          v.react = "crown";
+          if (s.crowned) {
+            v.fid = TURNED;
+            v.dir = -god.dir;
+          }
+        }
         v.moving = true;
         break;
       case "seal":
@@ -2246,12 +2532,17 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     });
     const ribbon = god.ribbon;
     if (ribbon) put(god, "u", v.rib.toFixed(3), (u) => ribbon.style.setProperty("--oly-u", u));
-    // Its fidget: the whole figure's transform, its pose's second frame, and its cut-out part.
+    // Its fidget, or its reaction: the whole figure's transform, its pose's
+    // second frame, the reaction it shows, and its cut-out part.
     const f = v.fid;
     put(god, "fid", f.tx, (tx) => (god.posesEl.style.transform = tx));
     put(god, "frame", f.frame, (frame) => {
       if (frame) el.dataset.frame = frame;
       else delete el.dataset.frame;
+    });
+    put(god, "react", v.react, (how) => {
+      if (how) el.dataset.react = how;
+      else delete el.dataset.react;
     });
     put(god, "part", f.part && `${v.pose} ${f.ptx}`, (on) => {
       if (god.moved) god.moved.style.transform = "";
@@ -2588,8 +2879,12 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         continue;
       }
       god.agent = a;
-      if (a.look !== "run") finish(god, a.look, t);
-      else if (!god.ending) heed(god, t);
+      if (a.look !== "run") {
+        const was = god.ending;
+        finish(god, a.look, t);
+        // Its neighbours may notice: a stop, as a failure.
+        if (!was && out(god)) notice(god, a.look === "done" ? "done" : "fail", t);
+      } else if (!god.ending) heed(god, t);
     }
     for (const god of [...gods.values()]) if (!seen.has(god.key)) remove(god, t);
     for (const key of [...ended.keys()]) if (!seen.has(key)) ended.delete(key);
@@ -2655,6 +2950,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
             want: g.want,
             lift: v.y ? -v.y : 0,
             fidget: v.fid === STILL ? null : v.fid,
+            react: v.react && g.react ? { how: v.react, of: g.react.of } : null,
             shown: v.fig,
             tesserae: v.tiles && { mode: v.tiles.mode, dim: v.tiles.dim },
             unrolled: g.ribbon ? v.rib : null,

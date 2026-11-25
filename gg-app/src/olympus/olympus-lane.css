@@ -1,4 +1,4 @@
-/* Olympus, parts 2 to 6b: the lane, its card, its travel, its tesserae, its floor and the gods' fidgets. A marble
+/* Olympus, parts 2 to 6c: the lane, its card, its travel, its tesserae, its floor, the gods' fidgets and their notices. A marble
    stylobate over the composer; each subagent at work is a god on it, acting
    its agent's latest tool, its name carved in the step's face under it. The
    engine (floor.ts) builds every god, puts it where it is and says which pose
@@ -195,6 +195,17 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 .oly-cell[data-part][data-pose="think"] .oly-part[data-of="think"],
 .oly-cell[data-part][data-pose="think-l"] .oly-part[data-of="think-l"],
 .oly-cell[data-part][data-pose="think-r"] .oly-part[data-of="think-r"] {
+  visibility: visible;
+}
+/* The crown, raised toward a god that has finished: while the engine shows it
+   (data-react), it alone is shown, in place of the pose the record asks for,
+   which stays data-pose; and, being what is shown, it is what is pointed at.
+   A glance, a glance back and a turn to face are the engine's transform and
+   its facing, as a fidget's are. */
+.oly-cell[data-react="crown"] .oly-pose {
+  visibility: hidden;
+}
+.oly-cell[data-react="crown"] .oly-pose.oly-p-crown {
   visibility: visible;
 }
 /* Failed and stopped both dim; only a failure cracks. How far, on the way, is
