@@ -1,4 +1,4 @@
-/* Olympus, parts 2 to 6: the lane, its card, its travel, its tesserae and its floor. A marble
+/* Olympus, parts 2 to 6b: the lane, its card, its travel, its tesserae, its floor and the gods' fidgets. A marble
    stylobate over the composer; each subagent at work is a god on it, acting
    its agent's latest tool, its name carved in the step's face under it. The
    engine (floor.ts) builds every god, puts it where it is and says which pose
@@ -8,7 +8,10 @@
    from its own clock: the lane's height as it rises and falls, where a god is
    as it walks, how far its figure and its name show, how far its ribbon is
    unrolled (--oly-u), how far it is dimmed (--oly-dim) and cracked
-   (--oly-crack), and the press of its seal. So no rule here runs over time,
+   (--oly-crack), the press of its seal, and its fidget at its work: a
+   transform on its pictures' box for the whole figure, data-frame for a
+   pose's second frame (a cut: the one picture hidden, the other shown), and a
+   transform on a pose's cut-out part. So no rule here runs over time,
    and none asks whether the reader wants less motion: the engine asks that
    itself, and then moves nothing. One pose is still cut to the next, and the
    card is up or it isn't. The tesserae a god is set from and goes back to
@@ -158,6 +161,40 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 .oly-cell[data-pose="think"] .oly-p-think,
 .oly-cell[data-pose="think-l"] .oly-p-think-l,
 .oly-cell[data-pose="think-r"] .oly-p-think-r {
+  visibility: visible;
+}
+/* A fidget of the whole figure, or of a part, is the engine's transform: a
+   shift, and a turn about a pivot it gives from the box's own corner. */
+.oly-poses,
+.oly-part {
+  transform-origin: 0 0;
+}
+/* A pose in two frames: the second is shown in place of the first while the god has data-frame. */
+.oly-cell:not([data-frame="b"]) .oly-pose.oly-f-b,
+.oly-cell[data-frame="b"] .oly-pose:not(.oly-f-b) {
+  visibility: hidden;
+}
+/* A cut-out part is the pose's own picture again, clipped to the part: hidden
+   until the engine moves it (data-part); then the pose gives up the part's
+   hole, and the part shows over it. The engine sets both shapes as it builds
+   the god; at rest only the pose itself is shown. */
+.oly-part {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  visibility: hidden;
+  clip-path: var(--oly-clip);
+}
+.oly-cell[data-part] .oly-pose {
+  clip-path: var(--oly-hole, none);
+}
+.oly-cell[data-part][data-pose="look"] .oly-part[data-of="look"],
+.oly-cell[data-part][data-pose="web"] .oly-part[data-of="web"],
+.oly-cell[data-part][data-pose="make"] .oly-part[data-of="make"],
+.oly-cell[data-part][data-pose="run"] .oly-part[data-of="run"],
+.oly-cell[data-part][data-pose="think"] .oly-part[data-of="think"],
+.oly-cell[data-part][data-pose="think-l"] .oly-part[data-of="think-l"],
+.oly-cell[data-part][data-pose="think-r"] .oly-part[data-of="think-r"] {
   visibility: visible;
 }
 /* Failed and stopped both dim; only a failure cracks. How far, on the way, is

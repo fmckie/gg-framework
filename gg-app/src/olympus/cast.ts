@@ -17,6 +17,7 @@ import athenaStride from "./poses/athena-stride.webp";
 import athenaThink from "./poses/athena-think.webp";
 import hephaestusLook from "./poses/hephaestus-look.webp";
 import hephaestusMake from "./poses/hephaestus-make.webp";
+import hephaestusMakeB from "./poses/hephaestus-make-b.webp";
 import hephaestusRun from "./poses/hephaestus-run.webp";
 import hephaestusSpeak from "./poses/hephaestus-speak.webp";
 import hephaestusStand from "./poses/hephaestus-stand.webp";
@@ -25,6 +26,7 @@ import hephaestusThink from "./poses/hephaestus-think.webp";
 import hermesLook from "./poses/hermes-look.webp";
 import hermesMake from "./poses/hermes-make.webp";
 import hermesRun from "./poses/hermes-run.webp";
+import hermesRunB from "./poses/hermes-run-b.webp";
 import hermesSpeak from "./poses/hermes-speak.webp";
 import hermesStand from "./poses/hermes-stand.webp";
 import hermesStride from "./poses/hermes-stride.webp";
@@ -36,6 +38,7 @@ import herodotusStride from "./poses/herodotus-stride.webp";
 import herodotusThink from "./poses/herodotus-think.webp";
 import herodotusWeb from "./poses/herodotus-web.webp";
 import nikeLook from "./poses/nike-look.webp";
+import nikeLookB from "./poses/nike-look-b.webp";
 import nikeMake from "./poses/nike-make.webp";
 import nikeRun from "./poses/nike-run.webp";
 import nikeSpeak from "./poses/nike-speak.webp";
@@ -80,6 +83,58 @@ export interface Act {
   readonly verdict?: { readonly confirmed: Skill; readonly dropped: Skill };
 }
 
+/**
+ * A state of a gesture: the figure, or its cut-out part, shifted (px) and
+ * turned (degrees) about the move's pivot; the figure about-faced, or in its
+ * pose's second frame; the part gone; the one who flies at a height.
+ */
+export interface FidgetState {
+  readonly dx?: number;
+  readonly dy?: number;
+  readonly rot?: number;
+  readonly turn?: boolean;
+  readonly frame?: "b";
+  readonly lift?: number;
+  readonly gone?: boolean;
+}
+
+/** A gesture: a state from each of its beats on, counted from where it starts. */
+export interface FidgetMove {
+  readonly keys: readonly (readonly [beat: number, state: FidgetState])[];
+  /** How long the figure eases into each state, ms; none, and each is a cut. */
+  readonly ease: number;
+  /** Idling, how likely it is dealt, against the pose's other moves and its rest. */
+  readonly w: number;
+  /** The cut-out part it moves, if not the whole figure. */
+  readonly part: string | null;
+  /** What a turn is about: in the cell, or for a part in its pose's own picture. */
+  readonly pivot: readonly [number, number] | null;
+  /** The beat it is over by. */
+  readonly end: number;
+}
+
+/**
+ * What a pose does while it is held, in the god's own beats from the cut that
+ * showed it: a move played once on the cut; or a rhythm, its one move coming
+ * round every bar; or idling, each bar dealt one of its moves or none.
+ */
+export interface Fidget {
+  readonly bar: number;
+  readonly idle: boolean;
+  readonly rest: number;
+  readonly cut: FidgetMove | null;
+  readonly moves: readonly FidgetMove[];
+}
+
+/** A pose's cut-out part: polygons in the pose's own picture, px. */
+export interface Part {
+  readonly name: string;
+  /** The part: the picture again, clipped to this. */
+  readonly cut: readonly (readonly [number, number])[];
+  /** The hole it leaves in the pose while it moves. */
+  readonly hole: readonly (readonly [number, number])[];
+}
+
 /** One god, measured in its 73×100 cell, facing right. */
 export interface CastGod {
   readonly name: string;
@@ -113,6 +168,12 @@ export interface CastGod {
   readonly at: Readonly<Partial<Record<Skill, readonly [number, number]>>>;
   /** How far off the floor a pose is held. */
   readonly lift: Readonly<Partial<Record<Skill, number>>>;
+  /** The poses in two frames: the second, b, is cut to for a move that is a limb's. */
+  readonly frames: Readonly<Partial<Record<Skill, readonly "b"[]>>>;
+  /** The poses with a cut-out part, which hangs or flies free of the body. */
+  readonly parts: Readonly<Partial<Record<Skill, Part>>>;
+  /** What each pose does while it is held; a pose with nothing is a still. */
+  readonly fid: Readonly<Partial<Record<Skill, Fidget>>>;
   /** Each pose's top in the cell. */
   readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
   /** The height its card holds while it works: over the highest it reaches at its place. */
@@ -206,4 +267,14 @@ export const POSE_URLS: Readonly<Record<GodId, Pictures>> = {
     run: nikeRun,
     think: nikeThink,
   },
+};
+
+/** A god's second frames, by pose: each the size of its pose's first, and where it is. */
+export type Frames = Readonly<Partial<Record<Skill, string>>>;
+
+/** The poses in two frames: a stride, a hammer's blow, a wingbeat. */
+export const FRAME_URLS: Readonly<Partial<Record<GodId, Frames>>> = {
+  hermes: { run: hermesRunB },
+  hephaestus: { make: hephaestusMakeB },
+  nike: { look: nikeLookB },
 };

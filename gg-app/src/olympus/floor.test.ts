@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { CAST, POSE_URLS, type Skill } from "./cast";
+import { CAST, FRAME_URLS, POSE_URLS, type Skill } from "./cast";
 import {
   agentsAt,
   type CountingBrush,
@@ -78,6 +78,8 @@ interface Stage {
   readonly bed: CountingBrush;
   /** How often the floor has put a step on the clock or woken it, and drawn its dice. */
   readonly asked: { clock: number; dice: number };
+  /** How many frames the floor has drawn. */
+  readonly drawn: { frames: number };
   names(): string[];
   setWidth(width: number): void;
   resize(): void;
@@ -93,9 +95,16 @@ const stages: { dispose(): void }[] = [];
  * A lane with a clock that moves only when told to, and draws a frame for the
  * moment each advance ends on (framedHost); a letter is 5.5px wide. Its
  * canvases count what is drawn on them, the gods' tesserae on one and the
- * floor's mosaic on the other: jsdom draws none.
+ * floor's mosaic on the other: jsdom draws none. Its gods hold their poses
+ * still unless it is asked for their fidgets: the run is the same either way.
  */
-function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): Stage {
+function stage({
+  seed = 7,
+  width = 698,
+  letter = 5.5,
+  reduced = false,
+  fidget = false,
+} = {}): Stage {
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
@@ -114,10 +123,12 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
   let w = width;
   let quiet = reduced;
   const asked = { clock: 0, dice: 0 };
+  const drawn = { frames: 0 };
   const cards: (string | null)[] = [];
   const clock = createSim(host);
   const sim: Sim = {
     ...clock,
+    view: (fn) => clock.view((now) => (drawn.frames++, fn(now))),
     at: (t, fn) => (asked.clock++, clock.at(t, fn)),
     after: (ms, fn) => (asked.clock++, clock.after(ms, fn)),
     soon: (fn) => (asked.clock++, clock.soon(fn)),
@@ -128,6 +139,8 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
     sim,
     cast: CAST,
     poses: POSE_URLS,
+    frames: FRAME_URLS,
+    fidget,
     random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
@@ -150,6 +163,7 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
     fx,
     bed,
     asked,
+    drawn,
     label(key) {
       const i = floor.peek().gods.findIndex((god) => god.key === key);
       return i < 0 ? undefined : [...lane.querySelectorAll<HTMLElement>(".oly-ins")][i];
@@ -3257,6 +3271,737 @@ describe("reduced motion: the floor is a still", () => {
     expect(s.peek()).toMatchObject({ lane: { mode: "shut", height: 0 }, floor: null });
     expect(s.lane.style.height).toBe("");
     expect(s.bed.stones).toBe(0);
+    expect(s.host.pending()).toBe(0);
+  });
+});
+
+// ── Part 6b: fidgets ──
+describe("fidgets: a god alive at its work", () => {
+  type Opts = Parameters<typeof stage>[0];
+  const posesOf = (cell: HTMLElement): HTMLElement =>
+    cell.querySelector<HTMLElement>(".oly-poses")!;
+  const turnOf = (pivot: readonly [number, number], deg: number): string =>
+    `translate(${pivot[0]}px, ${pivot[1]}px) rotate(${deg.toFixed(3)}deg) translate(${-pivot[0]}px, ${-pivot[1]}px)`;
+
+  /**
+   * One god at its work in the pose it acts a family of tool in, its fidgets
+   * on unless told otherwise. `t0` is the cut that showed the pose: the moment
+   * it took its place.
+   */
+  function alive(
+    god: GodId,
+    family: ToolFamily,
+    opts: Opts = {},
+    key = "a",
+  ): Stage & { t0: number; to(ms: number): void } {
+    const s = stage({ fidget: true, ...opts });
+    s.sync([agent(key, god, "run", family, 1)]);
+    settle(s);
+    const t0 = s.host.now();
+    /** On to so long after that cut. */
+    const to = (ms: number): void => s.host.advance(t0 + ms - s.host.now());
+    return Object.assign(s, { t0, to });
+  }
+
+  /** The lane narrows by 60px under its one god: it must step aside. */
+  function narrow(s: Stage): void {
+    s.setWidth(Math.round(s.peek().gods[0]!.place![1] + 16 - 60));
+    s.resize();
+  }
+
+  /** Hand one god another tool, and say when its pose changes, to the ms. */
+  function cutTo(s: Stage, god: GodId, family: ToolFamily, tools: number): number {
+    const was = s.cell("a")!.dataset.pose;
+    s.sync([agent("a", god, "run", family, tools)]);
+    for (let i = 0; i < 20_000 && s.cell("a")!.dataset.pose === was; i++) s.host.advance(1);
+    return s.host.now();
+  }
+
+  it("a gesture is in the god's own beats, counted from the cut that showed the pose: the smith's hammer falls on his", () => {
+    // His beat is 560ms. Three blows a bar of four beats, the hammer down for a quarter of a beat.
+    const s = alive("hephaestus", "make");
+    const cell = s.cell("a")!;
+    const frame = (ms: number): string => (s.to(ms), cell.dataset.frame ?? "");
+    expect(cell.dataset.pose).toBe("make");
+    expect(frame(0)).toBe("b"); // down as the pose cuts in
+    expect(frame(139)).toBe("b");
+    expect(frame(140)).toBe("");
+    expect(frame(559)).toBe("");
+    expect(frame(560)).toBe("b");
+    expect(frame(700)).toBe("");
+    expect(frame(1120)).toBe("b");
+    expect(frame(1260)).toBe("");
+    expect(frame(2239)).toBe(""); // a beat's rest, and the bar comes round
+    expect(frame(2240)).toBe("b");
+    expect(frame(2380)).toBe("");
+    // The second frame is a picture of its own, where the first is; the pose is still his make.
+    const [first, second] = [...cell.querySelectorAll<HTMLImageElement>(".oly-p-make")];
+    expect(second!.className).toBe("oly-pose oly-p-make oly-f-b");
+    expect(second!.getAttribute("src")).toBe(FRAME_URLS.hephaestus!.make);
+    expect(second!.getAttribute("style")).toBe(first!.getAttribute("style"));
+    expect(s.peek().gods[0]).toMatchObject({ pose: "make", want: "make", step: "work" });
+    // A cut to the bellows: that pose's own gesture, from that cut. He leans on them, eased.
+    const cut = cutTo(s, "hephaestus", "run", 2);
+    const pivot = CAST.gods.hephaestus.fid.run!.moves[0]!.pivot!;
+    const lean = (ms: number): string => (
+      s.host.advance(cut + ms - s.host.now()),
+      posesOf(cell).style.transform
+    );
+    expect(cell.dataset.frame).toBeUndefined();
+    expect(lean(0)).toBe("");
+    expect(lean(140)).toBe(turnOf(pivot, 0.5));
+    expect(lean(280)).toBe(turnOf(pivot, 1));
+    expect(lean(559)).toBe(turnOf(pivot, 1));
+    expect(lean(700)).toBe(turnOf(pivot, 0.5));
+    expect(lean(840)).toBe("");
+    expect(lean(1119)).toBe("");
+    expect(lean(1260)).toBe(turnOf(pivot, 0.5)); // his bar is two beats: again
+    // And back to the anvil: the hammer is down on the cut, wherever his old bar had got to.
+    const back = cutTo(s, "hephaestus", "make", 3);
+    expect(cell.dataset.frame).toBe("b");
+    expect(posesOf(cell).style.transform).toBe("");
+    s.host.advance(140);
+    expect(cell.dataset.frame).toBeUndefined();
+    expect((back - s.t0) % 560).toBe(0); // the cut fell on his beat, as cuts do
+  });
+
+  it("the whole figure may ease a little; a limb only ever changes by a cut to another frame", () => {
+    // Athena inclines to her owl: a turn of 1.5° about the floor under her front, eased in and out.
+    const athena = alive("athena", "look");
+    const poses = posesOf(athena.cell("a")!);
+    const pivot = CAST.gods.athena.fid.look!.moves[0]!.pivot!;
+    const turns: number[] = [];
+    for (let ms = 0; ms < 60_000; ms += 20) {
+      athena.host.advance(20);
+      const tx = poses.style.transform;
+      const deg = tx === "" ? 0 : Number(/rotate\(([\d.]+)deg\)/.exec(tx)![1]);
+      expect(tx).toBe(deg ? turnOf(pivot, deg) : "");
+      expect(athena.cell("a")!.dataset.frame).toBeUndefined();
+      turns.push(deg);
+    }
+    expect(Math.max(...turns)).toBe(1.5);
+    // Eased: no frame is far from the last. And a gesture: she is still most of the time.
+    turns.forEach((deg, i) => i && expect(Math.abs(deg - turns[i - 1]!)).toBeLessThan(0.1));
+    expect(turns.filter((deg) => deg === 0).length).toBeGreaterThan(turns.length / 2);
+    expect(turns.filter((deg, i) => deg > 0 && turns[i - 1] === 0).length).toBeGreaterThan(3);
+    // Hermes runs on the spot: his other stride for a beat of 300ms, two px back, and no frame between.
+    const hermes = alive("hermes", "run");
+    const cell = hermes.cell("a")!;
+    for (let ms = 0; ms < 3000; ms += 10) {
+      hermes.to(ms);
+      const striding = Math.floor(ms / 300) % 2 === 0;
+      expect(cell.dataset.frame).toBe(striding ? "b" : undefined);
+      expect(posesOf(cell).style.transform).toBe(striding ? "translate(-2.00px, 0.00px)" : "");
+      expect(cell.dataset.pose).toBe("run");
+    }
+  });
+
+  it("a thing that hangs free is the pose's own picture again, cut out and moved: the scales swing once on the cut, and settle", () => {
+    const s = alive("themis", "think");
+    const cell = s.cell("a")!;
+    const pose = cell.dataset.pose as "think-l" | "think-r";
+    const { cut, hole } = CAST.gods.themis.parts[pose]!;
+    const pivot = CAST.gods.themis.fid[pose]!.cut!.pivot!;
+    const [left, width] = CAST.gods.themis.at[pose]!;
+    const px = (points: readonly (readonly [number, number])[]): string =>
+      points.map(([x, y]) => `${x}px ${y}px`).join(",");
+    // Built with her: the pose's picture twice, the second clipped to the scales; the first knows their hole.
+    const part = cell.querySelector<HTMLImageElement>(`.oly-part[data-of="${pose}"]`)!;
+    const whole = cell.querySelector<HTMLImageElement>(`.oly-pose.oly-p-${pose}`)!;
+    expect(part.getAttribute("src")).toBe(POSE_URLS.themis[pose]);
+    expect(part.style.left).toBe(`${left}px`);
+    expect(part.style.width).toBe(`${width}px`);
+    expect(part.style.getPropertyValue("--oly-clip")).toBe(`polygon(${px(cut)})`);
+    expect(whole.style.getPropertyValue("--oly-hole")).toBe(
+      `polygon(evenodd,0px 0px,${width}px 0px,${width}px 100px,0px 100px,0px 0px,${px(hole)},${px(hole.slice(0, 1))})`,
+    );
+    expect(cell.querySelectorAll(".oly-part")).toHaveLength(3); // her scales either way, and her pebble
+    // Her beat is 640ms: tipped 5°, back past true to −3°, 1.5°, and still; each eased over a beat.
+    const swing = (ms: number): string => (s.to(ms), part.style.transform);
+    expect(swing(0)).toBe("");
+    expect(cell.dataset.part).toBeUndefined(); // not yet moved: only the pose is shown
+    expect(swing(320)).toBe(turnOf(pivot, 2.5));
+    expect(cell.dataset.part).toBe("scales");
+    expect(swing(640)).toBe(turnOf(pivot, 5));
+    expect(swing(960)).toBe(turnOf(pivot, 1));
+    expect(swing(1280)).toBe(turnOf(pivot, -3));
+    expect(swing(1600)).toBe(turnOf(pivot, -0.75));
+    expect(swing(1920)).toBe(turnOf(pivot, 1.5));
+    expect(swing(2240)).toBe(turnOf(pivot, 0.75));
+    expect(posesOf(cell).style.transform).toBe(""); // the figure itself never moved
+    expect(swing(2560)).toBe("");
+    expect(cell.dataset.part).toBeUndefined();
+    // Played once: it doesn't come back, and nothing ticks while she holds them.
+    const { frames } = s.drawn;
+    s.host.run(20_000);
+    expect(part.style.transform).toBe("");
+    expect(s.drawn.frames).toBe(frames);
+    expect(s.host.pending()).toBe(0);
+  });
+
+  it("a part moved by steps: the watchman's flame gutters, and the pebble is tossed and caught", () => {
+    // Argus's beat is 500ms, his bar five beats: the flame leans at beat 2, the other way, and is back at 3.
+    const argus = alive("argus", "web");
+    const flame = argus.cell("a")!.querySelector<HTMLElement>('.oly-part[data-of="web"]')!;
+    const pivot = CAST.gods.argus.fid.web!.moves[0]!.pivot!;
+    const gutter = (ms: number): string => (argus.to(ms), flame.style.transform);
+    expect(flame.style.getPropertyValue("--oly-clip")).toBe(
+      "polygon(49.5px 8.8px,66px 8.8px,66px 17.5px,63.6px 20.1px,56px 20.1px,49.5px 14.5px)",
+    );
+    expect(
+      argus
+        .cell("a")!
+        .querySelector<HTMLElement>(".oly-pose.oly-p-web")!
+        .style.getPropertyValue("--oly-hole"),
+    ).toBe(
+      "polygon(evenodd,0px 0px,67px 0px,67px 100px,0px 100px,0px 0px,49.5px 8.8px,66px 8.8px,66px 17.2px,63.4px 19.5px,56.4px 19.5px,49.5px 14.2px,49.5px 8.8px)",
+    );
+    expect(gutter(999)).toBe("");
+    expect(argus.cell("a")!.dataset.part).toBeUndefined();
+    expect(gutter(1000)).toBe(turnOf(pivot, -6));
+    expect(argus.cell("a")!.dataset.part).toBe("flame");
+    expect(gutter(1249)).toBe(turnOf(pivot, -6)); // a cut, not a sway
+    expect(gutter(1250)).toBe(turnOf(pivot, 4));
+    expect(gutter(1500)).toBe("");
+    expect(argus.cell("a")!.dataset.part).toBeUndefined();
+    expect(gutter(3499)).toBe("");
+    expect(gutter(3500)).toBe(turnOf(pivot, -6)); // every bar: a rhythm
+    // Themis's beat is 640ms, her bar three: the pebble up, in her hand, dropped, gone, and up again.
+    const themis = alive("themis", "run");
+    const pebble = themis.cell("a")!.querySelector<HTMLElement>('.oly-part[data-of="run"]')!;
+    const toss = (ms: number): string => (themis.to(ms), pebble.style.transform);
+    expect(toss(0)).toBe("translate(0.00px, -1.20px)");
+    expect(themis.cell("a")!.dataset.part).toBe("pebble");
+    expect(toss(640)).toBe("");
+    expect(themis.cell("a")!.dataset.part).toBeUndefined();
+    expect(toss(800)).toBe("translate(0.00px, 2.20px)");
+    expect(toss(960)).toBe("scale(0)");
+    expect(themis.cell("a")!.dataset.part).toBe("pebble");
+    expect(toss(1600)).toBe("translate(0.00px, -1.20px)");
+    expect(toss(1920)).toBe("translate(0.00px, -1.20px)"); // the bar comes round as it was left
+    expect(toss(1920 + 640)).toBe("");
+  });
+
+  it("an about-face is the mirror the walk's look round uses: the watchman looks back along the lane, and his name stays", () => {
+    // Argus at his run: his bar is six beats of 500ms, turned from beat 2 to beat 3.
+    const s = alive("argus", "run");
+    const cell = s.cell("a")!;
+    const { face } = s.peek().gods[0]!;
+    const name = s.label("a")!.style.transform;
+    const turned = (ms: number): boolean => (s.to(ms), cell.classList.contains("is-left"));
+    expect(turned(999)).toBe(face < 0);
+    expect(turned(1000)).toBe(face > 0);
+    expect(s.peek().gods[0]).toMatchObject({ dir: -face, face, fidget: { turn: true, tx: "" } });
+    expect(s.label("a")!.style.transform).toBe(name);
+    expect(turned(1499)).toBe(face > 0);
+    expect(turned(1500)).toBe(face < 0);
+    expect(s.peek().gods[0]).toMatchObject({ dir: face, fidget: null });
+    expect(turned(3999)).toBe(face < 0);
+    expect(turned(4000)).toBe(face > 0);
+    expect(s.label("a")!.style.transform).toBe(name);
+  });
+
+  it("an idling god's gestures are dealt by dice of its own: never the floor's, and nothing is put on its clock", () => {
+    // Five who idle, each in its own time: a minute of it.
+    const s = stage({ fidget: true });
+    s.sync([
+      agent("a", "athena", "run", "look", 1),
+      agent("b", "herodotus", "run", "look", 1),
+      agent("c", "hermes", "run", "look", 1),
+      agent("d", "themis", "run", "look", 1),
+      agent("e", "nike", "run", "run", 1),
+    ]);
+    settle(s, 5);
+    const { clock, dice } = s.asked;
+    const gestures = new Map<string, number>();
+    const was = new Map<string, boolean>();
+    for (let ms = 0; ms < 60_000; ms += 20) {
+      s.host.run(20);
+      for (const god of s.peek().gods) {
+        const on = god.fidget !== null;
+        if (on && !was.get(god.key)) gestures.set(god.key, (gestures.get(god.key) ?? 0) + 1);
+        was.set(god.key, on);
+      }
+    }
+    expect([...gestures.keys()].sort()).toEqual(["a", "b", "c", "d", "e"]);
+    for (const n of gestures.values()) expect(n).toBeGreaterThanOrEqual(3);
+    // Not one step, one wake or one throw of the floor's dice for any of it.
+    expect(s.asked).toEqual({ clock, dice });
+    expect(s.peek().gods.every((god) => god.step === "work")).toBe(true);
+  });
+
+  it("deals by the agent, the pose, the cut and the bar: the same agent the same way, another agent of the same god another", () => {
+    /** When each of Athena's gestures at her look begins, in her first two minutes. */
+    function gestures(key: string): number[] {
+      const s = alive("athena", "look", {}, key);
+      const begun: number[] = [];
+      let was = false;
+      for (let ms = 0; ms < 120_000; ms += 40) {
+        s.host.advance(40);
+        const on = s.peek().gods[0]!.fidget !== null;
+        if (on && !was) begun.push(ms);
+        was = on;
+      }
+      return begun;
+    }
+    const one = gestures("a");
+    expect(one.length).toBeGreaterThan(8);
+    expect(gestures("a")).toEqual(one);
+    expect(gestures("b")).not.toEqual(one);
+  });
+
+  it("frames sleep between gestures: one for a cut key, at its moment, and none for the floor", () => {
+    const s = alive("hephaestus", "make");
+    s.to(1); // into his bar: the hammer is down
+    const { frames } = s.drawn;
+    const bed = { wipes: s.bed.wipes, filled: s.bed.filled };
+    const fx = { wipes: s.fx.wipes, filled: s.fx.filled };
+    expect(s.host.pending()).toBe(1); // a wait for the hammer to come up
+    // A bar of four beats, 2240ms: up, down, up, down, up, and down again as the next begins.
+    s.host.run(2240);
+    expect(s.drawn.frames - frames).toBe(6);
+    s.host.run(10 * 2240);
+    expect(s.drawn.frames - frames).toBe(66);
+    // The floor at rest was not drawn again, nor the gods' canvas touched.
+    expect(s.bed).toMatchObject(bed);
+    expect(s.fx).toMatchObject(fx);
+  });
+
+  it("frames run only while a figure eases, and sleep for good when nothing more is to come", () => {
+    // The smith at his thinking: a beat after the cut he leans in, over 400ms, and stays so.
+    const s = alive("hephaestus", "think");
+    const cell = s.cell("a")!;
+    const pivot = CAST.gods.hephaestus.fid.think!.cut!.pivot!;
+    const { frames } = s.drawn;
+    expect(s.host.pending()).toBe(1); // a wait, not a frame
+    s.host.run(559);
+    expect(s.drawn.frames).toBe(frames); // asleep until his beat
+    expect(posesOf(cell).style.transform).toBe("");
+    s.host.run(1);
+    s.host.run(200);
+    expect(posesOf(cell).style.transform).toBe(turnOf(pivot, 0.5));
+    const easing = s.drawn.frames - frames;
+    expect(easing).toBeGreaterThan(8); // frame by frame, as the window gives them
+    s.host.run(200);
+    expect(posesOf(cell).style.transform).toBe(turnOf(pivot, 1));
+    s.host.run(100);
+    const done = s.drawn.frames;
+    expect(s.host.pending()).toBe(0); // asleep, with nothing to wake for
+    s.host.run(60_000);
+    expect(s.drawn.frames).toBe(done);
+    expect(posesOf(cell).style.transform).toBe(turnOf(pivot, 1));
+  });
+
+  it("a lane of five whose gestures are all cuts draws a frame a key, not sixty a second", () => {
+    const s = stage({ fidget: true });
+    s.sync([
+      agent("a", "hermes", "run", "run", 1),
+      agent("b", "hephaestus", "run", "make", 1),
+      agent("c", "argus", "run", "web", 1),
+      agent("d", "themis", "run", "run", 1),
+      agent("e", "nike", "run", "make", 1),
+    ]);
+    settle(s, 5);
+    s.host.run(3000); // the last to arrive has settled
+    const { frames } = s.drawn;
+    const { clock, dice } = s.asked;
+    s.host.run(10_000);
+    const drawn = s.drawn.frames - frames;
+    // Hermes's stride 33, the hammer 27, the flame 12, the pebble 26, and Nike's hops: no more than their keys.
+    expect(drawn).toBeGreaterThan(90);
+    expect(drawn).toBeLessThan(130);
+    expect(s.asked).toEqual({ clock, dice });
+  });
+
+  it("the one who flies rides on her fidget: up as her look cuts in, between 6 and 8px as her wings beat", () => {
+    // Nike's beat is 360ms, her bar two: wings down as she rises to 8, up as she sinks to 6, eased over 300ms.
+    const s = alive("nike", "look");
+    const cell = s.cell("a")!;
+    const at = (ms: number): [string, number] => (
+      s.to(ms),
+      [cell.dataset.frame ?? "", Number(s.peek().gods[0]!.lift.toFixed(4))]
+    );
+    expect(at(0)).toEqual(["b", 0]); // on the floor as her pose cuts in, wings down
+    expect(at(120)).toEqual(["b", 7]); // rising as she did, 240ms, easing out
+    expect(at(240)).toEqual(["b", 8]);
+    expect(at(359)).toEqual(["b", 8]);
+    expect(at(360)).toEqual(["", 8]); // her wings come up, and she begins to sink
+    expect(at(510)).toEqual(["", 7]);
+    expect(at(660)).toEqual(["", 6]);
+    expect(at(719)).toEqual(["", 6]);
+    expect(at(720)).toEqual(["b", 6]); // the bar comes round: down, and she rises
+    expect(at(870)).toEqual(["b", 7]);
+    expect(at(1020)).toEqual(["b", 8]);
+    expect(at(1080)).toEqual(["", 8]);
+    expect(cell.style.transform).toMatch(/px, -8px, 0\)$/);
+    expect(posesOf(cell).style.transform).toBe(""); // her height is her cell's, as her lift is
+    expect(s.label("a")!.style.transform).toMatch(/px, 0, 0\)$/); // and her name is not lifted
+    // Never over her lift, so never out of her envelope; her card holds its one height.
+    enter(cell);
+    const { foot } = s.peek().card!;
+    expect(foot).toBe(CELL_Y + CAST.gods.nike.card - CARD_AIR);
+    for (let ms = 1100; ms < 4000; ms += 10) {
+      const [, lift] = at(ms);
+      expect(lift).toBeGreaterThanOrEqual(6);
+      expect(lift).toBeLessThanOrEqual(8);
+      expect(s.peek().card!.foot).toBe(foot);
+    }
+  });
+
+  it("she comes down before a cut from the height she had, her wings still, and the cut falls when it would with no fidget", () => {
+    /** Her look, then a tool of another family 1500ms in: when she is cut to it, and how she came down. */
+    function cutFrom(fidget: boolean): { cut: number; down: [string, number][]; s: Stage } {
+      const s = alive("nike", "look", { fidget });
+      s.to(1500);
+      s.sync([agent("a", "nike", "run", "run", 2)]);
+      const down: [string, number][] = [];
+      const cell = s.cell("a")!;
+      while (cell.dataset.pose === "look") {
+        down.push([cell.dataset.frame ?? "", s.peek().gods[0]!.lift]);
+        s.host.advance(10);
+      }
+      return { cut: s.host.now() - s.t0, down: down.slice(-18), s };
+    }
+    const still = cutFrom(false);
+    const alive180 = cutFrom(true);
+    expect(alive180.cut).toBe(still.cut);
+    expect(still.cut % 360).toBe(0);
+    // The last 180ms before the cut: no wingbeat, and down from where she was, as she came down before.
+    const from = alive180.down[0]![1];
+    expect(from).toBeGreaterThanOrEqual(6);
+    expect(from).toBeLessThan(8); // she was riding, under her lift
+    alive180.down.forEach(([frame, lift], i) => {
+      expect(frame).toBe("");
+      expect(lift).toBeCloseTo((from / 8) * still.down[i]![1], 9);
+      if (i) expect(lift).toBeLessThan(alive180.down[i - 1]![1]);
+    });
+    expect(alive180.s.peek().gods[0]).toMatchObject({ pose: "run", lift: 0 });
+    expect(still.s.peek().gods[0]).toMatchObject({ pose: "run", lift: 0, fidget: null });
+  });
+
+  it("she comes down first for an ending and for a step aside, from the height she had, and each falls when it would with no fidget", () => {
+    function ended(fidget: boolean, how: "done" | "aside"): { said: number; from: number } {
+      const s = alive("nike", "look", { fidget });
+      s.to(1440 + 510); // sinking: 7px up, if she rides
+      const from = s.peek().gods[0]!.lift;
+      if (how === "done") s.sync([agent("a", "nike", "done", "look", 1)]);
+      else narrow(s);
+      const seen = s.peek().gods[0]!;
+      expect(seen).toMatchObject({ step: "alight", pose: "look", fidget: null });
+      expect(seen.lift).toBe(from); // from where she is: nothing jumps
+      expect(s.cell("a")!.dataset.frame).toBeUndefined();
+      s.host.advance(90);
+      expect(s.peek().gods[0]!.lift).toBeCloseTo(from / 2, 9);
+      until(s, () => s.peek().gods[0]!.step !== "alight");
+      expect(s.peek().gods[0]!.lift).toBe(0);
+      expect(s.peek().gods[0]!.step).toBe(how === "done" ? "report" : "walk");
+      return { said: s.host.now() - s.t0, from };
+    }
+    for (const how of ["done", "aside"] as const) {
+      const still = ended(false, how);
+      const riding = ended(true, how);
+      expect(still.from).toBe(8);
+      expect(riding.from).toBeCloseTo(7, 9);
+      expect(riding.said).toBe(still.said);
+      expect(still.said).toBe(1440 + 510 + 180);
+    }
+  });
+
+  it("a cut ends a gesture at once, and never waits for one: it falls on the beat it would with no fidget", () => {
+    function cutFrom(fidget: boolean): { cut: number; s: Stage & { t0: number } } {
+      const s = alive("themis", "think", { fidget });
+      s.to(320); // her scales are swinging
+      s.sync([agent("a", "themis", "run", "look", 2)]);
+      until(s, () => s.cell("a")!.dataset.pose === "look");
+      return { cut: s.host.now() - s.t0, s };
+    }
+    const still = cutFrom(false);
+    const { cut, s } = cutFrom(true);
+    expect(cut).toBe(still.cut);
+    expect(cut).toBe(1280); // her dwell is two of her beats
+    const cell = s.cell("a")!;
+    // On the cut, in the same frame: the scales are whole and still, though their swing had 1280ms to run.
+    expect(cell.dataset.part).toBeUndefined();
+    expect(cell.querySelectorAll('.oly-part[style*="transform"]')).toHaveLength(0);
+    expect(s.peek().gods[0]).toMatchObject({ pose: "look", fidget: null });
+    // A ms before, they were swinging yet.
+    const again = alive("themis", "think");
+    again.to(320);
+    again.sync([agent("a", "themis", "run", "look", 2)]);
+    again.to(1279);
+    expect(again.cell("a")!.dataset.part).toBe("scales");
+    expect(again.peek().gods[0]!.fidget!.ptx).toMatch(/rotate\(-3\.000deg\)/);
+  });
+
+  it("a step aside, a change of width and an ending drop a gesture at once: it stands as it stood", () => {
+    // The smith at his bellows is leaning nearly all the time.
+    for (const how of ["fail", "done", "stop", "width"] as const) {
+      const s = alive("hephaestus", "run");
+      const cell = s.cell("a")!;
+      s.to(200);
+      expect(posesOf(cell).style.transform).toMatch(/rotate\(0\.\d+deg\)/);
+      if (how === "width") narrow(s);
+      else s.sync([agent("a", "hephaestus", how, "run", 1)]);
+      expect(s.peek().gods[0]!.step).not.toBe("work");
+      expect(s.peek().gods[0]!.fidget).toBeNull();
+      expect(posesOf(cell).style.transform).toBe("");
+      // And nothing of it comes back while he walks, speaks, dims or goes.
+      for (let ms = 0; ms < 6000 && s.cells().length; ms += 50) {
+        s.host.advance(50);
+        if (s.peek().gods[0]?.step === "work") break;
+        expect(posesOf(cell).style.transform).toBe("");
+        expect(cell.dataset.frame).toBeUndefined();
+      }
+    }
+    // Back at his work after stepping aside, his gesture counts from there.
+    const s = alive("hephaestus", "run");
+    s.to(200);
+    narrow(s);
+    settle(s);
+    const pivot = CAST.gods.hephaestus.fid.run!.moves[0]!.pivot!;
+    expect(posesOf(s.cell("a")!).style.transform).toBe("");
+    s.host.advance(140);
+    expect(posesOf(s.cell("a")!).style.transform).toBe(turnOf(pivot, 0.5));
+  });
+
+  /**
+   * A lane as it stood, with what only a fidget writes taken off: the second
+   * frames and the parts it was built with, a figure's and a part's transform,
+   * the frame and the part shown; the facing of a god that `alive`, the same
+   * look at the run with fidgets on, has about-faced; and the height of the
+   * one who flies, which rides on hers.
+   */
+  function untouched(page: HTMLElement, height: string, alive: FloorPeek): string {
+    const lane = page.cloneNode(true) as HTMLElement;
+    for (const extra of lane.querySelectorAll(".oly-f-b, .oly-part")) extra.remove();
+    for (const pose of lane.querySelectorAll<HTMLElement>(".oly-pose"))
+      pose.style.removeProperty("--oly-hole");
+    for (const poses of lane.querySelectorAll(".oly-poses")) poses.removeAttribute("style");
+    [...lane.querySelectorAll<HTMLElement>(".oly-cell")].forEach((cell, i) => {
+      const { god, pose } = cell.dataset as { god: GodId; pose: Skill };
+      delete cell.dataset.frame;
+      delete cell.dataset.part;
+      if (alive.gods[i]?.fidget?.turn) cell.classList.remove("is-left");
+      if (CAST.gods[god].lift[pose])
+        cell.style.transform = cell.style.transform.replace(/, [^,]+, 0\)$/, ", 0, 0)");
+    });
+    return `${height} ${lane.innerHTML}`.replace(/ style=""/g, "");
+  }
+
+  interface Played {
+    readonly peeks: FloorPeek[];
+    /** Each look's page, with what the fidgets of the run `alive` wrote taken off. */
+    pages(alive: readonly FloorPeek[]): string[];
+    readonly asked: { clock: number; dice: number };
+    readonly cards: (string | null)[];
+    readonly frames: number;
+    /** How many looks found something a fidget had written. */
+    readonly writes: number;
+  }
+
+  /**
+   * A run of records, looked at every 250ms, with the frames between as a
+   * window gives them, and the pointer on one god after another.
+   */
+  function played(records: (ms: number) => LaneAgent[], fidget: boolean, reduced = false): Played {
+    const s = stage({ seed: 5, fidget, reduced });
+    const peeks: FloorPeek[] = [];
+    const looks: { page: HTMLElement; height: string }[] = [];
+    let writes = 0;
+    for (let ms = 0; ms <= 30_000; ms += 250) {
+      s.sync(records(ms));
+      const cells = s.cells();
+      if (cells.length) enter(cells[(ms / 250) % cells.length]);
+      peeks.push(s.peek());
+      looks.push({ page: s.lane.cloneNode(true) as HTMLElement, height: s.lane.style.height });
+      writes += s.lane.querySelector(
+        '[data-frame], [data-part], .oly-poses[style*="transform"], .oly-part[style*="transform"]',
+      )
+        ? 1
+        : 0;
+      s.host.run(250, 16);
+    }
+    const run: Played = {
+      peeks,
+      pages: (alive) => looks.map(({ page, height }, i) => untouched(page, height, alive[i]!)),
+      asked: { ...s.asked },
+      cards: [...s.cards],
+      frames: s.drawn.frames,
+      writes,
+    };
+    s.dispose();
+    return run;
+  }
+  /** The mockup's run and its three extras: six gods, a failure, a crowd. */
+  const crowdRun = (ms: number): LaneAgent[] => laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]);
+  /**
+   * The five whose fidgets differ most, the one who flies among them, each
+   * through a tool of every family, three seconds a tool, each a little after
+   * the last; then one is done and one fails.
+   */
+  const FIVE: readonly GodId[] = ["nike", "hermes", "themis", "argus", "hephaestus"];
+  const FAMILIES: readonly ToolFamily[] = ["look", "run", "make", "web", "think"];
+  const fiveRun = (ms: number): LaneAgent[] =>
+    FIVE.map((god, i) => {
+      const tools = Math.max(0, Math.floor((ms - 300 * i) / 3000));
+      const look = i === 1 && ms >= 21_000 ? "done" : i === 3 && ms >= 24_000 ? "fail" : "run";
+      return agent(god, god, look, tools ? FAMILIES[(tools + i) % 5]! : "think", tools);
+    });
+
+  /**
+   * A look at the lane with each god's fidget taken off: as it faces if
+   * `alive`, the same look with fidgets on, has it about-faced; and the one
+   * who flies simply aloft, at whatever height.
+   */
+  function bare(peek: FloorPeek, alive: FloorPeek): unknown {
+    return {
+      ...peek,
+      gods: peek.gods.map((god, i) => {
+        const turned = alive.gods[i]?.fidget?.turn === true;
+        const { fidget, ...rest } = god;
+        return {
+          ...rest,
+          dir: turned && fidget ? -god.dir : god.dir,
+          figure: turned ? null : god.figure,
+          lift: CAST.gods[god.god].lift[god.pose as Skill] ? "aloft" : god.lift,
+        };
+      }),
+    };
+  }
+
+  it.each([
+    ["the crowd's run", crowdRun],
+    ["five through every family of tool", fiveRun],
+  ] as const)(
+    "the same seeded run plays the same with fidgets on and off: every step, cut, place, line, card and throw of the dice; only the fidget differs (%s)",
+    (_name, records) => {
+      const off = played(records, false);
+      const on = played(records, true);
+      // The run with fidgets on did fidget, in every way there is.
+      expect(on.writes).toBeGreaterThan(20);
+      expect(off.writes).toBe(0);
+      const fidgets = on.peeks.flatMap((peek) => peek.gods.flatMap((god) => god.fidget ?? []));
+      expect(fidgets.some((f) => f.tx !== "")).toBe(true);
+      expect(fidgets.some((f) => f.frame === "b")).toBe(true);
+      if (records === crowdRun) {
+        // An about-face and a part moved: Argus and Themis are in the crowd.
+        expect(fidgets.some((f) => f.turn)).toBe(true);
+        expect(fidgets.some((f) => f.part !== "")).toBe(true);
+      } else {
+        // The one who flies, riding under her lift.
+        expect(fidgets.some((f) => f.lift !== null && f.lift < 8)).toBe(true);
+      }
+      expect(off.peeks.every((peek) => peek.gods.every((god) => god.fidget === null))).toBe(true);
+      // And everything else is the same, look for look: what the floor holds, and the page.
+      on.peeks.forEach((peek, i) =>
+        expect(JSON.stringify(bare(peek, peek))).toBe(JSON.stringify(bare(off.peeks[i]!, peek))),
+      );
+      expect(on.pages(on.peeks)).toEqual(off.pages(on.peeks));
+      expect(on.pages(on.peeks).join("")).toMatch(/data-pose="(look|make|run|web|think)"/);
+      expect(on.cards).toEqual(off.cards);
+      expect(on.cards.length).toBeGreaterThan(20);
+      // Not a step, a wake or a throw of the floor's dice more.
+      expect(on.asked).toEqual(off.asked);
+      expect(on.asked.dice).toBeGreaterThan(10);
+      expect(on.frames).toBeGreaterThan(off.frames); // only frames: the gestures' own
+    },
+  );
+
+  it("under reduced motion nobody fidgets: the lane is the stills it was, to the frame", () => {
+    for (const records of [crowdRun, fiveRun]) {
+      const off = played(records, false, true);
+      const on = played(records, true, true);
+      expect(on.writes).toBe(0);
+      expect(on.peeks.every((peek) => peek.gods.every((god) => god.fidget === null))).toBe(true);
+      expect(JSON.stringify(on.peeks)).toBe(JSON.stringify(off.peeks));
+      // The page, but for the pictures a fidgeting god was built with, which nothing shows.
+      expect(on.pages(on.peeks)).toEqual(off.pages(off.peeks));
+      expect(on.asked).toEqual(off.asked);
+      expect(on.cards).toEqual(off.cards);
+      expect(on.frames).toBe(off.frames); // not one frame drawn for a fidget
+    }
+    // The one who flies is simply up, her wings as they were carved; and the clock is asleep.
+    const nike = alive("nike", "look", { reduced: true });
+    nike.host.run(5000);
+    expect(nike.peek().gods[0]).toMatchObject({ lift: 8, fidget: null, step: "work" });
+    expect(nike.cell("a")!.dataset.frame).toBeUndefined();
+    expect(nike.cell("a")!.style.transform).toMatch(/px, -8px, 0\)$/);
+    expect(nike.host.pending()).toBe(0);
+  });
+
+  it("reduced motion asked for in the middle of a gesture is a cut to rest, at the next frame drawn", () => {
+    // While a figure eases, frames are running: the very next one.
+    const smith = alive("hephaestus", "run");
+    smith.to(200);
+    expect(posesOf(smith.cell("a")!).style.transform).not.toBe("");
+    smith.quiet(true);
+    smith.host.advance(16);
+    expect(posesOf(smith.cell("a")!).style.transform).toBe("");
+    expect(smith.peek().gods[0]!.fidget).toBeNull();
+    expect(smith.host.pending()).toBe(0); // and asleep: nothing more is asked for
+    smith.host.run(5000);
+    expect(posesOf(smith.cell("a")!).style.transform).toBe("");
+    // The one who flies: simply up, her wings as they were carved.
+    const nike = alive("nike", "look");
+    nike.to(1440 + 510);
+    expect(nike.peek().gods[0]!.lift).toBeCloseTo(7, 9);
+    nike.quiet(true);
+    nike.host.advance(16);
+    expect(nike.peek().gods[0]).toMatchObject({ lift: 8, fidget: null });
+    expect(nike.cell("a")!.dataset.frame).toBeUndefined();
+    expect(nike.cell("a")!.style.transform).toMatch(/px, -8px, 0\)$/);
+    expect(nike.host.pending()).toBe(0);
+    // Held on a cut, with no frame until its next key: then, and no later.
+    const argus = alive("argus", "run");
+    const { face } = argus.peek().gods[0]!;
+    argus.to(1100); // turned about, until 1500
+    expect(argus.cell("a")!.classList.contains("is-left")).toBe(face > 0);
+    argus.quiet(true);
+    argus.to(1499);
+    expect(argus.cell("a")!.classList.contains("is-left")).toBe(face > 0);
+    argus.to(1500);
+    expect(argus.cell("a")!.classList.contains("is-left")).toBe(face < 0);
+    expect(argus.host.pending()).toBe(0);
+    argus.host.run(6000); // and no turn in his next bar
+    expect(argus.cell("a")!.classList.contains("is-left")).toBe(face < 0);
+  });
+
+  it("the card and the keys over fidgeting gods put nothing on the clock, wake it never, and throw no dice", () => {
+    function run(look: boolean): { asked: { clock: number; dice: number }; peeks: string } {
+      const s = crowd(["hephaestus", "nike", "themis"], { fidget: true });
+      const peeks: string[] = [];
+      for (let ms = 0; ms < 8000; ms += 100) {
+        if (look) {
+          const cells = s.cells();
+          if (ms % 600 === 0) enter(cells[(ms / 600) % cells.length]);
+          if (ms % 600 === 300) leave(cells[((ms - 300) / 600) % cells.length]);
+          if (ms % 1000 === 500) keydown(document.body, "Tab");
+          if (ms % 1000 === 700) keydown(cells[0]!, "ArrowRight");
+          if (ms === 4000) keydown(document.body, "Escape");
+        }
+        s.host.run(100);
+        const { card: _card, ...rest } = s.peek();
+        peeks.push(JSON.stringify(rest));
+      }
+      return { asked: { ...s.asked }, peeks: peeks.join("\n") };
+    }
+    const alone = run(false);
+    const looked = run(true);
+    expect(looked.asked).toEqual(alone.asked);
+    expect(looked.peeks).toBe(alone.peeks);
+    expect(alone.peeks).toMatch(/"fidget":\{/);
+  });
+
+  it("with its fidgets off a god is built as it was: no second frame, no part, no hole", () => {
+    const s = alive("themis", "run", { fidget: false });
+    const cell = s.cell("a")!;
+    expect(cell.querySelectorAll(".oly-part, .oly-f-b")).toHaveLength(0);
+    expect(cell.querySelector<HTMLElement>(".oly-p-run")!.getAttribute("style")).not.toMatch(
+      /hole/,
+    );
+    s.host.run(5000);
+    expect(s.peek().gods[0]!.fidget).toBeNull();
+    expect(cell.dataset.part).toBeUndefined();
     expect(s.host.pending()).toBe(0);
   });
 });

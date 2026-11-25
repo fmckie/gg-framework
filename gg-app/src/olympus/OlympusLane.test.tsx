@@ -13,6 +13,7 @@ import {
   RESUMED_AGENTS,
   STATE_AGENTS,
 } from "./fixtures";
+import { FRAME_URLS } from "./cast";
 import type { Floor } from "./floor";
 import laneCss from "./olympus-lane.css?raw";
 import rowsCss from "./olympus-rows.css?raw";
@@ -45,14 +46,22 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** A lane on a clock that moves only when told to, and draws a frame for the moment each advance ends on. */
-function staged(seed = 7): LaneStage & { host: ManualHost; floors: (Floor | null)[] } {
+/**
+ * A lane on a clock that moves only when told to, and draws a frame for the
+ * moment each advance ends on. Its gods hold their poses still unless it is
+ * asked for their fidgets.
+ */
+function staged(
+  seed = 7,
+  fidget = false,
+): LaneStage & { host: ManualHost; floors: (Floor | null)[] } {
   const host = framedHost();
   const floors: (Floor | null)[] = [];
   return {
     host,
     floors,
     seed,
+    fidget,
     width: () => 698,
     measure: (el) => Math.round((el.textContent ?? "").length * 5.5) + 21,
     onFloor: (floor) => floors.push(floor),
@@ -492,6 +501,36 @@ describe("the floor's mosaic", () => {
   });
 });
 
+describe("fidgets on the lane", () => {
+  /** The run, record by record, until the smith has been at his anvil a while: what was seen of his hammer. */
+  function smith(stage: ReturnType<typeof staged>): { cell: HTMLElement; frames: Set<string> } {
+    const view = render(<OlympusLane groups={run(600)} stage={stage} />);
+    const frames = new Set<string>();
+    let cell: HTMLElement | null = null;
+    for (let ms = 600; ms < 26_000; ms += 20) {
+      if (ms % 100 === 0) view.rerender(<OlympusLane groups={run(ms)} stage={stage} />);
+      stage.host.advance(20);
+      cell = view.container.querySelector<HTMLElement>('.oly-cell[data-god="hephaestus"]') ?? cell;
+      if (cell?.dataset.pose === "make") frames.add(cell.dataset.frame ?? "");
+    }
+    return { cell: cell!, frames };
+  }
+
+  it("as the app mounts it, a god comes with its second frame and is alive at its work: the smith's hammer falls", () => {
+    // Nothing said of fidgets, as LaneMount says nothing.
+    const { cell, frames } = smith({ ...staged(), fidget: undefined });
+    const second = cell.querySelector<HTMLImageElement>(".oly-pose.oly-p-make.oly-f-b")!;
+    expect(second.getAttribute("src")).toBe(FRAME_URLS.hephaestus!.make);
+    expect([...frames].sort()).toEqual(["", "b"]);
+  });
+
+  it("a stage may still them: then a god is built and held as it was", () => {
+    const { cell, frames } = smith(staged());
+    expect(cell.querySelector(".oly-f-b")).toBeNull();
+    expect([...frames]).toEqual([""]);
+  });
+});
+
 describe("the lane's CSS", () => {
   const rules = laneCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -543,6 +582,33 @@ describe("the lane's CSS", () => {
     expect(rules.match(/pointer-events/g)).toHaveLength(2);
     expect(rules).toMatch(/\.oly-pose \{\n {2}display: block;\n {2}visibility: hidden;\n\}/);
     expect(rules).not.toMatch(/cursor/); // nothing to press yet
+  });
+
+  it("turns a figure and a part about the box's own corner, so a pivot is where the cast data says", () => {
+    expect(rules).toContain(".oly-poses,\n.oly-part {\n  transform-origin: 0 0;\n}");
+    // The whole god still turns about its head line.
+    expect(rules).toMatch(/\.oly-fig \{[^}]*transform-origin: 33px 50%;/);
+    expect(rules.match(/transform-origin/g)).toHaveLength(4); // those, and a ribbon's two ends
+  });
+
+  it("shows a pose's second frame, and its cut-out part over its hole, by cuts: the engine says which, and moves them", () => {
+    expect(rules).toContain(
+      '.oly-cell:not([data-frame="b"]) .oly-pose.oly-f-b,\n.oly-cell[data-frame="b"] .oly-pose:not(.oly-f-b) {\n  visibility: hidden;\n}',
+    );
+    expect(rules).toContain(
+      ".oly-part {\n  position: absolute;\n  top: 0;\n  height: 100%;\n  visibility: hidden;\n  clip-path: var(--oly-clip);\n}",
+    );
+    expect(rules).toContain(
+      ".oly-cell[data-part] .oly-pose {\n  clip-path: var(--oly-hole, none);\n}",
+    );
+    // A part shows only while the engine moves it, and only over the pose it is cut from.
+    for (const pose of ["look", "web", "make", "run", "think", "think-l", "think-r"])
+      expect(rules).toContain(
+        `.oly-cell[data-part][data-pose="${pose}"] .oly-part[data-of="${pose}"]`,
+      );
+    expect(rules.match(/\.oly-part\b/g)).toHaveLength(9);
+    // The sheet moves neither: no transform of its own on a figure or a part.
+    expect(rules).not.toMatch(/\.oly-(poses|part)[^{]*\{[^}]*transform:/);
   });
 
   it("shows focus on a god by a cartouche round its carved name, not by an outline on its cell", () => {
@@ -612,15 +678,17 @@ describe("the lane's CSS", () => {
     );
   });
 
-  it("reads from the engine only what it is handed: a place for the seal and the card, and three amounts", () => {
+  it("reads from the engine only what it is handed: a place for the seal and the card, three amounts, and a part's two shapes", () => {
     const read = new Set([...rules.matchAll(/var\((--oly-[\w-]+)/g)].map((m) => m[1]!));
     const own = new Set([...rules.matchAll(/^\s*(--oly-[\w-]+):/gm)].map((m) => m[1]!));
     expect([...read].filter((name) => !own.has(name)).sort()).toEqual([
       "--oly-caret",
+      "--oly-clip",
       "--oly-crack",
       "--oly-dim",
       "--oly-ex",
       "--oly-ey",
+      "--oly-hole",
       "--oly-ty",
       "--oly-u",
     ]);

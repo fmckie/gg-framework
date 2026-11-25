@@ -123,6 +123,57 @@ describe("the lane's clock", () => {
     expect(host.pending()).toBe(0);
   });
 
+  it("a still view may say when it will next move: the clock sleeps until then, with no step put on it", () => {
+    const host = manualHost();
+    const sim = createSim(host);
+    const drawn: number[] = [];
+    // A gesture every second: still until its moment, moving for 40ms, still again.
+    sim.view((now) => {
+      drawn.push(now);
+      const into = now % 1000;
+      return into < 40 ? true : now - into + 1000;
+    });
+    for (let i = 0; i < 5; i++) host.advance(10);
+    expect(drawn).toEqual([0, 10, 20, 30, 40]);
+    expect(host.pending()).toBe(1); // a wait, and nothing else
+    host.run(949, 10);
+    expect(drawn).toEqual([0, 10, 20, 30, 40]); // asleep all the while
+    host.advance(1);
+    expect(drawn[5]).toBe(1000); // at its moment, to the ms
+    for (let i = 0; i < 6; i++) host.advance(10);
+    // A frame each time the window gives one, until it is still again.
+    expect([...new Set(drawn)]).toEqual([0, 10, 20, 30, 40, 1000, 1010, 1020, 1030, 1040]);
+    expect(host.pending()).toBe(1); // asleep until the next
+    sim.stop();
+    expect(host.pending()).toBe(0);
+  });
+
+  it("wakes for whichever comes first, a step or a view's own moment; a moment already past is the next frame", () => {
+    const host = manualHost();
+    const sim = createSim(host);
+    const drawn: number[] = [];
+    const steps: number[] = [];
+    sim.view((now) => {
+      drawn.push(now);
+      return now < 700 ? 700 : false;
+    });
+    sim.at(300, () => steps.push(sim.now()));
+    host.advance(1000);
+    expect(steps).toEqual([300]);
+    expect(drawn).toEqual([0, 300, 700]); // the step first, then the view's moment
+    expect(host.pending()).toBe(0); // and then nothing: asleep for good
+    // A moment that has passed by the time it is named: frame after frame, as if it were moving.
+    const late = manualHost();
+    const frames: number[] = [];
+    createSim(late).view((now) => {
+      frames.push(now);
+      return frames.length < 3 ? now - 1 : false;
+    });
+    for (let i = 0; i < 5; i++) late.advance(10);
+    expect(frames).toEqual([0, 10, 20]);
+    expect(late.pending()).toBe(0);
+  });
+
   it("handles the same steps at the same moments however the frames fall, and draws the last for the moment it ends on", () => {
     const play = (every: number | null): { steps: string[]; last: number } => {
       const host = every === null ? framedHost() : manualHost();

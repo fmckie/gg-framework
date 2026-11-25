@@ -2,7 +2,9 @@
 // queue and are handled in time order, each seeing the clock at its own
 // moment; then every view is drawn. So a run plays the same way however the
 // frames fall. The loop sleeps when there is nothing to do: until its next
-// step while every view is still, and frame by frame while one is moving.
+// step while every view is still, and frame by frame while one is moving. A
+// view that is still, but will move by itself at a moment it knows, says when:
+// the loop sleeps until then too, with no step put on the queue for it.
 
 /** What the clock runs on: the window's, or a test's. */
 export interface SimHost {
@@ -19,8 +21,11 @@ export interface SimEvent {
   dead: boolean;
 }
 
-/** A view draws the frame at `now`, and says whether it is still moving. */
-export type SimView = (now: number) => boolean;
+/**
+ * A view draws the frame at `now`, and says whether it is still moving; or,
+ * still, the moment it will next move of its own accord.
+ */
+export type SimView = (now: number) => boolean | number;
 
 export interface Sim {
   /** The moment being handled or drawn. */
@@ -99,12 +104,18 @@ export function createSim(host: SimHost = windowHost()): Sim {
     }
     at = target;
     let busy = false;
-    for (const view of views) busy = view(at) || busy;
+    let due = Infinity; // the earliest moment a still view will move by itself
+    for (const view of views) {
+      const moving = view(at);
+      if (moving === true || (moving !== false && moving <= at)) busy = true;
+      else if (moving !== false) due = Math.min(due, moving);
+    }
     running = false;
     if (stopped) return;
     if (busy) return sleep(0);
     const next = queue.find((e) => !e.dead);
-    if (next) sleep(Math.max(1, next.t - clock()));
+    if (next) due = Math.min(due, next.t);
+    if (due < Infinity) sleep(Math.max(1, due - clock()));
   }
 
   function wake(): void {

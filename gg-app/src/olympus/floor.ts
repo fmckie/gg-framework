@@ -1,5 +1,6 @@
-// The lane's engine, parts 2 to 6 of Olympus: the mockup's floor.js, with its
-// card, its keyboard, its travel, the gods' tesserae and the floor's mosaic.
+// The lane's engine, parts 2 to 6b of Olympus: the mockup's floor.js, with its
+// card, its keyboard, its travel, the gods' tesserae, the floor's mosaic and
+// the gods' fidgets.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
@@ -27,6 +28,16 @@
 //   pose has held. The one who flies rises as her pose cuts in, and comes down
 //   before the next does. No record says a tool has ended, so a god holds a
 //   tool's pose until the next begins.
+// - Fidgets: a god holding a pose moves in its own way (fidget.ts, from the
+//   cast data): a gesture with a start and an end, on the god's own beat,
+//   counted from the cut that showed the pose. The whole figure may ease a
+//   little; a limb only ever changes by a cut to another frame; a thing that
+//   hangs free is the pose's own picture again, cut out, and moved. Only work
+//   that is itself a rhythm comes round again. Nothing is put on the clock for
+//   it: each frame is worked out from the time alone, so a fidget never delays
+//   a cut, a cut ends it at once, and the run plays the same with fidgets off.
+//   The one who flies rides on hers, and comes down for a cut from the height
+//   she had, her wings still.
 // - Places: every god has an envelope, all the floor it can cover at its
 //   place, and two places are never nearer than their envelopes and a gap. A
 //   first crowd is spread over the lane; a later god takes the gap with most
@@ -70,7 +81,8 @@
 //   is set at its place and steps aside by a cut, a ribbon shows whole, the
 //   seal, the dimming and the crack are there or they aren't, and the dwell is
 //   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel,
-//   and no tessera is drawn: a god is there, and then it isn't. Asked for in
+//   and no tessera is drawn: a god is there, and then it isn't. Nobody
+//   fidgets: every pose is its first frame, untouched. Asked for in
 //   the middle of a setting or an unsetting, that is cut too. The floor is
 //   laid whole as the lane opens and gone as it shuts; asked for while its
 //   stones are set or prised up, it is whole until the lane shuts.
@@ -80,13 +92,25 @@
 // state and the time alone, and nothing it draws is read back by a step, so a
 // run plays the same however the frames fall. A tessera's flight is cut from
 // dice of its god's own, and a floor stone's from its scene's: never the
-// floor's. The clock sleeps unless
-// something on the lane is changing. The card and the keyboard are no part of
+// floor's; and an idling god's gestures are dealt by dice of its own, from its
+// agent, its pose, the cut and the bar. The clock sleeps unless something on
+// the lane is changing: between two gestures it sleeps until the next, which
+// the frame tells it of, with no step put on it. The card and the keyboard are no part of
 // the run: they put nothing on that clock and never draw the floor's dice, so
 // a run plays the same whoever looks at it.
 
-import type { Cast, CastGod, Pictures, Pose, Skill, SvgNode } from "./cast";
+import type { Cast, CastGod, Fidget, Frames, Pictures, Pose, Skill, SvgNode } from "./cast";
 import { POSES } from "./cast";
+import {
+  deal,
+  fidgetAt,
+  nextAt,
+  shown as shownAs,
+  STILL,
+  type Dealt,
+  type FidgetAt,
+  type Shown,
+} from "./fidget";
 import type { GodId } from "./gods";
 import {
   cropFloor,
@@ -150,6 +174,10 @@ export interface FloorOptions {
   readonly timer?: Pick<SimHost, "defer" | "cancel">;
   /** The scene an opening lays, asked once each time; in turn from the temple unless given. */
   readonly scene?: () => SceneId;
+  /** Each god's second frames, by pose; a pose given none keeps its first. */
+  readonly frames?: Readonly<Partial<Record<GodId, Frames>>>;
+  /** Whether a god at its work fidgets: it does unless this is false, for tests and previews. */
+  readonly fidget?: boolean;
 }
 
 /** What the floor holds, for tests and previews. */
@@ -187,6 +215,8 @@ export interface FloorPeek {
     readonly want: Pose;
     /** How far off the floor it is held. */
     readonly lift: number;
+    /** Its fidget, while anything shows of it: what is written for it. */
+    readonly fidget: Shown | null;
     /** How far its figure shows, and its ribbon is unrolled, its seal pressed in, and it is dimmed: 0 to 1. */
     readonly shown: number;
     /** Its tesserae, while any are drawn: how they go, and whether in its dimmed ivories. */
@@ -470,8 +500,12 @@ interface Vis {
     readonly a: number;
     readonly dim: boolean;
   } | null;
+  /** Its fidget at its work; STILL at rest, and anywhere else. */
+  fid: Shown;
   /** Whether the next frame will draw it otherwise. */
   moving: boolean;
+  /** If not, when its fidget will next move it of itself; never, if nothing is to come. */
+  wake: number;
 }
 
 interface God {
@@ -482,6 +516,15 @@ interface God {
   agent: LaneAgent;
   readonly el: HTMLElement;
   readonly fig: HTMLElement;
+  /** Its pictures' box: a fidget of the whole figure is a transform on it. */
+  readonly posesEl: HTMLElement;
+  /** The poses it has a second frame of, and each pose's cut-out part. */
+  readonly seconds: ReadonlySet<Pose>;
+  readonly parts: ReadonlyMap<Pose, HTMLElement>;
+  /** The part being moved now. */
+  moved: HTMLElement | null;
+  /** The bars of idling dealt so far, in the pose it holds since its last cut. */
+  readonly deals: { held: string; readonly bars: Map<number, Dealt | null> };
   readonly sealEl: SVGElement;
   readonly label: HTMLElement;
   labelW: number;
@@ -567,6 +610,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     ((): boolean =>
       typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches);
   const card = opts.card ?? null;
+  const fidgeting = opts.fidget !== false;
   const wall: Pick<SimHost, "defer" | "cancel"> = opts.timer ?? {
     defer: (fn, ms) => window.setTimeout(fn, ms),
     cancel: (handle) => window.clearTimeout(handle as number),
@@ -1342,12 +1386,48 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     for (const pose of POSES) picture(pose, urls[pose]);
     // A skill pose is as wide as it needs: its picture sits in the cell on its
     // own axis, the body where the standing body is.
+    // A god that fidgets has, after a pose, its second frame, shown in its
+    // place for a move that is a limb's; and its cut-out part, the pose's own
+    // picture again clipped to the part (--oly-clip), which is moved while the
+    // pose is shown with the part's hole cut out of it (--oly-hole).
+    const seconds = new Set<Pose>();
+    const parts = new Map<Pose, HTMLElement>();
+    const px = (points: readonly Range[]): string =>
+      points.map(([x, y]) => `${x}px ${y}px`).join(",");
     for (const [pose, at] of Object.entries(c.at) as [Skill, Range][]) {
       const url = urls[pose];
       if (!url) continue;
       const img = picture(pose, url);
       img.style.left = `${at[0]}px`;
       img.style.width = `${at[1]}px`;
+      if (!fidgeting) continue;
+      const second = c.frames[pose] && opts.frames?.[a.god]?.[pose];
+      if (second) {
+        const frame = picture(pose, second);
+        frame.classList.add("oly-f-b");
+        frame.style.left = img.style.left;
+        frame.style.width = img.style.width;
+        seconds.add(pose);
+      }
+      const cut = c.parts[pose];
+      if (cut) {
+        const [w, h] = [at[1], CAST.cell.h];
+        img.style.setProperty(
+          "--oly-hole",
+          `polygon(evenodd,0px 0px,${w}px 0px,${w}px ${h}px,0px ${h}px,0px 0px,${px(cut.hole)},${px(cut.hole.slice(0, 1))})`,
+        );
+        const part = document.createElement("img");
+        part.className = "oly-part";
+        part.dataset.of = pose;
+        part.src = url;
+        part.alt = "";
+        part.draggable = false;
+        part.style.left = img.style.left;
+        part.style.width = img.style.width;
+        part.style.setProperty("--oly-clip", `polygon(${px(cut.cut)})`);
+        poses.append(part);
+        parts.set(pose, part);
+      }
     }
     const seal = svg("svg", { class: "oly-seal", viewBox: CAST.seal.viewBox });
     grow(seal, CAST.seal.nodes);
@@ -1385,6 +1465,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       agent: a,
       el,
       fig,
+      posesEl: poses,
+      seconds,
+      parts,
+      moved: null,
+      deals: { held: "", bars: new Map() },
       sealEl: seal,
       label,
       labelW: 0,
@@ -1415,7 +1500,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       dim: 0,
       crack: 0,
       vis: null,
-      out: {},
+      out: { fid: "", frame: "", part: "" }, // at rest, as built: nothing to write until it fidgets
     };
     god.want = poseFor(god);
     return god;
@@ -1518,14 +1603,60 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   // How far off the floor the one who flies is at her work: up as her pose
-  // cuts in, and down again in time for the cut that is coming. Under reduced
-  // motion she is simply up.
-  function aloft(god: God, now: number): number {
+  // cuts in, to her lift or to the height her fidget rides at (`to`), and down
+  // again in time for the cut that is coming. Under reduced motion she is
+  // simply up.
+  function aloft(god: God, now: number, to?: number | null): number {
     const lift = working(god) ? liftOf(god) : 0;
     if (!lift || reduced()) return lift;
-    let h = lift * outCubic(clamp01((now - god.upAt) / HOVER_UP));
+    let h = (to ?? lift) * outCubic(clamp01((now - god.upAt) / HOVER_UP));
     if (god.swap) h *= 1 - smooth((now - (god.swap.t - HOVER_DOWN)) / HOVER_DOWN);
     return h;
+  }
+
+  // ───────── fidgets: a god alive at its work ─────────
+  // The move a bar of idling was dealt: by dice of the god's own, seeded from
+  // its agent, its pose, the cut that showed it and the bar. Never the
+  // floor's dice, so a frame is still the clock's alone; kept, so each bar is
+  // dealt once.
+  function dealt(god: God, f: Fidget, n: number): Dealt | null {
+    const held = `${god.pose} ${god.shownAt}`;
+    const { deals } = god;
+    if (deals.held !== held || deals.bars.size > 64) deals.bars.clear();
+    deals.held = held;
+    let d = deals.bars.get(n);
+    if (d === undefined) {
+      const dice = rng(hash(`${god.key} ${god.pose} ${Math.round(god.shownAt)} ${n}`));
+      deals.bars.set(n, (d = deal(f, n, dice)));
+    }
+    return d;
+  }
+
+  // A god's fidget at `now`, as numbers, and when it will next move the god
+  // of itself: `now` while a figure eases, the moment of its next key, or
+  // never. Only at its work; under reduced motion, or switched off, never.
+  // Times are in the god's own beats, counted from the cut that showed the
+  // pose. Nothing is put on the clock for it.
+  const AT_REST = { s: null, wake: Infinity } as const;
+  function fidget(
+    god: God,
+    now: number,
+    quiet: boolean,
+  ): { readonly s: FidgetAt | null; readonly wake: number } {
+    const f = fidgeting && !quiet && working(god) ? god.c.fid[god.pose as Skill] : undefined;
+    if (!f) return AT_REST;
+    const step = god.c.step;
+    const lift = liftOf(god);
+    // The one who flies comes down for a cut as she is: her wings still, from the height she had.
+    const down = god.swap && lift ? god.swap.t - HOVER_DOWN : Infinity;
+    const b = (Math.min(now, down) - god.shownAt) / step;
+    const deals = (n: number): Dealt | null => dealt(god, f, n);
+    let s = fidgetAt(f, b, step, lift, deals);
+    if (s && (now >= down || !god.seconds.has(god.pose))) s = { ...s, frame: "" };
+    if (now >= down) return { s: s && { ...s, turn: false }, wake: Infinity };
+    const next = nextAt(f, b, step, deals);
+    const wake = next <= b ? now : god.shownAt + next * step;
+    return { s, wake: wake < down ? wake : Infinity }; // from there the cut's own frames run
   }
 
   // At its place: it starts its work, in the pose its record asks for now, and
@@ -1548,11 +1679,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   // It leaves its work, to step aside or for its ending: the cut that was
-  // coming is dropped, and the one who flies comes down first. Then it stands.
+  // coming is dropped, its fidget with it, and the one who flies comes down
+  // first. Then it stands. Whether she comes down first is her height with no
+  // fidget, so an ending falls when it would without one; she comes down from
+  // the height she had.
   function quit(god: God, t: number, then: (t: number) => void): void {
-    const h = aloft(god, t);
+    const quiet = reduced();
+    const up = aloft(god, t) > 0 && !quiet;
+    const h = up ? aloft(god, t, fidget(god, t, quiet).s?.lift) : 0;
     uncue(god);
-    if (h > 0 && !reduced()) return void enter(god, "alight", t, HOVER_DOWN, { h, then });
+    if (up) return void enter(god, "alight", t, HOVER_DOWN, { h, then });
     god.pose = "stand";
     then(t);
   }
@@ -1985,7 +2121,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       sealed: god.sealed,
       press: 1,
       tiles: null,
+      fid: STILL,
       moving: false,
+      wake: Infinity,
     };
     switch (s?.kind) {
       case "assemble":
@@ -2029,11 +2167,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         break;
       case "work": {
         const lift = liftOf(god);
-        v.y = -aloft(god, now);
+        const f = fidget(god, now, quiet);
+        v.fid = shownAs(f.s, lift);
+        v.y = -aloft(god, now, v.fid.lift);
+        if (v.fid.turn) v.dir = -god.dir; // an about-face, as the walk's look round is
+        v.wake = f.wake;
         v.moving =
-          lift > 0 &&
-          !quiet &&
-          (now < god.upAt + HOVER_UP || (god.swap !== null && now >= god.swap.t - HOVER_DOWN));
+          f.wake <= now ||
+          (lift > 0 &&
+            !quiet &&
+            (now < god.upAt + HOVER_UP || (god.swap !== null && now >= god.swap.t - HOVER_DOWN)));
         break;
       }
       case "alight":
@@ -2103,6 +2246,21 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     });
     const ribbon = god.ribbon;
     if (ribbon) put(god, "u", v.rib.toFixed(3), (u) => ribbon.style.setProperty("--oly-u", u));
+    // Its fidget: the whole figure's transform, its pose's second frame, and its cut-out part.
+    const f = v.fid;
+    put(god, "fid", f.tx, (tx) => (god.posesEl.style.transform = tx));
+    put(god, "frame", f.frame, (frame) => {
+      if (frame) el.dataset.frame = frame;
+      else delete el.dataset.frame;
+    });
+    put(god, "part", f.part && `${v.pose} ${f.ptx}`, (on) => {
+      if (god.moved) god.moved.style.transform = "";
+      god.moved = (on && god.parts.get(v.pose)) || null;
+      if (god.moved) {
+        god.moved.style.transform = f.ptx;
+        el.dataset.part = f.part;
+      } else delete el.dataset.part;
+    });
     return v.moving;
   }
 
@@ -2397,17 +2555,23 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
 
   // A frame: the lane, its floor, every god and its name from the time alone,
   // the tesserae of those being set or unset, then the card. Moving while the
-  // lane, its floor or a god will be drawn otherwise next frame; the card
-  // never keeps the clock awake.
+  // lane, its floor or a god will be drawn otherwise next frame; if none will,
+  // the moment the first god's next gesture begins, so the clock may sleep
+  // until then. The card never keeps the clock awake.
   sim.view((now) => {
     if (disposed) return false;
     let moving = renderLane(now);
     moving = renderFloor(now) || moving;
-    for (const god of gods.values()) if (out(god)) moving = renderGod(god, now) || moving;
+    let wake = Infinity;
+    for (const god of gods.values()) {
+      if (!out(god)) continue;
+      moving = renderGod(god, now) || moving;
+      wake = Math.min(wake, god.vis!.wake);
+    }
     renderTesserae();
     renderNames();
     attend();
-    return moving;
+    return moving || (wake < Infinity ? wake : false);
   });
 
   function reconcile(agents: readonly LaneAgent[]): void {
@@ -2490,6 +2654,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
             pose: v.pose,
             want: g.want,
             lift: v.y ? -v.y : 0,
+            fidget: v.fid === STILL ? null : v.fid,
             shown: v.fig,
             tesserae: v.tiles && { mode: v.tiles.mode, dim: v.tiles.dim },
             unrolled: g.ribbon ? v.rib : null,

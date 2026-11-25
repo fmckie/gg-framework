@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { CAST, POSES, POSE_URLS, type Pose, type Skill } from "./cast";
+import {
+  CAST,
+  FRAME_URLS,
+  POSES,
+  POSE_URLS,
+  type Fidget,
+  type FidgetMove,
+  type Pose,
+  type Skill,
+} from "./cast";
 import { GODS, type GodId } from "./gods";
 
 const ids = Object.keys(GODS) as GodId[];
@@ -12,7 +21,7 @@ const FILES = import.meta.glob<string>("./poses/*.webp", {
 });
 
 /** A lossless WebP's width and height, from its header. */
-function sizeOf(god: GodId, pose: Pose): [number, number] {
+function sizeOf(god: GodId, pose: Pose | `${Skill}-b`): [number, number] {
   const bytes = atob(FILES[`./poses/${god}-${pose}.webp`]!.split(",")[1]!);
   expect(bytes.slice(0, 4) + bytes.slice(8, 16)).toBe("RIFFWEBPVP8L");
   const at = (i: number): number => bytes.charCodeAt(i);
@@ -261,12 +270,120 @@ describe("the cast data", () => {
   });
 
   it("has every picture at twice the size it is drawn, lossless", () => {
-    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7);
+    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3);
     for (const id of ids) {
       for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
       for (const [pose, at] of Object.entries(CAST.gods[id].at))
         expect(sizeOf(id, pose as Skill)).toEqual([2 * at[1], 200]);
     }
+  });
+
+  it("has a second frame of three poses, each the size of its first: a stride, a blow, a wingbeat", () => {
+    const second = ids.flatMap((id) =>
+      Object.entries(CAST.gods[id].frames).map(([pose, frames]) => [id, pose, frames]),
+    );
+    expect(second).toEqual([
+      ["hermes", "run", ["b"]],
+      ["hephaestus", "make", ["b"]],
+      ["nike", "look", ["b"]],
+    ]);
+    for (const id of ids) {
+      const poses = Object.keys(CAST.gods[id].frames) as Skill[];
+      expect(Object.keys(FRAME_URLS[id] ?? {})).toEqual(poses);
+      for (const pose of poses) {
+        expect(FRAME_URLS[id]![pose]).toMatch(new RegExp(`${id}-${pose}-b`));
+        expect(sizeOf(id, `${pose}-b`)).toEqual([2 * CAST.gods[id].at[pose]![1], 200]);
+      }
+    }
+  });
+
+  it("cuts a part out of four poses: a polygon inside the pose's own picture, and the hole it leaves", () => {
+    const parts = ids.flatMap((id) =>
+      Object.entries(CAST.gods[id].parts).map(([pose, part]) => `${id} ${pose} ${part.name}`),
+    );
+    expect(parts).toEqual([
+      "argus web flame",
+      "themis think-l scales",
+      "themis think-r scales",
+      "themis run pebble",
+    ]);
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      for (const [pose, part] of Object.entries(god.parts) as [
+        Skill,
+        (typeof god.parts)[Skill],
+      ][]) {
+        const [, width] = god.at[pose]!;
+        expect(god.frames[pose]).toBeUndefined(); // one cut-out to a pose, and none on a pose in two frames
+        for (const shape of [part!.cut, part!.hole]) {
+          expect(shape.length).toBeGreaterThanOrEqual(3);
+          for (const [x, y] of shape) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThanOrEqual(width);
+            expect(y).toBeGreaterThanOrEqual(0);
+            expect(y).toBeLessThanOrEqual(100);
+          }
+        }
+        // The hole is the part's own outline, or a hair inside it: never a gap round the part at rest.
+        const box = (shape: readonly (readonly [number, number])[], i: 0 | 1): [number, number] => [
+          Math.min(...shape.map((p) => p[i])),
+          Math.max(...shape.map((p) => p[i])),
+        ];
+        for (const i of [0, 1] as const) {
+          expect(box(part!.hole, i)[0]).toBeGreaterThanOrEqual(box(part!.cut, i)[0]);
+          expect(box(part!.hole, i)[1]).toBeLessThanOrEqual(box(part!.cut, i)[1]);
+        }
+      }
+    }
+  });
+
+  it("gives every god its fidgets, a pose each: in its beats, small, and only what the lane can play", () => {
+    let poses = 0;
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      const named = Object.keys(god.at);
+      for (const [pose, fid] of Object.entries(god.fid) as [Skill, Fidget][]) {
+        poses += 1;
+        expect(named).toContain(pose);
+        const moves: FidgetMove[] = [...(fid.cut ? [fid.cut] : []), ...fid.moves];
+        // A move played once on the cut; or a rhythm of one move; or idling, with a rest.
+        if (fid.cut) expect(fid.moves).toHaveLength(0);
+        else if (fid.idle) expect(fid.rest).toBeGreaterThan(0);
+        else expect(fid.moves).toHaveLength(1);
+        if (!fid.cut) expect(fid.bar).toBeGreaterThan(0);
+        for (const move of moves) {
+          const beats = move.keys.map(([beat]) => beat);
+          expect(beats.every((beat) => (beat * 4) % 1 === 0)).toBe(true); // on the quarter-beat
+          expect(beats).toEqual([...new Set(beats)].sort((a, b) => a - b));
+          expect(move.end).toBeCloseTo(beats[beats.length - 1]! + move.ease / god.step, 9);
+          if (!fid.cut) expect(move.end).toBeLessThanOrEqual(fid.bar + 1e-9); // over inside its bar
+          if (fid.idle) expect(move.keys[move.keys.length - 1]![1]).toEqual({}); // and back at rest
+          expect(move.part).toBe(move.part === null ? null : god.parts[pose]!.name);
+          for (const [, state] of move.keys) {
+            // The whole figure by 2px or 2° at most; a part by 6°.
+            expect(Math.abs(state.dx ?? 0)).toBeLessThanOrEqual(move.part ? 6 : 2);
+            expect(Math.abs(state.dy ?? 0)).toBeLessThanOrEqual(move.part ? 6 : 2);
+            expect(Math.abs(state.rot ?? 0)).toBeLessThanOrEqual(move.part ? 6 : 2);
+            if (state.rot !== undefined) expect(move.pivot).toHaveLength(2);
+            if (state.frame !== undefined) expect(god.frames[pose]).toContain(state.frame);
+            // The one who flies rides under her lift, never over it.
+            if (state.lift !== undefined) {
+              expect(state.lift).toBeGreaterThan(0);
+              expect(state.lift).toBeLessThanOrEqual(god.lift[pose]!);
+            }
+            if (move.part) expect(state.turn ?? state.frame ?? state.lift).toBeUndefined();
+            else expect(state.gone).toBeUndefined();
+          }
+          // A figure leans about the floor: nothing sinks into the step.
+          if (!move.part && move.pivot) expect(move.pivot[1]).toBe(100);
+        }
+      }
+    }
+    expect(poses).toBe(25);
+    // How often is the trait's: Hermes idles in bars a third as long as Themis's.
+    expect(CAST.gods.hermes.fid.look!.bar * CAST.gods.hermes.step).toBeLessThan(
+      (CAST.gods.themis.fid.look!.bar * CAST.gods.themis.step) / 3,
+    );
   });
 
   it("leaves room for the five widest gods on the narrowest lane", () => {

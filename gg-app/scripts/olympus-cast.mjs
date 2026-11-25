@@ -12,8 +12,8 @@
 //   npx prettier --write src/olympus/cast.json src/olympus/mosaic.json
 //
 // The pictures are cut from the mockup's too, at twice the size they are
-// drawn; with --pictures it writes nothing and lists each skill pose's and
-// each stride's name and width:
+// drawn; with --pictures it writes nothing and lists each skill pose's, each
+// second frame's and each stride's name and width:
 //   node scripts/olympus-cast.mjs <v4> --pictures | while read name w; do
 //     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o src/olympus/poses/$name.webp
 //   done
@@ -38,6 +38,18 @@ const POSES = ["stand", "speak", "stride"];
 const MOVE_KEYS = ["bob", "lift", "pause", "ease"];
 /** The poses a god is cut into tesserae in: set from the one, and back to the other. */
 const TILED = ["speak", "stand"];
+/** What a state of a gesture may say: the figure or its part shifted, turned, about-faced, in its second frame, gone, or the one who flies at a height. */
+const STATE_KEYS = ["dx", "dy", "rot", "turn", "frame", "lift", "gone"];
+/** A gesture, as the lane plays it. */
+const MOVE_SHAPE = ["keys", "ease", "w", "part", "pivot", "end"];
+
+/** A CSS polygon's points, in px: [[x, y], ...]. */
+function points(polygon, what) {
+  const found = /^polygon\((evenodd,)?([^()]+)\)$/.exec(polygon);
+  const list = found?.[2].split(",").map((pair) => /^(-?[\d.]+)px (-?[\d.]+)px$/.exec(pair));
+  if (!list?.length || list.some((pair) => !pair)) throw new Error(`${what}: not a polygon in px`);
+  return list.map((pair) => [Number(pair[1]), Number(pair[2])]);
+}
 
 const dir = process.argv[2];
 if (!dir) {
@@ -154,6 +166,126 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out.fp[pose] = god.fp[pose];
     out.top[pose] = god.top[pose];
     if (picturesOnly) console.log(`${id}-${pose} ${2 * width}`);
+  }
+  // A pose in two frames: its second is shown in place of its first for a
+  // move that is a limb's. It sits where its first does, and is as large.
+  out.frames = {};
+  for (const [pose, frames] of Object.entries(god.frames)) {
+    if (!skills.has(pose) || frames.join() !== "b")
+      throw new Error(`${id}: ${pose} is no skill pose with one second frame, b`);
+    const [left, width] = out.at[pose];
+    const png = readFileSync(join(resolve(dir), "assets", `${id}-${pose}-b.png`));
+    if (
+      png.readUInt32BE(16) !== 3 * width ||
+      png.readUInt32BE(20) !== 3 * cast.cell.h ||
+      !template.includes(
+        `<img class="pose p-${pose} f-b" src="assets/${id}-${pose}-b.png" alt="" style="left:${left}px;width:${width}px">`,
+      )
+    )
+      throw new Error(
+        `${id}: no second frame of ${pose} the size of its first, where its first is`,
+      );
+    out.frames[pose] = frames;
+    if (picturesOnly) console.log(`${id}-${pose}-b ${2 * width}`);
+  }
+  // A pose's cut-out part: the pose's own picture again, clipped to the part
+  // (cut), which the lane moves while the pose is shown with the part's hole
+  // cut out of it (hole). Both are polygons in the pose's own picture, px.
+  out.parts = {};
+  for (const [, pose, of, name, src, left, width, clip] of template.matchAll(
+    /<img class="part p-([a-z-]+)" data-of="([a-z-]+)" data-part="([a-z]+)" src="assets\/([a-z-]+)\.png" alt="" style="left:(-?[\d.]+)px;width:([\d.]+)px;clip-path:(polygon\([^()]+\))">/g,
+  )) {
+    const at = out.at[pose];
+    const holed = new RegExp(
+      `<img class="pose p-${pose}" src="assets/${id}-${pose}\\.png" alt="" style="left:-?[\\d.]+px;width:[\\d.]+px;--hole:(polygon\\([^()]+\\))">`,
+    ).exec(template)?.[1];
+    if (
+      !at ||
+      of !== pose ||
+      src !== `${id}-${pose}` ||
+      Number(left) !== at[0] ||
+      Number(width) !== at[1] ||
+      out.parts[pose] ||
+      out.frames[pose] ||
+      !holed
+    )
+      throw new Error(`${id}: ${pose}'s part is not one cut-out of its own picture, with a hole`);
+    const cut = points(clip, `${id} ${pose}'s part`);
+    // The hole is all of the picture but a polygon: out to it and back.
+    const ring = points(holed, `${id} ${pose}'s hole`);
+    const frame = [
+      [0, 0],
+      [at[1], 0],
+      [at[1], cast.cell.h],
+      [0, cast.cell.h],
+      [0, 0],
+    ];
+    const hole = ring.slice(frame.length, -1);
+    if (
+      JSON.stringify(ring.slice(0, frame.length)) !== JSON.stringify(frame) ||
+      hole.length < 3 ||
+      JSON.stringify(ring[ring.length - 1]) !== JSON.stringify(hole[0])
+    )
+      throw new Error(`${id}: ${pose}'s hole is not its picture with one polygon out of it`);
+    for (const [x, y] of [...cut, ...hole])
+      if (x < 0 || x > at[1] || y < 0 || y > cast.cell.h)
+        throw new Error(`${id}: ${pose}'s part is outside its picture`);
+    out.parts[pose] = { name, cut, hole };
+  }
+  // Its fidgets, a pose each: what it does while the pose is held, in its own
+  // beats from the cut that showed it. A move on the cut is played once; a
+  // rhythm's one move comes round every bar; idling, a bar is dealt one of its
+  // moves or none. A key is a beat and a state; an eased move's figure eases
+  // into each state over `ease` ms, and a limb only ever cuts.
+  out.fid = {};
+  for (const [pose, fid] of Object.entries(god.fid)) {
+    if (!skills.has(pose)) throw new Error(`${id}: a fidget for ${pose}, which no act names`);
+    const moves = [...(fid.cut ? [fid.cut] : []), ...fid.moves];
+    if (
+      Object.keys(fid).join() !== "bar,idle,rest,cut,moves" ||
+      !moves.length ||
+      (fid.cut ? fid.moves.length > 0 : !(fid.bar > 0)) ||
+      (!fid.idle && !fid.cut && fid.moves.length !== 1)
+    )
+      throw new Error(`${id}: ${pose}'s fidget is not a move on the cut, a rhythm or idling`);
+    for (const move of moves) {
+      const beats = move.keys.map(([beat]) => beat);
+      if (
+        Object.keys(move).join() !== MOVE_SHAPE.join() ||
+        !beats.length ||
+        beats.some((beat, i) => beat < 0 || (beat * 4) % 1 !== 0 || (i && beat <= beats[i - 1])) ||
+        !(move.ease >= 0) ||
+        !(move.w > 0) ||
+        !(move.end >= beats[beats.length - 1]) ||
+        (move.part !== null && move.part !== out.parts[pose]?.name)
+      )
+        throw new Error(`${id}: a move of ${pose} is not keys on the quarter-beat, in order`);
+      for (const [, state] of move.keys) {
+        if (
+          !Object.keys(state).every((key) => STATE_KEYS.includes(key)) ||
+          (state.rot !== undefined && !move.pivot) ||
+          (state.frame !== undefined && !out.frames[pose]?.includes(state.frame)) ||
+          (state.lift !== undefined && !(state.lift > 0 && state.lift <= god.lift[pose])) ||
+          (move.part ? state.turn || state.frame || state.lift : state.gone)
+        )
+          throw new Error(`${id}: a state of ${pose} asks for what the lane cannot play`);
+      }
+    }
+    out.fid[pose] = fid;
+  }
+  // All a fidget covers is inside the envelope the places and the ribbons are
+  // planned with, at every height of the one who flies: the mockup's sweep of
+  // each moving pose, band by band, against the outline this file keeps.
+  const outline = new Map(god.envol.map(([y, a, b]) => [y, [a, b]]));
+  for (const pose of Object.keys(out.fid)) {
+    if (!god.sw[pose]) throw new Error(`${id}: no sweep for ${pose}, which fidgets`);
+    for (const [y, a, b] of god.sw[pose]) {
+      for (let up = 0; up <= (god.lift[pose] ?? 0); up += 2) {
+        const band = outline.get(y - up);
+        if (!band || a < band[0] || b > band[1])
+          throw new Error(`${id}: ${pose}'s fidget leaves the envelope at ${y - up}`);
+      }
+    }
   }
   // Its tesserae: the two poses it is set from and goes back to, each cut in
   // courses from the feet up (top, bottom, left in tenths of a px, a stone's
