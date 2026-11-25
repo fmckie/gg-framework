@@ -1,7 +1,9 @@
 // Groups: a group chat with several specialists at once, from the Kleio host. A
 // list laid out like Chats and Code; a group opens into its chat, and new/edit
-// are full-page forms. On the desktop the chat is the Cast's room (CastRoom.tsx);
-// on the iPhone it has a sidebar of its members (collapsible from the header).
+// are full-page forms. On the desktop the list is the Cast's shelf
+// (CastGroups.tsx), the form its two columns (CastGroupForm.tsx) and the chat
+// its room (CastRoom.tsx); the iPhone keeps the rows, the panels and a chat
+// with a sidebar of its members (collapsible from the header).
 // A group's picture is its members' blobs.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
@@ -27,6 +29,8 @@ import { WorkingBeam } from "../WorkingBeam";
 import { AgentRowContent, type RowState } from "./AgentRow";
 import { AgentAvatar, BlobAvatar, GroupAvatar } from "./BlobAvatar";
 import { BLOB_COLOR_LABEL, BLOB_TONES } from "./blobLook";
+import { CastGroupForm } from "./CastGroupForm";
+import { CastGroups } from "./CastGroups";
 import { CastRoom } from "./CastRoom";
 import { ChatAsk } from "./ChatAsk";
 import { FileCards } from "./FileCard";
@@ -42,38 +46,28 @@ import {
 } from "./KleioChrome";
 import { fileLinks, fileOwner } from "./kleioFiles";
 import { LiveToolFeed, ToolCallRow } from "./LiveToolFeed";
-import { relTime } from "./relTime";
 import {
-  BLOB_COLORS,
-  createGroup,
-  deleteGroup,
   listBlobs,
   listGroups,
-  updateGroup,
   errorText,
   type Blob,
-  type BlobColor,
   type Group,
   type ToolActivityEntry,
   type GroupTurnOutcome,
 } from "./kleioApi";
 import { OUTCOME_LABEL, outcomeTone } from "./groupOutcome";
+import {
+  GROUP_NAME_MAX,
+  groupRowState,
+  groupRowSub,
+  HOW_IT_WORKS,
+  MAX_MEMBERS,
+  useGroupForm,
+  type GroupFormProps,
+} from "./groupParts";
 import { groupMembers, MESSAGE_MAX, plural, useGroupChat } from "./useGroupChat";
 
-/** The host allows 1–8 agents in a group. */
-const MAX_MEMBERS = 8;
-const NAME_MAX = 40;
 const LIST_REFRESH_MS = 10_000;
-/** Hosts from before agent looks accept only the original six colours. */
-const ORIGINAL_COLORS: readonly BlobColor[] = BLOB_COLORS.slice(0, 6);
-
-/** How the host runs a group chat (see kleio-host groups.ts). */
-const HOW_IT_WORKS = [
-  "Send a message and the specialist best placed for it starts; others join in as needed.",
-  "@mention specialists to choose who replies, in the order you mention them.",
-  "Specialists can @mention each other to hand over.",
-  "The pen button starts a new conversation; the old one stays on your host.",
-];
 
 function HowItWorks(): React.ReactElement {
   return (
@@ -93,21 +87,11 @@ function ErrorLine({ error }: { error: string | null }): React.ReactElement | nu
   ) : null;
 }
 
-/** The short state at the right of a group's row. */
-function groupRowState(g: Group, now: number = Date.now()): RowState {
-  if (g.typing.length > 0) return { text: "Replying…", tone: "live" };
-  // Relative, like the Chats list ("2 h ago").
-  if (g.lastMessage) return { text: relTime(g.lastMessage.at, now), tone: "plain" };
-  return { text: plural(g.members.length, "member"), tone: "plain" };
-}
-
-function groupRowSub(g: Group): string {
-  return g.lastMessage
-    ? `${g.lastMessage.authorName}: ${g.lastMessage.text}`
-    : "No messages yet — say hello.";
-}
-
-type View = { kind: "list" } | { kind: "chat"; id: string } | { kind: "form"; id: string | null };
+type View =
+  | { kind: "list" }
+  | { kind: "chat"; id: string }
+  // `from`: where Cancel goes back to. The desktop's list can open the form itself.
+  | { kind: "form"; id: string | null; from?: "list" };
 
 /**
  * A member's tool calls for its current or last turn, oldest first, and how
@@ -231,11 +215,16 @@ export function GroupsPage({
 
   if (view.kind === "form") {
     const group = view.id ? groups?.find((g) => g.id === view.id) : undefined;
+    const fromList = view.from === "list";
+    // The desktop draws the Cast's form; the iPhone keeps today's panels.
+    const Form = isPhone() ? GroupForm : CastGroupForm;
     return (
-      <GroupForm
+      <Form
         {...(group ? { group } : {})}
         blobs={blobs}
-        onCancel={() => setView(group ? { kind: "chat", id: group.id } : { kind: "list" })}
+        onCancel={() =>
+          setView(group && !fromList ? { kind: "chat", id: group.id } : { kind: "list" })
+        }
         onSaved={(g) => {
           setView({ kind: "chat", id: g.id });
           void load();
@@ -270,16 +259,20 @@ export function GroupsPage({
       );
   }
 
-  return (
-    <GroupList
-      groups={groups}
-      blobs={blobs}
-      error={error}
-      onClose={onClose}
-      onCreate={() => setView({ kind: "form", id: null })}
-      onOpen={(id) => setView({ kind: "chat", id })}
-      {...(onOpenApps ? { onOpenApps } : {})}
-    />
+  const list = {
+    groups,
+    blobs,
+    error,
+    onClose,
+    onCreate: () => setView({ kind: "form", id: null }),
+    onOpen: (id: string) => setView({ kind: "chat", id }),
+    ...(onOpenApps ? { onOpenApps } : {}),
+  };
+  // The iPhone keeps the list of rows; the desktop stands each group on the shelf.
+  return isPhone() ? (
+    <GroupList {...list} />
+  ) : (
+    <CastGroups {...list} onEdit={(id) => setView({ kind: "form", id, from: "list" })} />
   );
 }
 
@@ -390,19 +383,11 @@ function GroupForm({
   onSaved,
   onCancel,
   onDeleted,
-}: {
-  group?: Group;
-  blobs: Blob[];
-  onSaved: (g: Group) => void;
-  onCancel: () => void;
-  onDeleted: () => void;
-}): React.ReactElement {
-  const [name, setName] = useState(group?.name ?? "");
-  const [color, setColor] = useState<BlobColor>(group?.color ?? "lilac");
-  const [members, setMembers] = useState<string[]>(group?.members ?? []);
-  const [saving, setSaving] = useState(false);
+}: GroupFormProps): React.ReactElement {
+  const form = useGroupForm({ ...(group ? { group } : {}), blobs, onSaved, onDeleted });
+  const { name, setName, color, setColor, members, toggle, error } = form;
+  const { colors, full, canSave, title, save, remove, missing, chosen } = form;
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const windowFocused = useWindowFocused();
   const formId = useId();
   const ids = {
@@ -411,47 +396,6 @@ function GroupForm({
     colour: `${formId}-colour`,
     members: `${formId}-members`,
   };
-  // A host that knows agent looks also accepts the larger palette.
-  const colors = blobs.some((b) => b.shape !== undefined) ? BLOB_COLORS : ORIGINAL_COLORS;
-  const full = members.length >= MAX_MEMBERS;
-  const canSave = !saving && Boolean(name.trim()) && members.length > 0;
-  const title = group ? `Edit ${group.name}` : "New group";
-
-  async function save(): Promise<void> {
-    if (!canSave) return;
-    setSaving(true);
-    setError(null);
-    try {
-      // `emoji` is kept for the iPhone app, which still shows it.
-      const input = { name: name.trim(), emoji: group?.emoji ?? "💬", color, members };
-      onSaved(group ? await updateGroup(group.id, input) : await createGroup(input));
-    } catch (err) {
-      setError(errorText(err));
-      setSaving(false);
-    }
-  }
-
-  async function remove(): Promise<void> {
-    if (!group) return;
-    try {
-      await deleteGroup(group.id);
-      onDeleted();
-    } catch (err) {
-      setError(errorText(err));
-    }
-  }
-
-  function toggle(id: string): void {
-    setMembers((cur) =>
-      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].slice(0, MAX_MEMBERS),
-    );
-  }
-
-  // Members of this group whose agent has since been deleted still count on
-  // the host; show them so the count adds up and they can be removed.
-  const byId = new Map(blobs.map((b) => [b.id, b]));
-  const missing = members.filter((id) => !byId.has(id));
-  const chosen = groupMembers({ members }, byId);
 
   const preview: RowState = { text: plural(members.length, "member"), tone: "plain" };
 
@@ -472,7 +416,7 @@ function GroupForm({
               windowFocused={windowFocused}
               disabled={!canSave}
             >
-              {saving ? "Saving…" : group ? "Save" : "Create"}
+              {form.saveLabel}
             </MetalButton>
           </>
         }
@@ -508,7 +452,7 @@ function GroupForm({
                       id={ids.name}
                       className="modal-input"
                       value={name}
-                      maxLength={NAME_MAX}
+                      maxLength={GROUP_NAME_MAX}
                       required
                       autoFocus
                       placeholder="Kitchen crew"

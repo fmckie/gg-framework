@@ -1,7 +1,7 @@
 // Fake specialists for the Cast shelf's tests: the redesign mockup's cast of 26
 // in every state (working, last run failed, next run, on call, paused), as the
-// host would list them, and its group chat of four and of eight. Nothing in the
-// app imports this.
+// host would list them, its group chat of four and of eight, and a list of
+// groups made from the same cast. Nothing in the app imports this.
 //
 // It is Monday 9 November 2026, 14:10, in whatever zone the tests run in: every
 // time is built in local time, so "tomorrow 07:30" reads the same anywhere.
@@ -557,4 +557,89 @@ export function castGroup(size: RoomSize): {
       },
     },
   };
+}
+
+// ─── the groups list: no mockup draws it, so these are made from the cast ────
+
+/** name, members, and its newest message (author, when, text); none = never used. */
+type Troupe = readonly [name: string, members: readonly string[], last?: Said];
+
+const TROUPES: readonly Troupe[] = [
+  [
+    "Kitchen crew",
+    ["chef", "gardener"],
+    [
+      "chef",
+      at(-1, 17, 2),
+      "Sunday's list is in: **miso salmon**, squash orzo and a chickpea curry.",
+    ],
+  ],
+  ["Money desk", ["ledger", "ticker", "forecast", "keeper"]],
+  [
+    "Morning desk",
+    ["herald"],
+    ["herald", at(0, 7, 31), "Three stories for today, two lines each."],
+  ],
+  [
+    "Study hall",
+    ["tutor", "reader", "librarian", "coach", "critic", "scribe", "planner", "archivist"],
+    ["you", at(-2, 19, 15), "What should I read before Thursday's seminar?"],
+  ],
+  // One of its members has since been deleted.
+  [
+    "Travel desk",
+    ["atlas", "courier", "long-gone"],
+    ["atlas", at(-6, 10, 0), "Transfers are booked."],
+  ],
+  [
+    "House",
+    ["tidy", "fixer", "sentry"],
+    ["fixer", at(-9, 16, 40), "The boiler service is on the 19th."],
+  ],
+  ["Inbox", ["postie", "concierge"], ["postie", at(0, 13, 55), "Two emails need replies."]],
+  [
+    "Garden",
+    ["gardener", "forecast", "rover"],
+    ["forecast", at(0, 6, 0), "Frost tonight: cover the dahlias."],
+  ],
+  ["Writers", ["quill", "critic", "scribe"]],
+  [
+    "Fitness",
+    ["coach", "tempo"],
+    ["coach", at(-1, 8, 0), "Rest day. Twenty minutes of stretching."],
+  ],
+  // Everyone in it has been deleted.
+  ["Old project", ["long-gone", "also-gone"]],
+];
+
+export const GROUP_LIST_SIZES = [0, 1, 3, 12] as const;
+export type GroupListSize = (typeof GROUP_LIST_SIZES)[number];
+
+/** A list of groups as the host would send it, the cast of 26 to draw them
+ *  from: none, the Lisbon offsite alone (Quill replying), three, or twelve. */
+export function castGroups(size: GroupListSize): { groups: Group[]; blobs: Blob[] } {
+  const made = TROUPES.map(([title, members, last], i): Group => ({
+    id: `troupe-${i + 1}`,
+    name: title,
+    emoji: "💬",
+    color: "lilac",
+    members: [...members],
+    createdAt: at(-30, 9, 0),
+    updatedAt: last?.[1] ?? at(-30, 9, 0),
+    typing: [],
+    ...(last
+      ? {
+          lastMessage: {
+            seq: 1,
+            id: `troupe-${i + 1}-m1`,
+            author: last[0],
+            authorName: last[0] === "you" ? "You" : name(last[0]),
+            emoji: "",
+            text: last[2],
+            at: last[1],
+          },
+        }
+      : {}),
+  }));
+  return { groups: [castGroup(4).group, ...made].slice(0, size), blobs: castRoster(26) };
 }

@@ -140,18 +140,85 @@ function pinClock(): number {
   return Date.now();
 }
 
+/** Open Morning Desk's chat from the list: the iPhone's row opens it; on the
+ *  desktop the click puts it in the spotlight, and its profile's button opens it. */
+function openDesk(): void {
+  fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+  if (!isPhone()) fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+}
+
 describe("GroupsPage", () => {
   it("lists each group with its latest message", async () => {
+    // Today's rows are the iPhone's now; the desktop's shelf has its own tests (CastGroups.test.tsx).
+    vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
     const desk = screen.getByRole("button", { name: /^Morning Desk\./ });
     expect(within(desk).getByText("Agent 2: Two emails need replies.")).toBeTruthy();
+  });
+
+  it("stands the groups on the Cast's shelf on the desktop, and keeps today's rows on the iPhone", async () => {
+    await renderPage();
+    const desk = screen.getByRole("button", { name: /^Morning Desk\./ });
+    expect(desk.matches(".cast-page .cast-actor.cast-troupe")).toBe(true);
+    // A click selects; nothing opens until the profile's button is pressed.
+    fireEvent.click(desk);
+    expect(desk.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("log")).toBeNull();
+    const profile = screen.getByRole("region", { name: "Morning Desk" });
+    expect(within(profile).getByText("Two emails need replies.")).toBeTruthy();
+    expect(document.querySelector(".picker-list, .picker-item, .kleio-row")).toBeNull();
+    fireEvent.click(within(profile).getByRole("button", { name: "Open chat" }));
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
+    cleanup();
+
+    vi.mocked(isPhone).mockReturnValue(true);
+    await renderPage();
+    const row = screen.getByRole("button", { name: /^Morning Desk\./ });
+    expect(row.matches(".picker-list .picker-item.kleio-row")).toBe(true);
+    expect(document.querySelector(".cast-page, .cast-actor, .cast-profile")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open chat" })).toBeNull();
+    fireEvent.click(row);
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
+  });
+
+  it("draws the Cast's form on the desktop, and keeps today's panels on the iPhone", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New group" }));
+    expect(document.querySelector(".cast-form.cast-gform .cast-mini")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
+    expect(screen.queryByRole("radiogroup", { name: "Colour" })).toBeNull();
+    expect(document.querySelector(".kleio-form-page, .kleio-panel, .kleio-preview")).toBeNull();
+    cleanup();
+
+    vi.mocked(isPhone).mockReturnValue(true);
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "+ New group" }));
+    expect(document.querySelector(".kleio-form-page .kleio-preview")).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Colour" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "How it works" })).toBeTruthy();
+    expect(document.querySelector(".cast-form, .cast-mini, .cast-card")).toBeNull();
+  });
+
+  it("from the shelf, Edit opens the form and Cancel comes back to the shelf", async () => {
+    await renderPage();
+    const profile = screen.getByRole("region", { name: "Morning Desk" });
+    fireEvent.click(within(profile).getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("heading", { name: "Edit Morning Desk", level: 1 })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("heading", { name: "Groups", level: 1 })).toBeTruthy();
+    // From the room, Cancel still goes back to the room.
+    openDesk();
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await screen.findByRole("log", { name: "Morning Desk conversation" });
   });
 
   it("opens a group into its chat, with replies formatted and members alongside", async () => {
     // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
     vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
     await waitFor(() => expect(within(log).getByText("€40M").tagName).toBe("STRONG"));
     const side = screen.getByRole("complementary", { name: "Morning Desk details" });
@@ -161,7 +228,7 @@ describe("GroupsPage", () => {
 
   it("draws the Cast's room on the desktop, and keeps today's chat on the iPhone", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     await screen.findByRole("log", { name: "Morning Desk conversation" });
     expect(document.querySelector(".cast-room .cast-room-stage")).toBeTruthy();
     expect(screen.getByRole("group", { name: "Members" })).toBeTruthy();
@@ -171,7 +238,7 @@ describe("GroupsPage", () => {
 
     vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     await screen.findByRole("log", { name: "Morning Desk conversation" });
     expect(document.querySelector(".cast-room, .cast-room-stage, .cast-tiles")).toBeNull();
     expect(document.querySelector(".kleio-split .kleio-chat")).toBeTruthy();
@@ -184,7 +251,7 @@ describe("GroupsPage", () => {
   it("on the iPhone, puts the group's member count under its name", async () => {
     vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
 
     const heading = await screen.findByRole("heading", { name: "Morning Desk", level: 1 });
     const titles = heading.parentElement as HTMLElement;
@@ -219,7 +286,7 @@ describe("GroupsPage", () => {
       outcomes: { b2: { kind: "timed_out", reason: "took over 2 min" } },
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
 
     // The member replying opens on its own; the newest call is last and live.
@@ -272,7 +339,7 @@ describe("GroupsPage", () => {
       },
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const feed = await screen.findByRole("list", { name: "What the members are doing" });
     const rows = within(feed).getAllByRole("listitem");
     expect(rows.map((r) => r.textContent)).toEqual([
@@ -285,7 +352,7 @@ describe("GroupsPage", () => {
     // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
     vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
     await waitFor(() => expect(within(side).getByText("Agent 1")).toBeTruthy());
     expect(within(side).queryByRole("button", { name: /^Activity of/ })).toBeNull();
@@ -312,7 +379,7 @@ describe("GroupsPage", () => {
   it("asks before deleting a group", async () => {
     vi.mocked(deleteGroup).mockResolvedValue(undefined);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0] as HTMLElement);
     fireEvent.click(screen.getByRole("button", { name: "Delete Morning Desk" }));
     expect(deleteGroup).not.toHaveBeenCalled();
@@ -324,7 +391,7 @@ describe("GroupsPage", () => {
   it("starts a new conversation from the pen button, after asking, and clears the old one", async () => {
     vi.mocked(newGroupSession).mockResolvedValue({ ...DESK, clearedThrough: 1 });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
     await waitFor(() => expect(within(log).getByText("€40M")).toBeTruthy());
 
@@ -366,7 +433,7 @@ describe("GroupsPage", () => {
       },
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
     await within(log).findByText("Which market?");
     expect(within(log).getByText("Agent 2 asks")).toBeTruthy();
@@ -381,7 +448,7 @@ describe("GroupsPage", () => {
 
   it("drops messages another device's new session cleared", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const log = await screen.findByRole("log", { name: "Morning Desk conversation" });
     await waitFor(() => expect(within(log).getByText("€40M")).toBeTruthy());
 
@@ -411,7 +478,7 @@ describe("GroupsPage", () => {
     // Today's chat is the iPhone's now; the desktop's room has its own tests (CastRoom.test.tsx).
     vi.mocked(isPhone).mockReturnValue(true);
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
     expect(within(side).getByRole("heading", { name: "Assets" })).toBeTruthy();
     expect(within(side).getByText("Files your specialists share will appear here.")).toBeTruthy();
@@ -422,7 +489,7 @@ describe("GroupsPage", () => {
     vi.mocked(stopGroup).mockResolvedValue(undefined);
     vi.mocked(listGroupMessages).mockResolvedValue({ messages: [], typing: ["b1"], lastSeq: 0 });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const stop = await screen.findByRole("button", { name: "Stop" });
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     await act(async () => {
@@ -433,7 +500,7 @@ describe("GroupsPage", () => {
 
   it("shows Send, not Stop, when nobody is replying", async () => {
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     await screen.findByRole("button", { name: "Send" });
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   });
@@ -484,7 +551,7 @@ describe("GroupsPage", () => {
       lastSeq: 4,
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const side = await screen.findByRole("complementary", { name: "Morning Desk details" });
     const list = await within(side).findByRole("list", {
       name: "Files shared in this conversation, newest first",
@@ -532,7 +599,7 @@ describe("GroupsPage", () => {
       outcomes: { b2: { kind: "timed_out", reason: "took over 30 min" } },
     });
     await renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     const feed = await screen.findByRole("list", { name: "What the members are doing" });
     expect(
       within(feed)
@@ -586,7 +653,7 @@ describe("a member's file link in a group", () => {
         </FileViewerProvider>,
       );
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Morning Desk\./ }));
+    openDesk();
     fireEvent.click(await screen.findByRole("link", { name: "the plan" }));
     expect(await screen.findByRole("dialog", { name: "plan.md" })).toBeTruthy();
     expect(createFileShow).toHaveBeenCalledWith({

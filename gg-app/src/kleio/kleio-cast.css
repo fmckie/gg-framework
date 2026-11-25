@@ -1,7 +1,8 @@
 /* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
    a lit shelf, the selected one in a spotlight with its profile underneath,
    the form that makes or changes one (CastForm.tsx, CastSchedules.tsx), and a
-   group's room (CastRoom.tsx).
+   group's room (CastRoom.tsx). Groups stand on the same shelf (CastGroups.tsx)
+   and are made in the same form (CastGroupForm.tsx).
    Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
    the page sets how many places the widest shelf has (--cols), and the profile
    which place its pointer is under (--col). The iPhone never draws this. */
@@ -33,8 +34,10 @@
   padding: 0;
   list-style: none;
 }
+/* The reset above would take the error's own padding. */
 .cast-error {
   margin: 12px var(--inset) 0;
+  padding: 9px 12px;
 }
 .cast-page > .list-skeleton {
   padding: 12px var(--inset) 0;
@@ -864,6 +867,123 @@
   .cast-first .cast-stage {
     height: 282px;
   }
+}
+
+/* ── groups on the shelf (CastGroups.tsx): no mockup draws them, so they
+   use the cast's own parts. A group is its first members standing together,
+   each on its own foot: the first in front, the next two a step behind. ── */
+.cast-huddle {
+  position: absolute;
+  inset: 0;
+}
+.cast-h {
+  position: absolute;
+  bottom: 0;
+  aspect-ratio: 1;
+}
+.cast-troupe[data-n="1"] .cast-h {
+  left: 7%;
+  width: 86%;
+}
+.cast-troupe[data-n="2"] .cast-h {
+  width: 66%;
+}
+.cast-troupe[data-n="2"] .cast-h:first-child {
+  left: -8%;
+}
+.cast-troupe[data-n="2"] .cast-h:last-child {
+  left: 42%;
+  z-index: 1;
+}
+.cast-troupe[data-n="3"] .cast-h {
+  bottom: 6%;
+  width: 54%;
+  filter: brightness(0.86);
+}
+.cast-troupe[data-n="3"] .cast-h:first-child {
+  left: 19%;
+  bottom: 0;
+  z-index: 2;
+  width: 62%;
+  filter: none;
+}
+.cast-troupe[data-n="3"] .cast-h:nth-child(2) {
+  left: -14%;
+}
+.cast-troupe[data-n="3"] .cast-h:nth-child(3) {
+  left: 60%;
+  z-index: 1;
+}
+/* Two or three stand wider than one, and so does the shadow under them. */
+.cast-troupe:is([data-n="2"], [data-n="3"]) .cast-figure::after {
+  left: -6%;
+  right: -6%;
+}
+.cast-troupe[data-n="0"] .cast-figure::after {
+  display: none;
+}
+/* The profile: what was last said, then who is in the group. */
+.cast-profile.is-group {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.5fr) minmax(0, 1fr);
+}
+.cast-g-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cast-g-who time {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cast-p-col .cast-g-text {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.cast-page[data-tier="crowd"] .cast-g-text {
+  -webkit-line-clamp: 2;
+}
+.cast-g-members {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+.cast-g-members li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.cast-g-members li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cast-g-members li.is-live {
+  color: var(--primary-hi);
+}
+.cast-g-members + .cast-p-note {
+  margin-top: 10px;
+}
+/* No groups yet: your specialists on the stage, with no spotlight or bubble
+   over them, so the stage is lower than the specialists' first run. */
+.cast-first.is-group .cast-stage {
+  grid-template-columns: repeat(var(--n), minmax(0, 150px));
+  justify-content: center;
+  height: 236px;
 }
 
 /* ── a wide window ── */
@@ -1844,6 +1964,48 @@ input[type="time"].cast-field::-webkit-calendar-picker-indicator {
   .cast-card {
     padding: 18px 22px 20px;
   }
+}
+
+/* ── a group's form (CastGroupForm.tsx): its members on the shelf as they
+   are ticked, smaller the more there are, then its name. ── */
+.cast-mini.cast-gstage {
+  --size: clamp(38px, calc(312px / var(--n)), 96px);
+  gap: 6px;
+}
+.cast-gstage .cast-slot {
+  height: 100%;
+}
+/* The list of specialists can run long: who is in the group stays in view beside it. */
+.cast-gform .cast-who {
+  position: sticky;
+  top: 6px;
+  align-self: start;
+}
+.cast-gform-who {
+  max-width: 100%;
+  min-height: 18px;
+  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+.cast-gform .cast-card-head h2 {
+  flex: none;
+}
+.cast-gform .kleio-member-picks,
+.cast-gform .kleio-howto,
+.cast-gform .kleio-danger-btn {
+  margin-top: 10px;
+}
+.cast-gform .kleio-member-picks {
+  padding: 0;
+  list-style: none;
+}
+.cast-gform .kleio-count-line {
+  margin-top: 8px;
 }
 
 /* ── the group's room (CastRoom.tsx): who is in it, then the conversation ──

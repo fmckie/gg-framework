@@ -794,6 +794,15 @@ describe("the Cast shelf", () => {
     expect(screen.queryByText(/^starting job:/)).toBeNull();
   });
 
+  it("gives the list's error line its padding back, which the page's reset would take", () => {
+    const rules = castCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    // The reset reaches every <p> on the page, the error line among them.
+    expect(rules).toMatch(/\.cast-page :where\([^)]*\bp\b[^)]*\) \{[^}]*padding: 0;/);
+    const own = /(?:^|\n)\.cast-error \{([^}]*)\}/.exec(rules)?.[1] ?? "";
+    expect(own).toMatch(/padding: 9px 12px;/);
+    expect(rules.indexOf(".cast-error {")).toBeGreaterThan(rules.indexOf(".cast-page :where("));
+  });
+
   it("holds the profile's buttons and the example jobs still with reduced motion", async () => {
     const block = /@media \(prefers-reduced-motion: reduce\) \{\n([\s\S]*?)\n\}\n?$/.exec(castCss);
     const still = (/^\s*([^{]+)\{/.exec(block?.[1] ?? "")?.[1] ?? "")
