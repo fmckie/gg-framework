@@ -3,30 +3,67 @@
 
 import data from "./cast.json";
 import type { GodId } from "./gods";
+import argusLook from "./poses/argus-look.webp";
+import argusRun from "./poses/argus-run.webp";
 import argusSpeak from "./poses/argus-speak.webp";
 import argusStand from "./poses/argus-stand.webp";
+import argusThink from "./poses/argus-think.webp";
+import argusWeb from "./poses/argus-web.webp";
+import athenaLook from "./poses/athena-look.webp";
 import athenaSpeak from "./poses/athena-speak.webp";
 import athenaStand from "./poses/athena-stand.webp";
+import athenaThink from "./poses/athena-think.webp";
+import hephaestusLook from "./poses/hephaestus-look.webp";
+import hephaestusMake from "./poses/hephaestus-make.webp";
+import hephaestusRun from "./poses/hephaestus-run.webp";
 import hephaestusSpeak from "./poses/hephaestus-speak.webp";
 import hephaestusStand from "./poses/hephaestus-stand.webp";
+import hephaestusThink from "./poses/hephaestus-think.webp";
+import hermesLook from "./poses/hermes-look.webp";
+import hermesMake from "./poses/hermes-make.webp";
+import hermesRun from "./poses/hermes-run.webp";
 import hermesSpeak from "./poses/hermes-speak.webp";
 import hermesStand from "./poses/hermes-stand.webp";
+import hermesThink from "./poses/hermes-think.webp";
+import herodotusLook from "./poses/herodotus-look.webp";
 import herodotusSpeak from "./poses/herodotus-speak.webp";
 import herodotusStand from "./poses/herodotus-stand.webp";
+import herodotusThink from "./poses/herodotus-think.webp";
+import herodotusWeb from "./poses/herodotus-web.webp";
+import nikeLook from "./poses/nike-look.webp";
+import nikeMake from "./poses/nike-make.webp";
+import nikeRun from "./poses/nike-run.webp";
 import nikeSpeak from "./poses/nike-speak.webp";
 import nikeStand from "./poses/nike-stand.webp";
+import nikeThink from "./poses/nike-think.webp";
+import themisLook from "./poses/themis-look.webp";
+import themisRun from "./poses/themis-run.webp";
 import themisSpeak from "./poses/themis-speak.webp";
 import themisStand from "./poses/themis-stand.webp";
+import themisThinkL from "./poses/themis-think-l.webp";
+import themisThinkR from "./poses/themis-think-r.webp";
+import themisWeb from "./poses/themis-web.webp";
+import type { ToolFamily } from "./tool-family";
 
-/** The poses the lane draws so far. */
-export type Pose = "stand" | "speak";
-export const POSES: readonly Pose[] = ["speak", "stand"];
+/** The poses every god has: standing, and holding out a line. */
+export type Stance = "stand" | "speak";
+export const POSES: readonly Stance[] = ["speak", "stand"];
+/** The poses a god acts a tool in. No god has them all; Themis thinks with her scales, tipped either way. */
+export type Skill = "look" | "web" | "make" | "run" | "think" | "think-l" | "think-r";
+export type Pose = Stance | Skill;
 
 /** A piece of a small drawing: an SVG element, its attributes and what is in it. */
 export interface SvgNode {
   readonly tag: string;
   readonly attrs: Readonly<Record<string, string>>;
   readonly children?: readonly SvgNode[];
+}
+
+/** How a god acts one family of tool. */
+export interface Act {
+  readonly pose: Skill;
+  /** Themis's scales: the pose for each way a finding can go. */
+  readonly verdict?: { readonly confirmed: Skill; readonly dropped: Skill };
 }
 
 /** One god, measured in its 73×100 cell, facing right. */
@@ -39,7 +76,16 @@ export interface CastGod {
   /** The fingers of its open hand, where a ribbon starts. */
   readonly hand: readonly [number, number];
   /** Each pose's figure along the floor: from, to. */
-  readonly fp: Readonly<Record<Pose, readonly [number, number]>>;
+  readonly fp: Readonly<Record<Stance, readonly [number, number]>> &
+    Readonly<Partial<Record<Skill, readonly [number, number]>>>;
+  /** Its beat at its place, ms: a cut from one pose to the next falls on it. */
+  readonly step: number;
+  /** The pose it acts each family of tool in; a family it has none for, it thinks. */
+  readonly acts: Readonly<Partial<Record<ToolFamily, Act>>> & { readonly think: Act };
+  /** Where each skill pose's picture sits in the cell: left, width. */
+  readonly at: Readonly<Partial<Record<Skill, readonly [number, number]>>>;
+  /** How far off the floor a pose is held. */
+  readonly lift: Readonly<Partial<Record<Skill, number>>>;
   /** Where the seal is pressed on its rolled scroll. */
   readonly seal: readonly [number, number];
   /** The crack across its standing figure. */
@@ -56,13 +102,58 @@ export interface Cast {
 // JSON has no tuples: its number arrays are checked by cast.test.ts instead.
 export const CAST = data as unknown as Cast;
 
-/** Each god's pictures, 146×200, drawn at 73×100. */
-export const POSE_URLS: Readonly<Record<GodId, Readonly<Record<Pose, string>>>> = {
-  athena: { stand: athenaStand, speak: athenaSpeak },
-  herodotus: { stand: herodotusStand, speak: herodotusSpeak },
-  hermes: { stand: hermesStand, speak: hermesSpeak },
-  hephaestus: { stand: hephaestusStand, speak: hephaestusSpeak },
-  argus: { stand: argusStand, speak: argusSpeak },
-  themis: { stand: themisStand, speak: themisSpeak },
-  nike: { stand: nikeStand, speak: nikeSpeak },
+/** One god's pictures: its two stances, and the skill poses it has. */
+export type Pictures = Readonly<Record<Stance, string>> & Readonly<Partial<Record<Skill, string>>>;
+
+/** Each god's pictures, at twice the size they are drawn: 200 high, a stance 146 wide. */
+export const POSE_URLS: Readonly<Record<GodId, Pictures>> = {
+  athena: { stand: athenaStand, speak: athenaSpeak, look: athenaLook, think: athenaThink },
+  herodotus: {
+    stand: herodotusStand,
+    speak: herodotusSpeak,
+    look: herodotusLook,
+    web: herodotusWeb,
+    think: herodotusThink,
+  },
+  hermes: {
+    stand: hermesStand,
+    speak: hermesSpeak,
+    look: hermesLook,
+    make: hermesMake,
+    run: hermesRun,
+    think: hermesThink,
+  },
+  hephaestus: {
+    stand: hephaestusStand,
+    speak: hephaestusSpeak,
+    look: hephaestusLook,
+    make: hephaestusMake,
+    run: hephaestusRun,
+    think: hephaestusThink,
+  },
+  argus: {
+    stand: argusStand,
+    speak: argusSpeak,
+    look: argusLook,
+    web: argusWeb,
+    run: argusRun,
+    think: argusThink,
+  },
+  themis: {
+    stand: themisStand,
+    speak: themisSpeak,
+    look: themisLook,
+    web: themisWeb,
+    run: themisRun,
+    "think-r": themisThinkR,
+    "think-l": themisThinkL,
+  },
+  nike: {
+    stand: nikeStand,
+    speak: nikeSpeak,
+    look: nikeLook,
+    make: nikeMake,
+    run: nikeRun,
+    think: nikeThink,
+  },
 };

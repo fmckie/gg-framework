@@ -138,6 +138,38 @@ export const MOCK_EXTRAS: readonly FixtureAgent[] = [
 /** Kleio's four and the three extras in one turn: two more than the lane holds. */
 export const MOCK_CROWD: readonly FixtureAgent[] = [...MOCK_RUN, ...MOCK_EXTRAS];
 
+/** A tool of every family in turn, four seconds each, and twice a tool with none. */
+const SKILL_STEPS: readonly Step[] = [
+  [1000, "Reading src/http/routes.ts", 1.2],
+  [5000, "Fetching nodejs.org/api/crypto.html", 2.6],
+  [9000, "Editing src/http/routes.ts", 3.9],
+  [13_000, "Running pnpm test routes", 5.3],
+  [17_000, "Loading skill verify", 6.1],
+  [21_000, 'Searching for "rateLimit("', 7.4],
+  [25_000, "Loading skill review", 8.0],
+];
+
+/**
+ * One agent as each god, sent together, each using the same tools at the same
+ * moments: every skill pose the lane has, and the families a god has none for.
+ */
+export const MOCK_SKILLS: readonly FixtureAgent[] = [
+  "owl",
+  "researcher",
+  "worker",
+  "bee",
+  "auditor",
+  "skeptic",
+  undefined,
+].map((agentType) => ({
+  id: `skills-${agentType ?? "unnamed"}`,
+  agentType,
+  sentAt: 0,
+  task: "Try every tool",
+  steps: SKILL_STEPS,
+  end: [30_000, "done", "Every tool tried", 8.4],
+}));
+
 const usage = (k: number): NonNullable<SubAgentLine["tokenUsage"]> => ({
   input: Math.round(k * 900),
   output: Math.round(k * 100),

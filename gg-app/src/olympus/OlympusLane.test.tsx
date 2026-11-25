@@ -6,6 +6,7 @@ import {
   manualHost,
   MOCK_EXTRAS,
   MOCK_RUN,
+  MOCK_SKILLS,
   RESUMED_AGENTS,
   STATE_AGENTS,
 } from "./fixtures";
@@ -78,6 +79,30 @@ describe("the records the lane is given", () => {
       "agent-s1 themis",
       "agent-w1 hermes",
     ]);
+  });
+
+  it("gives each agent the family of its latest tool, humanized or raw, and its tool count", () => {
+    const tools = (agents: LaneGroup["agents"]): string[] =>
+      laneAgents([{ agents }]).map((a) => `${a.key} ${a.family} ${a.tools}`);
+    expect(tools(agentsAt(MOCK_RUN, 9000))).toEqual([
+      "owl-1 look 6",
+      "bee-1 run 6",
+      "auditor-1 run 3",
+      "unnamed-1 web 3",
+    ]);
+    expect(tools(agentsAt(MOCK_EXTRAS, 6000))).toEqual([
+      "agent-r1 look 2",
+      "agent-s1 run 3",
+      "agent-w1 make 2",
+    ]);
+    // No activity yet, and a tool with no family: thinking.
+    expect(tools(agentsAt(MOCK_EXTRAS, 300))).toEqual([
+      "agent-r1 think 0",
+      "agent-s1 think 0",
+      "agent-w1 think 0",
+    ]);
+    expect(tools([STATE_AGENTS.starting])).toEqual(["s-starting think 2"]);
+    expect(tools(agentsAt(MOCK_SKILLS.slice(0, 1), 18_000))).toEqual(["skills-owl think 5"]);
   });
 
   it("takes every group's agents, in the transcript's order", () => {
@@ -173,6 +198,34 @@ describe("the lane", () => {
     expect([...seen].some((line) => farewells.includes(line))).toBe(true);
   });
 
+  it("shows each god acting its agent's tools through a whole turn, in its own poses", () => {
+    /** The poses one god is cut through at its place, its agent alone on the lane. */
+    const worked = (def: (typeof MOCK_SKILLS)[number]): string[] => {
+      const stage = staged();
+      const at = (ms: number): LaneGroup[] => [{ agents: agentsAt([def], ms) }];
+      const view = render(<OlympusLane groups={at(0)} stage={stage} />);
+      const seen: string[] = [];
+      for (let ms = 0; ms < 30_000; ms += 100) {
+        view.rerender(<OlympusLane groups={at(ms)} stage={stage} />);
+        stage.host.advance(100);
+        const pose = view.container.querySelector<HTMLElement>(".oly-cell")?.dataset.pose;
+        if (pose && pose !== "speak" && pose !== seen[seen.length - 1]) seen.push(pose);
+      }
+      view.unmount();
+      return seen;
+    };
+    // The tools: look, web, make, run, none, look, none.
+    expect(Object.fromEntries(MOCK_SKILLS.map((def) => [def.id, worked(def)]))).toEqual({
+      "skills-owl": ["look", "think", "look", "think"],
+      "skills-researcher": ["look", "web", "think", "look", "think"],
+      "skills-worker": ["look", "think", "make", "run", "think", "look", "think"],
+      "skills-bee": ["look", "think", "make", "run", "think", "look", "think"],
+      "skills-auditor": ["look", "web", "think", "run", "think", "look", "think"],
+      "skills-skeptic": ["look", "web", "think-r", "run", "think-l", "look", "think-r"],
+      "skills-unnamed": ["look", "make", "run", "think", "look", "think"],
+    });
+  });
+
   it("a stopped run: finished agents' gods have gone, the rest dim without a crack", () => {
     const stage = staged();
     const view = render(<OlympusLane groups={run(600)} stage={stage} />);
@@ -233,13 +286,28 @@ describe("reduced motion", () => {
     return { frames: frames.join("\n"), asked: matchMedia.mock.calls.length };
   }
 
-  it("is the same lane with the setting on or off: every state is already a still", () => {
+  it("holds each pose twice as long with the setting on, and nothing else differs", () => {
     const off = play(false);
     const on = play(true);
     expect(off.frames).toContain("oly-ribbon");
-    expect(on.frames).toBe(off.frames);
-    // The engine never asks: there is no motion for the setting to take away.
-    expect(on.asked + off.asked).toBe(0);
+    // The engine asks the window, each time it works out a dwell.
+    expect(off.asked).toBeGreaterThan(0);
+    expect(on.asked).toBeGreaterThan(0);
+    expect(on.frames).not.toBe(off.frames);
+    // The bee edits, tests and edits again inside a second: Hephaestus is cut to
+    // his test run, and holds it twice as long before the cut back to his making.
+    const first = (frames: string): number =>
+      frames
+        .split("\n")
+        .findIndex((frame) => /data-god="hephaestus"[^>]*data-pose="make"/.test(frame));
+    expect(first(off.frames)).toBe(39); // 250ms a frame
+    expect(first(on.frames)).toBe(43);
+    // Which skill pose shows, and how high Nike is, aside: the same lane, frame for frame.
+    const still = (frames: string): string =>
+      frames
+        .replace(/data-pose="(?:look|web|make|run|think|think-l|think-r)"/g, 'data-pose="work"')
+        .replace(/px, -8px, 0\)/g, "px, 0, 0)");
+    expect(still(on.frames)).toBe(still(off.frames));
   });
 });
 
@@ -280,6 +348,15 @@ describe("the lane's CSS", () => {
     expect(rules).toContain(
       '.oly-cell[data-pose="stand"] .oly-p-stand,\n.oly-cell[data-pose="speak"] .oly-p-speak {\n  visibility: visible;',
     );
+  });
+
+  it("shows a skill pose by the same cut, one rule for the seven of them", () => {
+    const skills = ["look", "web", "make", "run", "think", "think-l", "think-r"];
+    expect(rules).toContain(
+      `${skills.map((pose) => `.oly-cell[data-pose="${pose}"] .oly-p-${pose}`).join(",\n")} {\n  visibility: visible;\n}`,
+    );
+    // Where a pose's picture sits is the engine's: no rule here places one.
+    expect(rules).not.toMatch(/\.oly-p-[\w-]+[^{]*\{[^}]*(?:left|width|transform)/);
   });
 
   it("dims a failed and a stopped god alike, and cracks only where the engine says", () => {

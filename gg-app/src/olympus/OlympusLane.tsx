@@ -5,6 +5,7 @@ import { createFloor, rng, type Floor, type FloorOptions, type LaneAgent } from 
 import { agentTypeOf, godOf } from "./gods";
 import { rowState } from "./OlympusRows";
 import { createSim, type SimHost } from "./sim";
+import { toolFamilyOf } from "./tool-family";
 import "./olympus-lane.css";
 
 /** A turn's subagents, as the transcript holds them. */
@@ -27,6 +28,8 @@ export function laneAgents(groups: readonly LaneGroup[]): LaneAgent[] {
         key: agent.toolCallId,
         god: godOf(agentTypeOf(agent)).id,
         look: rowState(agent, group.aborted === true).look,
+        family: toolFamilyOf(agent.activities[agent.activities.length - 1]),
+        tools: agent.toolUseCount,
       });
     }
   }
@@ -34,7 +37,7 @@ export function laneAgents(groups: readonly LaneGroup[]): LaneAgent[] {
 }
 
 /** For tests and previews: a clock, dice and measures of their own. */
-export interface LaneStage extends Pick<FloorOptions, "width" | "measure"> {
+export interface LaneStage extends Pick<FloorOptions, "width" | "measure" | "reduced"> {
   readonly host?: SimHost;
   readonly seed?: number;
   readonly onFloor?: (floor: Floor | null) => void;
@@ -59,7 +62,7 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
   useEffect(() => {
     const lane = laneRef.current;
     if (!lane) return;
-    const { host, seed, onFloor, width, measure } = stageRef.current ?? {};
+    const { host, seed, onFloor, width, measure, reduced } = stageRef.current ?? {};
     const sim = createSim(host);
     const floor = createFloor(lane, {
       sim,
@@ -68,6 +71,7 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
       random: rng(seed ?? (Math.random() * 2 ** 32) >>> 0),
       width,
       measure,
+      reduced,
     });
     floorRef.current = floor;
     onFloor?.(floor);

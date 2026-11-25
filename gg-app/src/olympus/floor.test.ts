@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { CAST, POSE_URLS } from "./cast";
+import { CAST, POSE_URLS, type Skill } from "./cast";
 import {
   agentsAt,
   manualHost,
@@ -13,6 +13,7 @@ import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from 
 import type { GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
 import { createSim } from "./sim";
+import type { ToolFamily } from "./tool-family";
 
 const GREETINGS: Readonly<Record<GodId | "any", readonly string[]>> = {
   any: ["At your service.", "Here, and listening."],
@@ -44,7 +45,13 @@ const ALL: readonly GodId[] = [
   "nike",
 ];
 
-const agent = (key: string, god: GodId, look: LaneLook = "run"): LaneAgent => ({ key, god, look });
+const agent = (
+  key: string,
+  god: GodId,
+  look: LaneLook = "run",
+  family: ToolFamily = "think",
+  tools = 0,
+): LaneAgent => ({ key, god, look, family, tools });
 
 interface Stage {
   readonly lane: HTMLElement;
@@ -61,7 +68,7 @@ interface Stage {
 }
 
 /** A lane with a clock that moves only when told to; a letter is 5.5px wide. */
-function stage({ seed = 7, width = 698, letter = 5.5 } = {}): Stage {
+function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): Stage {
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
@@ -76,6 +83,7 @@ function stage({ seed = 7, width = 698, letter = 5.5 } = {}): Stage {
     random: rng(seed),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
+    reduced: () => reduced,
   });
   const order = new Map<string, HTMLElement>();
   const cells = (): HTMLElement[] => [...lane.querySelectorAll<HTMLElement>(".oly-cell")];
@@ -205,7 +213,7 @@ describe("landing", () => {
     expect(s.names()).toEqual(["Hermes"]);
   });
 
-  it("holds the line 1.7s, then the god stands at its place, facing the middle", () => {
+  it("holds the line 1.7s, then the god is at its place, in thought, facing the middle", () => {
     const s = stage();
     s.sync([agent("a", "hermes")]);
     s.host.advance(500 + 1699);
@@ -214,13 +222,13 @@ describe("landing", () => {
     const cell = s.cell("a")!;
     const [god] = s.peek().gods;
     expect(ribbonOf(cell)).toBeNull();
-    expect(cell.dataset.pose).toBe("stand");
+    expect(cell.dataset.pose).toBe("think");
     expect(cell.classList.contains("is-speaking")).toBe(false);
     expect(god!.step).toBe("work");
     const headLine = god!.x + 33;
     expect(god!.face).toBe(headLine < 698 / 2 ? 1 : -1);
     expect(cell.classList.contains("is-left")).toBe(god!.face < 0);
-    expect(s.host.pending()).toBe(0); // a still: nothing ticks while it stands
+    expect(s.host.pending()).toBe(0); // a still: nothing ticks while it holds its pose
   });
 
   it("lands a crowd one at a time, in the order they were sent, 850ms apart", () => {
@@ -301,13 +309,16 @@ describe("a god's states, from its agent's record", () => {
     return s;
   }
 
-  it.each(["starting", "running"] as const)("%s: a god is summoned, and stands", (status) => {
+  it.each([
+    ["starting", "think"],
+    ["running", "look"],
+  ] as const)("%s: a god is summoned, and is at its work", (status, pose) => {
     const s = stage();
     s.sync(one(status));
     s.host.advance(2200);
     const cell = s.cell("it")!;
     expect(cell.dataset.god).toBe("argus");
-    expect(cell.dataset.pose).toBe("stand");
+    expect(cell.dataset.pose).toBe(pose);
     expect(cell.className).toBe("oly-cell" + (s.peek().gods[0]!.face < 0 ? " is-left" : ""));
     s.host.advance(60_000);
     expect(s.cells()).toHaveLength(1); // it stays for as long as its agent works
@@ -728,6 +739,21 @@ describe("the floor's housekeeping", () => {
     expect([...cell.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([
       POSE_URLS.themis.speak,
       POSE_URLS.themis.stand,
+      POSE_URLS.themis.look,
+      POSE_URLS.themis.web,
+      POSE_URLS.themis.run,
+      POSE_URLS.themis["think-r"],
+      POSE_URLS.themis["think-l"],
+    ]);
+    // Its two standing pictures fill the cell; a skill pose has a left and a width of its own.
+    expect([...cell.querySelectorAll("img")].map((img) => img.getAttribute("style"))).toEqual([
+      null,
+      null,
+      "left: 12.2px; width: 49px;",
+      "left: 16.5px; width: 48px;",
+      "left: 9.1px; width: 71px;",
+      "left: 17px; width: 67px;",
+      "left: 17px; width: 67px;",
     ]);
     expect([...cell.querySelectorAll("img")].every((img) => img.alt === "")).toBe(true);
     expect(cell.querySelector(".oly-seal")?.getAttribute("viewBox")).toBe("0 0 26 26");
@@ -749,5 +775,384 @@ describe("the floor's housekeeping", () => {
     s.host.advance(5000);
     expect(s.cells()).toHaveLength(0);
     expect(shut(s)).toBe(true);
+  });
+});
+
+describe("skills: the pose a god acts its agent's tool in", () => {
+  const FAMILIES: readonly ToolFamily[] = ["look", "web", "make", "run", "think"];
+  /** Each god's pose for each family of tool: its own, or its thinking where it has none. */
+  const ACTS: Readonly<Record<GodId, Readonly<Record<ToolFamily, Skill>>>> = {
+    athena: { look: "look", web: "think", make: "think", run: "think", think: "think" },
+    herodotus: { look: "look", web: "web", make: "think", run: "think", think: "think" },
+    hermes: { look: "look", web: "think", make: "make", run: "run", think: "think" },
+    hephaestus: { look: "look", web: "think", make: "make", run: "run", think: "think" },
+    argus: { look: "look", web: "web", make: "think", run: "run", think: "think" },
+    themis: { look: "look", web: "web", make: "think-r", run: "run", think: "think-r" },
+    nike: { look: "look", web: "look", make: "make", run: "run", think: "think" },
+  };
+
+  const pose = (s: Stage, key = "a"): string | undefined => s.cell(key)?.dataset.pose;
+
+  /** One god at its place: 500ms to land, 1.7s of greeting. Its beat counts from 2200. */
+  function atWork(god: GodId, family: ToolFamily = "think", tools = 0, reduced = false): Stage {
+    const s = stage({ reduced });
+    s.sync([agent("a", god, "run", family, tools)]);
+    s.host.advance(2200);
+    expect(s.peek().gods[0]!.step).toBe("work");
+    return s;
+  }
+
+  /** Hand the floor its records, and say when the pose of one god next changes. */
+  function cutAfter(s: Stage, records: readonly LaneAgent[], key = "a"): number {
+    const was = pose(s, key);
+    s.sync(records);
+    for (let i = 0; i < 2000 && pose(s, key) === was; i++) s.host.advance(10);
+    return s.host.now();
+  }
+
+  /** The poses a god goes through, as the clock is moved on 10ms at a time. */
+  function watch(s: Stage, ms: number, key = "a"): string[] {
+    const seen = [pose(s, key) ?? ""];
+    for (let t = 0; t < ms; t += 10) {
+      s.host.advance(10);
+      const now = pose(s, key) ?? "";
+      if (now !== seen[seen.length - 1]) seen.push(now);
+    }
+    return seen;
+  }
+
+  it.each(ALL)(
+    "%s acts each family of tool in its own pose, and thinks where it has none",
+    (god) => {
+      for (const family of FAMILIES) {
+        const s = atWork(god, family, 1);
+        const cell = s.cell("a")!;
+        const want = ACTS[god][family];
+        expect(cell.dataset.pose).toBe(want);
+        expect(s.peek().gods[0]).toMatchObject({ pose: want, want });
+        // That pose's picture, where the cast data puts it in the cell.
+        const img = cell.querySelector<HTMLImageElement>(`.oly-p-${want}`)!;
+        const [left, width] = CAST.gods[god].at[want]!;
+        expect(img.getAttribute("src")).toBe(POSE_URLS[god][want]);
+        expect(img.style.left).toBe(`${left}px`);
+        expect(img.style.width).toBe(`${width}px`);
+        // Only the one who flies is off the floor, and only at her look.
+        expect(s.peek().gods[0]!.lift).toBe(god === "nike" && want === "look" ? 8 : 0);
+        expect(s.host.pending()).toBe(0); // a still: nothing ticks while it holds its pose
+        s.dispose();
+      }
+    },
+  );
+
+  it("thinks while its agent's record has no activity yet", () => {
+    const [starting] = laneAgents([{ agents: [STATE_AGENTS.starting] }]);
+    expect(starting).toMatchObject({ god: "argus", look: "run", family: "think" });
+    const s = stage();
+    s.sync([starting!]);
+    s.host.advance(2200);
+    expect(pose(s, "s-starting")).toBe("think");
+    s.host.advance(60_000);
+    expect(pose(s, "s-starting")).toBe("think"); // and goes on thinking until a tool begins
+  });
+
+  it("reaches its place already acting the tool its agent is on, with no pose between", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(900); // in the middle of its greeting
+    s.sync([agent("a", "hermes", "run", "run", 1)]);
+    expect(pose(s)).toBe("speak"); // the greeting is said out first
+    expect(watch(s, 3000)).toEqual(["speak", "run"]);
+    expect(s.peek().gods[0]!.step).toBe("work");
+  });
+
+  it("holds a pose for its dwell: 900ms, or two of the god's own steps if that is longer", () => {
+    // From 2200, when it took its place, to the first of its beats after its dwell.
+    const first: Readonly<Record<GodId, number>> = {
+      athena: 2200 + 2 * 520,
+      herodotus: 2200 + 2 * 600,
+      hermes: 2200 + 3 * 300,
+      hephaestus: 2200 + 2 * 560,
+      argus: 2200 + 2 * 500,
+      themis: 2200 + 2 * 640,
+      nike: 2200 + 3 * 360, // 900ms is two and a half of her steps: the cut waits for the third
+    };
+    for (const god of ALL) {
+      const s = atWork(god);
+      const was = pose(s);
+      s.sync([agent("a", god, "run", "look", 1)]);
+      s.host.advance(first[god] - 2200 - 1);
+      expect(pose(s)).toBe(was);
+      s.host.advance(1);
+      expect(pose(s)).toBe("look");
+      expect(s.host.pending()).toBe(0);
+      s.dispose();
+    }
+  });
+
+  it("cuts on the god's own beat, counted from when it took its place", () => {
+    for (const god of ALL) {
+      const s = atWork(god);
+      s.host.advance(2040); // long past its dwell, and between two beats
+      const step = CAST.gods[god].step;
+      const at = cutAfter(s, [agent("a", god, "run", "look", 1)]);
+      expect(at).toBeGreaterThan(2200 + 2040);
+      expect(at).toBe(2200 + Math.ceil(2040 / step) * step);
+      s.dispose();
+    }
+  });
+
+  it("the latest want wins: what came and went inside a dwell is never shown", () => {
+    const s = atWork("hephaestus");
+    s.host.advance(100);
+    s.sync([agent("a", "hephaestus", "run", "make", 1)]);
+    s.host.advance(200);
+    s.sync([agent("a", "hephaestus", "run", "run", 2)]);
+    s.host.advance(200);
+    s.sync([agent("a", "hephaestus", "run", "look", 3)]);
+    expect(watch(s, 3000)).toEqual(["think", "look"]);
+    // One cut, at the second of its 560ms steps.
+    expect(s.peek().gods[0]).toMatchObject({ pose: "look", want: "look" });
+  });
+
+  it("a tool that began and ended inside a dwell leaves no cut on the clock", () => {
+    const s = atWork("hermes");
+    s.host.advance(100);
+    s.sync([agent("a", "hermes", "run", "look", 1)]);
+    expect(s.host.pending()).toBe(1);
+    s.host.advance(300);
+    s.sync([agent("a", "hermes", "run", "think", 2)]); // a tool with no family
+    expect(watch(s, 5000)).toEqual(["think"]);
+    expect(s.host.pending()).toBe(0);
+  });
+
+  it("a new tool of the same family, or of the same pose, is no cut", () => {
+    const athena = atWork("athena", "look", 1);
+    athena.sync([agent("a", "athena", "run", "look", 2)]); // a read, then a grep
+    expect(athena.host.pending()).toBe(0);
+    expect(watch(athena, 5000)).toEqual(["look"]);
+    const nike = atWork("nike", "look", 1);
+    nike.sync([agent("a", "nike", "run", "web", 2)]); // her look and her web are one pose
+    expect(nike.host.pending()).toBe(0);
+    expect(watch(nike, 5000)).toEqual(["look"]);
+  });
+
+  it("three cuts in six seconds are a storm: the dwell is doubled until a pose has held 3s", () => {
+    const s = atWork("hermes"); // steps of 300ms, a dwell of 900ms
+    let tools = 0;
+    const next = (family: ToolFamily): number =>
+      cutAfter(s, [agent("a", "hermes", "run", family, ++tools)]);
+    expect(next("look")).toBe(3100);
+    expect(next("run")).toBe(4000);
+    expect(next("look")).toBe(4900); // the third: a storm
+    expect(next("run")).toBe(4900 + 1800);
+    expect(next("look")).toBe(6700 + 1800);
+    // Calm: this pose is left alone for 3s and more.
+    s.host.advance(3100);
+    expect(next("run")).toBe(11_800); // its next beat
+    expect(next("look")).toBe(11_800 + 900);
+  });
+
+  it("three cuts further apart are no storm", () => {
+    const s = atWork("hermes");
+    let tools = 0;
+    const next = (family: ToolFamily): number =>
+      cutAfter(s, [agent("a", "hermes", "run", family, ++tools)]);
+    expect(next("look")).toBe(3100);
+    s.host.advance(2900);
+    expect(next("run")).toBe(6100);
+    s.host.advance(3100);
+    expect(next("look")).toBe(9400); // the first is more than six seconds back
+    expect(next("run")).toBe(9400 + 900);
+  });
+
+  it("Themis tips her scales the other way each time she comes back to them", () => {
+    const s = atWork("themis");
+    let tools = 0;
+    const next = (family: ToolFamily): string | undefined => {
+      cutAfter(s, [agent("a", "themis", "run", family, ++tools)]);
+      return pose(s);
+    };
+    expect(pose(s)).toBe("think-r");
+    expect(next("look")).toBe("look");
+    expect(next("think")).toBe("think-l");
+    // At them, they stay as they are: another tool with no family is no cut.
+    s.sync([agent("a", "themis", "run", "think", ++tools)]);
+    expect(s.host.pending()).toBe(0);
+    expect(watch(s, 4000)).toEqual(["think-l"]);
+    expect(next("run")).toBe("run");
+    expect(next("make")).toBe("think-r"); // she has no pose for making: the scales again
+    expect(next("web")).toBe("web");
+    expect(next("think")).toBe("think-l");
+    // On her way back to them, they are not tipped again by a second record.
+    expect(next("look")).toBe("look");
+    s.sync([agent("a", "themis", "run", "think", ++tools)]);
+    s.sync([agent("a", "themis", "run", "make", ++tools)]);
+    expect(s.peek().gods[0]!.want).toBe("think-r");
+    expect(watch(s, 4000)).toEqual(["look", "think-r"]);
+  });
+
+  it("Nike is lifted 8px while her look is shown at her place, by a cut, and her name is not", () => {
+    const s = stage();
+    s.sync([agent("a", "nike", "run", "look", 1)]);
+    s.host.advance(600); // greeting: on the floor
+    const cell = s.cell("a")!;
+    const x = (): string => s.peek().gods[0]!.x.toFixed(2);
+    expect(cell.style.transform).toBe(`translate3d(${x()}px, 0, 0)`);
+    s.host.advance(1600);
+    expect(cell.dataset.pose).toBe("look");
+    expect(cell.style.transform).toBe(`translate3d(${x()}px, -8px, 0)`);
+    expect(s.peek().gods[0]!.lift).toBe(8);
+    expect(s.lane.querySelector<HTMLElement>(".oly-ins")!.style.transform).toMatch(/px, 0, 0\)$/);
+    cutAfter(s, [agent("a", "nike", "run", "run", 2)]);
+    expect(cell.dataset.pose).toBe("run");
+    expect(cell.style.transform).toBe(`translate3d(${x()}px, 0, 0)`);
+    cutAfter(s, [agent("a", "nike", "run", "web", 3)]);
+    expect(cell.style.transform).toBe(`translate3d(${x()}px, -8px, 0)`);
+    // Ended while she is up: she is down in the same moment.
+    s.sync([agent("a", "nike", "done", "web", 3)]);
+    expect(cell.dataset.pose).toBe("speak");
+    expect(cell.style.transform).toBe(`translate3d(${x()}px, 0, 0)`);
+  });
+
+  it("an ending never waits for a dwell: the cut that was coming is dropped", () => {
+    const s = atWork("hermes");
+    s.host.advance(100);
+    s.sync([agent("a", "hermes", "run", "look", 1)]); // a cut due at 3100
+    s.host.advance(200);
+    s.sync([agent("a", "hermes", "done", "look", 1)]);
+    const cell = s.cell("a")!;
+    expect(cell.dataset.pose).toBe("speak");
+    expect([...FAREWELLS.any, ...FAREWELLS.hermes]).toContain(ribbonOf(cell));
+    // Farewell for 1.7s, the seal for 1.2s, and never the pose it was going to.
+    expect(watch(s, 2890)).toEqual(["speak", "stand"]);
+    expect(cell.classList.contains("is-sealed")).toBe(true);
+    s.host.advance(10);
+    expect(s.cells()).toHaveLength(0);
+  });
+
+  it("failed in the middle of a dwell: it stands dimmed at once, and is never cut again", () => {
+    const s = atWork("hephaestus", "make", 1);
+    s.host.advance(100);
+    s.sync([agent("a", "hephaestus", "run", "run", 2)]);
+    s.host.advance(200);
+    s.sync([agent("a", "hephaestus", "fail", "run", 2)]);
+    const cell = s.cell("a")!;
+    expect(cell.dataset.pose).toBe("stand");
+    expect(cell.classList.contains("is-cracked")).toBe(true);
+    expect(watch(s, 2990)).toEqual(["stand"]);
+    s.host.advance(10);
+    expect(s.cells()).toHaveLength(0);
+  });
+
+  it("asked to step aside in the middle of a dwell: at once in the pose wanted, its beat begun again", () => {
+    const s = stage();
+    const records = (family: ToolFamily, tools: number): LaneAgent[] => [
+      agent("a", "hermes", "run", family, tools),
+      agent("b", "athena"),
+    ];
+    s.sync(records("think", 0));
+    s.host.advance(6000);
+    expect(s.peek().gods.map((god) => god.step)).toEqual(["work", "work"]);
+    const shown = cutAfter(s, records("look", 1));
+    s.sync(records("run", 2)); // a cut due 900ms on
+    s.host.advance(100);
+    expect(pose(s)).toBe("look");
+    // The lane narrows: everyone is given a place again.
+    s.setWidth(602);
+    s.resize();
+    expect(pose(s)).toBe("run");
+    expect(s.peek().gods[0]).toMatchObject({ step: "work", want: "run" });
+    expectApart(s.peek());
+    // Its dwell and its beat count from the step aside, not from its old beats.
+    expect(cutAfter(s, records("make", 3))).toBe(shown + 100 + 900);
+  });
+
+  it("under reduced motion a pose is held twice as long, and nothing else differs", () => {
+    const s = atWork("hermes", "think", 0, true); // landed and greeted in the usual 2200ms
+    let tools = 0;
+    const next = (family: ToolFamily): number =>
+      cutAfter(s, [agent("a", "hermes", "run", family, ++tools)]);
+    expect(next("look")).toBe(2200 + 1800);
+    expect(next("run")).toBe(4000 + 1800);
+    expect(next("look")).toBe(5800 + 1800); // the third in six seconds: a storm, doubled again
+    expect(next("run")).toBe(7600 + 3600);
+    const nike = atWork("nike", "look", 1, true);
+    expect(nike.cell("a")!.style.transform).toMatch(/px, -8px, 0\)$/);
+  });
+
+  describe("an agent sent on again", () => {
+    const again = (i: number, more: Partial<(typeof SENT_ON_AGAIN)[number]> = {}): LaneAgent[] =>
+      laneAgents([{ agents: [{ ...SENT_ON_AGAIN[i]!, ...more }] }]);
+
+    it("thinks until it starts another tool: its record still names its last turn's", () => {
+      const s = stage();
+      s.sync(again(0));
+      s.host.advance(2200);
+      expect(pose(s, "s-again")).toBe("look"); // its first turn: the search its record ends with
+      s.sync(again(1)); // idle
+      s.host.advance(2900 + 600);
+      expect(s.cells()).toHaveLength(0);
+      expect(again(2)[0]).toMatchObject({ look: "run", family: "look", tools: 2 });
+      s.sync(again(2)); // sent on again, with the same last activity
+      expect(watch(s, 6000, "s-again")).toEqual(["", "speak", "think"]);
+      // Its next tool, whatever its family: the record is fresh again.
+      const more = { toolUseCount: 3, activities: ["Running pnpm test auth"] };
+      expect(again(2, more)[0]).toMatchObject({ family: "run", tools: 3 });
+      cutAfter(s, again(2, more), "s-again");
+      expect(pose(s, "s-again")).toBe("run");
+    });
+
+    it("thinks when its god is set again in the moment it leaves", () => {
+      const s = stage();
+      s.sync(again(0));
+      s.host.advance(2200);
+      s.sync(again(1));
+      s.host.advance(1000);
+      s.sync(again(2)); // at work again, its god still saying farewell
+      s.host.advance(1900 + 2200);
+      expect(s.peek().gods[0]).toMatchObject({ step: "work", pose: "think" });
+      cutAfter(s, again(2, { toolUseCount: 3 }), "s-again"); // the same search, run again
+      expect(pose(s, "s-again")).toBe("look");
+    });
+
+    it("thinks when the floor first saw it idle", () => {
+      const s = stage();
+      s.sync(again(1));
+      s.host.advance(1000);
+      expect(s.cells()).toHaveLength(0);
+      s.sync(again(2));
+      s.host.advance(2200);
+      expect(pose(s, "s-again")).toBe("think");
+    });
+  });
+
+  it("plays the same run of tools the same way from the same seed", () => {
+    const play = (seed: number): string => {
+      const s = stage({ seed });
+      const out: string[] = [];
+      for (let ms = 0; ms <= 30_000; ms += 100) {
+        s.sync(laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]));
+        out.push(s.lane.innerHTML);
+        s.host.advance(100);
+      }
+      s.dispose();
+      return out.join("\n");
+    };
+    const run = play(5);
+    expect(play(5)).toBe(run);
+    // Every agent of this run is on a tool before its god reaches its place: nobody thinks.
+    for (const skill of ["look", "web", "make", "run"])
+      expect(run).toContain(`data-pose="${skill}"`);
+    expect(run).not.toContain('data-pose="think');
+  });
+
+  it("gone from the records with a cut coming: nothing is cut later", () => {
+    const s = atWork("hermes");
+    s.sync([agent("a", "hermes", "run", "look", 1)]);
+    s.sync([]);
+    expect(s.cells()).toHaveLength(0);
+    s.host.advance(5000);
+    expect(shut(s)).toBe(true);
+    expect(s.host.pending()).toBe(0);
   });
 });

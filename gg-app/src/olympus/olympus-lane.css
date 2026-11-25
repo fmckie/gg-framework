@@ -1,11 +1,12 @@
-/* Olympus, part 2: the lane, as stills. A marble stylobate over the composer;
-   each subagent at work is a god standing on it, its name carved in the step's
-   face under it. The engine (floor.ts) builds every god and puts it in its
-   place; here is only how each still looks. Drawn only on the desktop
-   (LaneMount.tsx).
-   Nothing here moves: a god is in its place or it isn't, a ribbon shows whole,
-   the seal, the dimming and the crack are there or they aren't, and the lane is
-   open or shut. Travel, the floor mosaic and the skill poses are later parts.
+/* Olympus, parts 2 and 3: the lane, as stills and cuts. A marble stylobate
+   over the composer; each subagent at work is a god on it, acting its agent's
+   latest tool, its name carved in the step's face under it. The engine
+   (floor.ts) builds every god, puts it in its place and says which pose shows;
+   here is only how each still looks. Drawn only on the desktop (LaneMount.tsx).
+   Nothing here moves: a god is in its place or it isn't, one pose is cut to
+   the next, a ribbon shows whole, the seal, the dimming and the crack are there
+   or they aren't, and the lane is open or shut. Travel and the floor mosaic are
+   later parts.
 
    Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
    6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
@@ -101,6 +102,18 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 }
 .oly-cell[data-pose="stand"] .oly-p-stand,
 .oly-cell[data-pose="speak"] .oly-p-speak {
+  visibility: visible;
+}
+/* The skill poses: one for each family of tool a god has its own way with.
+   Each is as wide as it needs, so floor.ts gives its picture a left and a
+   width of its own in the cell. */
+.oly-cell[data-pose="look"] .oly-p-look,
+.oly-cell[data-pose="web"] .oly-p-web,
+.oly-cell[data-pose="make"] .oly-p-make,
+.oly-cell[data-pose="run"] .oly-p-run,
+.oly-cell[data-pose="think"] .oly-p-think,
+.oly-cell[data-pose="think-l"] .oly-p-think-l,
+.oly-cell[data-pose="think-r"] .oly-p-think-r {
   visibility: visible;
 }
 /* Failed and stopped both dim; only a failure cracks. */
