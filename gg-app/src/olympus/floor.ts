@@ -1,11 +1,18 @@
-// The lane's engine, parts 2 to 5b of Olympus: the mockup's floor.js, with its
-// card, its keyboard, its travel and the gods' tesserae.
+// The lane's engine, parts 2 to 6 of Olympus: the mockup's floor.js, with its
+// card, its keyboard, its travel, the gods' tesserae and the floor's mosaic.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
 // - The lane opens when the first agent is sent and shuts after the last god
 //   has gone. It rises as it opens and falls as it shuts; a god sent while it
-//   falls waits for it to be down, and it rises again.
+//   shuts waits for it to be down, and it rises again.
+// - The floor: each opening sets the next of the three mosaics in turn,
+//   temple, grove, agora, so no scene comes twice running. Its stones are set
+//   as the lane rises, the lowest course first, and the first god lands as the
+//   last courses go down. Before the lane falls they are prised up, the top
+//   course first, and thrown off: never before the last is down. A narrower
+//   lane shows the scene's middle. At rest the floor is drawn once, and again
+//   only if the lane's width or the screen's density has changed.
 // - Gods land one at a time. Each is set from its tesserae, from the feet up,
 //   beside a place of its own where its greeting fits; the carved figure shows
 //   through them, it says the greeting on a ribbon, and it walks to its place.
@@ -64,13 +71,16 @@
 //   seal, the dimming and the crack are there or they aren't, and the dwell is
 //   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel,
 //   and no tessera is drawn: a god is there, and then it isn't. Asked for in
-//   the middle of a setting or an unsetting, that is cut too.
-// The floor's mosaic and the pool's medallions are later parts.
+//   the middle of a setting or an unsetting, that is cut too. The floor is
+//   laid whole as the lane opens and gone as it shuts; asked for while its
+//   stones are set or prised up, it is whole until the lane shuts.
+// The pool's medallions are a later part.
 // It runs on sim.ts's clock. Every step is put on it for its moment, and every
 // throw of the dice falls in a step. A frame between steps is drawn from the
 // state and the time alone, and nothing it draws is read back by a step, so a
 // run plays the same however the frames fall. A tessera's flight is cut from
-// dice of its god's own, never the floor's. The clock sleeps unless
+// dice of its god's own, and a floor stone's from its scene's: never the
+// floor's. The clock sleeps unless
 // something on the lane is changing. The card and the keyboard are no part of
 // the run: they put nothing on that clock and never draw the floor's dice, so
 // a run plays the same whoever looks at it.
@@ -78,6 +88,18 @@
 import type { Cast, CastGod, Pictures, Pose, Skill, SvgNode } from "./cast";
 import { POSES } from "./cast";
 import type { GodId } from "./gods";
+import {
+  cropFloor,
+  drawFloor,
+  layScene,
+  LIFT_END,
+  MOSAIC,
+  SCENES,
+  SET_END,
+  type FloorPhase,
+  type LaidFloor,
+  type SceneId,
+} from "./mosaic";
 import type { Sim, SimEvent, SimHost } from "./sim";
 import {
   cutTesserae,
@@ -126,13 +148,23 @@ export interface FloorOptions {
   readonly away?: () => HTMLElement | null;
   /** The card's grace is a wait on the window's clock, never a step on the sim's. */
   readonly timer?: Pick<SimHost, "defer" | "cancel">;
+  /** The scene an opening lays, asked once each time; in turn from the temple unless given. */
+  readonly scene?: () => SceneId;
 }
 
 /** What the floor holds, for tests and previews. */
 export interface FloorPeek {
   readonly open: boolean;
-  /** The lane as it stands now: shut, rising, open or falling, and its height under its rule. */
-  readonly lane: { readonly mode: "shut" | "rise" | "open" | "fall"; readonly height: number };
+  /**
+   * The lane as it stands now: shut, rising, open, its floor being prised up,
+   * or falling; and its height under its rule.
+   */
+  readonly lane: {
+    readonly mode: "shut" | "rise" | "open" | "lift" | "fall";
+    readonly height: number;
+  };
+  /** The floor's mosaic, while one is laid: its scene, and whether it is being set, laid whole or prised up. */
+  readonly floor: { readonly scene: SceneId; readonly phase: FloorPhase } | null;
   readonly width: number;
   /** Waiting to land, in order. */
   readonly queue: readonly string[];
@@ -215,7 +247,8 @@ const SCATTER = 40; // and how far they fly as it goes back to them
 // ── A god's turn, ms ──
 const RISE = 420; // the lane opens
 const FALL = 360; // and shuts
-const LAND_STILL = 500; // a beat after the lane opens, so a crowd sent together is placed together
+const LAND_AFTER = 1000; // the first god lands as the floor's last courses go down
+const LAND_STILL = 500; // under reduced motion: a beat, so a crowd sent together is placed together
 const LAND_GAP = 850; // and the next no sooner
 const CLOSE_AFTER = 600; // the lane waits a beat after the last god has gone
 const RETRY = 400; // no room yet to land: look again
@@ -294,9 +327,20 @@ export function rng(seed: number): () => number {
   };
 }
 
-/** A seed from a name (the mockup's hash): a pose's tesserae are cut from dice of their own. */
+/** A seed from a name (the mockup's hash): a pose's tesserae and a scene's stones are cut from dice of their own. */
 const hash = (s: string): number =>
   [...s].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
+
+// The scene last laid, kept: a scene is laid the same every time.
+let kept: LaidFloor | null = null;
+function laidScene(id: SceneId): LaidFloor {
+  if (kept?.id !== id)
+    kept = layScene(
+      MOSAIC.scenes.find((scene) => scene.id === id)!,
+      rng(hash(id)),
+    );
+  return kept;
+}
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -515,6 +559,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const namesEl = lane.querySelector<HTMLElement>(".oly-names")!;
   // The tesserae's canvas, behind the gods; a lane without one draws none.
   const fx = lane.querySelector<HTMLCanvasElement>("canvas.oly-fx");
+  // The floor's, behind that; a lane without one has a bare bed.
+  const bed = lane.querySelector<HTMLCanvasElement>("canvas.oly-mosaic");
   const measure = opts.measure ?? ((el: HTMLElement) => el.offsetWidth);
   const reduced =
     opts.reduced ??
@@ -540,13 +586,29 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // shuts; its height on the way is each frame's.
   let mode: FloorPeek["lane"]["mode"] = "shut";
   let laneT0 = 0;
-  let reopen = false; // asked for while it falls: it rises again as soon as it is down
+  let reopen = false; // asked for while it shuts: it rises again as soon as it is down
   let laneH = ""; // the height last written: none, so the stylesheet's
   let readyAt = 0;
   let closing: SimEvent | null = null;
   let W = WIDE;
   const edgeL = EDGE;
   let edgeR = W - EDGE;
+
+  // The floor's mosaic: the scene laid on the lane, if one is; whether its
+  // stones are going down or coming up, since when, and when the last is
+  // down; the canvas's brush, asked for when the first floor is drawn; what
+  // is on the canvas (nothing, a floor at rest by its scene, the lane's width
+  // and the screen's density, or stones on their way); and the part of the
+  // scene the lane shows, cut as its width changes.
+  let turn = 0;
+  const nextScene = opts.scene ?? ((): SceneId => SCENES[turn++ % SCENES.length]!);
+  let scene: SceneId | null = null;
+  let lifting = false;
+  let floorT0 = 0;
+  let laidAt = 0;
+  let bedBrush: CanvasRenderingContext2D | null | undefined;
+  let bedDrawn: string | null = "";
+  let shownFloor: { key: string; floor: LaidFloor } | null = null;
 
   // The card and the keyboard: the god the pointer is over; the god whose card
   // the pointer holds up, which outlasts the pointer by a grace; whether the
@@ -629,7 +691,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       laneTimers.delete(closing);
       closing = null;
     }
-    if (mode === "fall") {
+    if (mode === "lift" || mode === "fall") {
       reopen = true;
       return;
     }
@@ -637,11 +699,17 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     lane.classList.remove("is-shut");
     measureLane();
     laneT0 = t;
-    readyAt = t + LAND_STILL;
+    scene = nextScene();
+    lifting = false;
+    floorT0 = t;
     if (reduced()) {
       mode = "open";
+      readyAt = t + LAND_STILL;
+      laidAt = t;
       return;
     }
+    readyAt = t + LAND_AFTER;
+    laidAt = t + SET_END;
     mode = "rise";
     setHeight(0);
     later(t + RISE, () => {
@@ -653,19 +721,30 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
 
   function maybeClose(t: number): void {
     if (gods.size || queue.length || closing || !landable()) return;
-    closing = later(t + CLOSE_AFTER, () => {
+    // A beat after the last god has gone, and not before the floor's last stone is down.
+    closing = later(Math.max(t + CLOSE_AFTER, laidAt), () => {
       closing = null;
       if (gods.size || queue.length) return;
       const now = sim.now();
       if (reduced()) return shut(now);
-      mode = "fall";
-      laneT0 = now;
-      later(now + FALL, () => shut(sim.now()));
+      // The floor is prised up; then the lane falls.
+      mode = "lift";
+      lifting = true;
+      floorT0 = now;
+      later(now + LIFT_END, () => {
+        const then = sim.now();
+        if (reduced()) return shut(then);
+        scene = null;
+        mode = "fall";
+        laneT0 = then;
+        later(then + FALL, () => shut(sim.now()));
+      });
     });
   }
 
   function shut(t: number): void {
     mode = "shut";
+    scene = null;
     lane.classList.add("is-shut");
     setHeight(null);
     if (!reopen && !queue.length) return;
@@ -677,7 +756,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // The lane's height on its way up or down.
   function laneAt(now: number): number {
     if (mode === "shut") return 0;
-    if (mode === "open") return OPEN_H;
+    if (mode === "open" || mode === "lift") return OPEN_H;
     const k = clamp01((now - laneT0) / (mode === "rise" ? RISE : FALL));
     return OPEN_H * (mode === "rise" ? riseEase(k) : 1 - fallEase(k));
   }
@@ -686,6 +765,55 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (mode !== "rise" && mode !== "fall") return false;
     setHeight(laneAt(now));
     return true;
+  }
+
+  // ───────── the floor's mosaic ─────────
+  // The floor at `now`: its scene, and how far into its setting or its
+  // lifting the time is. Under reduced motion it is whole.
+  function floorAt(now: number): { scene: SceneId; phase: FloorPhase; u: number } | null {
+    if (!scene) return null;
+    if (reduced() || (!lifting && now >= laidAt)) return { scene, phase: "shown", u: 0 };
+    return { scene, phase: lifting ? "lift" : "set", u: now - floorT0 };
+  }
+
+  // The part of a scene the lane shows: its middle, a narrower lane less of it.
+  function floorOn(id: SceneId, dx: number): LaidFloor {
+    const key = `${id} ${W}`;
+    if (shownFloor?.key !== key) shownFloor = { key, floor: cropFloor(laidScene(id), -dx, W - dx) };
+    return shownFloor.floor;
+  }
+
+  // The floor's canvas blank, at the lane's width and the screen's density,
+  // and the scene's middle on the lane's.
+  function wipeBed(dpr: number, dx: number): CanvasRenderingContext2D | null {
+    if (!bed) return null;
+    if (bedBrush === undefined) bedBrush = bed.getContext("2d") ?? null;
+    if (!bedBrush) return null;
+    const w = Math.round(W * dpr);
+    const h = Math.round(H * dpr);
+    if (bed.width !== w) bed.width = w;
+    if (bed.height !== h) bed.height = h;
+    bedBrush.setTransform(dpr, 0, 0, dpr, dx * dpr, 0);
+    bedBrush.clearRect(-dx, 0, W, H);
+    return bedBrush;
+  }
+
+  // The floor as its frame has it. Its stones on their way are drawn every
+  // frame; at rest it is drawn once, and not again until the lane's width or
+  // the screen's density is another. Moving while a stone is on its way.
+  const density = (): number => Math.max(1, window.devicePixelRatio || 1);
+  function renderFloor(now: number): boolean {
+    if (!bed) return false;
+    const f = floorAt(now);
+    const dpr = density();
+    const still = !f ? "" : f.phase === "shown" ? `${f.scene} ${W} ${dpr}` : null;
+    if (still !== null && still === bedDrawn) return false;
+    const dx = Math.round((W - MOSAIC.w) / 2);
+    const ctx = wipeBed(dpr, dx);
+    bedDrawn = still;
+    if (!ctx || !f) return false;
+    drawFloor(ctx, floorOn(f.scene, dx), f.phase, f.u);
+    return still === null;
   }
 
   // ───────── where gods may stand ─────────
@@ -2267,13 +2395,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return brush;
   }
 
-  // A frame: the lane, every god and its name from the time alone, the
-  // tesserae of those being set or unset, then the card. Moving while the lane
-  // or a god will be drawn otherwise next frame; the card never keeps the
-  // clock awake.
+  // A frame: the lane, its floor, every god and its name from the time alone,
+  // the tesserae of those being set or unset, then the card. Moving while the
+  // lane, its floor or a god will be drawn otherwise next frame; the card
+  // never keeps the clock awake.
   sim.view((now) => {
     if (disposed) return false;
     let moving = renderLane(now);
+    moving = renderFloor(now) || moving;
     for (const god of gods.values()) if (out(god)) moving = renderGod(god, now) || moving;
     renderTesserae();
     renderNames();
@@ -2339,9 +2468,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     },
     peek: () => {
       const now = sim.now();
+      const laidNow = floorAt(now);
       return {
         open: mode !== "shut",
         lane: { mode, height: laneAt(now) },
+        floor: laidNow && { scene: laidNow.scene, phase: laidNow.phase },
         width: W,
         queue: queue.map((g) => g.key),
         waiting: pool.map((g) => g.key),
@@ -2389,6 +2520,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       if (fxDrawn) wipe();
       fxDrawn = false;
       stones.clear();
+      scene = null;
+      if (bedDrawn !== "") wipeBed(density(), 0);
+      bedDrawn = "";
+      shownFloor = null;
       queue.length = 0;
       pool.length = 0;
       for (const e of laneTimers) sim.cancel(e);

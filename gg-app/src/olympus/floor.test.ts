@@ -74,6 +74,8 @@ interface Stage {
   readonly box: HTMLTextAreaElement;
   /** The tesserae's canvas, as a count of what the floor has drawn on it. */
   readonly fx: CountingBrush;
+  /** The floor mosaic's canvas, counted the same way: a fill is a colour's stones at rest, or one on its way. */
+  readonly bed: CountingBrush;
   /** How often the floor has put a step on the clock or woken it, and drawn its dice. */
   readonly asked: { clock: number; dice: number };
   names(): string[];
@@ -89,17 +91,21 @@ const stages: { dispose(): void }[] = [];
 
 /**
  * A lane with a clock that moves only when told to, and draws a frame for the
- * moment each advance ends on (framedHost); a letter is 5.5px wide. Its canvas
- * counts the tesserae drawn on it: jsdom draws none.
+ * moment each advance ends on (framedHost); a letter is 5.5px wide. Its
+ * canvases count what is drawn on them, the gods' tesserae on one and the
+ * floor's mosaic on the other: jsdom draws none.
  */
 function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): Stage {
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
-    '<canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
+    '<canvas class="oly-mosaic"></canvas><canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
   const fx = countingBrush();
-  lane.querySelector("canvas")!.getContext = (() =>
+  lane.querySelector<HTMLCanvasElement>("canvas.oly-fx")!.getContext = (() =>
     fx.ctx) as unknown as HTMLCanvasElement["getContext"];
+  const bed = countingBrush();
+  lane.querySelector<HTMLCanvasElement>("canvas.oly-mosaic")!.getContext = (() =>
+    bed.ctx) as unknown as HTMLCanvasElement["getContext"];
   const card = document.createElement("div");
   card.className = "oly-card";
   const box = document.createElement("textarea");
@@ -142,6 +148,7 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
     cards,
     box,
     fx,
+    bed,
     asked,
     label(key) {
       const i = floor.peek().gods.findIndex((god) => god.key === key);
@@ -176,7 +183,9 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
 const shut = (s: Stage): boolean => s.lane.classList.contains("is-shut");
 
 // ── Part 5: a god's turn, ms ──
-const LAND = 500; // after the lane opens
+const LAND = 1000; // after the lane opens, as the floor's last courses go down
+const LAND_STILL = 500; // under reduced motion: a beat
+const PRISED = 1150; // the floor's stones are prised up, before the lane falls
 const SET = 1150; // a god's tesserae are set, from the feet up
 const REVEAL = 250; // and the carved figure shows through them
 const SHOWN = SET + REVEAL; // from its landing to its greeting
@@ -258,7 +267,7 @@ describe("the lane opening and shutting", () => {
     expect(s.cells()).toHaveLength(0); // open, and nobody on it yet
   });
 
-  it("falls a beat after the last god has gone, and is shut once it is down; not while one is left", () => {
+  it("its floor is prised up a beat after the last god has gone, then it falls, and is shut once it is down; not while one is left", () => {
     const s = stage();
     s.sync([agent("a", "athena"), agent("b", "hermes")]);
     settle(s, 2);
@@ -273,6 +282,10 @@ describe("the lane opening and shutting", () => {
     expect(s.peek().lane).toEqual({ mode: "open", height: 125 });
     s.host.advance(599);
     expect(s.peek().lane.mode).toBe("open");
+    s.host.advance(1);
+    expect(s.peek().lane).toEqual({ mode: "lift", height: 125 });
+    s.host.advance(PRISED - 1);
+    expect(s.peek().lane).toEqual({ mode: "lift", height: 125 });
     s.host.advance(1);
     expect(s.peek().lane.mode).toBe("fall");
     s.host.advance(359);
@@ -295,7 +308,7 @@ describe("the lane opening and shutting", () => {
     expect(s.peek().lane).toEqual({ mode: "open", height: 125 });
     expect(s.cells()).toHaveLength(1);
     s.sync([]);
-    s.host.advance(600 + 360);
+    s.host.advance(600 + PRISED + 360);
     expect(shut(s)).toBe(true);
     s.sync([agent("c", "nike")]);
     expect(shut(s)).toBe(false);
@@ -319,13 +332,13 @@ describe("the lane opening and shutting", () => {
     expect(s.peek().lane.mode).toBe("rise");
     expect(s.peek().lane.height).toBeCloseTo(125, 1);
     s.host.advance(1);
-    // Open: its height is the stylesheet's again, and it sleeps until the first god lands.
+    // Open: its height is the stylesheet's again. Its floor is still being set.
     expect(s.peek().lane).toEqual({ mode: "open", height: 125 });
     expect(s.lane.style.height).toBe("");
     expect(s.host.pending()).toBe(1);
     expect(s.cells()).toHaveLength(0);
     s.host.advance(LAND - 420);
-    expect(s.cells()).toHaveLength(1); // 80ms after it is up
+    expect(s.cells()).toHaveLength(1); // 580ms after it is up, as the floor's last courses go down
   });
 
   it("falls as it shuts: 360ms, slow at first", () => {
@@ -333,7 +346,7 @@ describe("the lane opening and shutting", () => {
     s.sync([agent("a", "athena")]);
     s.host.advance(3000);
     s.sync([]);
-    s.host.advance(600);
+    s.host.advance(600 + PRISED);
     expect(s.peek().lane).toEqual({ mode: "fall", height: 125 });
     s.host.advance(180);
     const half = s.peek().lane.height;
@@ -351,7 +364,7 @@ describe("the lane opening and shutting", () => {
     s.sync([agent("a", "athena")]);
     s.host.advance(3000);
     s.sync([]);
-    s.host.advance(600 + 100);
+    s.host.advance(600 + PRISED + 100);
     s.sync([agent("b", "argus")]);
     expect(s.peek()).toMatchObject({ lane: { mode: "fall" }, queue: ["b"] });
     s.host.advance(259);
@@ -478,7 +491,7 @@ describe("landing", () => {
     s.host.advance(120);
     s.sync(sent);
     expect(s.peek().queue).toEqual(["a", "b", "c", "d"]);
-    s.host.advance(260); // 500ms after the lane opened
+    s.host.advance(LAND - 240); // a second after the lane opened
     const landed = (): string[] => s.peek().gods.map((seen) => seen.key);
     expect(landed()).toEqual(["a"]);
     s.host.advance(849);
@@ -776,7 +789,7 @@ describe("a god's states, from its agent's record", () => {
     s.sync([]);
     expect(s.cells()).toHaveLength(0);
     expect(s.names()).toEqual([]);
-    s.host.advance(600 + 360);
+    s.host.advance(600 + PRISED + 360);
     expect(shut(s)).toBe(true);
   });
 
@@ -787,7 +800,7 @@ describe("a god's states, from its agent's record", () => {
     settle(s);
     s.sync(at(1)); // idle
     until(s, () => s.cells().length === 0);
-    s.host.advance(600 + 360);
+    s.host.advance(600 + PRISED + 360);
     expect(shut(s)).toBe(true);
     s.sync(at(2)); // sent on again
     expect(shut(s)).toBe(false);
@@ -858,7 +871,7 @@ describe("places", () => {
         }
       }
     }
-  });
+  }, 15_000); // 240 lanes, each with a floor to set: slow under a full run
 
   it("gives a later god the gap with most room, and nobody else moves if there is enough", () => {
     const s = stage();
@@ -1119,7 +1132,7 @@ describe("the floor's housekeeping", () => {
   it("builds each god from its pictures, its seal and its crack, as a button of the toolbar", () => {
     const s = stage();
     s.sync([agent("a", "themis")]);
-    s.host.advance(500);
+    s.host.advance(LAND);
     const cell = s.cell("a")!;
     expect([...cell.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([
       POSE_URLS.themis.speak,
@@ -1555,7 +1568,7 @@ describe("skills: the pose a god acts its agent's tool in", () => {
       expect(pose(s, "s-again")).toBe("look"); // its first turn: the search its record ends with
       s.sync(again(1)); // idle
       until(s, () => s.cells().length === 0);
-      s.host.advance(600 + 360);
+      s.host.advance(600 + PRISED + 360);
       expect(shut(s)).toBe(true);
       expect(again(2)[0]).toMatchObject({ look: "run", family: "look", tools: 2 });
       s.sync(again(2)); // sent on again, with the same last activity
@@ -2543,7 +2556,7 @@ describe("the keyboard: the gods are one toolbar", () => {
     expect(toolbar.getAttribute("aria-hidden")).toBe("true");
     s.sync([agent("a", "athena")]);
     expect(toolbar.getAttribute("aria-hidden")).toBe("true"); // the lane is open, and nobody is on it yet
-    s.host.advance(500);
+    s.host.advance(LAND);
     expect(toolbar.hasAttribute("aria-hidden")).toBe(false);
     s.sync([]);
     expect(toolbar.getAttribute("aria-hidden")).toBe("true");
@@ -2567,7 +2580,7 @@ describe("the keyboard: the gods are one toolbar", () => {
   it("has one tab stop: the first god to land, until the arrows move it", () => {
     const s = stage();
     s.sync(ALL.slice(0, 4).map((god) => agent(god, god)));
-    s.host.advance(500);
+    s.host.advance(LAND);
     expect(tabStops(s)).toEqual(["athena"]);
     s.host.advance(12_000);
     expect(s.cells()).toHaveLength(4);
@@ -2920,5 +2933,330 @@ describe("the card and the keys are no part of the run", () => {
     expect(pointed.seen).toBeGreaterThan(20);
     expect(pointed.run).toBe(alone.run);
     expect(pointed.asked).toEqual(alone.asked);
+  });
+});
+
+// ── Part 6: the floor's mosaic ──
+const LAID = 1580; // its last stone is down
+const FEW = 30; // at rest: a fill for each colour of joint and of stone, six stones in four tones at most
+const mosaicOf = (s: Stage): HTMLCanvasElement =>
+  s.lane.querySelector<HTMLCanvasElement>("canvas.oly-mosaic")!;
+/** A lane opened for one god and left empty: its floor laid, and the beat after its god has gone over. */
+function emptied(opts: Parameters<typeof stage>[0] = {}): Stage {
+  const s = stage(opts);
+  s.sync([agent("a", "athena")]);
+  s.host.advance(3000);
+  s.sync([]);
+  s.host.advance(600);
+  return s;
+}
+
+describe("the floor's mosaic", () => {
+  it("is set as the lane opens, from the bed up, 1580ms in all; the first god lands as its last courses go down", () => {
+    const s = stage();
+    expect(s.peek().floor).toBeNull();
+    expect(s.bed.wipes).toBe(0);
+    s.sync([agent("a", "athena")]);
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "set" });
+    expect(s.bed.stones).toBe(0); // the bed is bare: no stone is down yet
+    s.host.run(420);
+    expect(s.peek().lane.mode).toBe("open");
+    expect(s.bed.stones).toBeGreaterThan(FEW); // stones on their way, each a fill of its own
+    s.host.run(LAND - 420 - 1);
+    expect(s.cells()).toHaveLength(0);
+    s.host.advance(1);
+    expect(s.cells()).toHaveLength(1);
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "set" });
+    s.host.run(LAID - LAND - 1);
+    expect(s.peek().floor!.phase).toBe("set");
+    s.host.advance(1);
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "shown" });
+    // Every stone at rest, in a few fills.
+    expect(s.bed.stones).toBeGreaterThan(6);
+    expect(s.bed.stones).toBeLessThanOrEqual(FEW);
+    expect([mosaicOf(s).width, mosaicOf(s).height]).toEqual([698, 104]);
+    expect(mosaicOf(s).getAttribute("style")).toBeNull();
+  });
+
+  it("at rest costs nothing: it is drawn once when its last stone is down, and not again while gods land, work and go", () => {
+    const s = stage();
+    s.sync([agent("a", "athena")]);
+    s.host.run(LAID);
+    const { wipes, filled } = s.bed;
+    s.sync([agent("a", "athena"), agent("b", "hermes"), agent("c", "nike")]);
+    s.host.run(12_000);
+    expect(s.peek().gods.map((god) => god.step)).toEqual(["work", "work", "work"]);
+    s.sync([agent("a", "athena", "done"), agent("b", "hermes", "fail"), agent("c", "nike")]);
+    s.host.run(9000);
+    expect(s.cells()).toHaveLength(1);
+    expect(s.bed).toMatchObject({ wipes, filled });
+    expect(s.fx.filled).toBeGreaterThan(1000); // the gods' own stones flew over it meanwhile
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "shown" });
+  });
+
+  it("is prised up a beat after the last god has gone, 1150ms in all; then the bed is bare, and the lane falls", () => {
+    const s = emptied();
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "lift", height: 125 },
+      floor: { scene: "temple", phase: "lift" },
+    });
+    expect(s.bed.stones).toBeLessThanOrEqual(FEW); // all of it still down
+    const gods = { wipes: s.fx.wipes, filled: s.fx.filled };
+    s.host.run(PRISED / 2);
+    expect(s.bed.stones).toBeGreaterThan(FEW); // stones on their way
+    s.host.run(PRISED / 2 - 1);
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "lift" });
+    s.host.advance(1);
+    expect(s.peek()).toMatchObject({ lane: { mode: "fall", height: 125 }, floor: null });
+    expect(s.bed.stones).toBe(0);
+    const { wipes, filled } = s.bed;
+    s.host.run(360);
+    expect(shut(s)).toBe(true);
+    expect(s.bed).toMatchObject({ wipes, filled }); // wiped once, and not touched as the lane falls
+    expect(s.fx).toMatchObject(gods); // nor was the gods' canvas, all the while
+    expect(s.host.pending()).toBe(0); // asleep
+  });
+
+  it("each opening lays the next scene in turn: temple, grove, agora, and the temple again", () => {
+    const s = stage();
+    const seen: string[] = [];
+    for (const key of ["a", "b", "c", "d"]) {
+      s.sync([agent(key, "athena")]);
+      seen.push(s.peek().floor!.scene);
+      s.host.advance(3000);
+      s.sync([]);
+      s.host.advance(600 + PRISED + 360);
+      expect(shut(s)).toBe(true);
+      expect(s.peek().floor).toBeNull();
+    }
+    expect(seen).toEqual(["temple", "grove", "agora", "temple"]);
+  });
+
+  it("an agent sent while it is prised up waits for the lane to be down; then the lane rises again, on the next scene", () => {
+    const s = emptied();
+    s.host.advance(300);
+    s.sync([agent("b", "argus")]);
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "lift" },
+      floor: { scene: "temple", phase: "lift" },
+      queue: ["b"],
+    });
+    s.host.advance(PRISED - 300);
+    expect(s.peek()).toMatchObject({ lane: { mode: "fall" }, floor: null, queue: ["b"] });
+    s.host.advance(359);
+    expect(s.peek().lane.mode).toBe("fall");
+    s.host.advance(1);
+    // Down, and up again in the same moment.
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "rise", height: 0 },
+      floor: { scene: "grove", phase: "set" },
+    });
+    expect(shut(s)).toBe(false);
+    s.host.advance(LAND - 1);
+    expect(s.cells()).toHaveLength(0);
+    s.host.advance(1);
+    expect(s.cells().map((cell) => cell.dataset.god)).toEqual(["argus"]);
+  });
+
+  it("is never prised up before its last stone is down: with nobody left, the lane waits for it", () => {
+    const s = stage();
+    s.sync([agent("a", "athena")]);
+    s.host.advance(100);
+    s.sync([]); // gone before it had landed
+    s.host.advance(600);
+    expect(s.peek()).toMatchObject({ lane: { mode: "open" }, floor: { phase: "set" } });
+    s.host.advance(LAID - 700 - 1);
+    expect(s.peek()).toMatchObject({ lane: { mode: "open" }, floor: { phase: "set" } });
+    s.host.advance(1);
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "lift" },
+      floor: { scene: "temple", phase: "lift" },
+    });
+    s.host.advance(PRISED + 360);
+    expect(shut(s)).toBe(true);
+  });
+
+  it("a narrower lane shows the scene's middle: its canvas is the lane's width, and what lies beyond is not drawn", () => {
+    const laid = (width: number): { s: Stage; moved: number[][] } => {
+      const s = stage({ width });
+      const moved: number[][] = [];
+      (s.bed.ctx as { setTransform: unknown }).setTransform = (...m: number[]) =>
+        void moved.push(m);
+      s.sync([agent("a", "athena")]);
+      s.host.advance(700); // in the middle of its setting
+      return { s, moved };
+    };
+    const wide = laid(698);
+    const narrow = laid(602);
+    expect([mosaicOf(narrow.s).width, mosaicOf(narrow.s).height]).toEqual([602, 104]);
+    expect(wide.moved[wide.moved.length - 1]).toEqual([1, 0, 0, 1, 0, 0]);
+    expect(narrow.moved[narrow.moved.length - 1]).toEqual([1, 0, 0, 1, -48, 0]); // 48px lost each side
+    expect(wide.s.bed.stones).toBeGreaterThan(500);
+    expect(narrow.s.bed.stones).toBeLessThan(wide.s.bed.stones);
+    expect(narrow.s.bed.stones).toBeGreaterThan(wide.s.bed.stones * 0.8);
+  });
+
+  it("at rest, a change of the lane's width: it is drawn once more, at the new width", () => {
+    const s = crowd(["athena", "hermes", "nike"]);
+    const { wipes, filled } = s.bed;
+    s.host.run(1000);
+    expect(s.bed).toMatchObject({ wipes, filled });
+    const last = Math.max(...s.peek().gods.map((god) => god.x));
+    s.setWidth(602);
+    s.resize();
+    expect(s.bed.wipes).toBe(wipes + 1);
+    expect(mosaicOf(s).width).toBe(602);
+    const drawn = s.bed.filled;
+    expect(drawn - filled).toBeLessThanOrEqual(FEW);
+    // The gods walk to their new places over it, frame after frame, and it is not drawn again.
+    until(s, () => s.peek().gods.some((god) => god.step === "walk"), 3000);
+    s.host.run(8000);
+    expect(s.peek().gods.every((god) => god.step === "work")).toBe(true);
+    expect(Math.max(...s.peek().gods.map((god) => god.x))).toBeLessThan(last);
+    expect(s.bed).toMatchObject({ wipes: wipes + 1, filled: drawn });
+  });
+
+  it("at rest, a change of the screen's density: it is drawn once more with the next frame, as fine as the screen", () => {
+    const s = stage();
+    s.sync([agent("a", "athena")]);
+    settle(s);
+    const { wipes } = s.bed;
+    const was = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+    try {
+      s.sync([agent("a", "athena", "run", "look", 1)]); // a record, and a frame for it
+      expect([mosaicOf(s).width, mosaicOf(s).height]).toEqual([1396, 208]);
+      expect(s.bed.wipes).toBe(wipes + 1);
+      s.host.run(3000);
+      expect(s.bed.wipes).toBe(wipes + 1);
+    } finally {
+      if (was) Object.defineProperty(window, "devicePixelRatio", was);
+      else delete (window as { devicePixelRatio?: number }).devicePixelRatio;
+    }
+  });
+
+  it("is drawn from the time alone, from dice of its scene's own: its setting and its lifting throw none of the floor's dice and put nothing on its clock, and it is the same floor whatever the seed", () => {
+    const drawn = (seed: number): number[] => {
+      const s = stage({ seed });
+      s.sync([agent("a", "athena")]);
+      const opening = { ...s.asked };
+      s.host.run(LAND - 1);
+      expect(s.asked).toEqual(opening);
+      const set = s.bed.filled;
+      s.host.advance(3000);
+      s.sync([]);
+      s.host.advance(600);
+      const shutting = { ...s.asked };
+      const before = s.bed.filled;
+      s.host.run(PRISED - 1);
+      expect(s.asked).toEqual(shutting);
+      return [set, s.bed.filled - before];
+    };
+    const one = drawn(1);
+    expect(one[0]).toBeGreaterThan(10_000);
+    expect(one[1]).toBeGreaterThan(10_000);
+    expect(drawn(2)).toEqual(one);
+  });
+
+  it("disposed while it is laid: its floor is gone, and its canvas blank", () => {
+    const s = stage();
+    s.sync([agent("a", "athena")]);
+    s.host.run(LAID);
+    expect(s.bed.stones).toBeGreaterThan(0);
+    s.dispose();
+    expect(s.peek().floor).toBeNull();
+    expect(s.bed.stones).toBe(0);
+  });
+});
+
+describe("reduced motion: the floor is a still", () => {
+  it("is laid whole as the lane opens and drawn once, and gone as the lane shuts; the lane's times are as they were", () => {
+    const s = stage({ reduced: true });
+    s.sync([agent("a", "hermes")]);
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "open", height: 125 },
+      floor: { scene: "temple", phase: "shown" },
+    });
+    expect(s.bed.wipes).toBe(1);
+    const { filled } = s.bed;
+    expect(filled).toBeGreaterThan(6);
+    expect(filled).toBeLessThanOrEqual(FEW);
+    expect(mosaicOf(s).getAttribute("style")).toBeNull(); // no fade: it is there
+    s.host.advance(LAND_STILL - 1);
+    expect(s.cells()).toHaveLength(0);
+    s.host.advance(1);
+    expect(s.cells()).toHaveLength(1);
+    s.host.run(5000);
+    expect(s.bed).toMatchObject({ wipes: 1, filled });
+    s.sync([]);
+    s.host.advance(599);
+    expect(s.peek()).toMatchObject({ lane: { mode: "open" }, floor: { phase: "shown" } });
+    s.host.advance(1);
+    // Shut by a cut: it is never prised up.
+    expect(shut(s)).toBe(true);
+    expect(s.peek()).toMatchObject({ lane: { mode: "shut", height: 0 }, floor: null });
+    expect(s.bed).toMatchObject({ wipes: 2, filled, stones: 0 });
+    expect(mosaicOf(s).getAttribute("style")).toBeNull();
+    expect(s.fx).toMatchObject({ wipes: 0, filled: 0 }); // and the gods' canvas was never touched
+    expect(s.host.pending()).toBe(0);
+  });
+
+  it("each opening still lays the next scene in turn", () => {
+    const s = stage({ reduced: true });
+    const seen: string[] = [];
+    for (const key of ["a", "b"]) {
+      s.sync([agent(key, "athena")]);
+      seen.push(s.peek().floor!.scene);
+      s.host.advance(3000);
+      s.sync([]);
+      s.host.advance(600);
+      expect(shut(s)).toBe(true);
+    }
+    expect(seen).toEqual(["temple", "grove"]);
+  });
+
+  it("asked for while it is being set: it is whole at once and drawn once, and the first god lands when it would have", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.run(700);
+    expect(s.peek().floor!.phase).toBe("set");
+    expect(s.bed.stones).toBeGreaterThan(FEW);
+    s.quiet(true);
+    s.host.advance(16);
+    expect(s.peek().floor).toEqual({ scene: "temple", phase: "shown" });
+    expect(s.bed.stones).toBeLessThanOrEqual(FEW);
+    const { wipes, filled } = s.bed;
+    s.host.run(200);
+    expect(s.bed).toMatchObject({ wipes, filled });
+    s.host.advance(LAND - 700 - 16 - 200 - 1);
+    expect(s.cells()).toHaveLength(0);
+    s.host.advance(1);
+    expect(s.cells()).toHaveLength(1);
+    expect(s.bed).toMatchObject({ wipes, filled });
+  });
+
+  it("asked for while it is prised up: it stays whole, and the lane shuts by a cut when its stones would have been off", () => {
+    const s = emptied();
+    s.host.run(300);
+    expect(s.peek().floor!.phase).toBe("lift");
+    expect(s.bed.stones).toBeGreaterThan(FEW);
+    s.quiet(true);
+    s.host.advance(16);
+    expect(s.peek()).toMatchObject({
+      lane: { mode: "lift", height: 125 },
+      floor: { scene: "temple", phase: "shown" },
+    });
+    expect(s.bed.stones).toBeLessThanOrEqual(FEW);
+    const { wipes, filled } = s.bed;
+    s.host.run(PRISED - 300 - 16 - 1);
+    expect(shut(s)).toBe(false);
+    expect(s.bed).toMatchObject({ wipes, filled });
+    s.host.advance(1);
+    // No fall: it is shut.
+    expect(shut(s)).toBe(true);
+    expect(s.peek()).toMatchObject({ lane: { mode: "shut", height: 0 }, floor: null });
+    expect(s.lane.style.height).toBe("");
+    expect(s.bed.stones).toBe(0);
+    expect(s.host.pending()).toBe(0);
   });
 });

@@ -4,9 +4,12 @@
 // by hand whenever the lane comes to read more of it: add the field to GOD_KEYS
 // or POSES below, run it, and commit the JSON.
 //
+// It also writes src/olympus/mosaic.json: the three floor mosaics the mockup's
+// terrain.py cut, from the same page.
+//
 // Usage (from gg-app):
 //   node scripts/olympus-cast.mjs ~/gg-framework-ui/mockups/subagents/v4
-//   npx prettier --write src/olympus/cast.json
+//   npx prettier --write src/olympus/cast.json src/olympus/mosaic.json
 //
 // The pictures are cut from the mockup's too, at twice the size they are
 // drawn; with --pictures it writes nothing and lists each skill pose's and
@@ -194,3 +197,52 @@ const data = {
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");
 writeFileSync(target, `${JSON.stringify(data)}\n`);
 console.log(`wrote ${target}: ${Object.keys(gods).join(", ")} from ${data.source}`);
+
+// The floor's mosaics: each scene in a few dark stones, cut in courses from
+// the stylobate up (top, bottom, left in tenths of a px; each cell's width in
+// tenths; a stone a character, its place in the palette; then the cells nipped
+// in two on an outline: which, the cut's angle in degrees, how far from the
+// cell's middle in tenths, and the stone beyond it).
+const SCENES = ["temple", "grove", "agora"];
+const terrainData = /<script type="application\/json" id="terrain-data">([\s\S]*?)<\/script>/.exec(
+  html,
+);
+if (!terrainData) throw new Error("no terrain-data in olympus.html");
+const terrain = JSON.parse(terrainData[1]);
+if (terrain.w !== 698 || terrain.h !== 104)
+  throw new Error("the floor is not cut for the lane: 698 by 104");
+if (terrain.scenes.map((scene) => scene.id).join() !== SCENES.join())
+  throw new Error(`the scenes are not ${SCENES.join(", ")}`);
+const scenes = terrain.scenes.map(({ id, name, palette, rows }) => {
+  if (!name || !Array.isArray(palette) || !palette.every((hex) => /^#[0-9a-f]{6}$/.test(hex)))
+    throw new Error(`${id}: no name or no palette`);
+  if (!Array.isArray(rows) || !rows.length) throw new Error(`${id}: no courses`);
+  for (const row of rows) {
+    const [, , , widths, stones, cuts] = row;
+    if (
+      row.length !== 6 ||
+      !row.slice(0, 3).every(Number.isInteger) ||
+      !Array.isArray(widths) ||
+      !widths.every((w) => Number.isInteger(w) && w > 0) ||
+      typeof stones !== "string" ||
+      stones.length !== widths.length ||
+      ![...stones].every((ch) => Number(ch) < palette.length) ||
+      !Array.isArray(cuts) ||
+      !cuts.every(
+        (cut) =>
+          cut.length === 4 &&
+          cut.every(Number.isInteger) &&
+          cut[0] >= 0 &&
+          cut[0] < widths.length &&
+          cut[3] >= 0 &&
+          cut[3] < palette.length,
+      )
+    )
+      throw new Error(`${id}: a course is not top, bottom, left, widths, stones, cuts`);
+  }
+  return { id, name, palette, rows };
+});
+const floor = { source: data.source, w: terrain.w, h: terrain.h, scenes };
+const floorTarget = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/mosaic.json");
+writeFileSync(floorTarget, `${JSON.stringify(floor)}\n`);
+console.log(`wrote ${floorTarget}: ${SCENES.join(", ")} from ${floor.source}`);

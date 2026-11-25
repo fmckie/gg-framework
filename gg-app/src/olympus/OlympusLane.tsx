@@ -3,6 +3,7 @@ import type { SubAgentLine } from "../SubAgentFeed";
 import { CAST, POSE_URLS } from "./cast";
 import { createFloor, rng, type Floor, type FloorOptions, type LaneAgent } from "./floor";
 import { agentTypeOf, godOf } from "./gods";
+import { SCENES, type SceneId } from "./mosaic";
 import { clock, Rich, rowId, rowState, rowWords, useNow } from "./OlympusRows";
 import { createSim, windowHost, type SimHost } from "./sim";
 import { toolFamilyOf } from "./tool-family";
@@ -121,8 +122,13 @@ function CardWords({
   );
 }
 
-/** For tests and previews: a clock, dice and measures of their own. */
-export interface LaneStage extends Pick<FloorOptions, "width" | "measure" | "reduced"> {
+// The floor's scenes take their turn across the whole window, from the temple:
+// a lane is built anew for each chat, and no scene comes twice running.
+let turn = 0;
+const nextScene = (): SceneId => SCENES[turn++ % SCENES.length]!;
+
+/** For tests and previews: a clock, dice, measures and scenes of their own. */
+export interface LaneStage extends Pick<FloorOptions, "width" | "measure" | "reduced" | "scene"> {
   readonly host?: SimHost;
   readonly seed?: number;
   readonly onFloor?: (floor: Floor | null) => void;
@@ -134,9 +140,9 @@ interface Props {
 }
 
 /**
- * The lane over the composer on the desktop: the frame, the tesserae's canvas,
- * the stylobate and the antae, and the engine that raises it, sets the gods on
- * it and walks them; and, before it, the card
+ * The lane over the composer on the desktop: the frame, the floor's canvas and
+ * the tesserae's, the stylobate and the antae, and the engine that raises it,
+ * lays its floor, sets the gods on it and walks them; and, before it, the card
  * the engine stands over one god at a time. The gods are a toolbar, each
  * described by its row in the transcript. Everything else, the card included,
  * only repeats those rows, and is hidden from assistive technology.
@@ -152,7 +158,15 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
   useEffect(() => {
     const lane = laneRef.current;
     if (!lane) return;
-    const { host = windowHost(), seed, onFloor, width, measure, reduced } = stageRef.current ?? {};
+    const {
+      host = windowHost(),
+      seed,
+      onFloor,
+      width,
+      measure,
+      reduced,
+      scene = nextScene,
+    } = stageRef.current ?? {};
     const sim = createSim(host);
     const floor = createFloor(lane, {
       sim,
@@ -168,6 +182,7 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
       // The composer's text box, as the app marks it.
       away: () => document.querySelector<HTMLElement>("textarea[data-composer-input]"),
       timer: host,
+      scene,
     });
     floorRef.current = floor;
     onFloor?.(floor);
@@ -212,6 +227,8 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
         </div>
       </div>
       <div className="oly-lane is-shut" ref={laneRef}>
+        {/* The floor's mosaic, set as the lane opens and prised up as it shuts: the engine draws it. */}
+        <canvas className="oly-mosaic" aria-hidden="true" />
         {/* The tesserae a god is set from and goes back to: the engine draws them, behind the gods. */}
         <canvas className="oly-fx" aria-hidden="true" />
         <div
