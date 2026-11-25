@@ -186,6 +186,7 @@ import {
 } from "./placeholder/ChecklistView";
 import { AppFooter } from "./AppFooter";
 import { ModelPanel, applyThinkingLevel } from "./ModelPanel";
+import { MorePanel, PanelEntryBar } from "./MorePanel";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
 import { useAttachments } from "./useAttachments";
@@ -435,6 +436,9 @@ function App(): React.ReactElement {
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [thinkingPreview, setThinkingPreview] = useState<string | null | undefined>(undefined);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
+  // The More panel, opened from the row inside the bottom of the composer.
+  const [morePanelOpen, setMorePanelOpen] = useState(false);
+  const moreTriggerRef = useRef<HTMLButtonElement>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   // Caret offset in the composer, tracked so the `/schedule` hint can highlight
@@ -2783,6 +2787,21 @@ function App(): React.ReactElement {
     setThinkingPreview(undefined);
     modelTriggerRef.current?.focus({ preventScroll: true });
   };
+  // More holds only what this session has: today the Code checklist.
+  const showMoreRow = !phoneHeader && workspaceMode === "code";
+  // The checklist takes the whole session, so More does not wait under it.
+  if (showChecklist && morePanelOpen) setMorePanelOpen(false);
+  const closeMorePanel = (): void => {
+    setMorePanelOpen(false);
+    moreTriggerRef.current?.focus({ preventScroll: true });
+  };
+  const toggleMorePanel = (): void => {
+    if (morePanelOpen) return closeMorePanel();
+    // One panel at a time: More takes the Model panel's place.
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    setMorePanelOpen(true);
+  };
   const activeRemote = kleioRemote.status?.active ?? null;
   // The subscription usage bar. The iPhone's title row has no room for it, so
   // there it sits at the right end of the activity row, by the tools chevron.
@@ -3251,6 +3270,16 @@ function App(): React.ReactElement {
             onClose={closeModelPanel}
           />
         )}
+        {morePanelOpen && showMoreRow && (
+          <MorePanel
+            id="more-panel"
+            onChecklist={() => {
+              setMorePanelOpen(false);
+              openChecklist();
+            }}
+            onClose={closeMorePanel}
+          />
+        )}
 
         <Composer
           isFileDragOver={isFileDragOver}
@@ -3323,6 +3352,16 @@ function App(): React.ReactElement {
           runEnhance={runEnhance}
           onDictated={onDictated}
           setDictation={setDictation}
+          panelEntries={
+            showMoreRow && (
+              <PanelEntryBar
+                moreOpen={morePanelOpen}
+                morePanelId="more-panel"
+                onToggleMore={toggleMorePanel}
+                moreRef={moreTriggerRef}
+              />
+            )
+          }
         />
 
         <AppFooter
@@ -3344,7 +3383,11 @@ function App(): React.ReactElement {
           modelPanel={{
             open: modelPanelOpen,
             panelId: "model-panel",
-            onToggle: () => (modelPanelOpen ? closeModelPanel() : setModelPanelOpen(true)),
+            onToggle: () => {
+              if (modelPanelOpen) return closeModelPanel();
+              setMorePanelOpen(false);
+              setModelPanelOpen(true);
+            },
             triggerRef: modelTriggerRef,
             previewLevel: thinkingPreview,
           }}

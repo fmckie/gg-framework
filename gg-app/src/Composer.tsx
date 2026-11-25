@@ -107,6 +107,7 @@ export function Composer({
   runEnhance,
   onDictated,
   setDictation,
+  panelEntries,
 }: {
   isFileDragOver: boolean;
   scheduleInvalid: boolean;
@@ -175,6 +176,8 @@ export function Composer({
   runEnhance: () => Promise<void>;
   onDictated: () => void;
   setDictation: Dispatch<SetStateAction<UseDictation | null>>;
+  /** The desktop's trigger row, inside the bottom of the composer. */
+  panelEntries?: React.ReactNode;
 }) {
   return (
     <div
@@ -440,6 +443,7 @@ export function Composer({
           {dictation && <DictationStatus dictation={dictation} />}
         </Suspense>
       )}
+      {panelEntries}
     </div>
   );
 }
