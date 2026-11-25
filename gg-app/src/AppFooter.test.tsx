@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./agent", () => ({
   cycleThinking: vi.fn(),
@@ -7,7 +7,7 @@ vi.mock("./agent", () => ({
   workspaceProductName: () => "Kleio",
 }));
 import { AppFooter } from "./AppFooter";
-import type { AgentState } from "./agent";
+import type { AgentState, ModelOption } from "./agent";
 
 afterEach(cleanup);
 
@@ -18,6 +18,8 @@ function renderFooter(
   running = false,
   contextPct = 0,
   phoneHeader = false,
+  modelPanel?: Parameters<typeof AppFooter>[0]["modelPanel"],
+  models: ModelOption[] = [],
 ) {
   const state = {
     mode: "code",
@@ -38,11 +40,12 @@ function renderFooter(
       stopSchedule={vi.fn()}
       contextPct={contextPct}
       running={running}
-      models={[]}
+      models={models}
       onSelectModel={vi.fn()}
       onSelectKenModel={vi.fn()}
       kenRunning={false}
       autopilotReviewing={false}
+      modelPanel={modelPanel}
     />,
   );
 }
@@ -94,5 +97,61 @@ describe("AppFooter context reading", () => {
     expect(reading?.tagName).toBe("SPAN");
     expect(reading?.textContent).toBe("42%");
     expect(container.querySelector(".ctx-button")).toBeNull();
+  });
+});
+
+describe("AppFooter model control", () => {
+  const MODELS: ModelOption[] = [
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic" },
+  ];
+  const panel = (open: boolean, previewLevel?: string | null) => ({
+    open,
+    panelId: "model-panel",
+    onToggle: vi.fn(),
+    triggerRef: { current: null },
+    previewLevel,
+  });
+
+  it("opens the Model panel from the Kleio control on the desktop, and keeps Helper's picker", () => {
+    const modelPanel = panel(false);
+    const { container } = renderFooter("low", false, 0, false, modelPanel, MODELS);
+    const anchors = container.querySelectorAll(".model-anchor");
+    const trigger = anchors[0]!.querySelector<HTMLButtonElement>(".model-trigger")!;
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.textContent).toBe("Claude Sonnet 4.6");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(anchors[0]!.querySelector("select, [aria-haspopup='menu']")).toBeNull();
+    fireEvent.click(trigger);
+    expect(modelPanel.onToggle).toHaveBeenCalledTimes(1);
+    expect(anchors[1]!.querySelector(".model-trigger")).toBeNull();
+    expect(anchors[1]!.querySelector("select, [aria-haspopup='menu']")).not.toBeNull();
+  });
+
+  it("keeps today's model control on the iPhone", () => {
+    const { container } = renderFooter("low", false, 0, true, panel(false), MODELS);
+    expect(container.querySelector(".model-trigger")).toBeNull();
+    expect(
+      container.querySelectorAll(".model-anchor select, .model-anchor [aria-haspopup='menu']"),
+    ).toHaveLength(2);
+  });
+
+  it("holds the lower thinking control on the level being tried while the panel is open", () => {
+    const { container } = renderFooter("low", false, 0, false, panel(true, "high"), MODELS);
+    const button = container.querySelector<HTMLButtonElement>(".thinking-toggle")!;
+    expect(button.disabled).toBe(true);
+    expect(button.dataset.level).toBe("high");
+    expect(button.textContent).toBe("Thinking high");
+    expect(button.hasAttribute("data-preview")).toBe(true);
+    expect(container.querySelector(".model-trigger")?.getAttribute("aria-controls")).toBe(
+      "model-panel",
+    );
+  });
+
+  it("leaves the lower thinking control cycling when the panel is closed", () => {
+    const { container } = renderFooter("low", false, 0, false, panel(false, "high"), MODELS);
+    const button = container.querySelector<HTMLButtonElement>(".thinking-toggle")!;
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.level).toBe("low");
+    expect(button.hasAttribute("data-preview")).toBe(false);
   });
 });

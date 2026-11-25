@@ -1478,6 +1478,17 @@ html:not(.platform-ios) {
   --kleio-surface: #1d1819;
   --kleio-track: #3a3334;
   --kleio-edge: #4b4143;
+  --kleio-raised: #241f20;
+  --kleio-think-off: #aeb4be;
+  --kleio-think-off-fill: #32363e;
+  --kleio-think-low: #c1c6cf;
+  --kleio-think-low-fill: #353946;
+  --kleio-think-medium: #929fff;
+  --kleio-think-medium-fill: #30385e;
+  --kleio-think-high: #f7d366;
+  --kleio-think-high-fill: #4a3b20;
+  --kleio-think-top: #ff90d3;
+  --kleio-think-top-fill: #4c2940;
 }
 html:not(.platform-ios) .app.app-session {
   /* Helper's gold: antique, with the deep and champagne stops of its gilt, and
@@ -2157,31 +2168,45 @@ html:not(.platform-ios) .usage-popover .usage-close {
 html:not(.platform-ios) .usage-popover .usage-close:is(:hover, :focus-visible) {
   color: var(--kleio-lapis);
 }
-/* Thinking, coloured by level. Off and locked keep their dim inline colour. */
+/* Thinking: text only, in the Model panel's level colours. Locked by a run it
+   keeps its dim inline colour; held by the open panel it keeps the level's. */
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle {
   padding: 4px 6px;
   border-radius: 3px;
+  font-weight: 700 !important;
 }
 html:not(.platform-ios)
   .app.app-session
   > .footer
-  .thinking-toggle:not(:disabled):not([data-level="off"]) {
+  .thinking-toggle:is(:not(:disabled), [data-preview]) {
   color: var(--kleio-level) !important;
 }
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-preview] {
+  opacity: 1;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="off"] {
+  --kleio-level: var(--kleio-think-off);
+  --kleio-level-fill: var(--kleio-think-off-fill);
+}
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="low"] {
-  --kleio-level: #a69c9d;
+  --kleio-level: var(--kleio-think-low);
+  --kleio-level-fill: var(--kleio-think-low-fill);
 }
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="medium"] {
-  --kleio-level: #f07880;
+  --kleio-level: var(--kleio-think-medium);
+  --kleio-level-fill: var(--kleio-think-medium-fill);
 }
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="high"] {
-  --kleio-level: #e8df70;
+  --kleio-level: var(--kleio-think-high);
+  --kleio-level-fill: var(--kleio-think-high-fill);
 }
-html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="xhigh"] {
-  --kleio-level: #8eb8f0;
-}
-html:not(.platform-ios) .app.app-session > .footer .thinking-toggle[data-level="max"] {
-  --kleio-level: #c4a0ed;
+html:not(.platform-ios)
+  .app.app-session
+  > .footer
+  .thinking-toggle:is([data-level="xhigh"], [data-level="max"], [data-level="ultra"]) {
+  --kleio-level: var(--kleio-think-top);
+  --kleio-level-fill: var(--kleio-think-top-fill);
 }
 /* xhigh and max: the flat level colour, with no pink sweep. */
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .shimmer-text {
@@ -2191,7 +2216,7 @@ html:not(.platform-ios) .app.app-session > .footer .thinking-toggle .shimmer-tex
   font-weight: inherit;
 }
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:hover:not(:disabled) {
-  background: #241f20;
+  background: none;
   filter: none;
 }
 /* Model pickers. Helper's label (the second pair) keeps its own colour. */
@@ -2223,6 +2248,352 @@ html:not(.platform-ios)
 html:not(.platform-ios) .app.app-session > .footer .model-picker:has(.model-select:focus-visible) {
   outline: 2px solid var(--kleio-lapis);
   outline-offset: 2px;
+}
+
+/* ── Model panel ── opened from the Kleio model control, it takes the composer's
+   place in the dock and grows upward; the status row under it does not move.
+   The composer stays mounted under it, so the draft and attachments survive. */
+html:not(.platform-ios) .app.app-session:has(> .model-panel) > .inputwrap {
+  display: none;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-trigger {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .footer .model-trigger[aria-expanded="true"] {
+  color: var(--kleio-lapis) !important;
+}
+html:not(.platform-ios) .app.app-session > .footer .thinking-toggle:focus-visible {
+  outline-offset: 3px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel {
+  box-sizing: border-box;
+  flex: none;
+  margin: 0 var(--kleio-gutter);
+  overflow: hidden;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text);
+  font-size: 12px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .task-activity:last-child)
+  + .model-panel {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+html:not(.platform-ios) .app.app-session > .model-panel > header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel > header h3 {
+  margin: 0;
+  color: var(--kleio-text-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-panel-meta {
+  flex: 1;
+  min-width: 0;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-panel-esc {
+  padding: 1px 5px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  color: var(--kleio-muted);
+  font-size: 10px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-close {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-close:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  :is(.model-close, .model-review button):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  :is(.model-summary, .model-search, .model-thinking, .model-review) {
+  padding: 10px 16px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel :is(.model-summary, .model-thinking) small {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  color: var(--kleio-text);
+  font: inherit;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search input:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -1px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-search output {
+  min-width: 65px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-list {
+  height: 176px;
+  padding: 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--kleio-muted) var(--kleio-surface);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-group h4 {
+  margin: 12px 0 6px;
+  color: var(--kleio-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option span {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option small {
+  color: var(--kleio-muted);
+  font-size: 11px;
+  text-align: right;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option[aria-pressed="true"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .model-option:not(:disabled):is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-option:disabled {
+  color: var(--kleio-muted);
+  opacity: 0.6;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-thinking {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-levels {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="off"] {
+  --kleio-level: var(--kleio-think-off);
+  --kleio-level-fill: var(--kleio-think-off-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="low"] {
+  --kleio-level: var(--kleio-think-low);
+  --kleio-level-fill: var(--kleio-think-low-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="medium"] {
+  --kleio-level: var(--kleio-think-medium);
+  --kleio-level-fill: var(--kleio-think-medium-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice[data-level="high"] {
+  --kleio-level: var(--kleio-think-high);
+  --kleio-level-fill: var(--kleio-think-high-fill);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice:is([data-level="xhigh"], [data-level="max"], [data-level="ultra"]) {
+  --kleio-level: var(--kleio-think-top);
+  --kleio-level-fill: var(--kleio-think-top-fill);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice {
+  position: relative;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 34px;
+  border: 2px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  color: var(--kleio-level);
+  font-size: 12px;
+  transition:
+    background-color 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span::before {
+  content: "✓";
+  visibility: hidden;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:checked
+  + span::before {
+  visibility: visible;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input:hover + span {
+  border-color: color-mix(in srgb, var(--kleio-level) 65%, var(--kleio-edge));
+  background: color-mix(in srgb, var(--kleio-level-fill) 45%, var(--kleio-raised));
+  color: color-mix(in srgb, var(--kleio-level) 92%, var(--kleio-ink));
+}
+html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice input:checked + span {
+  border-color: var(--kleio-level);
+  background: var(--kleio-level-fill);
+  color: var(--kleio-level);
+  font-weight: 700;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:checked:hover
+  + span {
+  background: color-mix(in srgb, var(--kleio-level-fill) 92%, var(--kleio-surface));
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .thinking-choice
+  input:focus-visible
+  + span {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:not(.platform-ios) .app.app-session > .model-panel .thinking-choice span {
+    transition: none;
+  }
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review {
+  display: flex;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 16px;
+  min-height: 82px;
+  border-top: 1px solid var(--kleio-edge);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review-copy {
+  flex: 1;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review p {
+  margin: 4px 0 0;
+  color: var(--kleio-text-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review button {
+  flex: none;
+  padding: 8px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-text);
+  font: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .model-panel
+  .model-review
+  button:not(:disabled):is(:hover, :focus-visible) {
+  border-color: var(--kleio-lapis);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .model-panel .model-review button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+html:not(.platform-ios) .app.app-session > .model-panel > .placeholder-notice {
+  margin: 10px 16px;
 }
 
 /* ── Transcript column ── the conversation of a Code, Chat or Motion session,

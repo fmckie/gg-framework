@@ -185,6 +185,7 @@ import {
   type ChecklistNotice,
 } from "./placeholder/ChecklistView";
 import { AppFooter } from "./AppFooter";
+import { ModelPanel, applyThinkingLevel } from "./ModelPanel";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
 import { useAttachments } from "./useAttachments";
@@ -430,6 +431,10 @@ function App(): React.ReactElement {
   const [thinkingStartTs, setThinkingStartTs] = useState<number | null>(null);
   const [thinkingAccumMs, setThinkingAccumMs] = useState(0);
   const [models, setModels] = useState<ModelOption[]>([]);
+  // The desktop's Model panel, which takes the composer's place while open.
+  const [modelPanelOpen, setModelPanelOpen] = useState(false);
+  const [thinkingPreview, setThinkingPreview] = useState<string | null | undefined>(undefined);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   // Caret offset in the composer, tracked so the `/schedule` hint can highlight
@@ -2763,6 +2768,16 @@ function App(): React.ReactElement {
   // New on top, the session's tools under them (WorkspaceHeader). The desktop
   // keeps back and New in its tools row.
   const phoneHeader = isPhone();
+  // A run locks the model, so it also puts the panel away.
+  if (running && modelPanelOpen) {
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+  }
+  const closeModelPanel = (): void => {
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    modelTriggerRef.current?.focus({ preventScroll: true });
+  };
   const activeRemote = kleioRemote.status?.active ?? null;
   // The subscription usage bar. The iPhone's title row has no room for it, so
   // there it sits at the right end of the activity row, by the tools chevron.
@@ -3208,6 +3223,24 @@ function App(): React.ReactElement {
           )}
         </div>
 
+        {modelPanelOpen && !phoneHeader && !running && (
+          <ModelPanel
+            id="model-panel"
+            models={models}
+            currentModel={state?.model ?? ""}
+            thinkingLevel={state?.thinkingLevel ?? null}
+            thinkingLevels={state?.supportedThinkingLevels ?? []}
+            onUseModel={onSelectModel}
+            onApplyThinking={(level) => {
+              void applyThinkingLevel(level, state?.thinkingLevel ?? null).then((reached) => {
+                if (!reached) toast("That thinking level could not be set for this model", "error");
+              });
+            }}
+            onPreviewThinking={setThinkingPreview}
+            onClose={closeModelPanel}
+          />
+        )}
+
         <Composer
           isFileDragOver={isFileDragOver}
           scheduleInvalid={scheduleInvalid}
@@ -3297,6 +3330,13 @@ function App(): React.ReactElement {
           onSelectKenModel={onSelectKenModel}
           kenRunning={kenRunning}
           autopilotReviewing={autopilotReviewing}
+          modelPanel={{
+            open: modelPanelOpen,
+            panelId: "model-panel",
+            onToggle: () => (modelPanelOpen ? closeModelPanel() : setModelPanelOpen(true)),
+            triggerRef: modelTriggerRef,
+            previewLevel: thinkingPreview,
+          }}
         />
       </Activity>
 

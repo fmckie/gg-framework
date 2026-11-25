@@ -8,6 +8,7 @@ import {
   type ModelOption,
 } from "./agent";
 import { ModelSelect } from "./ModelSelect";
+import { ModelTrigger } from "./ModelPanel";
 import { RunningSchedulesButton } from "./RunningSchedulesButton";
 import type { Routine } from "./useRoutines";
 import { ContextMeter } from "./ContextMeter";
@@ -56,6 +57,7 @@ export function AppFooter({
   onSelectKenModel,
   kenRunning,
   autopilotReviewing,
+  modelPanel,
 }: {
   workspaceMode: WorkspaceMode;
   hydrated: boolean;
@@ -72,6 +74,15 @@ export function AppFooter({
   onSelectKenModel: (modelId: string | null) => void;
   kenRunning: boolean;
   autopilotReviewing: boolean;
+  /** The desktop's Model panel. Without it the old picker stays (the iPhone). */
+  modelPanel?: {
+    open: boolean;
+    panelId: string;
+    onToggle: () => void;
+    triggerRef: React.Ref<HTMLButtonElement>;
+    /** The level being tried in the panel; undefined when none is. */
+    previewLevel?: string | null;
+  };
 }) {
   return (
     <div
@@ -136,7 +147,13 @@ export function AppFooter({
             )}
             {(state?.supportedThinkingLevels?.length ?? 0) > 0 &&
               (() => {
-                const level = state?.thinkingLevel ?? null;
+                // While the Model panel is open it owns the level: this control
+                // shows the one being tried and waits for Cancel or Use model.
+                const previewing = !phoneHeader && modelPanel?.open === true;
+                const level =
+                  previewing && modelPanel.previewLevel !== undefined
+                    ? modelPanel.previewLevel
+                    : (state?.thinkingLevel ?? null);
                 const label = level ? `Thinking ${level}` : "Thinking off";
                 const maxPower = level === "xhigh" || level === "max";
                 // Reasoning level is baked into the request the run is already
@@ -150,6 +167,7 @@ export function AppFooter({
                       className="thinking-toggle"
                       // The desktop session colours the label by level in CSS.
                       data-level={level ?? "off"}
+                      data-preview={previewing ? "" : undefined}
                       style={{
                         color: locked ? theme.textDim : thinkingColor(level),
                         fontWeight: level === "high" ? 600 : 400,
@@ -157,9 +175,11 @@ export function AppFooter({
                       title={
                         locked
                           ? "Can't change reasoning level while the agent is running — cancel the run or wait for it to finish"
-                          : "Cycle reasoning level"
+                          : previewing
+                            ? "Set in the Model panel while it is open"
+                            : "Cycle reasoning level"
                       }
-                      disabled={locked}
+                      disabled={locked || previewing}
                       onClick={() => void cycleThinking()}
                     >
                       {maxPower && !locked ? (
@@ -178,15 +198,28 @@ export function AppFooter({
               <span className="model-label" style={{ color: theme.text }}>
                 Kleio
               </span>
-              <ModelSelect
-                models={models}
-                currentModel={state?.model ?? ""}
-                onSelect={onSelectModel}
-                offerPaid
-                compact={phoneHeader}
-                disabled={running}
-                title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
-              />
+              {!phoneHeader && modelPanel ? (
+                <ModelTrigger
+                  models={models}
+                  currentModel={state?.model ?? ""}
+                  disabled={running}
+                  title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
+                  open={modelPanel.open}
+                  panelId={modelPanel.panelId}
+                  onToggle={modelPanel.onToggle}
+                  buttonRef={modelPanel.triggerRef}
+                />
+              ) : (
+                <ModelSelect
+                  models={models}
+                  currentModel={state?.model ?? ""}
+                  onSelect={onSelectModel}
+                  offerPaid
+                  compact={phoneHeader}
+                  disabled={running}
+                  title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
+                />
+              )}
             </span>
             {workspaceMode === "code" && (
               <>
