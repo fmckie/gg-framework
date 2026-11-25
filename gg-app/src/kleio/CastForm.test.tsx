@@ -484,3 +484,16 @@ describe("the Cast's form with reduced motion", () => {
     for (const sel of eased) expect(sel, sel).toMatch(/^\.cast-(shuffle|pickers|switch)/);
   });
 });
+
+describe("the Cast's form in a wide window", () => {
+  it("widens the spotlight with the character, as the mockup does from 1400 px", () => {
+    const form = castCss
+      .slice(castCss.indexOf("/* ── the form"), castCss.indexOf("/* ── a group's form"))
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const wide = /@media \(min-width: 1400px\) \{([\s\S]*?)\n\}/.exec(form)?.[1] ?? "";
+    const mini = /\n {2}\.cast-mini \{([^}]*)\}/.exec(wide)?.[1] ?? "";
+    expect(mini).toMatch(/--size: 168px;/);
+    expect(mini).toMatch(/--cone-w: 300px;/);
+    expect(mini).toMatch(/--cone-h: 230px;/);
+  });
+});

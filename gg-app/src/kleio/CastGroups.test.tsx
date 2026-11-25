@@ -499,3 +499,30 @@ describe("the groups' shelf and form with reduced motion", () => {
     for (const m of own) expect(m[2], m[1]).not.toMatch(/\b(animation|transition)\b/);
   });
 });
+
+describe("the groups' shelf and form in a wide window", () => {
+  const rules = castCss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const wide = [...rules.matchAll(/@media \(min-width: 1400px\) \{([\s\S]*?)\n\}/g)];
+  const wideRule = (selector: string): { at: number; body: string } => {
+    for (const block of wide) {
+      const at = (block[1] ?? "").indexOf(`  ${selector} {`);
+      if (at < 0) continue;
+      const from = (block.index ?? 0) + block[0].indexOf(block[1] ?? "") + at;
+      return { at: from, body: rules.slice(from, rules.indexOf("}", from)) };
+    }
+    return { at: -1, body: "" };
+  };
+
+  it("gives the first run's specialists room as they grow, after the rule it replaces", () => {
+    const rule = wideRule(".cast-first.is-group .cast-stage");
+    expect(rule.body).toMatch(/grid-template-columns: repeat\(var\(--n\), minmax\(0, 250px\)\);/);
+    expect(rule.body).toMatch(/height: 336px;/);
+    expect(rule.at).toBeGreaterThan(rules.indexOf("\n.cast-first.is-group .cast-stage {"));
+  });
+
+  it("grows the form's members with the wider column, after the rule it replaces", () => {
+    const rule = wideRule(".cast-mini.cast-gstage");
+    expect(rule.body).toMatch(/--size: clamp\(50px, calc\(410px \/ var\(--n\)\), 126px\);/);
+    expect(rule.at).toBeGreaterThan(rules.indexOf("\n.cast-mini.cast-gstage {"));
+  });
+});

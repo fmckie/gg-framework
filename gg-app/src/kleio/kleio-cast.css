@@ -1073,7 +1073,8 @@
   .cast-p-head h2 {
     font-size: 32px;
   }
-  .cast-p-head .blob-av {
+  /* Its own picture only: a group's is three small ones (.blob-cluster). */
+  .cast-p-head > .blob-av {
     width: 44px;
     height: 44px;
   }
@@ -1109,6 +1110,10 @@
   .cast-welcome p {
     max-width: 520px;
     font-size: 16px;
+  }
+  .cast-first.is-group .cast-stage {
+    grid-template-columns: repeat(var(--n), minmax(0, 250px));
+    height: 336px;
   }
 }
 
@@ -1934,6 +1939,7 @@ input[type="time"].cast-field::-webkit-calendar-picker-indicator {
   }
   .cast-mini {
     --size: 168px;
+    --cone-w: 300px;
     --cone-h: 230px;
     height: 250px;
   }
@@ -2006,6 +2012,11 @@ input[type="time"].cast-field::-webkit-calendar-picker-indicator {
 }
 .cast-gform .kleio-count-line {
   margin-top: 8px;
+}
+@media (min-width: 1400px) {
+  .cast-mini.cast-gstage {
+    --size: clamp(50px, calc(410px / var(--n)), 126px);
+  }
 }
 
 /* ── the group's room (CastRoom.tsx): who is in it, then the conversation ──

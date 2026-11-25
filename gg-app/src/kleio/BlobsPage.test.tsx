@@ -803,6 +803,16 @@ describe("the Cast shelf", () => {
     expect(rules.indexOf(".cast-error {")).toBeGreaterThan(rules.indexOf(".cast-page :where("));
   });
 
+  it("in a wide window enlarges a specialist's own picture, never the three in a group's", () => {
+    const rules = castCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    const wide = [...rules.matchAll(/@media \(min-width: 1400px\) \{([\s\S]*?)\n\}/g)]
+      .map((m) => m[1] ?? "")
+      .join("\n");
+    expect(wide).toMatch(/\.cast-p-head > \.blob-av \{\s*width: 44px;\s*height: 44px;/);
+    // A descendant selector would reach every member in the group's picture (.blob-cluster).
+    expect(wide).not.toMatch(/\.cast-p-head \.blob-av/);
+  });
+
   it("holds the profile's buttons and the example jobs still with reduced motion", async () => {
     const block = /@media \(prefers-reduced-motion: reduce\) \{\n([\s\S]*?)\n\}\n?$/.exec(castCss);
     const still = (/^\s*([^{]+)\{/.exec(block?.[1] ?? "")?.[1] ?? "")
