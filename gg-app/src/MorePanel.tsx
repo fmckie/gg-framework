@@ -1,17 +1,28 @@
 import { useEffect, useRef } from "react";
 
 // The row inside the bottom of the composer. A trigger with no panel behind it
-// is not shown, so today it holds More alone.
+// is not shown: Branch is there only when the session has one to show.
 export function PanelEntryBar({
   moreOpen,
   morePanelId,
   onToggleMore,
   moreRef,
+  branchName,
+  branchOpen = false,
+  branchPanelId,
+  onToggleBranch,
+  branchRef,
 }: {
   moreOpen: boolean;
   morePanelId: string;
   onToggleMore: () => void;
   moreRef?: React.Ref<HTMLButtonElement>;
+  /** The session's branch; without one there is no Branch trigger. */
+  branchName?: string | null;
+  branchOpen?: boolean;
+  branchPanelId?: string;
+  onToggleBranch?: () => void;
+  branchRef?: React.Ref<HTMLButtonElement>;
 }): React.ReactElement {
   return (
     <nav className="panel-entry-bar" aria-label="Composer panel entries">
@@ -25,6 +36,19 @@ export function PanelEntryBar({
       >
         More <span aria-hidden="true">{"···"}</span>
       </button>
+      {branchName && (
+        <button
+          ref={branchRef}
+          type="button"
+          className="panel-entry branch-entry"
+          aria-label={`Branch ${branchName}`}
+          aria-expanded={branchOpen}
+          aria-controls={branchOpen ? branchPanelId : undefined}
+          onClick={onToggleBranch}
+        >
+          <span aria-hidden="true">{"⑂"}</span> {branchName}
+        </button>
+      )}
     </nav>
   );
 }
@@ -56,7 +80,7 @@ export function MorePanel({
   }, [onClose]);
 
   return (
-    <section id={id} className="more-panel" aria-label="More">
+    <section id={id} className="composer-panel more-panel" aria-label="More">
       <header className="panel-header">
         <h3>More</h3>
         <span className="panel-esc" aria-hidden="true">

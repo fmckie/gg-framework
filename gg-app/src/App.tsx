@@ -66,6 +66,7 @@ import {
   notifyAskUser,
   selectWorkspace,
   getSettings,
+  openUrl,
 } from "./agent";
 import {
   appendPendingAsks,
@@ -187,6 +188,7 @@ import {
 import { AppFooter } from "./AppFooter";
 import { ModelPanel, applyThinkingLevel } from "./ModelPanel";
 import { MorePanel, PanelEntryBar } from "./MorePanel";
+import { BranchPanel } from "./BranchPanel";
 import { Composer } from "./Composer";
 import { WorkspaceHeaderActions } from "./WorkspaceHeaderActions";
 import { useAttachments } from "./useAttachments";
@@ -439,6 +441,8 @@ function App(): React.ReactElement {
   // The More panel, opened from the row inside the bottom of the composer.
   const [morePanelOpen, setMorePanelOpen] = useState(false);
   const moreTriggerRef = useRef<HTMLButtonElement>(null);
+  const [branchPanelOpen, setBranchPanelOpen] = useState(false);
+  const branchTriggerRef = useRef<HTMLButtonElement>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [slashIndex, setSlashIndex] = useState(0);
   // Caret offset in the composer, tracked so the `/schedule` hint can highlight
@@ -2800,7 +2804,25 @@ function App(): React.ReactElement {
     // One panel at a time: More takes the Model panel's place.
     setModelPanelOpen(false);
     setThinkingPreview(undefined);
+    setBranchPanelOpen(false);
     setMorePanelOpen(true);
+  };
+  // Branch holds only what the session's state carries, and all of it hangs
+  // off the branch and its GitHub repository: without both there is no trigger.
+  const branchName = state?.gitBranch || null;
+  const branchRepoUrl = state?.gitHubRepoUrl || null;
+  const showBranchEntry = showMoreRow && branchName !== null && branchRepoUrl !== null;
+  if (branchPanelOpen && (showChecklist || !showBranchEntry)) setBranchPanelOpen(false);
+  const closeBranchPanel = (): void => {
+    setBranchPanelOpen(false);
+    branchTriggerRef.current?.focus({ preventScroll: true });
+  };
+  const toggleBranchPanel = (): void => {
+    if (branchPanelOpen) return closeBranchPanel();
+    setModelPanelOpen(false);
+    setThinkingPreview(undefined);
+    setMorePanelOpen(false);
+    setBranchPanelOpen(true);
   };
   const activeRemote = kleioRemote.status?.active ?? null;
   // The subscription usage bar. The iPhone's title row has no room for it, so
@@ -3280,6 +3302,18 @@ function App(): React.ReactElement {
             onClose={closeMorePanel}
           />
         )}
+        {branchPanelOpen && showMoreRow && branchName && branchRepoUrl && (
+          <BranchPanel
+            id="branch-panel"
+            branch={branchName}
+            uncommitted={state?.gitDirtyFileCount ?? 0}
+            pullRequests={state?.gitHubPRs ?? null}
+            issues={state?.gitHubIssues ?? null}
+            repoUrl={branchRepoUrl}
+            onOpen={(url) => void openUrl(url)}
+            onClose={closeBranchPanel}
+          />
+        )}
 
         <Composer
           isFileDragOver={isFileDragOver}
@@ -3359,6 +3393,11 @@ function App(): React.ReactElement {
                 morePanelId="more-panel"
                 onToggleMore={toggleMorePanel}
                 moreRef={moreTriggerRef}
+                branchName={showBranchEntry ? branchName : null}
+                branchOpen={branchPanelOpen}
+                branchPanelId="branch-panel"
+                onToggleBranch={toggleBranchPanel}
+                branchRef={branchTriggerRef}
               />
             )
           }
@@ -3386,6 +3425,7 @@ function App(): React.ReactElement {
             onToggle: () => {
               if (modelPanelOpen) return closeModelPanel();
               setMorePanelOpen(false);
+              setBranchPanelOpen(false);
               setModelPanelOpen(true);
             },
             triggerRef: modelTriggerRef,

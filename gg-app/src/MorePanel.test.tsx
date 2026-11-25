@@ -61,3 +61,50 @@ describe("PanelEntryBar", () => {
     expect(more.getAttribute("aria-controls")).toBe("more-panel");
   });
 });
+
+describe("PanelEntryBar with a branch", () => {
+  it("adds Branch after More, named for the branch", () => {
+    const onToggleBranch = vi.fn();
+    render(
+      <PanelEntryBar
+        moreOpen={false}
+        morePanelId="more-panel"
+        onToggleMore={vi.fn()}
+        branchName="phase3/generate-recipe"
+        branchPanelId="branch-panel"
+        onToggleBranch={onToggleBranch}
+      />,
+    );
+    const row = screen.getByRole("navigation", { name: "Composer panel entries" });
+    const trigger = screen.getByRole("button", { name: "Branch phase3/generate-recipe" });
+    expect([...row.querySelectorAll("button")]).toEqual([
+      screen.getByRole("button", { name: "More" }),
+      trigger,
+    ]);
+    expect(trigger.textContent).toBe("⑂ phase3/generate-recipe");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.hasAttribute("aria-controls")).toBe(false);
+    fireEvent.click(trigger);
+    expect(onToggleBranch).toHaveBeenCalledTimes(1);
+  });
+
+  it("points at Branch's panel while it is open, and More's stays shut", () => {
+    render(
+      <PanelEntryBar
+        moreOpen={false}
+        morePanelId="more-panel"
+        onToggleMore={vi.fn()}
+        branchName="phase3/generate-recipe"
+        branchOpen
+        branchPanelId="branch-panel"
+        onToggleBranch={vi.fn()}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Branch phase3/generate-recipe" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe("branch-panel");
+    expect(screen.getByRole("button", { name: "More" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+  });
+});
