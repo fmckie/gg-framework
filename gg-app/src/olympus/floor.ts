@@ -271,7 +271,7 @@ export interface FloorOptions {
 export interface CrowdAct {
   readonly t: number;
   readonly key: string;
-  readonly kind: "clear" | "stretch" | "step" | "brief";
+  readonly kind: "clear" | "stretch" | "step" | "brief" | "wait";
   readonly what: string | null;
 }
 
@@ -2617,8 +2617,20 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         );
       const limit = stale ? BYE_STUCK : report ? BYE_WAIT : GREET_WAIT;
       god.pose = "stand"; // standing by, waiting for room to say it
-      if (waited < limit && !(report && waited >= BYE_STUCK && stuck(god)))
+      if (waited < limit && !(report && waited >= BYE_STUCK && stuck(god))) {
+        if (crowd && limit - waited < HOLD) {
+          // Its last look, at its limit to the ms, not a look past it.
+          act(
+            "wait",
+            god,
+            t,
+            `its last look after ${Math.round(limit - waited)}ms, at its ${limit}ms`,
+          );
+          enter(god, "hold", t, limit - waited, { then: (t2) => speak(god, t2, kind) });
+          return;
+        }
         return wait(god, t, (t2) => speak(god, t2, kind));
+      }
       // No room came: it goes on without a word.
       god.waiting = null;
       god.line = null;

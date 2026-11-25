@@ -6516,9 +6516,11 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
   function crowd(
     medallions: boolean,
     reduced: boolean,
-  ): { looks: string[]; pooled: number; most: number } {
+  ): { looks: string[]; pooled: number; most: number; waits: string[]; sets: string[] } {
     const s = stage({ seed: 5, medallions, reduced });
     const looks: string[] = [];
+    const waits: string[] = [];
+    const sets: string[] = [];
     let most = 0;
     let pooled = -1;
     for (let ms = 0; ms <= 30_000; ms += 250) {
@@ -6528,12 +6530,15 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
       const { medallions: seen, ...rest } = s.peek();
       most = Math.max(most, seen.length);
       if (pooled < 0 && rest.waiting.length) pooled = looks.length;
+      const waiting = JSON.stringify(rest.waiting);
+      if (waits[waits.length - 1] !== waiting) waits.push(waiting);
+      for (const god of rest.gods) if (!sets.includes(god.key)) sets.push(god.key);
       const page = s.lane.cloneNode(true) as HTMLElement;
       for (const el of page.querySelectorAll(".oly-medal")) el.remove();
       looks.push(`${JSON.stringify(rest)} ${s.lane.style.height} ${page.innerHTML} ${asked}`);
       s.host.run(250, 16);
     }
-    return { looks, pooled, most };
+    return { looks, pooled, most, waits, sets };
   }
 
   it("puts nothing on the clock and throws no dice: hung, shown, taken down and moved up, the floor asks for not a step, a wake or a throw more for eight medallions and one unseen than for three", () => {
@@ -6553,7 +6558,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     expect(many.woken).toEqual(few.woken);
   });
 
-  it("a seeded run plays the same with the pool shown as with it unseen until the first god is pooled: every step, place, line, card and throw of the dice (the crowd's run)", () => {
+  it("a seeded run plays the same with the pool shown as with it unseen until the first god is pooled: every step, place, line, card and throw of the dice; and from then the pool fills and empties in the same order, and the same gods are set in the same order (the crowd's run)", () => {
     const shown = crowd(true, false);
     const unseen = crowd(false, false);
     expect(shown.most).toBe(2);
@@ -6563,15 +6568,24 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     expect(shown.looks.slice(0, shown.pooled)).toEqual(unseen.looks.slice(0, shown.pooled));
     // From then the piers are part of the run: the floor's edges are in.
     expect(shown.looks[shown.pooled]).not.toBe(unseen.looks[shown.pooled]);
+    // But the pool is the same pool through all 30 s, seen or not: who waits, in what order, and the order they are set in.
+    expect(shown.waits).toEqual(unseen.waits);
+    expect(shown.sets).toEqual(unseen.sets);
+    expect(shown.waits).toHaveLength(5);
+    expect(shown.sets).toHaveLength(6);
   });
 
-  it("under reduced motion the same run plays the same, shown or unseen, until the first god is pooled", () => {
+  it("under reduced motion the same run plays the same, shown or unseen, until the first god is pooled; and from then the pool fills and empties in the same order, and the same gods are set in the same order", () => {
     const shown = crowd(true, true);
     const unseen = crowd(false, true);
     expect(shown.most).toBe(2);
     expect(shown.pooled).toBe(1); // the crowd is sent nearly at once
     expect(unseen.pooled).toBe(shown.pooled);
     expect(shown.looks.slice(0, shown.pooled)).toEqual(unseen.looks.slice(0, shown.pooled));
+    expect(shown.waits).toEqual(unseen.waits);
+    expect(shown.sets).toEqual(unseen.sets);
+    expect(shown.waits).toHaveLength(5);
+    expect(shown.sets).toHaveLength(7);
   });
 
   it("under reduced motion a medallion is there or it isn't: no opacity is ever written, it is gone the moment its god is set, and the one under it moves up by a cut", () => {
@@ -7555,5 +7569,182 @@ describe("room in a crowd: room to speak", () => {
     expect(steps.has("report")).toBe(true);
     expect(steps.has("walk")).toBe(false);
     expect(steps.has("glance")).toBe(false);
+  });
+});
+
+describe("room in a crowd: the last look, and the twins", () => {
+  /** A crowd of `n`, sent together: past seven, the gods come round again. */
+  const crowdOf = (n: number, status?: "done"): LaneAgent[] =>
+    [...ALL, ...ALL].slice(0, n).map((god, i) => agent(`g${i}`, god, status));
+  const sent = (n: number, opts: Parameters<typeof stage>[0]): Stage => {
+    const s = stage(opts);
+    s.sync(crowdOf(n));
+    return s;
+  };
+  const to = (s: Stage, at: number): void => {
+    while (s.host.now() + 16 <= at) s.host.advance(16);
+    s.host.advance(at - s.host.now());
+  };
+  const god = (s: Stage, key: string): Seen | undefined =>
+    s.peek().gods.find((seen) => seen.key === key);
+  const waits = (s: Stage): CrowdAct[] => s.crowded.filter((act) => act.kind === "wait");
+  const look = (s: Stage): string =>
+    `${JSON.stringify(s.peek())} ${s.lane.style.height} ${s.lane.innerHTML} ${s.asked.clock} ${s.asked.dice} ${s.woken.times} ${s.drawn.frames}`;
+  /** The fixes on and off, a frame every 16 ms, `mid` done to both after each: how long they look and have asked the same. */
+  const twins = (
+    n: number,
+    opts: Parameters<typeof stage>[0],
+    ms: number,
+    mid?: (s: Stage, t: number) => void,
+  ) => {
+    const on = sent(n, { ...opts, crowd: true });
+    const off = sent(n, { ...opts, crowd: false });
+    let same = 0;
+    let apart = false;
+    let pool = 0;
+    let medals = 0;
+    for (let t = 0; t + 16 <= ms; t += 16) {
+      for (const s of [on, off]) {
+        s.host.advance(16);
+        mid?.(s, s.host.now());
+      }
+      if (look(on) !== look(off)) apart = true;
+      if (apart) continue;
+      same = on.host.now();
+      pool = Math.max(pool, on.peek().waiting.length);
+      medals = Math.max(medals, on.peek().medallions.length);
+    }
+    return { on, off, same, apart, pool, medals };
+  };
+
+  it("a god waiting for room to greet looks one last time at its limit to the ms, 1500 and not a look past it at 1600, and goes on without a word; the look is logged as a wait", () => {
+    const s = sent(3, { seed: 5, width: 560, crowd: true });
+    // Set by 4100, it has stood by since, a look every 200 ms.
+    to(s, 4100);
+    expect(god(s, "g2")).toMatchObject({ step: "hold", pose: "stand", line: null });
+    to(s, 5499);
+    expect(waits(s)).toEqual([]);
+    to(s, 5500);
+    expect(waits(s)).toEqual([
+      { t: 5500, key: "g2", kind: "wait", what: "its last look after 100ms, at its 1500ms" },
+    ]);
+    to(s, 5599);
+    expect(god(s, "g2")).toMatchObject({ step: "hold", pose: "stand" });
+    to(s, 5600);
+    expect(god(s, "g2")).toMatchObject({ step: "walk", line: null });
+    const steps = new Set<string>();
+    until(s, () => (steps.add(god(s, "g2")!.step), god(s, "g2")!.step === "work"));
+    expect(steps.has("greet")).toBe(false);
+    expect(waits(s)).toHaveLength(1);
+  });
+
+  it("room found at the last look is taken: a brief line after a step, 1500 ms after it first stood by", () => {
+    const s = sent(4, { seed: 14, crowd: true });
+    to(s, 4950);
+    expect(god(s, "g3")).toMatchObject({ step: "hold", line: null });
+    to(s, 6449);
+    expect(god(s, "g3")).toMatchObject({ step: "hold", line: null });
+    to(s, 6450);
+    expect(s.crowded.filter((act) => act.key === "g3")).toEqual([
+      { t: 6350, key: "g3", kind: "wait", what: "its last look after 100ms, at its 1500ms" },
+      { t: 6450, key: "g3", kind: "brief", what: "Here." },
+      { t: 6450, key: "g3", kind: "step", what: "brief, 4px, to say “Here.”" },
+    ]);
+    expect(god(s, "g3")).toMatchObject({ step: "walk" });
+    until(s, () => god(s, "g3")!.step !== "walk");
+    expect(god(s, "g3")).toMatchObject({ step: "greet", line: "Here." });
+  });
+
+  it("with the pool in play a seeded crowd matches its twin with the fixes off, frame by frame, medallions and all, up to the first thing logged", () => {
+    const pooled = twins(7, { seed: 10 }, 12_000);
+    expect(pooled.on.crowded[0]).toMatchObject({ t: 1850, key: "g1", kind: "stretch" });
+    expect(pooled.same).toBe(1840);
+    expect(pooled.apart).toBe(true);
+    // Two wait for a place, on their piers, while the two still match.
+    expect(pooled.pool).toBe(2);
+    expect(pooled.medals).toBe(2);
+  });
+
+  it("across a resize a seeded crowd matches its twin with the fixes off: throughout where no fix acts, and up to the first thing logged where one does", () => {
+    const narrowed =
+      (at: number, width: number) =>
+      (s: Stage, t: number): void => {
+        if (t !== at) return;
+        s.setWidth(width);
+        s.resize();
+      };
+    const places = (s: Stage): string => JSON.stringify(s.peek().gods.map((seen) => seen.place));
+    const quiet = twins(3, { seed: 2 }, 12_000, narrowed(4992, 480));
+    expect(quiet.on.crowded).toEqual([]);
+    expect(quiet.apart).toBe(false);
+    expect(quiet.on.asked).toEqual(quiet.off.asked);
+    expect(quiet.on.woken).toEqual(quiet.off.woken);
+    // And the resize did move them.
+    const wide = sent(3, { seed: 2, crowd: true });
+    wide.host.run(12_000, 16);
+    expect(places(quiet.on)).not.toBe(places(wide));
+    // Narrowed as the first is still to be set: the same to the frame before the fix.
+    const acted = twins(3, { seed: 10 }, 12_000, narrowed(496, 640));
+    expect(acted.on.crowded[0]).toMatchObject({ t: 1000, kind: "clear" });
+    expect(acted.same).toBe(992);
+    expect(acted.apart).toBe(true);
+  });
+
+  it("a god ended in the middle of a step to greet: the twins match up to the first thing logged, and it drops the line it stepped for, says a farewell and goes, as its twin does", () => {
+    const seen: string[] = [];
+    const lines = new Set<string>();
+    let stepping: string | undefined;
+    const ended = twins(4, { seed: 3 }, 16_000, (s, t) => {
+      const g3 = god(s, "g3");
+      if (s.crowded.length) {
+        // the one with the fixes on, once they have acted
+        const now = g3?.step ?? "gone";
+        if (seen[seen.length - 1] !== now) seen.push(now);
+        if (g3?.line) lines.add(g3.line);
+      }
+      if (t !== 5008) return;
+      if (s.crowded.length) stepping = g3?.step;
+      s.sync(crowdOf(4).map((a) => (a.key === "g3" ? agent("g3", ALL[3], "done") : a)));
+    });
+    expect(ended.on.crowded[0]).toMatchObject({ t: 1850 });
+    expect(ended.same).toBe(1840);
+    expect(ended.on.crowded.filter((act) => act.key === "g3")).toEqual([
+      { t: 4950, key: "g3", kind: "brief", what: "Ready." },
+      { t: 4950, key: "g3", kind: "step", what: "brief, 24px, to say “Ready.”" },
+      { t: expect.any(Number), key: "g3", kind: "brief", what: "Yours." },
+    ]);
+    expect(stepping).toBe("walk");
+    expect(seen).toEqual(["gone", "assemble", "walk", "report", "seal", "walk", "unset", "gone"]);
+    expect([...lines]).toEqual(["Yours."]);
+    for (const s of [ended.on, ended.off]) {
+      expect(god(s, "g3")).toBeUndefined();
+      expect(s.peek().gods.map((g) => g.step)).toEqual(["work", "work", "work"]);
+    }
+  });
+
+  it("with the fixes off a seeded crowd asks what it did at 4cbd806c, before there were any: every step, throw and wake", () => {
+    // Read off the engine as it was at 4cbd806c, with this same test.
+    const asked = (s: Stage): number[] => [s.asked.clock, s.asked.dice, s.woken.times];
+    // Five on a narrow lane, all done at 14 s: landings held back, lines unsaid, farewells waited out.
+    const narrow = sent(5, { seed: 12, width: 560 });
+    // The counts cannot tell a wait that ends 100 ms sooner: the frame each god is first at its work on can.
+    const began: Record<string, number> = {};
+    while (narrow.host.now() < 14_000) {
+      narrow.host.advance(16);
+      for (const seen of narrow.peek().gods)
+        if (seen.step === "work") began[seen.key] ??= narrow.host.now();
+    }
+    narrow.sync(crowdOf(5, "done"));
+    while (!shut(narrow) && narrow.host.now() < 40_000) narrow.host.advance(16);
+    expect({ began, shut: narrow.host.now(), asked: asked(narrow) }).toEqual({
+      began: { g0: 5872, g1: 8464, g2: 10_656, g3: 10_160, g4: 13_408 },
+      shut: 22_304,
+      asked: [140, 56, 0],
+    });
+    // And seven, the pool in play.
+    const pooled = sent(7, { seed: 10 });
+    pooled.host.run(12_000, 16);
+    expect(asked(pooled)).toEqual([42, 63, 0]);
+    expect(pooled.crowded).toEqual([]);
   });
 });
