@@ -280,8 +280,10 @@ export interface Cast {
   /**
    * The pool's medallions: a cameo's width and height, its rim and its peg,
    * px; how many hang on a side and how far apart; where the first hangs from
-   * the lane's corner, and how wide the pier it hangs on is; and for how long
-   * one is set, shows through, is taken down, and moves up a slot, ms.
+   * the lane's corner, how wide the pier it hangs on is, how wide an anta is
+   * before it widens to one, and where the floor's edge is inside a pier; and
+   * for how long one is set, shows through, is taken down, and moves up a
+   * slot, and the antae widen, ms.
    */
   readonly pool: {
     readonly w: number;
@@ -293,10 +295,13 @@ export interface Cast {
     readonly x: number;
     readonly y: number;
     readonly pier: number;
+    readonly anta: number;
+    readonly edge: number;
     readonly set: number;
     readonly reveal: number;
     readonly scatter: number;
     readonly slide: number;
+    readonly widen: number;
   };
   readonly gods: Readonly<Record<GodId, CastGod>>;
 }

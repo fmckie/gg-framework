@@ -57,10 +57,13 @@
     "x": 6.5,
     "y": 4.5,
     "pier": 30,
+    "anta": 12,
+    "edge": 34,
     "set": 600,
     "reveal": 150,
     "scatter": 700,
-    "slide": 300
+    "slide": 300,
+    "widen": 300
   },
   "gods": {
     "athena": {

@@ -517,8 +517,8 @@ if (
 // and for how long one is set, shows through, is taken down, and moves up a
 // slot, ms. Its box is the stylesheet's: its cameo and its rim.
 const pool = cast.pool ?? {};
-const POOL_KEYS = ["w", "h", "rim", "peg", "slots", "pitch", "x", "y", "pier"];
-const POOL_TIMES = ["set", "reveal", "scatter", "slide"];
+const POOL_KEYS = ["w", "h", "rim", "peg", "slots", "pitch", "x", "y", "pier", "anta", "edge"];
+const POOL_TIMES = ["set", "reveal", "scatter", "slide", "widen"];
 if (
   ![...POOL_KEYS, ...POOL_TIMES].every((key) => pool[key] > 0) ||
   !Number.isInteger(pool.slots) ||

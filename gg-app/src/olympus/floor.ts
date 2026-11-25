@@ -280,6 +280,8 @@ export interface FloorPeek {
   /** Waiting unseen for a place, oldest first. */
   readonly waiting: readonly string[];
   /** The medallions hung, in the order they were: whose, its side (-1 left) and slot, how far down it hangs and how far it shows now, and whether it is being taken down. */
+  /** The piers: an anta's width now, whether they are wide, and the floor's edges. */
+  readonly piers: { readonly width: number; readonly wide: boolean; readonly edges: Range };
   readonly medallions: readonly {
     readonly key: string;
     readonly side: -1 | 1;
@@ -734,6 +736,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const { sim, cast: CAST, random } = opts;
   const godsEl = lane.querySelector<HTMLElement>(".oly-gods")!;
   const namesEl = lane.querySelector<HTMLElement>(".oly-names")!;
+  const antae = [...lane.querySelectorAll<HTMLElement>(".oly-anta")]; // a lane may have none
   // The tesserae's canvas, behind the gods; a lane without one draws none.
   const fx = lane.querySelector<HTMLCanvasElement>("canvas.oly-fx");
   // The floor's, behind that; a lane without one has a bare bed.
@@ -785,8 +788,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let readyAt = 0;
   let closing: SimEvent | null = null;
   let W = WIDE;
-  const edgeL = EDGE;
+  let edgeL = EDGE;
   let edgeR = W - EDGE;
+  // The piers, this opening: asked for, widening since, wide; and the width last written.
+  const piers = { want: false, t0: null as number | null, wide: false, w: "" };
 
   // The floor's mosaic: the scene laid on the lane, if one is; whether its
   // stones are going down or coming up, since when, and when the last is
@@ -865,7 +870,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     // A lane that isn't laid out (its chat hidden) keeps the width it had.
     if (w <= 0 || w === W) return false;
     W = w;
-    edgeR = W - EDGE;
+    edgeR = W - (piers.want ? POOL.edge : EDGE);
     return true;
   }
 
@@ -939,6 +944,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function shut(t: number): void {
     mode = "shut";
     scene = null;
+    narrow();
     lane.classList.add("is-shut");
     setHeight(null);
     if (!reopen && !queue.length) return;
@@ -2542,6 +2548,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (pool.length > 0 || working5(god) >= CAPACITY || !fitsOn(god)) {
       pool.push(god);
       pooledAt.set(god, t);
+      widen(t);
       hangAll(t);
       return;
     }
@@ -2564,6 +2571,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // Those whose time is up are gone, the earliest first; the ones under each
   // move up a slot, and whoever still waits unhung takes what that frees.
   function settleMedals(t: number): void {
+    settlePiers(t);
     for (;;) {
       const m = medals
         .filter((o) => o.goneAt !== null && o.goneAt <= t)
@@ -2583,7 +2591,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   function hang(t: number): void {
-    if (!showPool) return;
+    if (!showPool || !piers.wide) return; // a medallion hangs on a pier, not an anta
     for (const god of pool) {
       if (medals.some((m) => m.god === god)) continue;
       const used: Record<-1 | 1, number[]> = { [-1]: [], 1: [] };
@@ -2627,6 +2635,116 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     }
   }
 
+  // ───────── the piers ─────────
+  // Both antae widen together, once an opening, and the floor's edges move in.
+  // The edges move first, when the first god is pooled, so nobody plans a
+  // place, a walk or a line under a pier; the antae widen once nothing is in
+  // their way. They stay wide until the lane shuts.
+  function widen(t: number): void {
+    if (!showPool || piers.want) return;
+    piers.want = true;
+    edgeL = POOL.edge;
+    edgeR = W - POOL.edge;
+    stepIn(t);
+    pierCheck(t);
+  }
+
+  function pierCheck(t: number): void {
+    if (!piers.want || piers.t0 !== null) return;
+    if (inTheWay(t)) return void later(t + HOLD, () => pierCheck(sim.now()));
+    piers.t0 = t; // no wake: the frame after this step or these records draws it
+  }
+
+  // They are wide once they have widened: worked out from when they began, by
+  // whichever step or frame comes next, and whoever waits is hung as of then.
+  const wideAt = (): number =>
+    piers.t0 === null ? Infinity : reduced() ? piers.t0 : piers.t0 + POOL.widen;
+  function settlePiers(t: number): void {
+    const at = wideAt();
+    if (piers.wide || t < at) return;
+    piers.wide = true;
+    hang(at);
+  }
+
+  // Whether a pier widening now would come over a god, its place or its line.
+  // A god going off the lane, or back to tesserae, goes behind it anyway.
+  function inTheWay(t: number): boolean {
+    const lo = POOL.pier;
+    const hi = W - POOL.pier;
+    for (const g of gods.values()) {
+      if (!g.landed || g.gone) continue;
+      const s = g.seg;
+      const k = s?.kind;
+      if ((k === "walk" || k === "glance") && s!.purpose === "leave") continue;
+      if (k === "unset" || (k === "hold" && s!.why === "unset")) continue;
+      const [a, b] = body(g, t);
+      if (a < lo || b > hi) return true;
+      if (g.rib && (g.rib.x0 < lo + RIB_PAD || g.rib.x1 > hi - RIB_PAD)) return true;
+      if (g.seat != null && !g.ending) {
+        const [e0, e1] = envOf(g);
+        if (g.seat + e0 < lo || g.seat + e1 > hi) return true;
+      }
+    }
+    return false;
+  }
+
+  // Whoever's place would cross the new edges steps in, the least it can.
+  function stepIn(t: number): void {
+    const all: Placed[] = byseat().map((g) => ({ g, x: g.seat }));
+    const out = (o: Placed): boolean => o.x < seatMin(o.g) - 1e-6 || o.x > seatMax(o.g) + 1e-6;
+    if (!all.some(out)) return;
+    const stay = new Set(all.filter((o) => o.g.ending).map((o) => o.g));
+    let seats = spread(all, stay) ?? spread(all, new Set()) ?? all.map((o) => o.x);
+    // Whoever would move only a little, and is inside the new edges, stays where it is if it can.
+    for (let held = true; held;) {
+      held = false;
+      const few = all
+        .map((o, i) => ({ o, d: Math.abs(seats[i]! - o.x) }))
+        .filter(({ o, d }) => !stay.has(o.g) && d > 0.5 && d <= SHIFT_MIN && !out(o))
+        .sort((a, b) => a.d - b.d);
+      for (const { o } of few) {
+        stay.add(o.g);
+        const tried = spread(all, stay);
+        if (tried) {
+          seats = tried;
+          held = true;
+          break;
+        }
+        stay.delete(o.g);
+      }
+    }
+    all.forEach((o, i) => {
+      if (Math.abs(seats[i]! - o.x) > 0.5) reseat(o.g, seats[i]!, t);
+    });
+  }
+
+  // The lane has shut: the antae and the edges are as they were.
+  function narrow(): void {
+    Object.assign(piers, { want: false, t0: null, wide: false });
+    edgeL = EDGE;
+    edgeR = W - EDGE;
+    if (piers.w === "") return;
+    piers.w = "";
+    for (const a of antae) a.style.width = "";
+  }
+
+  // An anta's width: the stylesheet's until they widen, then each frame's.
+  function pierAt(now: number): number {
+    if (piers.t0 === null) return POOL.anta;
+    const k = reduced() ? 1 : clamp01((now - piers.t0) / POOL.widen);
+    return lerp(POOL.anta, POOL.pier, smooth(k));
+  }
+
+  function renderPiers(now: number): boolean {
+    const px = pierAt(now).toFixed(2);
+    const w = Number(px) > POOL.anta ? `${px}px` : "";
+    if (piers.w !== w) {
+      piers.w = w;
+      for (const a of antae) a.style.width = w;
+    }
+    return piers.t0 !== null && !piers.wide;
+  }
+
   function hangAll(t: number): void {
     settleMedals(t);
     hang(t);
@@ -2652,8 +2770,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const medalX = (m: Medal): number => (m.side < 0 ? POOL.x : W - POOL.pier + POOL.x);
 
   function renderMedals(now: number): boolean {
-    if (!medals.length) return false;
     settleMedals(now);
+    if (!medals.length) return false;
     let moving = false;
     for (const m of medals) {
       if (m.slide && now >= m.slide.t0 + POOL.slide) m.slide = null;
@@ -3210,6 +3328,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     }
     renderTesserae();
     renderNames();
+    moving = renderPiers(now) || moving;
     moving = renderMedals(now) || moving;
     attend();
     return moving || (wake < Infinity ? wake : false);
@@ -3285,6 +3404,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         width: W,
         queue: queue.map((g) => g.key),
         waiting: pool.map((g) => g.key),
+        piers: { width: pierAt(now), wide: now >= wideAt(), edges: [edgeL, edgeR] },
         medallions: medals.map((m) => ({
           key: m.god.key,
           side: m.side,
@@ -3349,6 +3469,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       queue.length = 0;
       pool.length = 0;
       clearMedals();
+      narrow();
       for (const e of laneTimers) sim.cancel(e);
       laneTimers.clear();
       sim.cancel(landTimer);

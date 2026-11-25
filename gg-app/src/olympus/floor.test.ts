@@ -117,7 +117,7 @@ function stage({
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
-    '<canvas class="oly-mosaic"></canvas><canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
+    '<canvas class="oly-mosaic"></canvas><canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div><span class="oly-anta is-l"></span><span class="oly-anta is-r"></span>';
   const fx = countingBrush();
   lane.querySelector<HTMLCanvasElement>("canvas.oly-fx")!.getContext = (() =>
     fx.ctx) as unknown as HTMLCanvasElement["getContext"];
@@ -6354,6 +6354,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     const s = stage();
     s.sync(sent(7));
     expect(s.peek().waiting).toEqual(["g5", "g6"]);
+    s.host.advance(POOL.widen); // the piers are wide
     expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5", "g6"]);
     const el = medal(s, "g5")!;
     expect(el.getAttribute("role")).toBe("button");
@@ -6365,7 +6366,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     expect(el.querySelector("img")!.getAttribute("src")).toBe(GODS.herodotus.cameo);
     expect(el.querySelector("img")!.alt).toBe("");
     expect(el.parentElement).toBe(s.lane.querySelector(".oly-gods"));
-    s.host.advance(9000);
+    s.host.advance(12_000); // the floor is narrower between the piers: the fifth lands later
     expect(s.peek().gods).toHaveLength(5);
     expect(medals(s).map((el2) => el2.dataset.key)).toEqual(["g5", "g6"]);
   });
@@ -6373,6 +6374,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
   it("hangs the oldest on the right and the next on the left, each in the top slot, and the third under the oldest: where the mockup hangs them", () => {
     const s = stage();
     s.sync(sent(8));
+    s.host.advance(POOL.widen);
     expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
     expect(medal(s, "g5")!.style.transform).toBe("translate(674.50px,4.50px)");
     expect(medal(s, "g6")!.style.transform).toBe("translate(6.50px,4.50px)");
@@ -6380,6 +6382,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     // On a narrower lane the right one hangs as far from its own end.
     const narrow = stage({ width: 602 });
     narrow.sync(sent(8));
+    narrow.host.advance(POOL.widen);
     const right = narrow.peek().medallions.find((m) => m.side > 0)!;
     expect(medal(narrow, right.key)!.style.transform).toMatch(/^translate\(578\.50px,/);
   });
@@ -6387,6 +6390,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
   it("shows nothing of one while it is set, 600 ms, and then lets it through over 150 ms", () => {
     const s = stage();
     s.sync(sent(6));
+    s.host.advance(POOL.widen);
     const el = medal(s, "g5")!;
     expect(el.style.opacity).toBe("0");
     s.host.advance(POOL.set);
@@ -6444,6 +6448,7 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     const s = stage();
     s.sync(sent(14));
     expect(s.peek().waiting).toHaveLength(9);
+    s.host.advance(POOL.widen);
     expect(hung(s)).toEqual([
       "g5 right 0",
       "g6 left 0",
@@ -6476,53 +6481,62 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
   function crowd(
     medallions: boolean,
     reduced: boolean,
-  ): { looks: string[]; asked: Stage["asked"]; woken: number; most: number } {
+  ): { looks: string[]; pooled: number; most: number } {
     const s = stage({ seed: 5, medallions, reduced });
     const looks: string[] = [];
     let most = 0;
+    let pooled = -1;
     for (let ms = 0; ms <= 30_000; ms += 250) {
+      // What it had asked of its clock and dice before this look: the piers begin in it.
+      const asked = `${s.asked.clock} ${s.asked.dice} ${s.woken.times}`;
       s.sync(laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]));
       const { medallions: seen, ...rest } = s.peek();
       most = Math.max(most, seen.length);
+      if (pooled < 0 && rest.waiting.length) pooled = looks.length;
       const page = s.lane.cloneNode(true) as HTMLElement;
       for (const el of page.querySelectorAll(".oly-medal")) el.remove();
-      looks.push(`${JSON.stringify(rest)} ${s.lane.style.height} ${page.innerHTML}`);
+      looks.push(`${JSON.stringify(rest)} ${s.lane.style.height} ${page.innerHTML} ${asked}`);
       s.host.run(250, 16);
     }
-    return { looks, asked: { ...s.asked }, woken: s.woken.times, most };
+    return { looks, pooled, most };
   }
 
-  it("puts nothing on the clock and throws no dice: hung, shown, taken down and moved up, the floor asks for not a step, a wake or a throw more than with the pool unseen", () => {
-    const run = (medallions: boolean): Stage => {
-      const s = stage({ medallions });
-      oldestSet(s, 8);
+  it("puts nothing on the clock and throws no dice: hung, shown, taken down and moved up, the floor asks for not a step, a wake or a throw more for eight medallions and one unseen than for three", () => {
+    // The pool is seen in both, so the piers and the floor are the same: only the medallions differ.
+    const run = (n: number): Stage => {
+      const s = stage();
+      oldestSet(s, n);
       s.host.run(3000, 16);
       return s;
     };
-    const seen = run(true);
-    const unseen = run(false);
-    expect(seen.peek().medallions.map((m) => m.key)).toEqual(["g6", "g7"]);
-    expect(unseen.peek().medallions).toEqual([]);
-    expect(seen.asked).toEqual(unseen.asked);
-    expect(seen.woken).toEqual(unseen.woken);
+    const few = run(8);
+    const many = run(14);
+    expect(few.peek().medallions.map((m) => m.key)).toEqual(["g6", "g7"]);
+    expect(many.peek().medallions).toHaveLength(8);
+    expect(many.peek().waiting).toHaveLength(8);
+    expect(many.asked).toEqual(few.asked);
+    expect(many.woken).toEqual(few.woken);
   });
 
-  it("a seeded run plays the same with the pool shown as with it unseen: every step, place, line, card and throw of the dice (the crowd's run)", () => {
+  it("a seeded run plays the same with the pool shown as with it unseen until the first god is pooled: every step, place, line, card and throw of the dice (the crowd's run)", () => {
     const shown = crowd(true, false);
     const unseen = crowd(false, false);
     expect(shown.most).toBe(2);
     expect(unseen.most).toBe(0);
-    expect(shown.looks).toEqual(unseen.looks);
-    expect(shown.asked).toEqual(unseen.asked);
-    expect(shown.woken).toBe(unseen.woken);
+    expect(shown.pooled).toBe(1); // the crowd is sent nearly at once
+    expect(unseen.pooled).toBe(shown.pooled);
+    expect(shown.looks.slice(0, shown.pooled)).toEqual(unseen.looks.slice(0, shown.pooled));
+    // From then the piers are part of the run: the floor's edges are in.
+    expect(shown.looks[shown.pooled]).not.toBe(unseen.looks[shown.pooled]);
   });
 
-  it("under reduced motion the same run plays the same, shown or unseen", () => {
+  it("under reduced motion the same run plays the same, shown or unseen, until the first god is pooled", () => {
     const shown = crowd(true, true);
     const unseen = crowd(false, true);
     expect(shown.most).toBe(2);
-    expect(shown.looks).toEqual(unseen.looks);
-    expect(shown.asked).toEqual(unseen.asked);
+    expect(shown.pooled).toBe(1); // the crowd is sent nearly at once
+    expect(unseen.pooled).toBe(shown.pooled);
+    expect(shown.looks.slice(0, shown.pooled)).toEqual(unseen.looks.slice(0, shown.pooled));
   });
 
   it("under reduced motion a medallion is there or it isn't: no opacity is ever written, it is gone the moment its god is set, and the one under it moves up by a cut", () => {
@@ -6548,9 +6562,202 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     expect(off.peek().medallions).toEqual([]);
     const on = stage();
     on.sync(sent(8));
+    on.host.advance(POOL.widen);
     expect(medals(on)).toHaveLength(3);
     on.dispose();
     expect(medals(on)).toEqual([]);
     expect(on.peek().medallions).toEqual([]);
+  });
+});
+
+/** What the no-pool run below asks of its clock and dice, and its wakes: the same at 5385559c, before the piers. */
+const NO_POOL_ASKED = '[{"clock":56,"dice":41},{"times":0}]';
+
+describe("the piers: the antae widen for the pool's medallions, and the floor's edges move in", () => {
+  const CROWD: readonly GodId[] = [
+    "athena",
+    "hermes",
+    "argus",
+    "themis",
+    "nike",
+    "herodotus",
+    "hephaestus",
+  ];
+  const sent = (n: number, tag = "g"): LaneAgent[] =>
+    CROWD.slice(0, n).map((god, i) => agent(`${tag}${i}`, god));
+  const POOL = CAST.pool;
+  const W = 698;
+  const NARROW = { width: POOL.anta, wide: false, edges: [16, W - 16] };
+  const widths = (s: Stage): string[] =>
+    [...s.lane.querySelectorAll<HTMLElement>(".oly-anta")].map((el) => el.style.width);
+  const medals = (s: Stage): HTMLElement[] => [
+    ...s.lane.querySelectorAll<HTMLElement>(".oly-medal"),
+  ];
+  /** Five at their work on the whole floor, two of them at its ends; then a sixth is sent, the first pooled. */
+  function sixth(s: Stage): void {
+    s.sync(sent(5));
+    settle(s, 5);
+    s.sync(sent(6));
+  }
+
+  it("moves the floor's edges in to 34 px a side as the first god is pooled, and a god whose place would cross one steps in, the least it can: to the edge; nobody else moves", () => {
+    const s = stage();
+    s.sync(sent(5));
+    settle(s, 5);
+    expect(s.peek().piers).toEqual(NARROW);
+    const before = new Map(s.peek().gods.map((god) => [god.key, god.place!]));
+    const outside = [...before].filter(([, [a, b]]) => a < POOL.edge || b > W - POOL.edge);
+    expect(outside.map(([key]) => key)).toEqual(["g0", "g3"]);
+    s.sync(sent(6));
+    expect(s.peek().waiting).toEqual(["g5"]);
+    expect(s.peek().piers.edges).toEqual([POOL.edge, W - POOL.edge]);
+    for (const god of s.peek().gods) {
+      if (god.key === "g0") expect(god.place![1]).toBeCloseTo(W - POOL.edge, 6);
+      else if (god.key === "g3") expect(god.place![0]).toBeCloseTo(POOL.edge, 6);
+      else expect(god.place).toEqual(before.get(god.key));
+    }
+    expect(out(s, "g0").step).toBe("walk");
+    settle(s, 5);
+    for (const god of s.peek().gods) {
+      expect(god.figure[0]).toBeGreaterThanOrEqual(POOL.edge);
+      expect(god.figure[1]).toBeLessThanOrEqual(W - POOL.edge);
+    }
+  });
+
+  it("the piers wait while a god is in their way, and widen once it has stepped in: they never come over anyone, and no medallion hangs before", () => {
+    const s = stage();
+    sixth(s);
+    const inWay = (): boolean =>
+      s.peek().gods.some((god) => god.figure[0] < POOL.pier || god.figure[1] > W - POOL.pier);
+    expect(inWay()).toBe(true);
+    expect(widths(s)).toEqual(["", ""]);
+    let began = -1;
+    for (let ms = 0; ms <= 2000; ms += 10) {
+      const { piers } = s.peek();
+      if (piers.width > POOL.anta) {
+        if (began < 0) began = ms;
+        expect(inWay()).toBe(false);
+      } else expect(medals(s)).toHaveLength(0);
+      if (!piers.wide) expect(medals(s)).toHaveLength(0);
+      s.host.advance(10);
+    }
+    expect(began).toBeGreaterThan(100);
+    expect(s.peek().piers).toMatchObject({ width: POOL.pier, wide: true });
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5"]);
+  });
+
+  it("both widen together from 12 to 30 px over 300 ms, eased, and stay wide while the lane is open; once wide they keep no frame coming", () => {
+    const s = stage();
+    s.sync(sent(6)); // nobody has landed yet: nothing is in their way
+    expect(widths(s)).toEqual(["", ""]);
+    expect(s.peek().piers).toEqual({ ...NARROW, edges: [POOL.edge, W - POOL.edge] });
+    s.host.advance(POOL.widen / 4);
+    expect(widths(s)).toEqual(["14.81px", "14.81px"]);
+    s.host.advance(POOL.widen / 4);
+    expect(widths(s)).toEqual(["21px", "21px"]);
+    s.host.advance(POOL.widen / 2 - 1);
+    expect(s.peek().piers.wide).toBe(false);
+    s.host.advance(1);
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    expect(s.peek().piers).toMatchObject({ width: POOL.pier, wide: true });
+    settle(s, 5);
+    s.host.advance(9000);
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    for (const god of s.peek().gods) {
+      expect(god.place![0]).toBeGreaterThanOrEqual(POOL.edge - 1e-6);
+      expect(god.place![1]).toBeLessThanOrEqual(W - POOL.edge + 1e-6);
+    }
+  });
+
+  it("a medallion hangs only once the piers are wide, and is set from then; one pooled later hangs at once; whatever frames fall", () => {
+    const s = stage();
+    s.sync(sent(6));
+    expect(s.peek().waiting).toEqual(["g5"]);
+    expect(medals(s)).toHaveLength(0);
+    s.host.advance(POOL.widen - 1);
+    expect(medals(s)).toHaveLength(0);
+    s.host.advance(1);
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5"]);
+    expect(medals(s)[0]!.style.opacity).toBe("0");
+    s.host.advance(POOL.set + POOL.reveal / 2);
+    expect(medals(s)[0]!.style.opacity).toBe("0.5");
+    const asked = { ...s.asked };
+    s.sync(sent(7));
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5", "g6"]);
+    for (const every of [7, 16, 33, 100]) {
+      const paced = stage();
+      paced.sync(sent(6));
+      paced.host.run(POOL.widen + POOL.set + POOL.reveal / 2, every);
+      expect(medals(paced)[0]!.style.opacity).toBe("0.5");
+      expect(paced.asked).toEqual(asked);
+    }
+  });
+
+  it("under reduced motion the piers are wide at once, or the moment nothing is in their way: a width is only ever the anta's or the pier's", () => {
+    const s = stage({ reduced: true });
+    s.sync(sent(6));
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    expect(s.peek().piers).toMatchObject({ width: POOL.pier, wide: true });
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5"]);
+    const late = stage({ reduced: true });
+    sixth(late);
+    const seen = new Set<string>();
+    for (let ms = 0; ms <= 3000; ms += 16) {
+      seen.add(widths(late).join());
+      if (!late.peek().piers.wide) expect(medals(late)).toHaveLength(0);
+      late.host.advance(16);
+    }
+    for (const w of seen) expect([",", "30px,30px"]).toContain(w);
+    expect(widths(late)).toEqual(["30px", "30px"]);
+    expect(medals(late)).toHaveLength(1);
+  });
+
+  it("a run with no pool in it plays as it did, the piers held off or not: every look, step, wake and throw; the antae are never written and the edges stay out", () => {
+    const run = (medallions: boolean): { looks: string[]; asked: string; widths: string[] } => {
+      const s = stage({ seed: 5, medallions, fidget: true, react: true });
+      const looks: string[] = [];
+      for (let ms = 0; ms <= 24_000; ms += 250) {
+        const done = ms >= 14_000 ? "g1" : "";
+        s.sync(sent(5).map((a) => (a.key === done ? { ...a, look: "done" as const } : a)));
+        expect(s.peek().piers).toEqual(NARROW);
+        looks.push(`${JSON.stringify(s.peek())} ${s.lane.style.height} ${s.lane.innerHTML}`);
+        s.host.run(250, 16);
+      }
+      expect(s.peek().waiting).toEqual([]);
+      return { looks, asked: JSON.stringify([s.asked, s.woken]), widths: widths(s) };
+    };
+    const on = run(true);
+    const off = run(false);
+    expect(on.widths).toEqual(["", ""]);
+    expect(on.looks).toEqual(off.looks);
+    expect(on.asked).toBe(off.asked);
+    expect(on.asked).toBe(NO_POOL_ASKED);
+  });
+
+  it("is 12 px again when the lane shuts, its edges out; stays so through an opening with no pool; and widens anew at the next with one", () => {
+    const s = stage();
+    s.sync(sent(6));
+    s.host.advance(POOL.widen);
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    s.sync(sent(6).map((a) => ({ ...a, look: "done" as const })));
+    until(s, () => !s.peek().open);
+    expect(widths(s)).toEqual(["", ""]);
+    expect(s.peek().piers).toEqual(NARROW);
+    expect(medals(s)).toHaveLength(0);
+    s.sync(sent(2, "h"));
+    settle(s, 2);
+    expect(widths(s)).toEqual(["", ""]);
+    expect(s.peek().piers).toEqual(NARROW);
+    s.sync(sent(2, "h").map((a) => ({ ...a, look: "done" as const })));
+    until(s, () => !s.peek().open);
+    s.sync(sent(6, "k"));
+    expect(widths(s)).toEqual(["", ""]);
+    expect(medals(s)).toHaveLength(0);
+    s.host.advance(POOL.widen / 2);
+    expect(widths(s)).toEqual(["21px", "21px"]);
+    s.host.advance(POOL.widen / 2);
+    expect(widths(s)).toEqual(["30px", "30px"]);
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["k5"]);
   });
 });
