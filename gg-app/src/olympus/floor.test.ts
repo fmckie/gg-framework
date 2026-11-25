@@ -16,7 +16,7 @@ import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from 
 import { GODS, type GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
 import { createSim, type Sim } from "./sim";
-import { cutTesserae, flightOf, MEDAL } from "./tesserae";
+import { cutTesserae, dimmed, flightOf, MEDAL } from "./tesserae";
 import type { ToolFamily } from "./tool-family";
 
 const GREETINGS: Readonly<Record<GodId | "any", readonly string[]>> = {
@@ -2833,7 +2833,7 @@ describe("the card and the keys are no part of the run", () => {
         s.lane.innerHTML
           .replace(/ tabindex="-?\d"/g, "")
           .replace(/oly-ins is-focus/g, "oly-ins")
-          .replace(/oly-medal is-focus/g, "oly-medal"),
+          .replace(/(class="oly-medal[^"]*?) is-focus/g, "$1"),
       );
       const { card: _card, ...run } = s.peek();
       peeks.push(JSON.stringify(run));
@@ -6331,6 +6331,8 @@ describe("startles: the reader presses a god at its work", () => {
 });
 
 /** What the unpressed run below asks of its clock and dice, and its wakes: read off the engine as it was at ffd08552. */
+/** What the run below in which one waiting is done and one gone asks: read off the engine at 766ad7f3. */
+const NO_FAILURE_ASKED = '[{"clock":61,"dice":51},{"times":0}]';
 const UNPRESSED_ASKED = '[{"clock":59,"dice":51},{"times":0}]';
 
 describe("the pool's medallions: a god waiting for a place is seen", () => {
@@ -6910,6 +6912,158 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     s.host.run(3000, 16);
     expect(s.mfx.filled).toBeGreaterThan(stonesIn("herodotus"));
     expect(asked(s)).toBe(UNPRESSED_ASKED);
+  });
+
+  // ── O8e: a record that fails while it waits ──
+  const M_FALL = 1250; // a failed medallion's tesserae, falling to the floor
+  const filterOf = (el: HTMLElement): string => el.querySelector("img")!.style.filter;
+
+  it("a record that fails while it waits: its medallion dims over 900 ms and cracks in 220, and hangs so for the hold, still in the toolbar with its card and with nothing to press", () => {
+    const s = hungStill({ startle: true });
+    const el = medal(s, "g7")!;
+    expect(el.classList.contains("is-startable")).toBe(true);
+    const drawn = s.mfx.filled;
+    s.sync(failing(8, "g7"));
+    expect(s.peek().waiting).toEqual(["g5", "g6"]); // it waits for a place no longer
+    expect(el.querySelectorAll("svg.oly-medal-crack path")).toHaveLength(3);
+    expect(el.classList.contains("is-startable")).toBe(false);
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+    expect(el.className).toBe("oly-medal");
+    s.host.advance(110);
+    expect(el.querySelector<SVGElement>(".oly-medal-crack")!.style.opacity).toBe("0.5");
+    expect(filterOf(el)).toMatch(
+      /^grayscale\(0\.07\d*\) brightness\(0\.95\d*\) contrast\(0\.99\d*\)$/,
+    );
+    s.host.advance(110);
+    expect(el.classList.contains("is-cracked")).toBe(true);
+    expect(el.querySelector<SVGElement>(".oly-medal-crack")!.style.opacity).toBe("");
+    expect(el.classList.contains("is-dimmed")).toBe(false);
+    s.host.advance(POOL.crack - 220);
+    expect(el.classList.contains("is-dimmed")).toBe(true);
+    expect(filterOf(el)).toBe("");
+    // Pressed, it does not rock; it is still the toolbar's last, with its ring and its card.
+    el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    s.host.advance(CAST.gods.themis.step);
+    expect(tiltOf(el)).toBe(0);
+    keydown(s.cells()[0]!, "End");
+    s.host.advance(0);
+    expect(document.activeElement).toBe(el);
+    expect(el.classList.contains("is-focus")).toBe(true);
+    expect(s.cards[s.cards.length - 1]).toBe("g7");
+    s.host.advance(POOL.hold - POOL.crack - CAST.gods.themis.step - 1);
+    expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
+    expect(el.hasAttribute("aria-hidden")).toBe(false);
+    expect(el.getAttribute("tabindex")).toBe("0");
+    expect(el.style.opacity).toBe("");
+    expect(s.mfx.filled).toBe(drawn); // not a stone while it holds
+    s.dispose();
+  });
+
+  it("when the hold is over it leaves the toolbar, focus going to the nearest left; its dimmed tesserae fall to the floor, it is gone 1250 ms later, and the one under it moves up", () => {
+    // One alone on its pier, focused: the nearest left is the god furthest right.
+    const one = stage();
+    one.sync(sent(6));
+    settle(one, 5);
+    one.host.advance(POOL.widen + POOL.set + POOL.reveal);
+    keydown(one.cells()[0]!, "End");
+    expect(document.activeElement).toBe(medal(one, "g5"));
+    one.sync(failing(6, "g5"));
+    one.host.advance(POOL.hold - 1);
+    expect(document.activeElement).toBe(medal(one, "g5"));
+    one.host.advance(1);
+    const last = [...one.peek().gods].sort((a, b) => b.x - a.x)[0]!;
+    expect(document.activeElement).toBe(one.cell(last.key));
+    expect(one.lane.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    one.dispose();
+    // One with another under it.
+    const s = hungStill();
+    const el = medal(s, "g5")!;
+    s.sync(failing(8, "g5"));
+    s.host.advance(POOL.hold);
+    expect(el.getAttribute("aria-hidden")).toBe("true");
+    expect(el.getAttribute("tabindex")).toBe("-1");
+    expect(s.peek().medallions[0]).toMatchObject({ key: "g5", going: true });
+    expect(s.mfx.stones).toBe(0);
+    s.host.advance(UNSET);
+    expect(el.style.opacity).toBe("0");
+    expect(s.mfx.stones).toBe(stonesIn("herodotus"));
+    const dim = CAST.gods.herodotus.medal.tiles.palette.map((hex) => dimmed(hex, 0.66));
+    expect([...s.mfx.ivories].every((ivory) => dim.includes(ivory))).toBe(true);
+    // Each stone falls from where it hangs to the floor, and lies there a moment.
+    const cut = cutTesserae(CAST.gods.herodotus.medal.tiles.rows, rng(1), 104, MEDAL);
+    const flights = cut.map((k) => flightOf(k, "fall", k.fallAt + 150, POOL.y, 1, MEDAL, -1));
+    expect(flights.every((f) => f !== null && f.dy > 0)).toBe(true);
+    expect(cut.every((k) => flightOf(k, "fall", M_FALL, POOL.y, 1, MEDAL, -1) === null)).toBe(true);
+    s.host.advance(M_FALL - UNSET - 1);
+    expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
+    s.host.advance(1);
+    expect(hung(s)).toEqual(["g6 left 0", "g7 right 0"]);
+    expect(el.isConnected).toBe(false);
+    expect(s.mfx.stones).toBe(0);
+    const { wipes, filled } = s.mfx;
+    s.host.advance(POOL.slide / 2);
+    const mid = s.peek().medallions[1]!.y;
+    expect(mid).toBeGreaterThan(POOL.y + POOL.pitch / 2 - 0.5);
+    expect(mid).toBeLessThan(POOL.y + POOL.pitch / 2 + 0.5);
+    s.host.advance(POOL.slide / 2);
+    expect(medal(s, "g7")!.style.transform).toBe("translate(674.50px,4.50px)");
+    s.host.run(3000, 16);
+    expect(s.mfx).toMatchObject({ wipes, filled });
+    expect(s.peek().gods.map((god) => god.key)).not.toContain("g5");
+    expect(s.peek().waiting).toEqual(["g6", "g7"]);
+    s.dispose();
+  });
+
+  it("under reduced motion a failed one is dimmed and cracked at once, held, and gone by a cut, the one under it up by a cut: nothing is ever part way, no tessera is drawn, and the clock wakes itself for the hold's end", () => {
+    const s = hungStill({ reduced: true });
+    const el = medal(s, "g5")!;
+    const wakes = s.woken.times;
+    s.sync(failing(8, "g5"));
+    expect(el.className).toBe("oly-medal is-dimmed is-cracked");
+    let frames = "";
+    for (let ms = 0; ms < POOL.hold - 16; ms += 16) {
+      s.host.run(16, 16);
+      frames += s.lane
+        .querySelector(".oly-gods")!
+        .innerHTML.replace(/<div class="oly-cell[\s\S]*?(?=<div class="oly-(?:cell|medal)|$)/g, "");
+    }
+    expect(el.isConnected).toBe(true);
+    expect(el.className).toBe("oly-medal is-dimmed is-cracked");
+    // Nothing moves for the hold, so nothing but the frame's own word wakes the clock for its end.
+    s.host.run(80, 16);
+    expect(el.isConnected).toBe(false);
+    expect(hung(s)).toEqual(["g6 left 0", "g7 right 0"]);
+    expect(medal(s, "g7")!.style.transform).toBe("translate(674.50px,4.50px)");
+    frames += s.lane.querySelector(".oly-gods")!.innerHTML;
+    expect(frames).toContain("oly-medal is-dimmed is-cracked");
+    expect(frames).not.toMatch(/oly-(?:medal|crack)[^>]*(?:opacity|scale\(|height|filter)/);
+    expect(frames).not.toMatch(/<img[^>]*style="[^"]*filter/);
+    expect(s.mfx).toMatchObject({ wipes: 0, filled: 0 });
+    expect(s.woken.times).toBe(wakes);
+    s.dispose();
+  });
+
+  it("a run in which nothing fails while it waits asks what it did at 766ad7f3: every step, wake and throw, with one done and one gone from the records as they wait; and one that fails so wakes the clock not once", () => {
+    const run = (fail: boolean): Stage => {
+      const s = stage({ startle: true });
+      oldestSet(s, 9);
+      s.host.run(1000, 16);
+      const ended = (look: LaneLook): LaneAgent[] =>
+        failing(9, "g0").map((a) => (a.key === "g7" ? { ...a, look } : a));
+      s.sync(ended(fail ? "fail" : "done"));
+      s.host.run(1000, 16);
+      s.sync(ended(fail ? "fail" : "done").filter((a) => a.key !== "g8"));
+      s.host.run(6000, 16);
+      return s;
+    };
+    const none = run(false);
+    expect(asked(none)).toBe(NO_FAILURE_ASKED);
+    const one = run(true);
+    expect(one.woken.times).toBe(0);
+    expect(medal(one, "g7")).toBeUndefined(); // held, fallen and gone
+    expect(one.peek().waiting).toEqual(none.peek().waiting);
+    none.dispose();
+    one.dispose();
   });
 });
 

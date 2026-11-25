@@ -431,6 +431,22 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   width: 15px;
   height: 20px;
 }
+/* A failed one: its cameo dimmed and the crack across it. floor.ts writes each
+   part way, frame by frame; these are the two whole. */
+.oly-medal.is-dimmed img {
+  filter: grayscale(0.6) brightness(0.66) contrast(0.92);
+}
+.oly-medal-crack {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+}
+.oly-medal.is-cracked .oly-medal-crack {
+  opacity: 1;
+}
 /* In the gods' toolbar: its ring, from the keyboard, is floor.ts's to show. */
 .oly-medal {
   pointer-events: auto;

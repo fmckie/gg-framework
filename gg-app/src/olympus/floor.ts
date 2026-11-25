@@ -377,6 +377,9 @@ const FALL = 360; // and shuts
 const LAND_AFTER = 1000; // the first god lands as the floor's last courses go down
 const LAND_STILL = 500; // under reduced motion: a beat, so a crowd sent together is placed together
 const LAND_GAP = 850; // and the next no sooner
+const M_FALL = 1250; // a failed medallion's tesserae, falling to the floor
+const M_CRACK = 220; // its crack shows through
+const MEDAL_DIM = 0.66; // its brightness, dimmed
 const CLOSE_AFTER = 600; // the lane waits a beat after the last god has gone
 const RETRY = 400; // no room yet to land: look again
 const ASSEMBLE = 1150; // a god's tesserae are set, from the feet up
@@ -729,6 +732,12 @@ interface Medal {
   readonly cut: boolean;
   downAt: number | null;
   goneAt: number | null;
+  /** When its record failed as it waited: it dims and cracks where it hangs, holds, and falls. */
+  failAt: number | null;
+  readonly img: HTMLImageElement;
+  crack: SVGElement | null;
+  /** Its dim and its crack as last written. */
+  marks: string;
   slide: { from: number; t0: number } | null;
   drawn: string;
   /** How far down it hung as last drawn: its card stands over that. */
@@ -867,6 +876,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let medalBrush: CanvasRenderingContext2D | null | undefined;
   let mfxDrawn = false;
   const medalStones = new Map<GodId, Tessera[]>();
+  const medalDims = new Map<GodId, readonly string[]>();
+  // When the first failed medallion's hold is over, as the last frame had it.
+  let medalWake = Infinity;
 
   // Every god's standing pictures, fetched once up front, so no god is set
   // before its own is in. A god's stride and its skill poses are fetched as it
@@ -2537,7 +2549,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (god.ending) return;
     god.ending = kind;
     // Finished before it ever landed: it never comes out.
-    if (!god.landed) return remove(god, t);
+    if (!god.landed) return kind === "fail" && failMedal(god, t) ? undefined : remove(god, t);
     if (working(god)) outro(god, t);
     // anything else it finishes first; next() sees the ending
   }
@@ -2622,7 +2634,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     sim.wake();
   }
   const hangsStill = (m: Medal, t: number): boolean =>
-    inBar(m) && (m.cut || t >= m.t0 + POOL.set + POOL.reveal) && !queue.includes(m.god);
+    inBar(m) &&
+    m.failAt === null &&
+    (m.cut || t >= m.t0 + POOL.set + POOL.reveal) &&
+    !queue.includes(m.god);
   const rockEnd = (m: Medal, k: Rock): number =>
     Math.min(k.end, k.start + k.beats * m.god.c.step * (reduced() ? 2 : 1));
   function endRock(m: Medal, t: number): void {
@@ -2662,6 +2677,15 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // move up a slot, and whoever still waits unhung takes what that frees.
   function settleMedals(t: number): void {
     settlePiers(t);
+    // A failed one whose hold is over leaves the toolbar and falls, as of then.
+    for (const m of medals) {
+      if (m.failAt === null || m.downAt !== null || t < m.failAt + POOL.hold) continue;
+      const at = m.failAt + POOL.hold;
+      refocus(m.el, medalX(m));
+      m.downAt = at;
+      m.goneAt = reduced() ? at : at + M_FALL;
+      leaveBar(m);
+    }
     for (;;) {
       const m = medals
         .filter((o) => o.goneAt !== null && o.goneAt <= t)
@@ -2678,7 +2702,42 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         endRock(o, at);
       }
       hang(at);
+      // A failed one has fallen: its god, which never came out, is gone with it.
+      if (m.failAt !== null && !m.god.gone) remove(m.god, at);
     }
+  }
+
+  // Its record failed while it waited: it waits for a place no longer, and its
+  // medallion dims and cracks where it hangs, with nothing to press, for the
+  // hold. Nothing is put on the clock: the frame says when the hold is over.
+  function failMedal(god: God, t: number): boolean {
+    settleMedals(t);
+    const m = medals.find((o) => o.god === god);
+    if (!m || m.downAt !== null || m.failAt !== null) return false;
+    const i = queue.indexOf(god);
+    if (i >= 0) queue.splice(i, 1);
+    const k = pool.indexOf(god);
+    if (k >= 0) pool.splice(k, 1);
+    pooledAt.delete(god);
+    endRock(m, t);
+    m.failAt = t;
+    m.crack = svg("svg", {
+      class: "oly-medal-crack",
+      viewBox: CAST.crack.viewBox,
+      "aria-hidden": "true",
+    });
+    grow(m.crack, CAST.crack.nodes);
+    m.img.after(m.crack);
+    drawPool(t);
+    return true;
+  }
+
+  // Out of the toolbar the moment it is taken down or falls.
+  function leaveBar(m: Medal): void {
+    m.el.setAttribute("aria-hidden", "true");
+    m.el.tabIndex = -1;
+    if (rove === m.el) rove = null;
+    roveFix();
   }
 
   function hang(t: number): void {
@@ -2740,6 +2799,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         cut,
         downAt: null,
         goneAt: null,
+        failAt: null,
+        img,
+        crack: null,
+        marks: "",
         slide: null,
         drawn: "",
         focus: false,
@@ -2881,18 +2944,15 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     } else refocus(m.el, medalX(m));
     endRock(m, t);
     m.downAt = t;
-    m.goneAt = reduced() ? t : t + POOL.scatter;
-    // Out of the toolbar the moment it is taken down.
-    m.el.setAttribute("aria-hidden", "true");
-    m.el.tabIndex = -1;
-    if (rove === m.el) rove = null;
-    roveFix();
+    // One gone from the records as it hung failed falls from where it is.
+    m.goneAt = reduced() ? t : t + (m.failAt === null ? POOL.scatter : M_FALL);
+    leaveBar(m);
     settleMedals(t);
   }
 
   // How far a medallion shows: nothing while it is set, then through; and out as it is taken down.
   function medalShown(m: Medal, now: number): number {
-    const a = m.cut ? 1 : clamp01((now - m.t0 - POOL.set) / POOL.reveal);
+    const a = m.cut || m.failAt !== null ? 1 : clamp01((now - m.t0 - POOL.set) / POOL.reveal);
     return m.downAt === null ? a : Math.min(a, 1 - clamp01((now - m.downAt) / UNSET));
   }
   const medalX = (m: Medal): number => (m.side < 0 ? POOL.x : W - POOL.pier + POOL.x);
@@ -2900,10 +2960,12 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // A medallion's tesserae at a moment, if any are to be seen: it is set from
   // them, and they give way as its cameo shows through; taken down, they
   // scatter up and toward the lane. Under reduced motion there are none.
+  // A failed one's, dimmed, fall to the floor.
   function medalTiles(m: Medal, now: number): { mode: TesseraeMode; u: number; a: number } | null {
     if (reduced()) return null;
-    if (m.downAt !== null) return { mode: "lift", u: now - m.downAt, a: 1 };
-    if (m.cut) return null;
+    if (m.downAt !== null)
+      return { mode: m.failAt === null ? "lift" : "fall", u: now - m.downAt, a: 1 };
+    if (m.cut || m.failAt !== null) return null;
     const u = now - m.t0;
     if (u < POOL.set) return { mode: "set", u, a: 1 };
     const k = clamp01((u - POOL.set) / POOL.reveal);
@@ -2920,6 +2982,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return set;
   }
 
+  function medalIvoriesOf(gid: GodId, dim: boolean): readonly string[] {
+    const lit = CAST.gods[gid].medal.tiles.palette;
+    if (!dim) return lit;
+    let pal = medalDims.get(gid);
+    if (!pal) medalDims.set(gid, (pal = lit.map((hex) => dimmed(hex, MEDAL_DIM))));
+    return pal;
+  }
+
   // Every medallion's tesserae on the one canvas over the piers: wiped before
   // the first of a frame, and once more when the last has flown; then it is
   // not touched until the next.
@@ -2930,7 +3000,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       if (!T) continue;
       ctx ??= wipeMedals();
       if (!ctx) return;
-      drawTesserae(ctx, medalStonesOf(m.god.gid), CAST.gods[m.god.gid].medal.tiles.palette, {
+      drawTesserae(ctx, medalStonesOf(m.god.gid), medalIvoriesOf(m.god.gid, T.mode === "fall"), {
         ...T,
         x: medalX(m),
         y: slideY(m, now),
@@ -2956,9 +3026,32 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function renderMedals(now: number): boolean {
     settleMedals(now);
     renderMedalTiles(now);
+    medalWake = Infinity;
     if (!medals.length) return false;
     let moving = false;
+    const still = reduced();
     for (const m of medals) {
+      // Failed: it dims over the crack's time and its crack shows at once; whole at once under
+      // reduced motion. Part way is this frame's to write; whole is the stylesheet's.
+      const u = m.failAt === null ? -1 : now - m.failAt;
+      const dim = u < 0 ? "" : (still ? 1 : clamp01(u / POOL.crack)).toFixed(3);
+      const crack = u < 0 ? "" : (still ? 1 : clamp01(u / M_CRACK)).toFixed(3);
+      if (`${dim},${crack}` !== m.marks) {
+        m.marks = `${dim},${crack}`;
+        const d = Number(dim);
+        const c = Number(crack);
+        m.el.classList.toggle("is-dimmed", d >= 1);
+        m.el.classList.toggle("is-cracked", c >= 1);
+        m.img.style.cssText =
+          d > 0 && d < 1
+            ? `filter: grayscale(${(0.6 * d).toFixed(3)}) brightness(${(1 - (1 - MEDAL_DIM) * d).toFixed(3)}) contrast(${(1 - 0.08 * d).toFixed(3)});`
+            : "";
+        if (m.crack) m.crack.style.cssText = c > 0 && c < 1 ? `opacity: ${crack};` : "";
+      }
+      if (m.failAt !== null && m.downAt === null) {
+        if (!still && u < POOL.crack) moving = true;
+        medalWake = Math.min(medalWake, m.failAt + POOL.hold);
+      }
       if (m.slide && now >= m.slide.t0 + POOL.slide) m.slide = null;
       const a = medalShown(m, now);
       m.y = slideY(m, now);
@@ -3592,6 +3685,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     renderNames();
     moving = renderPiers(now) || moving;
     moving = renderMedals(now) || moving;
+    wake = Math.min(wake, medalWake); // a failed medallion's hold is over then
     attend();
     return moving || (wake < Infinity ? wake : false);
   });
