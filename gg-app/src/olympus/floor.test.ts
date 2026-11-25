@@ -13,7 +13,7 @@ import {
   STATE_AGENTS,
 } from "./fixtures";
 import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from "./floor";
-import type { GodId } from "./gods";
+import { GODS, type GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
 import { createSim, type Sim } from "./sim";
 import type { ToolFamily } from "./tool-family";
@@ -110,6 +110,7 @@ function stage({
   fidget = false,
   react = false,
   startle = false,
+  medallions = true,
   starts = START_URLS as Partial<typeof START_URLS>,
   cast = CAST,
 } = {}): Stage {
@@ -154,6 +155,7 @@ function stage({
     react,
     starts,
     startle,
+    medallions,
     random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
@@ -6311,5 +6313,244 @@ describe("startles: the reader presses a god at its work", () => {
       }
       expect(stills).toBeGreaterThan(60);
     });
+  });
+});
+
+describe("the pool's medallions: a god waiting for a place is seen", () => {
+  const CROWD: readonly GodId[] = [
+    "athena",
+    "hermes",
+    "argus",
+    "themis",
+    "nike",
+    "herodotus",
+    "hephaestus",
+    "athena",
+    "hermes",
+    "argus",
+    "themis",
+    "nike",
+    "herodotus",
+    "hephaestus",
+  ];
+  const sent = (n: number): LaneAgent[] => CROWD.slice(0, n).map((god, i) => agent(`g${i}`, god));
+  const medals = (s: Stage): HTMLElement[] => [
+    ...s.lane.querySelectorAll<HTMLElement>(".oly-medal"),
+  ];
+  const medal = (s: Stage, key: string): HTMLElement | undefined =>
+    medals(s).find((el) => el.dataset.key === key);
+  const hung = (s: Stage): string[] =>
+    s.peek().medallions.map((m) => `${m.key} ${m.side < 0 ? "left" : "right"} ${m.slot}`);
+  const POOL = CAST.pool;
+  /** `n` sent at once, five at their work and the rest waiting; then the first on the floor fails, and the clock stops as the oldest waiting is set. */
+  function oldestSet(s: Stage, n: number): void {
+    s.sync(sent(n));
+    settle(s, 5);
+    s.sync(sent(n).map((a) => (a.key === "g0" ? { ...a, look: "fail" } : a)));
+    until(s, () => s.peek().gods.some((god) => god.key === "g5"));
+  }
+
+  it("shows each waiting god as its row's cameo, named, with nothing to press and saying so, described by its row; a god on the floor has none", () => {
+    const s = stage();
+    s.sync(sent(7));
+    expect(s.peek().waiting).toEqual(["g5", "g6"]);
+    expect(medals(s).map((el) => el.dataset.key)).toEqual(["g5", "g6"]);
+    const el = medal(s, "g5")!;
+    expect(el.getAttribute("role")).toBe("button");
+    expect(el.getAttribute("aria-label")).toBe("Herodotus");
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+    expect(el.getAttribute("aria-describedby")).toBe("row-g5");
+    expect(el.hasAttribute("tabindex")).toBe(false);
+    expect(el.hasAttribute("aria-hidden")).toBe(false);
+    expect(el.querySelector("img")!.getAttribute("src")).toBe(GODS.herodotus.cameo);
+    expect(el.querySelector("img")!.alt).toBe("");
+    expect(el.parentElement).toBe(s.lane.querySelector(".oly-gods"));
+    s.host.advance(9000);
+    expect(s.peek().gods).toHaveLength(5);
+    expect(medals(s).map((el2) => el2.dataset.key)).toEqual(["g5", "g6"]);
+  });
+
+  it("hangs the oldest on the right and the next on the left, each in the top slot, and the third under the oldest: where the mockup hangs them", () => {
+    const s = stage();
+    s.sync(sent(8));
+    expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
+    expect(medal(s, "g5")!.style.transform).toBe("translate(674.50px,4.50px)");
+    expect(medal(s, "g6")!.style.transform).toBe("translate(6.50px,4.50px)");
+    expect(medal(s, "g7")!.style.transform).toBe("translate(674.50px,29.50px)");
+    // On a narrower lane the right one hangs as far from its own end.
+    const narrow = stage({ width: 602 });
+    narrow.sync(sent(8));
+    const right = narrow.peek().medallions.find((m) => m.side > 0)!;
+    expect(medal(narrow, right.key)!.style.transform).toMatch(/^translate\(578\.50px,/);
+  });
+
+  it("shows nothing of one while it is set, 600 ms, and then lets it through over 150 ms", () => {
+    const s = stage();
+    s.sync(sent(6));
+    const el = medal(s, "g5")!;
+    expect(el.style.opacity).toBe("0");
+    s.host.advance(POOL.set);
+    expect(el.style.opacity).toBe("0");
+    s.host.advance(POOL.reveal / 2);
+    expect(el.style.opacity).toBe("0.5");
+    s.host.advance(POOL.reveal / 2);
+    expect(el.style.opacity).toBe("");
+    expect(s.peek().medallions[0]).toMatchObject({ shown: 1, going: false, y: POOL.y });
+  });
+
+  it("is taken down as its god is set: out of sight in 140 ms and out of a screen reader's at once, its slot kept 700 ms, and then the one under it moves up over 300 ms", () => {
+    const s = stage();
+    oldestSet(s, 8);
+    expect(out(s, "g5").step).toBe("assemble");
+    expect(s.peek().waiting).toEqual(["g6", "g7"]);
+    expect(s.peek().medallions[0]).toMatchObject({ key: "g5", going: true });
+    expect(medal(s, "g5")!.getAttribute("aria-hidden")).toBe("true");
+    expect(medal(s, "g6")!.hasAttribute("aria-hidden")).toBe(false);
+    s.host.advance(UNSET / 2);
+    expect(Number(medal(s, "g5")!.style.opacity)).toBeGreaterThan(0.4);
+    expect(Number(medal(s, "g5")!.style.opacity)).toBeLessThanOrEqual(0.5);
+    s.host.advance(UNSET / 2);
+    expect(medal(s, "g5")!.style.opacity).toBe("0");
+    s.host.advance(POOL.scatter - UNSET - 2);
+    expect(hung(s)).toEqual(["g5 right 0", "g6 left 0", "g7 right 1"]);
+    s.host.advance(2);
+    expect(hung(s)).toEqual(["g6 left 0", "g7 right 0"]);
+    expect(medal(s, "g5")).toBeUndefined();
+    s.host.advance(POOL.slide / 2);
+    const mid = s.peek().medallions[1]!.y;
+    expect(mid).toBeGreaterThan(POOL.y + POOL.pitch / 2 - 0.5);
+    expect(mid).toBeLessThan(POOL.y + POOL.pitch / 2 + 0.5);
+    s.host.advance(POOL.slide / 2);
+    expect(medal(s, "g7")!.style.transform).toBe("translate(674.50px,4.50px)");
+    expect(medal(s, "g6")!.style.transform).toBe("translate(6.50px,4.50px)");
+  });
+
+  it("is taken down the same way when its record ends while it waits, and its god never comes out", () => {
+    const s = stage();
+    s.sync(sent(6));
+    s.host.advance(9000);
+    s.sync(sent(6).map((a) => (a.key === "g5" ? { ...a, look: "done" } : a)));
+    expect(s.peek().waiting).toEqual([]);
+    expect(s.peek().medallions).toMatchObject([{ key: "g5", going: true }]);
+    s.host.advance(POOL.scatter - 1);
+    expect(medals(s)).toHaveLength(1);
+    s.host.advance(1);
+    expect(medals(s)).toHaveLength(0);
+    s.host.advance(5000);
+    expect(s.peek().gods.map((god) => god.key)).not.toContain("g5");
+  });
+
+  it("hangs eight, four a side, oldest highest; a ninth waits unseen until a slot is freed, and takes the lowest", () => {
+    const s = stage();
+    s.sync(sent(14));
+    expect(s.peek().waiting).toHaveLength(9);
+    expect(hung(s)).toEqual([
+      "g5 right 0",
+      "g6 left 0",
+      "g7 right 1",
+      "g8 left 1",
+      "g9 right 2",
+      "g10 left 2",
+      "g11 right 3",
+      "g12 left 3",
+    ]);
+    s.host.advance(9000);
+    s.sync(sent(14).map((a) => (a.key === "g6" ? { ...a, look: "done" } : a)));
+    s.host.advance(POOL.scatter - 1);
+    expect(medal(s, "g13")).toBeUndefined();
+    s.host.advance(1);
+    expect(hung(s)).toEqual([
+      "g5 right 0",
+      "g7 right 1",
+      "g8 left 0",
+      "g9 right 2",
+      "g10 left 1",
+      "g11 right 3",
+      "g12 left 2",
+      "g13 left 3",
+    ]);
+    expect(medal(s, "g13")!.style.opacity).toBe("0");
+  });
+
+  /** The crowd's run, a frame every 16 ms: every look at the floor with the medallions left out, and what it asked of its clock and dice. */
+  function crowd(
+    medallions: boolean,
+    reduced: boolean,
+  ): { looks: string[]; asked: Stage["asked"]; woken: number; most: number } {
+    const s = stage({ seed: 5, medallions, reduced });
+    const looks: string[] = [];
+    let most = 0;
+    for (let ms = 0; ms <= 30_000; ms += 250) {
+      s.sync(laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]));
+      const { medallions: seen, ...rest } = s.peek();
+      most = Math.max(most, seen.length);
+      const page = s.lane.cloneNode(true) as HTMLElement;
+      for (const el of page.querySelectorAll(".oly-medal")) el.remove();
+      looks.push(`${JSON.stringify(rest)} ${s.lane.style.height} ${page.innerHTML}`);
+      s.host.run(250, 16);
+    }
+    return { looks, asked: { ...s.asked }, woken: s.woken.times, most };
+  }
+
+  it("puts nothing on the clock and throws no dice: hung, shown, taken down and moved up, the floor asks for not a step, a wake or a throw more than with the pool unseen", () => {
+    const run = (medallions: boolean): Stage => {
+      const s = stage({ medallions });
+      oldestSet(s, 8);
+      s.host.run(3000, 16);
+      return s;
+    };
+    const seen = run(true);
+    const unseen = run(false);
+    expect(seen.peek().medallions.map((m) => m.key)).toEqual(["g6", "g7"]);
+    expect(unseen.peek().medallions).toEqual([]);
+    expect(seen.asked).toEqual(unseen.asked);
+    expect(seen.woken).toEqual(unseen.woken);
+  });
+
+  it("a seeded run plays the same with the pool shown as with it unseen: every step, place, line, card and throw of the dice (the crowd's run)", () => {
+    const shown = crowd(true, false);
+    const unseen = crowd(false, false);
+    expect(shown.most).toBe(2);
+    expect(unseen.most).toBe(0);
+    expect(shown.looks).toEqual(unseen.looks);
+    expect(shown.asked).toEqual(unseen.asked);
+    expect(shown.woken).toBe(unseen.woken);
+  });
+
+  it("under reduced motion the same run plays the same, shown or unseen", () => {
+    const shown = crowd(true, true);
+    const unseen = crowd(false, true);
+    expect(shown.most).toBe(2);
+    expect(shown.looks).toEqual(unseen.looks);
+    expect(shown.asked).toEqual(unseen.asked);
+  });
+
+  it("under reduced motion a medallion is there or it isn't: no opacity is ever written, it is gone the moment its god is set, and the one under it moves up by a cut", () => {
+    const s = stage({ reduced: true });
+    s.sync(sent(8));
+    for (const el of medals(s)) expect(el.style.opacity).toBe("");
+    expect(s.peek().medallions.map((m) => m.shown)).toEqual([1, 1, 1]);
+    const frames = s.drawn.frames;
+    s.host.run(400, 16);
+    expect(s.drawn.frames - frames).toBeLessThanOrEqual(2); // it keeps no frame coming
+    oldestSet(s, 8);
+    expect(hung(s)).toEqual(["g6 left 0", "g7 right 0"]);
+    expect(medal(s, "g7")!.style.transform).toBe("translate(674.50px,4.50px)");
+    expect(s.lane.innerHTML).not.toMatch(/oly-medal[^>]*opacity/);
+  });
+
+  it("with medallions off the pool waits unseen, as it did; and a lane taken down leaves none hung", () => {
+    const off = stage({ medallions: false });
+    off.sync(sent(8));
+    off.host.advance(2000);
+    expect(off.peek().waiting).toEqual(["g5", "g6", "g7"]);
+    expect(medals(off)).toEqual([]);
+    expect(off.peek().medallions).toEqual([]);
+    const on = stage();
+    on.sync(sent(8));
+    expect(medals(on)).toHaveLength(3);
+    on.dispose();
+    expect(medals(on)).toEqual([]);
+    expect(on.peek().medallions).toEqual([]);
   });
 });

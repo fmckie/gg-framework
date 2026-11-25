@@ -122,7 +122,13 @@
 //   the middle of a setting or an unsetting, that is cut too. The floor is
 //   laid whole as the lane opens and gone as it shuts; asked for while its
 //   stones are set or prised up, it is whole until the lane shuts.
-// The pool's medallions are a later part.
+// - The pool: a god waiting for a place hangs as a medallion, its row's cameo,
+//   at the lane's end: on the side with fewer (the right on a tie), in the
+//   first free slot from the top, so the oldest hangs highest. It is taken
+//   down as its god is set, or as its record ends there, and the ones under
+//   it move up a slot. It has a name and nothing to press, and says so. Under
+//   reduced motion it is there or it isn't, and moves up by a cut. The piers,
+//   its tesserae, its own startle and a failed one's crack are a later part.
 // It runs on sim.ts's clock. Every step is put on it for its moment, and every
 // throw of the dice falls in a step. A frame between steps is drawn from the
 // state and the time alone, and nothing it draws is read back by a step, so a
@@ -162,7 +168,7 @@ import {
   type FidgetAt,
   type Shown,
 } from "./fidget";
-import type { GodId } from "./gods";
+import { GODS, type GodId } from "./gods";
 import {
   armed,
   begun,
@@ -251,6 +257,8 @@ export interface FloorOptions {
   readonly starts?: Readonly<Partial<Record<GodId, string>>>;
   /** Whether a press startles a god at its work: it does unless this is false, for tests and previews. */
   readonly startle?: boolean;
+  /** Whether a god waiting for a place shows as a medallion: it does unless this is false, for tests and previews. */
+  readonly medallions?: boolean;
 }
 
 /** What the floor holds, for tests and previews. */
@@ -271,6 +279,15 @@ export interface FloorPeek {
   readonly queue: readonly string[];
   /** Waiting unseen for a place, oldest first. */
   readonly waiting: readonly string[];
+  /** The medallions hung, in the order they were: whose, its side (-1 left) and slot, how far down it hangs and how far it shows now, and whether it is being taken down. */
+  readonly medallions: readonly {
+    readonly key: string;
+    readonly side: -1 | 1;
+    readonly slot: number;
+    readonly y: number;
+    readonly shown: number;
+    readonly going: boolean;
+  }[];
   readonly gods: readonly {
     readonly key: string;
     readonly god: GodId;
@@ -699,6 +716,20 @@ function html(tag: string, className: string): HTMLElement {
   return el;
 }
 
+/** A medallion: whose, the element, its side and slot, when it was hung, whether by a cut, when it was taken down and is gone, and its move up a slot. */
+interface Medal {
+  readonly god: God;
+  readonly el: HTMLElement;
+  readonly side: -1 | 1;
+  slot: number;
+  readonly t0: number;
+  readonly cut: boolean;
+  downAt: number | null;
+  goneAt: number | null;
+  slide: { from: number; t0: number } | null;
+  drawn: string;
+}
+
 export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const { sim, cast: CAST, random } = opts;
   const godsEl = lane.querySelector<HTMLElement>(".oly-gods")!;
@@ -732,6 +763,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const gods = new Map<string, God>(); // by agent key: landed, waiting to land, or waiting for a place
   const queue: God[] = []; // waiting to land, in the order they were sent
   const pool: God[] = []; // waiting unseen for a place, oldest first
+  // The pool's medallions, in the order they were hung; and when each waiting god began to wait.
+  const POOL = CAST.pool;
+  const showPool = opts.medallions !== false;
+  const medals: Medal[] = [];
+  const pooledAt = new Map<God, number>();
   const laneTimers = new Set<SimEvent>();
   const recent: Record<"greeting" | "farewell", string[]> = { greeting: [], farewell: [] };
   const ended = new Map<string, number>(); // by agent key: the tools it had started when it last ended
@@ -2217,6 +2253,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     namesEl.append(god.label);
     god.labelW = measure(god.label);
     roveFix();
+    takeDown(god, t);
     notice(god, "arrive", t);
     // It is set from its tesserae, shows through them, and then greets; under
     // reduced motion it is there, greeting.
@@ -2446,6 +2483,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (i >= 0) queue.splice(i, 1);
     const k = pool.indexOf(god);
     if (k >= 0) pool.splice(k, 1);
+    takeDown(god, t); // ended before it was set: its medallion goes as it would have
     // Sent on again while it was going: it is summoned again.
     const a = latest.find((o) => o.key === god.key);
     if (a?.look === "run") summon(a, t);
@@ -2503,11 +2541,140 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     gods.set(a.key, god);
     if (pool.length > 0 || working5(god) >= CAPACITY || !fitsOn(god)) {
       pool.push(god);
+      pooledAt.set(god, t);
+      hangAll(t);
       return;
     }
     queue.push(god);
     openLane(t);
     scheduleLanding(t);
+  }
+
+  // ───────── the pool's medallions ─────────
+  // Nothing here is put on the clock, and no dice are thrown: a medallion's
+  // moments are worked out from when it was hung and taken down, by whichever
+  // step or frame comes next, so they fall the same however the frames do.
+  const slotY = (slot: number): number => POOL.y + slot * POOL.pitch;
+  function slideY(m: Medal, now: number): number {
+    const to = slotY(m.slot);
+    if (!m.slide) return to;
+    return lerp(m.slide.from, to, smooth((now - m.slide.t0) / POOL.slide));
+  }
+
+  // Those whose time is up are gone, the earliest first; the ones under each
+  // move up a slot, and whoever still waits unhung takes what that frees.
+  function settleMedals(t: number): void {
+    for (;;) {
+      const m = medals
+        .filter((o) => o.goneAt !== null && o.goneAt <= t)
+        .sort((a, b) => a.goneAt! - b.goneAt!)[0];
+      if (!m) return;
+      const at = m.goneAt!;
+      m.el.remove();
+      medals.splice(medals.indexOf(m), 1);
+      for (const o of medals) {
+        if (o.side !== m.side || o.slot < m.slot) continue;
+        const from = slideY(o, at);
+        o.slot -= 1;
+        o.slide = reduced() ? null : { from, t0: at };
+      }
+      hang(at);
+    }
+  }
+
+  function hang(t: number): void {
+    if (!showPool) return;
+    for (const god of pool) {
+      if (medals.some((m) => m.god === god)) continue;
+      const used: Record<-1 | 1, number[]> = { [-1]: [], 1: [] };
+      for (const m of medals) used[m.side].push(m.slot);
+      const order = used[1].length <= used[-1].length ? ([1, -1] as const) : ([-1, 1] as const);
+      const side = order.find((s) => used[s].length < POOL.slots);
+      if (side === undefined) return; // every slot is taken: it waits unseen
+      let slot = 0;
+      while (used[side].includes(slot)) slot++;
+      const el = html("div", "oly-medal");
+      el.dataset.god = god.gid;
+      el.dataset.key = god.key;
+      // It has a name, and nothing to press yet, and says so.
+      el.setAttribute("role", "button");
+      el.setAttribute("aria-label", CAST.gods[god.gid].name);
+      el.setAttribute("aria-disabled", "true");
+      const row = opts.describe?.(god.key);
+      if (row) el.setAttribute("aria-describedby", row);
+      const rim = html("span", "oly-medal-rim");
+      const img = document.createElement("img");
+      img.src = GODS[god.gid].cameo;
+      img.alt = "";
+      img.draggable = false;
+      rim.append(img);
+      el.append(rim);
+      const cut = reduced();
+      if (!cut) el.style.opacity = "0"; // under reduced motion it is never part way
+      godsEl.append(el);
+      medals.push({
+        god,
+        el,
+        side,
+        slot,
+        t0: Math.max(t, pooledAt.get(god) ?? t),
+        cut,
+        downAt: null,
+        goneAt: null,
+        slide: null,
+        drawn: "",
+      });
+    }
+  }
+
+  function hangAll(t: number): void {
+    settleMedals(t);
+    hang(t);
+  }
+
+  // Its god is being set, or its record has ended: the medallion is taken down.
+  function takeDown(god: God, t: number): void {
+    pooledAt.delete(god);
+    const m = medals.find((o) => o.god === god);
+    if (!m || m.downAt !== null) return;
+    settleMedals(t);
+    m.downAt = t;
+    m.goneAt = reduced() ? t : t + POOL.scatter;
+    m.el.setAttribute("aria-hidden", "true");
+    settleMedals(t);
+  }
+
+  // How far a medallion shows: nothing while it is set, then through; and out as it is taken down.
+  function medalShown(m: Medal, now: number): number {
+    const a = m.cut ? 1 : clamp01((now - m.t0 - POOL.set) / POOL.reveal);
+    return m.downAt === null ? a : Math.min(a, 1 - clamp01((now - m.downAt) / UNSET));
+  }
+  const medalX = (m: Medal): number => (m.side < 0 ? POOL.x : W - POOL.pier + POOL.x);
+
+  function renderMedals(now: number): boolean {
+    if (!medals.length) return false;
+    settleMedals(now);
+    let moving = false;
+    for (const m of medals) {
+      if (m.slide && now >= m.slide.t0 + POOL.slide) m.slide = null;
+      const a = medalShown(m, now);
+      const css = `${medalX(m).toFixed(2)},${slideY(m, now).toFixed(2)},${a.toFixed(3)}`;
+      if (css !== m.drawn) {
+        m.drawn = css;
+        // Written whole, so what the element says never depends on which frames fell.
+        const at = `transform: translate(${medalX(m).toFixed(2)}px,${slideY(m, now).toFixed(2)}px);`;
+        m.el.style.cssText = Number(a.toFixed(3)) >= 1 ? at : `${at} opacity: ${a.toFixed(3)};`;
+      }
+      if (m.slide || m.goneAt !== null || (!m.cut && now < m.t0 + POOL.set + POOL.reveal))
+        moving = true;
+    }
+    return moving;
+  }
+
+  function clearMedals(): void {
+    for (const m of medals) m.el.remove();
+    medals.length = 0;
+    pooledAt.clear();
   }
 
   // ───────── landing ─────────
@@ -3043,6 +3210,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     }
     renderTesserae();
     renderNames();
+    moving = renderMedals(now) || moving;
     attend();
     return moving || (wake < Infinity ? wake : false);
   });
@@ -3117,6 +3285,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         width: W,
         queue: queue.map((g) => g.key),
         waiting: pool.map((g) => g.key),
+        medallions: medals.map((m) => ({
+          key: m.god.key,
+          side: m.side,
+          slot: m.slot,
+          y: slideY(m, now),
+          shown: medalShown(m, now),
+          going: m.downAt !== null,
+        })),
         gods: [...gods.values()].filter(out).map((g) => {
           const [a, b] = envOf(g);
           const v = sample(g, now);
@@ -3172,6 +3348,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       shownFloor = null;
       queue.length = 0;
       pool.length = 0;
+      clearMedals();
       for (const e of laneTimers) sim.cancel(e);
       laneTimers.clear();
       sim.cancel(landTimer);

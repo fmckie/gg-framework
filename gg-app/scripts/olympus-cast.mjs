@@ -512,6 +512,24 @@ if (
 )
   throw new Error("the notices are not a reach, a rest, a latest start, an ease and beats each");
 
+// The pool's medallions: how many hang on a side and how far apart, where the
+// first hangs from the lane's corner and how wide the pier it hangs on is, px;
+// and for how long one is set, shows through, is taken down, and moves up a
+// slot, ms. Its box is the stylesheet's: its cameo and its rim.
+const pool = cast.pool ?? {};
+const POOL_KEYS = ["w", "h", "rim", "peg", "slots", "pitch", "x", "y", "pier"];
+const POOL_TIMES = ["set", "reveal", "scatter", "slide"];
+if (
+  ![...POOL_KEYS, ...POOL_TIMES].every((key) => pool[key] > 0) ||
+  !Number.isInteger(pool.slots) ||
+  pool.pitch < pool.h + 2 * pool.rim + pool.peg ||
+  pool.y + (pool.slots - 1) * pool.pitch + pool.h + 2 * pool.rim > 104 ||
+  pool.x + pool.w + 2 * pool.rim > pool.pier
+)
+  throw new Error(
+    "the pool's medallions do not hang clear of each other, on their pier, in the lane",
+  );
+
 const data = {
   source: `gg-framework-ui mockups/subagents/v4/olympus.html at ${commit}${dirty ? " (with uncommitted changes)" : ""}`,
   cell: cast.cell,
@@ -523,6 +541,7 @@ const data = {
     againBeats: startle.again_beats,
     line: startle.line,
   },
+  pool: Object.fromEntries([...POOL_KEYS, ...POOL_TIMES].map((key) => [key, pool[key]])),
   gods,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");

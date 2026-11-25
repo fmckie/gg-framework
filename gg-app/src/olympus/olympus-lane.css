@@ -390,6 +390,38 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   box-shadow: -1px 0 0 rgb(0 0 0 / 0.5);
 }
 
+/* The pool: a waiting god's medallion, its row's cameo in a rim of the
+   stylobate's ivory, hung from a peg in the names' ink at the lane's end.
+   floor.ts places it and says how far it shows. It takes no pointer yet. */
+.oly-medal {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  top: 0;
+  width: 17px;
+  height: 22px;
+}
+.oly-medal::before {
+  content: "";
+  position: absolute;
+  left: 7.5px;
+  top: -2px;
+  width: 2px;
+  height: 2px;
+  background: #3b3133;
+}
+.oly-medal-rim {
+  position: absolute;
+  inset: 0;
+  border: 1px solid #d2c9bf;
+  border-radius: 50%;
+}
+.oly-medal img {
+  display: block;
+  width: 15px;
+  height: 20px;
+}
+
 /* The card: one card, over the god the pointer or the keyboard is on. It
    stands above the lane, which clips, so it is in a frame of its own before
    the lane: no height, the lane's width. floor.ts gives it its left, its foot

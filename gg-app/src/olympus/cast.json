@@ -47,6 +47,21 @@
     "beats": { "arrive": 2, "done": 2, "fail": 3 }
   },
   "startle": { "down": 0.5, "again": 6000, "againBeats": 2, "line": 3 },
+  "pool": {
+    "w": 15,
+    "h": 20,
+    "rim": 1,
+    "peg": 2,
+    "slots": 4,
+    "pitch": 25,
+    "x": 6.5,
+    "y": 4.5,
+    "pier": 30,
+    "set": 600,
+    "reveal": 150,
+    "scatter": 700,
+    "slide": 300
+  },
   "gods": {
     "athena": {
       "name": "Athena",

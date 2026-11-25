@@ -2,7 +2,7 @@
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Item } from "../transcript-item";
-import { agentsAt, MOCK_RUN, RESUMED_AGENTS } from "./fixtures";
+import { agentsAt, MOCK_CROWD, MOCK_RUN, RESUMED_AGENTS } from "./fixtures";
 
 // Counts each time the lane's chunk is asked for.
 const laneChunk = vi.hoisted(() => ({ loads: 0 }));
@@ -54,6 +54,17 @@ describe("where the lane goes in a session", () => {
     expect(
       document.querySelector(".oly-cell, .oly-p-start, .is-startable, img[src*='-start']"),
     ).toBeNull();
+    expect(laneChunk.loads).toBe(0);
+  });
+
+  it("on the iPhone: more agents than a lane holds, and no medallion: no lane, no chunk", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const crowd: Item = { kind: "subagent_group", id: 43, agents: agentsAt(MOCK_CROWD, 12_000) };
+    expect(crowd.kind === "subagent_group" && crowd.agents.length).toBeGreaterThan(5);
+    const { container } = render(<LaneMount items={[text, crowd]} />);
+    await settle();
+    expect(container.innerHTML).toBe("");
+    expect(document.querySelector(".oly-medal, .oly-lane")).toBeNull();
     expect(laneChunk.loads).toBe(0);
   });
 
