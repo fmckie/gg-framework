@@ -82,6 +82,12 @@ pub(crate) fn window_chrome() -> WindowChrome {
     }
 }
 
+// tao makes the title bar `y` + the lights' 16px frame tall and AppKit centres
+// the lights in it: 32 + 16 is the 48px title row (App.css). x is the row's rail.
+#[cfg(target_os = "macos")]
+pub(crate) const MAC_TRAFFIC_LIGHTS: tauri::LogicalPosition<f64> =
+    tauri::LogicalPosition::new(16.0, 32.0);
+
 /// Apply the macOS Overlay title bar + hidden title to a window builder. Kept
 /// behind `#[cfg(target_os = "macos")]` because `TitleBarStyle::Overlay` and
 /// `hidden_title` are macOS-only builder methods.
@@ -92,6 +98,7 @@ pub(crate) fn apply_mac_overlay<'a, R: tauri::Runtime, M: tauri::Manager<R>>(
     builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
+        .traffic_light_position(MAC_TRAFFIC_LIGHTS)
 }
 
 /// No-op on non-macOS: native chrome is the default, nothing to apply.
