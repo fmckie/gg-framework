@@ -260,9 +260,21 @@ export interface FloorOptions {
   readonly startle?: boolean;
   /** Whether a god waiting for a place shows as a medallion: it does unless this is false, for tests and previews. */
   readonly medallions?: boolean;
+  /** Whether a god is given room in a crowd: it is unless this is false, the floor as it was, for tests and previews. */
+  readonly crowd?: boolean;
+  /** Each thing a crowd fix did, as it did it. */
+  readonly onCrowd?: (act: CrowdAct) => void;
 }
 
 /** What the floor holds, for tests and previews. */
+/** A thing a crowd fix did: when, for whose god, which fix, and what. */
+export interface CrowdAct {
+  readonly t: number;
+  readonly key: string;
+  readonly kind: "clear" | "stretch";
+  readonly what: string | null;
+}
+
 export interface FloorPeek {
   readonly open: boolean;
   /**
@@ -404,6 +416,9 @@ const HOLD = 200; // waiting for room, for a line, a walk or the tesserae: look 
 const GREET_WAIT = 1500; // a greeting waits this long for room, then the god goes on without a word
 const BYE_WAIT = 3000; // a farewell waits its turn longer; then it seals its scroll and goes
 const BYE_STUCK = 1200; // but if nothing round it will make room, the longest waiting goes after this
+
+// ── Room in a crowd ──
+const SPOT_EACH = 6; // a god may be set anywhere in its own stretch, its spots this far apart
 
 // ── A god at its work, ms ──
 const DWELL = 900; // a pose shown is held this long at least, or two of the god's steps if that is longer
@@ -786,6 +801,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const card = opts.card ?? null;
   const fidgeting = opts.fidget !== false;
   const reacting = opts.react !== false;
+  const crowd = opts.crowd !== false; // the crowd fixes; off, the floor is as it was before them
   const N = CAST.notice;
   // The crown of the god that gives one, where the lane was handed its picture.
   const crownOf = (id: GodId): Crown | undefined =>
@@ -1512,41 +1528,192 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       spots = [seat + side * far, seat - side * far, seat + side * 44, seat - side * 44, seat];
     }
     spots = spots.filter(free);
+    if (crowd) return entryCrowded(god, t, spots, taken, free);
     if (!spots.length) return null;
-    const near = around(god, t);
-    const where = new Map<Rib, number>();
-    const said = pickLine("greeting", god, (text) => {
-      for (const x of spots) {
-        const r = placeRibbon(god, x, text, near);
-        if (!r) continue;
-        where.set(r, x);
-        return r;
+    const said = pickLine("greeting", god, spotAt(god, spots, around(god, t)));
+    return said ? entryOf(said) : { x: spots[0]!, text: null, r: null };
+  }
+
+  // A spot of a list, the first where a god may hold a line out in full, and the ribbon there.
+  interface Spot {
+    readonly x: number;
+    readonly r: Rib;
+  }
+  const spotAt =
+    (god: God, list: readonly number[], room: Near) =>
+    (text: string): Spot | null => {
+      for (const x of list) {
+        const r = placeRibbon(god, x, text, room);
+        if (r) return { x, r };
       }
       return null;
+    };
+  const entryOf = (said: Choice<Spot>): Entry => ({ x: said.at.x, text: said.text, r: said.at.r });
+
+  // ───────── room in a crowd ─────────
+  // Each fix acts only where the floor would have failed without it (a landing
+  // held back, a line about to go unsaid) and logs what it did, so a run can be
+  // held to its twin with the fixes off, frame by frame, up to the first thing
+  // a fix did.
+  function act(kind: CrowdAct["kind"], god: God, t: number, what: string): void {
+    opts.onCrowd?.({ t, key: god.key, kind, what });
+  }
+  const sameChoice = (a: readonly Choice<Spot>[], b: readonly Choice<Spot>[]): boolean =>
+    a.length === b.length &&
+    a.every((o, i) => {
+      const p = b[i]!;
+      return (
+        o.text === p.text &&
+        o.w === p.w &&
+        o.at.x === p.at.x &&
+        o.at.r.side === p.at.r.side &&
+        o.at.r.lift === p.at.r.lift
+      );
     });
-    return said
-      ? { x: where.get(said.r)!, text: said.text, r: said.r }
-      : { x: spots[0]!, text: null, r: null };
+
+  // A god's own stretch: the floor between the nearest claims either side of
+  // its head line at x, inside the lane. Its spots, `each` apart, the nearest x
+  // first (toward the middle on a tie), no further than `reach`, where its
+  // figure is clear of the stretch's ends.
+  function stretchSpots(
+    god: God,
+    x: number,
+    taken: readonly Range[],
+    each: number,
+    reach = Infinity,
+  ): number[] {
+    const c = x + HEAD;
+    let lo = -Infinity;
+    let hi = Infinity;
+    for (const [a, b] of taken) {
+      if ((a + b) / 2 < c) lo = Math.max(lo, b);
+      else hi = Math.min(hi, a);
+    }
+    const toMid = c < W / 2 ? 1 : -1;
+    const spots: number[] = [];
+    for (let k = 1; k * each <= reach; k++) {
+      let on = false;
+      for (const side of [toMid, -toMid]) {
+        const s = x + side * k * each;
+        if (s + 64 < edgeL - 6 || s + 4 > edgeR + 6) continue; // off the lane
+        on = true;
+        const [a, b] = either(god, "speak", s);
+        if (a - 2 >= lo && b + 2 <= hi && s + 4 >= edgeL - 6 && s + 64 <= edgeR + 6) spots.push(s);
+      }
+      if (!on) break;
+    }
+    return spots;
+  }
+
+  // Where a god is set, with the fixes: a full line clear of the places still
+  // to be filled, near its place or anywhere in its stretch; else the floor's
+  // choice as it was; else a full line anywhere in its own stretch; else no
+  // line, near its place as before, or anywhere in its stretch. Null only if
+  // the whole stretch is taken.
+  function entryCrowded(
+    god: God,
+    t: number,
+    spots: readonly number[],
+    taken: readonly Range[],
+    free: (x: number) => boolean,
+  ): Entry | null {
+    const near = around(god, t);
+    // The places still to be filled, as each will be set there: its figure and its tesserae's flight.
+    const planned = queue.filter((g) => g !== god && g.seat != null);
+    const columns = planned.map((g) => {
+      const [a, b] = either(g, "speak", g.seat!);
+      return tall([a - SPREAD, b + SPREAD]);
+    });
+    const strict: Near | null = planned.length
+      ? { boxes: [...near.boxes, ...columns], held: near.held }
+      : null;
+    const wide = stretchSpots(god, god.seat!, taken, SPOT_EACH)
+      .filter(free)
+      .filter((x) => !spots.includes(x));
+    const said =
+      clearOf(god, t, spots, [...spots, ...wide], strict, near) ??
+      pickLine("greeting", god, spotAt(god, spots, near)) ??
+      acted(god, t, pickLine("greeting", god, spotAt(god, wide, near)));
+    if (said) return entryOf(said);
+    if (spots.length) return { x: spots[0]!, text: null, r: null };
+    if (!wide.length) return null;
+    act("stretch", god, t, "set in its stretch, with no line");
+    return { x: wide[0]!, text: null, r: null };
+  }
+
+  // While gods wait to land in a planned place, a greeting first looks for a
+  // side and a spot, near its place or anywhere in its stretch, where its whole
+  // ribbon clears their places too, as each will be set there. Only if no line
+  // fits that way is it the floor's choice as it was.
+  function clearOf(
+    god: God,
+    t: number,
+    spots: readonly number[],
+    where: readonly number[],
+    strict: Near | null,
+    near: Near,
+  ): Choice<Spot> | null {
+    if (!strict) return null;
+    const a = choices("greeting", god, spotAt(god, where, strict));
+    if (!a.total) return null;
+    if (!sameChoice(a.found, choices("greeting", god, spotAt(god, spots, near)).found))
+      act("clear", god, t, "a greeting kept off the places still to be filled");
+    const said = pick("greeting", a)!;
+    return spots.includes(said.at.x) ? said : acted(god, t, said);
+  }
+  function acted(god: God, t: number, said: Choice<Spot> | null): Choice<Spot> | null {
+    if (said)
+      act(
+        "stretch",
+        god,
+        t,
+        `“${said.text}”, ${Math.round(Math.abs(said.at.x - god.seat!))}px from its place`,
+      );
+    return said;
   }
 
   // A line for a god to say, of those fit(text) finds room for: its own most
-  // often, or one any god may, and never what the last three gods said.
-  function pickLine(
+  // often, or one any god may, and never what the last three gods said. With
+  // where it fits, or null if none does.
+  interface Choice<T> {
+    readonly text: string;
+    readonly w: number;
+    readonly at: T;
+  }
+  interface Choices<T> {
+    readonly found: readonly Choice<T>[];
+    readonly total: number;
+  }
+  function pickLine<T>(
     kind: "greeting" | "farewell",
     god: God,
-    fit: (text: string) => Rib | null,
-  ): { text: string; r: Rib } | null {
+    fit: (text: string) => T | null,
+    list?: readonly Line[],
+  ): Choice<T> | null {
+    return pick(kind, choices(kind, god, fit, list));
+  }
+  // The lines it may say, of a list, with their weights and where each fits; drawing no dice.
+  function choices<T>(
+    kind: "greeting" | "farewell",
+    god: God,
+    fit: (text: string) => T | null,
+    list: readonly Line[] = LINES[kind],
+  ): Choices<T> {
     const avoid = recent[kind];
-    const found: { text: string; w: number; r: Rib }[] = [];
+    const found: Choice<T>[] = [];
     let total = 0;
-    for (const [text, who] of LINES[kind]) {
+    for (const [text, who] of list) {
       const w = avoid.includes(text) ? 0 : who === god.gid ? 3 : who === "*" ? 1 : 0;
-      const r = w > 0 ? fit(text) : null;
-      if (!r) continue;
-      found.push({ text, w, r });
+      const at = w > 0 ? fit(text) : null;
+      if (!at) continue;
+      found.push({ text, w, at });
       total += w;
     }
+    return { found, total };
+  }
+  function pick<T>(kind: "greeting" | "farewell", { found, total }: Choices<T>): Choice<T> | null {
     if (!total) return null;
+    const avoid = recent[kind];
     let dice = random() * total;
     let chosen = found[found.length - 1]!;
     for (const o of found) {
@@ -1558,7 +1725,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     }
     avoid.push(chosen.text);
     if (avoid.length > 3) avoid.shift();
-    return { text: chosen.text, r: chosen.r };
+    return chosen;
   }
 
   // ───────── a god ─────────
@@ -2324,11 +2491,11 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const near = around(god, t);
     const fits = (text: string): Rib | null => placeRibbon(god, x, text, near);
     let r: Rib | null;
-    if (report) r = pickLine("farewell", god, fits)?.r ?? null;
+    if (report) r = pickLine("farewell", god, fits)?.at ?? null;
     else if (god.line)
       // The room kept for its greeting, if nothing has come into it; else wherever the line fits.
       r = god.rib && clear(god, x, god.rib, near) ? god.rib : fits(god.line);
-    else r = pickLine("greeting", god, fits)?.r ?? null;
+    else r = pickLine("greeting", god, fits)?.at ?? null;
     if (!r) {
       god.rib = null;
       god.waiting ??= t;

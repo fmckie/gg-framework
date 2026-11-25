@@ -12,7 +12,14 @@ import {
   SENT_ON_AGAIN,
   STATE_AGENTS,
 } from "./fixtures";
-import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from "./floor";
+import {
+  createFloor,
+  rng,
+  type CrowdAct,
+  type FloorPeek,
+  type LaneAgent,
+  type LaneLook,
+} from "./floor";
 import { GODS, type GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
 import { createSim, type Sim } from "./sim";
@@ -85,6 +92,8 @@ interface Stage {
   readonly woken: { times: number };
   /** How many frames the floor has drawn. */
   readonly drawn: { frames: number };
+  /** Each thing a crowd fix did, in order. */
+  readonly crowded: CrowdAct[];
   names(): string[];
   setWidth(width: number): void;
   resize(): void;
@@ -114,6 +123,7 @@ function stage({
   react = false,
   startle = false,
   medallions = true,
+  crowd = false,
   starts = START_URLS as Partial<typeof START_URLS>,
   cast = CAST,
 } = {}): Stage {
@@ -141,6 +151,7 @@ function stage({
   const woken = { times: 0 };
   const drawn = { frames: 0 };
   const cards: (string | null)[] = [];
+  const crowded: CrowdAct[] = [];
   const clock = createSim(host);
   const sim: Sim = {
     ...clock,
@@ -162,6 +173,8 @@ function stage({
     starts,
     startle,
     medallions,
+    crowd,
+    onCrowd: (act) => crowded.push(act),
     random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
@@ -187,6 +200,7 @@ function stage({
     asked,
     woken,
     drawn,
+    crowded,
     label(key) {
       const i = floor.peek().gods.findIndex((god) => god.key === key);
       return i < 0 ? undefined : [...lane.querySelectorAll<HTMLElement>(".oly-ins")][i];
@@ -7256,5 +7270,133 @@ describe("the piers: the antae widen for the pool's medallions, and the floor's 
     s.host.advance(POOL.widen / 2);
     expect(widths(s)).toEqual(["30px", "30px"]);
     expect(medals(s).map((el) => el.dataset.key)).toEqual(["k5"]);
+  });
+});
+
+describe("room in a crowd: a god is set in a crowd", () => {
+  /** A first crowd of `n`, sent together, with the crowd fixes on or off. */
+  const sent = (n: number, opts: Parameters<typeof stage>[0]): Stage => {
+    const s = stage(opts);
+    s.sync(ALL.slice(0, n).map((god, i) => agent(`g${i}`, god)));
+    return s;
+  };
+  /** On to a moment, a frame every 16 ms and one at the moment itself. */
+  const to = (s: Stage, at: number): void => {
+    while (s.host.now() + 16 <= at) s.host.advance(16);
+    s.host.advance(at - s.host.now());
+  };
+  const over = (a: readonly [number, number], b: readonly [number, number]): boolean =>
+    a[0] < b[1] && b[0] < a[1];
+
+  it("a greeting in a crowd clears the places still to be filled, where it would have crossed one", () => {
+    const ribbonAt = (crowd: boolean): { line: readonly [number, number]; s: Stage } => {
+      const s = sent(3, { seed: 10, crowd });
+      to(s, LAND);
+      // The first is being set, at the same spot either way, and two wait for their places.
+      expect(out(s, "g0")).toMatchObject({ step: "assemble" });
+      expect(out(s, "g0").x).toBeCloseTo(242.02, 2);
+      expect(s.peek().queue).toEqual(["g1", "g2"]);
+      to(s, LAND + SHOWN + UNFURL);
+      expect(out(s, "g0")).toMatchObject({ step: "greet", line: "I have the brief." });
+      return { line: out(s, "g0").ribbon!, s };
+    };
+    const on = ribbonAt(true);
+    const off = ribbonAt(false);
+    for (const { s } of [on, off]) settle(s, 3);
+    const places = (s: Stage): (readonly [number, number])[] =>
+      ["g1", "g2"].map((key) => out(s, key).place!);
+    expect(places(on.s)).toEqual(places(off.s));
+    // As it was, the line was held out over the third's place; now it is held out the other way, clear of both.
+    expect(places(off.s).map((place) => over(off.line, place))).toEqual([false, true]);
+    expect(places(on.s).map((place) => over(on.line, place))).toEqual([false, false]);
+    expect(on.line[1]).toBeLessThan(off.line[0]);
+  });
+
+  it("a god with no room for a line by its place is set elsewhere in its stretch, with a line if one fits; and one with no room to stand there, with none", () => {
+    // The third of three on a narrow lane: no line fits at any of the floor's five spots, but one does 30px off.
+    const lined = sent(3, { seed: 17, width: 560, crowd: true });
+    to(lined, 2700);
+    const third = out(lined, "g2");
+    expect(third.step).toBe("assemble");
+    expect(Math.abs(third.x - seatOf(third))).toBeCloseTo(30, 6); // five spots of 6px along
+    to(lined, 2700 + SHOWN);
+    expect(out(lined, "g2")).toMatchObject({ step: "greet", line: "Here, and listening." });
+    expect(out(lined, "g2").x).toBe(third.x);
+    // As it was, it was set by its place at that moment with no line kept for it.
+    const bare = sent(3, { seed: 17, width: 560 });
+    to(bare, 2700);
+    expect(Math.abs(out(bare, "g2").x - seatOf(out(bare, "g2")))).toBeGreaterThan(62);
+
+    // The fourth of four: nowhere to stand at any of the five. It is set 72px along, with no line kept.
+    const set = sent(4, { seed: 3, width: 560, crowd: true });
+    to(set, 5550);
+    const fourth = out(set, "g3");
+    expect(fourth.step).toBe("assemble");
+    expect(Math.abs(fourth.x - seatOf(fourth))).toBeCloseTo(72, 6);
+    expect(set.peek().queue).toEqual([]);
+    // As it was, its landing was held back.
+    const held = sent(4, { seed: 3, width: 560 });
+    to(held, 5550);
+    expect(held.peek().queue).toEqual(["g3"]);
+    expect(held.peek().gods.map((god) => god.key)).toEqual(["g0", "g1", "g2"]);
+    for (const s of [lined, set]) {
+      settle(s, s.peek().gods.length + s.peek().queue.length);
+      expectApart(s.peek());
+    }
+  });
+
+  it("each thing a crowd fix did is logged: when, for whose god, which fix and what; and with the fixes off nothing ever is", () => {
+    const acts = (n: number, opts: Parameters<typeof stage>[0]): Stage["crowded"] => {
+      const s = sent(n, opts);
+      s.host.run(12_000, 16);
+      return s.crowded;
+    };
+    expect(acts(3, { seed: 10, crowd: true })).toEqual([
+      {
+        t: 1000,
+        key: "g0",
+        kind: "clear",
+        what: "a greeting kept off the places still to be filled",
+      },
+    ]);
+    expect(acts(3, { seed: 17, width: 560, crowd: true })).toEqual([
+      { t: 2700, key: "g2", kind: "stretch", what: "“Here, and listening.”, 30px from its place" },
+    ]);
+    expect(acts(4, { seed: 3, width: 560, crowd: true })).toEqual([
+      { t: 5550, key: "g3", kind: "stretch", what: "set in its stretch, with no line" },
+    ]);
+    for (const opts of [{ seed: 10 }, { seed: 17, width: 560 }, { seed: 3, width: 560 }])
+      expect(acts(4, opts)).toEqual([]);
+  });
+
+  it("a seeded crowd with the fixes on matches its twin with them off, frame by frame, up to the first thing logged; and asks the same of its clock and dice when nothing is", () => {
+    const look = (s: Stage): string =>
+      `${JSON.stringify(s.peek())} ${s.lane.style.height} ${s.lane.innerHTML} ${s.asked.clock} ${s.asked.dice} ${s.woken.times} ${s.drawn.frames}`;
+    /** How many frames, 16 ms apart, the two look and have asked the same for. */
+    const twins = (n: number, opts: Parameters<typeof stage>[0], ms: number) => {
+      const on = sent(n, { ...opts, crowd: true });
+      const off = sent(n, { ...opts, crowd: false });
+      let same = 0;
+      let apart = false;
+      for (let t = 0; t + 16 <= ms; t += 16) {
+        on.host.advance(16);
+        off.host.advance(16);
+        if (look(on) !== look(off)) apart = true;
+        if (!apart) same = on.host.now();
+      }
+      return { on, off, same, apart };
+    };
+    // A fix acts as the first is set, at 1000 ms: the same to the frame before, and not after.
+    const acted = twins(3, { seed: 10 }, 12_000);
+    expect(acted.on.crowded[0]).toMatchObject({ t: 1000 });
+    expect(acted.same).toBe(992);
+    expect(acted.apart).toBe(true);
+    // No fix has anything to do: the same throughout, every step, wake and throw.
+    const quiet = twins(3, { seed: 2 }, 12_000);
+    expect(quiet.on.crowded).toEqual([]);
+    expect(quiet.apart).toBe(false);
+    expect(quiet.on.asked).toEqual(quiet.off.asked);
+    expect(quiet.on.asked.dice).toBeGreaterThan(0);
+    expect(quiet.on.peek().gods.map((god) => god.step)).toEqual(["work", "work", "work"]);
   });
 });
