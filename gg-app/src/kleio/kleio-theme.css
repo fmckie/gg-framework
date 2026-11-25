@@ -1476,6 +1476,8 @@ html:not(.platform-ios) {
   --kleio-text: #e8e0dc;
   --kleio-done: #66b48c;
   --kleio-surface: #1d1819;
+  --kleio-track: #3a3334;
+  --kleio-edge: #4b4143;
 }
 html:not(.platform-ios) .app.app-session {
   /* Helper's gold: antique, with the deep and champagne stops of its gilt, and
@@ -2052,6 +2054,108 @@ html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct::before {
 }
 html:not(.platform-ios) .app.app-session > .footer .ctx-meter-pct[data-pressure="ok"] {
   color: var(--kleio-muted) !important;
+}
+/* Context is a button: the word, a 36×3px track and the percentage. The fill's
+   colour is inline: one hue, green at 0 to red at 100. */
+html:not(.platform-ios) .app.app-session > .footer .ctx-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-muted);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.55;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-value {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-track {
+  display: inline-block;
+  width: 36px;
+  height: 3px;
+  background: var(--kleio-track);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button .ctx-track > i {
+  display: block;
+  height: 100%;
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button:is(:hover, :focus-visible),
+html:not(.platform-ios) .app.app-session > .footer .ctx-button[aria-expanded="true"] {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .footer .ctx-button:focus-visible,
+html:not(.platform-ios) .usage-popover .usage-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* Usage: a small panel above Context, on the body so the footer cannot clip
+   it. It moves nothing: the composer and the bottom controls stay put. */
+html:not(.platform-ios) .usage-popover {
+  position: fixed;
+  z-index: var(--z-modal);
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px 16px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 6px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios) .usage-popover > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+html:not(.platform-ios) .usage-popover h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+html:not(.platform-ios) .usage-popover > p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .usage-popover > small {
+  display: block;
+  margin-top: 10px;
+  color: var(--kleio-muted);
+  font-size: 11px;
+}
+html:not(.platform-ios) .usage-popover .usage-meter {
+  height: 4px;
+  background: var(--kleio-edge);
+}
+html:not(.platform-ios) .usage-popover .usage-meter > i {
+  display: block;
+  height: 100%;
+}
+html:not(.platform-ios) .usage-popover .usage-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+html:not(.platform-ios) .usage-popover .usage-close:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
 }
 /* Thinking, coloured by level. Off and locked keep their dim inline colour. */
 html:not(.platform-ios) .app.app-session > .footer .thinking-toggle {

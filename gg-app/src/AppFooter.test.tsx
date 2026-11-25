@@ -13,7 +13,12 @@ afterEach(cleanup);
 
 const LEVELS = ["low", "medium", "high", "xhigh", "max"];
 
-function renderFooter(thinkingLevel: string | null, running = false) {
+function renderFooter(
+  thinkingLevel: string | null,
+  running = false,
+  contextPct = 0,
+  phoneHeader = false,
+) {
   const state = {
     mode: "code",
     model: "claude-sonnet-4-6",
@@ -25,13 +30,13 @@ function renderFooter(thinkingLevel: string | null, running = false) {
     <AppFooter
       workspaceMode="code"
       hydrated
-      phoneHeader={false}
+      phoneHeader={phoneHeader}
       state={state}
       runningTaskCount={0}
       tasks={[]}
       schedules={[]}
       stopSchedule={vi.fn()}
-      contextPct={0}
+      contextPct={contextPct}
       running={running}
       models={[]}
       onSelectModel={vi.fn()}
@@ -62,5 +67,32 @@ describe("AppFooter thinking toggle", () => {
     const button = container.querySelector<HTMLButtonElement>(".thinking-toggle");
     expect(button?.disabled).toBe(true);
     expect(button?.dataset.level).toBe("high");
+  });
+});
+
+describe("AppFooter context reading", () => {
+  it("is a Context button on the desktop, and reads 0% in an empty chat", () => {
+    const { container } = renderFooter("low");
+    const button = container.querySelector<HTMLButtonElement>(".footer-right .ctx-button");
+    expect(button?.tagName).toBe("BUTTON");
+    expect(button?.textContent).toBe("Context0%");
+    expect(container.querySelector(".ctx-meter-pct")).toBeNull();
+  });
+
+  it("carries the reading into the button", () => {
+    const { container } = renderFooter("low", false, 42);
+    expect(container.querySelector(".ctx-button")?.textContent).toBe("Context42%");
+  });
+
+  it("keeps the iPhone's plain reading, hidden at 0", () => {
+    expect(
+      renderFooter("low", false, 0, true).container.querySelector(".ctx-meter-pct"),
+    ).toBeNull();
+    cleanup();
+    const { container } = renderFooter("low", false, 42, true);
+    const reading = container.querySelector(".ctx-meter-pct");
+    expect(reading?.tagName).toBe("SPAN");
+    expect(reading?.textContent).toBe("42%");
+    expect(container.querySelector(".ctx-button")).toBeNull();
   });
 });

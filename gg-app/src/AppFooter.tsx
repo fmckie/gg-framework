@@ -11,6 +11,7 @@ import { ModelSelect } from "./ModelSelect";
 import { RunningSchedulesButton } from "./RunningSchedulesButton";
 import type { Routine } from "./useRoutines";
 import { ContextMeter } from "./ContextMeter";
+import { ContextButton } from "./ContextButton";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { ShimmerText } from "./ShimmerText";
 import { FooterSkeleton } from "./Skeleton";
@@ -119,9 +120,17 @@ export function AppFooter({
             </span>
           )}
           <span className="footer-right footer-reveal">
-            {contextPct > 0 && (
+            {/* The iPhone keeps the plain reading, hidden at 0. */}
+            {phoneHeader ? (
+              contextPct > 0 && (
+                <>
+                  <ContextMeter pct={contextPct} />
+                  <FooterSep />
+                </>
+              )
+            ) : (
               <>
-                <ContextMeter pct={contextPct} />
+                <ContextButton pct={contextPct} />
                 <FooterSep />
               </>
             )}
