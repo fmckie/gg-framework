@@ -244,6 +244,8 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
         <canvas className="oly-mosaic" aria-hidden="true" />
         {/* The tesserae a god is set from and goes back to: the engine draws them, behind the gods. */}
         <canvas className="oly-fx" aria-hidden="true" />
+        {/* The tesserae a waiting god's medallion is set from and scatters to, over the piers. */}
+        <canvas className="oly-mfx" aria-hidden="true" />
         <div
           className="oly-gods"
           role="toolbar"

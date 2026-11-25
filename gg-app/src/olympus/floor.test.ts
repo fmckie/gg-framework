@@ -16,6 +16,7 @@ import { createFloor, rng, type FloorPeek, type LaneAgent, type LaneLook } from 
 import { GODS, type GodId } from "./gods";
 import { laneAgents } from "./OlympusLane";
 import { createSim, type Sim } from "./sim";
+import { cutTesserae, flightOf, MEDAL } from "./tesserae";
 import type { ToolFamily } from "./tool-family";
 
 const GREETINGS: Readonly<Record<GodId | "any", readonly string[]>> = {
@@ -74,6 +75,8 @@ interface Stage {
   readonly box: HTMLTextAreaElement;
   /** The tesserae's canvas, as a count of what the floor has drawn on it. */
   readonly fx: CountingBrush;
+  /** The medallions' tesserae's canvas, over the piers, counted the same way. */
+  readonly mfx: CountingBrush;
   /** The floor mosaic's canvas, counted the same way: a fill is a colour's stones at rest, or one on its way. */
   readonly bed: CountingBrush;
   /** How often the floor has put a step on the clock or woken it, and drawn its dice. */
@@ -117,10 +120,13 @@ function stage({
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
-    '<canvas class="oly-mosaic"></canvas><canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div><span class="oly-anta is-l"></span><span class="oly-anta is-r"></span>';
+    '<canvas class="oly-mosaic"></canvas><canvas class="oly-fx"></canvas><canvas class="oly-mfx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div><span class="oly-anta is-l"></span><span class="oly-anta is-r"></span>';
   const fx = countingBrush();
   lane.querySelector<HTMLCanvasElement>("canvas.oly-fx")!.getContext = (() =>
     fx.ctx) as unknown as HTMLCanvasElement["getContext"];
+  const mfx = countingBrush();
+  lane.querySelector<HTMLCanvasElement>("canvas.oly-mfx")!.getContext = (() =>
+    mfx.ctx) as unknown as HTMLCanvasElement["getContext"];
   const bed = countingBrush();
   lane.querySelector<HTMLCanvasElement>("canvas.oly-mosaic")!.getContext = (() =>
     bed.ctx) as unknown as HTMLCanvasElement["getContext"];
@@ -176,6 +182,7 @@ function stage({
     cards,
     box,
     fx,
+    mfx,
     bed,
     asked,
     woken,
@@ -6818,6 +6825,91 @@ describe("the pool's medallions: a god waiting for a place is seen", () => {
     };
     expect(run(false)).toBe(UNPRESSED_ASKED);
     expect(run(true)).toBe(UNPRESSED_ASKED);
+  });
+
+  // ── O8d: a medallion's tesserae ──
+  /** How many stones a god's medallion is cut into. */
+  const stonesIn = (gid: GodId): number =>
+    CAST.gods[gid].medal.tiles.rows.reduce(
+      (n, row) => n + [...row[4]].filter((ch) => ch !== "-").length,
+      0,
+    );
+
+  it("a medallion is set from its tesserae on the canvas over the piers: brought in over the set, giving way as the cameo shows through, and then the canvas is wiped once and left alone", () => {
+    const s = stage();
+    s.sync(sent(6));
+    s.host.advance(POOL.widen);
+    const all = stonesIn("herodotus");
+    expect(s.mfx.stones).toBe(0);
+    s.host.advance(POOL.set / 3);
+    expect(s.mfx.stones).toBeGreaterThan(0);
+    expect(s.mfx.stones).toBeLessThan(all);
+    s.host.advance((POOL.set * 2) / 3 - 1);
+    expect(s.mfx.stones).toBe(all);
+    // In its own ivories, and on its own canvas: not the gods'.
+    const palette = CAST.gods.herodotus.medal.tiles.palette;
+    expect([...s.mfx.ivories].every((ivory) => palette.includes(ivory))).toBe(true);
+    s.host.advance(1 + POOL.reveal / 2);
+    expect(s.mfx.stones).toBe(all); // at rest under the cameo, as it shows through
+    expect(medal(s, "g5")!.style.opacity).toBe("0.5");
+    s.host.advance(POOL.reveal / 2);
+    expect(s.mfx.stones).toBe(0);
+    const { wipes, filled } = s.mfx;
+    s.host.run(3000, 16);
+    expect(s.mfx).toMatchObject({ wipes, filled, stones: 0 });
+  });
+
+  it("taken down, its tesserae scatter up and toward the lane for the scatter, and none are drawn between its setting and that; then the canvas is wiped once and left alone", () => {
+    const s = stage();
+    s.sync(sent(8));
+    settle(s, 5);
+    s.host.advance(POOL.widen + POOL.set + POOL.reveal);
+    const hungStill = { ...s.mfx };
+    oldestSet(s, 8);
+    expect(s.mfx.filled).toBe(hungStill.filled); // not a stone while it hung
+    s.host.advance(UNSET);
+    expect(s.mfx.stones).toBeGreaterThan(0);
+    expect(s.mfx.stones).toBeLessThanOrEqual(stonesIn("herodotus"));
+    s.host.advance(POOL.scatter - UNSET - 2);
+    expect(medal(s, "g5")).toBeDefined();
+    s.host.advance(2);
+    expect(medal(s, "g5")).toBeUndefined();
+    expect(s.mfx.stones).toBe(0);
+    const { wipes, filled } = s.mfx;
+    s.host.run(3000, 16);
+    expect(s.mfx).toMatchObject({ wipes, filled });
+    // Each stone's way: up, and toward the lane from either pier.
+    const cut = cutTesserae(CAST.gods.herodotus.medal.tiles.rows, rng(1), 104, MEDAL);
+    for (const inward of [1, -1]) {
+      const flights = cut.map((k) => flightOf(k, "lift", k.liftAt + 300, 0, 1, MEDAL, inward));
+      expect(flights.every((f) => f === null || (f.dx * inward >= 0 && f.dy < 0))).toBe(true);
+      expect(flights.some((f) => f !== null && f.dx * inward > 1)).toBe(true);
+    }
+  });
+
+  it("under reduced motion no tessera is drawn and the canvas is never touched; asked for in the middle of a setting, they are wiped at the next frame and no more are drawn", () => {
+    const still = stage({ reduced: true });
+    oldestSet(still, 8);
+    still.host.run(3000, 16);
+    expect(still.mfx).toMatchObject({ wipes: 0, filled: 0 });
+    const s = stage();
+    s.sync(sent(6));
+    s.host.advance(POOL.widen + POOL.set / 2);
+    expect(s.mfx.stones).toBeGreaterThan(0);
+    s.quiet(true);
+    s.host.advance(16);
+    expect(s.mfx.stones).toBe(0);
+    const { wipes, filled } = s.mfx;
+    s.host.run(3000, 16);
+    expect(s.mfx).toMatchObject({ wipes, filled });
+  });
+
+  it("its tesserae ask for not a step, a wake or a throw of the floor's dice: the run that sets two and scatters one asks what it did before there were any", () => {
+    const s = stage({ startle: true });
+    oldestSet(s, 8);
+    s.host.run(3000, 16);
+    expect(s.mfx.filled).toBeGreaterThan(stonesIn("herodotus"));
+    expect(asked(s)).toBe(UNPRESSED_ASKED);
   });
 });
 

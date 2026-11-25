@@ -390,6 +390,16 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   box-shadow: -1px 0 0 rgb(0 0 0 / 0.5);
 }
 
+/* The medallions' tesserae's canvas, over the piers: floor.ts draws on it. */
+.oly-mfx {
+  position: absolute;
+  z-index: 7;
+  left: 0;
+  bottom: var(--oly-tread);
+  display: block;
+  width: 100%;
+  height: 104px;
+}
 /* The pool: a waiting god's medallion, its row's cameo in a rim of the
    stylobate's ivory, hung from a peg in the names' ink at the lane's end.
    floor.ts places it and says how far it shows. It takes no pointer yet. */

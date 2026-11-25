@@ -231,8 +231,12 @@ export interface CastGod {
   readonly rx: { readonly crown?: Crown };
   /** Its start, when the reader presses it at its work. */
   readonly st: StartOf;
-  /** Its medallion: how far it tilts as it rocks on its peg, degrees. */
-  readonly medal: { readonly tilt: number };
+  /** Its medallion: how far it tilts as it rocks on its peg, degrees; and what it is set from. */
+  readonly medal: {
+    readonly tilt: number;
+    /** Its tesserae: a palette of its own, and its courses from the foot up. */
+    readonly tiles: { readonly palette: readonly string[]; readonly rows: readonly Course[] };
+  };
   /** Each pose's top in the cell. */
   readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
   /** The height its card holds while it works: over the highest it reaches at its place. */
@@ -253,6 +257,8 @@ export interface CastGod {
 export interface Cast {
   readonly source: string;
   readonly cell: { readonly w: number; readonly h: number; readonly head: number };
+  /** The crack across a failed medallion, in its box. */
+  readonly crack: { readonly viewBox: string; readonly nodes: readonly SvgNode[] };
   readonly seal: { readonly viewBox: string; readonly nodes: readonly SvgNode[] };
   /**
    * How the gods notice each other: how far along the floor, px; how long a
@@ -306,6 +312,9 @@ export interface Cast {
     readonly scatter: number;
     readonly slide: number;
     readonly widen: number;
+    /** A failed one: how long it dims, and how long it hangs cracked before it falls, ms. */
+    readonly crack: number;
+    readonly hold: number;
     readonly back: number;
     readonly again: number;
   };

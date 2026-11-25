@@ -430,7 +430,23 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out.st = { hop: st.hop, beats: st.beats, at: [left, width], top, ol: bands };
     // Its medallion's tilt as it rocks on its peg, degrees.
     if (!(god.medal?.tilt > 0)) throw new Error(`${id}: its medallion has no tilt`);
-    out.medal = { tilt: god.medal.tilt };
+    // And its tesserae: a palette of its own, and its courses from the foot up, as a pose's.
+    const cut = god.medal.tiles;
+    if (
+      !Array.isArray(cut?.palette) ||
+      !cut.palette.every((hex) => /^#[0-9a-f]{6}$/.test(hex)) ||
+      !Array.isArray(cut.rows) ||
+      !cut.rows.length ||
+      !cut.rows.every(
+        (row) =>
+          row.length === 5 &&
+          row.slice(0, 4).every(Number.isInteger) &&
+          [...String(row[4])].some((ch) => ch !== "-") &&
+          [...String(row[4])].every((ch) => ch === "-" || parseInt(ch, 36) < cut.palette.length),
+      )
+    )
+      throw new Error(`${id}: its medallion has no tesserae`);
+    out.medal = { tilt: god.medal.tilt, tiles: { palette: cut.palette, rows: cut.rows } };
     if (picturesOnly) console.log(`${id}-start ${2 * width}`);
   }
   // All a fidget and a notice cover is inside the envelope the places and the
@@ -518,10 +534,16 @@ if (
 // The pool's medallions: how many hang on a side and how far apart, where the
 // first hangs from the lane's corner and how wide the pier it hangs on is, px;
 // and for how long one is set, shows through, is taken down, and moves up a
-// slot, ms. Its box is the stylesheet's: its cameo and its rim.
+// slot, ms; and for how long a failed one dims, and hangs cracked before it
+// falls. Its box is the stylesheet's: its cameo and its rim.
 const pool = cast.pool ?? {};
 const POOL_KEYS = ["w", "h", "rim", "peg", "slots", "pitch", "x", "y", "pier", "anta", "edge"];
-const POOL_TIMES = ["set", "reveal", "scatter", "slide", "widen"];
+const POOL_TIMES = ["set", "reveal", "scatter", "slide", "widen", "crack", "hold"];
+// The crack across a failed one, in its box: every medallion's is the one.
+const crack = /<template id="crack">(<svg class="crack"[\s\S]*?<\/svg>)<\/template>/.exec(
+  html,
+)?.[1];
+if (!crack) throw new Error("no crack for a failed medallion");
 // And how one rocks on its peg when pressed: how far back through rest it
 // swings, and how much smaller a second rock soon after is, as parts of its tilt.
 const POOL_ROCK = ["back", "again"];
@@ -551,6 +573,7 @@ const data = {
   pool: Object.fromEntries(
     [...POOL_KEYS, ...POOL_TIMES, ...POOL_ROCK].map((key) => [key, pool[key]]),
   ),
+  crack: inner(crack, "crack"),
   gods,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");

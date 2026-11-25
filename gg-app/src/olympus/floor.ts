@@ -200,6 +200,7 @@ import {
   cutTesserae,
   dimmed,
   drawTesserae,
+  MEDAL,
   UNSET,
   type Tessera,
   type TesseraeMode,
@@ -764,6 +765,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const antae = [...lane.querySelectorAll<HTMLElement>(".oly-anta")]; // a lane may have none
   // The tesserae's canvas, behind the gods; a lane without one draws none.
   const fx = lane.querySelector<HTMLCanvasElement>("canvas.oly-fx");
+  // The medallions' tesserae's, over the piers; a lane without one draws none.
+  const mfx = lane.querySelector<HTMLCanvasElement>("canvas.oly-mfx");
   // The floor's, behind that; a lane without one has a bare bed.
   const bed = lane.querySelector<HTMLCanvasElement>("canvas.oly-mosaic");
   const measure = opts.measure ?? ((el: HTMLElement) => el.offsetWidth);
@@ -860,6 +863,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let fxDrawn = false;
   const stones = new Map<string, Tessera[]>();
   const ivories = new Map<GodId, { lit: readonly string[]; dim: readonly string[] }>();
+  // The medallions' the same, on their own canvas: each god's cut once.
+  let medalBrush: CanvasRenderingContext2D | null | undefined;
+  let mfxDrawn = false;
+  const medalStones = new Map<GodId, Tessera[]>();
 
   // Every god's standing pictures, fetched once up front, so no god is set
   // before its own is in. A god's stride and its skill poses are fetched as it
@@ -2890,8 +2897,65 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
   const medalX = (m: Medal): number => (m.side < 0 ? POOL.x : W - POOL.pier + POOL.x);
 
+  // A medallion's tesserae at a moment, if any are to be seen: it is set from
+  // them, and they give way as its cameo shows through; taken down, they
+  // scatter up and toward the lane. Under reduced motion there are none.
+  function medalTiles(m: Medal, now: number): { mode: TesseraeMode; u: number; a: number } | null {
+    if (reduced()) return null;
+    if (m.downAt !== null) return { mode: "lift", u: now - m.downAt, a: 1 };
+    if (m.cut) return null;
+    const u = now - m.t0;
+    if (u < POOL.set) return { mode: "set", u, a: 1 };
+    const k = clamp01((u - POOL.set) / POOL.reveal);
+    return k < 1 ? { mode: "rest", u, a: 1 - k } : null;
+  }
+
+  // Its stones, cut once from dice of its own: never the floor's.
+  function medalStonesOf(gid: GodId): Tessera[] {
+    let set = medalStones.get(gid);
+    if (!set) {
+      set = cutTesserae(CAST.gods[gid].medal.tiles.rows, rng(hash(`medal ${gid}`)), H, MEDAL);
+      medalStones.set(gid, set);
+    }
+    return set;
+  }
+
+  // Every medallion's tesserae on the one canvas over the piers: wiped before
+  // the first of a frame, and once more when the last has flown; then it is
+  // not touched until the next.
+  function renderMedalTiles(now: number): void {
+    let ctx: CanvasRenderingContext2D | null = null;
+    for (const m of medals) {
+      const T = medalTiles(m, now);
+      if (!T) continue;
+      ctx ??= wipeMedals();
+      if (!ctx) return;
+      drawTesserae(ctx, medalStonesOf(m.god.gid), CAST.gods[m.god.gid].medal.tiles.palette, {
+        ...T,
+        x: medalX(m),
+        y: slideY(m, now),
+        dir: 1,
+        axis: 0,
+        cut: MEDAL,
+        inward: -m.side,
+      });
+    }
+    if (ctx) mfxDrawn = true;
+    else if (mfxDrawn) {
+      wipeMedals();
+      mfxDrawn = false;
+    }
+  }
+
+  function wipeMedals(): CanvasRenderingContext2D | null {
+    if (!mfx) return null;
+    if (medalBrush === undefined) medalBrush = mfx.getContext("2d") ?? null;
+    return blank(mfx, medalBrush);
+  }
+
   function renderMedals(now: number): boolean {
     settleMedals(now);
+    renderMedalTiles(now);
     if (!medals.length) return false;
     let moving = false;
     for (const m of medals) {
@@ -3481,15 +3545,22 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function wipe(): CanvasRenderingContext2D | null {
     if (!fx) return null;
     if (brush === undefined) brush = fx.getContext("2d") ?? null;
-    if (!brush) return null;
+    return blank(fx, brush);
+  }
+
+  function blank(
+    cv: HTMLCanvasElement,
+    b: CanvasRenderingContext2D | null,
+  ): CanvasRenderingContext2D | null {
+    if (!b) return null;
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const w = Math.round(W * dpr);
     const h = Math.round(H * dpr);
-    if (fx.width !== w) fx.width = w;
-    if (fx.height !== h) fx.height = h;
-    brush.setTransform(dpr, 0, 0, dpr, 0, 0);
-    brush.clearRect(0, 0, W, H);
-    return brush;
+    if (cv.width !== w) cv.width = w;
+    if (cv.height !== h) cv.height = h;
+    b.setTransform(dpr, 0, 0, dpr, 0, 0);
+    b.clearRect(0, 0, W, H);
+    return b;
   }
 
   // A frame: a start for each god pressed since the last; then the lane, its
@@ -3653,6 +3724,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       if (fxDrawn) wipe();
       fxDrawn = false;
       stones.clear();
+      if (mfxDrawn) wipeMedals();
+      mfxDrawn = false;
+      medalStones.clear();
       scene = null;
       if (bedDrawn !== "") wipeBed(density(), 0);
       bedDrawn = "";

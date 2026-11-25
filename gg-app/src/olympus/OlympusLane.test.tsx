@@ -174,6 +174,7 @@ describe("the lane", () => {
     expect([...lane.children].map((el) => [el.className, el.getAttribute("aria-hidden")])).toEqual([
       ["oly-mosaic", "true"],
       ["oly-fx", "true"],
+      ["oly-mfx", "true"],
       ["oly-gods", "true"],
       ["oly-stylobate", "true"],
       ["oly-anta is-l", "true"],
@@ -232,7 +233,15 @@ describe("the lane", () => {
     expect(container.querySelector(".oly-gods")!.hasAttribute("aria-hidden")).toBe(false);
     expect(
       [...container.querySelectorAll("[aria-hidden]")].map((el) => el.className.split(" ")[0]),
-    ).toEqual(["oly-card-anchor", "oly-mosaic", "oly-fx", "oly-stylobate", "oly-anta", "oly-anta"]);
+    ).toEqual([
+      "oly-card-anchor",
+      "oly-mosaic",
+      "oly-fx",
+      "oly-mfx",
+      "oly-stylobate",
+      "oly-anta",
+      "oly-anta",
+    ]);
   });
 
   it("follows the records as they change, and shuts when the run is over", () => {
