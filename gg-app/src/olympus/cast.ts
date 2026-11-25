@@ -7,12 +7,14 @@ import argusLook from "./poses/argus-look.webp";
 import argusRun from "./poses/argus-run.webp";
 import argusSpeak from "./poses/argus-speak.webp";
 import argusStand from "./poses/argus-stand.webp";
+import argusStart from "./poses/argus-start.webp";
 import argusStride from "./poses/argus-stride.webp";
 import argusThink from "./poses/argus-think.webp";
 import argusWeb from "./poses/argus-web.webp";
 import athenaLook from "./poses/athena-look.webp";
 import athenaSpeak from "./poses/athena-speak.webp";
 import athenaStand from "./poses/athena-stand.webp";
+import athenaStart from "./poses/athena-start.webp";
 import athenaStride from "./poses/athena-stride.webp";
 import athenaThink from "./poses/athena-think.webp";
 import hephaestusLook from "./poses/hephaestus-look.webp";
@@ -21,6 +23,7 @@ import hephaestusMakeB from "./poses/hephaestus-make-b.webp";
 import hephaestusRun from "./poses/hephaestus-run.webp";
 import hephaestusSpeak from "./poses/hephaestus-speak.webp";
 import hephaestusStand from "./poses/hephaestus-stand.webp";
+import hephaestusStart from "./poses/hephaestus-start.webp";
 import hephaestusStride from "./poses/hephaestus-stride.webp";
 import hephaestusThink from "./poses/hephaestus-think.webp";
 import hermesLook from "./poses/hermes-look.webp";
@@ -29,11 +32,13 @@ import hermesRun from "./poses/hermes-run.webp";
 import hermesRunB from "./poses/hermes-run-b.webp";
 import hermesSpeak from "./poses/hermes-speak.webp";
 import hermesStand from "./poses/hermes-stand.webp";
+import hermesStart from "./poses/hermes-start.webp";
 import hermesStride from "./poses/hermes-stride.webp";
 import hermesThink from "./poses/hermes-think.webp";
 import herodotusLook from "./poses/herodotus-look.webp";
 import herodotusSpeak from "./poses/herodotus-speak.webp";
 import herodotusStand from "./poses/herodotus-stand.webp";
+import herodotusStart from "./poses/herodotus-start.webp";
 import herodotusStride from "./poses/herodotus-stride.webp";
 import herodotusThink from "./poses/herodotus-think.webp";
 import herodotusWeb from "./poses/herodotus-web.webp";
@@ -44,12 +49,14 @@ import nikeMake from "./poses/nike-make.webp";
 import nikeRun from "./poses/nike-run.webp";
 import nikeSpeak from "./poses/nike-speak.webp";
 import nikeStand from "./poses/nike-stand.webp";
+import nikeStart from "./poses/nike-start.webp";
 import nikeStride from "./poses/nike-stride.webp";
 import nikeThink from "./poses/nike-think.webp";
 import themisLook from "./poses/themis-look.webp";
 import themisRun from "./poses/themis-run.webp";
 import themisSpeak from "./poses/themis-speak.webp";
 import themisStand from "./poses/themis-stand.webp";
+import themisStart from "./poses/themis-start.webp";
 import themisStride from "./poses/themis-stride.webp";
 import themisThinkL from "./poses/themis-think-l.webp";
 import themisThinkR from "./poses/themis-think-r.webp";
@@ -153,6 +160,21 @@ export interface Crown {
   readonly at: readonly [number, number];
 }
 
+/**
+ * A god's start, what it does when the reader presses it at its work: how far
+ * it hops, px, and for how many of its beats it is held; where its picture
+ * sits in the cell: left, width; its top there; and its outline, in bands 2px
+ * high: top, from, to. It is no part of the envelope: the lane keeps lines
+ * off it.
+ */
+export interface StartOf {
+  readonly hop: number;
+  readonly beats: number;
+  readonly at: readonly [number, number];
+  readonly top: number;
+  readonly ol: readonly (readonly [number, number, number])[];
+}
+
 /** A pose's cut-out part: polygons in the pose's own picture, px. */
 export interface Part {
   readonly name: string;
@@ -207,6 +229,8 @@ export interface CastGod {
   readonly chance: Readonly<Record<Noticed, number>>;
   /** Its reaction to a finish, if it has one of its own: Nike's crown. */
   readonly rx: { readonly crown?: Crown };
+  /** Its start, when the reader presses it at its work. */
+  readonly st: StartOf;
   /** Each pose's top in the cell. */
   readonly top: Readonly<Record<Stance, number>> & Readonly<Partial<Record<Skill, number>>>;
   /** The height its card holds while it works: over the highest it reaches at its place. */
@@ -240,6 +264,18 @@ export interface Cast {
     readonly late: number;
     readonly ease: number;
     readonly beats: Readonly<Record<Noticed, number>>;
+  };
+  /**
+   * How the gods start when pressed: for how long a hop eases back to the
+   * floor, in the god's own beats; within how long of its last start, ms, a
+   * god starts smaller, with no hop, and for how many beats then; and how far
+   * off a start a line is kept, px.
+   */
+  readonly startle: {
+    readonly down: number;
+    readonly again: number;
+    readonly againBeats: number;
+    readonly line: number;
   };
   readonly gods: Readonly<Record<GodId, CastGod>>;
 }
@@ -327,3 +363,14 @@ export const FRAME_URLS: Readonly<Partial<Record<GodId, Frames>>> = {
 
 /** The crown's picture, for the one who gives it: 200 high, as a skill pose's is. */
 export const CROWN_URLS: Readonly<Partial<Record<GodId, string>>> = { nike: nikeCrown };
+
+/** Each god's start, shown in place of its pose when the reader presses it: 200 high, as a skill pose's is. */
+export const START_URLS: Readonly<Partial<Record<GodId, string>>> = {
+  athena: athenaStart,
+  herodotus: herodotusStart,
+  hermes: hermesStart,
+  hephaestus: hephaestusStart,
+  argus: argusStart,
+  themis: themisStart,
+  nike: nikeStart,
+};

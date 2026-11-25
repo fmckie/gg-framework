@@ -13,7 +13,7 @@
 //
 // The pictures are cut from the mockup's too, at twice the size they are
 // drawn; with --pictures it writes nothing and lists each skill pose's, each
-// second frame's, each stride's and the crown's name and width:
+// second frame's, each stride's, the crown's and each start's name and width:
 //   node scripts/olympus-cast.mjs <v4> --pictures | while read name w; do
 //     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o src/olympus/poses/$name.webp
 //   done
@@ -46,6 +46,8 @@ const MOVE_SHAPE = ["keys", "ease", "w", "part", "pivot", "end"];
 const TURN_SLACK = 0.25;
 /** The events a god may notice. */
 const NOTICED = ["arrive", "done", "fail"];
+/** How far a start's figure may reach along the floor past its god's envelope, px: the mockup's. */
+const START_REACH = 2;
 
 /** A CSS polygon's points, in px: [[x, y], ...]. */
 function points(polygon, what) {
@@ -101,8 +103,25 @@ const castData = /<script type="application\/json" id="cast-data">([\s\S]*?)<\/s
 if (!castData) throw new Error("no cast-data in olympus.html");
 const cast = JSON.parse(castData[1]);
 
+// The startle: how long a start's hop eases back to the floor, in the god's
+// own beats; within how long of its last start, ms, a god starts smaller, and
+// for how many beats then; and how far a line is kept off a start, px.
+const startle = cast.startle ?? {};
+if (
+  Object.keys(startle).join() !== "down,again,again_beats,line" ||
+  !(startle.down > 0) ||
+  (startle.down * 4) % 1 !== 0 ||
+  !(startle.again > 0) ||
+  !(startle.again_beats > 0) ||
+  (startle.again_beats * 4) % 1 !== 0 ||
+  !(startle.line >= 0)
+)
+  throw new Error("the startle is not an ease, a while, its beats and a line's room");
+
 const seals = new Set();
 const gods = {};
+/** Each god's start, for what is checked once the floor is read, and what is said of it. */
+const starts = [];
 for (const [id, god] of Object.entries(cast.gods)) {
   const template = new RegExp(`<template id="god-${id}">([\\s\\S]*?)</template>`).exec(html)?.[1];
   if (!template) throw new Error(`no template for ${id}`);
@@ -334,6 +353,83 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out.rx.crown = { late: rx.late, beats, at: [left, width] };
     if (picturesOnly) console.log(`${id}-crown ${2 * width}`);
   }
+  // Its start, what it does when the reader clicks it at its work: a hop of
+  // its nature's height, px, held for so many of its own beats; where its
+  // picture sits in the cell, as a skill pose's does; its top; and its outline
+  // there, in bands 2px high: top, from, to. It is shown in place of the pose the
+  // record asks for. It is no part of the envelope, which is kept as it was:
+  // the lane keeps lines off a start itself, band by band. So here it is held
+  // to its picture, to its footprint, to no more than START_REACH past the
+  // envelope along the floor, and under the height the card holds.
+  {
+    const img = new RegExp(
+      `<img class="pose p-start" src="assets/${id}-start\\.png" alt="" style="left:(-?[\\d.]+)px;width:([\\d.]+)px">`,
+    ).exec(template);
+    const st = god.st;
+    const bands = god.ol?.start;
+    const top = god.top?.start;
+    const fp = god.fp?.start;
+    if (
+      !img ||
+      Object.keys(st ?? {}).join() !== "hop,beats" ||
+      !(st.hop > 0) ||
+      !(st.beats >= startle.again_beats) ||
+      (st.beats * 4) % 1 !== 0 ||
+      !Array.isArray(bands) ||
+      !bands.length ||
+      typeof top !== "number" ||
+      !fp
+    )
+      throw new Error(
+        `${id}: no start: a picture, a hop, its beats, an outline, a top, a footprint`,
+      );
+    const [left, width] = [Number(img[1]), Number(img[2])];
+    const png = readFileSync(join(resolve(dir), "assets", `${id}-start.png`));
+    if (png.readUInt32BE(16) !== 3 * width || png.readUInt32BE(20) !== 3 * cast.cell.h)
+      throw new Error(`${id}-start.png is not ${3 * width}×${3 * cast.cell.h}`);
+    bands.forEach(([y, a, b], i) => {
+      if (
+        bands[i].length !== 3 ||
+        !Number.isInteger(y) ||
+        y % 2 !== 0 ||
+        y < 0 ||
+        y + 2 > cast.cell.h ||
+        (i && y <= bands[i - 1][0]) ||
+        !(a < b) ||
+        a < left - 0.5 ||
+        b > left + width + 0.5
+      )
+        throw new Error(`${id}: its start's outline is not bands in order, inside its picture`);
+    });
+    const from = Math.min(...bands.map(([, a]) => a));
+    const to = Math.max(...bands.map(([, , b]) => b));
+    if (
+      Math.abs(from - fp[0]) > 0.05 ||
+      Math.abs(to - fp[1]) > 0.05 ||
+      top < bands[0][0] ||
+      top >= bands[0][0] + 2
+    )
+      throw new Error(`${id}: its start's outline is not its footprint, from its top`);
+    if (fp[0] < god.env[0] - START_REACH || fp[1] > god.env[1] + START_REACH)
+      throw new Error(`${id}: its start reaches more than ${START_REACH}px past its envelope`);
+    // The highest it reaches: hopped, or, for the one who flies, at her height.
+    const up = Math.max(st.hop, ...Object.values(god.lift));
+    if (god.card > top - up + 1e-6)
+      throw new Error(`${id}: its card at work is not over its start, ${up}px up`);
+    // How far it stands outside the envelope's outline, band by band, at any
+    // height it is shown at: what the lane's own guard is for. Said, not failed.
+    let outside = 0;
+    for (const h of new Set([0, st.hop, ...Object.values(god.lift)])) {
+      for (const [y, a, b] of bands) {
+        for (const [ey, ea, eb] of god.envol) {
+          if (ey < y - h + 2 && ey + 2 > y - h) outside = Math.max(outside, ea - a, b - eb);
+        }
+      }
+    }
+    starts.push({ id, top, up, outside });
+    out.st = { hop: st.hop, beats: st.beats, at: [left, width], top, ol: bands };
+    if (picturesOnly) console.log(`${id}-start ${2 * width}`);
+  }
   // All a fidget and a notice cover is inside the envelope the places and the
   // ribbons are planned with, at every height of the one who flies: the
   // mockup's sweep of each skill pose (its moves, its leans and its turn),
@@ -421,6 +517,12 @@ const data = {
   cell: cast.cell,
   seal: inner([...seals][0], "seal"),
   notice: { reach, rest, late, ease, beats },
+  startle: {
+    down: startle.down,
+    again: startle.again,
+    againBeats: startle.again_beats,
+    line: startle.line,
+  },
   gods,
 };
 const target = join(dirname(fileURLToPath(import.meta.url)), "../src/olympus/cast.json");
@@ -440,6 +542,16 @@ if (!terrainData) throw new Error("no terrain-data in olympus.html");
 const terrain = JSON.parse(terrainData[1]);
 if (terrain.w !== 698 || terrain.h !== 104)
   throw new Error("the floor is not cut for the lane: 698 by 104");
+// A start, hopped or at her height, stays under the lane's top: the floor over a cell, and no more.
+for (const { id, top, up } of starts) {
+  if (terrain.h - cast.cell.h + top - up < 0)
+    throw new Error(`${id}: its start, ${up}px up, leaves the lane's top`);
+}
+console.log(
+  `starts stand outside their envelope's outline, band by band, by up to ${starts
+    .map(({ id, outside }) => `${id} ${Math.round(outside * 10) / 10}`)
+    .join(", ")} px: the lane keeps a line ${startle.line}px off a start itself`,
+);
 if (terrain.scenes.map((scene) => scene.id).join() !== SCENES.join())
   throw new Error(`the scenes are not ${SCENES.join(", ")}`);
 const scenes = terrain.scenes.map(({ id, name, palette, rows }) => {

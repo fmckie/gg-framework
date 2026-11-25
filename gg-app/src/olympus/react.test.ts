@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { Fidget, NoticeOf } from "./cast";
 import { fidgetAt, shifted, STILL, type FidgetAt } from "./fidget";
-import { armed, begun, hushUntil, over, played, quarter, TURNED, type Reaction } from "./react";
+import {
+  armed,
+  begun,
+  hushUntil,
+  over,
+  played,
+  quarter,
+  started,
+  startOver,
+  TURNED,
+  type Reaction,
+  type Start,
+} from "./react";
 
 const NT: NoticeOf = { front: [50, 100], back: [10, 100], lean: 1.5, turn: true };
 const STIFF: NoticeOf = { ...NT, turn: false };
@@ -255,5 +267,101 @@ describe("what a reaction asks of a fidget", () => {
         [2, null],
       ]),
     ).toBe(`${turn(30, 80, "0.500")} ${turn(50, 100, "1.500")}`);
+  });
+});
+
+describe("a start, when the reader presses a god at its work", () => {
+  /** Pressed at 980, begun at 1000 on a beat of 300ms: a hop of 4px, five beats. */
+  const start = (over: Partial<Start> = {}): Start => ({
+    at: 980,
+    start: 1000,
+    end: Infinity,
+    off: false,
+    shownAt: 400,
+    beats: 5,
+    hop: 4,
+    small: false,
+    lift: null,
+    ...over,
+  });
+  const up = (px: number): string => `translate(0.00px, ${(-px).toFixed(2)}px)`;
+
+  it("is over when its beats are, each as long as it is told; or when it was ended, if that came first", () => {
+    expect(startOver(start(), 300, 1)).toBe(2500);
+    expect(startOver(start(), 300, 2)).toBe(4000);
+    expect(startOver(start({ beats: 2 }), 300, 1)).toBe(1600);
+    expect(startOver(start({ end: 1300 }), 300, 1)).toBe(1300);
+    expect(startOver(start({ end: 1300 }), 300, 2)).toBe(1300);
+    expect(startOver(start({ end: 9000 }), 300, 1)).toBe(2500);
+  });
+
+  it("hops as it begins, the whole figure easing back to the floor over half a beat: frames only while it does, and one to come at its end", () => {
+    const s = start();
+    expect(started(s, 999, 300, false, 0.5)).toBeNull(); // not begun
+    expect(started(s, 1000, 300, false, 0.5)).toEqual({
+      shown: { ...STILL, tx: up(4) },
+      wake: 1000,
+    });
+    expect(started(s, 1075, 300, false, 0.5)).toEqual({
+      shown: { ...STILL, tx: up(2) },
+      wake: 1075,
+    });
+    // Eased both ways: slow off the top, and slow onto the floor.
+    const at = (ms: number): number =>
+      -Number(/, (-?[\d.]+)px\)$/.exec(started(s, 1000 + ms, 300, false, 0.5)!.shown.tx)![1]);
+    expect(at(15)).toBeGreaterThan(3.8);
+    expect(at(135)).toBeLessThan(0.2);
+    for (let ms = 5; ms < 145; ms += 5) expect(at(ms)).toBeLessThan(at(ms - 5));
+    // Down: held as it stands, with nothing to draw until it is over.
+    expect(started(s, 1150, 300, false, 0.5)).toEqual({ shown: STILL, wake: 2500 });
+    expect(started(s, 1150, 300, false, 0.5)!.shown).toBe(STILL);
+    expect(started(s, 2499, 300, false, 0.5)).toEqual({ shown: STILL, wake: 2500 });
+    expect(started(s, 2500, 300, false, 0.5)).toBeNull();
+    // A longer ease is the table's to say.
+    expect(started(s, 1150, 300, false, 1)!.shown.tx).toBe(up(2));
+  });
+
+  it("smaller, it has no hop: its picture alone for its beats", () => {
+    const s = start({ hop: 0, beats: 2, small: true });
+    expect(started(s, 1000, 300, false, 0.5)).toEqual({ shown: STILL, wake: 1600 });
+    expect(started(s, 1599, 300, false, 0.5)).toEqual({ shown: STILL, wake: 1600 });
+    expect(started(s, 1600, 300, false, 0.5)).toBeNull();
+  });
+
+  it("the one who flies holds the height she had, with no hop", () => {
+    const s = start({ hop: 0, lift: 6.5, beats: 4 });
+    expect(started(s, 1000, 300, false, 0.5)).toEqual({
+      shown: { ...STILL, lift: 6.5 },
+      wake: 2200,
+    });
+    expect(started(s, 2199, 300, false, 0.5)!.shown.lift).toBe(6.5);
+    expect(started(s, 2200, 300, false, 0.5)).toBeNull();
+  });
+
+  it("ended by a cut, a notice, a line or its god's leaving, it shows nothing from then; dropped before it began, nothing at all", () => {
+    const s = start({ end: 1060 });
+    expect(started(s, 1059, 300, false, 0.5)!.shown.tx).toMatch(/^translate/);
+    expect(started(s, 1060, 300, false, 0.5)).toBeNull();
+    expect(started(s, 1500, 300, false, 0.5)).toBeNull();
+    // Ended while it is held: its frame to come is then.
+    expect(started(start({ end: 1900 }), 1300, 300, false, 0.5)).toEqual({
+      shown: STILL,
+      wake: 1900,
+    });
+    const dropped = start({ off: true });
+    for (const now of [999, 1000, 1075, 2000])
+      expect(started(dropped, now, 300, false, 0.5)).toBeNull();
+  });
+
+  it("asked for less motion, it is a still with no hop, held twice as long", () => {
+    const s = start();
+    expect(started(s, 1000, 300, true, 0.5)).toEqual({ shown: STILL, wake: 4000 });
+    expect(started(s, 1075, 300, true, 0.5)).toEqual({ shown: STILL, wake: 4000 });
+    expect(started(s, 3999, 300, true, 0.5)).toEqual({ shown: STILL, wake: 4000 });
+    expect(started(s, 4000, 300, true, 0.5)).toBeNull();
+    // Ended first, it is over then all the same.
+    expect(started(start({ end: 1300 }), 1300, 300, true, 0.5)).toBeNull();
+    // The one who flies: her height is the lane's to say, simply up.
+    expect(started(start({ hop: 0, lift: 7 }), 1000, 300, true, 0.5)!.shown.tx).toBe("");
   });
 });

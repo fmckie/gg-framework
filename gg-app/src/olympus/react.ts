@@ -7,6 +7,9 @@
 // on its quarter-beat, and is played like a fidget: from the record and the
 // time alone. Nothing here knows the lane's clock, its dice or who stands
 // where; the lane (floor.ts) decides who notices, and when one ends early.
+// A start, part 7, is the same kind of thing in a slot of its own: the reader
+// pressed a god at its work, and it cuts to its start picture and hops, the
+// whole figure easing back to the floor, held for its beats.
 
 import type { Crown, Fidget, FidgetMove, Noticed, NoticeOf } from "./cast";
 import { keyed, shifted, STILL, type FidgetAt, type Shown } from "./fidget";
@@ -198,4 +201,54 @@ export function played(
   const wake = easing ? now : Math.min(end, r.start + held * step);
   if (!tx && !part && (h === null || h === lift)) return { shown: STILL, wake };
   return { shown: { tx, frame: "", turn: false, lift: h, part, ptx }, wake };
+}
+
+/** A start: the reader pressed a god at its work. A record, as a reaction is. */
+export interface Start {
+  /** When the reader's press was seen, and when it begins: the god's quarter-beat at or after. */
+  readonly at: number;
+  readonly start: number;
+  /** When a cut, a notice, a line put out near it or the god's leaving ended it, if one did. */
+  end: number;
+  /** Dropped: one of those came before it began. */
+  off: boolean;
+  /** The cut that showed the pose it began in: its fidget rests for it in that pose alone. */
+  readonly shownAt: number;
+  /** For how many of the god's beats it is held. */
+  readonly beats: number;
+  /** How far it hops, px: nothing for a smaller start, or for the one who flies at her height. */
+  readonly hop: number;
+  /** Whether it is the smaller start of a god startled again. */
+  readonly small: boolean;
+  /** The height the one who flies holds through it: the one she had; null on the floor. */
+  readonly lift: number | null;
+}
+
+/** When a start that has begun is over: its beats, each `slow` times as long, unless it was ended first. */
+export function startOver(s: Start, step: number, slow: number): number {
+  return Math.min(s.end, s.start + s.beats * step * slow);
+}
+
+/**
+ * What a start shows at `now`, besides its picture, and when it will next be
+ * drawn otherwise: `now` while its hop eases back to the floor, over `down`
+ * beats, else its end; null if it shows nothing then. Asked for less motion
+ * (`quiet`), it is a still with no hop, held twice as long.
+ */
+export function started(
+  s: Start,
+  now: number,
+  step: number,
+  quiet: boolean,
+  down: number,
+): { readonly shown: Shown; readonly wake: number } | null {
+  if (s.off || now < s.start) return null;
+  const end = startOver(s, step, quiet ? 2 : 1);
+  if (now >= end) return null;
+  const k = clamp01((now - s.start) / (down * step));
+  const hopping = !quiet && s.hop > 0 && k < 1;
+  const tx = hopping ? shifted(0, -s.hop * (1 - inOut(k)), []) : "";
+  const wake = hopping ? now : end;
+  if (!tx && s.lift === null) return { shown: STILL, wake };
+  return { shown: { ...STILL, tx, lift: s.lift }, wake };
 }

@@ -5,6 +5,7 @@ import {
   FRAME_URLS,
   POSES,
   POSE_URLS,
+  START_URLS,
   type Fidget,
   type FidgetMove,
   type Pose,
@@ -22,7 +23,7 @@ const FILES = import.meta.glob<string>("./poses/*.webp", {
 });
 
 /** A lossless WebP's width and height, from its header. */
-function sizeOf(god: GodId, pose: Pose | `${Skill}-b` | "crown"): [number, number] {
+function sizeOf(god: GodId, pose: Pose | `${Skill}-b` | "crown" | "start"): [number, number] {
   const bytes = atob(FILES[`./poses/${god}-${pose}.webp`]!.split(",")[1]!);
   expect(bytes.slice(0, 4) + bytes.slice(8, 16)).toBe("RIFFWEBPVP8L");
   const at = (i: number): number => bytes.charCodeAt(i);
@@ -271,7 +272,7 @@ describe("the cast data", () => {
   });
 
   it("has every picture at twice the size it is drawn, lossless", () => {
-    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3 + 1);
+    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3 + 1 + 7);
     for (const id of ids) {
       for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
       for (const [pose, at] of Object.entries(CAST.gods[id].at))
@@ -451,6 +452,86 @@ describe("the cast data", () => {
     expect(left + width).toBeLessThanOrEqual(hi);
     expect(66 - (left + width)).toBeGreaterThanOrEqual(lo);
     expect(66 - left).toBeLessThanOrEqual(hi);
+  });
+
+  it("gives every god a start: a hop by its nature, held so many of its beats, and its picture twice the size it is drawn", () => {
+    expect(
+      Object.fromEntries(ids.map((id) => [id, [CAST.gods[id].st.hop, CAST.gods[id].st.beats]])),
+    ).toEqual({
+      athena: [1.5, 3],
+      herodotus: [2.4, 4],
+      hermes: [4, 5], // the restless: the most there is
+      hephaestus: [1.8, 3],
+      argus: [0.6, 2], // the watchful: hardly at all
+      themis: [1.5, 3],
+      nike: [2.7, 4],
+    });
+    // How long a hop eases down, when a god starts smaller and for how long, and a line's room.
+    expect(CAST.startle).toEqual({ down: 0.5, again: 6000, againBeats: 2, line: 3 });
+    expect(Object.keys(START_URLS).sort()).toEqual([...ids].sort());
+    for (const id of ids) {
+      const { hop, beats, at } = CAST.gods[id].st;
+      expect(START_URLS[id]).toMatch(new RegExp(`${id}-start`));
+      expect(sizeOf(id, "start")).toEqual([2 * at[1], 200]);
+      // No smaller than a smaller start, and on the quarter-beat.
+      expect(beats).toBeGreaterThanOrEqual(CAST.startle.againBeats);
+      expect((beats * 4) % 1).toBe(0);
+      expect(hop).toBeGreaterThan(0);
+      expect(hop).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("outlines every start in its picture, band by band: on the floor, no higher than the lane, and no more than 2px past the envelope along it", () => {
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      const { at, top, ol, hop } = god.st;
+      const [left, width] = at;
+      expect(ol.length).toBeGreaterThan(40);
+      ol.forEach(([y, a, b], i) => {
+        expect(y % 2).toBe(0);
+        if (i) expect(y).toBe(ol[i - 1]![0] + 2); // no gap: a figure, top to toe
+        expect(a).toBeLessThan(b);
+        expect(a).toBeGreaterThanOrEqual(left - 0.5);
+        expect(b).toBeLessThanOrEqual(left + width + 0.5);
+      });
+      expect(ol[ol.length - 1]![0]).toBe(98); // its feet on the floor
+      expect(top).toBeGreaterThanOrEqual(ol[0]![0]);
+      expect(top).toBeLessThan(ol[0]![0] + 2);
+      const [from, to] = [
+        Math.min(...ol.map((band) => band[1])),
+        Math.max(...ol.map((band) => band[2])),
+      ];
+      expect(from).toBeGreaterThanOrEqual(god.env[0] - 2);
+      expect(to).toBeLessThanOrEqual(god.env[1] + 2);
+      // Hopped, or at the height of the one who flies, it is under the lane's top: 4px over the cell.
+      const high = Math.max(hop, ...Object.values(god.lift));
+      expect(4 + top - high).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("holds each god's card over its start too: hopped, or at the height of the one who flies", () => {
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      const high = Math.max(god.st.hop, ...Object.values(god.lift));
+      expect(god.card).toBeLessThanOrEqual(god.st.top - high + 1e-9);
+    }
+    // Two cards are where they are for the start alone: a px, and less, over the envelope's top.
+    const over = (id: GodId): number =>
+      Math.min(...CAST.gods[id].envol.map(([y]) => y)) - CAST.gods[id].card;
+    expect(Object.fromEntries(ids.map((id) => [id, Number(over(id).toFixed(2))]))).toEqual({
+      athena: 0,
+      herodotus: 0,
+      hermes: 1,
+      hephaestus: 0.8,
+      argus: 0,
+      themis: 0,
+      nike: 0,
+    });
+    expect(CAST.gods.hermes.card).toBe(CAST.gods.hermes.st.top - CAST.gods.hermes.st.hop);
+    expect(CAST.gods.hephaestus.card).toBeCloseTo(
+      CAST.gods.hephaestus.st.top - CAST.gods.hephaestus.st.hop,
+      9,
+    );
   });
 
   it("leaves room for the five widest gods on the narrowest lane", () => {

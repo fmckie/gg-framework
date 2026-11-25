@@ -31,7 +31,7 @@ describe("the groups the lane is mounted for", () => {
   });
 });
 
-// In this order: the first three show the lane's chunk was never asked for,
+// In this order: the first four show the lane's chunk was never asked for,
 // which only holds until the last one asks for it.
 describe("where the lane goes in a session", () => {
   it("on the iPhone: no lane, and its chunk is never loaded", async () => {
@@ -39,6 +39,21 @@ describe("where the lane goes in a session", () => {
     const { container } = render(<LaneMount items={[text, live]} />);
     await settle();
     expect(container.innerHTML).toBe("");
+    expect(laneChunk.loads).toBe(0);
+  });
+
+  it("on the iPhone: nothing to startle: a click or a key reaches no lane, and no start's picture is asked for", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const { container } = render(<LaneMount items={[text, live]} />);
+    await settle();
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    for (const key of ["Enter", " "])
+      document.body.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    await settle();
+    expect(container.innerHTML).toBe("");
+    expect(
+      document.querySelector(".oly-cell, .oly-p-start, .is-startable, img[src*='-start']"),
+    ).toBeNull();
     expect(laneChunk.loads).toBe(0);
   });
 

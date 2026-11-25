@@ -208,6 +208,19 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 .oly-cell[data-react="crown"] .oly-pose.oly-p-crown {
   visibility: visible;
 }
+/* A start, when the reader presses a god at its work, is shown the same way:
+   its start picture alone, in place of the pose the record asks for. Its hop
+   is the engine's transform. */
+.oly-cell[data-react="start"] .oly-pose {
+  visibility: hidden;
+}
+.oly-cell[data-react="start"] .oly-pose.oly-p-start {
+  visibility: visible;
+}
+/* A god at its work can be startled: the app's own mark of something to press. */
+.oly-cell.is-startable {
+  cursor: pointer;
+}
 /* Failed and stopped both dim; only a failure cracks. How far, on the way, is
    the engine's: all the way with nothing said. */
 .oly-cell.is-dim .oly-poses {

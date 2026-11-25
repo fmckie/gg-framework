@@ -13,7 +13,7 @@ import {
   RESUMED_AGENTS,
   STATE_AGENTS,
 } from "./fixtures";
-import { CROWN_URLS, FRAME_URLS } from "./cast";
+import { CROWN_URLS, FRAME_URLS, START_URLS } from "./cast";
 import type { Floor } from "./floor";
 import laneCss from "./olympus-lane.css?raw";
 import rowsCss from "./olympus-rows.css?raw";
@@ -49,12 +49,13 @@ afterEach(() => {
 /**
  * A lane on a clock that moves only when told to, and draws a frame for the
  * moment each advance ends on. Its gods hold their poses still unless it is
- * asked for their fidgets.
+ * asked for their fidgets, and cannot be startled unless it is asked for that.
  */
 function staged(
   seed = 7,
   fidget = false,
   react = false,
+  startle = false,
 ): LaneStage & { host: ManualHost; floors: (Floor | null)[] } {
   const host = framedHost();
   const floors: (Floor | null)[] = [];
@@ -64,6 +65,7 @@ function staged(
     seed,
     fidget,
     react,
+    startle,
     width: () => 698,
     measure: (el) => Math.round((el.textContent ?? "").length * 5.5) + 21,
     onFloor: (floor) => floors.push(floor),
@@ -566,15 +568,84 @@ describe("notices on the lane", () => {
   });
 });
 
+describe("startles on the lane", () => {
+  /** The run, record by record, with a click on every god every 400ms: who could be startled, and who was. */
+  function pressed(stage: ReturnType<typeof staged>): {
+    container: HTMLElement;
+    able: Set<string>;
+    seen: Set<string>;
+  } {
+    const view = render(<OlympusLane groups={run(600)} stage={stage} />);
+    const able = new Set<string>();
+    const seen = new Set<string>();
+    for (let ms = 600; ms < 20_000; ms += 20) {
+      if (ms % 100 === 0) view.rerender(<OlympusLane groups={run(ms)} stage={stage} />);
+      const cells = [...view.container.querySelectorAll<HTMLElement>(".oly-cell")];
+      if (ms % 400 === 0) for (const cell of cells) fireEvent.click(cell);
+      stage.host.advance(20);
+      for (const cell of cells) {
+        if (cell.classList.contains("is-startable")) able.add(cell.dataset.god!);
+        if (cell.dataset.react === "start") {
+          seen.add(cell.dataset.god!);
+          // Only where it could be: at its work, in the pose its record asks for.
+          expect(cell.classList.contains("is-startable")).toBe(true);
+          expect(cell.dataset.pose).toMatch(/^(look|web|make|run|think)/);
+        }
+      }
+    }
+    return { container: view.container, able, seen };
+  }
+
+  it("as the app mounts it, a god comes with its start's picture, and a click on it at its work startles it", () => {
+    // Nothing said of startles, as LaneMount says nothing.
+    const { container, able, seen } = pressed({ ...staged(), startle: undefined });
+    expect(seen.size).toBeGreaterThan(2);
+    expect([...seen].sort()).toEqual([...able].sort());
+    const cells = [...container.querySelectorAll<HTMLElement>(".oly-cell")];
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      const god = cell.dataset.god as keyof typeof START_URLS;
+      const start = cell.querySelector<HTMLImageElement>(".oly-pose.oly-p-start")!;
+      expect(start.getAttribute("src")).toBe(START_URLS[god]);
+      expect(cell.querySelectorAll(".oly-p-start")).toHaveLength(1);
+    }
+  });
+
+  it("a stage may turn them off: then a god is built as it was, and a click does nothing", () => {
+    const { container, able, seen } = pressed(staged());
+    expect(container.querySelectorAll(".oly-cell").length).toBeGreaterThan(0);
+    expect(container.querySelector(".oly-p-start")).toBeNull();
+    expect(container.querySelector('.oly-cell:not([aria-disabled="true"])')).toBeNull();
+    expect([...able]).toEqual([]);
+    expect([...seen]).toEqual([]);
+  });
+});
+
 describe("the lane's CSS", () => {
   const rules = laneCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it("shows a start in place of the pose the record asks for, by a cut, as the crown is: the engine says when, and its hop is the engine's transform", () => {
+    expect(rules).toContain(
+      '.oly-cell[data-react="start"] .oly-pose {\n  visibility: hidden;\n}\n.oly-cell[data-react="start"] .oly-pose.oly-p-start {\n  visibility: visible;\n}',
+    );
+    expect(rules.match(/data-react="start"/g)).toHaveLength(2);
+    expect(rules.match(/\.oly-p-start\b/g)).toHaveLength(1);
+    // After the rules that show a pose by the record's, so it wins over them; and nothing is said of a hop.
+    expect(rules.indexOf('[data-react="start"]')).toBeGreaterThan(
+      rules.lastIndexOf('.oly-cell[data-pose="think-r"] .oly-p-think-r'),
+    );
+    // A god at its work shows it can be pressed, and that is all the sheet says of startling.
+    expect(rules.match(/is-startable/g)).toHaveLength(1);
+  });
 
   it("shows the crown in place of the pose the record asks for, by a cut: the engine says when, and every other reaction is its transform and its facing", () => {
     expect(rules).toContain(
       '.oly-cell[data-react="crown"] .oly-pose {\n  visibility: hidden;\n}\n.oly-cell[data-react="crown"] .oly-pose.oly-p-crown {\n  visibility: visible;\n}',
     );
     // Nothing else is said of a reaction: a glance, a glance back and a turn need no rule.
-    expect(rules.match(/data-react/g)).toHaveLength(2);
+    // A start, which is the reader's doing, is shown the same way by two rules of its own.
+    expect(rules.match(/data-react="crown"/g)).toHaveLength(2);
+    expect(rules.match(/data-react/g)).toHaveLength(4);
     expect(rules.match(/\.oly-p-crown\b/g)).toHaveLength(1);
     // After the rules that show a pose by the record's, so it wins over them.
     expect(rules.indexOf('[data-react="crown"]')).toBeGreaterThan(
@@ -629,7 +700,9 @@ describe("the lane's CSS", () => {
     // Nothing else is given the pointer back, and a pose not shown is hidden outright.
     expect(rules.match(/pointer-events/g)).toHaveLength(2);
     expect(rules).toMatch(/\.oly-pose \{\n {2}display: block;\n {2}visibility: hidden;\n\}/);
-    expect(rules).not.toMatch(/cursor/); // nothing to press yet
+    // Only a god at its work has something to press.
+    expect(rules).toContain(".oly-cell.is-startable {\n  cursor: pointer;\n}");
+    expect(rules.match(/cursor/g)).toHaveLength(1);
   });
 
   it("turns a figure and a part about the box's own corner, so a pivot is where the cast data says", () => {
