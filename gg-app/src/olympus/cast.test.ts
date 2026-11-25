@@ -77,6 +77,56 @@ describe("the cast data", () => {
       for (const pose of POSES) expect(POSE_URLS[id][pose]).toMatch(new RegExp(`${id}-${pose}`));
   });
 
+  it("cuts every god's speaking and standing pose into tesserae, in twelve of its own ivories", () => {
+    for (const id of ids) {
+      const { palette, ...poses } = CAST.gods[id].tiles;
+      expect(palette).toHaveLength(12);
+      for (const hex of palette) expect(hex).toMatch(/^#[0-9a-f]{6}$/);
+      expect(new Set(palette).size).toBe(12);
+      expect(Object.keys(poses).sort()).toEqual(["speak", "stand"]);
+      for (const pose of ["speak", "stand"] as const) {
+        const rows = poses[pose];
+        let stones = 0;
+        rows.forEach(([y0, y1, x0, w, chars], r) => {
+          // Courses from the feet up, each on the one under it; a stone is 2.3 to 2.8px each way.
+          expect(y1).toBe(r ? rows[r - 1]![0] : 10 * CAST.cell.h);
+          expect(y1 - y0).toBeGreaterThanOrEqual(23);
+          expect(y1 - y0).toBeLessThanOrEqual(28);
+          expect(w).toBeGreaterThanOrEqual(230);
+          expect(w).toBeLessThanOrEqual(280);
+          // A stone a character: its ivory in the palette, or a gap where the figure isn't.
+          expect(chars).toMatch(/^[0-9ab-]+$/);
+          expect(chars).toMatch(/[0-9ab]/);
+          stones += chars.replace(/-/g, "").length;
+          expect(x0).toBeGreaterThanOrEqual(0);
+          expect(x0 / 10 + (chars.length * w) / 100).toBeLessThanOrEqual(CAST.cell.w);
+        });
+        expect(stones).toBeGreaterThan(250);
+        expect(stones).toBeLessThan(400);
+      }
+    }
+  });
+
+  it("cuts them where the figure is: along its footprint, and up to its top", () => {
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      for (const pose of ["speak", "stand"] as const) {
+        const rows = god.tiles[pose];
+        let from = Infinity;
+        let to = -Infinity;
+        for (const [, , x0, w, chars] of rows) {
+          const first = chars.search(/[^-]/);
+          const last = chars.length - [...chars].reverse().join("").search(/[^-]/);
+          from = Math.min(from, x0 / 10 + (first * w) / 100);
+          to = Math.max(to, x0 / 10 + (last * w) / 100);
+        }
+        expect(Math.abs(from - god.fp[pose][0])).toBeLessThan(2);
+        expect(Math.abs(to - god.fp[pose][1])).toBeLessThan(2);
+        expect(Math.abs(rows[rows.length - 1]![0] / 10 - god.top[pose])).toBeLessThan(1.5);
+      }
+    }
+  });
+
   it("gives every god its own beat", () => {
     expect(Object.fromEntries(ids.map((id) => [id, CAST.gods[id].step]))).toEqual({
       athena: 520,

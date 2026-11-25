@@ -1,14 +1,15 @@
-// The lane's engine, parts 2 to 5 of Olympus: the mockup's floor.js, with its
-// card, its keyboard and its travel.
+// The lane's engine, parts 2 to 5b of Olympus: the mockup's floor.js, with its
+// card, its keyboard, its travel and the gods' tesserae.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
 // - The lane opens when the first agent is sent and shuts after the last god
 //   has gone. It rises as it opens and falls as it shuts; a god sent while it
 //   falls waits for it to be down, and it rises again.
-// - Gods land one at a time. Each is set beside a place of its own, where its
-//   greeting fits, says the greeting on a ribbon, and walks to its place. At
-//   its place a god faces the middle of the lane.
+// - Gods land one at a time. Each is set from its tesserae, from the feet up,
+//   beside a place of its own where its greeting fits; the carved figure shows
+//   through them, it says the greeting on a ribbon, and it walks to its place.
+//   At its place a god faces the middle of the lane.
 // - At its place a god acts its agent's latest tool in its own way. The tool's
 //   family (look, web, make, run; think before the first tool, for a tool with
 //   no family, and for a family the god has no pose for) picks the god's pose
@@ -29,23 +30,27 @@
 //   and every other ribbon: toward the middle of the lane, else the other way,
 //   else a little higher. With nowhere yet the god waits for room, and if none
 //   comes it goes on without a word. A ribbon unrolls from the hand, is held
-//   whole, and is furled. Nobody walks or starts work into a ribbon: they wait
-//   until it is furled.
+//   whole, and is furled. Nobody walks, starts work or goes back to tesserae
+//   into a ribbon: they wait until it is furled. And no line is held out into
+//   the flight of a god's tesserae as it is set or as it goes.
 // - Walking, a god glides and its pose swaps in steps, stride and stand, on
 //   its own beat; it faces where it goes. Its pace, a dip or a lift, a stop to
 //   look round, and how it sets off and pulls up are its move's, in the cast
 //   data.
 // - Done: a farewell, the seal pressed on its rolled scroll, and it walks off
-//   and goes. Failed: it stands, dims and cracks, and goes. Stopped: dimmed,
-//   with no crack. An ending never waits for a dwell; the one who flies comes
-//   down first.
+//   and goes back to tesserae: they are prised up, the crown first, and thrown
+//   off. Failed: it stands, dims and cracks, and crumbles where it stands.
+//   Stopped: dimmed, with no crack, and its dimmed tesserae are lifted as a
+//   done god's are: only a failure crumbles. An ending never waits for a
+//   dwell; the one who flies comes down first.
 // - From the sixth agent working at once, an agent waits unseen and lands,
 //   oldest first, once a god has left its place.
 // - The card: over the god the pointer is on, else the god focused from the
 //   keyboard. While its god works it holds one height, over the highest the
 //   god can reach there; walking, over its standing top; otherwise over the
-//   pose shown. It follows its god as it walks, and is down once its god
-//   begins to go. Its caret stays on its straight edge. It stays while the
+//   pose shown. It is up over a god still being set, follows its god as it
+//   walks, and is down once its god begins to go, for all its tesserae's
+//   flight. Its caret stays on its straight edge. It stays while the
 //   pointer is on the god, its name or the card, and a moment after; Esc hides
 //   it. The floor says whose card is up and where it stands; the words in it
 //   are the caller's.
@@ -57,14 +62,15 @@
 // - Reduced motion: nothing travels. The lane opens and shuts at once, a god
 //   is set at its place and steps aside by a cut, a ribbon shows whole, the
 //   seal, the dimming and the crack are there or they aren't, and the dwell is
-//   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel.
-// A god shows by a short fade as it is set and goes by one: the tesserae it is
-// set from and goes back to, the mosaic and the pool's medallions are later
-// parts.
+//   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel,
+//   and no tessera is drawn: a god is there, and then it isn't. Asked for in
+//   the middle of a setting or an unsetting, that is cut too.
+// The floor's mosaic and the pool's medallions are later parts.
 // It runs on sim.ts's clock. Every step is put on it for its moment, and every
 // throw of the dice falls in a step. A frame between steps is drawn from the
 // state and the time alone, and nothing it draws is read back by a step, so a
-// run plays the same however the frames fall. The clock sleeps unless
+// run plays the same however the frames fall. A tessera's flight is cut from
+// dice of its god's own, never the floor's. The clock sleeps unless
 // something on the lane is changing. The card and the keyboard are no part of
 // the run: they put nothing on that clock and never draw the floor's dice, so
 // a run plays the same whoever looks at it.
@@ -73,6 +79,14 @@ import type { Cast, CastGod, Pictures, Pose, Skill, SvgNode } from "./cast";
 import { POSES } from "./cast";
 import type { GodId } from "./gods";
 import type { Sim, SimEvent, SimHost } from "./sim";
+import {
+  cutTesserae,
+  dimmed,
+  drawTesserae,
+  UNSET,
+  type Tessera,
+  type TesseraeMode,
+} from "./tesserae";
 import type { ToolFamily } from "./tool-family";
 
 /** How an agent's record reads, as its row has it (OlympusRows' rowState). */
@@ -143,6 +157,8 @@ export interface FloorPeek {
     readonly lift: number;
     /** How far its figure shows, and its ribbon is unrolled, its seal pressed in, and it is dimmed: 0 to 1. */
     readonly shown: number;
+    /** Its tesserae, while any are drawn: how they go, and whether in its dimmed ivories. */
+    readonly tesserae: { readonly mode: TesseraeMode; readonly dim: boolean } | null;
     readonly unrolled: number | null;
     readonly press: number;
     readonly dim: number;
@@ -193,7 +209,8 @@ const RIB_HALF = 8.5; // half a ribbon's height
 const RIB_PAD = 3; // kept clear all round a ribbon
 const RIB_TOP = 3; // the lane's top, under the dock's rim
 const LIFTS = [0, 3, 6]; // held a little higher, over a neighbour's low reach
-const SPREAD = 16; // the room kept round a god as it is set
+const SPREAD = 16; // how far off a god's tesserae come in from as it is set
+const SCATTER = 40; // and how far they fly as it goes back to them
 
 // ── A god's turn, ms ──
 const RISE = 420; // the lane opens
@@ -202,7 +219,11 @@ const LAND_STILL = 500; // a beat after the lane opens, so a crowd sent together
 const LAND_GAP = 850; // and the next no sooner
 const CLOSE_AFTER = 600; // the lane waits a beat after the last god has gone
 const RETRY = 400; // no room yet to land: look again
-const FADE = 240; // a god shows as it is set, and goes: until its tesserae, a later part
+const ASSEMBLE = 1150; // a god's tesserae are set, from the feet up
+const REVEAL = 250; // then the carved figure shows through them
+const UNSET_END = 1300; // it goes back to them: the figure gives way, and they are thrown off
+const CRUMBLE_END = 1250; // or, failed, they fall and lie a moment
+const NAME_OUT = 420; // its name goes as they begin to
 const UNFURL = 650;
 const SAY = 1400; // a line held out whole on the ribbon
 const FURL = 280;
@@ -216,7 +237,7 @@ const FAIL_HOLD = 3000; // dimmed, and cracked if it failed, before it goes
 const DIM_AT = 300; // it stands a moment; then it dims, and the crack comes
 const DIM = 900;
 const CRACK = 220;
-const HOLD = 200; // waiting for room, for a line or a walk: look again
+const HOLD = 200; // waiting for room, for a line, a walk or the tesserae: look again
 const GREET_WAIT = 1500; // a greeting waits this long for room, then the god goes on without a word
 const BYE_WAIT = 3000; // a farewell waits its turn longer; then it seals its scroll and goes
 const BYE_STUCK = 1200; // but if nothing round it will make room, the longest waiting goes after this
@@ -272,6 +293,10 @@ export function rng(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/** A seed from a name (the mockup's hash): a pose's tesserae are cut from dice of their own. */
+const hash = (s: string): number =>
+  [...s].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261);
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -341,7 +366,7 @@ type Saying = "greet" | "report";
 /** A step of a god's turn: what it is doing, from when to when. */
 interface Seg {
   readonly kind:
-    | "appear"
+    | "assemble"
     | "greet"
     | "report"
     | "seal"
@@ -351,10 +376,14 @@ interface Seg {
     | "walk"
     | "glance"
     | "alight"
-    | "fade";
+    | "unset";
   readonly t0: number;
   readonly t1: number;
   readonly then?: (t: number) => void;
+  /** A wait for room for its tesserae to fly. */
+  readonly why?: "unset";
+  /** Going back to tesserae: lifted and thrown off, or fallen. */
+  readonly how?: "lift" | "fall";
   /** A walk: from where to where, and how it sets off and pulls up. */
   readonly x0?: number;
   readonly x1?: number;
@@ -389,6 +418,14 @@ interface Vis {
   sealed: boolean;
   /** The seal's size as it is pressed: 1 once it is on. */
   press: number;
+  /** Its tesserae, while any are drawn: how they go, of which pose, how far in, and how far they show at rest. */
+  tiles: {
+    readonly mode: TesseraeMode;
+    readonly pose: "speak" | "stand";
+    readonly u: number;
+    readonly a: number;
+    readonly dim: boolean;
+  } | null;
   /** Whether the next frame will draw it otherwise. */
   moving: boolean;
 }
@@ -476,6 +513,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   const { sim, cast: CAST, random } = opts;
   const godsEl = lane.querySelector<HTMLElement>(".oly-gods")!;
   const namesEl = lane.querySelector<HTMLElement>(".oly-names")!;
+  // The tesserae's canvas, behind the gods; a lane without one draws none.
+  const fx = lane.querySelector<HTMLCanvasElement>("canvas.oly-fx");
   const measure = opts.measure ?? ((el: HTMLElement) => el.offsetWidth);
   const reduced =
     opts.reduced ??
@@ -523,6 +562,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let dismissed: string | null = null;
   let rove: HTMLElement | null = null;
   let shown: FloorPeek["card"] = null;
+
+  // The tesserae: the canvas's brush, asked for when the first are drawn;
+  // whether the last frame drew any, so the canvas is wiped once they are
+  // over; and each pose's stones and each god's ivories, cut as first needed.
+  let brush: CanvasRenderingContext2D | null | undefined;
+  let fxDrawn = false;
+  const stones = new Map<string, Tessera[]>();
+  const ivories = new Map<GodId, { lit: readonly string[]; dim: readonly string[] }>();
 
   // Every god's standing pictures, fetched once up front, so no god is set
   // before its own is in. A god's stride and its skill poses are fetched as it
@@ -790,16 +837,28 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // What a god takes up while a line is held out near it. Standing, its
   // figure's floor at full height; walking, all the floor it has still to
   // cross; still to go to its place, the way there and all it can cover once it
-  // is there. At its place, the outline of its whole envelope: a line clear of
-  // that stays clear whatever it does there.
+  // is there; being set, or lifted, its tesserae's flight too, and so for one
+  // walking off to be. At its place, the outline of its whole envelope: a line
+  // clear of that stays clear whatever it does there.
   function zone(g: God, t: number): Box[] {
     const s = g.seg;
+    const k = s?.kind;
     const x = xAt(g, t);
     const boxes: Box[] = [];
-    const moving = walking(g) || s?.kind === "glance";
-    if (moving)
-      boxes.push(tall(way(g, x, s!.kind === "glance" ? s!.to! : (s!.glanceTo ?? s!.x1!))));
-    else if (seated(g)) boxes.push(...reach(g, x));
+    const moving = walking(g) || k === "glance";
+    if (moving) {
+      const [a, b] = way(g, x, k === "glance" ? s!.to! : (s!.glanceTo ?? s!.x1!));
+      const pad = s!.purpose === "leave" ? SCATTER : 0;
+      boxes.push(tall([a - pad, b + pad]));
+    } else if (
+      k === "assemble" ||
+      (k === "unset" && s!.how === "lift") ||
+      (k === "hold" && s!.why === "unset")
+    ) {
+      const [a, b] = either(g, k === "assemble" ? "speak" : "stand", x);
+      const pad = k === "assemble" ? SPREAD : SCATTER;
+      boxes.push(tall([a - pad, b + pad]));
+    } else if (seated(g)) boxes.push(...reach(g, x));
     else boxes.push(tall(either(g, g.pose, x)));
     if (g.seat != null && !g.ending) {
       const there = Math.abs(g.seat - x) <= 1.5;
@@ -844,7 +903,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return null;
   }
 
-  // What every other god holds: where it is, where its walk ends, and the place it is bound for.
+  // What every other god holds: where it is, where its walk ends, and the place
+  // it is bound for; and, standing anywhere but at its work, the room its first
+  // stride takes, whichever way it sets off.
   function claims(except: God, t: number): Range[] {
     const held: Range[] = [];
     for (const g of gods.values()) {
@@ -853,6 +914,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       if (walking(g)) {
         lo = Math.min(lo, g.seg!.x1! + 4);
         hi = Math.max(hi, g.seg!.x1! + 64);
+      } else if (!seated(g)) {
+        const [a, b] = either(g, "stride", g.x);
+        lo = Math.min(lo, a);
+        hi = Math.max(hi, b);
       }
       if (g.seat != null) {
         const [a, b] = envOf(g);
@@ -1399,7 +1464,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function next(god: God, seg: Seg): void {
     const t = seg.t1;
     switch (seg.kind) {
-      case "appear":
+      case "assemble":
         return god.ending ? outro(god, t) : speak(god, t, "greet");
       case "greet":
         unsay(god);
@@ -1428,7 +1493,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         god.dim = 1;
         god.crack = god.ending === "fail" ? 1 : 0;
         return depart(god, t);
-      case "fade":
+      case "unset":
         return remove(god, t);
       case "hold":
         return seg.then?.(t);
@@ -1456,9 +1521,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     namesEl.append(god.label);
     god.labelW = measure(god.label);
     roveFix();
-    // It shows as it is set, and then greets; under reduced motion it is there, greeting.
+    // It is set from its tesserae, shows through them, and then greets; under
+    // reduced motion it is there, greeting.
     if (reduced()) return speak(god, t, "greet");
-    enter(god, "appear", t, FADE);
+    enter(god, "assemble", t, ASSEMBLE + REVEAL);
   }
 
   function speak(god: God, t: number, kind: Saying): void {
@@ -1539,9 +1605,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return true;
   }
 
-  // No room yet, for a line or a walk: it stays as it is and looks again in a moment.
-  function wait(god: God, t: number, then: (t: number) => void): void {
-    enter(god, "hold", t, HOLD, { then });
+  // No room yet, for a line, a walk or the tesserae: it stays as it is and looks again in a moment.
+  function wait(god: God, t: number, then: (t: number) => void, why?: "unset"): void {
+    enter(god, "hold", t, HOLD, { then, why });
   }
 
   // It glides to where it is going, in steps of stride and stand. An ambler or
@@ -1648,12 +1714,19 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     walk(god, t, to, "leave", false);
   }
 
-  // It goes, where it stands: by a fade, or at once under reduced motion.
+  // It goes back to tesserae, where it stands; at once under reduced motion.
+  // Failed, it crumbles. Done or stopped, they fly up and out, and not through
+  // another god's ribbon: it waits until that is furled.
   function depart(god: God, t: number): void {
     halt(god, t);
     god.seat = null;
     if (reduced()) return remove(god, t);
-    enter(god, "fade", t, FADE);
+    if (god.ending === "fail") return void enter(god, "unset", t, CRUMBLE_END, { how: "fall" });
+    god.pose = "stand";
+    const [a, b] = either(god, "stand", god.x);
+    if (ribbons(god).some((q) => across(q, [a - SCATTER, b + SCATTER])))
+      return wait(god, t, (t2) => depart(god, t2), "unset");
+    enter(god, "unset", t, UNSET_END, { how: "lift" });
   }
 
   function remove(god: God, t: number): void {
@@ -1783,11 +1856,21 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       crack: god.crack,
       sealed: god.sealed,
       press: 1,
+      tiles: null,
       moving: false,
     };
     switch (s?.kind) {
-      case "appear":
-        v.fig = v.name = clamp01(u / FADE);
+      case "assemble":
+        // Asked for less motion on the way: it is simply there.
+        if (quiet) break;
+        v.fig = v.name = clamp01((u - ASSEMBLE) / REVEAL);
+        v.tiles = {
+          mode: u < ASSEMBLE ? "set" : "rest",
+          pose: "speak",
+          u,
+          a: 1 - v.fig,
+          dim: false,
+        };
         v.moving = true;
         break;
       case "greet":
@@ -1841,8 +1924,15 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         if (god.ending === "fail") v.crack = Math.max(god.crack, clamp01((u - DIM_AT) / CRACK));
         v.moving = u < DIM_AT + DIM;
         break;
-      case "fade":
-        v.fig = v.name = 1 - clamp01(u / FADE);
+      case "unset":
+        // Asked for less motion on the way: it is simply gone.
+        if (quiet) {
+          v.fig = v.name = 0;
+          break;
+        }
+        v.fig = 1 - clamp01(u / UNSET);
+        v.name = 1 - clamp01(u / NAME_OUT);
+        v.tiles = { mode: s.how ?? "lift", pose: "stand", u, a: 1, dim: god.dim > 0 };
         v.moving = true;
         break;
       default:
@@ -1944,12 +2034,12 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // god's head line, inside the lane; its foot over the highest the god
   // reaches at its work, over its standing top while it walks, or over the pose
   // it shows; its caret at the head line, on the card's straight edge. It is
-  // down once its god begins to go.
+  // down once its god begins to go: for all its tesserae's flight.
   function placeCard(): void {
     const key = cardFor();
     const god = key === null ? undefined : gods.get(key);
     const kind = god?.seg?.kind;
-    if (!god || !out(god) || mode !== "open" || kind === "fade") return hideCard();
+    if (!god || !out(god) || mode !== "open" || kind === "unset") return hideCard();
     const v = god.vis;
     const head = (v?.x ?? god.x) + HEAD;
     const left = clamp(head - 30, 6, W - 6 - TIP_W);
@@ -2117,13 +2207,75 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   document.addEventListener("pointerdown", onPointerDown, true);
   roveFix();
 
-  // A frame: the lane, every god and its name from the time alone, then the
-  // card. Moving while the lane or a god will be drawn otherwise next frame;
-  // the card never keeps the clock awake.
+  // ───────── the tesserae ─────────
+  // A pose's stones, cut once from dice of its own.
+  function stonesOf(god: God, pose: "speak" | "stand"): Tessera[] {
+    const key = `${god.gid}:${pose}`;
+    let set = stones.get(key);
+    if (!set) stones.set(key, (set = cutTesserae(god.c.tiles[pose], rng(hash(key)), H)));
+    return set;
+  }
+
+  function ivoriesOf(god: God): { lit: readonly string[]; dim: readonly string[] } {
+    let pal = ivories.get(god.gid);
+    if (!pal) {
+      const lit = god.c.tiles.palette;
+      ivories.set(god.gid, (pal = { lit, dim: lit.map(dimmed) }));
+    }
+    return pal;
+  }
+
+  // Every god's tesserae as its frame has them, on the one canvas behind the
+  // gods. It is wiped before the first of a frame, and once more when the last
+  // flight is over: then nothing is drawn until the next.
+  function renderTesserae(): void {
+    let ctx: CanvasRenderingContext2D | null = null;
+    for (const god of gods.values()) {
+      const T = out(god) ? god.vis?.tiles : null;
+      if (!T) continue;
+      ctx ??= wipe();
+      if (!ctx) return;
+      drawTesserae(ctx, stonesOf(god, T.pose), ivoriesOf(god)[T.dim ? "dim" : "lit"], {
+        mode: T.mode,
+        u: T.u,
+        a: T.a,
+        x: god.vis!.x,
+        y: TOP + god.vis!.y,
+        dir: god.vis!.dir,
+        axis: AXIS,
+      });
+    }
+    if (ctx) fxDrawn = true;
+    else if (fxDrawn) {
+      wipe();
+      fxDrawn = false;
+    }
+  }
+
+  // The canvas blank, at the lane's width and the screen's density as they are now.
+  function wipe(): CanvasRenderingContext2D | null {
+    if (!fx) return null;
+    if (brush === undefined) brush = fx.getContext("2d") ?? null;
+    if (!brush) return null;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.round(W * dpr);
+    const h = Math.round(H * dpr);
+    if (fx.width !== w) fx.width = w;
+    if (fx.height !== h) fx.height = h;
+    brush.setTransform(dpr, 0, 0, dpr, 0, 0);
+    brush.clearRect(0, 0, W, H);
+    return brush;
+  }
+
+  // A frame: the lane, every god and its name from the time alone, the
+  // tesserae of those being set or unset, then the card. Moving while the lane
+  // or a god will be drawn otherwise next frame; the card never keeps the
+  // clock awake.
   sim.view((now) => {
     if (disposed) return false;
     let moving = renderLane(now);
     for (const god of gods.values()) if (out(god)) moving = renderGod(god, now) || moving;
+    renderTesserae();
     renderNames();
     attend();
     return moving;
@@ -2208,6 +2360,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
             want: g.want,
             lift: v.y ? -v.y : 0,
             shown: v.fig,
+            tesserae: v.tiles && { mode: v.tiles.mode, dim: v.tiles.dim },
             unrolled: g.ribbon ? v.rib : null,
             press: v.press,
             dim: v.dim,
@@ -2233,6 +2386,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         god.label.remove();
       }
       gods.clear();
+      if (fxDrawn) wipe();
+      fxDrawn = false;
+      stones.clear();
       queue.length = 0;
       pool.length = 0;
       for (const e of laneTimers) sim.cancel(e);

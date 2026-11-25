@@ -1,4 +1,4 @@
-/* Olympus, parts 2 to 5: the lane, its card and its travel. A marble
+/* Olympus, parts 2 to 5b: the lane, its card, its travel and its tesserae. A marble
    stylobate over the composer; each subagent at work is a god on it, acting
    its agent's latest tool, its name carved in the step's face under it. The
    engine (floor.ts) builds every god, puts it where it is and says which pose
@@ -11,7 +11,9 @@
    (--oly-crack), and the press of its seal. So no rule here runs over time,
    and none asks whether the reader wants less motion: the engine asks that
    itself, and then moves nothing. One pose is still cut to the next, and the
-   card is up or it isn't. The tesserae and the floor mosaic are later parts.
+   card is up or it isn't. The tesserae a god is set from and goes back to
+   never come here at all: the engine draws each stone on a canvas, which this
+   sheet only places. The floor mosaic is a later part.
 
    Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
    6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
@@ -69,6 +71,18 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap:focus-wi
 }
 html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover) > .oly-lane {
   border-color: var(--kleio-lapis);
+}
+
+/* The tesserae's canvas, behind the gods: the floor above the stylobate, a px
+   over the lane's inner top, where floor.ts measures a cell's top from. */
+.oly-fx {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: var(--oly-tread);
+  display: block;
+  width: 100%;
+  height: 104px;
 }
 
 /* The gods: a 73×100 cell each, feet on the stylobate, placed by floor.ts. */

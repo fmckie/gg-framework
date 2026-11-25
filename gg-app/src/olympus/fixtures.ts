@@ -363,3 +363,46 @@ export function framedHost(): ManualHost {
     run: (ms, every) => host.run(ms, every),
   };
 }
+
+/** A stand-in for the tesserae's canvas, which jsdom cannot draw: it counts what a floor draws. */
+export interface CountingBrush {
+  readonly ctx: CanvasRenderingContext2D;
+  /** The stones on the canvas now: those filled since it was last wiped. */
+  stones: number;
+  /** The colours those were filled in. */
+  readonly ivories: Set<string>;
+  /** How often it has been wiped, and how many stones filled in all. */
+  wipes: number;
+  filled: number;
+}
+
+export function countingBrush(): CountingBrush {
+  const brush: CountingBrush = {
+    ctx: null as unknown as CanvasRenderingContext2D,
+    stones: 0,
+    ivories: new Set(),
+    wipes: 0,
+    filled: 0,
+  };
+  const ctx = {
+    globalAlpha: 1,
+    fillStyle: "",
+    setTransform() {},
+    clearRect() {
+      brush.wipes += 1;
+      brush.stones = 0;
+      brush.ivories.clear();
+    },
+    beginPath() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    fill() {
+      brush.stones += 1;
+      brush.filled += 1;
+      brush.ivories.add(ctx.fillStyle);
+    },
+  };
+  (brush as { ctx: unknown }).ctx = ctx;
+  return brush;
+}

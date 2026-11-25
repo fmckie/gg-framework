@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agentsAt,
+  type CountingBrush,
+  countingBrush,
   framedHost,
   type ManualHost,
   MOCK_EXTRAS,
@@ -18,8 +20,19 @@ import { cardAgent, laneAgents, OlympusLane, type LaneGroup, type LaneStage } fr
 import { OlympusRows } from "./OlympusRows";
 import type { SubAgentLine } from "../SubAgentFeed";
 
+/** The tesserae's canvas, as a count of what the lane draws on it: jsdom draws none. */
+let fx: CountingBrush;
+let canvas: { mockRestore(): void };
+beforeEach(() => {
+  fx = countingBrush();
+  canvas = vi
+    .spyOn(HTMLCanvasElement.prototype, "getContext")
+    .mockImplementation((() => fx.ctx) as unknown as HTMLCanvasElement["getContext"]);
+});
+
 afterEach(() => {
   cleanup();
+  canvas.mockRestore();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -135,9 +148,10 @@ describe("the lane", () => {
     const { container } = render(<OlympusLane groups={[]} stage={stage} />);
     const lane = container.querySelector(".oly-lane")!;
     expect(lane.className).toBe("oly-lane is-shut");
-    // The toolbar is hidden while it is empty; the step and the antae always.
+    // The toolbar is hidden while it is empty; the tesserae's canvas, the step and the antae always.
     expect(lane.hasAttribute("aria-hidden")).toBe(false);
     expect([...lane.children].map((el) => [el.className, el.getAttribute("aria-hidden")])).toEqual([
+      ["oly-fx", "true"],
       ["oly-gods", "true"],
       ["oly-stylobate", "true"],
       ["oly-anta is-l", "true"],
@@ -191,11 +205,12 @@ describe("the lane", () => {
     expect(cells.every((cell) => cell.getAttribute("aria-disabled") === "true")).toBe(true);
     expect(cells.map((cell) => cell.tabIndex)).toEqual([0, -1, -1, -1]);
     expect(container.querySelectorAll("button, a, input")).toHaveLength(0);
-    // The toolbar is no longer hidden; the card's frame, the step and the antae still are.
+    // The toolbar is no longer hidden; the card's frame, the tesserae's canvas, the step and the
+    // antae still are.
     expect(container.querySelector(".oly-gods")!.hasAttribute("aria-hidden")).toBe(false);
     expect(
       [...container.querySelectorAll("[aria-hidden]")].map((el) => el.className.split(" ")[0]),
-    ).toEqual(["oly-card-anchor", "oly-stylobate", "oly-anta", "oly-anta"]);
+    ).toEqual(["oly-card-anchor", "oly-fx", "oly-stylobate", "oly-anta", "oly-anta"]);
   });
 
   it("follows the records as they change, and shuts when the run is over", () => {
@@ -261,14 +276,17 @@ describe("the lane", () => {
       view.unmount();
       return seen;
     };
-    // The tools: look, web, make, run, none, look, none.
+    // The tools: look, web, make, run, none, look, none. For most the first look
+    // is over before the god has been set from its tesserae, greeted and walked
+    // to its place, a little over 5s in; the second shows it. Hermes is there
+    // in time, and Nike acts the web as she looks.
     expect(Object.fromEntries(MOCK_SKILLS.map((def) => [def.id, worked(def)]))).toEqual({
-      "skills-owl": ["look", "think", "look", "think"],
-      "skills-researcher": ["look", "web", "think", "look", "think"],
+      "skills-owl": ["think", "look", "think"],
+      "skills-researcher": ["web", "think", "look", "think"],
       "skills-worker": ["look", "think", "make", "run", "think", "look", "think"],
-      "skills-bee": ["look", "think", "make", "run", "think", "look", "think"],
-      "skills-auditor": ["look", "web", "think", "run", "think", "look", "think"],
-      "skills-skeptic": ["look", "web", "think-r", "run", "think-l", "look", "think-r"],
+      "skills-bee": ["think", "make", "run", "think", "look", "think"],
+      "skills-auditor": ["web", "think", "run", "think", "look", "think"],
+      "skills-skeptic": ["web", "think-r", "run", "think-l", "look", "think-r"],
       "skills-unnamed": ["look", "make", "run", "think", "look", "think"],
     });
   });
@@ -290,10 +308,25 @@ describe("the lane", () => {
     stage.host.advance(1200);
     expect(cells.every((cell) => cell.classList.contains("is-dim"))).toBe(true);
     expect(cells.some((cell) => cell.classList.contains("is-cracked"))).toBe(false);
-    stage.host.advance(1800 + 240); // 3s in all, and they go
+    stage.host.advance(1800 + 1300); // 3s in all, and they go back to tesserae
     expect(view.container.querySelectorAll(".oly-cell")).toHaveLength(0);
     stage.host.advance(600 + 360);
     expect(view.container.querySelector(".oly-lane")!.classList.contains("is-shut")).toBe(true);
+  });
+
+  it("draws each god's tesserae on its canvas as it is set, and leaves it blank once they are at their work", () => {
+    const stage = staged();
+    const { container } = render(<OlympusLane groups={run(600)} stage={stage} />);
+    stage.host.advance(1200); // the first has landed, 700ms into its setting
+    expect(gods(container)).toEqual(["athena"]);
+    expect(fx.stones).toBeGreaterThan(0);
+    expect(container.querySelector<HTMLElement>(".oly-fig")!.style.opacity).toBe("0");
+    expect(container.querySelector<HTMLCanvasElement>("canvas.oly-fx")!.width).toBe(698);
+    stage.host.advance(12_000);
+    expect(gods(container)).toHaveLength(4);
+    expect(fx.stones).toBe(0);
+    const figures = [...container.querySelectorAll<HTMLElement>(".oly-fig")];
+    expect(figures.map((figure) => figure.style.opacity)).toEqual(["", "", "", ""]);
   });
 
   it("summons nobody for a resumed chat's rows", () => {
@@ -370,6 +403,33 @@ describe("reduced motion", () => {
   });
 });
 
+describe("reduced motion: the tesserae", () => {
+  it("with the setting on no tessera is ever drawn, and the canvas is never touched; with it off the gods are set from them and go back to them", () => {
+    const reduce = (on: boolean): void =>
+      void vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({ matches: on && query.includes("reduce"), media: query })),
+      );
+    function play(): void {
+      const stage = staged(11);
+      const view = render(<OlympusLane groups={run(0)} stage={stage} />);
+      for (let ms = 0; ms <= 30_000; ms += 250) {
+        view.rerender(<OlympusLane groups={run(ms)} stage={stage} />);
+        stage.host.advance(250);
+      }
+      view.unmount();
+    }
+    reduce(true);
+    play();
+    expect(fx).toMatchObject({ wipes: 0, filled: 0, stones: 0 });
+    expect(HTMLCanvasElement.prototype.getContext).not.toHaveBeenCalled();
+    reduce(false);
+    play();
+    expect(fx.filled).toBeGreaterThan(1000);
+    expect(fx.stones).toBe(0); // and it is left blank
+  });
+});
+
 describe("the lane's CSS", () => {
   const rules = laneCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -377,6 +437,15 @@ describe("the lane's CSS", () => {
     expect(laneCss).not.toMatch(/animation|transition|@keyframes/);
     expect(laneCss).not.toMatch(/prefers-reduced-motion/);
     expect(rules).not.toMatch(/will-change/);
+  });
+
+  it("only places the tesserae's canvas, behind the gods: the engine draws on it, and nothing of its reaches the sheet", () => {
+    expect(rules).toContain(
+      ".oly-fx {\n  position: absolute;\n  z-index: 2;\n  left: 0;\n  bottom: var(--oly-tread);\n  display: block;\n  width: 100%;\n  height: 104px;\n}",
+    );
+    expect(rules.match(/\.oly-fx\b/g)).toHaveLength(1);
+    // In a cell's own layer and before the cells, so a god stands in front of anyone's stones.
+    expect(rules).toContain(".oly-cell {\n  position: absolute;\n  z-index: 2;");
   });
 
   it("keeps to its own class names, and takes none of the rows'", () => {

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CAST, POSE_URLS, type Skill } from "./cast";
 import {
   agentsAt,
+  type CountingBrush,
+  countingBrush,
   framedHost,
   type ManualHost,
   MOCK_CROWD,
@@ -70,11 +72,15 @@ interface Stage {
   readonly cards: (string | null)[];
   /** The composer's text box, after the lane. */
   readonly box: HTMLTextAreaElement;
+  /** The tesserae's canvas, as a count of what the floor has drawn on it. */
+  readonly fx: CountingBrush;
   /** How often the floor has put a step on the clock or woken it, and drawn its dice. */
   readonly asked: { clock: number; dice: number };
   names(): string[];
   setWidth(width: number): void;
   resize(): void;
+  /** The reader asks for less motion, or no longer does. */
+  quiet(on: boolean): void;
   dispose(): void;
 }
 
@@ -83,19 +89,24 @@ const stages: { dispose(): void }[] = [];
 
 /**
  * A lane with a clock that moves only when told to, and draws a frame for the
- * moment each advance ends on (framedHost); a letter is 5.5px wide.
+ * moment each advance ends on (framedHost); a letter is 5.5px wide. Its canvas
+ * counts the tesserae drawn on it: jsdom draws none.
  */
 function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): Stage {
   const lane = document.createElement("div");
   lane.className = "oly-lane is-shut";
   lane.innerHTML =
-    '<div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
+    '<canvas class="oly-fx"></canvas><div class="oly-gods"></div><div class="oly-stylobate"><div class="oly-names"></div></div>';
+  const fx = countingBrush();
+  lane.querySelector("canvas")!.getContext = (() =>
+    fx.ctx) as unknown as HTMLCanvasElement["getContext"];
   const card = document.createElement("div");
   card.className = "oly-card";
   const box = document.createElement("textarea");
   document.body.append(card, lane, box);
   const host = framedHost();
   let w = width;
+  let quiet = reduced;
   const asked = { clock: 0, dice: 0 };
   const cards: (string | null)[] = [];
   const clock = createSim(host);
@@ -114,7 +125,7 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
     random: () => (asked.dice++, dice()),
     width: () => w,
     measure: (el) => Math.round((el.textContent ?? "").length * letter) + 21,
-    reduced: () => reduced,
+    reduced: () => quiet,
     card,
     onCard: (key) => cards.push(key),
     describe: (key) => `row-${key}`,
@@ -130,6 +141,7 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
     card,
     cards,
     box,
+    fx,
     asked,
     label(key) {
       const i = floor.peek().gods.findIndex((god) => god.key === key);
@@ -154,6 +166,9 @@ function stage({ seed = 7, width = 698, letter = 5.5, reduced = false } = {}): S
       floor.resize();
       host.advance(0);
     },
+    quiet(on) {
+      quiet = on;
+    },
     dispose: () => floor.dispose(),
   };
 }
@@ -162,7 +177,12 @@ const shut = (s: Stage): boolean => s.lane.classList.contains("is-shut");
 
 // ── Part 5: a god's turn, ms ──
 const LAND = 500; // after the lane opens
-const FADE = 240; // a god shows as it is set, and goes
+const SET = 1150; // a god's tesserae are set, from the feet up
+const REVEAL = 250; // and the carved figure shows through them
+const SHOWN = SET + REVEAL; // from its landing to its greeting
+const UNSET = 140; // going back to them, the figure gives way
+const GONE = 1300; // and they are thrown off
+const CRUMBLED = 1250; // or, failed, they fall and lie a moment
 const UNFURL = 650;
 const SAY = 1400;
 const FURL = 280;
@@ -179,6 +199,9 @@ function seatOf(seen: Seen): number {
   return seen.place![0] - (seen.face > 0 ? lo : 66 - hi);
 }
 const figure = (cell: HTMLElement): HTMLElement => cell.querySelector<HTMLElement>(".oly-fig")!;
+/** How many stones a god's pose is cut into. */
+const stonesOf = (god: GodId, pose: "speak" | "stand"): number =>
+  CAST.gods[god].tiles[pose].reduce((n, course) => n + course[4].replace(/-/g, "").length, 0);
 const ribbon = (cell: HTMLElement): HTMLElement => cell.querySelector<HTMLElement>(".oly-ribbon")!;
 
 /** Move the clock on, a ms at a time, until something is so. */
@@ -240,12 +263,12 @@ describe("the lane opening and shutting", () => {
     s.sync([agent("a", "athena"), agent("b", "hermes")]);
     settle(s, 2);
     s.sync([agent("a", "athena", "fail"), agent("b", "hermes")]);
-    s.host.advance(FAIL_HOLD + FADE); // the failed one has gone
+    s.host.advance(FAIL_HOLD + CRUMBLED); // the failed one has gone
     expect(s.cells()).toHaveLength(1);
     s.host.advance(5000);
     expect(shut(s)).toBe(false);
     s.sync([agent("a", "athena", "fail"), agent("b", "hermes", "stop")]);
-    s.host.advance(FAIL_HOLD + FADE);
+    s.host.advance(FAIL_HOLD + GONE);
     expect(s.cells()).toHaveLength(0);
     expect(s.peek().lane).toEqual({ mode: "open", height: 125 });
     s.host.advance(599);
@@ -346,7 +369,7 @@ describe("the lane opening and shutting", () => {
 });
 
 describe("landing", () => {
-  it("sets the first god a beat after the lane opens, beside its place, and it shows over 240ms", () => {
+  it("sets the first god a beat after the lane opens, beside its place, from its tesserae: from the feet up over 1150ms, and the carved figure shows through them over 250ms", () => {
     const s = stage();
     s.sync([agent("a", "hermes")]);
     s.host.advance(LAND - 1);
@@ -355,22 +378,46 @@ describe("landing", () => {
     const cell = s.cell("a")!;
     expect(cell.dataset.god).toBe("hermes");
     expect(cell.dataset.pose).toBe("speak");
-    expect(out(s)).toMatchObject({ step: "appear", shown: 0, line: null });
+    expect(out(s)).toMatchObject({
+      step: "assemble",
+      shown: 0,
+      line: null,
+      tesserae: { mode: "set", dim: false },
+    });
     expect(figure(cell).style.opacity).toBe("0");
     expect(s.label("a")!.style.opacity).toBe("0");
+    expect(s.fx.stones).toBe(0); // none has begun its flight
     // Beside its place: 44 to 96px from it, where it will walk from.
     const from = out(s).x;
     const away = Math.abs(from - seatOf(out(s)));
     expect(away).toBeGreaterThanOrEqual(44 - 1e-6);
     expect(away).toBeLessThanOrEqual(96);
     expect(cell.style.transform).toBe(`translate3d(${from.toFixed(2)}px, 0, 0)`);
-    s.host.advance(FADE / 2);
+    // From the feet up: half way some are down, and all of them by the end, in
+    // its own ivories. The figure isn't there yet.
+    const all = stonesOf("hermes", "speak");
+    s.host.advance(SET / 2);
+    expect(s.fx.stones).toBeGreaterThan(0);
+    expect(s.fx.stones).toBeLessThan(all);
+    expect(figure(cell).style.opacity).toBe("0");
+    s.host.advance(SET / 2);
+    expect(s.fx.stones).toBe(all);
+    expect([...s.fx.ivories].every((ivory) => CAST.gods.hermes.tiles.palette.includes(ivory))).toBe(
+      true,
+    );
+    expect(out(s)).toMatchObject({ step: "assemble", shown: 0, tesserae: { mode: "rest" } });
+    expect(cell.style.transform).toBe(`translate3d(${from.toFixed(2)}px, 0, 0)`);
+    // Then the carved figure shows through them, and its name with it.
+    s.host.advance(REVEAL / 2);
     expect(out(s).shown).toBeCloseTo(0.5, 6);
     expect(figure(cell).style.opacity).toBe("0.5");
     expect(s.label("a")!.style.opacity).toBe("0.5");
+    expect(s.fx.stones).toBe(all);
     expect(ribbonOf(cell)).toBeNull();
-    s.host.advance(FADE / 2);
-    // There, and greeting, where it was set.
+    s.host.advance(REVEAL / 2);
+    // There, and greeting, where it was set; the canvas is blank again.
+    expect(s.fx.stones).toBe(0);
+    expect(out(s).tesserae).toBeNull();
     expect(figure(cell).style.opacity).toBe("");
     expect(s.label("a")!.style.opacity).toBe("");
     expect(out(s)).toMatchObject({ step: "greet", pose: "speak", shown: 1, x: from });
@@ -384,7 +431,7 @@ describe("landing", () => {
   it("unrolls its greeting over 650ms, holds it whole 1.4s and furls it in 280ms; then it walks to its place", () => {
     const s = stage();
     s.sync([agent("a", "hermes")]);
-    s.host.advance(LAND + FADE);
+    s.host.advance(LAND + SHOWN);
     const cell = s.cell("a")!;
     expect(ribbon(cell).style.getPropertyValue("--oly-u")).toBe("0.000");
     expect(ribbon(cell).querySelector(".oly-roll")).not.toBeNull();
@@ -533,7 +580,7 @@ describe("a god's states, from its agent's record", () => {
   });
 
   it.each(["done", "idle"] as const)(
-    "%s: a farewell, the seal pressed on its scroll, and it walks off and goes",
+    "%s: a farewell, the seal pressed on its scroll, and it walks off and goes back to tesserae, lifted and thrown off",
     (status) => {
       const s = atWork();
       s.sync(one(status));
@@ -566,24 +613,40 @@ describe("a god's states, from its agent's record", () => {
       s.host.advance(1);
       // Its place is free, and it walks off toward the nearer end of the lane.
       expect(out(s)).toMatchObject({ step: "walk", place: null });
-      until(s, () => out(s).step === "fade");
+      until(s, () => out(s).step === "unset");
       const off = out(s).x - at;
       expect(Math.sign(off)).toBe(at + 33 < 698 / 2 ? -1 : 1);
       expect(Math.abs(off)).toBeGreaterThan(3 * 34 - 1e-6); // three or four of Argus's strides
       expect(Math.abs(off)).toBeLessThan(4 * 34 + 1e-6);
-      // And it goes, over 240ms, its name with it.
-      s.host.advance(FADE / 2);
+      // And it goes back to tesserae: the figure gives way to them over 140ms and
+      // its name over 420; they are prised up and thrown off, in its own ivories.
+      expect(out(s).tesserae).toEqual({ mode: "lift", dim: false });
+      s.host.advance(UNSET / 2);
       expect(figure(cell).style.opacity).toBe("0.5");
-      expect(s.label("it")!.style.opacity).toBe("0.5");
-      s.host.advance(FADE / 2 - 1);
+      expect(s.label("it")!.style.opacity).toBe("0.833");
+      s.host.advance(UNSET / 2);
+      expect(figure(cell).style.opacity).toBe("0");
+      expect(s.fx.stones).toBe(stonesOf("argus", "stand"));
+      expect(
+        [...s.fx.ivories].every((ivory) => CAST.gods.argus.tiles.palette.includes(ivory)),
+      ).toBe(true);
+      s.host.advance(420 - UNSET);
+      expect(s.label("it")!.style.opacity).toBe("0");
+      expect(out(s).x).toBe(at + off); // where it stood
+      // The crown's go first: a second in, they have flown and the feet's are still on their way.
+      s.host.advance(1000 - 420);
+      expect(s.fx.stones).toBeGreaterThan(0);
+      expect(s.fx.stones).toBeLessThan(stonesOf("argus", "stand"));
+      s.host.advance(GONE - 1000 - 1);
       expect(s.cells()).toHaveLength(1);
+      expect(s.fx.stones).toBe(0); // the last has flown
       s.host.advance(1);
       expect(s.cells()).toHaveLength(0);
       expect(s.names()).toEqual([]);
     },
   );
 
-  it("failed: it stands, dims and cracks, 3s in all without a word, and goes over 240ms", () => {
+  it("failed: it stands, dims and cracks, 3s in all without a word, and crumbles: its dimmed tesserae fall where it stands", () => {
     const s = atWork();
     s.sync(one("error"));
     const cell = s.cell("it")!;
@@ -608,14 +671,26 @@ describe("a god's states, from its agent's record", () => {
     s.host.advance(FAIL_HOLD - 1200 - 1);
     expect(out(s)).toMatchObject({ step: "fail", shown: 1 });
     s.host.advance(1);
-    expect(out(s)).toMatchObject({ step: "fade", place: null });
-    s.host.advance(FADE / 2);
+    expect(out(s)).toMatchObject({
+      step: "unset",
+      place: null,
+      tesserae: { mode: "fall", dim: true },
+    });
+    s.host.advance(UNSET / 2);
     expect(figure(cell).style.opacity).toBe("0.5");
-    expect(cell.classList.contains("is-cracked")).toBe(true); // dimmed and cracked as it goes
-    s.host.advance(FADE / 2 - 1);
+    expect(cell.classList.contains("is-cracked")).toBe(true); // dimmed and cracked as it gives way
+    s.host.advance(UNSET / 2);
+    // Every stone of its standing figure, in none of its own ivories: each is dimmed.
+    expect(figure(cell).style.opacity).toBe("0");
+    expect(s.fx.stones).toBe(stonesOf("argus", "stand"));
+    expect([...s.fx.ivories].some((ivory) => CAST.gods.argus.tiles.palette.includes(ivory))).toBe(
+      false,
+    );
+    s.host.advance(CRUMBLED - UNSET - 1);
     expect(s.cells()).toHaveLength(1);
     s.host.advance(1);
     expect(s.cells()).toHaveLength(0);
+    expect(s.fx.stones).toBe(0);
   });
 
   it.each([
@@ -623,7 +698,7 @@ describe("a god's states, from its agent's record", () => {
     ["unfinished in a stopped run", one("running", true)],
     ["failed in a stopped run", one("error", true)],
   ] as const)(
-    "%s: it dims with no crack, 3s in all without a word, and goes where it stands",
+    "%s: it dims with no crack, 3s in all without a word, and goes where it stands, its dimmed tesserae lifted as a done god's are",
     (_, records) => {
       const s = atWork();
       s.sync(records);
@@ -641,10 +716,20 @@ describe("a god's states, from its agent's record", () => {
       s.host.advance(FAIL_HOLD - 1200 - 1);
       expect(out(s).step).toBe("fail");
       s.host.advance(1);
-      // Not broken: it goes as a done god does, but from where it stands.
-      expect(out(s)).toMatchObject({ step: "fade", x: at, place: null });
+      // Not broken: it goes as a done god does, but from where it stands. Only a failure crumbles.
+      expect(out(s)).toMatchObject({
+        step: "unset",
+        x: at,
+        place: null,
+        tesserae: { mode: "lift", dim: true },
+      });
       expect(cell.classList.contains("is-cracked")).toBe(false);
-      s.host.advance(FADE - 1);
+      s.host.advance(UNSET);
+      expect(s.fx.stones).toBe(stonesOf("argus", "stand"));
+      expect([...s.fx.ivories].some((ivory) => CAST.gods.argus.tiles.palette.includes(ivory))).toBe(
+        false,
+      );
+      s.host.advance(GONE - UNSET - 1);
       expect(s.cells()).toHaveLength(1);
       s.host.advance(1);
       expect(s.cells()).toHaveLength(0);
@@ -663,7 +748,7 @@ describe("a god's states, from its agent's record", () => {
   it("ended while it greets: the greeting is said out first", () => {
     const s = stage();
     s.sync(one("running"));
-    s.host.advance(LAND + FADE + 400);
+    s.host.advance(LAND + SHOWN + 400);
     const greeting = ribbonOf(s.cell("it"));
     expect(greeting).not.toBeNull();
     s.sync(one("error"));
@@ -706,7 +791,7 @@ describe("a god's states, from its agent's record", () => {
     expect(shut(s)).toBe(true);
     s.sync(at(2)); // sent on again
     expect(shut(s)).toBe(false);
-    s.host.advance(LAND + FADE);
+    s.host.advance(LAND + SHOWN);
     expect(s.cell("s-again")!.dataset.pose).toBe("speak");
     expect([...GREETINGS.any, ...GREETINGS.nike]).toContain(ribbonOf(s.cell("s-again")));
     settle(s);
@@ -727,14 +812,14 @@ describe("a god's states, from its agent's record", () => {
     until(s, () => out(s).step === "seal");
     s.host.advance(480);
     expect(s.cell("s-again")!.classList.contains("is-sealed")).toBe(true);
-    until(s, () => out(s).step === "fade");
-    s.host.advance(FADE - 1);
-    expect(out(s).step).toBe("fade");
+    until(s, () => out(s).step === "unset");
+    s.host.advance(GONE - 1);
+    expect(out(s).step).toBe("unset");
     s.host.advance(1); // gone, and set again in the same moment
     expect(s.cells()).toHaveLength(1);
-    expect(out(s)).toMatchObject({ step: "appear", pose: "speak", shown: 0 });
+    expect(out(s)).toMatchObject({ step: "assemble", pose: "speak", shown: 0 });
     expect(s.cell("s-again")!.classList.contains("is-sealed")).toBe(false);
-    s.host.advance(FADE);
+    s.host.advance(SHOWN);
     expect([...GREETINGS.any, ...GREETINGS.nike]).toContain(ribbonOf(s.cell("s-again")));
     expect(shut(s)).toBe(false);
   });
@@ -876,7 +961,7 @@ describe("more agents than the lane holds", () => {
     until(s, () => out(s, leaver.key).step === "work");
     const rest = records(1000);
     s.sync(rest.map((a) => (a.key === leaver.key ? { ...a, look: "fail" } : a)));
-    s.host.advance(FAIL_HOLD + FADE - 1);
+    s.host.advance(FAIL_HOLD + CRUMBLED - 1);
     expect(s.peek().gods.map((seen) => seen.key)).toContain(leaver.key);
     expect(s.peek().waiting).toEqual([oldest, other]);
     s.host.advance(1);
@@ -912,7 +997,7 @@ describe("more agents than the lane holds", () => {
     s.sync(six);
     s.host.advance(9000);
     s.sync(six.map((a) => (a.key === "g5" ? a : { ...a, look: "stop" })));
-    s.host.advance(3000 + 600 + 500);
+    s.host.advance(FAIL_HOLD + GONE + 600 + 500);
     expect(shut(s)).toBe(false);
     expect(s.peek().gods.map((god) => god.key)).toEqual(["g5"]);
   });
@@ -968,7 +1053,7 @@ describe("ribbons", () => {
   it("ended while it waits for room to greet: it says nothing", () => {
     const s = stage({ letter: 40 });
     s.sync([agent("a", "athena")]);
-    s.host.advance(LAND + FADE + 100);
+    s.host.advance(LAND + SHOWN + 100);
     expect(out(s).step).toBe("hold");
     s.sync([agent("a", "athena", "stop")]);
     s.host.advance(200);
@@ -981,7 +1066,7 @@ describe("ribbons", () => {
   it("with no room for any line, a god waits 1.5s and goes to its place without a word", () => {
     const s = stage({ letter: 40 }); // every line longer than the lane
     s.sync([agent("a", "athena")]);
-    s.host.advance(LAND + FADE);
+    s.host.advance(LAND + SHOWN);
     expect(ribbonOf(s.cell("a"))).toBeNull();
     expect(s.cell("a")!.dataset.pose).toBe("stand");
     expect(out(s).step).toBe("hold");
@@ -1169,7 +1254,7 @@ describe("skills: the pose a god acts its agent's tool in", () => {
   it("reaches its place already acting the tool its agent is on, with no pose but its walk between", () => {
     const s = stage();
     s.sync([agent("a", "hermes")]);
-    s.host.advance(LAND + FADE + 400); // in the middle of its greeting
+    s.host.advance(LAND + SHOWN + 400); // in the middle of its greeting
     s.sync([agent("a", "hermes", "run", "run", 1)]);
     expect(pose(s)).toBe("speak"); // the greeting is said out first
     const seen = watch(s, 6000);
@@ -1393,7 +1478,7 @@ describe("skills: the pose a god acts its agent's tool in", () => {
     s.sync([agent("a", "hephaestus", "fail", "run", 2)]);
     const cell = s.cell("a")!;
     expect(cell.dataset.pose).toBe("stand");
-    expect(watch(s, FAIL_HOLD + FADE - 10)).toEqual(["stand"]);
+    expect(watch(s, FAIL_HOLD + CRUMBLED - 10)).toEqual(["stand"]);
     expect(cell.classList.contains("is-cracked")).toBe(true);
     s.host.advance(10);
     expect(s.cells()).toHaveLength(0);
@@ -1491,7 +1576,7 @@ describe("skills: the pose a god acts its agent's tool in", () => {
       s.sync(again(1));
       s.host.advance(1000);
       s.sync(again(2)); // at work again, its god still saying farewell
-      until(s, () => s.peek().gods[0]!.step === "appear");
+      until(s, () => s.peek().gods[0]!.step === "assemble");
       settle(s);
       expect(s.peek().gods[0]).toMatchObject({ step: "work", pose: "think" });
       cutAfter(s, again(2, { toolUseCount: 3 }), "s-again"); // the same search, run again
@@ -1546,7 +1631,7 @@ describe("walking", () => {
   function settingOff(id: GodId, seed = 7): Stage & { from: number; to: number; ms: number } {
     const s = stage({ seed });
     s.sync([agent("a", id)]);
-    s.host.advance(LAND + FADE + LINE);
+    s.host.advance(LAND + SHOWN + LINE);
     const from = out(s).x;
     const to = seatOf(out(s));
     const ms = Math.round((Math.abs(to - from) / CAST.gods[id].move.speed) * 1000);
@@ -1616,7 +1701,7 @@ describe("walking", () => {
     expect(out(nike).lift).toBeLessThan(2); // settling over the last of it
     until(nike, () => out(nike).step === "work");
     expect(out(nike).lift).toBe(0);
-    expect(nike.host.now()).toBe(LAND + FADE + LINE + nike.ms);
+    expect(nike.host.now()).toBe(LAND + SHOWN + LINE + nike.ms);
   });
 
   it("an ambler may stop a whole number of strides in, look back, and go on; another time it walks straight there", () => {
@@ -1645,7 +1730,7 @@ describe("walking", () => {
     const straight = settingOff("herodotus", 2);
     until(straight, () => out(straight).step !== "walk");
     expect(out(straight)).toMatchObject({ step: "work", x: straight.to });
-    expect(straight.host.now()).toBe(LAND + FADE + LINE + straight.ms);
+    expect(straight.host.now()).toBe(LAND + SHOWN + LINE + straight.ms);
   });
 
   it("never walks into a line held out across its way: it waits until that is furled", () => {
@@ -1712,7 +1797,170 @@ describe("walking", () => {
       return !seen;
     });
     expect(steps).not.toContain("walk");
-    expect(steps.slice(-2)).toEqual(["seal", "fade"]);
+    expect(steps.slice(-2)).toEqual(["seal", "unset"]);
+  });
+});
+
+// ── Part 5b: the tesserae ──
+describe("the tesserae", () => {
+  /** All the floor a god's stones may fly over: its figure facing either way, and `pad` beyond. */
+  function flight(seen: Seen, pose: "speak" | "stand", pad: number): readonly [number, number] {
+    const [a, b] = CAST.gods[seen.god].fp[pose];
+    return [seen.x + Math.min(a, 66 - b) - pad, seen.x + Math.max(b, 66 - a) + pad];
+  }
+  /** Whether anyone else holds a line out within 3px of that. */
+  const crossed = (s: Stage, key: string, [lo, hi]: readonly [number, number]): boolean =>
+    s
+      .peek()
+      .gods.some(
+        (it) => it.key !== key && it.ribbon && it.ribbon[1] + 3 > lo && it.ribbon[0] - 3 < hi,
+      );
+
+  it("are drawn from the time alone: a setting throws none of the floor's dice and puts nothing on its clock", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(LAND);
+    const asked = { ...s.asked };
+    const wipes = s.fx.wipes;
+    s.host.run(SET); // a frame every 60th of a second, as a window draws them
+    expect(s.fx.wipes - wipes).toBeGreaterThan(60); // each frame wipes the canvas once, and draws it again
+    expect(s.fx.filled).toBeGreaterThan(30 * stonesOf("hermes", "speak"));
+    expect(s.fx.stones).toBe(stonesOf("hermes", "speak"));
+    expect(s.asked).toEqual(asked);
+  });
+
+  it("keep the clock awake only while they fly: the canvas is wiped once when the last has, and never touched until the next", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(LAND + SHOWN - 1);
+    expect(s.fx.stones).toBe(stonesOf("hermes", "speak"));
+    s.host.advance(1);
+    expect(s.fx.stones).toBe(0);
+    const { wipes, filled } = s.fx;
+    settle(s);
+    s.host.advance(10_000);
+    expect(out(s)).toMatchObject({ step: "work", tesserae: null });
+    expect(s.fx).toMatchObject({ wipes, filled, stones: 0 });
+    expect(s.host.pending()).toBe(0); // asleep
+  });
+
+  it("two gods being set at once share the one canvas: both are drawn on each frame", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes"), agent("b", "athena")]);
+    s.host.advance(LAND + SET);
+    expect(out(s, "a")).toMatchObject({ step: "assemble", tesserae: { mode: "rest" } });
+    expect(out(s, "b")).toMatchObject({ step: "assemble", tesserae: { mode: "set" } }); // 300ms in
+    expect(s.fx.stones).toBeGreaterThan(stonesOf("hermes", "speak"));
+    expect(s.fx.stones).toBeLessThan(stonesOf("hermes", "speak") + stonesOf("athena", "speak"));
+    const both = new Set([...CAST.gods.hermes.tiles.palette, ...CAST.gods.athena.tiles.palette]);
+    expect([...s.fx.ivories].every((ivory) => both.has(ivory))).toBe(true);
+    expect([...s.fx.ivories].some((ivory) => !CAST.gods.hermes.tiles.palette.includes(ivory))).toBe(
+      true,
+    );
+  });
+
+  it("the canvas keeps to the lane's width: at a narrower one it is sized again before it is drawn", () => {
+    const s = stage({ width: 602 });
+    const canvas = s.lane.querySelector("canvas")!;
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(LAND);
+    expect([canvas.width, canvas.height]).toEqual([602, 104]);
+  });
+
+  it("gone from the records in the middle of its setting, or taken down: the canvas is wiped at once", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(LAND + SET / 2);
+    expect(s.fx.stones).toBeGreaterThan(0);
+    s.sync([]);
+    expect(s.cells()).toHaveLength(0);
+    expect(s.fx.stones).toBe(0);
+    const t = stage();
+    t.sync([agent("a", "hermes")]);
+    t.host.advance(LAND + SET / 2);
+    expect(t.fx.stones).toBeGreaterThan(0);
+    t.dispose();
+    expect(t.fx.stones).toBe(0);
+  });
+
+  /** Herodotus is stopped, or fails, 800ms before the two beside him are done and say their farewells. */
+  function besideFarewells(look: "stop" | "fail"): Stage {
+    const s = stage({ seed: 1 });
+    const three = [agent("a", "herodotus"), agent("b", "argus"), agent("c", "hermes")];
+    s.sync(three);
+    settle(s, 3);
+    enter(s.cell("a"));
+    s.sync([{ ...three[0]!, look }, three[1]!, three[2]!]);
+    s.host.advance(800);
+    s.sync(three.map((it, i) => ({ ...it, look: i ? ("done" as const) : look })));
+    s.host.advance(FAIL_HOLD - 800 - 1);
+    expect(out(s, "a")).toMatchObject({ step: "fail", tesserae: null });
+    expect(crossed(s, "a", flight(out(s, "a"), "stand", 40))).toBe(true);
+    s.host.advance(1);
+    return s;
+  }
+
+  it("stopped, it waits to go back to them while a line is held out across their flight, and goes once that is furled; its card stays until it does", () => {
+    const s = besideFarewells("stop");
+    const due = s.host.now();
+    // It stands as it is, dimmed, and looks again every 200ms.
+    expect(out(s, "a")).toMatchObject({ step: "hold", pose: "stand", dim: 1, shown: 1 });
+    expect(out(s, "a").tesserae).toBeNull();
+    expect(s.fx.stones).toBe(0);
+    expect(s.peek().card?.key).toBe("a");
+    until(s, () => out(s, "a").step !== "hold");
+    expect(out(s, "a")).toMatchObject({ step: "unset", tesserae: { mode: "lift", dim: true } });
+    expect(crossed(s, "a", flight(out(s, "a"), "stand", 40))).toBe(false);
+    expect(s.host.now() - due).toBeGreaterThan(0);
+    expect((s.host.now() - due) % 200).toBe(0);
+    expect(s.peek().card).toBeNull();
+  });
+
+  it("failed, it never waits: its tesserae fall where it stands, under whatever is held out", () => {
+    const s = besideFarewells("fail");
+    expect(out(s, "a")).toMatchObject({ step: "unset", tesserae: { mode: "fall", dim: true } });
+    expect(crossed(s, "a", flight(out(s, "a"), "stand", 40))).toBe(true);
+  });
+
+  it("no line is ever held out into a god's tesserae: within 16px of one being set, or 40px of one being lifted", () => {
+    let flying = 0;
+    let beside = 0;
+    for (const width of [698, 602]) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const dice = rng(seed * 977);
+        const pick = (): GodId => ALL[Math.floor(dice() * ALL.length)]!;
+        for (const n of [3, 4, 5]) {
+          const s = stage({ seed, width });
+          const crowd = Array.from({ length: n }, (_, i) => agent(`g${i}`, pick()));
+          // One is stopped and the rest are done, a little apart: farewells beside gods that go.
+          const ends = crowd.map(() => 12_000 + Math.floor(dice() * 30) * 100);
+          s.sync(crowd);
+          for (let ms = 0; ms < 30_000; ms += 50) {
+            if (ends.includes(ms))
+              s.sync(
+                crowd.map((it, i) =>
+                  ends[i]! > ms ? it : { ...it, look: i ? ("done" as const) : ("stop" as const) },
+                ),
+              );
+            s.host.advance(50);
+            for (const seen of s.peek().gods) {
+              const mode = seen.tesserae?.mode;
+              if (!mode || mode === "fall") continue;
+              flying += 1;
+              const over = mode === "lift" ? flight(seen, "stand", 40) : flight(seen, "speak", 16);
+              expect(crossed(s, seen.key, over)).toBe(false);
+              if (crossed(s, seen.key, [over[0] - 60, over[1] + 60])) beside += 1;
+            }
+          }
+          expect(s.cells()).toHaveLength(0);
+          s.dispose();
+          s.lane.remove();
+        }
+      }
+    }
+    // And lines were held out near them, clear of their flight.
+    expect(flying).toBeGreaterThan(10_000);
+    expect(beside).toBeGreaterThan(500);
   });
 });
 
@@ -1837,6 +2085,73 @@ describe("reduced motion: nothing travels, and the lane is as parts 2 to 4 had i
     expect(gods).toBeGreaterThan(1000);
     expect(shut(s)).toBe(true);
   });
+
+  it("no tessera is ever drawn: through a whole run nobody is being set or unset, and the canvas is never touched", () => {
+    const s = still({ seed: 5 });
+    let gods = 0;
+    for (let ms = 0; ms <= 30_000; ms += 50) {
+      s.sync(laneAgents([{ agents: agentsAt(MOCK_CROWD, ms) }]));
+      for (const seen of s.peek().gods) {
+        gods += 1;
+        expect(["assemble", "unset"]).not.toContain(seen.step);
+        expect(seen.tesserae).toBeNull();
+      }
+      s.host.advance(50);
+    }
+    expect(gods).toBeGreaterThan(1000);
+    expect(shut(s)).toBe(true);
+    expect(s.fx).toMatchObject({ wipes: 0, filled: 0, stones: 0 });
+  });
+
+  it("asked for in the middle of a setting: the stones are wiped and the figure is whole, and it greets when it would have, its line whole", () => {
+    const s = stage();
+    s.sync([agent("a", "hermes")]);
+    s.host.advance(LAND + SET / 2);
+    const cell = s.cell("a")!;
+    expect(s.fx.stones).toBeGreaterThan(0);
+    expect(figure(cell).style.opacity).toBe("0");
+    s.quiet(true);
+    s.host.advance(16);
+    expect(s.fx.stones).toBe(0);
+    expect(out(s)).toMatchObject({ step: "assemble", shown: 1, tesserae: null });
+    expect(figure(cell).style.opacity).toBe("");
+    expect(s.label("a")!.style.opacity).toBe("");
+    const { wipes, filled } = s.fx;
+    expect(s.host.pending()).toBe(1); // a still: the clock sleeps until the step is over
+    s.host.advance(SHOWN - SET / 2 - 16 - 1);
+    expect(out(s).step).toBe("assemble");
+    s.host.advance(1);
+    expect(out(s)).toMatchObject({ step: "greet", unrolled: 1 });
+    expect(s.fx).toMatchObject({ wipes, filled, stones: 0 });
+  });
+
+  it.each([
+    ["fail", CRUMBLED],
+    ["stop", GONE],
+    ["done", GONE],
+  ] as const)(
+    "asked for in the middle of an unsetting (%s): the stones are wiped and the figure is gone, and it is taken off when it would have been",
+    (look, whole) => {
+      const s = crowd(["argus"]);
+      const cell = s.cell("argus")!;
+      s.sync([agent("argus", "argus", look)]);
+      until(s, () => out(s).step === "unset");
+      s.host.advance(300);
+      expect(s.fx.stones).toBeGreaterThan(0);
+      s.quiet(true);
+      s.host.advance(16);
+      expect(s.fx.stones).toBe(0);
+      expect(out(s)).toMatchObject({ step: "unset", shown: 0, tesserae: null });
+      expect(figure(cell).style.opacity).toBe("0");
+      expect(s.label("argus")!.style.opacity).toBe("0");
+      const { wipes, filled } = s.fx;
+      s.host.advance(whole - 300 - 16 - 1);
+      expect(s.cells()).toHaveLength(1);
+      s.host.advance(1);
+      expect(s.cells()).toHaveLength(0);
+      expect(s.fx).toMatchObject({ wipes, filled, stones: 0 });
+    },
+  );
 });
 
 // ── Part 4: the card and the keyboard ──
@@ -1940,10 +2255,10 @@ describe("the card: where it stands", () => {
     const top = CAST.gods.hermes.top;
     s.sync([agent("a", "hermes")]);
     s.host.advance(LAND);
-    expect(out(s)).toMatchObject({ step: "appear", pose: "speak" });
+    expect(out(s)).toMatchObject({ step: "assemble", pose: "speak" });
     enter(s.cell("a"));
     expect(s.peek().card).toEqual(placeOf(s, "a", top.speak)); // up while it is set
-    s.host.advance(FADE);
+    s.host.advance(SHOWN);
     expect(out(s)).toMatchObject({ step: "greet", pose: "speak" });
     expect(s.peek().card).toEqual(placeOf(s, "a", top.speak));
     s.host.advance(LINE);
@@ -2027,11 +2342,14 @@ describe("the card: where it stands", () => {
     expect(out(s, "argus")).toMatchObject({ step: "fail" });
     expect(s.peek().card).toEqual(placeOf(s, "argus", CAST.gods.argus.top.stand));
     s.host.advance(1);
-    // It begins to go: its card is down, 240ms before it is gone.
-    expect(out(s, "argus")).toMatchObject({ step: "fade" });
+    // It begins to go: its card is down for all its tesserae's fall, 1250ms before it is gone.
+    expect(out(s, "argus")).toMatchObject({ step: "unset" });
     expect(s.peek().card).toBeNull();
     expect(s.cards).toEqual(["argus", null]);
-    s.host.advance(FADE);
+    s.host.advance(CRUMBLED - 1);
+    expect(s.peek().gods.map((seen) => seen.key)).toEqual(["argus", "athena"]);
+    expect(s.cards).toEqual(["argus", null]);
+    s.host.advance(1);
     expect(s.peek().gods.map((seen) => seen.key)).toEqual(["athena"]);
     // Nothing is left waiting for it: the pointer that was on it holds nothing up.
     s.host.advance(1000);
@@ -2357,7 +2675,7 @@ describe("the keyboard: the gods are one toolbar", () => {
     keydown(document.body, "Tab");
     s.cell("athena")!.focus();
     s.sync([agent("athena", "athena", "fail")]);
-    s.host.advance(FAIL_HOLD + FADE - 1);
+    s.host.advance(FAIL_HOLD + CRUMBLED - 1);
     expect(document.activeElement).toBe(s.cell("athena")); // it is going, and still there
     s.host.advance(1);
     expect(s.cells()).toHaveLength(0);
@@ -2418,14 +2736,17 @@ describe("the keyboard: the gods are one toolbar", () => {
     expect(s.peek().card?.key).toBe("nike");
     s.sync([agent("athena", "athena"), agent("nike", "nike", "stop")]);
     s.host.advance(FAIL_HOLD);
-    expect(out(s, "nike").step).toBe("fade");
+    expect(out(s, "nike").step).toBe("unset");
     expect(s.peek().card).toBeNull();
     expect(document.activeElement).toBe(cell);
-    s.host.advance(FADE / 2);
+    s.host.advance(420 / 2); // its name goes over 420ms
     expect(label.classList.contains("is-focus")).toBe(true);
     expect(label.style.opacity).toBe("0.5");
     expect(document.activeElement).toBe(cell);
-    s.host.advance(FADE / 2);
+    s.host.advance(GONE - 420 / 2 - 1);
+    expect(document.activeElement).toBe(cell); // until its last tessera has flown
+    expect(s.peek().card).toBeNull();
+    s.host.advance(1);
     expect(document.activeElement).toBe(s.cell("athena"));
     expect(s.peek().card?.key).toBe("athena");
   });
@@ -2577,7 +2898,7 @@ describe("the card and the keys are no part of the run", () => {
     const walk = (pointer: boolean): { asked: Stage["asked"]; run: string; seen: number } => {
       const s = stage({ seed: 3 });
       s.sync([agent("a", "nike")]);
-      s.host.advance(LAND + FADE + 400);
+      s.host.advance(LAND + SHOWN + 400);
       if (pointer) enter(s.cell("a"));
       const run: string[] = [];
       let seen = 0;

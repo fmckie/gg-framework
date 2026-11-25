@@ -66,6 +66,13 @@ export interface SvgNode {
   readonly children?: readonly SvgNode[];
 }
 
+/**
+ * A course of a god's tesserae: its top, its bottom and its left in tenths of
+ * a px, a stone's width in hundredths, then a stone a character: its ivory in
+ * the palette, or "-" where the figure isn't.
+ */
+export type Course = readonly [number, number, number, number, string];
+
 /** How a god acts one family of tool. */
 export interface Act {
   readonly pose: Skill;
@@ -114,6 +121,13 @@ export interface CastGod {
   readonly seal: readonly [number, number];
   /** The crack across its standing figure. */
   readonly fissure: readonly SvgNode[];
+  /**
+   * Its tesserae: twelve of its own ivories, and the pose it is set from and
+   * the pose it goes back to, each cut in courses from the feet up.
+   */
+  readonly tiles: { readonly palette: readonly string[] } & Readonly<
+    Record<"speak" | "stand", readonly Course[]>
+  >;
 }
 
 export interface Cast {

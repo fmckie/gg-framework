@@ -33,6 +33,8 @@ const GOD_KEYS = ["name", "env", "envol", "hand", "acts", "lift", "card"];
 const POSES = ["stand", "speak", "stride"];
 /** How a god walks, from its move: a dip on each footfall, a lift as it goes, how often it stops to look round, how it sets off and pulls up. */
 const MOVE_KEYS = ["bob", "lift", "pause", "ease"];
+/** The poses a god is cut into tesserae in: set from the one, and back to the other. */
+const TILED = ["speak", "stand"];
 
 const dir = process.argv[2];
 if (!dir) {
@@ -149,6 +151,29 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out.fp[pose] = god.fp[pose];
     out.top[pose] = god.top[pose];
     if (picturesOnly) console.log(`${id}-${pose} ${2 * width}`);
+  }
+  // Its tesserae: the two poses it is set from and goes back to, each cut in
+  // courses from the feet up (top, bottom, left in tenths of a px, a stone's
+  // width in hundredths, then a stone a character: its ivory in the palette,
+  // or "-" where the figure isn't).
+  const tiles = god.tiles;
+  if (!Array.isArray(tiles?.palette) || !tiles.palette.every((hex) => /^#[0-9a-f]{6}$/.test(hex)))
+    throw new Error(`${id}: no palette for its tesserae`);
+  out.tiles = { palette: tiles.palette };
+  for (const pose of TILED) {
+    const rows = tiles[pose];
+    if (!Array.isArray(rows) || !rows.length) throw new Error(`${id}: no tesserae for ${pose}`);
+    for (const row of rows) {
+      const stones = [...String(row[4])].filter((ch) => ch !== "-");
+      if (
+        row.length !== 5 ||
+        !row.slice(0, 4).every(Number.isInteger) ||
+        !stones.length ||
+        !stones.every((ch) => parseInt(ch, 36) < tiles.palette.length)
+      )
+        throw new Error(`${id}: a course of ${pose} is not top, bottom, left, width, stones`);
+    }
+    out.tiles[pose] = rows;
   }
   // Where the seal is pressed on the rolled scroll, in the cell.
   out.seal = [Number(point[1]), Number(point[2])];

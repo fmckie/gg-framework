@@ -134,8 +134,9 @@ interface Props {
 }
 
 /**
- * The lane over the composer on the desktop: the frame, the stylobate and the
- * antae, and the engine that raises it and walks the gods on it; and, before it, the card
+ * The lane over the composer on the desktop: the frame, the tesserae's canvas,
+ * the stylobate and the antae, and the engine that raises it, sets the gods on
+ * it and walks them; and, before it, the card
  * the engine stands over one god at a time. The gods are a toolbar, each
  * described by its row in the transcript. Everything else, the card included,
  * only repeats those rows, and is hidden from assistive technology.
@@ -211,6 +212,8 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
         </div>
       </div>
       <div className="oly-lane is-shut" ref={laneRef}>
+        {/* The tesserae a god is set from and goes back to: the engine draws them, behind the gods. */}
+        <canvas className="oly-fx" aria-hidden="true" />
         <div
           className="oly-gods"
           role="toolbar"
