@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readableSessionTitle } from "./session-title";
+import { chatTitle, readableSessionTitle } from "./session-title";
 
 describe("readableSessionTitle", () => {
   it("leaves an ordinary title alone", () => {
@@ -24,5 +24,20 @@ describe("readableSessionTitle", () => {
     expect(readableSessionTitle("[Image saved at /p/a.png] [Image saved at /p/b.png]")).toBe(
       "2 images",
     );
+  });
+});
+
+describe("chatTitle", () => {
+  it("is the first message on one line", () => {
+    expect(chatTitle("  Plan my week\n\nstarting Monday ")).toBe("Plan my week starting Monday");
+  });
+
+  it("is Untitled chat for a chat with no message yet", () => {
+    expect(chatTitle(undefined)).toBe("Untitled chat");
+    expect(chatTitle("   ")).toBe("Untitled chat");
+  });
+
+  it("names an image-only first message as the browser does", () => {
+    expect(chatTitle("[Image saved at /w/.gg/uploads/a.png]")).toBe("Image");
   });
 });

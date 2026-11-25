@@ -4057,3 +4057,169 @@ html:not(.platform-ios) .app.app-session > .footer .footer-plan .shimmer-text {
 html.platform-ios .plan-review-actions > .btn-primary {
   order: -1;
 }
+
+/* ── The Chats browser ── the desktop's session list for Chat and Motion:
+   count, search and New chat in one heading, then flat rows on hairlines.
+   The iPhone keeps the old picker's markup (ChatPicker.tsx). Nothing moves. */
+html:not(.platform-ios) .chat-browser-heading {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding: 22px var(--kleio-gutter) 20px;
+}
+html:not(.platform-ios) .chat-browser-title {
+  margin: 0;
+  color: var(--kleio-ink);
+  font: 500 20px var(--sans);
+}
+html:not(.platform-ios) .chat-browser-count {
+  margin-left: 10px;
+  color: var(--kleio-muted);
+  font: 12px var(--mono);
+}
+html:not(.platform-ios) .chat-browser-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+html:not(.platform-ios) .chat-browser-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--kleio-muted);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios) .chat-browser-search > input {
+  width: 260px;
+  padding: 9px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  color: var(--kleio-ink);
+  font: 13px var(--sans);
+  appearance: none;
+}
+html:not(.platform-ios) .chat-browser-search > input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .chat-browser-new {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+html:not(.platform-ios) .chat-browser > .picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--kleio-muted) var(--kleio-surface);
+  padding: 4px var(--kleio-gutter) 22px;
+}
+html:not(.platform-ios) .chat-browser-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+html:not(.platform-ios) .chat-browser-list > li + li {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .chat-browser-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px 24px;
+  width: 100%;
+  padding: 16px 12px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 15px/1.5 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+/* Keeps the age clear of the row's delete control, as the old rows did. */
+html:not(.platform-ios) .picker-item-deletable > .chat-browser-item {
+  padding-right: 44px;
+}
+html:not(.platform-ios) .chat-browser-item[aria-current] {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-surface);
+}
+html:not(.platform-ios) .chat-browser-item-title {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .chat-browser-item-date {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .chat-browser-item-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 16px;
+  color: var(--kleio-muted);
+  font-size: 12px;
+}
+html:not(.platform-ios) .chat-browser-flag {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) :is(.chat-browser-item, .chat-browser-new):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+html:not(.platform-ios)
+  :is(.chat-browser-item, .chat-browser-new):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :is(.chat-browser-item, .chat-browser-new, .chat-browser-search > input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .chat-browser > .picker-list:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .chat-browser-none {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--kleio-muted);
+  font: 13px var(--sans);
+}
+
+/* ── A Chat's title ── "Chats / session title" in the window's title row, in
+   place of the folder and branch. One line: the row keeps its height. */
+html:not(.platform-ios) .app.app-session .chat-head-identity {
+  gap: 10px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session .chat-head-chats {
+  flex: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .app.app-session .chat-head-slash {
+  flex: none;
+}
+html:not(.platform-ios) .app.app-session .chat-head-session {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kleio-text);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.5;
+}

@@ -5,12 +5,14 @@ import {
   deleteChat,
   getSettings,
   listSessions,
+  restoreTarget,
   selectWorkspace,
   waitForReady,
   type ChatAgentId,
   type RecentSession,
 } from "./agent";
 import { motionWorkspacePath } from "./motion-workspace";
+import { isPhone } from "./platform";
 import { readableSessionTitle } from "./session-title";
 import { Badge } from "./Badge";
 import { BackButton } from "./BackButton";
@@ -26,6 +28,8 @@ interface Props {
   initialAgent?: ChatAgentId;
   /** Which non-coding workspace this picker opens. Defaults to chat. */
   mode?: "chat" | "motion";
+  /** A session is open behind the browser: the desktop marks its row. */
+  markCurrent?: boolean;
 }
 
 /** How long the inline "Delete" confirm waits before reverting to the X. */
@@ -38,6 +42,8 @@ const COPY = {
     empty: "No previous chats yet.",
     noRoot: "Choose a projects folder in Settings before starting a chat.",
     loadError: "Chats could not be loaded.",
+    searchLabel: "Search chats",
+    noMatch: "No chats match that search.",
   },
   motion: {
     title: "Motion",
@@ -45,6 +51,8 @@ const COPY = {
     empty: "No motion sessions yet.",
     noRoot: "Choose a projects folder in Settings before starting a video.",
     loadError: "Motion sessions could not be loaded.",
+    searchLabel: "Search sessions",
+    noMatch: "No sessions match that search.",
   },
 } as const;
 
@@ -54,6 +62,7 @@ export function ChatPicker({
   onClose,
   initialAgent = "general",
   mode = "chat",
+  markCurrent = false,
 }: Props): React.ReactElement {
   const copy = COPY[mode];
   const windowFocused = useWindowFocused();
@@ -68,6 +77,19 @@ export function ChatPicker({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
   const canDelete = mode === "chat";
+  const [query, setQuery] = useState("");
+  const [currentPath, setCurrentPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!markCurrent || isPhone()) return;
+    let cancelled = false;
+    void restoreTarget().then((target) => {
+      if (!cancelled) setCurrentPath(target?.sessionPath ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [markCurrent]);
 
   useEffect(() => {
     if (!confirmPath) return;
@@ -131,27 +153,122 @@ export function ChatPicker({
     });
   }
 
-  return (
-    <div className="picker chat-picker">
-      <div className="picker-head" data-tauri-drag-region>
-        {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
-        <span className="picker-title">{copy.title}</span>
-        {!loading && !error && <Badge>{sessions.length}</Badge>}
-        <span className="picker-head-actions">
-          <MetalButton
-            windowFocused={windowFocused}
-            className="btn btn-primary btn-sm"
-            disabled={busy || loading || !projectsRoot}
-            onClick={() => choose()}
-          >
-            {copy.newLabel}
-          </MetalButton>
-          <RadioButton />
-          <WindowLayoutButton />
-        </span>
-      </div>
+  const phone = isPhone();
+  const rows = sessions.map((session) => ({
+    session,
+    title: readableSessionTitle(session.preview) || "(no preview)",
+  }));
+  // The desktop's search. The iPhone has no field, so it keeps the whole list.
+  const needle = phone ? "" : query.trim().toLowerCase();
+  const shown = needle ? rows.filter((row) => row.title.toLowerCase().includes(needle)) : rows;
+  const wrapClass = canDelete ? "picker-item-wrap picker-item-deletable" : "picker-item-wrap";
 
-      <div className="picker-list">
+  function deleteControls(session: RecentSession, preview: string): React.ReactNode {
+    if (!canDelete) return null;
+    if (confirmPath === session.path) {
+      return (
+        <button
+          ref={confirmRef}
+          className="picker-hide picker-delete-confirm"
+          aria-label={`Delete chat permanently: ${preview}`}
+          title="Delete permanently"
+          // WebKit (the iPhone and Mac apps) never focuses a pressed
+          // button: it clears focus on mousedown, which would blur this
+          // one and cancel the delete before the click lands.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => removeChat(session)}
+          onBlur={() => setConfirmPath(null)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              setConfirmPath(null);
+            }
+          }}
+        >
+          Delete
+        </button>
+      );
+    }
+    return (
+      <button
+        className="picker-hide picker-delete"
+        aria-label={`Remove chat: ${preview}`}
+        title="Remove chat"
+        disabled={busy || deletingPath === session.path}
+        onClick={() => {
+          setDeleteError(null);
+          setConfirmPath(session.path);
+        }}
+      >
+        <XIcon size={12} weight="bold" aria-hidden="true" />
+      </button>
+    );
+  }
+
+  return (
+    <div className={phone ? "picker chat-picker" : "picker chat-picker chat-browser"}>
+      {phone ? (
+        <div className="picker-head" data-tauri-drag-region>
+          {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
+          <span className="picker-title">{copy.title}</span>
+          {!loading && !error && <Badge>{sessions.length}</Badge>}
+          <span className="picker-head-actions">
+            <MetalButton
+              windowFocused={windowFocused}
+              className="btn btn-primary btn-sm"
+              disabled={busy || loading || !projectsRoot}
+              onClick={() => choose()}
+            >
+              {copy.newLabel}
+            </MetalButton>
+            <RadioButton />
+            <WindowLayoutButton />
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="picker-head" data-tauri-drag-region>
+            {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
+            <span className="picker-head-actions">
+              <RadioButton />
+              <WindowLayoutButton />
+            </span>
+          </div>
+          <div className="chat-browser-heading">
+            <h1 className="chat-browser-title">
+              {copy.title}{" "}
+              {!loading && !error && <span className="chat-browser-count">{sessions.length}</span>}
+            </h1>
+            <div className="chat-browser-controls">
+              <label className="chat-browser-search">
+                {copy.searchLabel}
+                <input
+                  type="search"
+                  placeholder="Search by title"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="chat-browser-new"
+                disabled={busy || loading || !projectsRoot}
+                onClick={() => choose()}
+              >
+                {copy.newLabel}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div
+        className="picker-list"
+        {...(phone
+          ? {}
+          : { tabIndex: 0, role: "region", "aria-label": `${copy.title}, scrollable` })}
+      >
         {deleteError && (
           <div className="picker-error" role="alert">
             {deleteError}
@@ -176,18 +293,20 @@ export function ChatPicker({
             </MetalButton>
           </div>
         )}
-        {!loading && !error && sessions.length > 0 && (
+        {!loading && !error && sessions.length > 0 && shown.length === 0 && (
+          <p className="chat-browser-none" role="status">
+            {copy.noMatch}
+          </p>
+        )}
+        {!loading && !error && shown.length > 0 && phone && (
           <div className="picker-reveal">
-            {sessions.map((session) => {
-              const preview = readableSessionTitle(session.preview) || "(no preview)";
+            {shown.map(({ session, title: preview }) => {
               const confirming = confirmPath === session.path;
               const deleting = deletingPath === session.path;
               return (
                 <div
                   key={session.id}
-                  className={
-                    canDelete ? "picker-item-wrap picker-item-deletable" : "picker-item-wrap"
-                  }
+                  className={wrapClass}
                   onMouseLeave={confirming ? () => setConfirmPath(null) : undefined}
                 >
                   <button
@@ -205,47 +324,43 @@ export function ChatPicker({
                       {`${session.messageCount} msgs`}
                     </span>
                   </button>
-                  {canDelete && confirming && (
-                    <button
-                      ref={confirmRef}
-                      className="picker-hide picker-delete-confirm"
-                      aria-label={`Delete chat permanently: ${preview}`}
-                      title="Delete permanently"
-                      // WebKit (the iPhone and Mac apps) never focuses a pressed
-                      // button: it clears focus on mousedown, which would blur this
-                      // one and cancel the delete before the click lands.
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => removeChat(session)}
-                      onBlur={() => setConfirmPath(null)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setConfirmPath(null);
-                        }
-                      }}
-                    >
-                      Delete
-                    </button>
-                  )}
-                  {canDelete && !confirming && (
-                    <button
-                      className="picker-hide picker-delete"
-                      aria-label={`Remove chat: ${preview}`}
-                      title="Remove chat"
-                      disabled={busy || deleting}
-                      onClick={() => {
-                        setDeleteError(null);
-                        setConfirmPath(session.path);
-                      }}
-                    >
-                      <XIcon size={12} weight="bold" aria-hidden="true" />
-                    </button>
-                  )}
+                  {deleteControls(session, preview)}
                 </div>
               );
             })}
           </div>
+        )}
+        {!loading && !error && shown.length > 0 && !phone && (
+          <ul className="chat-browser-list">
+            {shown.map(({ session, title }) => {
+              const current = currentPath !== null && session.path === currentPath;
+              return (
+                <li
+                  key={session.id}
+                  className={wrapClass}
+                  onMouseLeave={
+                    confirmPath === session.path ? () => setConfirmPath(null) : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    className="chat-browser-item"
+                    aria-current={current ? "true" : undefined}
+                    disabled={busy || deletingPath === session.path}
+                    onClick={() => choose(session)}
+                  >
+                    <span className="chat-browser-item-title">{title}</span>
+                    <span className="chat-browser-item-date">{session.lastActiveDisplay}</span>
+                    <span className="chat-browser-item-meta">
+                      {`${session.messageCount} msgs`}
+                      {current && <span className="chat-browser-flag">Current session</span>}
+                    </span>
+                  </button>
+                  {deleteControls(session, title)}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
     </div>

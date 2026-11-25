@@ -2745,9 +2745,9 @@ function App(): React.ReactElement {
     return (
       <div className="app" style={{ background: theme.background }}>
         {workspaceMode === "chat" ? (
-          <ChatPicker initialAgent={state?.chatAgent ?? "general"} {...pickerProps} />
+          <ChatPicker initialAgent={state?.chatAgent ?? "general"} markCurrent {...pickerProps} />
         ) : workspaceMode === "motion" ? (
-          <ChatPicker mode="motion" {...pickerProps} />
+          <ChatPicker mode="motion" markCurrent {...pickerProps} />
         ) : state?.goal ? (
           <Suspense fallback={null}>
             <GoalList {...pickerProps} />
@@ -2768,6 +2768,11 @@ function App(): React.ReactElement {
   // New on top, the session's tools under them (WorkspaceHeader). The desktop
   // keeps back and New in its tools row.
   const phoneHeader = isPhone();
+  // A chat is titled by the first message typed into it. One sent as a chip
+  // ("Introduce yourself") is passed over: its prompt is never shown.
+  const firstUserItem = items.find(
+    (item): item is Extract<Item, { kind: "user" }> => item.kind === "user" && !item.label,
+  );
   // A run locks the model, so it also puts the panel away.
   if (running && modelPanelOpen) {
     setModelPanelOpen(false);
@@ -2880,6 +2885,12 @@ function App(): React.ReactElement {
 
       <WorkspaceHeader
         workspaceMode={workspaceMode}
+        onOpenChats={
+          workspaceMode === "chat" && !phoneHeader
+            ? () => withViewTransition(() => setShowPicker(true))
+            : undefined
+        }
+        sessionTitle={firstUserItem?.text}
         cwd={state?.cwd}
         gitBranch={state?.gitBranch}
         gitDirtyFileCount={state?.gitDirtyFileCount}

@@ -13,3 +13,11 @@ export function readableSessionTitle(preview: string): string {
   if (images === 0) return preview;
   return rest.trim() || (images === 1 ? "Image" : `${images} images`);
 }
+
+/** A chat's title for the window: its first message on one line, or the mockup's words for none. */
+export function chatTitle(firstMessage: string | undefined): string {
+  const title = readableSessionTitle(firstMessage ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return title || "Untitled chat";
+}

@@ -9,6 +9,7 @@ import {
 import { CIIndicator } from "./CIIndicator";
 import { isPhone } from "./platform";
 import { projectAccent } from "./projectAccent";
+import { chatTitle } from "./session-title";
 import { formatWorkspaceTitle, pluralize } from "./workspace-title";
 
 interface WorkspaceHeaderProps {
@@ -37,6 +38,11 @@ interface WorkspaceHeaderProps {
   /** False when the title row holds every control, so the session needs no
    *  tools row and no toggle to hide one (Kleio Chat on the iPhone). */
   tools?: boolean;
+  /** Set for a Chat on the desktop: the title reads "Chats / session title"
+   *  and Chats calls this. The iPhone keeps the project's name. */
+  onOpenChats?: () => void;
+  /** The chat's first message; none reads "Untitled chat". */
+  sessionTitle?: string;
   children: ReactNode;
 }
 
@@ -58,6 +64,8 @@ export function WorkspaceHeader({
   leading,
   trailing,
   tools = true,
+  onOpenChats,
+  sessionTitle,
   children,
 }: WorkspaceHeaderProps): React.ReactElement {
   const fallbackTitle = workspaceProductName(workspaceMode);
@@ -126,6 +134,27 @@ export function WorkspaceHeader({
               <CIIndicator ci={gitHubCI} />
             </div>
           </div>
+        ) : onOpenChats ? (
+          <nav
+            className="chat-head-title chat-head-identity"
+            aria-label="Chat identity"
+            data-tauri-drag-region
+          >
+            <button type="button" className="chat-head-link chat-head-chats" onClick={onOpenChats}>
+              Chats
+            </button>
+            <span className="chat-head-slash" aria-hidden="true" data-tauri-drag-region>
+              /
+            </span>
+            {/* One line, cut with an ellipsis: the row keeps its height. */}
+            <h1
+              className="chat-head-session"
+              title={chatTitle(sessionTitle)}
+              data-tauri-drag-region
+            >
+              {chatTitle(sessionTitle)}
+            </h1>
+          </nav>
         ) : (
           <span
             className="chat-head-title"
