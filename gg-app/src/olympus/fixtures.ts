@@ -3,6 +3,7 @@
 // them, and one record for each state a row can show.
 
 import type { SubAgentLine } from "../SubAgentFeed";
+import type { SimHost } from "./sim";
 
 /** [ms after the agent was sent, the activity as the host words it, tokens so far in thousands]. */
 type Step = readonly [at: number, activity: string, tokensK: number];
@@ -134,6 +135,9 @@ export const MOCK_EXTRAS: readonly FixtureAgent[] = [
   },
 ];
 
+/** Kleio's four and the three extras in one turn: two more than the lane holds. */
+export const MOCK_CROWD: readonly FixtureAgent[] = [...MOCK_RUN, ...MOCK_EXTRAS];
+
 const usage = (k: number): NonNullable<SubAgentLine["tokenUsage"]> => ({
   input: Math.round(k * 900),
   output: Math.round(k * 100),
@@ -239,3 +243,58 @@ export const RESUMED_AGENTS: readonly SubAgentLine[] = [
     tokenUsage: { input: 0, output: 0 },
   },
 ];
+
+/** One spawned agent at four moments: at work, idle, sent on again, and closed. */
+export const SENT_ON_AGAIN: readonly SubAgentLine[] = [
+  { ...STATE_AGENTS.idle, toolCallId: "s-again", status: "running", durationMs: 4_000 },
+  { ...STATE_AGENTS.idle, toolCallId: "s-again" },
+  { ...STATE_AGENTS.idle, toolCallId: "s-again", status: "running", durationMs: 63_000 },
+  { ...STATE_AGENTS.idle, toolCallId: "s-again", status: "done", durationMs: 70_000 },
+];
+
+/** A clock that moves only when told to, for the lane's tests and previews. */
+export interface ManualHost extends SimHost {
+  /** Move the clock on, calling back everything that falls due on the way, in order. */
+  advance(ms: number): void;
+  /** How many callbacks are waiting. */
+  pending(): number;
+}
+
+export function manualHost(): ManualHost {
+  let now = 0;
+  let n = 0;
+  let turn = 0;
+  // A frame asked for during one advance comes with the next.
+  const waiting = new Map<number, { at: number; from: number; fn: () => void }>();
+  return {
+    now: () => now,
+    defer(fn, ms) {
+      waiting.set(n, { at: now + Math.max(0, ms), from: ms <= 0 ? turn + 1 : turn, fn });
+      return n++;
+    },
+    cancel(handle) {
+      waiting.delete(handle as number);
+    },
+    advance(ms) {
+      const end = now + ms;
+      turn += 1;
+      for (;;) {
+        let next: number | null = null;
+        for (const [id, wait] of waiting)
+          if (
+            wait.at <= end &&
+            wait.from <= turn &&
+            (next === null || wait.at < waiting.get(next)!.at)
+          )
+            next = id;
+        if (next === null) break;
+        const { at, fn } = waiting.get(next)!;
+        waiting.delete(next);
+        now = Math.max(now, at);
+        fn();
+      }
+      now = end;
+    },
+    pending: () => waiting.size,
+  };
+}

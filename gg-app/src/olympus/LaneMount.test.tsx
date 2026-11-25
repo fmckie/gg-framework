@@ -1,0 +1,71 @@
+// @vitest-environment jsdom
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Item } from "../transcript-item";
+import { agentsAt, MOCK_RUN, RESUMED_AGENTS } from "./fixtures";
+
+// Counts each time the lane's chunk is asked for.
+const laneChunk = vi.hoisted(() => ({ loads: 0 }));
+vi.mock("./OlympusLane", async (original) => {
+  laneChunk.loads += 1;
+  return original();
+});
+
+const { LaneMount, liveGroups } = await import("./LaneMount");
+
+afterEach(() => {
+  cleanup();
+  document.documentElement.className = "";
+});
+
+const live: Item = { kind: "subagent_group", id: 40, agents: agentsAt(MOCK_RUN, 12_000) };
+const resumed: Item = { kind: "subagent_group", id: 41, agents: [...RESUMED_AGENTS] };
+const text: Item = { kind: "info", id: 42, text: "Out of plan mode." };
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
+
+describe("the groups the lane is mounted for", () => {
+  it("are those with an agent this window saw at work", () => {
+    expect(liveGroups([text, resumed, live, text])).toEqual([live]);
+    expect(liveGroups([text, resumed])).toEqual([]);
+    expect(liveGroups([])).toEqual([]);
+  });
+});
+
+// In this order: the first three show the lane's chunk was never asked for,
+// which only holds until the last one asks for it.
+describe("where the lane goes in a session", () => {
+  it("on the iPhone: no lane, and its chunk is never loaded", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const { container } = render(<LaneMount items={[text, live]} />);
+    await settle();
+    expect(container.innerHTML).toBe("");
+    expect(laneChunk.loads).toBe(0);
+  });
+
+  it("on the desktop, a chat with no subagents: no lane, no chunk", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container } = render(<LaneMount items={[text]} />);
+    await settle();
+    expect(container.innerHTML).toBe("");
+    expect(laneChunk.loads).toBe(0);
+  });
+
+  it("on the desktop, a resumed chat's rows: no lane, no chunk", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container } = render(<LaneMount items={[text, resumed]} />);
+    await settle();
+    expect(container.innerHTML).toBe("");
+    expect(laneChunk.loads).toBe(0);
+  });
+
+  it("on the desktop, once an agent is at work: the lane, hidden from assistive technology", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container, rerender } = render(<LaneMount items={[text, resumed]} />);
+    rerender(<LaneMount items={[text, resumed, live]} />);
+    expect(container.querySelector(".oly-lane")).toBeNull(); // nothing stands in while it loads
+    await waitFor(() => expect(container.querySelector(".oly-lane")).not.toBeNull());
+    expect(laneChunk.loads).toBe(1);
+    expect(container.children).toHaveLength(1);
+    expect(container.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+  });
+});

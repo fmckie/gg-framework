@@ -175,6 +175,7 @@ import "./App.css";
 // Liquid glass trial layer (from veditor-app). Delete this line to revert.
 import "./glass.css";
 import { type Item, type PlanDecision, nextId, idSeq } from "./transcript-item";
+import { LaneMount } from "./olympus/LaneMount";
 import { TranscriptRow } from "./TranscriptRow";
 import { activeChatErrorId, readChatError } from "./chat-error";
 import { focusesComposerOnOpen } from "./composer-refocus";
@@ -3182,6 +3183,8 @@ function App(): React.ReactElement {
             />
           )}
           {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
+          {/* Olympus: the subagents at work as gods, on the desktop. */}
+          <LaneMount items={items} />
           {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
           {showTaskBar && (
             <ActivityBar

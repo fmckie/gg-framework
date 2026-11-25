@@ -1,0 +1,235 @@
+/* Olympus, part 2: the lane, as stills. A marble stylobate over the composer;
+   each subagent at work is a god standing on it, its name carved in the step's
+   face under it. The engine (floor.ts) builds every god and puts it in its
+   place; here is only how each still looks. Drawn only on the desktop
+   (LaneMount.tsx).
+   Nothing here moves: a god is in its place or it isn't, a ribbon shows whole,
+   the seal, the dimming and the crack are there or they aren't, and the lane is
+   open or shut. Travel, the floor mosaic and the skill poses are later parts.
+
+   Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
+   6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
+   9.7:1 and its crimson initial (#c42638) 3.7:1; the ink seal 6.2:1 on the
+   ivory scroll; the crack 4.7:1 on the dimmed figure. */
+.oly-lane {
+  --oly-tread: 22px;
+  --oly-parch: #d8d0c4;
+  --oly-ink: #33241f;
+  position: relative;
+  box-sizing: content-box;
+  height: 125px;
+  margin: 8px var(--kleio-gutter) 0;
+  overflow: hidden;
+  border: 1px solid var(--kleio-rule-strong);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  /* The mosaic's bed, bare until the floor is laid. */
+  background: #0e0b0b;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+.oly-lane.is-shut {
+  height: 0;
+  margin-top: 0;
+  border-width: 0;
+}
+
+/* The lane is the top of the composer's box: the activity line under it, or
+   the text box itself, joins it square, with a dark groove and a faint lip. */
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .oly-lane:not(.is-shut))
+  > .oly-lane
+  + .task-activity:last-child {
+  margin-top: 0;
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion:has(> .oly-lane:last-child:not(.is-shut))
+  + .inputwrap {
+  border-top-color: rgb(0 0 0 / 0.5);
+  border-radius: 0 0 12px 12px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045);
+}
+/* Focus and file-drop light the whole box, the lane with it. */
+html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap:focus-within) > .oly-lane {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover) > .oly-lane {
+  border-color: var(--kleio-lapis);
+}
+
+/* The gods: a 73×100 cell each, feet on the stylobate, placed by floor.ts. */
+.oly-gods {
+  position: absolute;
+  inset: 0;
+}
+.oly-cell {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: var(--oly-tread);
+  width: 73px;
+  height: 100px;
+}
+.oly-cell.is-speaking {
+  z-index: 3; /* in front while it speaks; floor.ts keeps its ribbon clear of every neighbour */
+}
+.oly-fig {
+  position: absolute;
+  inset: 0;
+  transform-origin: 33px 50%; /* the head line: turning doesn't move the head */
+}
+.oly-cell.is-left .oly-fig {
+  transform: scaleX(-1);
+}
+.oly-poses,
+.oly-pose,
+.oly-fissure {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.oly-pose {
+  display: block;
+  visibility: hidden;
+}
+.oly-cell[data-pose="stand"] .oly-p-stand,
+.oly-cell[data-pose="speak"] .oly-p-speak {
+  visibility: visible;
+}
+/* Failed and stopped both dim; only a failure cracks. */
+.oly-cell.is-dim .oly-poses {
+  filter: grayscale(0.6) brightness(0.74) contrast(0.92);
+}
+.oly-fissure {
+  display: none;
+  overflow: visible;
+  fill: none;
+  stroke-linejoin: bevel;
+  stroke-linecap: round;
+}
+.oly-cell.is-cracked .oly-fissure {
+  display: block;
+}
+
+/* A greeting or a farewell: a banderole from the open hand, its line in ink
+   with a rubricated initial. floor.ts places it at the hand and turns it a little. */
+.oly-ribbon {
+  position: absolute;
+  top: 0;
+  height: 15px;
+  white-space: nowrap;
+}
+.oly-ribbon.is-r {
+  transform-origin: 0 50%;
+}
+.oly-ribbon.is-l {
+  transform-origin: 100% 50%;
+}
+.oly-band {
+  display: block;
+  height: 100%;
+  padding: 0 14px 0 7px;
+  background: var(--oly-parch);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.4),
+    inset 0 -1px 0 rgb(74 52 42 / 0.45);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 50%, 100% 100%, 0 100%); /* a swallowtail */
+  font:
+    400 11px/15px ui-serif,
+    "New York",
+    "Iowan Old Style",
+    Georgia,
+    serif;
+  letter-spacing: 0.01em;
+  color: var(--oly-ink);
+}
+.oly-ribbon.is-l .oly-band {
+  padding: 0 7px 0 14px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 5px 50%);
+}
+.oly-band b {
+  font-weight: inherit;
+  color: #c42638;
+}
+
+/* Done: an ink-wax seal on the rolled scroll, which only the standing pose holds. */
+.oly-seal {
+  position: absolute;
+  left: var(--oly-ex);
+  top: var(--oly-ey);
+  width: 9px;
+  height: 9px;
+  visibility: hidden;
+}
+.oly-cell.is-sealed[data-pose="stand"] .oly-seal {
+  visibility: visible;
+}
+.oly-cell.is-left .oly-seal {
+  scale: -1 1; /* the mark stays the right way round when its god turns */
+}
+
+/* The stylobate: one unbroken marble step; each god's name is carved in its face. */
+.oly-stylobate {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--oly-tread);
+  background: linear-gradient(
+    180deg,
+    #e9e2da 0 1px,
+    #d2c9bf 1px 3px,
+    #aca298 3px 4px,
+    #c3b9af 4px calc(100% - 1px),
+    #8f857c calc(100% - 1px)
+  );
+}
+.oly-marble {
+  position: absolute;
+  inset: 4px 0 1px;
+  width: 100%;
+  height: calc(100% - 5px);
+}
+.oly-names {
+  position: absolute;
+  inset: 0;
+}
+.oly-ins {
+  position: absolute;
+  left: 0;
+  bottom: 5px;
+  margin: 0;
+  padding-left: 0.16em; /* balances the tracking after the last letter, so the name centres */
+  font-family: "Bungee", Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #3b3133;
+}
+
+/* Two plain antae close the frieze. */
+.oly-anta {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: var(--oly-tread);
+  width: 12px;
+  background: repeating-linear-gradient(90deg, #1d1718 0 2px, #171213 2px 3px);
+}
+.oly-anta.is-l {
+  left: 0;
+  box-shadow: 1px 0 0 rgb(0 0 0 / 0.5);
+}
+.oly-anta.is-r {
+  right: 0;
+  box-shadow: -1px 0 0 rgb(0 0 0 / 0.5);
+}
