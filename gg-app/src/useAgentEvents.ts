@@ -27,7 +27,7 @@ import {
 } from "./ask-user";
 import { formatTokenCount } from "./ActivityBar";
 import { type LiveToolEntry, LIVE_TOOL_PANEL_ROWS } from "./LiveToolPanel";
-import { type SubAgentLine } from "./SubAgentFeed";
+import { firstLine, type SubAgentLine } from "./SubAgentFeed";
 import { playSound } from "./sounds";
 import { takeNewSecurityNotices, withSecurityRow } from "./security-notices";
 import { toast } from "./toast";
@@ -445,6 +445,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         }
         return next.slice(-12);
       };
+      const result = firstLine(snapshot.error ?? snapshot.output);
       const updateAgent = (agent: SubAgentLine): SubAgentLine => ({
         ...agent,
         status,
@@ -452,6 +453,22 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         tokenUsage: snapshot.token_usage,
         durationMs: snapshot.elapsed_ms,
         activities: appendActivities(agent.activities),
+        agentType: snapshot.agent_name ?? agent.agentType,
+        result: result ?? agent.result,
+      });
+      const newAgent = (): SubAgentLine => ({
+        toolCallId: snapshot.agent_id,
+        agentName: snapshot.task_name,
+        status,
+        async: true,
+        activities: appendActivities([]),
+        toolUseCount: snapshot.tool_use_count,
+        tokenUsage: snapshot.token_usage,
+        durationMs: snapshot.elapsed_ms,
+        agentType: snapshot.agent_name,
+        result,
+        // Elapsed is a length of time, so the host's clock need not agree with this one.
+        startedAt: Date.now() - snapshot.elapsed_ms,
       });
       const mappedGroupId = subagentGroupByAgentRef.current.get(snapshot.agent_id);
       const activeGroupId = subagentGroupIdRef.current;
@@ -465,18 +482,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         pushItem({
           kind: "subagent_group",
           id: groupId,
-          agents: [
-            {
-              toolCallId: snapshot.agent_id,
-              agentName: snapshot.task_name,
-              status,
-              async: true,
-              activities: appendActivities([]),
-              toolUseCount: snapshot.tool_use_count,
-              tokenUsage: snapshot.token_usage,
-              durationMs: snapshot.elapsed_ms,
-            },
-          ],
+          agents: [newAgent()],
         });
       } else {
         setItems((previous) =>
@@ -489,19 +495,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
                 ? item.agents.map((agent) =>
                     agent.toolCallId === snapshot.agent_id ? updateAgent(agent) : agent,
                   )
-                : [
-                    ...item.agents,
-                    {
-                      toolCallId: snapshot.agent_id,
-                      agentName: snapshot.task_name,
-                      status,
-                      async: true,
-                      activities: appendActivities([]),
-                      toolUseCount: snapshot.tool_use_count,
-                      tokenUsage: snapshot.token_usage,
-                      durationMs: snapshot.elapsed_ms,
-                    },
-                  ],
+                : [...item.agents, newAgent()],
             };
           }),
         );
@@ -721,13 +715,17 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // Sub-agents also get a persistent, live feed in the transcript so the
           // user can watch parallel delegations by name + what each is doing.
           if (name === "subagent") {
+            const agentName = typeof args.agent === "string" ? args.agent : undefined;
             const newAgent: SubAgentLine = {
               toolCallId,
-              agentName: typeof args.agent === "string" ? args.agent : undefined,
+              agentName,
               status: "running",
               activities: [],
               toolUseCount: 0,
               tokenUsage: { input: 0, output: 0 },
+              agentType: agentName,
+              task: firstLine(args.task),
+              startedAt: Date.now(),
             };
             const groupId = subagentGroupIdRef.current;
             if (groupId !== null) {
@@ -817,6 +815,7 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
                           status: isError ? ("error" as const) : ("done" as const),
                           durationMs: durationMs ?? a.durationMs,
                           tokenUsage: finalTokens ?? a.tokenUsage,
+                          result: firstLine(result) ?? a.result,
                         }
                       : a,
                   ),

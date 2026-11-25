@@ -1,14 +1,68 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { agentsAt, MOCK_RUN } from "./olympus/fixtures";
+
+// Counts each time the desktop's rows are asked for.
+const rowsChunk = vi.hoisted(() => ({ loads: 0 }));
+vi.mock("./olympus/OlympusRows", async (original) => {
+  rowsChunk.loads += 1;
+  return original();
+});
 
 // The row's imports reach agent.ts, which reads the current window at load.
 mockWindows("main");
 mockIPC(() => new Promise(() => {}));
 const { TranscriptRow } = await import("./TranscriptRow");
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.className = "";
+});
+
+// In this order: the phone's test shows the rows were never asked for, which
+// only holds until the desktop's test asks for them.
+describe("a turn's subagents", () => {
+  const group = {
+    kind: "subagent_group" as const,
+    id: 40,
+    agents: agentsAt(MOCK_RUN, 12_000),
+  };
+
+  it("on the iPhone: today's feed, and the desktop's rows are never loaded", async () => {
+    document.documentElement.classList.add("platform-ios");
+    const { container } = render(<TranscriptRow item={group} />);
+    expect(container.querySelector(".subagents-head")?.textContent).toContain("4 agents running");
+    expect(container.querySelectorAll(".subagent")).toHaveLength(4);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(container.querySelector(".oly-rows")).toBeNull();
+    expect(container.querySelectorAll(".subagent")).toHaveLength(4);
+    expect(rowsChunk.loads).toBe(0);
+  });
+
+  it("on the desktop: today's feed while the rows load, then a row for each agent", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container } = render(<TranscriptRow item={group} />);
+    expect(container.querySelector(".subagents")).not.toBeNull();
+    expect(container.querySelector(".oly-rows")).toBeNull();
+    await waitFor(() => expect(container.querySelector(".oly-rows")).not.toBeNull());
+    expect(rowsChunk.loads).toBe(1);
+    expect(container.querySelector(".subagents")).toBeNull();
+    expect([...container.querySelectorAll(".oly-god")].map((god) => god.textContent)).toEqual([
+      "Athena",
+      "Hephaestus",
+      "Argus",
+      "Nike",
+    ]);
+  });
+
+  it("on the desktop: a stopped run reaches the rows as stopped", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container } = render(<TranscriptRow item={{ ...group, aborted: true }} />);
+    await waitFor(() => expect(container.querySelectorAll(".oly-row.is-stop")).toHaveLength(4));
+  });
+});
 
 describe("a question to Helper", () => {
   it("wraps its leading mention in a span and keeps its full text", () => {

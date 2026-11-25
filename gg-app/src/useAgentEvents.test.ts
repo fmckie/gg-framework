@@ -1344,6 +1344,123 @@ describe("useAgentEvents", () => {
       { toolCallId: "new-agent", status: "starting" },
     ]);
   });
+
+  it("keeps a subagent call's agent, the first line of its brief and of its result", () => {
+    const { hook, getItems } = setup();
+    const agents = (): unknown[] => {
+      const group = getItems().find((item) => item.kind === "subagent_group");
+      return group?.kind === "subagent_group" ? group.agents : [];
+    };
+    const before = Date.now();
+    act(() => {
+      hook.result.current.handleEvent(
+        ev("tool_call_start", {
+          toolCallId: "s1",
+          name: "subagent",
+          args: {
+            agent: "auditor",
+            task: "\n## Audit `login.ts` for timing leaks\n\nYou are reviewing the login route.",
+          },
+        }),
+      );
+      hook.result.current.handleEvent(
+        ev("tool_call_start", { toolCallId: "s2", name: "subagent", args: { task: "Run it" } }),
+      );
+    });
+    expect(agents()).toMatchObject([
+      { toolCallId: "s1", agentName: "auditor", agentType: "auditor", status: "running" },
+      { toolCallId: "s2", agentName: undefined, agentType: undefined, task: "Run it" },
+    ]);
+    const [first] = agents() as { task?: string; startedAt?: number; result?: string }[];
+    expect(first?.task).toBe("Audit `login.ts` for timing leaks");
+    expect(first?.startedAt).toBeGreaterThanOrEqual(before);
+    expect(first?.result).toBeUndefined();
+
+    act(() => {
+      hook.result.current.handleEvent(
+        ev("tool_call_end", {
+          toolCallId: "s1",
+          isError: false,
+          result: "One early return leaks timing.\n\n- `verifyPassword()` returns early",
+          details: { durationMs: 25_260 },
+        }),
+      );
+      hook.result.current.handleEvent(
+        ev("tool_call_end", {
+          toolCallId: "s2",
+          isError: true,
+          result: "Failed to spawn sub-agent: ENOENT",
+        }),
+      );
+    });
+    expect(agents()).toMatchObject([
+      { status: "done", result: "One early return leaks timing.", durationMs: 25_260 },
+      { status: "error", result: "Failed to spawn sub-agent: ENOENT" },
+    ]);
+  });
+
+  it("keeps a spawned agent's type beside its task name, and its output or error", async () => {
+    const { hook, getItems } = setup();
+    const base = {
+      agent_id: "abcd1234",
+      task_name: "recheck-findings",
+      agent_name: "skeptic",
+      started_at: 1,
+      updated_at: 2,
+      elapsed_ms: 4_000,
+      turn_count: 0,
+      tool_use_count: 0,
+      token_usage: { input: 0, output: 0 },
+    };
+    const agent = (): Record<string, unknown> | undefined => {
+      const group = getItems().find((item) => item.kind === "subagent_group");
+      return group?.kind === "subagent_group"
+        ? (group.agents[0] as unknown as Record<string, unknown>)
+        : undefined;
+    };
+    const before = Date.now();
+    act(() =>
+      hook.result.current.handleEvent(ev("subagent_state", { ...base, state: "starting" })),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({
+      agentName: "recheck-findings",
+      agentType: "skeptic",
+      status: "starting",
+      result: undefined,
+    });
+    // Its start is this window's clock less the time the host says has passed.
+    const startedAt = agent()?.startedAt as number;
+    expect(startedAt).toBeGreaterThanOrEqual(before - 4_000);
+    expect(startedAt).toBeLessThanOrEqual(Date.now() - 4_000);
+
+    act(() =>
+      hook.result.current.handleEvent(
+        ev("subagent_state", {
+          ...base,
+          agent_name: undefined,
+          state: "completed",
+          elapsed_ms: 9_000,
+          output: "**Both findings hold.**\nThe early return is on line 41.",
+        }),
+      ),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({
+      agentType: "skeptic",
+      status: "idle",
+      result: "Both findings hold.",
+      startedAt,
+    });
+
+    act(() =>
+      hook.result.current.handleEvent(
+        ev("subagent_state", { ...base, state: "failed", error: "Model refused\nstack…" }),
+      ),
+    );
+    await flushSubagents();
+    expect(agent()).toMatchObject({ status: "error", result: "Model refused" });
+  });
 });
 
 describe("models_change", () => {

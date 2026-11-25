@@ -25,6 +25,30 @@ export interface SubAgentLine {
     cacheWrite?: number;
   };
   durationMs?: number;
+  /** The bundled agent it runs as ("owl", "bee"…); a spawned agent's `agentName` is its task name. */
+  agentType?: string;
+  /** First line of its brief. */
+  task?: string;
+  /** First line of its output, or of its error. */
+  result?: string;
+  /** This window's clock at the agent's start, for a time that ticks. */
+  startedAt?: number;
+}
+
+const FIRST_LINE_MAX = 200;
+
+/** The first line of a brief or a report that says something, without its Markdown marks. */
+export function firstLine(text: unknown): string | undefined {
+  if (typeof text !== "string") return undefined;
+  for (const raw of text.split("\n")) {
+    const line = raw
+      .replace(/^[\s#>*-]+/, "")
+      .replace(/\*\*/g, "")
+      .trim();
+    if (!line || /^`{3,}/.test(line)) continue;
+    return line.length > FIRST_LINE_MAX ? `${line.slice(0, FIRST_LINE_MAX - 1)}\u2026` : line;
+  }
+  return undefined;
 }
 
 interface Props {
