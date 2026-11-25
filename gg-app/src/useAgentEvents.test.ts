@@ -1176,6 +1176,98 @@ describe("useAgentEvents", () => {
     expect(marker).toMatchObject({ kind: "autopilot", phase: "plan_approved" });
   });
 
+  describe("the approved row for an Autopilot approval", () => {
+    const named = "# Rate-limit failed logins\n\n## Steps\n\n1. Share the limiter";
+    const approved = { kind: "plan_decision", decision: "accepted" };
+
+    it("leaves the approved row with the plan's title, then Helper's line with its reason", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(
+          ev("autopilot_plan_accepted", { reason: "Corpus unavailable." }),
+        );
+      });
+      expect(getItems()).toEqual([
+        expect.objectContaining({ ...approved, title: "Rate-limit failed logins" }),
+        expect.objectContaining({
+          kind: "autopilot",
+          phase: "plan_approved",
+          reason: "Corpus unavailable.",
+        }),
+      ]);
+    });
+
+    it("puts both rows back after the reset the sidecar sends right behind the approval", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        hook.result.current.handleEvent(ev("session_reset", { planTotal: 1 }));
+      });
+      expect(getItems()).toEqual([
+        expect.objectContaining({ ...approved, title: "Rate-limit failed logins" }),
+        expect.objectContaining({ kind: "autopilot", phase: "plan_approved" }),
+      ]);
+      // Once only: a later reset empties the transcript as before.
+      act(() => hook.result.current.handleEvent(ev("session_reset", {})));
+      expect(getItems()).toEqual([]);
+    });
+
+    it("names a plan with no heading of its own Plan", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(
+          ev("plan_exit", { planPath: "/tmp/p.md", content: "1. Go" }),
+        );
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+      });
+      expect(getItems()[0]).toMatchObject({ ...approved, title: "Plan" });
+    });
+
+    it("puts nothing back when anything else comes between the approval and a reset", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        hook.result.current.handleEvent(ev("plan_mode", { active: false }));
+        hook.result.current.handleEvent(ev("session_reset", {}));
+      });
+      expect(getItems()).toEqual([]);
+    });
+
+    it("leaves no approved row when Autopilot sends the plan back or a review is withdrawn", () => {
+      const { hook, getItems } = setup();
+      act(() => {
+        hook.result.current.handleEvent(ev("plan_exit", { planPath: "/tmp/p.md", content: named }));
+        hook.result.current.handleEvent(ev("autopilot_prompted", { body: "Cover the lockout." }));
+      });
+      expect(getItems().filter((item) => item.kind === "plan_decision")).toEqual([]);
+      act(() => hook.result.current.handleEvent(ev("session_reset", {})));
+      expect(getItems()).toEqual([]);
+    });
+
+    it("leaves the iPhone as it was: Helper's row alone, and gone with the reset", () => {
+      document.documentElement.classList.add("platform-ios");
+      try {
+        const { hook, getItems } = setup();
+        act(() => {
+          hook.result.current.handleEvent(
+            ev("plan_exit", { planPath: "/tmp/p.md", content: named }),
+          );
+          hook.result.current.handleEvent(ev("autopilot_plan_accepted", {}));
+        });
+        expect(getItems()).toEqual([
+          expect.objectContaining({ kind: "autopilot", phase: "plan_approved" }),
+        ]);
+        act(() => hook.result.current.handleEvent(ev("session_reset", { planTotal: 1 })));
+        expect(getItems()).toEqual([]);
+      } finally {
+        document.documentElement.classList.remove("platform-ios");
+      }
+    });
+  });
+
   it("uses sidecar plan progress as the authoritative live-file snapshot", () => {
     const { hook, deps } = setup();
     deps.planTotalRef.current = 2;

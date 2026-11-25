@@ -250,6 +250,54 @@ describe("plan review states", () => {
     expect(prompts).not.toHaveBeenCalled();
   });
 
+  it("Autopilot approved: shows the same titled row, with Helper's line and reason under it, after the reset", async () => {
+    const { accepts, prompts, emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    // The sidecar's own order: the plan, Helper's approval, then the fresh session.
+    act(() => emit({ type: "plan_exit", data: { planPath: "/tmp/plan.md", content: NAMED } }));
+    act(() => emit({ type: "autopilot_plan_accepted", data: { reason: "Corpus unavailable." } }));
+    act(() => emit({ type: "session_reset", data: { planTotal: 1 } }));
+
+    const row = await waitFor(() => {
+      const found = container.querySelectorAll(".plan-done");
+      expect(found).toHaveLength(1);
+      return found[0];
+    });
+    expect(row.textContent).toBe("\u2713Rate-limit failed logins \u00b7 Approved");
+    expect(row.getAttribute("role")).toBe("status");
+    const helper = container.querySelector('[data-kind="autopilot"]');
+    expect(helper?.textContent).toContain("Plan looks solid. Approved it");
+    expect(helper?.textContent).toContain("Corpus unavailable.");
+    expect(
+      row.compareDocumentPosition(helper as Element) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    // Helper decided: nothing was accepted or sent from this window.
+    expect(accepts).not.toHaveBeenCalled();
+    expect(prompts).not.toHaveBeenCalled();
+  });
+
+  it("Autopilot rejected: Helper sends the plan back and no approved row shows", async () => {
+    const { emit } = harness("ok");
+    const { container } = render(<App />);
+    await openNamed(emit);
+
+    act(() => emit({ type: "plan_exit", data: { planPath: "/tmp/plan.md", content: NAMED } }));
+    act(() => emit({ type: "autopilot_prompted", data: { body: "Cover the lockout case." } }));
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-kind="autopilot"]')?.textContent).toContain(
+        "Cover the lockout case.",
+      ),
+    );
+    expect(container.querySelector(".plan-done")).toBeNull();
+    expect(container.textContent).not.toContain("\u00b7 Approved");
+    expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
+  });
+
   it("the iPhone keeps its sentence and gets no waiting line", async () => {
     document.documentElement.classList.add("platform-ios");
     try {

@@ -31,7 +31,8 @@ import { firstLine, type SubAgentLine } from "./SubAgentFeed";
 import { playSound } from "./sounds";
 import { takeNewSecurityNotices, withSecurityRow } from "./security-notices";
 import { toast } from "./toast";
-import { findCompletedSteps, countPlanSteps } from "./plan-steps";
+import { findCompletedSteps, countPlanSteps, planTitle } from "./plan-steps";
+import { isPhone } from "./platform";
 import type { PendingAttachment } from "./attachments";
 import type { Item } from "./App";
 import { lastIssuedId } from "./transcript-item";
@@ -249,6 +250,9 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
   // canonical live-file count on session_reset; this content supplies the fallback
   // count when connected to an older sidecar.
   const planReviewContentRef = useRef<string | null>(null);
+  // The rows an Autopilot approval leaves. The sidecar sends session_reset right
+  // behind the approval, which empties the transcript; that reset puts them back.
+  const approvedPlanRowsRef = useRef<Item[] | null>(null);
   // Which pre-final hooks are armed: a stop right now would inject one of them,
   // so the text the model is streaming is a candidate final answer that hook
   // will replace. Hold it in `heldTextRef` instead of painting it — the sidecar
@@ -570,6 +574,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
 
   const handleEvent = useCallback(
     (e: SidecarEvent) => {
+      // Only the reset right behind an approval may put its rows back.
+      if (e.type !== "session_reset") approvedPlanRowsRef.current = null;
       handleActivityEvent?.(e);
       // Ken (mentor) events are owned by the useKenMentor hook; delegate and
       // early-return so they never touch the build-session handling below.
@@ -1179,23 +1185,41 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
         case "plan_review":
           openPlanReview(d);
           break;
-        case "autopilot_plan_accepted":
+        case "autopilot_plan_accepted": {
           // Keep an approval-time fallback for older sidecars, close the review
           // modal, and render the approved marker. Current sidecars override this
           // fallback with the canonical live-file count on session_reset.
-          pendingPlanTotalRef.current = planReviewContentRef.current
-            ? countPlanSteps(planReviewContentRef.current)
-            : 0;
+          const approvedPlan = planReviewContentRef.current;
+          pendingPlanTotalRef.current = approvedPlan ? countPlanSteps(approvedPlan) : 0;
           planReviewContentRef.current = null;
           setPlanReview(null);
           endStreamingText();
-          pushItem({
+          const helperRow = (): Item => ({
             kind: "autopilot",
             id: nextId(),
             phase: "plan_approved",
             reason: typeof d.reason === "string" ? d.reason : undefined,
           });
+          // The iPhone keeps Helper's row alone, and loses it to the reset as before.
+          if (isPhone()) {
+            pushItem(helperRow());
+            break;
+          }
+          // An approval is an approval: the same row a manual Accept leaves, with
+          // Helper's line (who approved, and any limitation) kept under it.
+          const approvedRows: Item[] = [
+            {
+              kind: "plan_decision",
+              id: nextId(),
+              decision: "accepted",
+              title: (approvedPlan && planTitle(approvedPlan)) ?? "Plan",
+            },
+            helperRow(),
+          ];
+          for (const row of approvedRows) pushItem(row);
+          approvedPlanRowsRef.current = approvedRows;
           break;
+        }
         case "autopilot_prompted":
           // Autopilot-only plan revision path: Ken rejected/refined the plan and
           // the sidecar injected a revision prompt into GG Coder. Close the
@@ -1389,7 +1413,8 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
           // Its row is going away with the transcript; nothing left to show.
           if (streamingIdRef.current !== null) liveText.release(streamingIdRef.current);
           stickToBottomRef.current = true;
-          setItems([]);
+          setItems(approvedPlanRowsRef.current ?? []);
+          approvedPlanRowsRef.current = null;
           // The empty transcript must show the welcome screen, not the previous
           // run's status (for example "cancelled").
           setStatus("ready");
