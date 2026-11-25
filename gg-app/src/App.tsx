@@ -167,7 +167,7 @@ import { takeNewBlockedSkillMessages } from "./blocked-skills";
 import { collapseSecurityRows, takeNewSecurityNotices } from "./security-notices";
 import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 import { playSound } from "./sounds";
-import { countPlanSteps } from "./plan-steps";
+import { countPlanSteps, planTitle } from "./plan-steps";
 import { ArrowDownIcon, PlusIcon, QuestionIcon } from "@phosphor-icons/react";
 import type { UseDictation } from "./useDictation";
 import { toast } from "./toast";
@@ -2308,9 +2308,14 @@ function App(): React.ReactElement {
   // plan is the user's, and a prompt landing during a run queues server-side.
   // (This used to bail silently on a stale `running` value, closing the box
   // and leaving the plan in limbo.)
-  function runPlanPrompt(prompt: string, decision: PlanDecision, meta?: PromptMeta): void {
+  function runPlanPrompt(
+    prompt: string,
+    decision: PlanDecision,
+    meta?: PromptMeta,
+    title?: string,
+  ): void {
     setPlanReview(null);
-    pushItem({ kind: "plan_decision", id: nextId(), decision });
+    pushItem({ kind: "plan_decision", id: nextId(), decision, title });
     endStreamingText();
     void sendPrompt(prompt, [], meta).catch((error: unknown) => {
       reportPlanDecisionFailure("Your plan decision wasn't sent", error);
@@ -2358,6 +2363,9 @@ function App(): React.ReactElement {
     runPlanPrompt(
       "The plan has been approved. Implement it now, following each step in order.",
       "accepted",
+      undefined,
+      // The iPhone keeps its sentence; the desktop names the plan it approved.
+      isPhone() ? undefined : ((reviewed && planTitle(reviewed)) ?? "Plan"),
     );
   }
 

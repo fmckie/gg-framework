@@ -3,6 +3,7 @@ import { useDialogFocus } from "./dialog-focus";
 import { theme } from "./theme";
 import { YourPlanLogo } from "./PlanModeLogo";
 import { Markdown } from "./Markdown";
+import { isPhone } from "./platform";
 
 interface Props {
   /** Plan markdown to review. */
@@ -139,6 +140,13 @@ export function PlanReviewModal({
           </>
         )}
       </div>
+      {/* The desktop's activity line is under this review, so it says it here.
+          Not while Helper reviews: that line already says who is deciding. */}
+      {!isPhone() && !kenReviewing && (
+        <p className="plan-review-status" role="status">
+          Waiting for your review
+        </p>
+      )}
     </div>
   );
 }

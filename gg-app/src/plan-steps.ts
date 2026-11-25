@@ -80,3 +80,17 @@ export function countPlanSteps(planContent: string): number {
   }
   return count;
 }
+
+// The plan's own name for the row an approval leaves: its first heading that
+// is not the steps section, without inline code or emphasis marks.
+export function planTitle(planContent: string): string | null {
+  for (const m of planContent.matchAll(/^#{1,3}[ \t]+(.+)$/gm)) {
+    if (STEP_SECTION_HEADING.test(m[0])) continue;
+    const title = m[1]
+      .replace(/[`*]/g, "")
+      .replace(/[ \t]+#+[ \t]*$/, "")
+      .trim();
+    if (title) return title;
+  }
+  return null;
+}

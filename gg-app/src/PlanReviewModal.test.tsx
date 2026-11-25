@@ -7,7 +7,10 @@ vi.mock("./Markdown", () => ({
   Markdown: ({ children }: { children: string }) => <div>{children}</div>,
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.documentElement.classList.remove("platform-ios");
+});
 
 function renderPlan(): { onAccept: ReturnType<typeof vi.fn>; onReject: ReturnType<typeof vi.fn> } {
   const onAccept = vi.fn();
@@ -57,5 +60,35 @@ describe("PlanReviewModal", () => {
     const input = screen.getByPlaceholderText("What should change about this plan?");
     fireEvent.keyDown(input, { key: "Escape" });
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Feedback" }));
+  });
+});
+
+describe("the waiting line", () => {
+  it("says it is waiting for your review, as a status under the actions", () => {
+    renderPlan();
+    const line = screen.getByRole("status");
+    expect(line.textContent).toBe("Waiting for your review");
+    expect(line.previousElementSibling?.className).toBe("plan-review-actions");
+    expect(line.parentElement).toBe(screen.getByRole("dialog", { name: "Review plan" }));
+  });
+
+  it("leaves the word to Helper's line while Helper reviews the plan", () => {
+    render(
+      <PlanReviewModal
+        content="1. Do the thing"
+        kenReviewing
+        onAccept={vi.fn()}
+        onFeedback={vi.fn()}
+        onReject={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText("Waiting for your review")).toBeNull();
+  });
+
+  it("is not on the iPhone", () => {
+    document.documentElement.classList.add("platform-ios");
+    renderPlan();
+    expect(screen.queryByText("Waiting for your review")).toBeNull();
   });
 });

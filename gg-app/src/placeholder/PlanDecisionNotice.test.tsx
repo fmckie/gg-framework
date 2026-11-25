@@ -39,3 +39,26 @@ describe("PlanDecisionNotice", () => {
     );
   });
 });
+
+describe("the approved plan's row", () => {
+  it("folds an accepted plan into its title and Approved, behind a hidden tick", () => {
+    render(<PlanDecisionNotice decision="accepted" title="Rate-limit failed logins" />);
+    const row = screen.getByRole("status");
+    expect(row.className).toBe("plan-done");
+    expect(row.textContent).toBe("✓Rate-limit failed logins · Approved");
+    expect(row.querySelector(".plan-done-check")?.getAttribute("aria-hidden")).toBe("true");
+    expect(row.querySelector(".plan-done-state")?.textContent).toBe(" · Approved");
+    expect(screen.queryByText(/Plan accepted/)).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it.each<PlanDecision>(["rejected", "feedback"])(
+    "never folds a %s plan, even when it is given a title",
+    (decision) => {
+      const { container } = render(<PlanDecisionNotice decision={decision} title="Some plan" />);
+      expect(container.querySelector(".plan-done")).toBeNull();
+      expect(container.textContent).not.toContain("Approved");
+      expect(container.textContent).toContain(describePlanDecision(decision));
+    },
+  );
+});

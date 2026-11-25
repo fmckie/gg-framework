@@ -427,7 +427,7 @@ function TranscriptRowBody({
     case "plan":
       return <PlanModeLogo reason={item.reason} />;
     case "plan_decision":
-      return <PlanDecisionNotice decision={item.decision} />;
+      return <PlanDecisionNotice decision={item.decision} title={item.title} />;
     case "ask":
       return (
         <AskBand

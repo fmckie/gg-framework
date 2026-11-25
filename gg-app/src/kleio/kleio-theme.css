@@ -4263,6 +4263,41 @@ html:not(.platform-ios)
   background: #241f20;
 }
 
+/* Waiting: the activity line's words under the tray, set as that line is. */
+html:not(.platform-ios) .app.app-session > .plan-review > .plan-review-status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: 40px;
+  margin: 0 var(--kleio-gutter);
+  padding: 0 14px;
+  color: var(--kleio-text-2);
+  font-size: 14px;
+}
+
+/* Approved: the plan folds into one row, set like a step. The tick hangs, so
+   a long title wraps under its own first letter. */
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done {
+  position: relative;
+  margin: 0;
+  padding-left: 24px;
+  color: var(--kleio-text);
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done-check {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--kleio-done);
+  font-size: 14px;
+}
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .plan-done-state {
+  color: var(--kleio-muted);
+}
+
 /* The row a decision leaves: an accepted plan gets a verdigris tick, like a
    finished step; feedback a lapis dot; a rejection stays muted. No amber. */
 html:not(.platform-ios)

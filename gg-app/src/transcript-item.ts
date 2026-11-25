@@ -64,7 +64,8 @@ export type Item =
   // Plan-mode entry banner (ASCII logo + optional reason).
   | { kind: "plan"; id: number; reason: string }
   // What the user did with a reviewed plan.
-  | { kind: "plan_decision"; id: number; decision: PlanDecision }
+  // `title` is the approved plan's name: the desktop folds the plan into it.
+  | { kind: "plan_decision"; id: number; decision: PlanDecision; title?: string }
   // A question from the `ask_user` tool — clickable options rendered in the
   // thread. The turn is blocked until the answers are sent, or until the run
   // ends without them (`cancelled`, which closes the band).

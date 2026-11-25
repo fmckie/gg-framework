@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasDoneMarker, segmentDoneMarkers, findCompletedSteps } from "./plan-steps";
+import { hasDoneMarker, segmentDoneMarkers, findCompletedSteps, planTitle } from "./plan-steps";
 
 describe("segmentDoneMarkers", () => {
   it("splits a single trailing [DONE:n] marker into text + done segments", () => {
@@ -52,5 +52,19 @@ describe("segmentDoneMarkers", () => {
 describe("findCompletedSteps", () => {
   it("collects every marked step number", () => {
     expect(findCompletedSteps("a [DONE:1] b [DONE:3]")).toEqual([1, 3]);
+  });
+});
+
+describe("planTitle", () => {
+  it("names a plan by its first heading, without code or emphasis marks", () => {
+    expect(planTitle("# Rate-limit **failed** `logins`\n\nWhy.\n\n## Steps\n1. One\n")).toBe(
+      "Rate-limit failed logins",
+    );
+  });
+
+  it("passes over the steps section and gives nothing when no other heading is there", () => {
+    expect(planTitle("## Steps\n1. One\n\n## Risks\nNone.\n")).toBe("Risks");
+    expect(planTitle("## Steps\n1. One\n")).toBeNull();
+    expect(planTitle("Just do it.")).toBeNull();
   });
 });
