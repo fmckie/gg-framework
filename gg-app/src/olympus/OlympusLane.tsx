@@ -135,7 +135,7 @@ interface Props {
 
 /**
  * The lane over the composer on the desktop: the frame, the stylobate and the
- * antae, and the engine that stands the gods on it; and, before it, the card
+ * antae, and the engine that raises it and walks the gods on it; and, before it, the card
  * the engine stands over one god at a time. The gods are a toolbar, each
  * described by its row in the transcript. Everything else, the card included,
  * only repeats those rows, and is hidden from assistive technology.
@@ -170,8 +170,17 @@ export function OlympusLane({ groups, stage }: Props): React.ReactElement {
     });
     floorRef.current = floor;
     onFloor?.(floor);
+    // Only its width is the floor's to hear of: its height is the floor's own doing.
+    let seen = -1;
     const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => floor.resize());
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            const width = Math.round(entries[entries.length - 1]?.contentRect.width ?? 0);
+            if (width === seen) return;
+            seen = width;
+            floor.resize();
+          });
     observer?.observe(lane);
     // The names are measured as they land; once the carved face is in, measure them again.
     document.fonts

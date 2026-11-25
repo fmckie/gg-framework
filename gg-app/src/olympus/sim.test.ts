@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manualHost } from "./fixtures";
+import { framedHost, manualHost } from "./fixtures";
 import { createSim } from "./sim";
 
 describe("the lane's clock", () => {
@@ -101,5 +101,52 @@ describe("the lane's clock", () => {
     host.advance(1000);
     expect(ran).toBe(false);
     expect(host.pending()).toBe(0);
+  });
+
+  it("a step that only wakes it starts the frames again: a view still till then moves from that moment", () => {
+    const host = manualHost();
+    const sim = createSim(host);
+    const drawn: number[] = [];
+    // Still until 1000, then moving for 50ms: as a ribbon held whole, then furled.
+    sim.view((now) => {
+      drawn.push(now);
+      return now >= 1000 && now < 1050;
+    });
+    sim.at(1000, () => {});
+    sim.at(1050, () => {});
+    host.run(999, 10);
+    expect(drawn).toEqual([0]); // asleep all the while
+    host.advance(1);
+    for (let i = 0; i < 8; i++) host.advance(10);
+    // A frame at its moment, then one each time the window gives one, until it is still again.
+    expect([...new Set(drawn)]).toEqual([0, 1000, 1010, 1020, 1030, 1040, 1050]);
+    expect(host.pending()).toBe(0);
+  });
+
+  it("handles the same steps at the same moments however the frames fall, and draws the last for the moment it ends on", () => {
+    const play = (every: number | null): { steps: string[]; last: number } => {
+      const host = every === null ? framedHost() : manualHost();
+      const sim = createSim(host);
+      const steps: string[] = [];
+      let last = -1;
+      // Moving all the while, and what it draws is the time alone.
+      sim.view((now) => {
+        last = now;
+        return true;
+      });
+      const beat = (n: number): void => {
+        steps.push(`${n} at ${sim.now()}`);
+        if (n < 9) sim.after(137, () => beat(n + 1));
+      };
+      sim.at(40, () => beat(0));
+      if (every === null) host.advance(2000);
+      else host.run(2000, every);
+      return { steps, last };
+    };
+    const none = play(null);
+    expect(none.steps).toHaveLength(10);
+    expect(none.steps[9]).toBe("9 at 1273");
+    expect(none.last).toBe(2000);
+    for (const every of [7, 1000 / 60, 33, 250]) expect(play(every)).toEqual(none);
   });
 });

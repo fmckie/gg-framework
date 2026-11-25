@@ -46,7 +46,8 @@ describe("the cast data", () => {
         expect(a).toBeGreaterThanOrEqual(lo - 0.5);
         expect(b).toBeLessThanOrEqual(hi + 0.5);
       }
-      for (const pose of POSES) {
+      // Standing and speaking it is inside its envelope; it never strides at its place.
+      for (const pose of ["stand", "speak"] as const) {
         const [a, b] = god.fp[pose];
         expect(a).toBeLessThan(b);
         expect(a).toBeGreaterThanOrEqual(lo - 0.5);
@@ -86,6 +87,42 @@ describe("the cast data", () => {
       themis: 640,
       nike: 360,
     });
+  });
+
+  it("gives every god its own way of walking", () => {
+    expect(Object.fromEntries(ids.map((id) => [id, CAST.gods[id].move]))).toEqual({
+      athena: { speed: 64, bob: 0, lift: 0, pause: 0, ease: "linear" },
+      herodotus: { speed: 47.5, bob: 0, lift: 0, pause: 0.4, ease: "linear" },
+      hermes: { speed: 128.8, bob: 0, lift: 0, pause: 0, ease: "ease-in-out" },
+      hephaestus: { speed: 53.2, bob: 1, lift: 0, pause: 0, ease: "linear" },
+      argus: { speed: 68, bob: 0, lift: 0, pause: 0.3, ease: "linear" },
+      themis: { speed: 46.8, bob: 0, lift: 0, pause: 0, ease: "linear" },
+      nike: { speed: 105.6, bob: 0, lift: 2, pause: 0, ease: "ease-out" },
+    });
+    for (const id of ids) {
+      const { speed } = CAST.gods[id].move;
+      const stride = (speed * CAST.gods[id].step) / 1000;
+      // A stride is a good part of the cell, and never a whole one.
+      expect(stride).toBeGreaterThan(25);
+      expect(stride).toBeLessThan(45);
+    }
+  });
+
+  it("has every god's stride: its picture, where its feet fall, and its top", () => {
+    expect(POSES).toEqual(["speak", "stand", "stride"]);
+    for (const id of ids) {
+      const god = CAST.gods[id];
+      expect(POSE_URLS[id].stride).toMatch(new RegExp(`${id}-stride`));
+      const [a, b] = god.fp.stride;
+      // In mid stride its feet are wider apart than standing, and all inside the cell.
+      expect(b - a).toBeGreaterThan(god.fp.stand[1] - god.fp.stand[0]);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(b).toBeLessThanOrEqual(73);
+      // And its head stays where it is: within a pixel of its standing top.
+      expect(Math.abs(god.top.stride - god.top.stand)).toBeLessThanOrEqual(1);
+      // The card over a walker stands over its standing top, less its skim: at or over the stride's.
+      expect(god.top.stand - god.move.lift - 10).toBeLessThanOrEqual(god.top.stride - 2);
+    }
   });
 
   it("says which pose each god acts each family of tool in, and none for the families it lacks", () => {
@@ -174,7 +211,7 @@ describe("the cast data", () => {
   });
 
   it("has every picture at twice the size it is drawn, lossless", () => {
-    expect(Object.keys(FILES)).toHaveLength(14 + 26);
+    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7);
     for (const id of ids) {
       for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
       for (const [pose, at] of Object.entries(CAST.gods[id].at))

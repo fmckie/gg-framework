@@ -8,9 +8,9 @@
 //   node scripts/olympus-cast.mjs ~/gg-framework-ui/mockups/subagents/v4
 //   npx prettier --write src/olympus/cast.json
 //
-// The skill poses' pictures are cut from the mockup's too, at twice the size
-// they are drawn; with --pictures it writes nothing and lists each one's name
-// and width:
+// The pictures are cut from the mockup's too, at twice the size they are
+// drawn; with --pictures it writes nothing and lists each skill pose's and
+// each stride's name and width:
 //   node scripts/olympus-cast.mjs <v4> --pictures | while read name w; do
 //     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o src/olympus/poses/$name.webp
 //   done
@@ -26,10 +26,13 @@ import { fileURLToPath } from "node:url";
  */
 const GOD_KEYS = ["name", "env", "envol", "hand", "acts", "lift", "card"];
 /**
- * The poses every god has; a god's footprint (`fp`) and its top (`top`) are
- * kept for each, and for its skill poses.
+ * The poses every god has: standing, holding out a line, and in mid stride as
+ * it walks. A god's footprint (`fp`) and its top (`top`) are kept for each, and
+ * for its skill poses.
  */
-const POSES = ["stand", "speak"];
+const POSES = ["stand", "speak", "stride"];
+/** How a god walks, from its move: a dip on each footfall, a lift as it goes, how often it stops to look round, how it sets off and pulls up. */
+const MOVE_KEYS = ["bob", "lift", "pause", "ease"];
 
 const dir = process.argv[2];
 if (!dir) {
@@ -100,9 +103,28 @@ for (const [id, god] of Object.entries(cast.gods)) {
     out.fp[pose] = god.fp[pose];
     out.top[pose] = god.top[pose];
   }
-  // Its beat at its place: its move's step, which its cuts fall on.
-  out.step = cast.moves[god.move]?.step;
+  // Its beat at its place: its move's step, which its cuts fall on, and its
+  // stride's as it walks.
+  const move = cast.moves[god.move];
+  out.step = move?.step;
   if (!(out.step > 0)) throw new Error(`${id}: no step`);
+  // How it walks: its move's pace at its trait's, px a second, and the rest of its move.
+  const pace = cast.traits[god.trait]?.pace;
+  if (!(move.speed > 0) || !(pace > 0)) throw new Error(`${id}: no pace`);
+  out.move = { speed: Math.round(move.speed * pace * 100) / 100 };
+  for (const key of MOVE_KEYS) {
+    if (move[key] === undefined) throw new Error(`${id}: its move has no ${key}`);
+    out.move[key] = move[key];
+  }
+  // Its stride's picture fills the cell, as its stances do.
+  const stride = readFileSync(join(resolve(dir), "assets", `${id}-stride.png`));
+  if (
+    stride.readUInt32BE(16) !== 3 * cast.cell.w ||
+    stride.readUInt32BE(20) !== 3 * cast.cell.h ||
+    !template.includes(`<img class="pose p-stride" src="assets/${id}-stride.png" alt="">`)
+  )
+    throw new Error(`${id}: no stride picture the size of the cell`);
+  if (picturesOnly) console.log(`${id}-stride ${2 * cast.cell.w}`);
   // Its skill poses: every pose an act names. Each is as wide as it needs, so
   // its picture sits in the cell at a left and a width of its own.
   const skills = new Set(

@@ -1,13 +1,17 @@
-/* Olympus, parts 2 to 4: the lane, as stills and cuts, and its card. A marble
+/* Olympus, parts 2 to 5: the lane, its card and its travel. A marble
    stylobate over the composer; each subagent at work is a god on it, acting
    its agent's latest tool, its name carved in the step's face under it. The
-   engine (floor.ts) builds every god, puts it in its place and says which pose
-   shows; here is only how each still looks. Drawn only on the desktop
+   engine (floor.ts) builds every god, puts it where it is and says which pose
+   shows; here is only how each state looks. Drawn only on the desktop
    (LaneMount.tsx).
-   Nothing here moves: a god is in its place or it isn't, one pose is cut to
-   the next, a ribbon shows whole, the seal, the dimming and the crack are there
-   or they aren't, the card is up or it isn't, and the lane is open or shut.
-   Travel and the floor mosaic are later parts.
+   Nothing here moves anything. Every move is the engine's, frame by frame
+   from its own clock: the lane's height as it rises and falls, where a god is
+   as it walks, how far its figure and its name show, how far its ribbon is
+   unrolled (--oly-u), how far it is dimmed (--oly-dim) and cracked
+   (--oly-crack), and the press of its seal. So no rule here runs over time,
+   and none asks whether the reader wants less motion: the engine asks that
+   itself, and then moves nothing. One pose is still cut to the next, and the
+   card is up or it isn't. The tesserae and the floor mosaic are later parts.
 
    Contrast, WCAG 2, as the mockup measured it: the carved names (#3b3133)
    6.5:1 on the marble's face; on the parchment (#d8d0c4) the ribbon's ink
@@ -115,7 +119,8 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   visibility: hidden;
 }
 .oly-cell[data-pose="stand"] .oly-p-stand,
-.oly-cell[data-pose="speak"] .oly-p-speak {
+.oly-cell[data-pose="speak"] .oly-p-speak,
+.oly-cell[data-pose="stride"] .oly-p-stride {
   visibility: visible;
 }
 /* The skill poses: one for each family of tool a god has its own way with.
@@ -130,9 +135,11 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 .oly-cell[data-pose="think-r"] .oly-p-think-r {
   visibility: visible;
 }
-/* Failed and stopped both dim; only a failure cracks. */
+/* Failed and stopped both dim; only a failure cracks. How far, on the way, is
+   the engine's: all the way with nothing said. */
 .oly-cell.is-dim .oly-poses {
-  filter: grayscale(0.6) brightness(0.74) contrast(0.92);
+  filter: grayscale(calc(0.6 * var(--oly-dim, 1))) brightness(calc(1 - 0.26 * var(--oly-dim, 1)))
+    contrast(calc(1 - 0.08 * var(--oly-dim, 1)));
 }
 .oly-fissure {
   display: none;
@@ -140,13 +147,16 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   fill: none;
   stroke-linejoin: bevel;
   stroke-linecap: round;
+  opacity: var(--oly-crack, 1);
 }
 .oly-cell.is-cracked .oly-fissure {
   display: block;
 }
 
 /* A greeting or a farewell: a banderole from the open hand, its line in ink
-   with a rubricated initial. floor.ts places it at the hand and turns it a little. */
+   with a rubricated initial. floor.ts places it at the hand and turns it a
+   little, and says how far it is unrolled: --oly-u, from 0 to 1. The band
+   shows from the hand as far as its rolled end, which is gone once it is whole. */
 .oly-ribbon {
   position: absolute;
   top: 0;
@@ -155,9 +165,11 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
 }
 .oly-ribbon.is-r {
   transform-origin: 0 50%;
+  clip-path: inset(-6px calc((1 - var(--oly-u, 1)) * (100% - 5px)) -6px -6px);
 }
 .oly-ribbon.is-l {
   transform-origin: 100% 50%;
+  clip-path: inset(-6px -6px -6px calc((1 - var(--oly-u, 1)) * (100% - 5px)));
 }
 .oly-band {
   display: block;
@@ -185,8 +197,32 @@ html:not(.platform-ios) .app.app-session > .liveregion:has(+ .inputwrap.dragover
   font-weight: inherit;
   color: #c42638;
 }
+.oly-roll {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 5px;
+  border-radius: 3px / 2px;
+  background: linear-gradient(
+    90deg,
+    #5c5249,
+    #a2978a 22%,
+    #d3cabe 47%,
+    #c0b5a8 66%,
+    #8b8073 86%,
+    #574d45
+  );
+  opacity: clamp(0, (1 - var(--oly-u, 1)) * 14, 1);
+}
+.oly-ribbon.is-r .oly-roll {
+  left: calc(var(--oly-u, 1) * (100% - 5px));
+}
+.oly-ribbon.is-l .oly-roll {
+  right: calc(var(--oly-u, 1) * (100% - 5px));
+}
 
-/* Done: an ink-wax seal on the rolled scroll, which only the standing pose holds. */
+/* Done: an ink-wax seal pressed on the rolled scroll, which only the standing
+   pose holds. The press is the engine's. */
 .oly-seal {
   position: absolute;
   left: var(--oly-ex);

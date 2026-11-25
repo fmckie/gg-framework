@@ -288,6 +288,11 @@ export const SENT_ON_AGAIN: readonly SubAgentLine[] = [
 export interface ManualHost extends SimHost {
   /** Move the clock on, calling back everything that falls due on the way, in order. */
   advance(ms: number): void;
+  /**
+   * Move the clock on with a frame every `every` ms, as a window would draw
+   * them, and one more at the end: what is drawn then is drawn for that moment.
+   */
+  run(ms: number, every?: number): void;
   /** How many callbacks are waiting. */
   pending(): number;
 }
@@ -300,6 +305,7 @@ export function manualHost(): ManualHost {
   const waiting = new Map<number, { at: number; from: number; fn: () => void }>();
   return {
     now: () => now,
+    pending: () => waiting.size,
     defer(fn, ms) {
       waiting.set(n, { at: now + Math.max(0, ms), from: ms <= 0 ? turn + 1 : turn, fn });
       return n++;
@@ -307,26 +313,53 @@ export function manualHost(): ManualHost {
     cancel(handle) {
       waiting.delete(handle as number);
     },
-    advance(ms) {
+    run(ms, every = 1000 / 60) {
       const end = now + ms;
-      turn += 1;
-      for (;;) {
-        let next: number | null = null;
-        for (const [id, wait] of waiting)
-          if (
-            wait.at <= end &&
-            wait.from <= turn &&
-            (next === null || wait.at < waiting.get(next)!.at)
-          )
-            next = id;
-        if (next === null) break;
-        const { at, fn } = waiting.get(next)!;
-        waiting.delete(next);
-        now = Math.max(now, at);
-        fn();
-      }
-      now = end;
+      while (now + every < end) to(now + every);
+      to(end);
+      to(end);
     },
-    pending: () => waiting.size,
+    advance(ms) {
+      to(now + ms);
+    },
+  };
+
+  /** On to `end`, calling back everything that falls due on the way, in order. */
+  function to(end: number): void {
+    turn += 1;
+    for (;;) {
+      let next: number | null = null;
+      for (const [id, wait] of waiting)
+        if (
+          wait.at <= end &&
+          wait.from <= turn &&
+          (next === null || wait.at < waiting.get(next)!.at)
+        )
+          next = id;
+      if (next === null) break;
+      const { at, fn } = waiting.get(next)!;
+      waiting.delete(next);
+      now = Math.max(now, at);
+      fn();
+    }
+    now = end;
+  }
+}
+
+/**
+ * A manual clock for tests of what travels. While something on the lane is
+ * moving, the plain one gives each frame to the next advance; here every
+ * advance is followed by one of nothing, so what is drawn is drawn for the
+ * moment the test has reached. `run` still gives frames as a window would.
+ */
+export function framedHost(): ManualHost {
+  const host = manualHost();
+  return {
+    ...host,
+    advance(ms) {
+      host.advance(ms);
+      host.advance(0);
+    },
+    run: (ms, every) => host.run(ms, every),
   };
 }

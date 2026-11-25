@@ -1,12 +1,14 @@
-// The lane's engine, parts 2 to 4 of Olympus: the mockup's floor.js, as stills
-// and cuts, with its card and its keyboard.
+// The lane's engine, parts 2 to 5 of Olympus: the mockup's floor.js, with its
+// card, its keyboard and its travel.
 // Kleio's subagents as gods on one open lane, reconciled to the records by
 // sync(agents). Nothing is choreographed: every step follows from the records
 // and from where the others are.
 // - The lane opens when the first agent is sent and shuts after the last god
-//   has gone.
-// - Gods land one at a time, each at a place of its own, and say a greeting on
-//   a ribbon. At its place a god faces the middle of the lane.
+//   has gone. It rises as it opens and falls as it shuts; a god sent while it
+//   falls waits for it to be down, and it rises again.
+// - Gods land one at a time. Each is set beside a place of its own, where its
+//   greeting fits, says the greeting on a ribbon, and walks to its place. At
+//   its place a god faces the middle of the lane.
 // - At its place a god acts its agent's latest tool in its own way. The tool's
 //   family (look, web, make, run; think before the first tool, for a tool with
 //   no family, and for a family the god has no pose for) picks the god's pose
@@ -14,39 +16,58 @@
 //   one cut on the clock for it, on the god's own beat. A pose shown is held
 //   for its dwell; the latest want wins, so what came and went inside a dwell
 //   is never shown; and three cuts in a few seconds double the dwell until a
-//   pose has held. The one who flies is up while her pose is shown. No record
-//   says a tool has ended, so a god holds a tool's pose until the next begins.
+//   pose has held. The one who flies rises as her pose cuts in, and comes down
+//   before the next does. No record says a tool has ended, so a god holds a
+//   tool's pose until the next begins.
 // - Places: every god has an envelope, all the floor it can cover at its
 //   place, and two places are never nearer than their envelopes and a gap. A
 //   first crowd is spread over the lane; a later god takes the gap with most
-//   room, and if there isn't enough the nearest step aside. A god with no room
-//   waits unseen until there is.
+//   room, and if there isn't enough the nearest step aside: they walk to their
+//   new places. A god with no room waits unseen until there is. Nobody walks
+//   through anybody.
 // - Ribbons: a line is held out only where all of it clears every other god
 //   and every other ribbon: toward the middle of the lane, else the other way,
 //   else a little higher. With nowhere yet the god waits for room, and if none
-//   comes it goes on without a word.
-// - Done: a farewell, the seal on its rolled scroll, and it goes. Failed: it
-//   stands dimmed and cracked, and goes. Stopped: dimmed, with no crack.
+//   comes it goes on without a word. A ribbon unrolls from the hand, is held
+//   whole, and is furled. Nobody walks or starts work into a ribbon: they wait
+//   until it is furled.
+// - Walking, a god glides and its pose swaps in steps, stride and stand, on
+//   its own beat; it faces where it goes. Its pace, a dip or a lift, a stop to
+//   look round, and how it sets off and pulls up are its move's, in the cast
+//   data.
+// - Done: a farewell, the seal pressed on its rolled scroll, and it walks off
+//   and goes. Failed: it stands, dims and cracks, and goes. Stopped: dimmed,
+//   with no crack. An ending never waits for a dwell; the one who flies comes
+//   down first.
 // - From the sixth agent working at once, an agent waits unseen and lands,
 //   oldest first, once a god has left its place.
-// - An ending never waits for a dwell, nor does a god asked to step aside.
 // - The card: over the god the pointer is on, else the god focused from the
 //   keyboard. While its god works it holds one height, over the highest the
-//   god can reach there; otherwise it stands over the pose shown. Its caret
-//   stays on its straight edge. It stays while the pointer is on the god, its
-//   name or the card, and a moment after; Esc hides it. The floor says whose
-//   card is up and where it stands; the words in it are the caller's.
+//   god can reach there; walking, over its standing top; otherwise over the
+//   pose shown. It follows its god as it walks, and is down once its god
+//   begins to go. Its caret stays on its straight edge. It stays while the
+//   pointer is on the god, its name or the card, and a moment after; Esc hides
+//   it. The floor says whose card is up and where it stands; the words in it
+//   are the caller's.
 // - The keyboard: the gods are one toolbar, one tab stop, the arrows and Home
 //   and End along the lane in floor order; the focused god's card shows, and
 //   a cartouche frames its carved name. When the focused god goes, focus goes
 //   to the nearest, and from the last to the composer. A god has nothing to
 //   press yet, and says so: startling one is a later part.
-// Every change is a cut: nothing here travels, fades or eases. Those, the
-// mosaic and the pool's medallions are later parts. So reduced motion takes
-// nothing away; it only doubles the dwell.
-// It runs on sim.ts's clock, each step put on it for its moment. The card and
-// the keyboard are no part of the run: they put nothing on that clock and
-// never draw the floor's dice, so a run plays the same whoever looks at it.
+// - Reduced motion: nothing travels. The lane opens and shuts at once, a god
+//   is set at its place and steps aside by a cut, a ribbon shows whole, the
+//   seal, the dimming and the crack are there or they aren't, and the dwell is
+//   doubled: the lane as parts 2 to 4 had it. No dice are thrown for travel.
+// A god shows by a short fade as it is set and goes by one: the tesserae it is
+// set from and goes back to, the mosaic and the pool's medallions are later
+// parts.
+// It runs on sim.ts's clock. Every step is put on it for its moment, and every
+// throw of the dice falls in a step. A frame between steps is drawn from the
+// state and the time alone, and nothing it draws is read back by a step, so a
+// run plays the same however the frames fall. The clock sleeps unless
+// something on the lane is changing. The card and the keyboard are no part of
+// the run: they put nothing on that clock and never draw the floor's dice, so
+// a run plays the same whoever looks at it.
 
 import type { Cast, CastGod, Pictures, Pose, Skill, SvgNode } from "./cast";
 import { POSES } from "./cast";
@@ -96,6 +117,8 @@ export interface FloorOptions {
 /** What the floor holds, for tests and previews. */
 export interface FloorPeek {
   readonly open: boolean;
+  /** The lane as it stands now: shut, rising, open or falling, and its height under its rule. */
+  readonly lane: { readonly mode: "shut" | "rise" | "open" | "fall"; readonly height: number };
   readonly width: number;
   /** Waiting to land, in order. */
   readonly queue: readonly string[];
@@ -104,17 +127,25 @@ export interface FloorPeek {
   readonly gods: readonly {
     readonly key: string;
     readonly god: GodId;
+    /** Where it is now, walking or not. */
     readonly x: number;
     /** The floor its figure stands on now: from, to. */
     readonly figure: readonly [number, number];
     /** All the floor it can cover at its place, while it has one: from, to. */
     readonly place: readonly [number, number] | null;
     readonly face: number;
+    /** The way it is turned now. */
+    readonly dir: number;
     readonly pose: Pose;
     /** The pose its record asks for. */
     readonly want: Pose;
     /** How far off the floor it is held. */
     readonly lift: number;
+    /** How far its figure shows, and its ribbon is unrolled, its seal pressed in, and it is dimmed: 0 to 1. */
+    readonly shown: number;
+    readonly unrolled: number | null;
+    readonly press: number;
+    readonly dim: number;
     readonly step: string;
     /** The line on its ribbon, and where the ribbon runs along the floor. */
     readonly line: string | null;
@@ -144,6 +175,7 @@ export interface Floor {
 
 // ── The lane, CSS px ──
 const LANE_H = 126;
+const OPEN_H = LANE_H - 1; // the lane's height under its rule, open
 const TREAD = 22;
 const WIDE = 698; // the lane in the mockup's column; a narrow window's is less
 const H = LANE_H - TREAD; // the floor above the stylobate
@@ -163,15 +195,28 @@ const RIB_TOP = 3; // the lane's top, under the dock's rim
 const LIFTS = [0, 3, 6]; // held a little higher, over a neighbour's low reach
 const SPREAD = 16; // the room kept round a god as it is set
 
-// ── A god's turn, ms: the mockup's stills ──
+// ── A god's turn, ms ──
+const RISE = 420; // the lane opens
+const FALL = 360; // and shuts
 const LAND_STILL = 500; // a beat after the lane opens, so a crowd sent together is placed together
 const LAND_GAP = 850; // and the next no sooner
 const CLOSE_AFTER = 600; // the lane waits a beat after the last god has gone
 const RETRY = 400; // no room yet to land: look again
-const SAID = 1700; // a line held on the ribbon
-const SEALED = 1200; // it stands while the seal is on its scroll
+const FADE = 240; // a god shows as it is set, and goes: until its tesserae, a later part
+const UNFURL = 650;
+const SAY = 1400; // a line held out whole on the ribbon
+const FURL = 280;
+const SAID = SAY + 300; // under reduced motion, shown whole from first to last
+const SEAL_AT = 300; // the seal comes down on the scroll
+const PRESS = 180;
+const SEALED = 1000; // it stands while the seal is pressed
+const SEALED_STILL = SEALED + 200; // under reduced motion, with the seal on from the first
+const GLANCE = 1050; // a stop on the way to look round
 const FAIL_HOLD = 3000; // dimmed, and cracked if it failed, before it goes
-const HOLD = 200; // waiting for room for a line: look again
+const DIM_AT = 300; // it stands a moment; then it dims, and the crack comes
+const DIM = 900;
+const CRACK = 220;
+const HOLD = 200; // waiting for room, for a line or a walk: look again
 const GREET_WAIT = 1500; // a greeting waits this long for room, then the god goes on without a word
 const BYE_WAIT = 3000; // a farewell waits its turn longer; then it seals its scroll and goes
 const BYE_STUCK = 1200; // but if nothing round it will make room, the longest waiting goes after this
@@ -179,6 +224,8 @@ const BYE_STUCK = 1200; // but if nothing round it will make room, the longest w
 // ── A god at its work, ms ──
 const DWELL = 900; // a pose shown is held this long at least, or two of the god's steps if that is longer
 const STORM = { cuts: 3, within: 6000, calm: 3000 }; // so many cuts so close double the dwell, until a pose has held
+const HOVER_UP = 240; // the one who flies: up, as her pose cuts in
+const HOVER_DOWN = 180; // and down, before the next does
 
 // ── The card ──
 const TIP_W = 272;
@@ -227,7 +274,46 @@ export function rng(seed: number): () => number {
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const lerp = (a: number, b: number, u: number): number => a + (b - a) * u;
+const smooth = (v: number): number => {
+  const u = clamp01(v);
+  return u * u * (3 - 2 * u);
+};
+const outCubic = (k: number): number => 1 - (1 - k) ** 3;
+type Ease = (k: number) => number;
+const EASE: Readonly<Record<CastGod["move"]["ease"], Ease>> = {
+  linear: (k) => k,
+  "ease-in-out": (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2),
+  "ease-out": outCubic,
+};
+/** A CSS cubic-bezier, as a function of time. */
+function bezier(x1: number, y1: number, x2: number, y2: number): Ease {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const sx = (t: number): number => ((ax * t + bx) * t + cx) * t;
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0;
+    let hi = 1;
+    let t = x;
+    for (let i = 0; i < 24; i++) {
+      const v = sx(t);
+      if (Math.abs(v - x) < 1e-5) break;
+      if (v < x) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return ((ay * t + by) * t + cy) * t;
+  };
+}
+const riseEase = bezier(0.2, 0.75, 0.25, 1);
+const fallEase = bezier(0.55, 0, 0.8, 0.3);
 
 type Range = readonly [number, number];
 interface Box {
@@ -254,10 +340,57 @@ type Saying = "greet" | "report";
 
 /** A step of a god's turn: what it is doing, from when to when. */
 interface Seg {
-  readonly kind: "greet" | "report" | "seal" | "fail" | "work" | "hold";
+  readonly kind:
+    | "appear"
+    | "greet"
+    | "report"
+    | "seal"
+    | "fail"
+    | "work"
+    | "hold"
+    | "walk"
+    | "glance"
+    | "alight"
+    | "fade";
+  readonly t0: number;
   readonly t1: number;
   readonly then?: (t: number) => void;
+  /** A walk: from where to where, and how it sets off and pulls up. */
+  readonly x0?: number;
+  readonly x1?: number;
+  readonly ease?: Ease;
+  /** A walk, or a stop on one: to its place, or off the lane. */
+  readonly purpose?: "seat" | "leave";
+  /** A walk that ends in a stop to look round: where it goes on to after. */
+  readonly glanceTo?: number | null;
+  /** A stop to look round: where it goes on to. */
+  readonly to?: number;
+  /** Coming down: from how high. */
+  readonly h?: number;
+  /** A walk cut short: where it had got to is where the god is. */
+  halted?: boolean;
   timer?: SimEvent;
+  /** A step that only wakes the clock, for a part of this one that begins late. */
+  nudge?: SimEvent;
+}
+
+/** A god as a frame draws it: worked out from its step and the time alone. */
+interface Vis {
+  x: number;
+  y: number;
+  dir: number;
+  pose: Pose;
+  /** How far its figure and its name show, its ribbon is unrolled, and it is dimmed and cracked: 0 to 1. */
+  fig: number;
+  name: number;
+  rib: number;
+  dim: number;
+  crack: number;
+  sealed: boolean;
+  /** The seal's size as it is pressed: 1 once it is on. */
+  press: number;
+  /** Whether the next frame will draw it otherwise. */
+  moving: boolean;
 }
 
 interface God {
@@ -267,6 +400,8 @@ interface God {
   /** Its agent's record, as last handed over. */
   agent: LaneAgent;
   readonly el: HTMLElement;
+  readonly fig: HTMLElement;
+  readonly sealEl: SVGElement;
   readonly label: HTMLElement;
   labelW: number;
   ribbon: HTMLElement | null;
@@ -285,9 +420,13 @@ interface God {
   /** The pose its record asks for; at its place, a cut to it is on the clock. */
   want: Skill;
   swap: SimEvent | null;
+  /** The step that wakes the clock as the one who flies starts down for that cut. */
+  nudge: SimEvent | null;
   /** When the pose shown was cut to, and when it took its place: its cuts fall on its steps from then. */
   shownAt: number;
   beat0: number;
+  /** When the one who flies last began to rise. */
+  upAt: number;
   /** Its latest cuts, and whether they have come so close that its dwell is doubled. */
   readonly cuts: number[];
   storm: boolean;
@@ -299,8 +438,11 @@ interface God {
   ending: Ending | null;
   seg: Seg | null;
   sealed: boolean;
-  dim: boolean;
-  crack: boolean;
+  /** How far it is dimmed and cracked, once that is settled: 0 or 1. */
+  dim: number;
+  crack: number;
+  /** As the last frame drew it: what the card, the names and the keyboard go by. */
+  vis: Vis | null;
   /** What was last written to the page, so a frame writes only what changed. */
   out: Record<string, unknown>;
 }
@@ -355,8 +497,12 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let nextLandAt = -Infinity;
   let disposed = false;
 
-  // The lane: open while anyone is out.
-  let open = false;
+  // The lane: open while anyone is out. It rises as it opens and falls as it
+  // shuts; its height on the way is each frame's.
+  let mode: FloorPeek["lane"]["mode"] = "shut";
+  let laneT0 = 0;
+  let reopen = false; // asked for while it falls: it rises again as soon as it is down
+  let laneH = ""; // the height last written: none, so the stylesheet's
   let readyAt = 0;
   let closing: SimEvent | null = null;
   let W = WIDE;
@@ -379,10 +525,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   let shown: FloorPeek["card"] = null;
 
   // Every god's standing pictures, fetched once up front, so no god is set
-  // before its own is in. A god's skill poses are fetched as it is made, a
-  // greeting's length before the first can show.
+  // before its own is in. A god's stride and its skill poses are fetched as it
+  // is made, a greeting's length before the first can show.
   const preload = Object.values(opts.poses).flatMap((urls) =>
-    POSES.map((pose) => {
+    (["speak", "stand"] as const).map((pose) => {
       const img = new Image();
       img.src = urls[pose];
       return img;
@@ -420,34 +566,92 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return true;
   }
 
+  // Gods may land while it is open, or still rising.
+  const landable = (): boolean => mode === "rise" || mode === "open";
+
+  function setHeight(h: number | null): void {
+    const value = h === null ? "" : `${Math.round(h * 100) / 100}px`;
+    if (value === laneH) return;
+    laneH = value;
+    lane.style.height = value;
+  }
+
   function openLane(t: number): void {
     if (closing) {
       sim.cancel(closing);
       laneTimers.delete(closing);
       closing = null;
     }
-    if (open) return;
-    open = true;
+    if (mode === "fall") {
+      reopen = true;
+      return;
+    }
+    if (mode !== "shut") return;
     lane.classList.remove("is-shut");
     measureLane();
+    laneT0 = t;
     readyAt = t + LAND_STILL;
-  }
-
-  function maybeClose(t: number): void {
-    if (gods.size || queue.length || closing || !open) return;
-    closing = later(t + CLOSE_AFTER, () => {
-      closing = null;
-      if (!gods.size && !queue.length) shut();
+    if (reduced()) {
+      mode = "open";
+      return;
+    }
+    mode = "rise";
+    setHeight(0);
+    later(t + RISE, () => {
+      if (mode !== "rise") return;
+      mode = "open";
+      setHeight(null);
     });
   }
 
-  function shut(): void {
-    open = false;
+  function maybeClose(t: number): void {
+    if (gods.size || queue.length || closing || !landable()) return;
+    closing = later(t + CLOSE_AFTER, () => {
+      closing = null;
+      if (gods.size || queue.length) return;
+      const now = sim.now();
+      if (reduced()) return shut(now);
+      mode = "fall";
+      laneT0 = now;
+      later(now + FALL, () => shut(sim.now()));
+    });
+  }
+
+  function shut(t: number): void {
+    mode = "shut";
     lane.classList.add("is-shut");
+    setHeight(null);
+    if (!reopen && !queue.length) return;
+    reopen = false;
+    openLane(t);
+    scheduleLanding(t);
+  }
+
+  // The lane's height on its way up or down.
+  function laneAt(now: number): number {
+    if (mode === "shut") return 0;
+    if (mode === "open") return OPEN_H;
+    const k = clamp01((now - laneT0) / (mode === "rise" ? RISE : FALL));
+    return OPEN_H * (mode === "rise" ? riseEase(k) : 1 - fallEase(k));
+  }
+
+  function renderLane(now: number): boolean {
+    if (mode !== "rise" && mode !== "fall") return false;
+    setHeight(laneAt(now));
+    return true;
   }
 
   // ───────── where gods may stand ─────────
   const working = (god: God): boolean => god.seg?.kind === "work";
+  // At its place: at its work, or coming down from it.
+  const seated = (god: God): boolean => working(god) || god.seg?.kind === "alight";
+  // A walk is worked out from its step and the time: where it has got to at t.
+  const walkX = (s: Seg, t: number): number =>
+    lerp(s.x0!, s.x1!, s.ease!(clamp01((t - s.t0) / Math.max(1, s.t1 - s.t0))));
+  const walking = (god: God): boolean => god.seg?.kind === "walk" && !god.seg.halted;
+  const xAt = (god: God, t: number): number => (walking(god) ? walkX(god.seg!, t) : god.x);
+  const dirAt = (god: God): number =>
+    walking(god) ? Math.sign(god.seg!.x1! - god.seg!.x0!) || god.dir : god.dir;
   // A pose's figure along the floor, in the cell.
   const fpOf = (god: God, pose: Pose): Range => god.c.fp[pose] ?? god.c.fp.stand;
 
@@ -456,13 +660,14 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return dir > 0 ? [x + a, x + b] : [x + AXIS - b, x + AXIS - a];
   }
 
-  // The floor a god covers now: at its place, all it can cover there.
-  function body(god: God): Range {
-    if (working(god)) {
+  // The floor a god covers at t: at its place, all it can cover there.
+  function body(god: God, t: number): Range {
+    const x = xAt(god, t);
+    if (seated(god)) {
       const [a, b] = envOf(god);
-      return [god.x + a, god.x + b];
+      return [x + a, x + b];
     }
-    return span(god, god.x, god.pose, god.dir);
+    return span(god, x, walking(god) ? "stride" : god.pose, dirAt(god));
   }
 
   // All a god can cover at a place, band by band: its envelope's outline there, as it faces.
@@ -487,7 +692,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     const initial = document.createElement("b");
     initial.textContent = text.slice(0, 1);
     band.append(initial, text.slice(1));
-    el.append(band);
+    el.append(band, html("span", "oly-roll")); // its rolled end, which the band unrolls behind
     return el;
   }
 
@@ -563,6 +768,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return [x + Math.min(a, AXIS - b), x + Math.max(b, AXIS - a)];
   }
 
+  // All the floor a god walking from a to b goes over, stride or stand, facing either way.
+  function way(god: God, a: number, b: number): Range {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    return [
+      Math.min(either(god, "stride", lo)[0], either(god, "stand", lo)[0]),
+      Math.max(either(god, "stride", hi)[1], either(god, "stand", hi)[1]),
+    ];
+  }
+
   const out = (g: God): boolean => g.landed && !g.gone;
 
   // Every line another god holds out now, or is kept for one landing.
@@ -573,13 +788,24 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   // What a god takes up while a line is held out near it. Standing, its
-  // figure's floor at full height. At its place, the outline of its whole
-  // envelope: a line clear of that stays clear whatever it does there. Still to
-  // go to its place, all it can cover once it is there.
-  function zone(g: God): Box[] {
-    const boxes = working(g) ? reach(g, g.x) : [tall(either(g, g.pose, g.x))];
-    if (g.seat != null && !g.ending && (Math.abs(g.seat - g.x) > 1.5 || !working(g)))
-      boxes.push(...reach(g, g.seat));
+  // figure's floor at full height; walking, all the floor it has still to
+  // cross; still to go to its place, the way there and all it can cover once it
+  // is there. At its place, the outline of its whole envelope: a line clear of
+  // that stays clear whatever it does there.
+  function zone(g: God, t: number): Box[] {
+    const s = g.seg;
+    const x = xAt(g, t);
+    const boxes: Box[] = [];
+    const moving = walking(g) || s?.kind === "glance";
+    if (moving)
+      boxes.push(tall(way(g, x, s!.kind === "glance" ? s!.to! : (s!.glanceTo ?? s!.x1!))));
+    else if (seated(g)) boxes.push(...reach(g, x));
+    else boxes.push(tall(either(g, g.pose, x)));
+    if (g.seat != null && !g.ending) {
+      const there = Math.abs(g.seat - x) <= 1.5;
+      if (!there && !moving) boxes.push(tall(way(g, x, g.seat)));
+      if (!there || !seated(g)) boxes.push(...reach(g, g.seat));
+    }
     return boxes;
   }
 
@@ -589,9 +815,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   }
 
   // All a line held out by this god now must keep off.
-  function around(god: God): Near {
+  function around(god: God, t: number): Near {
     const boxes: Box[] = [];
-    for (const g of gods.values()) if (g !== god && out(g)) boxes.push(...zone(g));
+    for (const g of gods.values()) if (g !== god && out(g)) boxes.push(...zone(g, t));
     return { boxes, held: ribbons(god) };
   }
 
@@ -618,12 +844,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return null;
   }
 
-  // What every other god holds: where it is, and the place it is bound for.
-  function claims(except: God): Range[] {
+  // What every other god holds: where it is, where its walk ends, and the place it is bound for.
+  function claims(except: God, t: number): Range[] {
     const held: Range[] = [];
     for (const g of gods.values()) {
       if (g === except || !out(g)) continue;
-      let [lo, hi] = body(g);
+      let [lo, hi] = body(g, t);
+      if (walking(g)) {
+        lo = Math.min(lo, g.seg!.x1! + 4);
+        hi = Math.max(hi, g.seg!.x1! + 64);
+      }
       if (g.seat != null) {
         const [a, b] = envOf(g);
         lo = Math.min(lo, g.seat + a);
@@ -816,23 +1046,46 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     readonly r: Rib | null;
   }
 
-  // Where a god is set, and the greeting it will say there: at its place, once
-  // nobody is in it and no ribbon is, with a line that can be held out in full.
-  // If none fits yet, it is set anyway, and looks for room for a line once it is.
-  function entryFor(god: God): Entry | null {
-    const taken = claims(god);
+  // Where a god is set, and the greeting it will say there: beside its place,
+  // on the middle side mostly, so a first crowd walks out both ways; where
+  // nobody is and no ribbon is, with a line that can be held out in full. If
+  // none fits yet, it is set anyway, and looks for room for a line once it is.
+  // Under reduced motion it is set at its place.
+  function entryFor(god: God, t: number): Entry | null {
+    const taken = claims(god, t);
     const held = ribbons(god);
-    const x = god.seat!;
-    const [a, b] = either(god, "speak", x);
-    const free =
-      x + 4 >= edgeL - 6 &&
-      x + 64 <= edgeR + 6 &&
-      taken.every(([lo, hi]) => b + 2 <= lo || a - 2 >= hi) &&
-      !held.some((q) => across(q, [a - SPREAD, b + SPREAD]));
-    if (!free) return null;
-    const near = around(god);
-    const said = pickLine("greeting", god, (text) => placeRibbon(god, x, text, near));
-    return said ? { x, text: said.text, r: said.r } : { x, text: null, r: null };
+    const free = (x: number): boolean => {
+      const [a, b] = either(god, "speak", x);
+      return (
+        x + 4 >= edgeL - 6 &&
+        x + 64 <= edgeR + 6 &&
+        taken.every(([lo, hi]) => b + 2 <= lo || a - 2 >= hi) &&
+        !held.some((q) => across(q, [a - SPREAD, b + SPREAD]))
+      );
+    };
+    const seat = god.seat!;
+    let spots = [seat];
+    if (!reduced()) {
+      const side = (seat < mid() ? 1 : -1) * (random() < 0.8 ? 1 : -1);
+      const far = 62 + random() * 34;
+      spots = [seat + side * far, seat - side * far, seat + side * 44, seat - side * 44, seat];
+    }
+    spots = spots.filter(free);
+    if (!spots.length) return null;
+    const near = around(god, t);
+    const where = new Map<Rib, number>();
+    const said = pickLine("greeting", god, (text) => {
+      for (const x of spots) {
+        const r = placeRibbon(god, x, text, near);
+        if (!r) continue;
+        where.set(r, x);
+        return r;
+      }
+      return null;
+    });
+    return said
+      ? { x: where.get(said.r)!, text: said.text, r: said.r }
+      : { x: spots[0]!, text: null, r: null };
   }
 
   // A line for a god to say, of those fit(text) finds room for: its own most
@@ -938,6 +1191,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       c,
       agent: a,
       el,
+      fig,
+      sealEl: seal,
       label,
       labelW: 0,
       ribbon: null,
@@ -951,8 +1206,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       pose: "speak",
       want: c.acts.think.pose,
       swap: null,
+      nudge: null,
       shownAt: 0,
       beat0: 0,
+      upAt: 0,
       cuts: [],
       storm: false,
       lean: null,
@@ -962,8 +1219,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       ending: null,
       seg: null,
       sealed: false,
-      dim: false,
-      crack: false,
+      dim: 0,
+      crack: 0,
+      vis: null,
       out: {},
     };
     god.want = poseFor(god);
@@ -1013,24 +1271,44 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     if (working(god)) cue(god, t);
   }
 
-  // One cut on the clock for a god at work in a pose it no longer wants: at the
-  // first of its own beats once the pose shown has had its dwell. Asked again,
-  // it is replaced: the latest want wins, and what came and went in between is
-  // never shown.
-  function cue(god: God, t: number): void {
+  // How far off the floor a pose is held at its work: the one who flies, at her look.
+  const liftOf = (god: God): number =>
+    (god.c.lift as Readonly<Partial<Record<Pose, number>>>)[god.pose] ?? 0;
+
+  function uncue(god: God): void {
     sim.cancel(god.swap);
+    sim.cancel(god.nudge);
     god.swap = null;
+    god.nudge = null;
+  }
+
+  // One cut on the clock for a god at work in a pose it no longer wants: at the
+  // first of its own beats once the pose shown has had its dwell, and the one
+  // who flies has had time to come down. Asked again, it is replaced: the
+  // latest want wins, and what came and went in between is never shown.
+  function cue(god: God, t: number): void {
+    const down = liftOf(god) && !reduced() ? HOVER_DOWN : 0;
+    // Already coming down for a cut: it falls when it was set to, and takes what is wanted then.
+    if (god.swap && down && t >= god.swap.t - down) return;
+    uncue(god);
     if (god.want === god.pose) return;
-    const from = Math.max(t, god.shownAt + dwell(god, t));
+    const from = Math.max(t + down, god.shownAt + dwell(god, t));
     const step = god.c.step;
     const at = god.beat0 + Math.ceil((from - god.beat0 - 1e-6) / step) * step;
     god.swap = sim.at(at, () => swap(god, at));
+    // The frames she comes down on begin here.
+    if (down) god.nudge = sim.at(at - down, () => {});
   }
 
   // The cut: the pose is whatever the record asks for at this moment.
   function swap(god: God, t: number): void {
     god.swap = null;
-    if (!working(god) || god.want === god.pose) return;
+    god.nudge = null;
+    if (!working(god)) return;
+    if (god.want === god.pose) {
+      god.upAt = t; // not after all: she was down for the cut, and rises again
+      return;
+    }
     calm(god, t);
     show(god, god.want, t);
     god.cuts.push(t);
@@ -1041,27 +1319,34 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   function show(god: God, pose: Skill, t: number): void {
     god.pose = pose;
     god.shownAt = t;
+    god.upAt = t;
     const scales = god.c.acts.think.verdict;
     if (scales && (pose === scales.confirmed || pose === scales.dropped)) god.lean = pose;
   }
 
-  // The one who flies is up while her pose is shown at her place.
-  function liftOf(god: God): number {
-    const lifts: Readonly<Partial<Record<Pose, number>>> = god.c.lift;
-    return working(god) ? (lifts[god.pose] ?? 0) : 0;
+  // How far off the floor the one who flies is at her work: up as her pose
+  // cuts in, and down again in time for the cut that is coming. Under reduced
+  // motion she is simply up.
+  function aloft(god: God, now: number): number {
+    const lift = working(god) ? liftOf(god) : 0;
+    if (!lift || reduced()) return lift;
+    let h = lift * outCubic(clamp01((now - god.upAt) / HOVER_UP));
+    if (god.swap) h *= 1 - smooth((now - (god.swap.t - HOVER_DOWN)) / HOVER_DOWN);
+    return h;
   }
 
   // At its place: it starts its work, in the pose its record asks for now, and
   // facing the middle. Its beat and its dwell count from here.
   function work(god: God, t: number): void {
+    halt(god, t);
     const seat = god.seat!;
     // Not into a line held out across its place: it waits for that to be furled.
     const held = ribbons(god);
     god.pose = "stand";
     if (held.length && reach(god, seat).some((b) => held.some((q) => grazes(q, b))))
-      return wait(god, t, (t2) => (god.ending ? ending(god, t2) : work(god, t2)));
+      return wait(god, t, (t2) => (god.ending ? outro(god, t2) : toSeat(god, t2, true)));
     god.x = seat;
-    god.dir = god.face;
+    god.dir = god.face; // it walked facing where it went; at its work it faces the middle
     show(god, god.want, t);
     god.beat0 = t;
     god.cuts.length = 0;
@@ -1069,40 +1354,94 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     enter(god, "work", t, Infinity);
   }
 
+  // It leaves its work, to step aside or for its ending: the cut that was
+  // coming is dropped, and the one who flies comes down first. Then it stands.
+  function quit(god: God, t: number, then: (t: number) => void): void {
+    const h = aloft(god, t);
+    uncue(god);
+    if (h > 0 && !reduced()) return void enter(god, "alight", t, HOVER_DOWN, { h, then });
+    god.pose = "stand";
+    then(t);
+  }
+
+  // Where a walk has got to becomes where the god is; a step that follows sets its own facing.
+  function halt(god: God, t: number): void {
+    const s = god.seg;
+    if (s?.kind !== "walk" || s.halted) return;
+    god.x = walkX(s, t);
+    god.dir = Math.sign(s.x1! - s.x0!) || god.dir;
+    s.halted = true;
+  }
+
   // A step of a god's turn. Whatever it was doing is over: a cut that was
   // coming is dropped, so neither an ending nor a step aside waits for a dwell.
-  function enter(god: God, kind: Seg["kind"], t: number, dur: number, then?: Seg["then"]): void {
-    sim.cancel(god.swap);
-    god.swap = null;
-    if (god.seg?.timer) sim.cancel(god.seg.timer);
-    const seg: Seg = { kind, t1: t + dur, then };
+  function enter(
+    god: God,
+    kind: Seg["kind"],
+    t: number,
+    dur: number,
+    extra: Partial<Seg> = {},
+  ): Seg {
+    halt(god, t);
+    uncue(god);
+    sim.cancel(god.seg?.timer);
+    sim.cancel(god.seg?.nudge);
+    const seg: Seg = { kind, t0: t, t1: t + dur, ...extra };
     god.seg = seg;
     if (Number.isFinite(seg.t1)) {
       seg.timer = sim.at(seg.t1, () => {
         if (god.seg === seg && !god.gone) next(god, seg);
       });
     }
+    return seg;
   }
 
   function next(god: God, seg: Seg): void {
     const t = seg.t1;
     switch (seg.kind) {
+      case "appear":
+        return god.ending ? outro(god, t) : speak(god, t, "greet");
       case "greet":
         unsay(god);
-        return god.ending ? ending(god, t) : work(god, t);
+        return god.ending ? outro(god, t) : toSeat(god, t);
+      case "walk":
+        halt(god, t);
+        god.pose = "stand";
+        if (seg.glanceTo != null)
+          return void enter(god, "glance", t, GLANCE, { to: seg.glanceTo, purpose: seg.purpose });
+        if (seg.purpose === "leave") return depart(god, t);
+        return god.ending ? outro(god, t) : toSeat(god, t);
+      case "glance":
+        if (seg.purpose === "leave") return walk(god, t, seg.to!, "leave", true);
+        return god.ending ? outro(god, t) : toSeat(god, t, true);
+      case "alight":
+        god.pose = "stand";
+        return seg.then?.(t);
       case "report":
         unsay(god);
         god.pose = "stand";
-        god.sealed = true;
-        return enter(god, "seal", t, SEALED);
+        return seal(god, t);
       case "seal":
+        god.sealed = true;
+        return leave(god, t);
       case "fail":
+        god.dim = 1;
+        god.crack = god.ending === "fail" ? 1 : 0;
+        return depart(god, t);
+      case "fade":
         return remove(god, t);
       case "hold":
         return seg.then?.(t);
       default:
         return undefined;
     }
+  }
+
+  // It stands while the seal is pressed on its scroll; under reduced motion the seal is simply on.
+  function seal(god: God, t: number): void {
+    const quiet = reduced();
+    if (quiet) god.sealed = true;
+    enter(god, "seal", t, quiet ? SEALED_STILL : SEALED);
   }
 
   function land(god: God, t: number, at: Entry): void {
@@ -1112,19 +1451,23 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     god.waiting = null;
     god.rib = at.r; // the room for its greeting is kept for it
     god.dir = at.r ? at.r.side : facing(at.x);
+    god.pose = "speak";
     godsEl.append(god.el);
     namesEl.append(god.label);
     god.labelW = measure(god.label);
     roveFix();
-    speak(god, t, "greet");
+    // It shows as it is set, and then greets; under reduced motion it is there, greeting.
+    if (reduced()) return speak(god, t, "greet");
+    enter(god, "appear", t, FADE);
   }
 
   function speak(god: God, t: number, kind: Saying): void {
+    halt(god, t);
     const x = god.x;
     const report = kind === "report";
     // Ended while it waited for room to greet: it has nothing to say now.
     if (!report && god.ending) return ending(god, t);
-    const near = around(god);
+    const near = around(god, t);
     const fits = (text: string): Rib | null => placeRibbon(god, x, text, near);
     let r: Rib | null;
     if (report) r = pickLine("farewell", god, fits)?.r ?? null;
@@ -1149,9 +1492,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       // No room came: it goes on without a word.
       god.waiting = null;
       god.line = null;
-      if (!report) return god.ending ? ending(god, t) : work(god, t);
-      god.sealed = true;
-      return enter(god, "seal", t, SEALED);
+      if (!report) return god.ending ? ending(god, t) : toSeat(god, t);
+      return seal(god, t);
     }
     god.waiting = null;
     god.rib = r;
@@ -1163,11 +1505,18 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     else el.style.right = `${(CAST.cell.w - (AXIS - hx) - 2).toFixed(1)}px`;
     el.style.top = `${(hy - 9.5 - r.lift).toFixed(1)}px`;
     el.style.transform = `rotate(${-r.side * TILT}deg)`;
+    // It unrolls from the hand, is held whole, and is furled; under reduced motion it shows whole.
+    const quiet = reduced();
+    el.style.setProperty("--oly-u", quiet ? "1" : "0");
     god.el.append(el);
     god.ribbon = el;
+    god.out.u = null;
     god.said = r.text;
     god.line = null;
-    enter(god, report ? "report" : "greet", t, SAID);
+    const dur = quiet ? SAID : UNFURL + SAY + FURL;
+    const seg = enter(god, report ? "report" : "greet", t, dur);
+    // The frames it is furled on begin here.
+    if (!quiet) seg.nudge = sim.at(t + dur - FURL, () => {});
   }
 
   function unsay(god: God): void {
@@ -1190,31 +1539,128 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     return true;
   }
 
-  // No room yet: it stays as it is and looks again in a moment.
+  // No room yet, for a line or a walk: it stays as it is and looks again in a moment.
   function wait(god: God, t: number, then: (t: number) => void): void {
-    enter(god, "hold", t, HOLD, then);
+    enter(god, "hold", t, HOLD, { then });
   }
 
-  // A god moved over to make room: at its place, it is there at once.
+  // It glides to where it is going, in steps of stride and stand. An ambler or
+  // a watchman may stop partway, a whole number of steps in, to look round.
+  function walk(
+    god: God,
+    t: number,
+    to: number,
+    purpose: "seat" | "leave",
+    glanced: boolean,
+  ): void {
+    halt(god, t);
+    const from = god.x;
+    // Not into a line being said, or kept for one: it waits until that is furled.
+    if (ribbons(god).some((q) => across(q, way(god, from, to))))
+      return wait(god, t, (t2) =>
+        purpose === "leave"
+          ? leave(god, t2)
+          : god.ending
+            ? outro(god, t2)
+            : toSeat(god, t2, glanced),
+      );
+    const { speed, pause, ease } = god.c.move;
+    const dist = Math.abs(to - from);
+    const stride = (speed * god.c.step) / 1000;
+    let x1 = to;
+    let glanceTo: number | null = null;
+    if (!glanced && pause > 0 && dist > stride * 3 && random() < pause) {
+      const steps = 1 + Math.floor(random() * (Math.floor(dist / stride) - 1));
+      x1 = from + Math.sign(to - from) * steps * stride;
+      glanceTo = to;
+    }
+    god.dir = Math.sign(x1 - from) || god.dir;
+    // To the ms: every step of a run falls on a whole one.
+    enter(god, "walk", t, Math.round((Math.abs(x1 - from) / speed) * 1000), {
+      x0: from,
+      x1,
+      ease: EASE[ease],
+      purpose,
+      glanceTo,
+    });
+  }
+
+  // To its place, and to work there. Under reduced motion it is in its place at once.
+  function toSeat(god: God, t: number, glanced = false): void {
+    halt(god, t);
+    if (reduced() || Math.abs(god.seat! - god.x) < 1.5) return work(god, t);
+    walk(god, t, god.seat!, "seat", glanced);
+  }
+
+  // A god moved over to make room: it leaves its work and goes when it can.
   function reseat(god: God, seat: number, t: number): void {
     god.seat = seat;
-    if (god.landed && !god.ending && working(god)) work(god, t);
+    const s = god.seg;
+    if (!s || !god.landed || god.ending) return;
+    if (s.kind === "work")
+      quit(god, t, (t2) => (god.ending ? outro(god, t2) : toSeat(god, t2, true)));
+    else if (s.kind === "walk" && s.purpose === "seat") walk(god, t, seat, "seat", true);
   }
 
-  // Done, it says its farewell; failed or stopped, it stands dimmed.
+  // Its ending, from its work: the one who flies comes down first.
+  function outro(god: God, t: number): void {
+    if (working(god)) return quit(god, t, (t2) => ending(god, t2));
+    ending(god, t);
+  }
+
+  // Done, it says its farewell; failed or stopped, it stands and dims.
   function ending(god: God, t: number): void {
     if (god.ending === "done") return speak(god, t, "report");
+    halt(god, t);
     unsay(god);
     god.pose = "stand";
-    god.dim = true;
-    god.crack = god.ending === "fail";
+    if (reduced()) {
+      god.dim = 1;
+      god.crack = god.ending === "fail" ? 1 : 0;
+    }
     enter(god, "fail", t, FAIL_HOLD);
+  }
+
+  // Where a god walks off to: a few strides toward the nearer end of the lane,
+  // if there is room, else the other way. Null if it is hemmed in.
+  function exitFor(god: God, t: number): number | null {
+    const [lo, hi] = body(god, t);
+    const half = (hi - lo) / 2;
+    let wallL = edgeL - half;
+    let wallR = edgeR + half;
+    for (const [a, b] of claims(god, t)) {
+      if (b <= lo + 2) wallL = Math.max(wallL, b + 26);
+      else if (a >= hi - 2) wallR = Math.min(wallR, a - 26);
+    }
+    const room = (dir: number): number => (dir < 0 ? lo - wallL : wallR - hi);
+    const stride = (god.c.move.speed * god.c.step) / 1000;
+    const near = (lo + hi) / 2 < W / 2 ? -1 : 1;
+    const dir = room(near) >= stride ? near : room(-near) >= stride * 1.5 ? -near : 0;
+    if (!dir) return null;
+    return god.x + dir * Math.min(stride * (3 + Math.floor(random() * 2)), room(dir));
+  }
+
+  // Sealed: its place is free for whoever comes next, and it walks off.
+  function leave(god: God, t: number): void {
+    god.seat = null;
+    const to = reduced() ? null : exitFor(god, t);
+    if (to === null) return depart(god, t);
+    walk(god, t, to, "leave", false);
+  }
+
+  // It goes, where it stands: by a fade, or at once under reduced motion.
+  function depart(god: God, t: number): void {
+    halt(god, t);
+    god.seat = null;
+    if (reduced()) return remove(god, t);
+    enter(god, "fade", t, FADE);
   }
 
   function remove(god: God, t: number): void {
     god.gone = true;
-    if (god.seg?.timer) sim.cancel(god.seg.timer);
-    sim.cancel(god.swap);
+    sim.cancel(god.seg?.timer);
+    sim.cancel(god.seg?.nudge);
+    uncue(god);
     god.seat = null;
     refocus(god);
     god.el.remove();
@@ -1241,7 +1687,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     god.ending = kind;
     // Finished before it ever landed: it never comes out.
     if (!god.landed) return remove(god, t);
-    if (working(god)) ending(god, t);
+    if (working(god)) outro(god, t);
     // anything else it finishes first; next() sees the ending
   }
 
@@ -1295,7 +1741,7 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
 
   // ───────── landing ─────────
   function scheduleLanding(t: number, from = t): void {
-    if (landTimer || !queue.length || !open) return;
+    if (landTimer || !queue.length || !landable()) return;
     landTimer = sim.at(Math.max(from, readyAt, nextLandAt), () => {
       landTimer = null;
       landNext(sim.now());
@@ -1304,8 +1750,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
 
   function landNext(t: number): void {
     const god = queue[0];
-    if (!god || !open) return;
-    const at = planSeat(god, t) ? entryFor(god) : null;
+    if (!god || !landable()) return;
+    const at = planSeat(god, t) ? entryFor(god, t) : null;
     if (!at) return scheduleLanding(t, t + RETRY);
     queue.shift();
     nextLandAt = t + LAND_GAP;
@@ -1320,34 +1766,139 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     write(value);
   }
 
-  function renderGod(god: God): void {
+  // A god at `now`: its step, and how far into it the time is.
+  function sample(god: God, now: number): Vis {
+    const s = god.seg;
+    const u = s ? now - s.t0 : 0;
+    const quiet = reduced();
+    const v: Vis = {
+      x: god.x,
+      y: 0,
+      dir: god.dir,
+      pose: god.pose,
+      fig: 1,
+      name: 1,
+      rib: 1,
+      dim: god.dim,
+      crack: god.crack,
+      sealed: god.sealed,
+      press: 1,
+      moving: false,
+    };
+    switch (s?.kind) {
+      case "appear":
+        v.fig = v.name = clamp01(u / FADE);
+        v.moving = true;
+        break;
+      case "greet":
+      case "report":
+        if (quiet) break;
+        v.rib = u < UNFURL ? outCubic(clamp01(u / UNFURL)) : clamp01((s.t1 - now) / FURL);
+        v.moving = u < UNFURL || now >= s.t1 - FURL;
+        break;
+      case "walk": {
+        if (s.halted) break;
+        const { bob, lift } = god.c.move;
+        v.x = walkX(s, now);
+        v.dir = Math.sign(s.x1! - s.x0!) || god.dir;
+        v.pose = Math.floor(u / god.c.step) % 2 === 0 ? "stride" : "stand";
+        if (bob && v.pose === "stride") v.y = bob; // a heavy tread dips on its footfall
+        if (lift) {
+          // The one who flies skims the floor, and settles as she lands.
+          const k = clamp01(u / Math.max(1, s.t1 - s.t0));
+          v.y = -lift * clamp01(u / 140) * (k > 0.7 ? 1 - outCubic((k - 0.7) / 0.3) : 1);
+        }
+        v.moving = true;
+        break;
+      }
+      case "glance":
+        v.pose = "stand";
+        if (u > 220 && u < GLANCE - 260) v.dir = -god.dir;
+        v.moving = true;
+        break;
+      case "work": {
+        const lift = liftOf(god);
+        v.y = -aloft(god, now);
+        v.moving =
+          lift > 0 &&
+          !quiet &&
+          (now < god.upAt + HOVER_UP || (god.swap !== null && now >= god.swap.t - HOVER_DOWN));
+        break;
+      }
+      case "alight":
+        v.y = -s.h! * (1 - smooth(u / HOVER_DOWN));
+        v.moving = true;
+        break;
+      case "seal":
+        if (quiet) break;
+        v.sealed = god.sealed || u >= SEAL_AT;
+        v.press = 1 + 0.7 * (1 - clamp01((u - SEAL_AT) / PRESS));
+        v.moving = u < SEAL_AT + PRESS;
+        break;
+      case "fail":
+        if (quiet) break;
+        v.dim = Math.max(god.dim, clamp01((u - DIM_AT) / DIM));
+        if (god.ending === "fail") v.crack = Math.max(god.crack, clamp01((u - DIM_AT) / CRACK));
+        v.moving = u < DIM_AT + DIM;
+        break;
+      case "fade":
+        v.fig = v.name = 1 - clamp01(u / FADE);
+        v.moving = true;
+        break;
+      default:
+    }
+    if (v.y === 0) v.y = 0; // never -0
+    return v;
+  }
+
+  // An amount from 0 to 1 as a custom property: none at 1, where the stylesheet's own figure stands.
+  function amount(el: HTMLElement, name: string, k: number): void {
+    if (k > 0 && k < 1) el.style.setProperty(name, k.toFixed(3));
+    else el.style.removeProperty(name);
+  }
+
+  // One god's frame. Whether the next will draw it otherwise.
+  function renderGod(god: God, now: number): boolean {
+    const v = sample(god, now);
+    god.vis = v;
     const el = god.el;
-    const lift = liftOf(god);
-    const up = lift ? `${-lift}px` : "0";
+    const up = v.y ? `${Number(v.y.toFixed(2))}px` : "0";
+    put(god, "tx", `translate3d(${v.x.toFixed(2)}px, ${up}, 0)`, (tx) => (el.style.transform = tx));
+    put(god, "dir", v.dir < 0, (left) => el.classList.toggle("is-left", left));
+    put(god, "pose", v.pose, (pose) => (el.dataset.pose = pose));
+    put(god, "fig", v.fig, (k) => (god.fig.style.opacity = k === 1 ? "" : k.toFixed(3)));
+    put(god, "sealed", v.sealed, (on) => el.classList.toggle("is-sealed", on));
     put(
       god,
-      "tx",
-      `translate3d(${god.x.toFixed(2)}px, ${up}, 0)`,
-      (tx) => (el.style.transform = tx),
+      "press",
+      v.press,
+      (k) => (god.sealEl.style.transform = k === 1 ? "" : `scale(${k.toFixed(3)})`),
     );
-    put(god, "dir", god.dir < 0, (left) => el.classList.toggle("is-left", left));
-    put(god, "pose", god.pose, (pose) => (el.dataset.pose = pose));
-    put(god, "sealed", god.sealed, (on) => el.classList.toggle("is-sealed", on));
     put(god, "speaking", god.ribbon !== null, (on) => el.classList.toggle("is-speaking", on));
-    put(god, "dim", god.dim, (on) => el.classList.toggle("is-dim", on));
-    put(god, "crack", god.crack, (on) => el.classList.toggle("is-cracked", on));
+    put(god, "dim", v.dim, (k) => {
+      el.classList.toggle("is-dim", k > 0);
+      amount(el, "--oly-dim", k);
+    });
+    put(god, "crack", v.crack, (k) => {
+      el.classList.toggle("is-cracked", k > 0);
+      amount(el, "--oly-crack", k);
+    });
+    const ribbon = god.ribbon;
+    if (ribbon) put(god, "u", v.rib.toFixed(3), (u) => ribbon.style.setProperty("--oly-u", u));
+    return v.moving;
   }
 
   // The names on the stylobate, under their gods, kept apart and inside the step.
   function renderNames(): void {
-    const list: { god: God; c: number; w: number }[] = [];
+    const list: { god: God; c: number; w: number; a: number }[] = [];
     for (const god of gods.values()) {
-      if (!out(god)) continue;
+      const v = god.vis;
+      if (!out(god) || !v) continue;
       // At its place its name stays where its standing name is, as it faces there.
-      const at = working(god);
-      const [a, b] = fpOf(god, at ? "stand" : god.pose);
-      const middle = (at ? god.face : god.dir) > 0 ? (a + b) / 2 : AXIS - (a + b) / 2;
-      list.push({ god, c: god.x + middle, w: god.labelW });
+      const at = seated(god);
+      const [a, b] = fpOf(god, at ? "stand" : v.pose);
+      const middle = (at ? god.face : v.dir) > 0 ? (a + b) / 2 : AXIS - (a + b) / 2;
+      list.push({ god, c: v.x + middle, w: god.labelW, a: v.name });
     }
     list.sort((p, q) => p.c - q.c);
     for (let pass = 0; pass < 3; pass++) {
@@ -1363,13 +1914,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       }
       for (const n of list) n.c = clamp(n.c, n.w / 2 + 14, W - n.w / 2 - 14);
     }
-    for (const n of list)
+    for (const n of list) {
+      const label = n.god.label;
       put(
         n.god,
         "name",
         `translate3d(${(n.c - n.w / 2).toFixed(2)}px, 0, 0)`,
-        (tx) => (n.god.label.style.transform = tx),
+        (tx) => (label.style.transform = tx),
       );
+      put(n.god, "nameA", n.a, (k) => (label.style.opacity = k === 1 ? "" : k.toFixed(3)));
+    }
   }
 
   // ───────── the card ─────────
@@ -1386,16 +1940,24 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     opts.onCard?.(null);
   }
 
-  // Where it stands: its left a little before its god's head line, inside the
-  // lane; its foot over the highest the god reaches at its work, or over the
-  // pose it shows; its caret at the head line, on the card's straight edge.
+  // Where it stands, by its god as last drawn: its left a little before the
+  // god's head line, inside the lane; its foot over the highest the god
+  // reaches at its work, over its standing top while it walks, or over the pose
+  // it shows; its caret at the head line, on the card's straight edge. It is
+  // down once its god begins to go.
   function placeCard(): void {
     const key = cardFor();
     const god = key === null ? undefined : gods.get(key);
-    if (!god || !out(god) || !open) return hideCard();
-    const head = god.x + HEAD;
+    const kind = god?.seg?.kind;
+    if (!god || !out(god) || mode !== "open" || kind === "fade") return hideCard();
+    const v = god.vis;
+    const head = (v?.x ?? god.x) + HEAD;
     const left = clamp(head - 30, 6, W - 6 - TIP_W);
-    const top = working(god) ? god.c.card : (god.c.top[god.pose] ?? god.c.top.stand);
+    const top = seated(god)
+      ? god.c.card // and while the one who flies comes down from it
+      : kind === "walk" || kind === "glance"
+        ? god.c.top.stand - god.c.move.lift
+        : (god.c.top[v?.pose ?? god.pose] ?? god.c.top.stand) + (v?.y ?? 0);
     const foot = CELL_Y + top - CARD_AIR;
     const caret = clamp(head - left, CARET_IN, TIP_W - CARET_IN);
     const was = shown;
@@ -1450,8 +2012,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   card?.addEventListener("pointerleave", onCardLeave);
 
   // ───────── the keyboard: the gods are one toolbar, its one tab stop on one of them ─────────
-  // In floor order: along the lane, left to right.
-  const items = (): God[] => [...gods.values()].filter(out).sort((a, b) => a.x - b.x);
+  // In floor order: along the lane, left to right, each where it was last drawn.
+  const drawnX = (god: God): number => god.vis?.x ?? god.x;
+  const items = (): God[] => [...gods.values()].filter(out).sort((a, b) => drawnX(a) - drawnX(b));
   const godAt = (node: EventTarget | null): God | undefined =>
     node instanceof Node ? [...gods.values()].find((g) => g.el.contains(node)) : undefined;
 
@@ -1478,7 +2041,8 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   // from the last to the composer. Focus anywhere else is left where it is.
   function refocus(god: God): void {
     if (!god.el.contains(document.activeElement)) return;
-    const near = items().sort((a, b) => Math.abs(a.x - god.x) - Math.abs(b.x - god.x))[0];
+    const x = drawnX(god);
+    const near = items().sort((a, b) => Math.abs(drawnX(a) - x) - Math.abs(drawnX(b) - x))[0];
     if (near) {
       roveTo(near.el);
       near.el.focus({ preventScroll: true });
@@ -1553,12 +2117,16 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
   document.addEventListener("pointerdown", onPointerDown, true);
   roveFix();
 
-  sim.view(() => {
+  // A frame: the lane, every god and its name from the time alone, then the
+  // card. Moving while the lane or a god will be drawn otherwise next frame;
+  // the card never keeps the clock awake.
+  sim.view((now) => {
     if (disposed) return false;
-    for (const god of gods.values()) if (out(god)) renderGod(god);
+    let moving = renderLane(now);
+    for (const god of gods.values()) if (out(god)) moving = renderGod(god, now) || moving;
     renderNames();
     attend();
-    return false; // stills: nothing moves between one step and the next
+    return moving;
   });
 
   function reconcile(agents: readonly LaneAgent[]): void {
@@ -1598,8 +2166,9 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
     resize() {
       if (disposed) return;
       sim.soon(() => {
-        if (!open || !measureLane()) return;
-        // Everyone keeps its order and its facing, and takes the nearest place there is room for.
+        if (mode === "shut" || !measureLane()) return;
+        // Everyone keeps its order and its facing, and takes the nearest place
+        // there is room for: whoever is at its work walks there.
         const t = sim.now();
         const all = byseat().map((g) => ({ g, x: clamp(g.seat, seatMin(g), seatMax(g)) }));
         const seats = spread(all, new Set()) ?? all.map((o) => o.x);
@@ -1616,39 +2185,50 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
         }
       });
     },
-    peek: () => ({
-      open,
-      width: W,
-      queue: queue.map((g) => g.key),
-      waiting: pool.map((g) => g.key),
-      gods: [...gods.values()].filter(out).map((g) => {
-        const [a, b] = envOf(g);
-        return {
-          key: g.key,
-          god: g.gid,
-          x: g.x,
-          figure: span(g, g.x, g.pose, g.dir),
-          place: g.seat == null ? null : ([g.seat + a, g.seat + b] as const),
-          face: g.face,
-          pose: g.pose,
-          want: g.want,
-          lift: liftOf(g),
-          step: g.seg?.kind ?? "",
-          line: g.ribbon ? g.said : null,
-          ribbon: g.ribbon && g.rib ? ([g.rib.x0, g.rib.x1] as const) : null,
-          ending: g.ending,
-        };
-      }),
-      card: shown,
-    }),
+    peek: () => {
+      const now = sim.now();
+      return {
+        open: mode !== "shut",
+        lane: { mode, height: laneAt(now) },
+        width: W,
+        queue: queue.map((g) => g.key),
+        waiting: pool.map((g) => g.key),
+        gods: [...gods.values()].filter(out).map((g) => {
+          const [a, b] = envOf(g);
+          const v = sample(g, now);
+          return {
+            key: g.key,
+            god: g.gid,
+            x: v.x,
+            figure: span(g, v.x, v.pose, v.dir),
+            place: g.seat == null ? null : ([g.seat + a, g.seat + b] as const),
+            face: g.face,
+            dir: v.dir,
+            pose: v.pose,
+            want: g.want,
+            lift: v.y ? -v.y : 0,
+            shown: v.fig,
+            unrolled: g.ribbon ? v.rib : null,
+            press: v.press,
+            dim: v.dim,
+            step: g.seg?.kind ?? "",
+            line: g.ribbon ? g.said : null,
+            ribbon: g.ribbon && g.rib ? ([g.rib.x0, g.rib.x1] as const) : null,
+            ending: g.ending,
+          };
+        }),
+        card: shown,
+      };
+    },
     dispose() {
       if (disposed) return;
       const focused = godsEl.contains(document.activeElement);
       disposed = true;
       for (const god of gods.values()) {
         god.gone = true;
-        if (god.seg?.timer) sim.cancel(god.seg.timer);
-        sim.cancel(god.swap);
+        sim.cancel(god.seg?.timer);
+        sim.cancel(god.seg?.nudge);
+        uncue(god);
         god.el.remove();
         god.label.remove();
       }
@@ -1660,7 +2240,10 @@ export function createFloor(lane: HTMLElement, opts: FloorOptions): Floor {
       sim.cancel(landTimer);
       landTimer = null;
       preload.length = 0;
-      shut();
+      mode = "shut";
+      reopen = false;
+      lane.classList.add("is-shut");
+      setHeight(null);
       // The card and the keyboard go with it; focus on a god goes to the composer.
       stay();
       overKey = hoverKey = focusKey = dismissed = null;

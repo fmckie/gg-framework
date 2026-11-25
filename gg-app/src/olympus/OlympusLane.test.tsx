@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   agentsAt,
-  manualHost,
+  framedHost,
+  type ManualHost,
   MOCK_EXTRAS,
   MOCK_RUN,
   MOCK_SKILLS,
@@ -23,11 +24,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** A lane on a clock that moves only when told to. */
-function staged(
-  seed = 7,
-): LaneStage & { host: ReturnType<typeof manualHost>; floors: (Floor | null)[] } {
-  const host = manualHost();
+/** A lane on a clock that moves only when told to, and draws a frame for the moment each advance ends on. */
+function staged(seed = 7): LaneStage & { host: ManualHost; floors: (Floor | null)[] } {
+  const host = framedHost();
   const floors: (Floor | null)[] = [];
   return {
     host,
@@ -39,6 +38,8 @@ function staged(
   };
 }
 
+/** Long enough for one god to land, greet and walk to its place, and for a second after it. */
+const AT_WORK = 9000;
 const run = (ms: number): LaneGroup[] => [{ agents: agentsAt(MOCK_RUN, ms) }];
 const gods = (container: HTMLElement): (string | undefined)[] =>
   [...container.querySelectorAll<HTMLElement>(".oly-cell")].map((cell) => cell.dataset.god);
@@ -162,7 +163,8 @@ describe("the lane", () => {
     const { container } = render(<OlympusLane groups={run(600)} stage={stage} />);
     stage.host.advance(0);
     expect(container.querySelector(".oly-lane")!.classList.contains("is-shut")).toBe(false);
-    stage.host.advance(500 + 3 * 850 + 400);
+    // One at a time, 850ms apart or as soon after as there is room to set the next.
+    for (let ms = 0; ms < 8000 && gods(container).length < 4; ms += 50) stage.host.advance(50);
     expect(gods(container)).toEqual(["athena", "hephaestus", "argus", "nike"]);
     expect([...container.querySelectorAll(".oly-ins")].map((name) => name.textContent)).toEqual([
       "Athena",
@@ -217,13 +219,15 @@ describe("the lane", () => {
     step(12_900);
     expect(gods(view.container)).toEqual(["athena", "hephaestus", "argus", "nike"]);
     expect([...seen].filter((what) => / is-/.test(what))).toEqual([]);
-    step(20_100); // the owl and the bee have finished and gone; the others work on
-    expect(gods(view.container)).toEqual(["argus", "nike"]);
+    step(18_000); // the owl has finished: its god sealed its scroll, walked off and went
+    expect(gods(view.container)).toEqual(["hephaestus", "argus", "nike"]);
     expect(seen).toContain("athena is-sealed");
+    step(21_500); // the bee's god is sealed and on its way; the agent with no name failed 20.14s after it was sent
     expect(seen).toContain("hephaestus is-sealed");
-    step(20_700); // the agent with no name has failed, 20.14s after it was sent
     expect(lane.querySelector('.oly-cell[data-god="nike"]')!.className).toContain("is-cracked");
-    step(32_000);
+    step(26_000); // both have gone, and the auditor works on
+    expect(gods(view.container)).toEqual(["argus"]);
+    step(36_000);
     expect(gods(view.container)).toEqual([]);
     expect(lane.classList.contains("is-shut")).toBe(true);
     expect(seen).toContain("argus is-sealed");
@@ -250,7 +254,9 @@ describe("the lane", () => {
         view.rerender(<OlympusLane groups={at(ms)} stage={stage} />);
         stage.host.advance(100);
         const pose = view.container.querySelector<HTMLElement>(".oly-cell")?.dataset.pose;
-        if (pose && pose !== "speak" && pose !== seen[seen.length - 1]) seen.push(pose);
+        // Its greeting and its walk to its place aside.
+        if (!pose || ["speak", "stride", "stand"].includes(pose)) continue;
+        if (pose !== seen[seen.length - 1]) seen.push(pose);
       }
       view.unmount();
       return seen;
@@ -270,16 +276,23 @@ describe("the lane", () => {
   it("a stopped run: finished agents' gods have gone, the rest dim without a crack", () => {
     const stage = staged();
     const view = render(<OlympusLane groups={run(600)} stage={stage} />);
-    stage.host.advance(8000);
+    stage.host.advance(10_000); // all four at their work
     view.rerender(
-      <OlympusLane groups={[{ agents: agentsAt(MOCK_RUN, 9000), aborted: true }]} stage={stage} />,
+      <OlympusLane
+        groups={[{ agents: agentsAt(MOCK_RUN, 10_600), aborted: true }]}
+        stage={stage}
+      />,
     );
     stage.host.advance(0);
     const cells = [...view.container.querySelectorAll(".oly-cell")];
     expect(cells).toHaveLength(4);
+    expect(cells.some((cell) => cell.classList.contains("is-dim"))).toBe(false); // they stand a moment
+    stage.host.advance(1200);
     expect(cells.every((cell) => cell.classList.contains("is-dim"))).toBe(true);
     expect(cells.some((cell) => cell.classList.contains("is-cracked"))).toBe(false);
-    stage.host.advance(3600);
+    stage.host.advance(1800 + 240); // 3s in all, and they go
+    expect(view.container.querySelectorAll(".oly-cell")).toHaveLength(0);
+    stage.host.advance(600 + 360);
     expect(view.container.querySelector(".oly-lane")!.classList.contains("is-shut")).toBe(true);
   });
 
@@ -327,35 +340,40 @@ describe("reduced motion", () => {
     return { frames: frames.join("\n"), asked: matchMedia.mock.calls.length };
   }
 
-  it("holds each pose twice as long with the setting on, and nothing else differs", () => {
+  it("with the setting on nothing travels, and each pose is held twice as long; with it off the lane moves", () => {
     const off = play(false);
     const on = play(true);
     expect(off.frames).toContain("oly-ribbon");
-    // The engine asks the window, each time it works out a dwell.
+    expect(on.frames).toContain("oly-ribbon");
+    // The engine asks the window, each time it has something to decide.
     expect(off.asked).toBeGreaterThan(0);
     expect(on.asked).toBeGreaterThan(0);
-    expect(on.frames).not.toBe(off.frames);
+    // Off: a walk, a god showing, a ribbon unrolling and the lane rising were all caught on the way.
+    expect(off.frames).toMatch(/data-pose="stride"/);
+    expect(off.frames).toMatch(/class="oly-fig" style="opacity: 0\.\d/);
+    expect(off.frames).toMatch(/--oly-u: 0\.\d*[1-9]/);
+    expect(off.frames).toMatch(/class="oly-lane" style="height: \d/);
+    // On: never. Every ribbon is whole, nothing is part shown, part dimmed or
+    // pressed, nobody strides, and the lane's height is never the engine's.
+    expect(on.frames).not.toMatch(
+      /data-pose="stride"|style="[^"]*(?:opacity|height|scale\(|--oly-dim|--oly-crack)/,
+    );
+    expect(new Set(on.frames.match(/--oly-u: [^;]*/g))).toEqual(new Set(["--oly-u: 1.000"]));
     // The bee edits, tests and edits again inside a second: Hephaestus is cut to
-    // his test run, and holds it twice as long before the cut back to his making.
+    // his test run, and holds it twice as long before the cut back to his
+    // making: in the frame the stills had it in.
     const first = (frames: string): number =>
       frames
         .split("\n")
         .findIndex((frame) => /data-god="hephaestus"[^>]*data-pose="make"/.test(frame));
-    expect(first(off.frames)).toBe(39); // 250ms a frame
-    expect(first(on.frames)).toBe(43);
-    // Which skill pose shows, and how high Nike is, aside: the same lane, frame for frame.
-    const still = (frames: string): string =>
-      frames
-        .replace(/data-pose="(?:look|web|make|run|think|think-l|think-r)"/g, 'data-pose="work"')
-        .replace(/px, -8px, 0\)/g, "px, 0, 0)");
-    expect(still(on.frames)).toBe(still(off.frames));
+    expect(first(on.frames)).toBe(43); // 250ms a frame
   });
 });
 
 describe("the lane's CSS", () => {
   const rules = laneCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
-  it("moves nothing, so it needs no reduced-motion rule", () => {
+  it("animates nothing itself: every move is the engine's, so it needs no reduced-motion rule", () => {
     expect(laneCss).not.toMatch(/animation|transition|@keyframes/);
     expect(laneCss).not.toMatch(/prefers-reduced-motion/);
     expect(rules).not.toMatch(/will-change/);
@@ -413,7 +431,7 @@ describe("the lane's CSS", () => {
   it("shows one pose at a time, by a cut", () => {
     expect(rules).toMatch(/\.oly-pose \{\n {2}display: block;\n {2}visibility: hidden;\n\}/);
     expect(rules).toContain(
-      '.oly-cell[data-pose="stand"] .oly-p-stand,\n.oly-cell[data-pose="speak"] .oly-p-speak {\n  visibility: visible;',
+      '.oly-cell[data-pose="stand"] .oly-p-stand,\n.oly-cell[data-pose="speak"] .oly-p-speak,\n.oly-cell[data-pose="stride"] .oly-p-stride {\n  visibility: visible;',
     );
   });
 
@@ -426,12 +444,52 @@ describe("the lane's CSS", () => {
     expect(rules).not.toMatch(/\.oly-p-[\w-]+[^{]*\{[^}]*(?:left|width|transform)/);
   });
 
-  it("dims a failed and a stopped god alike, and cracks only where the engine says", () => {
-    expect(rules).toMatch(
-      /\.oly-cell\.is-dim \.oly-poses \{\n {2}filter: grayscale\(0\.6\) brightness\(0\.74\) contrast\(0\.92\);/,
+  it("dims a failed and a stopped god alike, and cracks only where the engine says; how far, on the way, is the engine's", () => {
+    // All the way with nothing said: 0.6, 0.74 and 0.92, as the stills had it.
+    expect(rules).toContain(
+      ".oly-cell.is-dim .oly-poses {\n  filter: grayscale(calc(0.6 * var(--oly-dim, 1))) brightness(calc(1 - 0.26 * var(--oly-dim, 1)))\n    contrast(calc(1 - 0.08 * var(--oly-dim, 1)));\n}",
     );
-    expect(rules).toMatch(/\.oly-fissure \{\n {2}display: none;/);
+    expect(rules).toMatch(
+      /\.oly-fissure \{\n {2}display: none;[^}]*opacity: var\(--oly-crack, 1\);/,
+    );
     expect(rules).toMatch(/\.oly-cell\.is-cracked \.oly-fissure \{\n {2}display: block;/);
+  });
+
+  it("unrolls a ribbon as far as the engine says, behind its rolled end; whole with nothing said", () => {
+    expect(rules).toContain(
+      ".oly-ribbon.is-r {\n  transform-origin: 0 50%;\n  clip-path: inset(-6px calc((1 - var(--oly-u, 1)) * (100% - 5px)) -6px -6px);\n}",
+    );
+    expect(rules).toContain(
+      ".oly-ribbon.is-l {\n  transform-origin: 100% 50%;\n  clip-path: inset(-6px -6px -6px calc((1 - var(--oly-u, 1)) * (100% - 5px)));\n}",
+    );
+    // The roll rides the band's end, and is gone once the ribbon is whole.
+    expect(rules).toMatch(
+      /\.oly-roll \{[^}]*width: 5px;[^}]*opacity: clamp\(0, \(1 - var\(--oly-u, 1\)\) \* 14, 1\);/,
+    );
+    expect(rules).toContain(
+      ".oly-ribbon.is-r .oly-roll {\n  left: calc(var(--oly-u, 1) * (100% - 5px));\n}",
+    );
+    expect(rules).toContain(
+      ".oly-ribbon.is-l .oly-roll {\n  right: calc(var(--oly-u, 1) * (100% - 5px));\n}",
+    );
+  });
+
+  it("reads from the engine only what it is handed: a place for the seal and the card, and three amounts", () => {
+    const read = new Set([...rules.matchAll(/var\((--oly-[\w-]+)/g)].map((m) => m[1]!));
+    const own = new Set([...rules.matchAll(/^\s*(--oly-[\w-]+):/gm)].map((m) => m[1]!));
+    expect([...read].filter((name) => !own.has(name)).sort()).toEqual([
+      "--oly-caret",
+      "--oly-crack",
+      "--oly-dim",
+      "--oly-ex",
+      "--oly-ey",
+      "--oly-ty",
+      "--oly-u",
+    ]);
+    // The lane's height is the stylesheet's when it is open and when it is shut; between, the engine's.
+    expect(rules.match(/^\s*height: \d+px;/gm)).toEqual(
+      expect.arrayContaining(["  height: 125px;"]),
+    );
   });
 
   it("joins the lane to the activity line only while it is open, and only on the desktop", () => {
@@ -493,7 +551,7 @@ describe("the card's words", () => {
     const stage = pinned();
     const first = now.status === "starting" ? now : record("running");
     const view = render(<Session agents={[first]} stage={stage} />);
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     const cell = view.container.querySelector(".oly-cell")!;
     expect(cell.getAttribute("data-pose")).not.toBe("speak");
     act(() => void cell.dispatchEvent(new Event("pointerenter")));
@@ -603,7 +661,7 @@ describe("the card's words", () => {
   it("its time ticks once a second while its agent works, on a clock of its own", () => {
     const stage = pinned();
     const view = render(<Session agents={[record("running")]} stage={stage} />);
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     act(
       () =>
         void view.container.querySelector(".oly-cell")!.dispatchEvent(new Event("pointerenter")),
@@ -619,7 +677,7 @@ describe("the card's words", () => {
   it("is empty until a god is pointed at, and again 150ms after the pointer has gone", () => {
     const stage = pinned();
     const { container } = render(<Session agents={[record("running")]} stage={stage} />);
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     const card = container.querySelector(".oly-card")!;
     expect(card.outerHTML).toBe('<div class="oly-card"></div>');
     const cell = container.querySelector(".oly-cell")!;
@@ -653,7 +711,7 @@ describe("the card's words", () => {
       }),
     ];
     const { container } = render(<Session agents={two} stage={stage} />);
-    act(() => stage.host.advance(6000));
+    act(() => stage.host.advance(AT_WORK));
     const cells = [...container.querySelectorAll(".oly-cell")];
     expect(cells.map((cell) => cell.getAttribute("aria-label"))).toEqual(["Nike", "Nike"]);
     expect(cells.map((cell) => cell.getAttribute("aria-describedby"))).toEqual([
@@ -688,7 +746,7 @@ describe("the card's words", () => {
     const { container } = render(
       <Session agents={[record("running")]} stage={stage} onEscape={onEscape} />,
     );
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     const box = container.querySelector("textarea")!;
     box.focus();
     act(() => void fireEvent.keyDown(box, { key: "Escape" }));
@@ -703,7 +761,7 @@ describe("the card's words", () => {
   it("when the last god leaves with focus, focus goes to the composer's text box", () => {
     const stage = pinned();
     const view = render(<Session agents={[record("running")]} stage={stage} />);
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     const cell = view.container.querySelector<HTMLElement>(".oly-cell")!;
     act(() => {
       fireEvent.keyDown(document.body, { key: "Tab" });
@@ -721,7 +779,7 @@ describe("the card's words", () => {
   it("unmounted with a card up: nothing is left on the clock, and its keys are no longer heard", () => {
     const stage = pinned();
     const view = render(<Session agents={[record("running")]} stage={stage} />);
-    act(() => stage.host.advance(2200));
+    act(() => stage.host.advance(AT_WORK));
     const cell = view.container.querySelector(".oly-cell")!;
     act(() => void cell.dispatchEvent(new Event("pointerenter")));
     act(() => void cell.dispatchEvent(new Event("pointerleave"))); // a grace is waiting

@@ -99,9 +99,16 @@
       "acts": { "look": { "pose": "look" }, "think": { "pose": "think" } },
       "lift": {},
       "card": 0,
-      "fp": { "stand": [22.3, 53], "speak": [22, 65], "look": [18.2, 61.5], "think": [11.5, 52.8] },
-      "top": { "stand": 3, "speak": 2.7, "look": 3, "think": 2.1 },
+      "fp": {
+        "stand": [22.3, 53],
+        "speak": [22, 65],
+        "stride": [11.3, 61.3],
+        "look": [18.2, 61.5],
+        "think": [11.5, 52.8]
+      },
+      "top": { "stand": 3, "speak": 2.7, "stride": 2.7, "look": 3, "think": 2.1 },
       "step": 520,
+      "move": { "speed": 64, "bob": 0, "lift": 0, "pause": 0, "ease": "linear" },
       "at": { "look": [16.2, 48], "think": [9.5, 46] },
       "seal": [43, 42.5],
       "fissure": [
@@ -194,12 +201,14 @@
       "fp": {
         "stand": [16.3, 49],
         "speak": [15.7, 63],
+        "stride": [2, 57.3],
         "look": [11.5, 58.2],
         "web": [10, 57],
         "think": [15.5, 45.8]
       },
-      "top": { "stand": 10, "speak": 10, "look": 10.7, "web": 9.8, "think": 10.4 },
+      "top": { "stand": 10, "speak": 10, "stride": 10.3, "look": 10.7, "web": 9.8, "think": 10.4 },
       "step": 600,
+      "move": { "speed": 47.5, "bob": 0, "lift": 0, "pause": 0.4, "ease": "linear" },
       "at": { "look": [9.5, 51], "web": [8, 51], "think": [13.5, 35] },
       "seal": [40, 44.5],
       "fissure": [
@@ -295,13 +304,23 @@
       "fp": {
         "stand": [16.3, 49.3],
         "speak": [13.7, 63.3],
+        "stride": [6.3, 59],
         "look": [11.5, 59.5],
         "make": [-12, 59],
         "run": [-17, 69],
         "think": [-1, 56]
       },
-      "top": { "stand": 6, "speak": 6, "look": 6.4, "make": 20, "run": 11.7, "think": 13.1 },
+      "top": {
+        "stand": 6,
+        "speak": 6,
+        "stride": 6.3,
+        "look": 6.4,
+        "make": 20,
+        "run": 11.7,
+        "think": 13.1
+      },
       "step": 300,
+      "move": { "speed": 128.8, "bob": 0, "lift": 0, "pause": 0, "ease": "ease-in-out" },
       "at": { "look": [9.5, 52], "make": [-14, 75], "run": [-19, 90], "think": [-3, 61] },
       "seal": [40.5, 43],
       "fissure": [
@@ -396,13 +415,23 @@
       "fp": {
         "stand": [18, 50],
         "speak": [17, 65],
+        "stride": [5, 58.7],
         "look": [14.8, 61.5],
         "make": [2, 86.7],
         "run": [-3, 95.3],
         "think": [6, 48.3]
       },
-      "top": { "stand": 7, "speak": 7, "look": 7.4, "make": 7.4, "run": 20.1, "think": 10.7 },
+      "top": {
+        "stand": 7,
+        "speak": 7,
+        "stride": 7,
+        "look": 7.4,
+        "make": 7.4,
+        "run": 20.1,
+        "think": 10.7
+      },
       "step": 560,
+      "move": { "speed": 53.2, "bob": 1, "lift": 0, "pause": 0, "ease": "linear" },
       "at": { "look": [12.8, 51], "make": [0, 89], "run": [-5, 103], "think": [4, 47] },
       "seal": [42, 42],
       "fissure": [
@@ -497,13 +526,23 @@
       "fp": {
         "stand": [13.3, 50],
         "speak": [12.3, 63.3],
+        "stride": [6.7, 60.7],
         "look": [-20, 64.7],
         "web": [4, 67],
         "run": [10.3, 51.6],
         "think": [15.2, 45.2]
       },
-      "top": { "stand": 9, "speak": 9, "look": 9, "web": 9.5, "run": 8.5, "think": 9 },
+      "top": {
+        "stand": 9,
+        "speak": 9,
+        "stride": 9.3,
+        "look": 9,
+        "web": 9.5,
+        "run": 8.5,
+        "think": 9
+      },
       "step": 500,
+      "move": { "speed": 68, "bob": 0, "lift": 0, "pause": 0.3, "ease": "linear" },
       "at": { "look": [-22, 89], "web": [2, 67], "run": [8.3, 46], "think": [13.2, 34] },
       "seal": [42.5, 41],
       "fissure": [
@@ -599,6 +638,7 @@
       "fp": {
         "stand": [18.7, 52.3],
         "speak": [18, 65.3],
+        "stride": [8, 61],
         "look": [14.2, 58.5],
         "web": [18.5, 62.2],
         "run": [11.1, 77.8],
@@ -608,6 +648,7 @@
       "top": {
         "stand": 6,
         "speak": 6.3,
+        "stride": 6.3,
         "look": 7.5,
         "web": 6,
         "run": 7.5,
@@ -615,6 +656,7 @@
         "think-l": 6
       },
       "step": 640,
+      "move": { "speed": 46.8, "bob": 0, "lift": 0, "pause": 0, "ease": "linear" },
       "at": {
         "look": [12.2, 49],
         "web": [16.5, 48],
@@ -720,13 +762,23 @@
       "fp": {
         "stand": [13.7, 48],
         "speak": [13.7, 60.7],
+        "stride": [8.3, 57.7],
         "look": [-6, 88.3],
         "make": [11, 62],
         "run": [-12, 58],
         "think": [12.9, 63.6]
       },
-      "top": { "stand": 8, "speak": 8, "look": 7.9, "make": 7.9, "run": 4.1, "think": 5.1 },
+      "top": {
+        "stand": 8,
+        "speak": 8,
+        "stride": 8,
+        "look": 7.9,
+        "make": 7.9,
+        "run": 4.1,
+        "think": 5.1
+      },
       "step": 360,
+      "move": { "speed": 105.6, "bob": 0, "lift": 2, "pause": 0, "ease": "ease-out" },
       "at": { "look": [-8, 99], "make": [9, 55], "run": [-14, 74], "think": [10.9, 55] },
       "seal": [39, 45],
       "fissure": [
