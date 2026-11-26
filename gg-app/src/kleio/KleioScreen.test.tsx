@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { KleioScreen } from "./KleioScreen";
+import settingsCss from "./kleio-settings.css?raw";
 
 vi.mock("../RadioButton", () => ({ RadioButton: () => <button type="button">Radio</button> }));
 vi.mock("../WindowLayoutButton", () => ({
@@ -62,6 +63,32 @@ describe("KleioScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("button", { name: "Connect apps" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Specialists" })).toBeTruthy();
+  });
+
+  it("draws Apps in Settings' look on the desktop, under Kleio's own header", async () => {
+    await act(async () => {
+      render(<KleioScreen onClose={() => undefined} />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect apps" }));
+
+    // The shelf has no styles outside `.settings-screen`: it rendered as bare text.
+    expect(settingsCss).toContain("html:not(.platform-ios) .settings-screen .ap-shelf {");
+    const page = screen.getByText("The apps page");
+    expect(page.closest(".settings-scroll")?.matches(".kleio-page > .settings-screen")).toBe(true);
+    expect(settingsCss).toContain(
+      "html:not(.platform-ios) .kleio-page > .settings-screen {\n  --bg: inherit;\n}",
+    );
+    // The header stays outside it, so it keeps the flat top bar and its size.
+    expect(screen.getByRole("heading", { name: "Apps" }).closest(".settings-screen")).toBeNull();
+  });
+
+  it("leaves the iPhone's Apps page out of Settings' desktop look", async () => {
+    document.documentElement.classList.add("platform-ios");
+    await act(async () => {
+      render(<KleioScreen onClose={() => undefined} />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Connect apps" }));
+    expect(screen.getByText("The apps page").closest(".settings-screen")).toBeNull();
   });
 
   it("holds Groups back on the desktop until there is a first specialist", async () => {
