@@ -4611,6 +4611,230 @@ html:not(.platform-ios) .goal-browser-empty {
   font: 13px/1.5 var(--sans);
 }
 
+/* ── The Checklist ── Code's project checklist (placeholder/ChecklistView.tsx)
+   in the session's column and materials: a heading, each group under a small
+   label with its count, and one check to a hairline row with a still mark for
+   its state, its Check a flat bounded button. What waits on you is lapis and
+   what passed is verdigris; nothing is amber. The three views are Settings'
+   tab tray, in flow at the foot so no row scrolls beneath it. The iPhone
+   keeps the placeholder's look. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > h1 {
+  margin: 0;
+  padding: 22px var(--kleio-gutter) 4px;
+  color: var(--kleio-ink);
+  font: 500 20px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > .placeholder-scroll {
+  padding: 0 var(--kleio-gutter) 22px;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  > .placeholder-scroll:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+/* A group: its label and count share a line, and its rows take the full width. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 16px;
+  padding-top: 24px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section > h2 {
+  margin: 0 0 8px;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section > p {
+  margin: 0;
+  color: var(--kleio-muted);
+  font: 12px/16px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-row {
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* A check: its mark, its name, and under the name where it stands. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"] {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 12px 0;
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"]:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"] > span {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [role="group"]
+  > span:first-of-type {
+  color: var(--kleio-ink);
+  font-size: 15px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-muted {
+  color: var(--kleio-muted);
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-attention,
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="checking"]
+  .placeholder-muted {
+  color: var(--kleio-lapis);
+  font-size: 12px;
+}
+/* The mark: a muted hollow ring until a check is run; a lapis ring while one
+   waits on you (review due, findings) or is running; verdigris filled when it
+   passed. On the name's line: half of what 22.5px leaves around 9px. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"]::before {
+  content: "";
+  grid-row: 1 / span 2;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-top: 6.75px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  :is([data-state="due"], [data-state="needs-work"], [data-state="checking"])
+  > [role="group"]::before {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="passed"]
+  > [role="group"]::before {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="not-applicable"]
+  > [role="group"] {
+  opacity: 0.6;
+}
+/* Check, and an error's Try again: bounded and flat, lapis under the pointer. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  flex: none;
+  min-width: 64px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  scale: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  .btn:is(:hover, :focus-visible):not([aria-disabled="true"]) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Reading, nothing in this view, and what could not be read or inspected. */
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  > .placeholder-scroll
+  > :is(p, [role="alert"], details) {
+  margin: 0;
+  padding: 24px 0 0;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="alert"] > p {
+  margin: 0 0 12px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist details > summary {
+  color: var(--kleio-lapis);
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist details > ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+/* The views: Settings' flat tray (kleio-settings.css), last in the column. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > .settings-tab-dock {
+  position: static;
+  order: 1;
+  flex: none;
+  padding: 12px 0 16px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tabs {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tabs-pill {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab {
+  border-radius: 7px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  .settings-tab:hover:not(.is-active) {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab.is-active {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
 /* ── New goal ── the dialog the Goals browser opens (placeholder/GoalForm.tsx):
    a flat panel on the browser's surface, with no glass or blur. The form is
    one grid: a label and its aside (the name's count, Context's Add buttons)

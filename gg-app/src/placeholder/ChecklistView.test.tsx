@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChecklistView, type ChecklistLoad } from "./ChecklistView";
 import type { ChecklistEntry } from "../agent";
 import { TooltipLayer } from "../TooltipLayer";
+import themeCss from "../kleio/kleio-theme.css?raw";
 
 afterEach(() => {
   cleanup();
@@ -276,6 +277,86 @@ describe("ChecklistView (placeholder)", () => {
     const { container } = render(<ChecklistView {...props(ready([item("tests")]))} />);
     expect(container.querySelector("[data-hides-composer]")).toBe(
       screen.getByRole("region", { name: "Project checklist" }),
+    );
+  });
+});
+
+describe("the desktop's checklist", () => {
+  const scope = "html:not(.platform-ios) .app.app-session > .placeholder-checklist";
+  /** The stylesheet's Checklist section, up to the next one. */
+  function checklistCss(): string {
+    const from = themeCss.indexOf("/* ── The Checklist ──");
+    return themeCss.slice(from, themeCss.indexOf("/* ── New goal ──", from));
+  }
+
+  it("gives each row its state, for the mark the desktop draws", () => {
+    render(
+      <ChecklistView
+        {...props(
+          ready([
+            item("unrun"),
+            item("docs", { status: "passed", result: "pass" }),
+            item("deps", { status: "due" }),
+            item("tests"),
+            item("skipped", { status: "not-applicable", result: "not-applicable" }),
+          ]),
+        )}
+        running
+        activeId="tests"
+        notice={{ id: "unrun", checkedAt: null, message: "No result recorded." }}
+      />,
+    );
+    const state = (name: string): string | null | undefined =>
+      screen.getByRole("group", { name }).parentElement?.getAttribute("data-state");
+    // A run that left no result waits on you, like findings do.
+    expect(state("unrun")).toBe("needs-work");
+    expect(state("docs")).toBe("passed");
+    expect(state("deps")).toBe("due");
+    expect(state("tests")).toBe("checking");
+    expect(state("skipped")).toBe("not-applicable");
+  });
+
+  it("is set in the session's column and palette, with no glass and no amber", () => {
+    render(
+      <div className="app app-session">
+        <ChecklistView {...props(ready([item("tests")]))} />
+      </div>,
+    );
+    const css = checklistCss();
+    const used = new Set(css.match(/--kleio-[a-z0-9-]+/g));
+    expect(used.size).toBeGreaterThan(8);
+    for (const name of used) expect(themeCss, name).toContain(`  ${name}: `);
+    expect(css).not.toMatch(/liquid-rim|blur\(|var\(--glass|--warning/);
+
+    // The bare heading sat against the window's edge: it takes the column's gutter.
+    const heading = screen.getByRole("heading", { name: "Project checklist" });
+    expect(heading.matches(`${scope} > h1`)).toBe(true);
+    expect(css).toContain(
+      `${scope} > h1 {\n  margin: 0;\n  padding: 22px var(--kleio-gutter) 4px;`,
+    );
+    expect(css).toContain(
+      `${scope} > .placeholder-scroll {\n  padding: 0 var(--kleio-gutter) 22px;`,
+    );
+
+    const row = screen.getByRole("group", { name: "tests" });
+    expect(row.matches(`${scope} [role="group"]`)).toBe(true);
+    expect(css).toContain(`${scope} [role="group"]::before {\n  content: "";`);
+    expect(screen.getByRole("button", { name: "Check tests" }).matches(`${scope} .btn`)).toBe(true);
+    expect(css).toContain(
+      `${scope} .btn[aria-disabled="true"] {\n  opacity: 0.5;\n  cursor: default;\n}`,
+    );
+  });
+
+  it("puts the three views in a flat tray at the foot, in flow so no row scrolls under it", () => {
+    render(
+      <div className="app app-session">
+        <ChecklistView {...props(ready([item("tests")]))} />
+      </div>,
+    );
+    const tray = screen.getByRole("tablist", { name: "Checklist views" });
+    expect(tray.parentElement?.matches(`${scope} > .settings-tab-dock`)).toBe(true);
+    expect(checklistCss()).toContain(
+      `${scope} > .settings-tab-dock {\n  position: static;\n  order: 1;\n  flex: none;\n  padding: 12px 0 16px;\n}`,
     );
   });
 });
