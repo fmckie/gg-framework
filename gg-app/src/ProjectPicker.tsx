@@ -25,6 +25,7 @@ import { HostFoldersModal } from "./HostFoldersModal";
 import { MetalButton } from "./MetalButton";
 import { useWindowFocused } from "./useWindowFocused";
 import { useKleioRemote } from "./kleio/useKleioRemote";
+import { isPhone } from "./platform";
 
 /**
  * Does this row point at another tool's transcript rather than a GG Coder
@@ -32,6 +33,31 @@ import { useKleioRemote } from "./kleio/useKleioRemote";
  */
 function isForeignSession(session: RecentSession): boolean {
   return session.source === "claude-code" || session.source === "codex";
+}
+
+// Where a row comes from: a dot in the source's colour and a quiet label on
+// the desktop (kleio-theme.css, "The Projects list"); the iPhone's tinted pill.
+function SourceTag({
+  source,
+  className,
+}: {
+  source: string;
+  className?: string;
+}): React.ReactElement {
+  const { label, color } = sourceStyle(source);
+  if (isPhone()) {
+    return (
+      <Badge className={className} color={color}>
+        {label}
+      </Badge>
+    );
+  }
+  return (
+    <span className={className ? `source-tag ${className}` : "source-tag"}>
+      <i className="source-tag-dot" style={{ background: color }} aria-hidden="true" />
+      {label}
+    </span>
+  );
 }
 
 interface Props {
@@ -73,6 +99,8 @@ export function ProjectPicker({
   // Paired with a Kleio host: projects live on ITS disk, which this Mac's
   // Finder can't see, so "Open existing" lists the host's folders instead.
   const remoteHost = useKleioRemote().status?.active?.host ?? null;
+  // The desktop's stylesheet colours a row's name, so it can turn on hover.
+  const nameStyle = isPhone() ? { color: theme.text } : undefined;
 
   const q = query.trim().toLowerCase();
   const filteredProjects = q
@@ -246,7 +274,7 @@ export function ProjectPicker({
   }
 
   return (
-    <div className="picker">
+    <div className="picker project-picker">
       <div className="picker-head" data-tauri-drag-region>
         {selected ? (
           <BackButton label="All projects" onClick={() => setSelected(null)} />
@@ -335,21 +363,15 @@ export function ProjectPicker({
                 <div key={p.path} className="picker-item-wrap">
                   <button className="picker-item" onClick={() => openProject(p)} title={p.path}>
                     <span className="picker-row">
-                      <span className="picker-name" style={{ color: theme.text }}>
+                      <span className="picker-name" style={nameStyle}>
                         {p.name}
                       </span>
                       <Badge>{p.lastActiveDisplay}</Badge>
                     </span>
-                    {/* Where the project comes from, as tinted glass pills. */}
                     <span className="picker-sources">
-                      {p.sources.map((s) => {
-                        const { label, color } = sourceStyle(s);
-                        return (
-                          <Badge key={s} color={color}>
-                            {label}
-                          </Badge>
-                        );
-                      })}
+                      {p.sources.map((s) => (
+                        <SourceTag key={s} source={s} />
+                      ))}
                     </span>
                   </button>
                   <button
@@ -391,35 +413,32 @@ export function ProjectPicker({
           {!sessionsLoading && sessions.length > 0 && (
             <div className="picker-reveal">
               {sessions.map((s) => (
-                <button
-                  key={s.id}
-                  className="picker-item"
-                  disabled={busy}
-                  onClick={() => chooseSession(selected.path, s)}
-                  title={
-                    isForeignSession(s)
-                      ? `From ${sourceStyle(s.source ?? "").label} — opens as a Kleio session`
-                      : undefined
-                  }
-                >
-                  <span className="picker-row">
-                    <span className="picker-name picker-preview" style={{ color: theme.text }}>
-                      {s.preview || "(no preview)"}
+                // The wrap carries the desktop's hairline between rows.
+                <div key={s.id} className="picker-item-wrap">
+                  <button
+                    className="picker-item"
+                    disabled={busy}
+                    onClick={() => chooseSession(selected.path, s)}
+                    title={
+                      isForeignSession(s)
+                        ? `From ${sourceStyle(s.source ?? "").label} — opens as a Kleio session`
+                        : undefined
+                    }
+                  >
+                    <span className="picker-row">
+                      <span className="picker-name picker-preview" style={nameStyle}>
+                        {s.preview || "(no preview)"}
+                      </span>
+                      <Badge>{s.lastActiveDisplay}</Badge>
                     </span>
-                    <Badge>{s.lastActiveDisplay}</Badge>
-                  </span>
-                  <span className="picker-meta" style={{ color: theme.textMuted }}>
-                    {isForeignSession(s) && (
-                      <Badge
-                        className="picker-source-tag"
-                        color={sourceStyle(s.source ?? "").color}
-                      >
-                        {sourceStyle(s.source ?? "").label}
-                      </Badge>
-                    )}
-                    <Badge>{`${s.messageCount} msgs`}</Badge>
-                  </span>
-                </button>
+                    <span className="picker-meta" style={{ color: theme.textMuted }}>
+                      {isForeignSession(s) && (
+                        <SourceTag className="picker-source-tag" source={s.source ?? ""} />
+                      )}
+                      <Badge>{`${s.messageCount} msgs`}</Badge>
+                    </span>
+                  </button>
+                </div>
               ))}
             </div>
           )}
