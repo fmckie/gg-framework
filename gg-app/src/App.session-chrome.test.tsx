@@ -33,7 +33,11 @@ afterEach(() => {
   else Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
 });
 
-function open(restore: RestoreTarget | null, history: unknown[] = []): HTMLElement {
+function open(
+  restore: RestoreTarget | null,
+  history: unknown[] = [],
+  state: AgentState = STATE,
+): HTMLElement {
   mockWindows("main");
   mockIPC((command) => {
     switch (command) {
@@ -42,7 +46,7 @@ function open(restore: RestoreTarget | null, history: unknown[] = []): HTMLEleme
       case "sidecar_port":
         return 12345;
       case "agent_state":
-        return STATE;
+        return state;
       case "agent_models":
         return { models: [{ id: STATE.model, provider: STATE.provider }] };
       case "agent_commands":
@@ -110,8 +114,15 @@ describe("a Chat's title", () => {
   it("leaves a Code session's title as its folder", async () => {
     open({ mode: "code", cwd: STATE.cwd, sessionPath: null });
     await screen.findByRole("button", { name: "Back to this project's sessions" });
+    // The folder comes with the agent's state, which lands after the chrome is up.
+    expect(await screen.findByText("chrome")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Chats" })).toBeNull();
-    expect(screen.getByText("chrome")).toBeDefined();
+  });
+
+  it("names the folder of a Windows path too", async () => {
+    const cwd = "C:\\Users\\x\\chrome";
+    open({ mode: "code", cwd, sessionPath: null }, [], { ...STATE, cwd });
+    expect((await screen.findByText("chrome")).title).toBe(`${cwd} — open folder`);
   });
 });
 

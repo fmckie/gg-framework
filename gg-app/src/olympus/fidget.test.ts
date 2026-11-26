@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CAST, type Fidget, type FidgetMove, type Skill } from "./cast";
 import { deal, fidgetAt, keyed, nextAt, shown, STILL, type Dealt } from "./fidget";
 import { rng } from "./floor";
 import { GODS, type GodId } from "./gods";
+
+// All CPU work, nothing waits: the cast's every pose takes 1s here, 5.7s on CI's runners.
+vi.setConfig({ testTimeout: 15_000 });
 
 const ids = Object.keys(GODS) as GodId[];
 const move = (keys: FidgetMove["keys"], ease = 0, more: Partial<FidgetMove> = {}): FidgetMove => ({

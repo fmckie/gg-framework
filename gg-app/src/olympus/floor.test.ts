@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CAST, CROWN_URLS, FRAME_URLS, POSE_URLS, START_URLS, type Skill } from "./cast";
 import {
   agentsAt,
@@ -25,6 +25,9 @@ import { laneAgents } from "./OlympusLane";
 import { createSim, type Sim } from "./sim";
 import { cutTesserae, dimmed, flightOf, MEDAL } from "./tesserae";
 import type { ToolFamily } from "./tool-family";
+
+// All CPU work on a hand-moved clock, nothing waits: 2.4s at most here, 12.8s on CI's runners.
+vi.setConfig({ testTimeout: 30_000 });
 
 const GREETINGS: Readonly<Record<GodId | "any", readonly string[]>> = {
   any: ["At your service.", "Here, and listening."],
@@ -922,7 +925,7 @@ describe("places", () => {
         }
       }
     }
-  }, 15_000); // 240 lanes, each with a floor to set: slow under a full run
+  }, 60_000); // 240 lanes, each with a floor to set: 5.5s here in a full run, 26s on CI
 
   it("gives a later god the gap with most room, and nobody else moves if there is enough", () => {
     const s = stage();
