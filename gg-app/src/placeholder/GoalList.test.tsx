@@ -11,6 +11,7 @@ import {
   type GoalSummary,
 } from "../agent";
 import { GoalList, contextSummary } from "./GoalList";
+import themeCss from "../kleio/kleio-theme.css?raw";
 
 vi.mock("../agent", () => ({
   createGoal: vi.fn(),
@@ -20,6 +21,10 @@ vi.mock("../agent", () => ({
   waitForReady: vi.fn(),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+vi.mock("../RadioButton", () => ({ RadioButton: () => <button>Radio</button> }));
+vi.mock("../WindowLayoutButton", () => ({
+  WindowLayoutButton: () => <button>Windows</button>,
+}));
 
 const listGoalsMock = vi.mocked(listGoals);
 const createGoalMock = vi.mocked(createGoal);
@@ -60,14 +65,20 @@ describe("GoalList", () => {
   it("lists goals with their total, objective and context, and resumes the latest session", async () => {
     const { onChosen } = renderList([GOAL]);
 
-    expect(await screen.findByText("API latency")).toBeDefined();
-    expect(screen.getByText("Choose a goal")).toBeDefined();
-    expect(screen.getByText("1")).toBeDefined();
-    expect(screen.getByText(GOAL.goal)).toBeDefined();
-    expect(screen.getByText(/2 folders · 1 file/)).toBeDefined();
-    expect(screen.getByRole("textbox", { name: "Search goals" })).toBeDefined();
+    const row = (await screen.findByText("API latency")).closest("button");
+    expect(screen.getByRole("heading", { name: "Goals 1" }).textContent).toBe("Goals 1");
+    // A row: the name and its age, the objective, then what is attached.
+    expect(Array.from(row?.children ?? [], (cell) => cell.textContent)).toEqual([
+      "API latency",
+      "2m ago",
+      GOAL.goal,
+      "2 folders · 1 file",
+    ]);
+    expect(screen.getByRole("searchbox", { name: "Search goals" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "+ New goal" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDefined();
 
-    fireEvent.click(screen.getByRole("button", { name: "API latency" }));
+    fireEvent.click(row as HTMLElement);
 
     await waitFor(() => expect(onChosen).toHaveBeenCalledWith(GOAL.path));
     expect(selectProjectMock).toHaveBeenCalledWith(GOAL.path, GOAL.latestSessionPath);
@@ -86,7 +97,11 @@ describe("GoalList", () => {
 
     vi.mocked(deleteGoal).mockResolvedValueOnce();
     fireEvent.click(screen.getByRole("button", { name: "Delete API latency" }));
-    expect(screen.getByText(/attached folders and files are not touched/)).toBeDefined();
+    const confirm = screen.getByRole("alertdialog", { name: "Delete goal" });
+    expect(confirm.textContent).toContain("attached folders and files are not touched");
+    // On the row it is about, in place of the row's delete control.
+    expect(confirm.closest("li")?.textContent).toContain("API latency");
+    expect(screen.queryByRole("button", { name: "Delete API latency" })).toBeNull();
     // Cancel takes focus: the safe answer is the default.
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete goal" }));
@@ -129,18 +144,37 @@ describe("GoalList", () => {
     renderList([GOAL, { ...GOAL, id: "b", path: "/g/b", name: "Docs", goal: "Rewrite docs" }]);
     await screen.findByText("Docs");
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search goals" }), {
-      target: { value: "p95" },
-    });
+    const search = screen.getByRole("searchbox", { name: "Search goals" });
+    fireEvent.change(search, { target: { value: "p95" } });
 
     expect(screen.queryByText("Docs")).toBeNull();
     expect(screen.getByText("API latency")).toBeDefined();
+    // The count is the list's, not the search's.
+    expect(screen.getByRole("heading").textContent).toBe("Goals 2");
+
+    fireEvent.change(search, { target: { value: "taxes" } });
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.getByRole("status").textContent).toBe("No goals match “taxes”");
+  });
+
+  it("drops an open delete confirm when the search changes", async () => {
+    renderList([GOAL]);
+    await screen.findByText("API latency");
+    fireEvent.click(screen.getByRole("button", { name: "Delete API latency" }));
+    expect(screen.getByRole("alertdialog")).toBeDefined();
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "API" } });
+
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete API latency" })).toBeDefined();
   });
 
   it("offers a new goal when there are none, and shows a retry when listing fails", async () => {
     renderList([]);
     expect(await screen.findByText(/No goals yet/)).toBeDefined();
-    expect(screen.getAllByRole("button", { name: "New goal" }).length).toBeGreaterThan(0);
+    // In the heading and under the empty list's line.
+    expect(screen.getAllByRole("button", { name: "+ New goal" })).toHaveLength(2);
+    expect(screen.queryByRole("searchbox")).toBeNull();
     cleanup();
 
     vi.mocked(waitForReady).mockResolvedValue();
@@ -159,9 +193,13 @@ describe("GoalList", () => {
     createGoalMock.mockResolvedValue(created);
     openDialogMock.mockResolvedValue(["/repos/api"]);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "New goal" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "+ New goal" })[0] as HTMLElement);
+    const dialog = screen.getByRole("dialog", { name: "New goal" });
     const create = screen.getByRole("button", { name: "Create goal" });
+    expect(dialog.contains(create)).toBe(true);
     expect((create as HTMLButtonElement).disabled).toBe(true);
+    // Typing starts in the name, not on the dialog's close button.
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
     expect(
       screen.getByPlaceholderText("Get checkout loading under one second on mobile"),
     ).toBeDefined();
@@ -205,7 +243,7 @@ describe("GoalList", () => {
     await screen.findByText(/No goals yet/);
     createGoalMock.mockRejectedValue(new Error("Not found: /gone"));
 
-    fireEvent.click(screen.getAllByRole("button", { name: "New goal" })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: "+ New goal" })[0] as HTMLElement);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "x" } });
     fireEvent.change(screen.getByLabelText("Goal"), { target: { value: "y" } });
     fireEvent.click(screen.getByRole("button", { name: "Create goal" }));
@@ -213,6 +251,114 @@ describe("GoalList", () => {
     expect(await screen.findByRole("alert")).toBeDefined();
     expect(screen.getByText("Not found: /gone")).toBeDefined();
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("the New goal dialog", () => {
+  async function open(): Promise<HTMLElement> {
+    renderList([GOAL]);
+    await screen.findByText("API latency");
+    fireEvent.click(screen.getByRole("button", { name: "+ New goal" }));
+    return screen.getByRole("dialog", { name: "New goal" });
+  }
+
+  it("closes on Escape, Cancel and its close button, and creates nothing", async () => {
+    await open();
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "+ New goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "+ New goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(createGoalMock).not.toHaveBeenCalled();
+    // The list is still there behind it.
+    expect(screen.getByText("API latency")).toBeDefined();
+  });
+
+  it("marks the label rows and their asides for the form's grid", async () => {
+    const dialog = await open();
+    const form = dialog.querySelector("form");
+
+    expect(form?.className).toBe("goal-form");
+    expect(
+      Array.from(form?.querySelectorAll(":scope > .goal-form-split") ?? [], (el) =>
+        el.textContent?.trim(),
+      ),
+    ).toEqual(["Name", "Context (optional)"]);
+    expect(
+      Array.from(form?.querySelectorAll(":scope > .goal-form-aside") ?? [], (el) =>
+        el.textContent?.trim(),
+      ),
+    ).toEqual(["0/15", "Add folders Add files"]);
+  });
+});
+
+describe("the Goals browser, with the real theme loaded", () => {
+  const gutter = (element: Element | null): string =>
+    element ? getComputedStyle(element).getPropertyValue("--kleio-gutter").trim() : "missing";
+
+  afterEach(() => {
+    for (const style of document.head.querySelectorAll("style")) style.remove();
+  });
+
+  it("takes the Chats browser's column for its heading and its list", async () => {
+    const style = document.createElement("style");
+    style.textContent = themeCss;
+    document.head.append(style);
+    vi.mocked(waitForReady).mockResolvedValue();
+    listGoalsMock.mockResolvedValue([GOAL]);
+    const { container } = render(
+      <>
+        <div className="app">
+          <GoalList onChosen={vi.fn()} />
+        </div>
+        <div className="app app-session">
+          <div className="inputwrap" />
+        </div>
+      </>,
+    );
+    await screen.findByText("API latency");
+
+    const sessionGutter = gutter(container.querySelector(".app-session > .inputwrap"));
+    expect(sessionGutter).toMatch(/^max\(28px,/);
+    expect(gutter(container.querySelector(".goal-browser > .chat-browser-heading"))).toBe(
+      sessionGutter,
+    );
+    expect(gutter(container.querySelector(".goal-browser > .picker-list"))).toBe(sessionGutter);
+  });
+});
+
+describe("GoalList on the iPhone", () => {
+  it("keeps the plain list and the form in the page", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      const { onChosen } = renderList([GOAL]);
+
+      expect(await screen.findByText("Choose a goal")).toBeDefined();
+      expect(document.querySelector(".goal-browser")).toBeNull();
+      expect(screen.getByRole("textbox", { name: "Search goals" })).toBeDefined();
+      expect(screen.queryByRole("searchbox")).toBeNull();
+      expect(screen.getByText(/2 folders · 1 file/)).toBeDefined();
+
+      fireEvent.click(screen.getByRole("button", { name: "New goal" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("form", { name: "New goal" }).className).toBe("placeholder-form");
+      fireEvent.keyDown(screen.getByLabelText("Name"), { key: "Escape" });
+      expect(screen.queryByRole("form")).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete API latency" }));
+      expect(screen.getByRole("alertdialog", { name: "Delete goal" })).toBeDefined();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "API latency" }));
+      await waitFor(() => expect(onChosen).toHaveBeenCalledWith(GOAL.path));
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
   });
 });
 

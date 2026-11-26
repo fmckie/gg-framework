@@ -101,7 +101,6 @@ import { TasksModal } from "./TasksModal";
 import { NotesModal } from "./NotesModal";
 import { MemoryModal } from "./LazyMemoryModal";
 import { WakeScreen } from "./WakeScreen";
-import { MotionStarters } from "./MotionStarters";
 import { ConfirmModal } from "./ConfirmModal";
 import { InitGitModal } from "./InitGitModal";
 import { HostFoldersModal } from "./HostFoldersModal";
@@ -117,7 +116,6 @@ import { windowShortcut } from "./window-shortcuts";
 // Experimental gaze focus — disabled for now (see main.tsx).
 // import { GazeButton } from "./GazeButton";
 import { ProjectPicker } from "./ProjectPicker";
-import { ChatPicker } from "./ChatPicker";
 import { BackButton } from "./BackButton";
 import { SettingsModal } from "./LazySettingsModal";
 import {
@@ -216,6 +214,11 @@ const GoalPanel = lazy(() =>
 );
 const WorkerList = lazy(() =>
   import("./placeholder/WorkerList").then((m) => ({ default: m.WorkerList })),
+);
+// So does Motion: its screen (the Chats browser, in Motion's mode) and its starters.
+const ChatPicker = lazy(() => import("./ChatPicker").then((m) => ({ default: m.ChatPicker })));
+const MotionStarters = lazy(() =>
+  import("./MotionStarters").then((m) => ({ default: m.MotionStarters })),
 );
 
 const DEFAULT_INPUT_PLACEHOLDER = `Type a message, / commands, @ files, ${HELPER_MENTION} for help`;
@@ -2664,6 +2667,12 @@ function App(): React.ReactElement {
                 setEntryView("projects");
               })
             }
+            onMotion={() =>
+              withViewTransition(() => {
+                setWorkspaceMode("motion");
+                setEntryView("motion");
+              })
+            }
             onGoals={() =>
               withViewTransition(() => {
                 setWorkspaceMode("code");
@@ -2704,16 +2713,20 @@ function App(): React.ReactElement {
             />
           </Suspense>
         ) : entryView === "chats" ? (
-          <ChatPicker
-            onChosen={onProjectChosen}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
-          />
+          <Suspense fallback={null}>
+            <ChatPicker
+              onChosen={onProjectChosen}
+              onClose={() => withViewTransition(() => setEntryView("home"))}
+            />
+          </Suspense>
         ) : entryView === "motion" ? (
-          <ChatPicker
-            mode="motion"
-            onChosen={onProjectChosen}
-            onClose={() => withViewTransition(() => setEntryView("home"))}
-          />
+          <Suspense fallback={null}>
+            <ChatPicker
+              mode="motion"
+              onChosen={onProjectChosen}
+              onClose={() => withViewTransition(() => setEntryView("home"))}
+            />
+          </Suspense>
         ) : (
           <ProjectPicker
             onChosen={onProjectChosen}
@@ -2761,9 +2774,13 @@ function App(): React.ReactElement {
     return (
       <div className="app" style={{ background: theme.background }}>
         {workspaceMode === "chat" ? (
-          <ChatPicker initialAgent={state?.chatAgent ?? "general"} markCurrent {...pickerProps} />
+          <Suspense fallback={null}>
+            <ChatPicker initialAgent={state?.chatAgent ?? "general"} markCurrent {...pickerProps} />
+          </Suspense>
         ) : workspaceMode === "motion" ? (
-          <ChatPicker mode="motion" markCurrent {...pickerProps} />
+          <Suspense fallback={null}>
+            <ChatPicker mode="motion" markCurrent {...pickerProps} />
+          </Suspense>
         ) : state?.goal ? (
           <Suspense fallback={null}>
             <GoalList {...pickerProps} />
@@ -3244,7 +3261,9 @@ function App(): React.ReactElement {
           {/* Motion's starting points sit just above the activity bar and go away
             once the conversation has its first message. */}
           {workspaceMode === "motion" && hydrated && items.length === 0 && !running && (
-            <MotionStarters onPick={fillComposer} />
+            <Suspense fallback={null}>
+              <MotionStarters onPick={fillComposer} />
+            </Suspense>
           )}
           {workspaceMode === "code" && kenRunning && (
             <KenActivityBar

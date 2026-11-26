@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createGoal, selectProject, type GoalSummary } from "../agent";
+import { Modal } from "../Modal";
+import { isPhone } from "../platform";
 import "./placeholder.css";
 
 /** Mirrors the sidecar's limits in `core/goals-store.ts`. */
@@ -102,13 +104,13 @@ export function GoalContextField({
   const full = value.length >= GOAL_CONTEXT_MAX;
   return (
     <>
-      <span id={contextId}>
+      <span id={contextId} className="goal-form-split">
         Context{" "}
         <span className="placeholder-muted">
           {value.length > 0 ? `(${value.length} of ${GOAL_CONTEXT_MAX})` : "(optional)"}
         </span>
       </span>
-      <span>
+      <span className="goal-form-aside">
         <button type="button" disabled={disabled || full} onClick={() => void add("folder")}>
           Add folders
         </button>{" "}
@@ -117,10 +119,10 @@ export function GoalContextField({
         </button>
       </span>
       {value.length > 0 ? (
-        <ul className="placeholder-list" aria-labelledby={contextId}>
+        <ul className="placeholder-list goal-form-context" aria-labelledby={contextId}>
           {value.map((item) => (
             <li key={item.path} title={item.path}>
-              {baseName(item.path)}{" "}
+              <span className="goal-form-context-name">{baseName(item.path)}</span>{" "}
               <span className="placeholder-muted">
                 {item.kind === "folder" ? "folder" : "file"}
               </span>{" "}
@@ -136,7 +138,7 @@ export function GoalContextField({
           ))}
         </ul>
       ) : (
-        <span className="placeholder-muted">
+        <span className="placeholder-muted goal-form-context-empty">
           Folders and files the goal is about, like repos, specs or mock-ups.
         </span>
       )}
@@ -145,11 +147,12 @@ export function GoalContextField({
 }
 
 /**
- * Placeholder (the fork owns the desktop design) for upstream's New goal modal:
- * a name, the objective in a sentence or two, optional folders and files for
- * context, and standing instructions. Creating it opens the goal, where the
- * coordinator replies on its own. The sidecar validates every field; its
- * reason is shown as is.
+ * The fork's take on upstream's New goal modal: a name, the objective in a
+ * sentence or two, optional folders and files for context, and standing
+ * instructions. Creating it opens the goal, where the coordinator replies on
+ * its own. The sidecar validates every field; its reason is shown as is. The
+ * desktop opens it as a dialog (`.goal-form`, kleio-theme.css); the iPhone
+ * keeps the plain form in the page.
  */
 export function GoalForm({
   onCancel,
@@ -191,21 +194,29 @@ export function GoalForm({
     }
   }
 
-  return (
+  const phone = isPhone();
+  const form = (
     <form
-      className="placeholder-form"
+      className={phone ? "placeholder-form" : "goal-form"}
       aria-label="New goal"
       onSubmit={(event) => {
         event.preventDefault();
         void create();
       }}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
-        event.stopPropagation();
-        onCancel();
-      }}
+      // The desktop's dialog closes on Escape itself.
+      onKeyDown={
+        phone
+          ? (event) => {
+              if (event.key !== "Escape") return;
+              event.stopPropagation();
+              onCancel();
+            }
+          : undefined
+      }
     >
-      <label htmlFor={nameId}>Name</label>
+      <label htmlFor={nameId} className="goal-form-split">
+        Name
+      </label>
       <input
         id={nameId}
         value={name}
@@ -213,9 +224,10 @@ export function GoalForm({
         aria-describedby={nameCountId}
         placeholder="API latency"
         autoFocus
+        data-modal-initial-focus
         onChange={(e) => setName(e.target.value)}
       />
-      <span id={nameCountId} className="placeholder-muted">
+      <span id={nameCountId} className="placeholder-muted goal-form-aside goal-form-count">
         {`${name.length}/${NAME_MAX}`}
       </span>
 
@@ -239,11 +251,11 @@ export function GoalForm({
       <GoalInstructionsField value={instructions} onChange={setInstructions} disabled={busy} />
 
       {error && (
-        <p role="alert" className="placeholder-attention">
+        <p role="alert" className="placeholder-attention goal-form-error">
           {error}
         </p>
       )}
-      <span>
+      <span className="goal-form-actions">
         <button type="button" onClick={onCancel}>
           Cancel
         </button>{" "}
@@ -252,5 +264,12 @@ export function GoalForm({
         </button>
       </span>
     </form>
+  );
+  return phone ? (
+    form
+  ) : (
+    <Modal title="New goal" className="goal-form-modal" onClose={onCancel}>
+      {form}
+    </Modal>
   );
 }

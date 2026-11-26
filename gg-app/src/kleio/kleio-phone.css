@@ -194,9 +194,8 @@ html.platform-ios .home-action.kleio-cloisonne {
 html.platform-ios .home-action.kleio-cloisonne::before {
   border-radius: 10px;
 }
-/* Talk to Kleio and Goals: 44px, a full touch target. */
-html.platform-ios .home-quiet > .home-brief,
-html.platform-ios .kleio-home .home-quiet > .home-goals {
+/* Talk to Kleio: 44px, a full touch target. */
+html.platform-ios .home-quiet > .home-brief {
   height: 44px;
   padding: 0 18px;
   font-size: 15px;

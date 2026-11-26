@@ -69,6 +69,7 @@ function renderHome() {
   const props = {
     onChat: vi.fn(),
     onCode: vi.fn(),
+    onMotion: vi.fn(),
     onGoals: vi.fn(),
     onBlobs: vi.fn(),
     onSettings: vi.fn(),
@@ -105,7 +106,6 @@ describe("KleioHome", () => {
     expect(screen.queryByText("Skool")).toBeNull();
     expect(screen.queryByText("YouTube")).toBeNull();
     expect(screen.queryByText(/piss me off/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Motion/ })).toBeNull();
     expect(await screen.findByText("v0.73.2")).toBeDefined();
   });
 
@@ -121,7 +121,27 @@ describe("KleioHome", () => {
     expect(screen.queryByRole("button", { name: /Agents/ })).toBeNull();
   });
 
-  it("opens Goals from its own text button", async () => {
+  it("Motion opens the video studio", async () => {
+    const p = renderHome();
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    const motion = await screen.findByRole("button", { name: "Motion" });
+    await waitFor(() => expect(motion.getAttribute("aria-disabled")).toBeNull());
+    fireEvent.click(motion);
+    expect(p.onMotion).toHaveBeenCalledOnce();
+  });
+
+  it("Motion asks for a projects folder first: its videos are saved there", async () => {
+    vi.mocked(getSettings).mockResolvedValue({ projectsRoot: "", configured: false });
+    const p = renderHome();
+    const motion = screen.getByRole("button", { name: "Motion" });
+    await waitFor(() => expect(motion.getAttribute("aria-disabled")).toBe("true"));
+    fireEvent.click(motion);
+    expect(p.onMotion).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith("Set a projects folder on your host first.", "warning");
+    expect(p.onSettings).toHaveBeenCalledWith("general");
+  });
+
+  it("opens Goals from its own button", async () => {
     const p = renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     fireEvent.click(screen.getByRole("button", { name: "Goals" }));
@@ -157,14 +177,20 @@ describe("KleioHome", () => {
     act(() => setVoiceReady(false));
   });
 
-  it("keeps Goals as one quiet button outside the domed row", async () => {
+  it("Goals is one domed button in the row, with an icon like the rest", async () => {
     renderHome();
     await waitFor(() => expect(getSettings).toHaveBeenCalled());
     const goals = screen.getAllByRole("button", { name: "Goals" });
     expect(goals).toHaveLength(1);
-    expect(goals[0]!.closest(".home-actions")).toBeNull();
-    expect(goals[0]!.classList.contains("kleio-cloisonne")).toBe(false);
-    expect(document.querySelectorAll(".home-actions > button")).toHaveLength(3);
+    expect(goals[0]!.parentElement?.classList.contains("home-actions")).toBe(true);
+    expect(goals[0]!.classList.contains("kleio-cloisonne")).toBe(true);
+    expect(goals[0]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    // The domed row: Kleio, Code, Motion, Goals and Specialists.
+    expect(
+      [...document.querySelectorAll(".home-actions > button")].map((b) =>
+        b.textContent?.replace(/⌘.*/, "").trim(),
+      ),
+    ).toEqual(["Kleio", "Code", "Motion", "Goals", "Specialists"]);
   });
 
   it("holds its waves still while the voice screen covers it, so a call draws one set", async () => {

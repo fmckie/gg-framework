@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 import {
   CirclesThreeIcon,
   CodeIcon,
+  FilmSlateIcon,
   GearSixIcon,
   SparkleIcon,
+  TargetIcon,
   WaveformIcon,
 } from "@phosphor-icons/react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -31,6 +33,8 @@ interface Props {
   onChat: () => void;
   /** Coding projects on the Mac mini. */
   onCode: () => void;
+  /** Motion: the video studio, working in the host's projects folder. */
+  onMotion: () => void;
   /** Goals: long-running objectives the coordinator splits among workers. */
   onGoals: () => void;
   /** Kleio's specialists ("Blobs" in the code and on the host). Apps live in Settings. */
@@ -42,6 +46,7 @@ interface Props {
 export function KleioHome({
   onChat,
   onCode,
+  onMotion,
   onGoals,
   onBlobs,
   onSettings,
@@ -116,8 +121,9 @@ export function KleioHome({
     needModel();
   }
 
-  function openCode(): void {
-    if (codeReady) return onCode();
+  // Code and Motion both work in the host's projects folder.
+  function openInFolder(open: () => void): void {
+    if (codeReady) return open();
     if (!ready?.model) return needModel();
     toast("Set a projects folder on your host first.", "warning");
     onSettings("general");
@@ -171,10 +177,23 @@ export function KleioHome({
           type="button"
           className={`kleio-cloisonne home-action${codeReady ? "" : " is-dimmed"}`}
           aria-disabled={codeReady ? undefined : true}
-          onClick={openCode}
+          onClick={() => openInFolder(onCode)}
         >
           <CodeIcon size={18} weight="bold" aria-hidden="true" />
           Code
+        </button>
+        <button
+          type="button"
+          className={`kleio-cloisonne home-action${codeReady ? "" : " is-dimmed"}`}
+          aria-disabled={codeReady ? undefined : true}
+          onClick={() => openInFolder(onMotion)}
+        >
+          <FilmSlateIcon size={18} weight="bold" aria-hidden="true" />
+          Motion
+        </button>
+        <button type="button" className="kleio-cloisonne home-action" onClick={onGoals}>
+          <TargetIcon size={18} weight="bold" aria-hidden="true" />
+          Goals
         </button>
         <button
           type="button"
@@ -206,9 +225,6 @@ export function KleioHome({
           <kbd className="home-kbd" aria-hidden="true">
             ⌘⇧B
           </kbd>
-        </button>
-        <button type="button" className="home-goals" onClick={onGoals}>
-          Goals
         </button>
       </div>
       <button

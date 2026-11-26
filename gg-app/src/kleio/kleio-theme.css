@@ -386,11 +386,46 @@ html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
   }
 }
 
-/* Three equal ways in: every column takes the widest one's width. */
+/* A window too short for the whole column keeps its foot on screen: the ways in stay above
+   the version label and the top clips. With room to spare, the auto margins centre it as before. */
+.home.kleio-home {
+  justify-content: flex-end;
+}
+.kleio-home > .home-version-row {
+  margin-top: auto;
+}
+.kleio-home > .home-quiet {
+  margin-bottom: auto;
+}
+/* Five equal ways in: every button takes the widest one's width. Each spans two half-columns,
+   so a short last row can sit centred. */
 .kleio-home .home-actions {
   display: inline-grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  grid-template-columns: repeat(10, 1fr);
+}
+.kleio-home .home-actions > .home-action {
+  grid-column: span 2;
+}
+/* Five at Specialists' full width need about 1011px of window: below that, three and two. */
+@media (max-width: 1015px) {
+  .kleio-home .home-actions {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  .kleio-home .home-actions > .home-action:nth-child(4) {
+    grid-column: 2 / span 2;
+  }
+}
+/* Three need about 621px: below that, two, two and one. */
+@media (max-width: 625px) {
+  .kleio-home .home-actions {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .kleio-home .home-actions > .home-action:nth-child(4) {
+    grid-column: span 2;
+  }
+  .kleio-home .home-actions > .home-action:nth-child(5) {
+    grid-column: 2 / span 2;
+  }
 }
 /* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
 .kleio-home .home-kbd {
@@ -403,11 +438,10 @@ html.platform-ios .kleio-home .home-kbd {
   display: none;
 }
 
-/* ── Home's quiet controls: the status pill, Goals and Settings ──
+/* ── Home's quiet controls: the status pill and Settings ──
    Opaque black enamel in the same polished rim, one size down. No glass and no blur: they sit
    on moving waves. */
 .kleio-status,
-.kleio-home .home-goals,
 .kleio-home .home-settings {
   position: relative;
   isolation: isolate;
@@ -447,7 +481,7 @@ html.platform-ios .kleio-home .home-kbd {
   -webkit-appearance: none;
   appearance: none;
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings)::before {
+:is(.kleio-status, .kleio-home .home-settings)::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -458,53 +492,44 @@ html.platform-ios .kleio-home .home-kbd {
     inset 0 1px 2px rgb(0 0 0 / 0.45),
     inset 0 0 0 1px rgb(0 0 0 / 0.3);
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):is(:hover, :focus-visible) {
+:is(.kleio-status, .kleio-home .home-settings):is(:hover, :focus-visible) {
   background-position: 0% 0;
   color: #f6f1f1;
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):is(
-    :hover,
-    :focus-visible
-  )::before {
+:is(.kleio-status, .kleio-home .home-settings):is(:hover, :focus-visible)::before {
   background-color: #201a1b;
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):active {
+:is(.kleio-status, .kleio-home .home-settings):active {
   background-position: 40% 0;
   box-shadow:
     0 1px 0 rgb(0 0 0 / 0.7),
     0 4px 8px -6px rgb(0 0 0 / 0.95);
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):active::before {
+:is(.kleio-status, .kleio-home .home-settings):active::before {
   background-color: #0d0a0b;
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):focus {
+:is(.kleio-status, .kleio-home .home-settings):focus {
   outline: none;
 }
-:is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings):focus-visible {
+:is(.kleio-status, .kleio-home .home-settings):focus-visible {
   outline: 2px solid #f6f1f1;
   outline-offset: 3px;
 }
 @media (prefers-reduced-motion: no-preference) {
   .kleio-status,
-  .kleio-home .home-goals,
   .kleio-home .home-settings {
     transition:
       background-position 650ms cubic-bezier(0.2, 0.7, 0.2, 1),
       box-shadow 260ms ease,
       color var(--t-fast);
   }
-  :is(.kleio-status, .kleio-home .home-goals, .kleio-home .home-settings)::before {
+  :is(.kleio-status, .kleio-home .home-settings)::before {
     transition: background-color 260ms ease;
   }
 }
 .kleio-status {
   height: 28px;
   padding: 0 13px;
-}
-.kleio-home .home-goals {
-  height: 32px;
-  padding: 0 15px;
-  font-size: 13px;
 }
 .kleio-home .home-settings {
   position: absolute; /* the shared rule's `relative` would take it out of its corner */
@@ -568,7 +593,7 @@ html.platform-ios .kleio-home .home-kbd {
 }
 
 /* ── "Brief me" (BriefPanel.tsx) ──
-   On the home screen: a small domed button under the main ones, beside Goals. The panel: a small
+   On the home screen: a small domed button under the main ones. The panel: a small
    card over any screen, bottom right (like a toast, above them), with the
    words as captions. Three bars breathe while Kleio speaks. */
 .home > .home-quiet {
@@ -4515,6 +4540,274 @@ html:not(.platform-ios) .chat-browser-none {
   padding: 16px 12px;
   color: var(--kleio-muted);
   font: 13px var(--sans);
+}
+
+/* ── The Goals browser ── the desktop's goal list (placeholder/GoalList.tsx).
+   It is the Chats browser: the heading, search, rows and gutter come from the
+   rules above, by the same class names. These add what only a goal has: its
+   objective under the name, a status, the delete confirm on its own row, and
+   the empty list. The iPhone keeps the placeholder's markup. Nothing moves. */
+html:not(.platform-ios) .goal-browser-item-name {
+  font-weight: 500;
+}
+html:not(.platform-ios) .goal-browser-item-goal {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--kleio-text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+html:not(.platform-ios) .goal-browser-status {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .goal-browser-status[data-status="interrupted"] {
+  color: var(--warning);
+}
+/* The confirm takes a line of its own under the row it is about. */
+html:not(.platform-ios) .goal-browser-row {
+  flex-wrap: wrap;
+}
+html:not(.platform-ios) .goal-browser-confirm {
+  flex: 0 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .goal-browser-confirm > p {
+  flex: 1 1 280px;
+  margin: 0;
+}
+html:not(.platform-ios) .goal-browser-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+html:not(.platform-ios) .goal-browser .goal-browser-danger,
+html:not(.platform-ios)
+  .goal-browser
+  .goal-browser-danger:is(:hover, :focus-visible):not(:disabled) {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--kleio-edge));
+  color: var(--error);
+}
+html:not(.platform-ios) .goal-browser-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 12px;
+  color: var(--kleio-muted);
+  font: 13px/1.5 var(--sans);
+}
+
+/* ── New goal ── the dialog the Goals browser opens (placeholder/GoalForm.tsx):
+   a flat panel on the browser's surface, with no glass or blur. The form is
+   one grid: a label and its aside (the name's count, Context's Add buttons)
+   share a row and everything else takes the full width. `dense` lifts the
+   count, which follows its field in the markup, back up beside the label.
+   Every rule sits under `.goal-form`: a goal's settings share these fields
+   and keep the placeholder's look.
+   !important: glass.css sets the dialog's fill and border with !important. */
+html:not(.platform-ios) .modal.goal-form-modal {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px 28px 28px;
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .goal-form-modal > .modal-head {
+  margin-bottom: 6px;
+}
+html:not(.platform-ios) .goal-form-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .goal-form-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .goal-form-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .goal-form-modal :is(button, input, textarea):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .goal-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-auto-flow: row dense;
+  align-items: baseline;
+  gap: 8px 16px;
+  color: var(--kleio-text);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .goal-form > * {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+html:not(.platform-ios) .goal-form > .goal-form-split {
+  grid-column: 1;
+}
+html:not(.platform-ios) .goal-form > .goal-form-aside {
+  grid-column: 2;
+  justify-self: end;
+  display: flex;
+  gap: 8px;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split, .goal-form-aside) {
+  margin-top: 14px;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split) {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .goal-form > :is(label, .goal-form-split) > .placeholder-muted {
+  font-weight: 400;
+}
+html:not(.platform-ios) .goal-form > .placeholder-muted {
+  font-size: 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-count {
+  font-family: var(--mono);
+}
+html:not(.platform-ios) .goal-form :is(input, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18);
+  color: var(--kleio-ink);
+  font: 13px/1.5 var(--sans);
+  appearance: none;
+}
+html:not(.platform-ios) .goal-form textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+html:not(.platform-ios) .goal-form :is(input, textarea)::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .goal-form button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  cursor: pointer;
+}
+html:not(.platform-ios) .goal-form :is(button, input, textarea):disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+html:not(.platform-ios) .goal-form button:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+/* Context: the attached folders and files, one to a line, or a dashed box
+   that says what belongs there. */
+html:not(.platform-ios) .goal-form > .goal-form-context {
+  list-style: none;
+  padding: 0;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  font-size: 13px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li + li {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .goal-form .goal-form-context-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--kleio-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li > .placeholder-muted {
+  flex: none;
+  font-size: 12px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context > li > button {
+  flex: none;
+  min-height: 28px;
+  margin-left: auto;
+}
+html:not(.platform-ios) .goal-form > .goal-form-context-empty {
+  padding: 22px 16px;
+  border: 1px dashed var(--kleio-rule-strong);
+  border-radius: 3px;
+  text-align: center;
+}
+/* The sidecar's reason: ink on the panel, the red on a leading rule. */
+html:not(.platform-ios) .goal-form > .goal-form-error {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--error) 35%, var(--kleio-edge));
+  border-radius: 3px;
+  box-shadow: inset 3px 0 0 var(--error);
+  color: var(--kleio-ink);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .goal-form > .goal-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+html:not(.platform-ios) .goal-form > .goal-form-actions > button {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+/* Create goal: the dialog's one filled button, crimson under a white label. */
+html:not(.platform-ios) .goal-form > .goal-form-actions > button[type="submit"],
+html:not(.platform-ios)
+  .goal-form
+  > .goal-form-actions
+  > button[type="submit"]:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  background: var(--kleio-crimson);
+  color: #fff;
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .goal-form
+  > .goal-form-actions
+  > button[type="submit"]:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
 }
 
 /* ── A Chat's title ── "Chats / session title" in the window's title row, in

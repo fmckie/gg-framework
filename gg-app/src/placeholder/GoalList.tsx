@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
+import { XIcon } from "@phosphor-icons/react";
 import { deleteGoal, listGoals, selectProject, waitForReady, type GoalSummary } from "../agent";
+import { BackButton } from "../BackButton";
+import { RadioButton } from "../RadioButton";
+import { WindowLayoutButton } from "../WindowLayoutButton";
+import { isPhone } from "../platform";
 import { GoalForm } from "./GoalForm";
 import "./placeholder.css";
 
@@ -32,9 +37,11 @@ export function contextSummary(goal: GoalSummary): string | null {
 }
 
 /**
- * Placeholder (the fork owns the desktop design) for upstream's GoalPicker, the
- * Goals counterpart of the project picker. A goal is one ongoing conversation,
- * so choosing a row reopens its latest session directly.
+ * The fork's take on upstream's GoalPicker, the Goals counterpart of the
+ * project picker. A goal is one ongoing conversation, so choosing a row
+ * reopens its latest session directly. The desktop is the Goals browser, in
+ * the Chats browser's look (kleio-theme.css); the iPhone keeps the plain
+ * placeholder.
  */
 export function GoalList({
   onChosen,
@@ -127,133 +134,318 @@ export function GoalList({
       });
   }
 
-  const newGoalButton = (
-    <button type="button" disabled={busy} onClick={() => setShowNew(true)}>
-      New goal
-    </button>
-  );
+  if (isPhone()) {
+    const newGoalButton = (
+      <button type="button" disabled={busy} onClick={() => setShowNew(true)}>
+        New goal
+      </button>
+    );
+
+    return (
+      <section className="placeholder-goals" aria-label="Goals">
+        <div className="placeholder-bar" data-tauri-drag-region>
+          {onClose && (
+            <button type="button" onClick={onClose}>
+              Back
+            </button>
+          )}
+          <h1>Choose a goal</h1>
+          {!loading && !loadError && <span className="placeholder-muted">{goals.length}</span>}
+          {!loading && goals.length > 0 && (
+            <input
+              type="text"
+              placeholder={"Search goals…"}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Search goals"
+            />
+          )}
+          {!showNew && newGoalButton}
+        </div>
+
+        <div className="placeholder-scroll">
+          {showNew && (
+            <GoalForm
+              onCancel={() => setShowNew(false)}
+              onCreated={(goal) => {
+                setShowNew(false);
+                onChosen(goal.path);
+              }}
+            />
+          )}
+          {openError && (
+            <p role="alert" className="placeholder-attention">
+              {openError}
+            </p>
+          )}
+          {loading && <p className="placeholder-muted">Loading goals{"…"}</p>}
+          {!loading && loadError && (
+            <p role="alert">
+              <span className="placeholder-muted">Couldn't load your goals.</span>{" "}
+              <button type="button" onClick={() => setReloadNonce((n) => n + 1)}>
+                Try again
+              </button>
+            </p>
+          )}
+          {!loading && !loadError && goals.length === 0 && !showNew && (
+            <p>
+              <span className="placeholder-muted">
+                No goals yet. Give Kleio something bigger than one session.
+              </span>{" "}
+              {newGoalButton}
+            </p>
+          )}
+          {!loading && goals.length > 0 && filteredGoals.length === 0 && (
+            <p className="placeholder-muted">{`No goals match “${query.trim()}”`}</p>
+          )}
+          {!loading && filteredGoals.length > 0 && (
+            <ul className="placeholder-list">
+              {filteredGoals.map((g) => {
+                const context = contextSummary(g);
+                const status = g.status ? STATUS_LABEL[g.status] : undefined;
+                return (
+                  <li key={g.path} className="placeholder-row">
+                    <button type="button" disabled={busy} onClick={() => choose(g)}>
+                      <strong>{g.name}</strong>
+                    </button>
+                    <span className="placeholder-notice-body">
+                      {context && <span className="placeholder-muted">{context} </span>}
+                      <span>{g.goal}</span>
+                    </span>
+                    {status && g.status && (
+                      <span
+                        className={g.status === "interrupted" ? "placeholder-attention" : undefined}
+                        title={STATUS_TITLE[g.status]}
+                      >
+                        {status}
+                      </span>
+                    )}
+                    <span className="placeholder-muted">{g.lastActiveDisplay}</span>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${g.name}`}
+                      disabled={busy || deleting}
+                      onClick={() => setPendingDelete(g)}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {pendingDelete && (
+            <div
+              role="alertdialog"
+              aria-label="Delete goal"
+              className="placeholder-notice"
+              onKeyDown={(event) => {
+                if (event.key !== "Escape" || deleting) return;
+                event.stopPropagation();
+                setPendingDelete(null);
+              }}
+            >
+              <p className="placeholder-notice-body">
+                {`Delete “${pendingDelete.name}” and its conversation? Your attached folders and files are not touched. This can’t be undone.`}
+              </p>
+              <button
+                type="button"
+                autoFocus
+                disabled={deleting}
+                onClick={() => setPendingDelete(null)}
+              >
+                Cancel
+              </button>{" "}
+              <button type="button" disabled={deleting} onClick={confirmDelete}>
+                Delete goal
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const deleteMessage = pendingDelete
+    ? `Delete “${pendingDelete.name}” and its conversation? Your attached folders and files are not touched. This can’t be undone.`
+    : "";
 
   return (
-    <section className="placeholder-goals" aria-label="Goals">
-      <div className="placeholder-bar" data-tauri-drag-region>
-        {onClose && (
-          <button type="button" onClick={onClose}>
-            Back
+    <section className="picker chat-browser goal-browser" aria-label="Goals">
+      <div className="picker-head" data-tauri-drag-region>
+        {onClose ? <BackButton label="Back" onClick={onClose} /> : null}
+        <span className="picker-head-actions">
+          <RadioButton />
+          <WindowLayoutButton />
+        </span>
+      </div>
+      <div className="chat-browser-heading">
+        <h1 className="chat-browser-title">
+          Goals{" "}
+          {!loading && !loadError && <span className="chat-browser-count">{goals.length}</span>}
+        </h1>
+        <div className="chat-browser-controls">
+          {!loading && goals.length > 0 && (
+            <label className="chat-browser-search">
+              Search goals
+              <input
+                type="search"
+                placeholder="Search by name or goal"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  // The row a confirm sits on may be filtered away.
+                  if (!deleting) setPendingDelete(null);
+                }}
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="chat-browser-new"
+            disabled={busy}
+            onClick={() => setShowNew(true)}
+          >
+            + New goal
           </button>
-        )}
-        <h1>Choose a goal</h1>
-        {!loading && !loadError && <span className="placeholder-muted">{goals.length}</span>}
-        {!loading && goals.length > 0 && (
-          <input
-            type="text"
-            placeholder={"Search goals…"}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search goals"
-          />
-        )}
-        {!showNew && newGoalButton}
+        </div>
       </div>
 
-      <div className="placeholder-scroll">
-        {showNew && (
-          <GoalForm
-            onCancel={() => setShowNew(false)}
-            onCreated={(goal) => {
-              setShowNew(false);
-              onChosen(goal.path);
-            }}
-          />
-        )}
+      <div className="picker-list" tabIndex={0} role="region" aria-label="Goals, scrollable">
         {openError && (
-          <p role="alert" className="placeholder-attention">
+          <div className="picker-error" role="alert">
             {openError}
+          </div>
+        )}
+        {loading && (
+          <p className="chat-browser-none" role="status">
+            Loading goals{"…"}
           </p>
         )}
-        {loading && <p className="placeholder-muted">Loading goals{"…"}</p>}
         {!loading && loadError && (
-          <p role="alert">
-            <span className="placeholder-muted">Couldn't load your goals.</span>{" "}
-            <button type="button" onClick={() => setReloadNonce((n) => n + 1)}>
+          <div className="goal-browser-empty" role="alert">
+            <span>Couldn't load your goals.</span>
+            <button
+              type="button"
+              className="chat-browser-new"
+              onClick={() => setReloadNonce((n) => n + 1)}
+            >
               Try again
             </button>
-          </p>
+          </div>
         )}
-        {!loading && !loadError && goals.length === 0 && !showNew && (
-          <p>
-            <span className="placeholder-muted">
-              No goals yet. Give Kleio something bigger than one session.
-            </span>{" "}
-            {newGoalButton}
-          </p>
+        {!loading && !loadError && goals.length === 0 && (
+          <div className="goal-browser-empty">
+            <span>No goals yet. Give Kleio something bigger than one session.</span>
+            <button
+              type="button"
+              className="chat-browser-new"
+              disabled={busy}
+              onClick={() => setShowNew(true)}
+            >
+              + New goal
+            </button>
+          </div>
         )}
         {!loading && goals.length > 0 && filteredGoals.length === 0 && (
-          <p className="placeholder-muted">{`No goals match “${query.trim()}”`}</p>
+          <p className="chat-browser-none" role="status">
+            {`No goals match “${query.trim()}”`}
+          </p>
         )}
         {!loading && filteredGoals.length > 0 && (
-          <ul className="placeholder-list">
+          <ul className="chat-browser-list">
             {filteredGoals.map((g) => {
               const context = contextSummary(g);
               const status = g.status ? STATUS_LABEL[g.status] : undefined;
               return (
-                <li key={g.path} className="placeholder-row">
-                  <button type="button" disabled={busy} onClick={() => choose(g)}>
-                    <strong>{g.name}</strong>
-                  </button>
-                  <span className="placeholder-notice-body">
-                    {context && <span className="placeholder-muted">{context} </span>}
-                    <span>{g.goal}</span>
-                  </span>
-                  {status && g.status && (
-                    <span
-                      className={g.status === "interrupted" ? "placeholder-attention" : undefined}
-                      title={STATUS_TITLE[g.status]}
-                    >
-                      {status}
-                    </span>
-                  )}
-                  <span className="placeholder-muted">{g.lastActiveDisplay}</span>
+                <li
+                  key={g.path}
+                  className="picker-item-wrap picker-item-deletable goal-browser-row"
+                >
                   <button
                     type="button"
-                    aria-label={`Delete ${g.name}`}
-                    disabled={busy || deleting}
-                    onClick={() => setPendingDelete(g)}
+                    className="chat-browser-item"
+                    disabled={busy}
+                    onClick={() => choose(g)}
                   >
-                    Delete
+                    <span className="chat-browser-item-title goal-browser-item-name">{g.name}</span>
+                    <span className="chat-browser-item-date">{g.lastActiveDisplay}</span>
+                    <span className="goal-browser-item-goal">{g.goal}</span>
+                    {(context || status) && (
+                      <span className="chat-browser-item-meta">
+                        {context && <span>{context}</span>}
+                        {status && g.status && (
+                          <span
+                            className="goal-browser-status"
+                            data-status={g.status}
+                            title={STATUS_TITLE[g.status]}
+                          >
+                            {status}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </button>
+                  {pendingDelete?.id === g.id ? (
+                    <div
+                      role="alertdialog"
+                      aria-label="Delete goal"
+                      className="goal-browser-confirm"
+                      onKeyDown={(event) => {
+                        if (event.key !== "Escape" || deleting) return;
+                        event.stopPropagation();
+                        setPendingDelete(null);
+                      }}
+                    >
+                      <p>{deleteMessage}</p>
+                      <span className="goal-browser-confirm-actions">
+                        <button
+                          type="button"
+                          className="chat-browser-new"
+                          autoFocus
+                          disabled={deleting}
+                          onClick={() => setPendingDelete(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-browser-new goal-browser-danger"
+                          disabled={deleting}
+                          onClick={confirmDelete}
+                        >
+                          Delete goal
+                        </button>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="picker-hide picker-delete"
+                      aria-label={`Delete ${g.name}`}
+                      title="Delete goal"
+                      disabled={busy || deleting}
+                      onClick={() => setPendingDelete(g)}
+                    >
+                      <XIcon size={12} weight="bold" aria-hidden="true" />
+                    </button>
+                  )}
                 </li>
               );
             })}
           </ul>
         )}
-        {pendingDelete && (
-          <div
-            role="alertdialog"
-            aria-label="Delete goal"
-            className="placeholder-notice"
-            onKeyDown={(event) => {
-              if (event.key !== "Escape" || deleting) return;
-              event.stopPropagation();
-              setPendingDelete(null);
-            }}
-          >
-            <p className="placeholder-notice-body">
-              {`Delete “${pendingDelete.name}” and its conversation? Your attached folders and files are not touched. This can’t be undone.`}
-            </p>
-            <button
-              type="button"
-              autoFocus
-              disabled={deleting}
-              onClick={() => setPendingDelete(null)}
-            >
-              Cancel
-            </button>{" "}
-            <button type="button" disabled={deleting} onClick={confirmDelete}>
-              Delete goal
-            </button>
-          </div>
-        )}
       </div>
+
+      {showNew && (
+        <GoalForm
+          onCancel={() => setShowNew(false)}
+          onCreated={(goal) => {
+            setShowNew(false);
+            onChosen(goal.path);
+          }}
+        />
+      )}
     </section>
   );
 }
