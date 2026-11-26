@@ -6,7 +6,9 @@
    The bar is `.picker-head`: Chats, Motion, Goals, Projects, AI Providers and
    Kleio's own pages (KleioHead). Settings is left out, because
    kleio-settings.css already draws its header flat. The radio dialog mounts on
-   <body>, so its rules follow it from every screen, a session included.
+   <body>, so its rules follow it from every screen, a session included. So
+   do the guide a screen's ? opens and the scorecard its rank box opens, at the
+   foot of this sheet.
 
    Loaded after kleio-settings.css (main.tsx) and scoped to the desktop: the
    iPhone keeps kleio-phone.css's bar and has no radio. Nothing changes size or
@@ -205,4 +207,168 @@ html:not(.platform-ios)
   html:not(.platform-ios) .radio-modal .radio-volume-fill {
     background: Highlight;
   }
+}
+
+/* ── The guide ── "How this screen works", the dialog a session's ? opens
+   (SessionHelp.tsx), and Kleio Voice's (VoiceGuide.tsx). One box for every
+   screen: only its topics change, so these rules reach all of them. The radio
+   dialog's flat panel and close; each section sits under a small label, on a
+   hairline after the first, and a topic is its icon, its name and a sentence
+   in the session's ink. The iPhone keeps its sheet (session-help.css).
+   !important as for the radio dialog. */
+html:not(.platform-ios) .modal.session-help {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .session-help .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .session-help .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .session-help .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .session-help .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .session-help .session-help-section + .session-help-section {
+  padding-top: 20px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .session-help .session-help-heading {
+  margin-bottom: 12px;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .session-help .session-help-icon {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .session-help .session-help-title {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .session-help .session-help-text {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .session-help .voice-guide-intro {
+  color: var(--kleio-text-2);
+}
+/* A long guide scrolls inside the box: the session's thin, trackless bar. */
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar {
+  width: 8px;
+}
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
+}
+
+/* ── The scorecard ── the dialog a session's rank box opens
+   (ScorecardModal.tsx): the same flat panel and close. The rank keeps the
+   colours it earned, set in a lighter weight; the level is lapis, as it is in
+   the rank box. Every meter is the title bar's usage meter: a 4px square
+   track with no glow, sheen or rim, the XP's filled in lapis and the four
+   stats' in muted ink. !important as for the radio dialog, and on the tracks
+   because glass.css sets their fill that way. */
+html:not(.platform-ios) .modal.scorecard-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .scorecard-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .scorecard-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .scorecard-modal .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-rank {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-tier {
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-num {
+  color: var(--kleio-lapis);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-row {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-row span:last-child {
+  color: var(--kleio-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .scorecard-modal :is(.scorecard-bar, .scorecard-stat-bar) {
+  height: 4px;
+  border-radius: 0;
+  background: var(--kleio-track) !important;
+  box-shadow: none;
+}
+html:not(.platform-ios) .scorecard-modal :is(.scorecard-bar, .scorecard-stat-bar) > span {
+  border-radius: 0;
+  background: var(--kleio-muted);
+  box-shadow: none;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-bar > span {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-divider {
+  background: var(--kleio-rule);
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat-label {
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat b {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat-goal,
+html:not(.platform-ios) .scorecard-modal .scorecard-footer span {
+  color: var(--kleio-muted);
+  font-weight: 400;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-footer b {
+  color: var(--kleio-text-2);
+  font-weight: 400;
 }

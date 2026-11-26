@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { BackButton } from "../BackButton";
 import { RadioButton } from "../RadioButton";
 import { WindowLayoutButton } from "../WindowLayoutButton";
+import { ScorecardModal } from "../ScorecardModal";
+import { SessionHelp } from "../SessionHelp";
+import { VoiceGuide } from "./VoiceGuide";
 import mainSource from "../main.tsx?raw";
 import chromeCss from "./kleio-chrome.css?raw";
 import themeCss from "./kleio-theme.css?raw";
@@ -25,6 +28,8 @@ vi.mock("../agent", () => ({
 
 const BAR = "html:not(.platform-ios) :not(.settings-screen) > .picker-head";
 const RADIO = "html:not(.platform-ios) .radio-modal";
+const GUIDE = "html:not(.platform-ios) .session-help";
+const SCORECARD = "html:not(.platform-ios) .scorecard-modal";
 
 /** A screen's top bar as the pickers build it: Back, then Radio and Windows.
  *  Awaited, so the radio's stations have arrived before anything is read. */
@@ -128,6 +133,92 @@ describe("the flat top bar and radio dialog", () => {
     );
     expect(chromeCss).toContain(
       `${RADIO} .dropdown-menu {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 3px;\n  background: var(--kleio-surface) !important;`,
+    );
+  });
+});
+
+describe("the flat guide", () => {
+  it("is one box for every screen: each mode's topics, and Kleio Voice's, in the same panel", () => {
+    const guides = [
+      ...(["code", "chat", "motion"] as const).map((mode) => ({
+        name: "How this screen works",
+        guide: <SessionHelp mode={mode} phone={false} onClose={() => undefined} />,
+      })),
+      {
+        name: "What Kleio Voice can do",
+        guide: <VoiceGuide phone={false} onClose={() => undefined} />,
+      },
+    ];
+    for (const { name, guide } of guides) {
+      render(guide);
+      const dialog = screen.getByRole("dialog", { name });
+      expect(dialog.matches("html:not(.platform-ios) .modal.session-help")).toBe(true);
+      const parts: Array<[Element | null, string]> = [
+        [within(dialog).getByRole("button", { name: "Close" }), ".modal-close"],
+        [within(dialog).getByRole("heading", { name }), ".modal-title"],
+        [dialog.querySelector("h3"), ".session-help-heading"],
+        [dialog.querySelector("li svg"), ".session-help-icon"],
+        [dialog.querySelector("li p"), ".session-help-text"],
+      ];
+      for (const [part, selector] of parts) {
+        expect(part?.matches(`${GUIDE} ${selector}`), selector).toBe(true);
+        expect(chromeCss, selector).toContain(`${GUIDE} ${selector}`);
+      }
+      cleanup();
+    }
+    expect(chromeCss).toContain(
+      "html:not(.platform-ios) .modal.session-help {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
+    );
+    expect(chromeCss).toContain(
+      `${GUIDE} .session-help-section + .session-help-section {\n  padding-top: 20px;\n  border-top: 1px solid var(--kleio-rule);\n}`,
+    );
+  });
+
+  it("leaves the iPhone's sheet alone", () => {
+    document.documentElement.classList.replace("platform-macos", "platform-ios");
+    render(<SessionHelp mode="code" phone onClose={() => undefined} />);
+    const sheet = screen.getByRole("dialog", { name: "How this screen works" });
+    expect(sheet.matches("html:not(.platform-ios) .modal.session-help")).toBe(false);
+  });
+});
+
+describe("the flat scorecard", () => {
+  const snapshot = {
+    level: 21,
+    rankName: "Vibesmith",
+    tierName: "Vibe",
+    effectId: "gradient",
+    xpIntoLevel: 942,
+    xpForLevel: 1008,
+    percent: 93,
+    streak: { current: 2, best: 9 },
+    totals: { prompts: 1144, commits: 18, linesShipped: 15491, projects: 4 },
+    memberSince: "2026-04-29T10:00:00Z",
+  } as Parameters<typeof ScorecardModal>[0]["snapshot"];
+
+  it("draws the rank's dialog as the flat panel, its meters square with no glow", () => {
+    render(<ScorecardModal snapshot={snapshot} onClose={() => undefined} />);
+    const dialog = screen.getByRole("dialog", { name: "Vibesmith" });
+    expect(dialog.matches("html:not(.platform-ios) .modal.scorecard-modal")).toBe(true);
+    // The rank keeps the colours it earned: only its weight is the sheet's.
+    expect(within(dialog).getByText("Vibesmith").className).toContain("rank-fx-gradient");
+
+    const parts: Array<[Element | null, string]> = [
+      [within(dialog).getByRole("button", { name: "Close" }), ".modal-close"],
+      [within(dialog).getByText("21"), ".scorecard-level-num"],
+      [dialog.querySelector(".scorecard-bar"), ":is(.scorecard-bar, .scorecard-stat-bar)"],
+      [dialog.querySelector(".scorecard-stat-bar"), ":is(.scorecard-bar, .scorecard-stat-bar)"],
+      [dialog.querySelector(".scorecard-bar > span"), ".scorecard-bar > span"],
+    ];
+    for (const [part, selector] of parts) {
+      expect(part?.matches(`${SCORECARD} ${selector}`), selector).toBe(true);
+      expect(chromeCss, selector).toContain(`${SCORECARD} ${selector}`);
+    }
+    expect(chromeCss).toContain(
+      `${SCORECARD} :is(.scorecard-bar, .scorecard-stat-bar) {\n  height: 4px;\n  border-radius: 0;\n  background: var(--kleio-track) !important;\n  box-shadow: none;\n}`,
+    );
+    expect(chromeCss).toContain(
+      `${SCORECARD} .scorecard-bar > span {\n  background: var(--kleio-lapis);\n}`,
     );
   });
 });
