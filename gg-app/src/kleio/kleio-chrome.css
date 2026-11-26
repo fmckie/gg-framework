@@ -1,0 +1,208 @@
+/* The top bar outside a session, and the Internet Radio dialog, in the flat
+   materials the session's two top rows already have (kleio-theme.css, "Session
+   chrome"): square quiet controls, lapis on hover and keyboard focus, and no
+   glass, rim or blur.
+
+   The bar is `.picker-head`: Chats, Motion, Goals, Projects, AI Providers and
+   Kleio's own pages (KleioHead). Settings is left out, because
+   kleio-settings.css already draws its header flat. The radio dialog mounts on
+   <body>, so its rules follow it from every screen, a session included.
+
+   Loaded after kleio-settings.css (main.tsx) and scoped to the desktop: the
+   iPhone keeps kleio-phone.css's bar and has no radio. Nothing changes size or
+   place: only fills, edges, corners and colours. */
+
+/* ── The top bar ── every button: square, with no rim or blur. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn {
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+}
+/* Back, Radio, Windows and the other quiet ones: an icon or a label, no box. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+/* The bar's main action (New project, Save): bounded and flat, like Enhance. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn-primary {
+  border-color: var(--kleio-muted);
+  background: var(--kleio-raised);
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+/* Hover and keyboard focus: lapis. Disabled controls stay dimmed and still. */
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .btn-ghost:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* The window-layout select is invisible over its icon: the icon reacts for it. */
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .winlayout:has(.winlayout-select:not(:disabled)):is(:hover, :focus-within)
+  .winlayout-icon-btn {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .winlayout:has(.winlayout-select:focus-visible)
+  .winlayout-icon-btn {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
+/* ── Internet Radio ── the dialog the bar's Radio button opens
+   (RadioButton.tsx): the New goal dialog's flat panel, a flat station field
+   and list, one filled button and a square slider.
+   !important: glass.css sets the dialog's and the list's fill and border that
+   way, and Modal.tsx sets the dialog's inline. */
+html:not(.platform-ios) .modal.radio-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .radio-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .radio-modal :is(button, input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Station: a flat field; its edge turns lapis under the pointer, on keyboard
+   focus and while the list is open. */
+html:not(.platform-ios) .radio-modal .dropdown-trigger {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .radio-modal
+  .dropdown-trigger:is(:hover, :focus-visible, [aria-expanded="true"]):not(:disabled) {
+  border-color: var(--kleio-lapis);
+}
+/* The list: the panel's surface inside an edge. The row under the pointer or
+   the arrow keys lifts and turns lapis; the station that is set keeps its red. */
+html:not(.platform-ios) .radio-modal .dropdown-menu {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 3px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option.active {
+  background: var(--kleio-raised);
+  box-shadow: none;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option.active:not([aria-selected="true"]) {
+  color: var(--kleio-lapis);
+}
+
+/* Play: the dialog's one filled button, crimson under a white label. */
+html:not(.platform-ios) .radio-modal .modal-btn.primary {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-color: transparent;
+  border-radius: 3px;
+  background: var(--kleio-crimson);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: #fff;
+  font-weight: 500;
+}
+html:not(.platform-ios) .radio-modal .modal-btn.primary:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+}
+
+/* Volume: a 4px track and a square thumb, lapis under the pointer and on
+   keyboard focus. The thumb keeps its 18px box (what the pointer can grab, and
+   what the range input centres): a clear border leaves 12px of it drawn. */
+html:not(.platform-ios) .radio-modal .radio-volume-track {
+  inset: 9px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--kleio-track);
+  box-shadow: none;
+}
+html:not(.platform-ios) .radio-modal .radio-volume-fill {
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+}
+/* The vendor-prefixed thumb stays in rules of its own: an unknown selector
+   would void a combined list. */
+html:not(.platform-ios) .radio-modal .radio-volume-input::-webkit-slider-thumb {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 3px solid transparent;
+  border-radius: 0;
+  background: var(--kleio-ink);
+  background-clip: padding-box;
+  box-shadow: none;
+  scale: none;
+  transform: none;
+  transition: background-color var(--t-fast);
+}
+html:not(.platform-ios)
+  .radio-modal
+  .radio-volume-input:is(:hover, :focus-visible)::-webkit-slider-thumb {
+  background-color: var(--kleio-lapis);
+}
+/* Windows high-contrast mode: system colours, as glass.css gives the slider. */
+@media (forced-colors: active) {
+  html:not(.platform-ios) .radio-modal .radio-volume-track {
+    border: 1px solid CanvasText;
+  }
+  html:not(.platform-ios) .radio-modal .radio-volume-fill {
+    background: Highlight;
+  }
+}
