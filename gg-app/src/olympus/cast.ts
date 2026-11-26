@@ -1,66 +1,9 @@
 // The cast as the lane reads it: each god's measurements, from the mockup
 // (cast.json, written by scripts/olympus-cast.mjs), and its pictures.
 
+import { poseUrl } from "./art";
 import data from "./cast.json";
 import type { GodId } from "./gods";
-import argusLook from "./poses/argus-look.webp";
-import argusRun from "./poses/argus-run.webp";
-import argusSpeak from "./poses/argus-speak.webp";
-import argusStand from "./poses/argus-stand.webp";
-import argusStart from "./poses/argus-start.webp";
-import argusStride from "./poses/argus-stride.webp";
-import argusThink from "./poses/argus-think.webp";
-import argusWeb from "./poses/argus-web.webp";
-import athenaLook from "./poses/athena-look.webp";
-import athenaSpeak from "./poses/athena-speak.webp";
-import athenaStand from "./poses/athena-stand.webp";
-import athenaStart from "./poses/athena-start.webp";
-import athenaStride from "./poses/athena-stride.webp";
-import athenaThink from "./poses/athena-think.webp";
-import hephaestusLook from "./poses/hephaestus-look.webp";
-import hephaestusMake from "./poses/hephaestus-make.webp";
-import hephaestusMakeB from "./poses/hephaestus-make-b.webp";
-import hephaestusRun from "./poses/hephaestus-run.webp";
-import hephaestusSpeak from "./poses/hephaestus-speak.webp";
-import hephaestusStand from "./poses/hephaestus-stand.webp";
-import hephaestusStart from "./poses/hephaestus-start.webp";
-import hephaestusStride from "./poses/hephaestus-stride.webp";
-import hephaestusThink from "./poses/hephaestus-think.webp";
-import hermesLook from "./poses/hermes-look.webp";
-import hermesMake from "./poses/hermes-make.webp";
-import hermesRun from "./poses/hermes-run.webp";
-import hermesRunB from "./poses/hermes-run-b.webp";
-import hermesSpeak from "./poses/hermes-speak.webp";
-import hermesStand from "./poses/hermes-stand.webp";
-import hermesStart from "./poses/hermes-start.webp";
-import hermesStride from "./poses/hermes-stride.webp";
-import hermesThink from "./poses/hermes-think.webp";
-import herodotusLook from "./poses/herodotus-look.webp";
-import herodotusSpeak from "./poses/herodotus-speak.webp";
-import herodotusStand from "./poses/herodotus-stand.webp";
-import herodotusStart from "./poses/herodotus-start.webp";
-import herodotusStride from "./poses/herodotus-stride.webp";
-import herodotusThink from "./poses/herodotus-think.webp";
-import herodotusWeb from "./poses/herodotus-web.webp";
-import nikeCrown from "./poses/nike-crown.webp";
-import nikeLook from "./poses/nike-look.webp";
-import nikeLookB from "./poses/nike-look-b.webp";
-import nikeMake from "./poses/nike-make.webp";
-import nikeRun from "./poses/nike-run.webp";
-import nikeSpeak from "./poses/nike-speak.webp";
-import nikeStand from "./poses/nike-stand.webp";
-import nikeStart from "./poses/nike-start.webp";
-import nikeStride from "./poses/nike-stride.webp";
-import nikeThink from "./poses/nike-think.webp";
-import themisLook from "./poses/themis-look.webp";
-import themisRun from "./poses/themis-run.webp";
-import themisSpeak from "./poses/themis-speak.webp";
-import themisStand from "./poses/themis-stand.webp";
-import themisStart from "./poses/themis-start.webp";
-import themisStride from "./poses/themis-stride.webp";
-import themisThinkL from "./poses/themis-think-l.webp";
-import themisThinkR from "./poses/themis-think-r.webp";
-import themisWeb from "./poses/themis-web.webp";
 import type { ToolFamily } from "./tool-family";
 
 /** The poses every god has: standing, holding out a line, and in mid stride as it walks. */
@@ -327,91 +270,63 @@ export const CAST = data as unknown as Cast;
 /** One god's pictures: its stances and its stride, and the skill poses it has. */
 export type Pictures = Readonly<Record<Stance, string>> & Readonly<Partial<Record<Skill, string>>>;
 
-/** Each god's pictures, at twice the size they are drawn: 200 high, a stance 146 wide. */
-export const POSE_URLS: Readonly<Record<GodId, Pictures>> = {
-  athena: {
-    stand: athenaStand,
-    speak: athenaSpeak,
-    stride: athenaStride,
-    look: athenaLook,
-    think: athenaThink,
-  },
-  herodotus: {
-    stand: herodotusStand,
-    speak: herodotusSpeak,
-    stride: herodotusStride,
-    look: herodotusLook,
-    web: herodotusWeb,
-    think: herodotusThink,
-  },
-  hermes: {
-    stand: hermesStand,
-    speak: hermesSpeak,
-    stride: hermesStride,
-    look: hermesLook,
-    make: hermesMake,
-    run: hermesRun,
-    think: hermesThink,
-  },
-  hephaestus: {
-    stand: hephaestusStand,
-    speak: hephaestusSpeak,
-    stride: hephaestusStride,
-    look: hephaestusLook,
-    make: hephaestusMake,
-    run: hephaestusRun,
-    think: hephaestusThink,
-  },
-  argus: {
-    stand: argusStand,
-    speak: argusSpeak,
-    stride: argusStride,
-    look: argusLook,
-    web: argusWeb,
-    run: argusRun,
-    think: argusThink,
-  },
-  themis: {
-    stand: themisStand,
-    speak: themisSpeak,
-    stride: themisStride,
-    look: themisLook,
-    web: themisWeb,
-    run: themisRun,
-    "think-r": themisThinkR,
-    "think-l": themisThinkL,
-  },
-  nike: {
-    stand: nikeStand,
-    speak: nikeSpeak,
-    stride: nikeStride,
-    look: nikeLook,
-    make: nikeMake,
-    run: nikeRun,
-    think: nikeThink,
-  },
+/** The skill poses each god has a picture of. */
+const SKILLS: Readonly<Record<GodId, readonly Skill[]>> = {
+  athena: ["look", "think"],
+  herodotus: ["look", "web", "think"],
+  hermes: ["look", "make", "run", "think"],
+  hephaestus: ["look", "make", "run", "think"],
+  argus: ["look", "web", "run", "think"],
+  themis: ["look", "web", "run", "think-r", "think-l"],
+  nike: ["look", "make", "run", "think"],
 };
+const IDS = Object.keys(SKILLS) as GodId[];
+
+/** A stance's picture is the whole cell. */
+const WHOLE = [0, CAST.cell.w] as const;
+
+/** A picture by name, placed in the cell, left and width: twice that size, its figure's head on the head line. */
+function placed(name: string, [left, width]: readonly [number, number]): string {
+  return poseUrl(name, 2 * width, 2 * (CAST.cell.head - left));
+}
+
+function picturesOf(id: GodId): Pictures {
+  const at = CAST.gods[id].at;
+  const pictures: Partial<Record<Pose, string>> = {};
+  for (const pose of ["stand", "speak", "stride"] as const)
+    pictures[pose] = placed(`${id}-${pose}`, WHOLE);
+  for (const pose of SKILLS[id]) pictures[pose] = placed(`${id}-${pose}`, at[pose]!);
+  return pictures as Pictures;
+}
+
+/** Each of the gods, with what `of` makes of it. */
+function each<T>(of: (id: GodId) => T): Record<GodId, T> {
+  return Object.fromEntries(IDS.map((id) => [id, of(id)])) as Record<GodId, T>;
+}
+
+/** Each god's pictures, at twice the size they are drawn: 200 high, a stance 146 wide. */
+export const POSE_URLS: Readonly<Record<GodId, Pictures>> = each(picturesOf);
 
 /** A god's second frames, by pose: each the size of its pose's first, and where it is. */
 export type Frames = Readonly<Partial<Record<Skill, string>>>;
 
+function frame(id: GodId, pose: Skill): Frames {
+  return { [pose]: placed(`${id}-${pose}-b`, CAST.gods[id].at[pose]!) };
+}
+
 /** The poses in two frames: a stride, a hammer's blow, a wingbeat. */
 export const FRAME_URLS: Readonly<Partial<Record<GodId, Frames>>> = {
-  hermes: { run: hermesRunB },
-  hephaestus: { make: hephaestusMakeB },
-  nike: { look: nikeLookB },
+  hermes: frame("hermes", "run"),
+  hephaestus: frame("hephaestus", "make"),
+  nike: frame("nike", "look"),
 };
 
 /** The crown's picture, for the one who gives it: 200 high, as a skill pose's is. */
-export const CROWN_URLS: Readonly<Partial<Record<GodId, string>>> = { nike: nikeCrown };
+export const CROWN_URLS: Readonly<Partial<Record<GodId, string>>> = {
+  nike: placed("nike-crown", CAST.gods.nike.rx.crown!.at),
+};
 
 /** Each god's start, shown in place of its pose when the reader presses it: 200 high, as a skill pose's is. */
-export const START_URLS: Readonly<Partial<Record<GodId, string>>> = {
-  athena: athenaStart,
-  herodotus: herodotusStart,
-  hermes: hermesStart,
-  hephaestus: hephaestusStart,
-  argus: argusStart,
-  themis: themisStart,
-  nike: nikeStart,
-};
+export const START_URLS: Readonly<Partial<Record<GodId, string>>> = each((id) =>
+  placed(`${id}-start`, CAST.gods[id].st.at),
+);

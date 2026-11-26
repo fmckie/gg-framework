@@ -2,13 +2,7 @@
 // its own, or one the cast doesn't know, is Nike.
 
 import type { SubAgentLine } from "../SubAgentFeed";
-import argus from "./cameos/argus.webp";
-import athena from "./cameos/athena.webp";
-import hephaestus from "./cameos/hephaestus.webp";
-import hermes from "./cameos/hermes.webp";
-import herodotus from "./cameos/herodotus.webp";
-import nike from "./cameos/nike.webp";
-import themis from "./cameos/themis.webp";
+import { cameoUrl } from "./art";
 
 export type GodId = "athena" | "herodotus" | "hermes" | "hephaestus" | "argus" | "themis" | "nike";
 
@@ -20,13 +14,13 @@ export interface God {
 }
 
 export const GODS: Readonly<Record<GodId, God>> = {
-  athena: { id: "athena", name: "Athena", cameo: athena },
-  herodotus: { id: "herodotus", name: "Herodotus", cameo: herodotus },
-  hermes: { id: "hermes", name: "Hermes", cameo: hermes },
-  hephaestus: { id: "hephaestus", name: "Hephaestus", cameo: hephaestus },
-  argus: { id: "argus", name: "Argus", cameo: argus },
-  themis: { id: "themis", name: "Themis", cameo: themis },
-  nike: { id: "nike", name: "Nike", cameo: nike },
+  athena: { id: "athena", name: "Athena", cameo: cameoUrl("athena") },
+  herodotus: { id: "herodotus", name: "Herodotus", cameo: cameoUrl("herodotus") },
+  hermes: { id: "hermes", name: "Hermes", cameo: cameoUrl("hermes") },
+  hephaestus: { id: "hephaestus", name: "Hephaestus", cameo: cameoUrl("hephaestus") },
+  argus: { id: "argus", name: "Argus", cameo: cameoUrl("argus") },
+  themis: { id: "themis", name: "Themis", cameo: cameoUrl("themis") },
+  nike: { id: "nike", name: "Nike", cameo: cameoUrl("nike") },
 };
 
 const BY_AGENT: ReadonlyMap<string, GodId> = new Map<string, GodId>([

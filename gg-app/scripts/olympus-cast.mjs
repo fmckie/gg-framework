@@ -15,7 +15,7 @@
 // drawn; with --pictures it writes nothing and lists each skill pose's, each
 // second frame's, each stride's, the crown's and each start's name and width:
 //   node scripts/olympus-cast.mjs <v4> --pictures | while read name w; do
-//     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o src/olympus/poses/$name.webp
+//     cwebp -quiet -lossless -z 9 -resize $w 200 <v4>/assets/$name.png -o private-art/olympus/poses/$name.webp
 //   done
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";

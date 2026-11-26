@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SubAgentLine } from "../SubAgentFeed";
+import { ART } from "./art";
 import { agentTypeOf, godOf, GODS } from "./gods";
 
 const line = (over: Partial<SubAgentLine>): SubAgentLine => ({
@@ -26,12 +27,24 @@ describe("godOf", () => {
     expect(godOf(agent)).toBe(GODS.nike);
   });
 
-  it("gives every god a cameo of its own, as a file", () => {
+  it("gives every god a cameo of its own", () => {
     const cameos = Object.values(GODS).map((god) => god.cameo);
     expect(new Set(cameos).size).toBe(7);
-    for (const cameo of cameos) {
-      expect(cameo).toMatch(/\.webp$/);
-      expect(cameo).not.toMatch(/^data:/);
+  });
+
+  it.runIf(ART.complete)("has each cameo as a file, where the art is", () => {
+    for (const god of Object.values(GODS)) {
+      expect(god.cameo).toMatch(new RegExp(`/cameos/${god.id}\\.webp$`));
+      expect(god.cameo).not.toMatch(/^data:/);
+    }
+  });
+
+  it.runIf(!ART.complete)("has a 72×96 placeholder for each cameo, where the art isn't", () => {
+    for (const god of Object.values(GODS)) {
+      expect(god.cameo).toMatch(/^data:image\/svg\+xml,/);
+      const svg = decodeURIComponent(god.cameo.slice(god.cameo.indexOf(",") + 1));
+      expect(svg).toMatch(/^<svg [^>]*width="72" height="96"/);
+      expect(svg).toContain(`<title>${god.id}</title>`);
     }
   });
 });

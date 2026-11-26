@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ART, POSE_NAMES } from "./art";
 import {
   CAST,
   CROWN_URLS,
@@ -15,21 +16,109 @@ import { GODS, type GodId } from "./gods";
 
 const ids = Object.keys(GODS) as GodId[];
 
-/** The pictures on disk, by file name, as data URLs. */
-const FILES = import.meta.glob<string>("./poses/*.webp", {
+/** The pictures on disk, by file name, as data URLs: none where the art isn't. */
+const FILES = import.meta.glob<string>("../../private-art/olympus/poses/*.webp", {
   query: "?inline",
   import: "default",
   eager: true,
 });
 
+/** One of a god's pictures: a pose, a pose's second frame, the crown or its start. */
+type Picture = Pose | `${Skill}-b` | "crown" | "start";
+
+/** The URL the lane is given for a picture. */
+function urlOf(god: GodId, picture: Picture): string {
+  if (picture === "crown") return CROWN_URLS[god]!;
+  if (picture === "start") return START_URLS[god]!;
+  if (picture.endsWith("-b")) return FRAME_URLS[god]![picture.slice(0, -2) as Skill]!;
+  return POSE_URLS[god][picture as Pose]!;
+}
+
+/** Every picture the lane is given, by god and name. */
+function pictures(): [GodId, Picture][] {
+  return ids.flatMap((id) => [
+    ...(Object.keys(POSE_URLS[id]) as Pose[]).map((pose): [GodId, Picture] => [id, pose]),
+    ...Object.keys(FRAME_URLS[id] ?? {}).map((pose): [GodId, Picture] => [
+      id,
+      `${pose as Skill}-b`,
+    ]),
+    ...(CROWN_URLS[id] ? [[id, "crown"] as [GodId, Picture]] : []),
+    ...(START_URLS[id] ? [[id, "start"] as [GodId, Picture]] : []),
+  ]);
+}
+
 /** A lossless WebP's width and height, from its header. */
-function sizeOf(god: GodId, pose: Pose | `${Skill}-b` | "crown" | "start"): [number, number] {
-  const bytes = atob(FILES[`./poses/${god}-${pose}.webp`]!.split(",")[1]!);
+function fileSize(god: GodId, picture: Picture): [number, number] {
+  const file = FILES[`../../private-art/olympus/poses/${god}-${picture}.webp`]!;
+  const bytes = atob(file.split(",")[1]!);
   expect(bytes.slice(0, 4) + bytes.slice(8, 16)).toBe("RIFFWEBPVP8L");
   const at = (i: number): number => bytes.charCodeAt(i);
   const bits = at(21) | (at(22) << 8) | (at(23) << 16) | (at(24) << 24);
   return [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1];
 }
+
+/** A placeholder's width and height, as its drawing says. */
+function placeholderSize(god: GodId, picture: Picture): [number, number] {
+  const url = urlOf(god, picture);
+  expect(url).toMatch(/^data:image\/svg\+xml,/);
+  const svg = decodeURIComponent(url.slice(url.indexOf(",") + 1));
+  expect(svg).toContain(`<title>${god}-${picture}</title>`);
+  const found = /^<svg [^>]*width="([\d.]+)" height="([\d.]+)"/.exec(svg)!;
+  return [Number(found[1]), Number(found[2])];
+}
+
+/** The sizes the lane counts on, of the pictures on disk or of what stands in for them. */
+function sized(sizeOf: (god: GodId, picture: Picture) => [number, number]): void {
+  it("has every pose at twice the size it is drawn", () => {
+    for (const id of ids) {
+      for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
+      for (const [pose, at] of Object.entries(CAST.gods[id].at))
+        expect(sizeOf(id, pose as Skill)).toEqual([2 * at[1], 200]);
+    }
+  });
+
+  it("has each second frame the size of its pose's first", () => {
+    for (const id of ids)
+      for (const pose of Object.keys(CAST.gods[id].frames) as Skill[])
+        expect(sizeOf(id, `${pose}-b`)).toEqual([2 * CAST.gods[id].at[pose]![1], 200]);
+  });
+
+  it("has the crown and every start at twice the size it is drawn", () => {
+    expect(sizeOf("nike", "crown")).toEqual([2 * CAST.gods.nike.rx.crown!.at[1], 200]);
+    for (const id of ids) expect(sizeOf(id, "start")).toEqual([2 * CAST.gods[id].st.at[1], 200]);
+  });
+}
+
+describe("the lane's pictures", () => {
+  it("are fifty-eight, no two alike", () => {
+    const all = pictures();
+    expect(all).toHaveLength(14 + 26 + 7 + 3 + 1 + 7);
+    expect(new Set(all.map(([id, picture]) => urlOf(id, picture))).size).toBe(all.length);
+    expect(all.map(([id, picture]) => `${id}-${picture}`).sort()).toEqual([...POSE_NAMES].sort());
+  });
+
+  describe.runIf(ART.complete)("where the art is", () => {
+    it("are each a file of the private folder, lossless", () => {
+      expect(Object.keys(FILES)).toHaveLength(POSE_NAMES.length);
+      for (const [id, picture] of pictures()) {
+        expect(urlOf(id, picture)).toMatch(new RegExp(`/poses/${id}-${picture}\\.webp$`));
+        expect(urlOf(id, picture)).not.toMatch(/^data:/);
+      }
+    });
+
+    sized(fileSize);
+  });
+
+  describe.runIf(!ART.complete)("where the art isn't", () => {
+    it("are each a placeholder, and none a file", () => {
+      expect(Object.keys(FILES)).toHaveLength(0);
+      for (const [id, picture] of pictures())
+        expect(urlOf(id, picture)).toMatch(/^data:image\/svg\+xml,/);
+    });
+
+    sized(placeholderSize);
+  });
+});
 
 describe("the cast data", () => {
   it("says which mockup it was cut from", () => {
@@ -271,16 +360,7 @@ describe("the cast data", () => {
     }
   });
 
-  it("has every picture at twice the size it is drawn, lossless", () => {
-    expect(Object.keys(FILES)).toHaveLength(14 + 26 + 7 + 3 + 1 + 7);
-    for (const id of ids) {
-      for (const pose of POSES) expect(sizeOf(id, pose)).toEqual([146, 200]);
-      for (const [pose, at] of Object.entries(CAST.gods[id].at))
-        expect(sizeOf(id, pose as Skill)).toEqual([2 * at[1], 200]);
-    }
-  });
-
-  it("has a second frame of three poses, each the size of its first: a stride, a blow, a wingbeat", () => {
+  it("has a second frame of three poses: a stride, a blow, a wingbeat", () => {
     const second = ids.flatMap((id) =>
       Object.entries(CAST.gods[id].frames).map(([pose, frames]) => [id, pose, frames]),
     );
@@ -294,7 +374,6 @@ describe("the cast data", () => {
       expect(Object.keys(FRAME_URLS[id] ?? {})).toEqual(poses);
       for (const pose of poses) {
         expect(FRAME_URLS[id]![pose]).toMatch(new RegExp(`${id}-${pose}-b`));
-        expect(sizeOf(id, `${pose}-b`)).toEqual([2 * CAST.gods[id].at[pose]![1], 200]);
       }
     }
   });
@@ -437,7 +516,7 @@ describe("the cast data", () => {
     });
   });
 
-  it("only Nike gives a crown: four of her beats, its picture twice the size it is drawn, inside her envelope on the floor", () => {
+  it("only Nike gives a crown: four of her beats, its picture inside her envelope on the floor", () => {
     for (const id of ids)
       expect(CAST.gods[id].rx).toEqual(
         id === "nike" ? { crown: { late: 3000, beats: 4, at: [11, 67] } } : {},
@@ -445,7 +524,6 @@ describe("the cast data", () => {
     expect(Object.keys(CROWN_URLS)).toEqual(["nike"]);
     expect(CROWN_URLS.nike).toMatch(/nike-crown/);
     const [left, width] = CAST.gods.nike.rx.crown!.at;
-    expect(sizeOf("nike", "crown")).toEqual([2 * width, 200]);
     // Facing either way: the picture's box, and its mirror about her head line.
     const [lo, hi] = CAST.gods.nike.env;
     expect(left).toBeGreaterThanOrEqual(lo);
@@ -454,7 +532,7 @@ describe("the cast data", () => {
     expect(66 - left).toBeLessThanOrEqual(hi);
   });
 
-  it("gives every god a start: a hop by its nature, held so many of its beats, and its picture twice the size it is drawn", () => {
+  it("gives every god a start: a hop by its nature, held so many of its beats, and its picture", () => {
     expect(
       Object.fromEntries(ids.map((id) => [id, [CAST.gods[id].st.hop, CAST.gods[id].st.beats]])),
     ).toEqual({
@@ -470,9 +548,8 @@ describe("the cast data", () => {
     expect(CAST.startle).toEqual({ down: 0.5, again: 6000, againBeats: 2, line: 3 });
     expect(Object.keys(START_URLS).sort()).toEqual([...ids].sort());
     for (const id of ids) {
-      const { hop, beats, at } = CAST.gods[id].st;
+      const { hop, beats } = CAST.gods[id].st;
       expect(START_URLS[id]).toMatch(new RegExp(`${id}-start`));
-      expect(sizeOf(id, "start")).toEqual([2 * at[1], 200]);
       // No smaller than a smaller start, and on the quarter-beat.
       expect(beats).toBeGreaterThanOrEqual(CAST.startle.againBeats);
       expect((beats * 4) % 1).toBe(0);

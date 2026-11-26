@@ -116,3 +116,10 @@ packages/*/.bench-*.mjs
 # `git add -A` cannot sweep 216KB of scratch into a release.
 /gg-app/mockups/
 /gg-app/dev/
+
+# Olympus god art is private: it lives in gg-app/private-art on the machines
+# that have it, and a checkout without it draws placeholders (src/olympus/art.ts).
+# The two old paths stay ignored so `git add -A` can never bring the art back.
+/gg-app/private-art/
+/gg-app/src/olympus/cameos/
+/gg-app/src/olympus/poses/
