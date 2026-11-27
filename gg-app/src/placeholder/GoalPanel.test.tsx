@@ -407,7 +407,7 @@ describe("GoalPanel in a desktop session", () => {
 });
 
 describe("GoalPanel on the iPhone", () => {
-  it("keeps the plain bar, and the settings in the page", () => {
+  it("draws the desktop's two-line bar and opens its settings as the same dialog", () => {
     document.documentElement.classList.add("platform-ios");
     render(
       <div className="app app-session">
@@ -415,27 +415,21 @@ describe("GoalPanel on the iPhone", () => {
       </div>,
     );
     const bar = screen.getByRole("group", { name: "Goal" });
-    expect(bar.className).toBe("placeholder-bar");
-    expect(bar.parentElement?.className).toBe("");
-    expect([...bar.children].map((el) => el.tagName)).toEqual([
-      "STRONG",
-      "SPAN",
-      "SPAN",
-      "SPAN",
-      "BUTTON",
-      "BUTTON",
-      "LABEL",
-      "SELECT",
+    expect(bar.className).toBe("goal-bar");
+    expect(bar.matches(`${PANEL} > .goal-bar`)).toBe(true);
+    expect([...bar.children].map((el) => el.className)).toEqual([
+      "goal-bar-title",
+      "goal-bar-views",
+      "goal-bar-tools",
     ]);
-    expect(bar.matches(`${PANEL} > *`)).toBe(false);
+    expect(screen.getByRole("combobox").parentElement?.className).toBe("goal-bar-select");
 
     const settings = screen.getByRole("button", { name: "Goal settings" });
-    expect(settings.getAttribute("aria-expanded")).toBe("false");
+    expect(settings.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(settings.hasAttribute("aria-expanded")).toBe(false);
     fireEvent.click(settings);
-    expect(settings.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("form", { name: "Goal settings" }).className).toBe("placeholder-form");
-    fireEvent.keyDown(screen.getByLabelText(/Instructions/), { key: "Escape" });
-    expect(screen.queryByRole("form")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Goal settings" });
+    expect(dialog.classList.contains("goal-form-modal")).toBe(true);
+    expect(within(dialog).getByRole("form", { name: "Goal settings" }).className).toBe("goal-form");
   });
 });

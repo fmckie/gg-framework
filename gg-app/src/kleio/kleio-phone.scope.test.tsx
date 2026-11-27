@@ -393,15 +393,18 @@ describe("on the iPhone, a Code session", () => {
   });
 });
 
-// The desktop's Home lays its plates on a six-column grid, a rule shared with
-// the iPhone, which draws pills instead (KleioHome.tsx): the grid squeezed the
-// phone's five pills into one row (Nov 2026).
+// Home's ways in are the desktop's plates on the iPhone too (KleioHome.tsx).
+// The desktop's grid is three, two and one, which a 393px screen can't hold:
+// the phone sets them two to a row, at the desktop's own scale.
 describe("on the iPhone, Kleio's Home", () => {
   beforeEach(() => {
     document.documentElement.classList.add("platform-ios");
+    const plates = ["Chat", "Code", "Motion", "Goals", "Specialists"]
+      .map((label) => `<button class="kleio-plate">${label}</button>`)
+      .join("");
     document.body.innerHTML = `
       <div class="home kleio-home">
-        <div class="home-actions"><button class="kleio-cloisonne home-action">Chat</button></div>
+        <div class="home-actions">${plates}<button class="kleio-plate home-brief">Voice agent</button></div>
       </div>`;
   });
   afterEach(() => {
@@ -409,13 +412,68 @@ describe("on the iPhone, Kleio's Home", () => {
     document.documentElement.classList.remove("platform-ios");
   });
 
-  it("stacks its pills in one column, over the desktop's plate grid", () => {
+  it("sets the desktop's plates two to a row, at the desktop's scale", () => {
     const row = document.querySelector(".home-actions");
     if (!row) throw new Error("no .home-actions");
-    expect(phoneStyle(row, "display")).toMatchObject({
-      value: "flex",
+    expect(phoneStyle(row, "display")).toMatchObject({ value: "grid" });
+    expect(phoneStyle(row, "--plate-scale")).toMatchObject({
+      value: "calc(4 / 3)",
       sheet: "./kleio-phone.css",
     });
-    expect(phoneStyle(row, "flex-direction")).toMatchObject({ value: "column" });
+    expect(phoneStyle(row, "grid-template-columns")?.value).toMatch(/^repeat\(4, /);
+    const plates = [...row.querySelectorAll(".kleio-plate")];
+    expect(plates).toHaveLength(6);
+    for (const plate of plates)
+      expect(phoneStyle(plate, "grid-column"), plate.textContent ?? "").toMatchObject({
+        value: "span 2",
+      });
+  });
+
+  it("leaves a plate its full height: no rule left from the pills squeezes it", () => {
+    const brief = document.querySelector(".home-brief");
+    if (!brief) throw new Error("no .home-brief");
+    expect(phoneStyle(brief, "height")?.value).toBe("calc(46px * var(--s))");
+  });
+});
+
+describe("on the iPhone, a goal's bar", () => {
+  beforeEach(() => document.documentElement.classList.add("platform-ios"));
+  afterEach(() => {
+    cleanup();
+    document.documentElement.classList.remove("platform-ios");
+  });
+
+  it("is the desktop's bar, with every control and the settings dialog's Close 44px for a thumb", async () => {
+    const { GoalPanel } = await import("../placeholder/GoalPanel");
+    render(
+      <div className="app app-session">
+        <GoalPanel
+          goal={{ id: "g", name: "API latency", needsKickoff: false, phase: "active" }}
+          view="workers"
+          onViewChange={() => {}}
+          models={[]}
+          onSelectWorkerModel={() => {}}
+          onPauseChange={() => {}}
+        />
+      </div>,
+    );
+    const bar = screen.getByRole("group", { name: "Goal" });
+    expect(bar.className).toBe("goal-bar");
+    const controls = [
+      ...bar.querySelectorAll(".goal-bar-views > button, .goal-bar-actions > button"),
+      screen.getByRole("combobox"),
+    ];
+    expect(controls).toHaveLength(5);
+    for (const control of controls)
+      expect(phoneStyle(control, "height"), control.textContent ?? "").toMatchObject({
+        value: "44px",
+        sheet: "./kleio-phone.css",
+      });
+
+    screen.getByRole("button", { name: "Goal settings" }).click();
+    const close = await screen.findByRole("button", { name: "Close" });
+    expect(close.closest(".goal-form-modal")).not.toBeNull();
+    expect(phoneStyle(close, "height")).toMatchObject({ value: "44px" });
+    expect(phoneStyle(close, "width")).toMatchObject({ value: "44px" });
   });
 });

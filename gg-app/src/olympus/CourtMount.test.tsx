@@ -29,20 +29,10 @@ const agents: CourtAgent[] = [
 ];
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
 
-// In this order: the first shows the chunk was never asked for, which only
-// holds until the second asks for it.
+// In this order: the first asks for the chunk, the second finds it loaded.
 describe("where the courtyard goes in a goal's Workers view", () => {
-  it("on the iPhone: no stage, and its chunk is never loaded", async () => {
+  it("on the iPhone: nothing while its chunk loads, then the stage, hidden from assistive technology", async () => {
     document.documentElement.classList.add("platform-ios");
-    const { container } = render(<CourtMount agents={agents} hearth="working" />);
-    await settle();
-    expect(container.innerHTML).toBe("");
-    expect(document.querySelector(".oly-court, .oly-cell")).toBeNull();
-    expect(courtChunk.loads).toBe(0);
-  });
-
-  it("on the desktop: nothing while its chunk loads, then the stage, hidden from assistive technology", async () => {
-    document.documentElement.classList.add("platform-macos");
     const { container } = render(<CourtMount agents={agents} hearth="working" />);
     expect(container.innerHTML).toBe("");
     await waitFor(() => expect(container.querySelector(".oly-court")).not.toBeNull());
@@ -52,6 +42,18 @@ describe("where the courtyard goes in a goal's Workers view", () => {
     expect(court.getAttribute("aria-hidden")).toBe("true");
     expect(court.querySelectorAll(".oly-terrace")).toHaveLength(3);
     // The coordinator's hearth is there before any worker is.
+    expect(court.querySelector(".oly-hearth")).not.toBeNull();
+  });
+
+  it("on the desktop: the same stage, from the same chunk", async () => {
+    document.documentElement.classList.add("platform-macos");
+    const { container } = render(<CourtMount agents={agents} hearth="working" />);
+    await waitFor(() => expect(container.querySelector(".oly-court")).not.toBeNull());
+    await settle();
+    expect(courtChunk.loads).toBe(1);
+    const court = container.firstElementChild!;
+    expect(court.getAttribute("aria-hidden")).toBe("true");
+    expect(court.querySelectorAll(".oly-terrace")).toHaveLength(3);
     expect(court.querySelector(".oly-hearth")).not.toBeNull();
   });
 

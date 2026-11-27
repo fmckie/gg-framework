@@ -166,36 +166,18 @@ html.platform-ios .settings-tab-dock {
   bottom: calc(var(--safe-bottom) + 4px);
 }
 
-/* Three 132px pills don't fit side by side in 354px: stack them into one
-   column of full-width pills — bigger targets, same order, same colours.
-   Kleio's Home names its own row too: the desktop's plate grid there is
-   shared, and the phone draws pills, not plates (KleioHome.tsx). */
-html.platform-ios .home-actions,
+/* Home's ways in are the desktop's plates (kleio-theme.css), two to a row
+   where the desktop has three, two and one: three need 388px even at the
+   art's 1×, and the column is 345. At the desktop's own 4/3 two rows fit in
+   341px, each plate is 165 by 61 (a whole target), and an art pixel is four
+   of the screen's, so the pixel art stays sharp. In order: Chat and Code,
+   Motion and Goals, Specialists and Voice agent. */
 html.platform-ios .kleio-home > .home-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  width: min(100%, 320px);
-  gap: 12px;
+  --plate-scale: calc(4 / 3);
+  grid-template-columns: repeat(4, calc((124px * var(--plate-scale) - var(--plate-gap)) / 2));
 }
-html.platform-ios .home-action {
-  min-width: 0;
-  height: 52px;
-  justify-content: center;
-  font-size: 17px;
-}
-/* The domed buttons at 52px: the rim's corners grow with them (the dome is in percentages). */
-html.platform-ios .home-action.kleio-cloisonne {
-  border-radius: 12px;
-}
-html.platform-ios .home-action.kleio-cloisonne::before {
-  border-radius: 10px;
-}
-/* Talk to Kleio: 44px, a full touch target. */
-html.platform-ios .home-quiet > .home-brief {
-  height: 44px;
-  padding: 0 18px;
-  font-size: 15px;
+html.platform-ios .kleio-home > .home-actions > .kleio-plate:is(:nth-child(4), :nth-child(6)) {
+  grid-column: span 2;
 }
 
 /* No window title bar to clear, so the desktop's 34–40px chrome gutters go;
@@ -552,6 +534,35 @@ html.platform-ios .goal-form > .goal-form-context > li > button {
 html.platform-ios .goal-form > .goal-form-actions > button {
   min-height: 44px;
 }
+html.platform-ios .modal.goal-form-modal .modal-close {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+}
+
+/* A goal's bar: the desktop's two lines, at a thumb's 44px. The model's field
+   takes what its line leaves. */
+html.platform-ios .app.app-session > .goal-panel .goal-bar-views > button,
+html.platform-ios
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)
+  > button {
+  height: 44px;
+  min-height: 44px;
+}
+html.platform-ios .app.app-session > .goal-panel .goal-bar-model {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+}
+html.platform-ios .app.app-session > .goal-panel .goal-bar-select {
+  flex: 1 1 auto;
+}
+html.platform-ios .app.app-session > .goal-panel .goal-bar-select > select {
+  width: 100%;
+  max-width: none;
+  height: 44px;
+}
 
 /* Desktop-only: export lives behind hover and window layout behind a
    mouse and several windows — neither exists on the iPhone. */
@@ -906,11 +917,6 @@ html.platform-ios .brief-panel {
 }
 html.platform-ios .brief-action {
   min-height: 44px;
-}
-html.platform-ios .home-brief {
-  height: 40px;
-  padding: 0 18px;
-  font-size: 14px;
 }
 
 /* "Talk to Kleio" on the iPhone: the whole screen, clear of the notch and the
