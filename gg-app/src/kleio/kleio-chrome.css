@@ -7,8 +7,8 @@
    Kleio's own pages (KleioHead). Settings is left out, because
    kleio-settings.css already draws its header flat. The radio dialog mounts on
    <body>, so its rules follow it from every screen, a session included. So
-   do the guide a screen's ? opens and the scorecard its rank box opens, at the
-   foot of this sheet.
+   do the guide a screen's ? opens, the scorecard its rank box opens and Code's
+   notes, at the foot of this sheet.
 
    Loaded after kleio-settings.css (main.tsx) and scoped to the desktop: the
    iPhone keeps kleio-phone.css's bar and has no radio. Nothing changes size or
@@ -371,4 +371,65 @@ html:not(.platform-ios) .scorecard-modal .scorecard-footer span {
 html:not(.platform-ios) .scorecard-modal .scorecard-footer b {
   color: var(--kleio-text-2);
   font-weight: 400;
+}
+
+/* ── Notes ── the notebook Code's Notes opens (NotesModal.tsx): the same flat
+   panel and close around one flat page, the goal form's field. The page is
+   focused for as long as the dialog is open, so focus is a quiet lapis edge
+   and not a ring. !important on the page's fill: glass.css has none here, but
+   NotesModal.tsx sets it inline. */
+html:not(.platform-ios) .modal.notes-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .notes-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .notes-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .notes-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .notes-modal .notes-input {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18) !important;
+  box-shadow: none;
+  color: var(--kleio-ink);
+  caret-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .notes-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .notes-input::selection {
+  background: color-mix(in srgb, var(--kleio-lapis) 35%, transparent);
+}
+/* Long notes scroll inside the page: the session's thin, trackless bar. */
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar {
+  width: 8px;
+}
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
 }

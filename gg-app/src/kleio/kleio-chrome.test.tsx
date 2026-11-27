@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { BackButton } from "../BackButton";
 import { RadioButton } from "../RadioButton";
 import { WindowLayoutButton } from "../WindowLayoutButton";
+import { NotesModal } from "../NotesModal";
 import { ScorecardModal } from "../ScorecardModal";
 import { SessionHelp } from "../SessionHelp";
 import { VoiceGuide } from "./VoiceGuide";
@@ -30,6 +31,7 @@ const BAR = "html:not(.platform-ios) :not(.settings-screen) > .picker-head";
 const RADIO = "html:not(.platform-ios) .radio-modal";
 const GUIDE = "html:not(.platform-ios) .session-help";
 const SCORECARD = "html:not(.platform-ios) .scorecard-modal";
+const NOTES = "html:not(.platform-ios) .notes-modal";
 
 /** A screen's top bar as the pickers build it: Back, then Radio and Windows.
  *  Awaited, so the radio's stations have arrived before anything is read. */
@@ -219,6 +221,38 @@ describe("the flat scorecard", () => {
     );
     expect(chromeCss).toContain(
       `${SCORECARD} .scorecard-bar > span {\n  background: var(--kleio-lapis);\n}`,
+    );
+  });
+});
+
+describe("the flat notes", () => {
+  it("draws the notebook as the flat panel around one flat page, lapis-edged while focused", () => {
+    render(<NotesModal value="Ship list" onChange={() => undefined} onClose={() => undefined} />);
+    const dialog = screen.getByRole("dialog", { name: "Your notes" });
+    expect(dialog.matches("html:not(.platform-ios) .modal.notes-modal")).toBe(true);
+    const page = within(dialog).getByRole("textbox", { name: "Your notes" });
+    // The page takes focus as the dialog opens, so its focus rule is its resting look.
+    expect(document.activeElement).toBe(page);
+
+    const parts: Array<[Element, string]> = [
+      [within(dialog).getByRole("button", { name: "Close" }), ".modal-close"],
+      [within(dialog).getByRole("heading", { name: "Your notes" }), ".modal-title"],
+      [page, ".notes-input"],
+    ];
+    for (const [part, selector] of parts) {
+      expect(part.matches(`${NOTES} ${selector}`), selector).toBe(true);
+      expect(chromeCss, selector).toContain(`${NOTES} ${selector}`);
+    }
+    expect(chromeCss).toContain(
+      "html:not(.platform-ios) .modal.notes-modal {\n  border-color: var(--kleio-edge) !important;\n  border-radius: 6px;\n  background: var(--kleio-surface) !important;",
+    );
+    // !important: NotesModal sets the page's fill inline.
+    expect(page.getAttribute("style")).toContain("background");
+    expect(chromeCss).toContain(
+      `${NOTES} .notes-input {\n  border-color: var(--kleio-edge);\n  border-radius: 3px;\n  background: rgb(0 0 0 / 0.18) !important;`,
+    );
+    expect(chromeCss).toContain(
+      `${NOTES} .notes-input:focus {\n  border-color: var(--kleio-lapis);\n}`,
     );
   });
 });
