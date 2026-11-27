@@ -48,17 +48,21 @@ function rain(vars: Record<string, string>) {
 }
 
 describe("the empty chat", () => {
-  it("adds the line under a Chat's invitation on the desktop", () => {
+  it("adds the line under a Chat's invitation", () => {
     const { container } = render(<WakeScreen chat />);
     expect(container.querySelector(".wake-sub")?.textContent).toBe(SUBTITLE);
     expect(container.querySelector(".wake-text + .wake-sub")).not.toBeNull();
   });
 
-  it("keeps Code, Motion and the iPhone to the one line", () => {
+  it("keeps Code and Motion to the one line", () => {
     expect(render(<WakeScreen />).container.querySelector(".wake-sub")).toBeNull();
     expect(render(<WakeScreen motion />).container.querySelector(".wake-sub")).toBeNull();
+  });
+
+  it("adds a Chat's line on the iPhone too", () => {
     document.documentElement.classList.add("platform-ios");
-    expect(render(<WakeScreen chat />).container.querySelector(".wake-sub")).toBeNull();
+    const { container } = render(<WakeScreen chat />);
+    expect(container.querySelector(".wake-text + .wake-sub")?.textContent).toBe(SUBTITLE);
   });
 
   it("draws the rain in the theme's one colour, size and weight", () => {
@@ -80,16 +84,13 @@ describe("the empty chat", () => {
     expect(ctx.fillText).toHaveBeenCalledTimes(14);
   });
 
-  it("gives the desktop the approved crimson rain and cursor, and leaves the iPhone's", () => {
+  it("gives the desktop and the iPhone the approved crimson rain and cursor", () => {
     expect(themeCss).toMatch(
-      /\nhtml:not\(\.platform-ios\) \{\n {2}--wake-rain-lead: #ed7380;\n {2}--wake-rain: #ed7380;\n {2}--wake-rain-size: 20;\n {2}--wake-rain-weight: 700;\n\}/,
+      /\nhtml:root \{\n {2}--wake-rain-lead: #ed7380;\n {2}--wake-rain: #ed7380;\n {2}--wake-rain-size: 20;\n {2}--wake-rain-weight: 700;\n\}/,
     );
+    expect(themeCss).toMatch(/html:root \.app\.app-session \.wake-rain \{\n {2}opacity: 0\.85;/);
     expect(themeCss).toMatch(
-      /html:not\(\.platform-ios\) \.app\.app-session \.wake-rain \{\n {2}opacity: 0\.85;/,
+      /html:root \.app\.app-session :is\(\.wake-cursor, \.wake-cursor-rest\) \{\n {2}color: #ed7380;\n\}/,
     );
-    expect(themeCss).toMatch(
-      /html:not\(\.platform-ios\) \.app\.app-session :is\(\.wake-cursor, \.wake-cursor-rest\) \{\n {2}color: #ed7380;\n\}/,
-    );
-    expect(themeCss).toContain("  --wake-rain: rgba(200, 40, 58, 0.55);\n");
   });
 });

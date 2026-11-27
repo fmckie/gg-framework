@@ -114,20 +114,6 @@ export function followsOutput(pinned: boolean, held: boolean): boolean {
 }
 
 /**
- * Share of the visible height the reader must be from the newest line before
- * the "jump to latest" button shows. Smaller moves still leave the end in view,
- * so a button for them would only flicker in and out as a reply streams.
- */
-export const JUMP_TO_LATEST_FRACTION = 0.2;
-
-/** Whether to offer the "jump to latest" button. */
-export function showJumpToLatest(pinned: boolean, el: ScrollGeometry): boolean {
-  if (pinned) return false;
-  const threshold = Math.max(REPIN_DISTANCE_PX, el.clientHeight * JUMP_TO_LATEST_FRACTION);
-  return distanceFromBottom(el) > threshold;
-}
-
-/**
  * The pin after a wheel event, which arrives BEFORE the scroll it causes.
  * Un-pinning here means no streaming commit can re-pin between the reader's
  * gesture and its scroll event and erase the move before it is measured.

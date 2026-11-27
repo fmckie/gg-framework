@@ -13,6 +13,7 @@ import {
   type RecentSession,
 } from "./agent";
 import { ChatPicker } from "./ChatPicker";
+import phoneCss from "./kleio/kleio-phone.css?raw";
 import themeCss from "./kleio/kleio-theme.css?raw";
 import chromeCss from "./kleio/kleio-chrome.css?raw";
 
@@ -279,7 +280,7 @@ describe("the Chats browser", () => {
   }
 
   it("draws a row's delete, its confirm and the empty list's button flat", async () => {
-    const browser = "html:not(.platform-ios) .chat-browser";
+    const browser = "html:root .chat-browser";
     ready([other]);
     const view = render(<ChatPicker onChosen={vi.fn()} />);
     const remove = await screen.findByRole("button", { name: /^Remove chat: / });
@@ -296,11 +297,9 @@ describe("the Chats browser", () => {
     render(<ChatPicker onChosen={vi.fn()} />);
     await screen.findByText("No previous chats yet.");
     const empty = document.querySelector(".picker-empty .btn");
-    expect(
-      empty?.matches(
-        "html:not(.platform-ios) :is(.chat-browser, .project-picker) .picker-empty .btn",
-      ),
-    ).toBe(true);
+    expect(empty?.matches("html:root :is(.chat-browser, .project-picker) .picker-empty .btn")).toBe(
+      true,
+    );
   });
 
   it("heads the list with the count, and a row with its title, age and message count", async () => {
@@ -420,32 +419,52 @@ describe("the Chats browser", () => {
       expect(gutter(container.querySelector(".chat-browser")?.parentElement ?? null)).toBe("");
     });
 
-    it("gives the iPhone's picker none", async () => {
+    it("gives the iPhone's browser the same, until the phone's sheet fits it to the screen", async () => {
       document.documentElement.classList.add("platform-ios");
       try {
         ready([session]);
         const container = mount();
         await screen.findByText("Plan my week");
-        expect(container.querySelector(".chat-browser")).toBeNull();
-        expect(gutter(container.querySelector(".chat-picker > .picker-list"))).toBe("");
-        expect(gutter(container.querySelector(".app-session > .inputwrap"))).toBe("");
+        const heading = container.querySelector(".chat-browser-heading");
+        expect(gutter(heading)).toMatch(/^max\(28px,/);
+
+        // main.tsx loads the phone's sheet last: 16px for a list, 24px for a session.
+        const style = document.createElement("style");
+        style.textContent = phoneCss;
+        document.head.append(style);
+        expect(gutter(heading)).toBe("16px");
+        expect(gutter(container.querySelector(".chat-browser > .picker-list"))).toBe("16px");
+        expect(gutter(container.querySelector(".app-session > .inputwrap"))).toBe("24px");
       } finally {
         document.documentElement.classList.remove("platform-ios");
       }
     });
   });
 
-  it("keeps today's picker on the iPhone: no search, no marker, the old row", async () => {
+  it("is the same browser on the iPhone: the heading, search, the flat row and the marker", async () => {
     document.documentElement.classList.add("platform-ios");
     try {
-      ready([session]);
-      render(<ChatPicker onChosen={vi.fn()} markCurrent />);
+      ready([session, other]);
+      restoreTargetMock.mockResolvedValue({
+        mode: "chat",
+        cwd: "/workspaces",
+        sessionPath: "/sessions/chat-2.jsonl",
+      });
+      const { container } = render(<ChatPicker onChosen={vi.fn()} markCurrent />);
       const title = await screen.findByText("Plan my week");
-      expect(title.className).toBe("picker-name picker-preview");
-      expect(screen.queryByRole("searchbox")).toBeNull();
-      expect(screen.queryByRole("heading")).toBeNull();
-      expect(restoreTargetMock).not.toHaveBeenCalled();
-      expect(screen.getByText("Chats").className).toBe("picker-title");
+      expect(title.className).toBe("chat-browser-item-title");
+      expect(container.querySelector(".chat-picker")?.classList.contains("chat-browser")).toBe(
+        true,
+      );
+      expect(screen.getByRole("heading").textContent).toBe("Chats 2");
+      expect((await screen.findByText("Current session")).closest("button")?.textContent).toContain(
+        "Prepare for lunch at Lord's",
+      );
+
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search chats" }), {
+        target: { value: "lunch" },
+      });
+      expect(screen.queryByText("Plan my week")).toBeNull();
     } finally {
       document.documentElement.classList.remove("platform-ios");
     }

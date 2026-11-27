@@ -236,6 +236,19 @@ describe("GeneralPage: the project folder", () => {
     expect(saveSettings).not.toHaveBeenCalled();
   });
 
+  it("offers no Browse on the iPhone, whose own picker can't see the host's folders", async () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      await renderPage();
+      expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+      // The folder can still be typed and saved.
+      type("/Users/you/Code");
+      expect(saveButton().disabled).toBe(false);
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
+  });
+
   it("changes nothing when Browse is cancelled", async () => {
     await renderPage();
     vi.mocked(open).mockResolvedValue(null);

@@ -1,11 +1,12 @@
-/* Specialists as a cast (CastList.tsx), on the desktop: characters standing on
+/* Specialists as a cast (CastList.tsx): characters standing on
    a lit shelf, the selected one in a spotlight with its profile underneath,
    the form that makes or changes one (CastForm.tsx, CastSchedules.tsx), and a
    group's room (CastRoom.tsx). Groups stand on the same shelf (CastGroups.tsx)
    and are made in the same form (CastGroupForm.tsx).
    Built from the redesign mockup (specialists/b-cast). The tier sets the sizes;
    the page sets how many places the widest shelf has (--cols), and the profile
-   which place its pointer is under (--col). The iPhone never draws this. */
+   which place its pointer is under (--col). The iPhone draws it too, fitted to
+   its width in kleio-phone.css. */
 
 .cast-page {
   --rounded: ui-rounded, "SF Pro Rounded", -apple-system, sans-serif;

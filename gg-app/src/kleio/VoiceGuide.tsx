@@ -17,7 +17,6 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import { Modal } from "../Modal";
-import { isPhone } from "../platform";
 import "../session-help.css";
 
 interface GuideTopic {
@@ -116,18 +115,12 @@ const GUIDE_INTRO =
 
 interface VoiceGuideProps {
   onClose: () => void;
-  /** Defaults to the running platform; injectable for tests. */
-  phone?: boolean;
 }
 
-/** The guide: a card on the Mac, a bottom sheet on the iPhone. */
-export function VoiceGuide({ onClose, phone = isPhone() }: VoiceGuideProps): React.ReactElement {
+/** The guide: the session guide's dialog, with Kleio Voice's topics. */
+export function VoiceGuide({ onClose }: VoiceGuideProps): React.ReactElement {
   return (
-    <Modal
-      title="What Kleio Voice can do"
-      onClose={onClose}
-      className={phone ? "session-help session-help-sheet voice-guide" : "session-help voice-guide"}
-    >
+    <Modal title="What Kleio Voice can do" onClose={onClose} className="session-help voice-guide">
       <div className="session-help-body">
         <p className="voice-guide-intro">{GUIDE_INTRO}</p>
         {VOICE_GUIDE.map((section) => (

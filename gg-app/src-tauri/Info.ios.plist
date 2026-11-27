@@ -12,5 +12,15 @@
     <string>Kleio uses the camera to scan the pairing QR code from your host or computer.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Kleio uses your microphone when you talk to Kleio, or tap the mic to dictate a message.</string>
+    <!--
+      Built with the iOS 27 SDK, UIKit stops an app at launch unless it has
+      the scene lifecycle, and tao takes that path only when this is true
+      (tao's platform_impl/ios/scene.rs). An iPhone still has one scene.
+    -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <true/>
+    </dict>
 </dict>
 </plist>

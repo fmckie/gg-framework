@@ -32,7 +32,6 @@ import { playSound } from "./sounds";
 import { takeNewSecurityNotices, withSecurityRow } from "./security-notices";
 import { toast } from "./toast";
 import { findCompletedSteps, countPlanSteps, planTitle } from "./plan-steps";
-import { isPhone } from "./platform";
 import type { PendingAttachment } from "./attachments";
 import type { Item } from "./App";
 import { lastIssuedId } from "./transcript-item";
@@ -1200,11 +1199,6 @@ export function useAgentEvents(deps: AgentEventsDeps): AgentEvents {
             phase: "plan_approved",
             reason: typeof d.reason === "string" ? d.reason : undefined,
           });
-          // The iPhone keeps Helper's row alone, and loses it to the reset as before.
-          if (isPhone()) {
-            pushItem(helperRow());
-            break;
-          }
           // An approval is an approval: the same row a manual Accept leaves, with
           // Helper's line (who approved, and any limitation) kept under it.
           const approvedRows: Item[] = [

@@ -1,29 +1,22 @@
-// Specialists (Blobs in the code): Kleio's helpers, each with one job. On the
-// desktop the list is a cast on a shelf (CastList.tsx); on the iPhone, rows
-// laid out like Chats and Code. A specialist opens into its chat with a sidebar of cards on the left (job,
-// schedules, recent activity) that collapses from the header. New and edit are
-// full-page forms: the Cast's on the desktop (CastForm.tsx), today's on the
-// iPhone. Every change goes to the Mac mini, so the phone sees it too.
+// Specialists (Blobs in the code): Kleio's helpers, each with one job. The list
+// is a cast on a shelf (CastList.tsx). A specialist opens into its chat with a
+// sidebar of cards on the left (job, schedules, recent activity) that collapses
+// from the header. New and edit are the Cast's full-page form (CastForm.tsx).
+// Every change goes to the Mac mini, so every device sees it.
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
 import { Badge } from "../Badge";
 import { ConfirmModal } from "../ConfirmModal";
-import { MetalButton } from "../MetalButton";
-import { ListSkeleton } from "../Skeleton";
-import { isPhone } from "../platform";
 import { theme } from "../theme";
-import { useWindowFocused } from "../useWindowFocused";
-import { AgentRowContent, agentRowState } from "./AgentRow";
-import { AgentAvatar, BlobAvatar } from "./BlobAvatar";
-import { BlobForm } from "./BlobForm";
+import { agentRowState } from "./AgentRow";
+import { AgentAvatar } from "./BlobAvatar";
 import { Schedules } from "./BlobSchedules";
 import { describeAutoSchedules } from "./blobFormat";
 import { CastForm } from "./CastForm";
 import { CastList } from "./CastList";
 import { shortHost } from "./host-name";
 import {
-  AppsButton,
   KleioHead,
   KleioPanel,
   KleioSplit,
@@ -120,8 +113,6 @@ export function BlobsPage({
       onSaved: saved,
       onCancel: () => setView(blob ? { kind: "detail", id: blob.id } : { kind: "list" }),
     };
-    // The iPhone keeps today's form; schedules stay in its chat's sidebar.
-    if (isPhone()) return <BlobForm {...form} />;
     const startJob = view.kind === "create" ? view.job : undefined;
     return <CastForm {...form} {...(startJob ? { startJob } : {})} onChanged={load} />;
   }
@@ -162,10 +153,8 @@ export function BlobsPage({
     );
   }
 
-  // The iPhone keeps the list of rows; the desktop shows everyone as a cast.
-  const List = isPhone() ? AgentList : DesktopList;
   return (
-    <List
+    <CastShelf
       blobs={blobs}
       error={error}
       onClose={onClose}
@@ -184,9 +173,9 @@ interface ListProps {
   error: string | null;
   onClose: () => void;
   onCreate: () => void;
-  /** The desktop's first run: a new specialist starting from an example job. */
+  /** The first run: a new specialist starting from an example job. */
   onCreateFrom: (job: string) => void;
-  /** The desktop's profile changed something on the host: read the list again. */
+  /** The profile changed something on the host: read the list again. */
   onChanged: () => Promise<void>;
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
@@ -194,122 +183,9 @@ interface ListProps {
 }
 
 /** The cast, told which host the specialists work on. */
-function DesktopList(props: ListProps): React.ReactElement {
+function CastShelf(props: ListProps): React.ReactElement {
   const host = useKleioRemote().status?.active?.host;
   return <CastList {...props} hostLabel={host ? shortHost(host) : "your host"} />;
-}
-
-// ─── the list ─────────────────────────────────────────────────────────────────────────
-
-function AgentList({
-  blobs,
-  error,
-  onClose,
-  onCreate,
-  onOpen,
-  onOpenApps,
-}: ListProps): React.ReactElement {
-  const [query, setQuery] = useState("");
-  const windowFocused = useWindowFocused();
-  const working = blobs?.filter((b) => b.running).length ?? 0;
-  const q = query.trim().toLowerCase();
-  const shown = (blobs ?? []).filter(
-    (b) => !q || b.name.toLowerCase().includes(q) || b.job.toLowerCase().includes(q),
-  );
-  const loading = blobs === null && !error;
-
-  return (
-    <>
-      <KleioHead
-        onBack={onClose}
-        title="Specialists"
-        status={
-          blobs !== null && (
-            <>
-              <Badge>{blobs.length}</Badge>
-              {working > 0 && <Badge color={theme.success}>{`${working} working`}</Badge>}
-              {blobs.length > 0 && (
-                <input
-                  type="search"
-                  className="picker-search"
-                  placeholder={"Search specialists\u2026"}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  aria-label="Search specialists"
-                />
-              )}
-            </>
-          )
-        }
-        actions={
-          <>
-            {onOpenApps && <AppsButton onClick={onOpenApps} />}
-            <MetalButton
-              windowFocused={windowFocused}
-              className="btn btn-primary btn-sm"
-              onClick={onCreate}
-            >
-              + New specialist
-            </MetalButton>
-          </>
-        }
-      />
-
-      <div className="picker-list kleio-list-scroll">
-        {loading && <ListSkeleton rows={4} />}
-        {error && (
-          <p className="kleio-error" role="alert">
-            {error}
-          </p>
-        )}
-        {blobs !== null && blobs.length === 0 && (
-          <div className="picker-empty kleio-first">
-            <BlobAvatar look={{ shape: "orb", face: "happy", color: "sky" }} size={64} animated />
-            <h2 className="kleio-first-title">No specialists yet</h2>
-            <p className="kleio-first-text" style={{ color: theme.textMuted }}>
-              A specialist does one job for you on your host — on a schedule or when you ask — and
-              shares Kleio's memory of you.
-            </p>
-            <MetalButton
-              windowFocused={windowFocused}
-              className="btn btn-primary btn-sm"
-              onClick={onCreate}
-            >
-              + Create your first specialist
-            </MetalButton>
-          </div>
-        )}
-        {blobs !== null && blobs.length > 0 && shown.length === 0 && (
-          <div className="picker-empty" style={{ color: theme.textMuted }}>
-            No specialists match “{query.trim()}”.
-          </div>
-        )}
-        {shown.length > 0 && (
-          <div className="picker-reveal">
-            {shown.map((b) => {
-              const state = agentRowState(b);
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  className={`picker-item kleio-row${b.running ? " is-running" : ""}`}
-                  onClick={() => onOpen(b.id)}
-                  aria-label={`${b.name}. ${state.text}. ${b.job}`}
-                >
-                  <AgentRowContent
-                    name={b.name}
-                    avatar={<AgentAvatar agent={b} live={b.running} />}
-                    sub={b.job}
-                    state={state}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </>
-  );
 }
 
 // ─── one agent ────────────────────────────────────────────────────────────

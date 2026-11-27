@@ -1,8 +1,8 @@
-// Settings → Apps, on the desktop: the shelf. Every connection stands on one
+// Settings → Apps: the shelf. Every connection stands on one
 // hairline with its state in a line; the apps not connected wait in a quiet
 // list under "Add an app"; Disconnect waits in the Remove group, with the
 // Composio key last. AppsPage.tsx does the loading, searching, connecting and
-// disconnecting, and the phone keeps its own page there.
+// disconnecting.
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {

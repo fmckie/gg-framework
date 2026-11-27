@@ -8,7 +8,12 @@
      bar / Dynamic Island and the home indicator are padded around here;
    - touch: no hover, 44px targets, no tap flash, no long-press callout on UI;
    - the keyboard: inputs at 16px+ so iOS never zooms the page on focus;
-   - a 390px-wide screen: wide rows wrap, wide modals become sheets. */
+   - a 393px-wide screen: wide rows wrap, columns stack, panels fill the width.
+
+   The look is the desktop's: kleio-theme.css, kleio-settings.css and
+   kleio-chrome.css share their rules with the phone under `html:root`. So a
+   rule here that fits one of theirs repeats that rule's selector under
+   `html.platform-ios`, which weighs the same and comes later. */
 
 html.platform-ios {
   --safe-top: env(safe-area-inset-top, 0px);
@@ -42,16 +47,18 @@ html.platform-ios body {
   touch-action: manipulation;
 }
 
-/* Reading and writing stay selectable: messages, code, and every input. The
-   specialist and group chats (.kleio-transcript) and the voice captions sit
-   outside the code session's .transcript, so only their message text is
-   listed: your messages, the replies' Markdown (code blocks too) and the
-   captions, not the avatars, names, dots and file cards around them. So is
-   a document she shows on a call (.voice-show-doc), not the panel around it. */
+/* Reading and writing stay selectable: messages, code, and every input. A
+   specialist's chat (.kleio-transcript), a group's room (.cast-thread) and
+   the voice captions sit outside the code session's .transcript, so only
+   their message text is listed: your messages, the replies' Markdown (code
+   blocks too) and the captions, not the avatars, names, dots and file cards
+   around them. So is a document she shows on a call (.voice-show-doc), not
+   the panel around it. */
 html.platform-ios .transcript,
 html.platform-ios .transcript *,
 html.platform-ios .kleio-transcript .user-msg,
 html.platform-ios .kleio-transcript .markdown,
+html.platform-ios .cast-thread .cast-bub,
 html.platform-ios .voice-line,
 html.platform-ios .voice-show-doc,
 html.platform-ios input,
@@ -64,6 +71,7 @@ html.platform-ios [contenteditable="true"] {
 /* Within that text, the buttons in a reply or a shown document (Copy, Show
    full output, Send to Kleio) and a scheduled message's tag stay chrome. */
 html.platform-ios .kleio-transcript .markdown button,
+html.platform-ios .cast-thread .cast-bub button,
 html.platform-ios .kleio-transcript .kleio-scheduled-tag,
 html.platform-ios .voice-show-doc button {
   -webkit-user-select: none;
@@ -71,18 +79,22 @@ html.platform-ios .voice-show-doc button {
   -webkit-touch-callout: none;
 }
 
-/* iOS zooms the whole page into any field under 16px when it is focused. */
+/* iOS zooms the whole page into any field under 16px when it is focused.
+   !important: the desktop's rules size their own fields (the composer's is
+   15.5px) with more weight than one rule for every field can have. */
 html.platform-ios input,
 html.platform-ios textarea,
 html.platform-ios select {
-  font-size: max(16px, 1em);
+  font-size: max(16px, 1em) !important;
 }
 /* The @help highlight is a copy of the draft drawn under the textarea, whose
-   own text goes clear, so it takes the textarea's 16px too. At the desktop's
-   15px it wrapped on different words from the textarea, and the caret, which
-   the textarea draws, sat a line below the text you could see. */
-html.platform-ios .ken-input-highlight {
-  font-size: max(16px, 1em);
+   own text goes clear, so it takes the textarea's 16px too, as does the copy
+   Enhance dissolves. At another size they wrapped on different words from the
+   textarea, and the caret, which the textarea draws, sat a line below the text
+   you could see. */
+html.platform-ios .ken-input-highlight,
+html.platform-ios .enh-diss {
+  font-size: max(16px, 1em) !important;
 }
 
 /* ── Safe areas ───────────────────────────────────────────────────────── */
@@ -148,28 +160,10 @@ html.platform-ios .home > .home-version-corner {
   bottom: calc(var(--safe-bottom) + 8px);
 }
 
-/* Settings scrolls under its floating tab bar like an iOS tab bar: the list
-   runs to the bottom edge of the screen instead of stopping at the home
-   indicator, where it was cut off in mid-air below the bar. The bar sits just
-   above the home indicator, and the last row still scrolls clear of it. */
-html.platform-ios .app:has(> .settings-screen) {
-  padding-bottom: 0;
-}
+/* A tab bar that floats over its page (Specialists and Groups) keeps clear
+   of the home indicator. Settings' own is in the page's flow, below. */
 html.platform-ios .settings-tab-dock {
   bottom: calc(var(--safe-bottom) + 4px);
-}
-html.platform-ios .settings-page {
-  padding-bottom: calc(var(--safe-bottom) + 84px);
-}
-
-/* The new and edit specialist forms scroll to the bottom edge the same way, and
-   their last row still scrolls clear of the home indicator. */
-html.platform-ios .app:has(.kleio-form-page),
-html.platform-ios .kleio-overlay:has(.kleio-form-page) {
-  padding-bottom: 0;
-}
-html.platform-ios .kleio-form-scroll {
-  padding-bottom: calc(var(--safe-bottom) + 32px);
 }
 
 /* Three 132px pills don't fit side by side in 354px: stack them into one
@@ -207,151 +201,182 @@ html.platform-ios .picker-head {
   padding: 10px 16px;
   min-height: 44px;
 }
-/* The chat screen's header is two rows (WorkspaceHeader). The first: back,
-   the project's name over a line of status, New, and the hide toggle. */
-html.platform-ios .chat-head-strip {
-  height: auto;
-  min-height: 56px;
-  gap: 10px;
-  padding: 6px 16px 4px;
+/* ── The session ──────────────────────────────────────────────────────────
+   A Code, Chat or Motion session is the desktop's (kleio-theme.css: "Session
+   chrome", "Composer dock" and the panels), fitted to 393px. A rule here is
+   the desktop rule's own selector under `html.platform-ios`: the same weight,
+   and this sheet loads last, so it wins. */
+
+/* One 24px gutter for the transcript, the composer and the panels. */
+html.platform-ios .app.app-session {
+  --kleio-gutter: 24px;
 }
-html.platform-ios .chat-head-titles {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-html.platform-ios .chat-head-name {
-  margin: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--sans);
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 22px;
-  color: var(--text);
-}
-/* The status line: which Mac runs the session, then the GitHub counts or CI.
-   Plain text that can still be tapped, on 24px targets. */
-html.platform-ios .chat-head-sub {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-family: var(--sans);
-  font-size: 12px;
-  color: var(--text-muted);
-}
-html.platform-ios .chat-head-sub button {
-  min-height: 24px;
-}
-html.platform-ios .chat-head-sub .kleio-badge,
-html.platform-ios .chat-head-sub .chat-head-github {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--text-muted);
-}
-/* Short of room, the Mac's name gives way first ("on mac-mi…"): the counts
-   stay whole, as the desktop strip truncates the folder before them. */
-html.platform-ios .chat-head-sub .kleio-badge {
-  display: block;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 24px;
-}
-html.platform-ios .chat-head-sub .kleio-badge-dot {
-  display: inline-block;
-  margin-right: 6px;
-  vertical-align: 1px;
-}
-html.platform-ios .chat-head-sub .chat-head-sep {
-  margin: 0 6px;
-}
-/* CI outranks the issue and PR counts, as in a narrow desktop window: the
-   line has room for one of them beside the Mac's name. */
-html.platform-ios .chat-head-sub:has(> .chat-head-ci) > .chat-head-github,
-html.platform-ios .chat-head-sub:has(> .chat-head-ci) > .chat-head-sep:has(+ .chat-head-github) {
-  display: none;
-}
-/* A separator never leads the line. Without the Mac's name (no host while
-   reconnecting) the first count, or CI, opens it. */
-html.platform-ios .chat-head-sub > .chat-head-sep:first-child,
-html.platform-ios .chat-head-sub > .chat-head-ci:first-child > .chat-head-sep,
-html.platform-ios
-  .chat-head-sub:has(> .chat-head-sep:first-child)
-  > .chat-head-ci
-  > .chat-head-sep {
-  display: none;
-}
-/* A specialist's or a group's chat: one row. Back, the sidebar and
-   new-conversation buttons, the avatar, the name over the chat's state
-   (KleioHead), then Edit. */
-html.platform-ios .kleio-head:has(> .kleio-head-titles) {
-  flex-wrap: nowrap;
-  gap: 10px;
-}
-html.platform-ios .kleio-head:has(> .kleio-head-titles) > .picker-head-actions {
-  flex: none;
-}
-html.platform-ios .kleio-head-titles {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-html.platform-ios .kleio-head-titles > .picker-title {
-  margin: 0;
-  font-size: 17px;
-  line-height: 22px;
-}
-html.platform-ios .kleio-head-sub {
-  display: flex;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-/* The state reads as a line of text, as under a project's name; live and
-   failed keep their colours. */
-html.platform-ios .kleio-head-sub .badge {
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 16px;
-}
-html.platform-ios .kleio-head-sub .badge:not(.is-live, .is-failed) {
-  color: var(--text-muted);
-}
-/* Agents: the home screen's Agents button. Rank: the scorecard is a desktop
-   extra. Both only cost the phone's header room. */
-html.platform-ios .kleio-open,
-html.platform-ios .rank-badge-wrap {
-  display: none;
-}
-/* The second row: Autopilot on the left, the session's tools on the right. */
-html.platform-ios .chat-head-nav {
-  gap: 8px 6px;
-  justify-content: flex-end;
-  padding: 2px 16px 10px;
-}
-html.platform-ios .chat-head-nav .picker-head-actions {
-  display: contents;
-}
-html.platform-ios .chat-head-nav .autopilot-toggle {
-  margin-right: auto;
+/* The bloom, scaled to the screen: the desktop's 620 by 500px would redden
+   all of it. Settings has the same surface (kleio-settings.css). !important
+   as there: App.tsx sets `background` inline. */
+html.platform-ios .app.app-session,
+html.platform-ios .app.app-session > .plan-review,
+html.platform-ios .app:has(> .settings-screen) {
+  background-image:
+    radial-gradient(
+      80vw 64vw at 0 0,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ),
+    radial-gradient(
+      80vw 64vw at 100% 100%,
+      rgb(112 22 30 / 0.5),
+      rgb(112 22 30 / 0.3) 35%,
+      rgb(112 22 30 / 0.09) 70%,
+      rgb(112 22 30 / 0)
+    ) !important;
 }
 
+/* The title strip wraps. There are no window buttons to clear, so it is as
+   tall as its lines: the title takes the first whole, and the host, Specialists,
+   usage and the tools toggle share the second. */
+html.platform-ios .app.app-session .chat-head-strip {
+  flex-wrap: wrap;
+  height: auto;
+  gap: 0 12px;
+  padding: 2px 16px;
+}
+html.platform-ios .app.app-session .chat-head-title {
+  flex-basis: 100%;
+  align-items: center;
+  min-height: 36px;
+}
+/* Every control in the two rows: 36px for a thumb, where the desktop has 28. */
+html.platform-ios .app.app-session .chat-head :is(.btn, .nav-toggle, .kleio-badge) {
+  min-height: 36px;
+}
+html.platform-ios .app.app-session .chat-head .nav-toggle {
+  min-width: 36px;
+  margin-left: auto;
+}
+html.platform-ios .app.app-session .chat-head .btn-nav-icon {
+  justify-content: center;
+  min-width: 36px;
+}
+html.platform-ios .app.app-session .chat-head .rank-badge {
+  height: 36px;
+}
+html.platform-ios .app.app-session .chat-head .autopilot-toggle {
+  height: 36px;
+}
+html.platform-ios .app.app-session .chat-head .title-usage-meter {
+  min-height: 36px;
+}
+/* The tools row wraps too, as in a narrow window. Its right-hand group joins
+   the line Back and the rank start, so two lines hold a Code session's tools. */
+html.platform-ios .app.app-session .chat-head-nav {
+  min-height: 0;
+  gap: 4px 8px;
+  padding: 4px 16px 6px;
+}
+html.platform-ios .app.app-session .chat-head-nav .picker-head-actions {
+  display: contents;
+}
+
+/* The activity line's tools toggle, and the composer's attach, mic and send. */
+html.platform-ios .app.app-session > .liveregion .tools-toggle {
+  width: 36px;
+  height: 36px;
+}
+html.platform-ios .app.app-session > .inputwrap .icon-circle {
+  width: 36px;
+  height: 36px;
+}
+/* The composer's trigger row (More, the branch) and what the panels hold. */
+html.platform-ios .app.app-session > .inputwrap > .panel-entry-bar .panel-entry {
+  height: 36px;
+}
+html.platform-ios .app.app-session > .composer-panel .panel-close {
+  width: 36px;
+  height: 36px;
+}
+/* Branch: its links wrap instead of running off the panel. */
+html.platform-ios .app.app-session > .branch-panel .branch-actions {
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+html.platform-ios .app.app-session > .branch-panel .branch-action {
+  height: 36px;
+}
+/* Model: seven thinking levels are four and three, each a 36px target. */
+html.platform-ios .app.app-session > .model-panel .thinking-levels {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+html.platform-ios .app.app-session > .model-panel .thinking-choice span {
+  min-height: 36px;
+}
+html.platform-ios .app.app-session > .model-panel .model-close {
+  min-width: 36px;
+}
+/* Usage, from the status row's meter: the screen's width, scrolling inside
+   when a short screen (the keyboard up) can't hold it. !important: the
+   desktop places it by an inline `left`. */
+html.platform-ios .usage-popover {
+  right: calc(var(--safe-right) + 12px);
+  left: calc(var(--safe-left) + 12px) !important;
+  width: auto;
+  max-width: none;
+  max-height: calc(var(--app-height, 100dvh) - var(--safe-top) - 96px);
+  overflow-y: auto;
+}
+html.platform-ios .usage-popover .usage-close {
+  width: 36px;
+  height: 36px;
+}
+
+/* The status row under the composer wraps: the agent's name, or the running
+   tasks, take a line; the meter, thinking and the models the next ones. Every
+   control is a 36px line, so the lines need no gap between them. */
+html.platform-ios .app.app-session > .footer {
+  flex-wrap: wrap;
+  gap: 0 8px;
+  min-height: 0;
+  padding: 2px 20px 4px;
+}
+html.platform-ios .app.app-session > .footer > .footer-left:empty {
+  display: none;
+}
+html.platform-ios .app.app-session > .footer > .footer-left:not(:empty) {
+  flex: 1 1 100%;
+  min-height: 28px;
+}
+html.platform-ios .app.app-session > .footer > .footer-right {
+  flex: 1 1 100%;
+  row-gap: 0;
+}
+/* A model's name is text under an invisible select: the select is the line. */
+html.platform-ios .app.app-session > .footer .model-picker {
+  align-items: center;
+  min-height: 36px;
+}
+
+/* Plan review: the tray's three buttons, and Send and Cancel under feedback. */
+html.platform-ios .app.app-session > .plan-review > .plan-review-actions .btn {
+  height: 36px;
+}
+html.platform-ios
+  .app.app-session
+  > .plan-review
+  > .plan-review-actions
+  .plan-feedback-buttons
+  .btn {
+  height: 36px;
+}
+/* Helper's prompt card: Send. */
+html.platform-ios .app.app-session > .transcript-frame > .transcript .markdown .ken-prompt-send {
+  height: 36px;
+}
+/* The Checklist's Check. */
+html.platform-ios .app.app-session > .placeholder-checklist .btn {
+  height: 36px;
+}
 /* ── Touch targets ────────────────────────────────────────────────────── */
 
 html.platform-ios button,
@@ -359,51 +384,16 @@ html.platform-ios [role="button"],
 html.platform-ios .btn {
   min-height: 36px;
 }
-/* The footer's thinking and model controls are inline text: stretched to 36px
-   they grew the bar under the message box by 16px of empty band. The bar's own
-   48px is the target. */
-html.platform-ios .footer button {
-  min-height: 0;
-}
-/* Setup is a first-run checklist done with a thumb: every button and field on
-   it gets Apple's full 44pt, as does a key field wherever it shows (Apps). */
-html.platform-ios :is(.setup-page, .key-field) :is(.btn, .modal-input) {
-  min-height: 44px;
+/* A key is typed and saved with a thumb: every button and field of a key's
+   form gets Apple's full 44pt, wherever it shows (Kleio's page, Apps). */
+html.platform-ios .key-field :is(.btn, .modal-input) {
   min-width: 44px;
+  min-height: 44px;
 }
 /* Dictation's Try it mic, the same 44pt, and still a circle. */
-html.platform-ios .setup-page .dictate-btn {
+html.platform-ios .setup-dictation-try-row > .dictate-btn {
   width: 44px;
   height: 44px;
-}
-/* With short model names (ModelSelect's compact), context, thinking and both
-   models fit one line under the message box; the desktop's 16px gaps wrapped
-   Ken's model onto a second. */
-html.platform-ios .footer-right {
-  gap: 10px;
-}
-/* The subscription usage bar (a Claude or ChatGPT plan) sits at the right end
-   of the activity row (App.tsx): the footer's controls fill their line. The
-   window and its bar fit beside a long status and Stop; the reset time does
-   not, so it stays in the meter's spoken label. */
-html.platform-ios .statusrow-right .title-usage-reset {
-  display: none;
-}
-/* A tap target as tall as the phone's other buttons that doesn't grow the
-   row: its padding reaches into the row's own. Slimmer than the desktop's, so
-   a status like "Running a command…" keeps its room beside Stop. */
-html.platform-ios .statusrow-right .title-usage-meter {
-  min-height: 0;
-  padding: 10px 0;
-  margin-block: -10px;
-}
-html.platform-ios .statusrow-right .title-usage-track {
-  width: 44px;
-}
-/* A tap leaves iOS's hover behind: no box around the bar afterwards. */
-html.platform-ios .statusrow-right .title-usage-meter:hover {
-  border-color: transparent;
-  background: transparent;
 }
 /* The desktop's circles (back, the agent page's icon buttons) stay circles at
    a size a thumb can hit; a 36px minimum alone stretched them into ovals. */
@@ -422,18 +412,15 @@ html.platform-ios .icon-circle {
   height: 36px;
 }
 /* @help beside the paperclip: one tap addresses the draft to the helper, with
-   no trip to the symbols keyboard for the @. The paperclip's glass circle,
-   stretched to a pill around the trigger in Ken's colour, which a tap's
-   sticky hover must not turn white. */
-html.platform-ios .icon-circle.helper-chip,
-html.platform-ios .icon-circle.helper-chip:hover:not(:disabled) {
+   no trip to the symbols keyboard for the @. The composer's square button, as
+   wide as its word, in Helper's colour. */
+html.platform-ios .app.app-session > .inputwrap .icon-circle.helper-chip {
   width: auto;
-  padding: 0 12px;
-  border-radius: var(--radius-pill);
+  padding: 0 10px;
   color: var(--ken);
   font-family: var(--sans);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 /* With the chip beside the paperclip the rotating hints outgrow the field.
    Keep them to one line: iOS counts a wrapped hint in the field's
@@ -486,13 +473,81 @@ html.platform-ios .btn-nav-icon:not(.btn-icon, .kleio-icon-btn) {
   height: 36px;
   padding: 0 14px;
 }
-html.platform-ios .picker-item {
+
+/* ── Lists ── Chats, Motion, Goals and Projects are the desktop's browsers
+   (kleio-theme.css, "The Chats browser" on), in one column. */
+
+/* The browsers set their own column: the screen's, less the 16px a side that
+   the bar above them keeps. */
+html.platform-ios .chat-browser {
+  --kleio-gutter: 16px;
+}
+/* The heading stacks: the title, the search across the width, then New. */
+html.platform-ios .chat-browser-heading {
+  gap: 12px;
+  padding-top: 14px;
+  padding-bottom: 12px;
+}
+html.platform-ios .chat-browser-controls {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+html.platform-ios .chat-browser-search {
+  flex: 1 1 100%;
+}
+html.platform-ios .chat-browser-search > input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 44px;
+}
+html.platform-ios .chat-browser-controls > .chat-browser-new {
+  flex: 1 1 auto;
+}
+/* New, and the buttons the lists reuse it for (Try again, Cancel, Delete). */
+html.platform-ios .chat-browser-new {
+  min-height: 44px;
+}
+/* A row is 52px at least, as an iOS list's is. */
+html.platform-ios :is(.picker-item, .chat-browser-item) {
   min-height: 52px;
 }
-
-/* Revealed on hover on the desktop; a phone has no hover, so always show. */
-html.platform-ios .picker-item .picker-hide {
+/* Hide and Remove show on hover on the desktop. A phone has no hover, so they
+   always show, on a 36px target, and a project's row keeps clear of its own.
+   The second step, Delete, keeps its width. */
+html.platform-ios .picker-item-wrap > .picker-hide:not(.picker-delete-confirm) {
+  right: 4px;
+  width: 36px;
+  height: 36px;
   opacity: 1;
+}
+html.platform-ios .project-picker .picker-item-wrap:has(> .picker-hide) > .picker-item {
+  padding-right: 44px;
+}
+
+/* New goal: the dialog takes the screen's width, ends above the keyboard and
+   scrolls inside. A form done with a thumb: its fields and buttons are 44px. */
+html.platform-ios .modal-backdrop:has(> .goal-form-modal) {
+  bottom: auto;
+  height: var(--app-height, 100%);
+}
+html.platform-ios .modal.goal-form-modal {
+  width: calc(100vw - 24px);
+  max-height: calc(var(--app-height, 100dvh) - var(--safe-top) - var(--safe-bottom) - 24px);
+  padding: 20px 16px;
+}
+html.platform-ios .goal-form :is(input, textarea) {
+  min-height: 44px;
+}
+html.platform-ios .goal-form button {
+  min-height: 44px;
+}
+html.platform-ios .goal-form > .goal-form-context > li > button {
+  min-height: 44px;
+}
+html.platform-ios .goal-form > .goal-form-actions > button {
+  min-height: 44px;
 }
 
 /* Desktop-only: export lives behind hover and window layout behind a
@@ -514,19 +569,21 @@ html.platform-ios .transcript {
 }
 
 /* The status dots are ⏺, and iOS draws that character from its colour emoji
-   font: a blue square. Draw the desktop's dot instead, a plain circle in the
-   colour each row sets on it: replies and compaction notices (Kleio's red,
-   Ken's colour), tool calls (running, done, failed) and the sub-agent feed.
-   The hidden glyph keeps its line box, so the circle centres on that line. */
-html.platform-ios .assistant-dot,
-html.platform-ios .tool-dot,
-html.platform-ios .subagent-icon.is-dot {
+   font: a blue square. Draw a plain circle instead, in the colour each row
+   sets on it: replies, tool calls (running, done, failed) and the sub-agent
+   feed. The hidden glyph keeps its line box, so the circle centres on that
+   line. Not in a session, which draws its own dots (kleio-theme.css). */
+html.platform-ios
+  :is(.assistant-dot, .tool-dot, .subagent-icon.is-dot):not(
+    .app-session > :is(.transcript-frame, .liveregion) *
+  ) {
   position: relative;
   visibility: hidden;
 }
-html.platform-ios .assistant-dot::before,
-html.platform-ios .tool-dot::before,
-html.platform-ios .subagent-icon.is-dot::before {
+html.platform-ios
+  :is(.assistant-dot, .tool-dot, .subagent-icon.is-dot):not(
+    .app-session > :is(.transcript-frame, .liveregion) *
+  )::before {
   content: "";
   visibility: visible;
   position: absolute;
@@ -540,25 +597,26 @@ html.platform-ios .subagent-icon.is-dot::before {
 /* A reply's dot centres on the reply's first line rather than its own: 15px
    text at line-height 1.55 is a 23.25px line, so its middle is 11.6px down;
    less half the dot. */
-html.platform-ios .assistant-dot::before {
+html.platform-ios .assistant-dot:not(.app-session > :is(.transcript-frame, .liveregion) *)::before {
   top: 7px;
 }
 /* Tool and sub-agent rows take the reply dot's 16px gutter, so their text
    starts where a reply's does, whatever the glyph's own width. */
-html.platform-ios .tool-dot,
-html.platform-ios .subagent-icon {
+html.platform-ios
+  :is(.tool-dot, .subagent-icon):not(.app-session > :is(.transcript-frame, .liveregion) *) {
   flex: 0 0 16px;
 }
 /* A sub-agent row (name, token counts, summary) is wider than a phone. It
    wraps instead of pushing the transcript sideways; the padding and the
-   icon's negative margin hang the wrapped lines under the name. */
-html.platform-ios .subagent-row {
+   icon's negative margin hang the wrapped lines under the name, by the
+   session's 24px mark column. */
+html.platform-ios .app.app-session > .transcript-frame > .transcript .subagent-row {
   flex-wrap: wrap;
   row-gap: 0;
-  padding-left: 22px;
+  padding-left: 24px;
 }
-html.platform-ios .subagent-icon {
-  margin-left: -22px;
+html.platform-ios .app.app-session > .transcript-frame > .transcript .subagent-icon {
+  margin-left: -24px;
 }
 html.platform-ios .subagent-name {
   min-width: 0;
@@ -569,93 +627,191 @@ html.platform-ios .subagent-tokens {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* A running agent's tool feed lines up under its name (gutter plus gap). */
+/* A running agent's tool feed lines up under its name. */
 html.platform-ios .subagent-feed {
-  padding-left: 22px;
+  padding-left: 24px;
 }
 
-/* "Jump to latest": the round button that appears once you have scrolled
-   up while a reply is streaming. Phone-only — hidden on the desktop. */
-.jump-to-latest {
+/* ── Settings ── the desktop's pages (kleio-settings.css). They fold to one
+   column below 760px by themselves; what 393px still needs is here. */
+
+/* The tray is in the page's flow, above the home indicator. Nine tabs don't
+   fit with the open one's name beside its icon, so each tab is its icon: an
+   equal share of the tray, 44px tall. The header names the open page, and a
+   tab keeps its name for VoiceOver. */
+html.platform-ios .settings-screen > .settings-tab-dock {
+  padding: 8px 12px;
+}
+html.platform-ios .settings-screen .settings-tabs {
+  box-sizing: border-box;
+  width: 100%;
+  height: 52px;
+  padding: 0 4px;
+}
+html.platform-ios .settings-screen .settings-tab,
+html.platform-ios .settings-screen .settings-tab.is-active {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 44px;
+  padding: 0;
+}
+html.platform-ios .settings-screen .settings-tab.is-active .settings-tab-label {
   display: none;
 }
-html.platform-ios .jump-to-latest {
-  display: grid;
-  place-items: center;
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  z-index: 5;
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  backdrop-filter: blur(14px) saturate(140%);
-  color: var(--text);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, 8px) scale(0.92);
-  transition:
-    opacity 180ms ease,
-    transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+/* iOS draws its scrollbar over the page, so the desktop's 8px gutter is not
+   kept back: the page's two sides are equal. */
+html.platform-ios .settings-screen > .settings-scroll > .settings-page {
+  padding-right: 20px;
+  padding-left: 20px;
 }
-html.platform-ios .jump-to-latest.visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate(-50%, 0) scale(1);
+/* A form done with a thumb: the pages' main buttons, fields and selects are
+   44px, the small buttons beside a row 36. */
+html.platform-ios .settings-screen :is(.ov-page, .kl-page, .st-danger) .btn-sm,
+html.platform-ios .settings-screen .cx-page .btn-sm,
+html.platform-ios .settings-screen :is(.ap-page, .tl-page) .btn-sm {
+  height: 36px;
 }
-html.platform-ios .jump-to-latest:active {
-  transform: translate(-50%, 0) scale(0.94);
+html.platform-ios .settings-screen .ov-hero-cta,
+html.platform-ios .settings-screen .kl-select,
+html.platform-ios .settings-screen .kl-talk,
+html.platform-ios .settings-screen .ap-search-input,
+html.platform-ios .settings-screen .tl-input,
+html.platform-ios .settings-screen .tl-add-btn,
+html.platform-ios .settings-screen .gn-lead .modal-btn,
+html.platform-ios .settings-screen .sr-install {
+  height: 44px;
 }
-@media (prefers-reduced-motion: reduce) {
-  html.platform-ios .jump-to-latest {
-    transition: opacity 120ms linear;
-  }
+/* Connection's path: three devices and two hops in one row. The narrowest
+   window's 104px devices and 56px hops come to 424px, so both give a little. */
+html.platform-ios .settings-screen .cx-path {
+  --cx-node: 80px;
+}
+html.platform-ios .settings-screen .cx-route {
+  grid-template-columns:
+    var(--cx-node) minmax(48px, 1fr) var(--cx-node) minmax(48px, 1fr)
+    var(--cx-node);
+}
+
+/* ── The Cast ── specialists and groups on their shelf, the form that makes
+   one and a group's room (kleio-cast.css). That sheet sizes by how many stand
+   on a shelf, not by the window, and loads with its page, after this one: so
+   every rule here outweighs the one it fits. */
+
+/* A place is never narrower than a thumb can read and press. A shelf of more
+   than four scrolls sideways, all its rows together, instead of shrinking. */
+html.platform-ios .cast-page {
+  --inset: 16px;
+  --slot: max(84px, min(var(--slot-max), calc((100cqw - 2 * var(--inset)) / var(--cols, 1))));
+}
+html.platform-ios .cast {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+/* As wide as its places, so the shelf's line runs under all of them. */
+html.platform-ios .cast-row {
+  width: max-content;
+  min-width: 100%;
+}
+/* The profile's three columns are one, each under a hairline. Its pointer is
+   left out: the shelf scrolls under it. */
+html.platform-ios .cast-profile,
+html.platform-ios .cast-profile.is-group,
+html.platform-ios .cast-page[data-tier="crowd"] .cast-profile {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 14px;
+  padding: 16px;
+}
+html.platform-ios .cast-profile::before {
+  display: none;
+}
+html.platform-ios .cast-profile .cast-p-col {
+  padding-top: 14px;
+  padding-left: 0;
+  border-top: 1px solid var(--border);
+  border-left: 0;
+}
+html.platform-ios .cast-profile .cast-p-actions {
+  flex-wrap: wrap;
+}
+/* The first run: five places across the screen, the one in the light larger. */
+html.platform-ios .cast-page .cast-stage {
+  padding: 0 var(--inset);
+}
+html.platform-ios .cast-page .cast-first {
+  --size: 56px;
+}
+html.platform-ios .cast-first .cast-slot.is-hero {
+  --size: 96px;
+}
+html.platform-ios .cast-welcome .cast-examples {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+/* A keyboard shortcut a phone can't press. */
+html.platform-ios .cast-welcome .cast-tip {
+  display: none;
+}
+
+/* The form: who it is, then what it does, in one column. */
+html.platform-ios .cast-form .cast-creator-grid {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 16px;
+  padding: 6px 16px 18px;
+}
+html.platform-ios .cast-gform .cast-who {
+  position: static;
+}
+html.platform-ios .cast-pickers .kleio-look-options {
+  flex-wrap: wrap;
+}
+/* A week of seven narrow days: a mark keeps its time, less its side padding. */
+html.platform-ios .cast-week .cast-mark {
+  padding-inline: 2px;
+  font-size: 12px;
+}
+/* A form done with a thumb: 36px for its small controls, 44 for the main ones. */
+html.platform-ios .cast-form .cast-seg button,
+html.platform-ios .cast-form .cast-field,
+html.platform-ios .cast-form .cast-se-when .dropdown-trigger,
+html.platform-ios .cast-form .cast-se-save {
+  height: 36px;
+}
+html.platform-ios .cast-form .cast-days button,
+html.platform-ios .cast-form .cast-shuffle {
+  width: 36px;
+  height: 36px;
+}
+html.platform-ios .cast-form .cast-se-prompt,
+html.platform-ios .cast-form .cast-brain .dropdown-trigger,
+html.platform-ios .cast-page .cast-btn-lg {
+  height: 44px;
+}
+html.platform-ios .cast-welcome .cast-example {
+  height: 36px;
+}
+
+/* A group's room: the thread and the message box take the screen's width, and
+   its side panel slides over them (CastRoom.tsx, below 900px). */
+html.platform-ios .cast-room .cast-thread {
+  padding: 0 16px;
+}
+html.platform-ios .cast-room .cast-room-note {
+  padding: 6px 16px 0;
+}
+html.platform-ios .cast-room .cast-composer {
+  padding: 8px 16px 12px;
+}
+html.platform-ios .cast-room .cast-mentions button {
+  height: 36px;
+}
+html.platform-ios .cast-room .cast-input .dictate-btn,
+html.platform-ios .cast-room .cast-send {
+  width: 36px;
+  height: 36px;
 }
 
 /* ── Narrow screen ────────────────────────────────────────────────────── */
 
-/* Connection: the three devices stay in one row joined by their lines, as on
-   the desktop. The narrow-window rule stacked them into a column whose links
-   shrank to dots. Sized so the row fits 353px of card. */
-html.platform-ios .conn-map {
-  grid-template-columns: auto minmax(16px, 1fr) auto minmax(16px, 1fr) auto;
-  justify-items: stretch;
-  gap: 4px;
-  padding: 20px 12px;
-}
-html.platform-ios .conn-node {
-  min-width: 0;
-  width: 84px;
-}
-html.platform-ios .conn-node-detail {
-  max-width: 100%;
-}
-html.platform-ios .conn-link {
-  width: auto;
-  height: auto;
-  /* Level with the icons' middles, not the names under them. */
-  margin: 0 0 38px;
-}
-/* The verdict's checklist: each answer goes under its label, which a
-   side-by-side answer squeezed onto two lines. */
-html.platform-ios .conn-check {
-  grid-template-columns: 15px minmax(0, 1fr);
-  row-gap: 1px;
-  align-items: start;
-}
-html.platform-ios .conn-check > svg {
-  margin-top: 0.2em;
-}
-html.platform-ios .conn-check-text {
-  grid-column: 2;
-  text-align: start;
-}
 /* A command to run: the full width for the command, Copy under it. */
 html.platform-ios .conn-command {
   flex-wrap: wrap;

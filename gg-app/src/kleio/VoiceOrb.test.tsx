@@ -13,16 +13,6 @@ import {
 } from "./hairline/testGl";
 import type { OrbLevels, OrbMood, VoiceOrbProps } from "./VoiceOrb";
 
-const classic = vi.hoisted(() => ({ props: [] as unknown[] }));
-
-// Today's orb is three.js: not something jsdom can draw.
-vi.mock("./VoiceOrbClassic", () => ({
-  VoiceOrbClassic: (props: VoiceOrbProps) => {
-    classic.props.push(props);
-    return <div data-testid="classic-orb" data-mood={props.mood} className={props.className} />;
-  },
-}));
-
 const { VoiceOrb } = await import("./VoiceOrb");
 
 const MOODS: OrbMood[] = [
@@ -68,7 +58,6 @@ beforeEach(() => {
   frames = fakeFrames();
   stubCanvas(glx);
   warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  classic.props.length = 0;
 });
 
 afterEach(() => {
@@ -79,14 +68,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("VoiceOrb on the desktop", () => {
+describe("VoiceOrb", () => {
   it("draws the Hairline instrument on a canvas in the orb's box", () => {
     const { container } = show();
     const box = container.querySelector(".voice-orb");
     expect(box?.getAttribute("aria-hidden")).toBe("true");
     expect(box?.querySelectorAll("canvas")).toHaveLength(1);
     expect(flat()).toBeNull();
-    expect(screen.queryByTestId("classic-orb")).toBeNull();
     expect(warn).not.toHaveBeenCalled();
     frames.run(0.1);
     expect(glx.drawn.length).toBeGreaterThan(0);
@@ -249,31 +237,25 @@ describe("VoiceOrb when WebGL2 breaks", () => {
   });
 });
 
+// One orb for both: the phone's sphere went with its three.js chunk.
 describe("VoiceOrb on the iPhone", () => {
   beforeEach(() => document.documentElement.classList.add("platform-ios"));
 
-  it("keeps today's orb, with everything it was given", async () => {
-    const { container } = show({ mood: "speaking", reducedMotion: true });
-    const orb = await screen.findByTestId("classic-orb");
-    expect(orb.getAttribute("data-mood")).toBe("speaking");
-    expect(orb.className).toBe("voice-orb");
-    expect(classic.props[classic.props.length - 1]).toEqual({
-      className: "voice-orb",
-      mood: "speaking",
-      levels,
-      reducedMotion: true,
-    });
-    expect(container.querySelector("canvas")).toBeNull();
+  it("draws the Hairline instrument, with the mood it was given", () => {
+    const { container } = show({ mood: "speaking" });
+    const box = container.querySelector(".voice-orb");
+    expect(box?.querySelectorAll("canvas")).toHaveLength(1);
     expect(flat()).toBeNull();
-    expect(HTMLCanvasElement.prototype.getContext).not.toHaveBeenCalled();
-    expect(frames.pending()).toBe(0);
+    expect(screen.queryByTestId("loading")).toBeNull();
+    frames.run(0.1);
+    expect(glx.drawn.length).toBeGreaterThan(0);
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it("keeps today's orb even without WebGL2, leaving that to the screen's own fallback", async () => {
+  it("falls back to the still orb without WebGL2, as the desktop does", () => {
     stubCanvas(null);
-    show({ mood: "listening" });
-    expect(await screen.findByTestId("classic-orb")).not.toBeNull();
-    expect(flat()).toBeNull();
-    expect(warn).not.toHaveBeenCalled();
+    const { container } = show({ mood: "listening" });
+    expect(flat()?.getAttribute("data-mood")).toBe("listening");
+    expect(container.querySelector("canvas")).toBeNull();
   });
 });

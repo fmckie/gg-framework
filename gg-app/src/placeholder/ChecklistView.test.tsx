@@ -282,7 +282,7 @@ describe("ChecklistView (placeholder)", () => {
 });
 
 describe("the desktop's checklist", () => {
-  const scope = "html:not(.platform-ios) .app.app-session > .placeholder-checklist";
+  const scope = "html:root .app.app-session > .placeholder-checklist";
   /** The stylesheet's Checklist section, up to the next one. */
   function checklistCss(): string {
     const from = themeCss.indexOf("/* ── The Checklist ──");

@@ -1,11 +1,11 @@
-// Settings → Overview, on the desktop: the page Settings lands on, and the only
+// Settings → Overview: the page Settings lands on, and the only
 // place health is summarised. A headline in Kleio's own words, then one
 // hairline row per area: what it does for you first, its state second, each
 // with its own glyph and at most one action. While a needed step is left, the
 // next one is a hero holding the page's one filled button, under a bar of one
 // segment per needed step. No forms: every row leads to the tab that has them.
 // Its three moments (the welcome, a step done, the finish) are in
-// OverviewMoments.tsx. The phone keeps the Setup page (settingsLayout.tsx).
+// OverviewMoments.tsx.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

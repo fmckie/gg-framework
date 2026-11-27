@@ -1,9 +1,8 @@
-// Settings → Kleio, on the desktop: her voice, what she kept about you,
+// Settings → Kleio: her voice, what she kept about you,
 // Dictation and Group chats, then Remove. The voice picker sits beside a small
 // still copy of the instrument she shows when you talk; Talk now is the page's
 // one filled button. Removing the OpenAI or Typesafe key waits in the Remove
-// group at the end, and asks first. Status lives on Overview. The phone keeps
-// these as Setup's cards (settingsLayout.tsx).
+// group at the end, and asks first. Status lives on Overview.
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {

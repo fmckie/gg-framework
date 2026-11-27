@@ -2,8 +2,9 @@
 // The iPhone layout (kleio-phone.css) makes the page unselectable, since UI
 // chrome is not text, then lists what stays selectable. A message view left off
 // that list can't be pressed and held to copy: the specialist and group chats
-// and the voice captions were (Oct 2026). These render the real views and work
-// out each element's user-select from that stylesheet.
+// and the voice captions were (Oct 2026). These render the real views (a group
+// is the Cast's room now) and work out each element's user-select from that
+// stylesheet.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { GroupsPage } from "./GroupsPage";
@@ -212,7 +213,7 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
     );
   });
 
-  it("in a group chat", async () => {
+  it("in a group's room", async () => {
     vi.mocked(listBlobs).mockResolvedValue([CHEF]);
     vi.mocked(listGroups).mockResolvedValue([DESK]);
     vi.mocked(listGroupMessages).mockResolvedValue({
@@ -226,13 +227,17 @@ describe("on the iPhone, message text is selectable and chrome is not", () => {
     render(<GroupsPage onClose={() => undefined} openId="g1" />);
     await screen.findByText(/three courses/);
     expectSelects(
-      [".kleio-transcript .user-msg", ".kleio-gmsg .markdown p", ".kleio-gmsg .markdown pre code"],
       [
-        ".kleio-gmsg .blob-av",
-        ".kleio-gmsg-name",
-        ".kleio-gmsg .code-copy",
-        ".kleio-head-titles",
-        ".kleio-composer button",
+        ".cast-msg.is-you .cast-bub",
+        ".cast-msg-body .cast-bub .markdown p",
+        ".cast-msg-body .cast-bub .markdown pre code",
+      ],
+      [
+        ".cast-msg .blob-av",
+        ".cast-msg-who",
+        ".cast-msg-body .code-copy",
+        ".kleio-head .picker-title",
+        ".cast-composer button",
       ],
     );
   });

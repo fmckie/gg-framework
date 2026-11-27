@@ -1,9 +1,9 @@
-// Settings → Steroids, on the desktop: one section that says its state in
+// Settings → Steroids: one section that says its state in
 // words. A local corpus of real repos the agent reads before it writes; the
 // page shows the corpus and installs the `steroids` binary when it is missing.
-// The phone keeps SteroidsModal as its page (settingsLayout.tsx); the re-probe,
-// following installs, Install, the count's format and the README's address are
-// repeated here until the iPhone slice.
+// SteroidsModal is still upstream's dialog, so the re-probe, following
+// installs, Install, the count's format and the README's address are repeated
+// here.
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {

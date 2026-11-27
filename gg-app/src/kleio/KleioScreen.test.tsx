@@ -65,33 +65,35 @@ describe("KleioScreen", () => {
     expect(screen.getByRole("tab", { name: "Specialists" })).toBeTruthy();
   });
 
-  it("draws Apps in Settings' look on the desktop, under Kleio's own header", async () => {
+  it("draws Apps in Settings' look, under Kleio's own header", async () => {
     await act(async () => {
       render(<KleioScreen onClose={() => undefined} />);
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect apps" }));
 
     // The shelf has no styles outside `.settings-screen`: it rendered as bare text.
-    expect(settingsCss).toContain("html:not(.platform-ios) .settings-screen .ap-shelf {");
+    expect(settingsCss).toContain("html:root .settings-screen .ap-shelf {");
     const page = screen.getByText("The apps page");
     expect(page.closest(".settings-scroll")?.matches(".kleio-page > .settings-screen")).toBe(true);
     expect(settingsCss).toContain(
-      "html:not(.platform-ios) .kleio-page > .settings-screen {\n  --bg: inherit;\n}",
+      "html:root .kleio-page > .settings-screen {\n  --bg: inherit;\n}",
     );
     // The header stays outside it, so it keeps the flat top bar and its size.
     expect(screen.getByRole("heading", { name: "Apps" }).closest(".settings-screen")).toBeNull();
   });
 
-  it("leaves the iPhone's Apps page out of Settings' desktop look", async () => {
+  it("draws the iPhone's Apps page in Settings' look too", async () => {
     document.documentElement.classList.add("platform-ios");
     await act(async () => {
       render(<KleioScreen onClose={() => undefined} />);
     });
     fireEvent.click(screen.getByRole("button", { name: "Connect apps" }));
-    expect(screen.getByText("The apps page").closest(".settings-screen")).toBeNull();
+    const page = screen.getByText("The apps page");
+    expect(page.closest(".settings-scroll")?.matches(".kleio-page > .settings-screen")).toBe(true);
+    expect(screen.getByRole("heading", { name: "Apps" }).closest(".settings-screen")).toBeNull();
   });
 
-  it("holds Groups back on the desktop until there is a first specialist", async () => {
+  it("holds Groups back until there is a first specialist", async () => {
     const groups = await open(0);
     expect(groups.getAttribute("aria-disabled")).toBe("true");
     expect(groups.title).toBe("Create a specialist first");
@@ -115,11 +117,11 @@ describe("KleioScreen", () => {
     expect(screen.getByText("Groups list")).toBeTruthy();
   });
 
-  it("never holds Groups back on the iPhone, which keeps today's switcher", async () => {
+  it("holds Groups back on the iPhone too", async () => {
     document.documentElement.classList.add("platform-ios");
     const groups = await open(0);
-    expect(groups.hasAttribute("aria-disabled")).toBe(false);
+    expect(groups.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(groups);
-    expect(screen.getByText("Groups list")).toBeTruthy();
+    expect(screen.queryByText("Groups list")).toBeNull();
   });
 });

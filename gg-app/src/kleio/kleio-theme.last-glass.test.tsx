@@ -8,7 +8,7 @@ import { SlashMenu } from "../SlashMenu";
 import { TranscriptJump } from "../placeholder/TranscriptJump";
 import themeCss from "./kleio-theme.css?raw";
 
-const SESSION = "html:not(.platform-ios) .app.app-session";
+const SESSION = "html:root .app.app-session";
 const none = (): void => undefined;
 
 /** The stylesheet's section for a session's last glass, up to the next one. */
@@ -102,13 +102,13 @@ describe("a session's last glass", () => {
     );
   });
 
-  it("leaves the iPhone's session alone", () => {
+  it("draws the iPhone's session the same", () => {
     document.documentElement.classList.add("platform-ios");
     mountSession();
     expect(
       document
         .querySelector(".motion-starter")
         ?.matches(`${SESSION} > .liveregion .motion-starter`),
-    ).toBe(false);
+    ).toBe(true);
   });
 });

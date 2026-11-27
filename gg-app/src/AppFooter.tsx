@@ -11,7 +11,6 @@ import { ModelSelect } from "./ModelSelect";
 import { ModelTrigger } from "./ModelPanel";
 import { RunningSchedulesButton } from "./RunningSchedulesButton";
 import type { Routine } from "./useRoutines";
-import { ContextMeter } from "./ContextMeter";
 import { ContextButton } from "./ContextButton";
 import { BackgroundTasksButton } from "./BackgroundTasksButton";
 import { ShimmerText } from "./ShimmerText";
@@ -48,7 +47,6 @@ function thinkingColor(level: string | null | undefined): string {
 export function AppFooter({
   workspaceMode,
   hydrated,
-  phoneHeader,
   state,
   runningTaskCount,
   tasks,
@@ -65,7 +63,6 @@ export function AppFooter({
 }: {
   workspaceMode: WorkspaceMode;
   hydrated: boolean;
-  phoneHeader: boolean;
   state: AgentState | null;
   runningTaskCount: number;
   tasks: BackgroundTask[];
@@ -78,7 +75,7 @@ export function AppFooter({
   onSelectKenModel: (modelId: string | null) => void;
   kenRunning: boolean;
   autopilotReviewing: boolean;
-  /** The desktop's Model panel. Without it the old picker stays (the iPhone). */
+  /** The Model panel. Without it the old picker stays. */
   modelPanel?: {
     open: boolean;
     panelId: string;
@@ -102,17 +99,13 @@ export function AppFooter({
               Motion Agent
             </span>
           ) : workspaceMode === "chat" ? (
-            // On the iPhone the controls take the whole line, and the agent's
-            // name was clipped to "Gene".
-            !phoneHeader && (
-              <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
-                {state?.chatAgent === "therapist"
-                  ? "Therapist Agent"
-                  : state?.chatAgent === "research"
-                    ? "Research Agent"
-                    : "General Agent"}
-              </span>
-            )
+            <span className="footer-left footer-reveal" style={{ color: theme.textDim }}>
+              {state?.chatAgent === "therapist"
+                ? "Therapist Agent"
+                : state?.chatAgent === "research"
+                  ? "Research Agent"
+                  : "General Agent"}
+            </span>
           ) : (
             <span className="footer-left footer-reveal">
               {runningTaskCount > 0 && <BackgroundTasksButton tasks={tasks} />}
@@ -135,25 +128,13 @@ export function AppFooter({
             </span>
           )}
           <span className="footer-right footer-reveal">
-            {/* The iPhone keeps the plain reading, hidden at 0. */}
-            {phoneHeader ? (
-              contextPct > 0 && (
-                <>
-                  <ContextMeter pct={contextPct} />
-                  <FooterSep />
-                </>
-              )
-            ) : (
-              <>
-                <ContextButton pct={contextPct} />
-                <FooterSep />
-              </>
-            )}
+            <ContextButton pct={contextPct} />
+            <FooterSep />
             {(state?.supportedThinkingLevels?.length ?? 0) > 0 &&
               (() => {
                 // While the Model panel is open it owns the level: this control
                 // shows the one being tried and waits for Cancel or Use model.
-                const previewing = !phoneHeader && modelPanel?.open === true;
+                const previewing = modelPanel?.open === true;
                 const level =
                   previewing && modelPanel.previewLevel !== undefined
                     ? modelPanel.previewLevel
@@ -169,7 +150,7 @@ export function AppFooter({
                   <>
                     <button
                       className="thinking-toggle"
-                      // The desktop session colours the label by level in CSS.
+                      // The session colours the label by level in CSS.
                       data-level={level ?? "off"}
                       data-preview={previewing ? "" : undefined}
                       style={{
@@ -186,7 +167,7 @@ export function AppFooter({
                       disabled={locked || previewing}
                       onClick={() => void cycleThinking()}
                     >
-                      {!phoneHeader && level && EFFORT_BARS[level] ? (
+                      {level && EFFORT_BARS[level] ? (
                         <span className="effort-mark" aria-hidden="true">
                           {Array.from({ length: EFFORT_BARS[level] }, (_, bar) => (
                             <i key={bar} />
@@ -209,7 +190,7 @@ export function AppFooter({
               <span className="model-label" style={{ color: theme.text }}>
                 Kleio
               </span>
-              {!phoneHeader && modelPanel ? (
+              {modelPanel ? (
                 <ModelTrigger
                   models={models}
                   currentModel={state?.model ?? ""}
@@ -226,7 +207,6 @@ export function AppFooter({
                   currentModel={state?.model ?? ""}
                   onSelect={onSelectModel}
                   offerPaid
-                  compact={phoneHeader}
                   disabled={running}
                   title={`Switch ${workspaceMode === "chat" ? "Kleio" : workspaceProductName(workspaceMode)}'s model`}
                 />
@@ -243,7 +223,6 @@ export function AppFooter({
                     models={models}
                     currentModel={state?.kenModel ?? state?.model ?? ""}
                     onSelect={(id) => onSelectKenModel(id)}
-                    compact={phoneHeader}
                     color={theme.ken}
                     // Ken's pin retargets BOTH his sessions (chat + the
                     // autopilot reviewer), so it has to stay locked while

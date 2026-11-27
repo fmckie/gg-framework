@@ -143,7 +143,7 @@ describe("CacheExpiryNotice", () => {
   });
 
   it("keeps its two choices together beside the words in a desktop session, never one alone on a line", () => {
-    const notice = "html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache";
+    const notice = "html:root .app.app-session > .inputwrap > .placeholder-cache";
     const draw = (): void => {
       render(
         <div className="app app-session">
@@ -166,18 +166,16 @@ describe("CacheExpiryNotice", () => {
       `${notice} {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;`,
     );
     expect(themeCss).toContain(
-      "  > .placeholder-cache\n  > .placeholder-cache-actions {\n  display: flex;\n  flex: none;\n  gap: 6px;\n}",
+      `${notice} > .placeholder-cache-actions {\n  display: flex;\n  flex: none;\n  gap: 6px;\n}`,
     );
     expect(themeCss).toContain(
       `${notice} button {\n  height: 26px;\n  padding: 0 10px;\n  border: 1px solid var(--kleio-edge);\n  border-radius: 3px;\n  background: transparent;\n  font: 500 12.5px/1 var(--sans);\n  color: var(--kleio-text);\n  white-space: nowrap;`,
     );
 
-    // The iPhone keeps the plain line.
+    // The iPhone draws the same box: the session's look is shared.
     cleanup();
     document.documentElement.classList.add("platform-ios");
     draw();
-    expect(screen.getByRole("status", { name: "Prompt cache expired" }).matches(notice)).toBe(
-      false,
-    );
+    expect(screen.getByRole("status", { name: "Prompt cache expired" }).matches(notice)).toBe(true);
   });
 });

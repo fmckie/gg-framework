@@ -1,20 +1,16 @@
-// Create / edit a specialist as a full page: Identity (name and drawn look)
-// and Job cards on the left; Preview, Brain and Scheduling cards in the
-// sidebar. New specialists schedule in this Mac's timezone; unless you
-// switch it off, the host reads timing out of the job ("every morning",
-// "weekdays at 6") and the result is shown after save.
+// What a specialist's form holds and does, drawn by the Cast (CastForm.tsx):
+// its fields, the example jobs, saving, and the form's header. New specialists
+// schedule in this device's timezone; unless you switch it off, the host reads
+// timing out of the job ("every morning", "weekdays at 6") and the result is
+// shown after save.
 
-import { useEffect, useId, useState } from "react";
-import { CloudIcon, LockSimpleIcon } from "@phosphor-icons/react";
-import { Dropdown, type DropdownOption } from "../Dropdown";
+import { useEffect, useState } from "react";
+import type { DropdownOption } from "../Dropdown";
 import { MetalButton } from "../MetalButton";
 import { useWindowFocused } from "../useWindowFocused";
-import { AgentRowContent, agentRowState } from "./AgentRow";
-import { BlobAvatar } from "./BlobAvatar";
 import { freshLook, lookOf, type BlobLook } from "./blobLook";
 import { systemTimezone } from "./blobFormat";
-import { KleioHead, KleioPanel } from "./KleioChrome";
-import { LookPicker } from "./LookPicker";
+import { KleioHead } from "./KleioChrome";
 import {
   BLOB_COLORS,
   createBlob,
@@ -221,163 +217,5 @@ export function BlobFormHead({
         </p>
       )}
     </>
-  );
-}
-
-export function BlobForm({ blob, others, onSaved, onCancel }: BlobFormProps): React.ReactElement {
-  const form = useBlobForm({ ...(blob ? { blob } : {}), ...(others ? { others } : {}), onSaved });
-  const { name, setName, look, setLook, job, setJob, model, setModel } = form;
-  const { readTiming, setReadTiming, models, colors, timezone, chosen, title, save } = form;
-  const formId = useId();
-  const ids = {
-    form: `${formId}-form`,
-    name: `${formId}-name`,
-    job: `${formId}-job`,
-  };
-
-  const main = (
-    <div className="kleio-form-main">
-      <KleioPanel
-        title="Identity"
-        description="Its name, and how it looks in your lists and chats."
-      >
-        <div className="kleio-field">
-          <label className="kleio-label" htmlFor={ids.name}>
-            Name
-          </label>
-          <input
-            id={ids.name}
-            className="modal-input"
-            value={name}
-            maxLength={NAME_MAX}
-            required
-            autoFocus
-            placeholder="Chef"
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <LookPicker look={look} colors={colors} onChange={setLook} />
-      </KleioPanel>
-
-      <KleioPanel
-        title="Job"
-        description="One job, in plain words. Say when it should happen and what to send back."
-      >
-        <label className="sr-only" htmlFor={ids.job}>
-          Job
-        </label>
-        <textarea
-          id={ids.job}
-          className="modal-input kleio-job"
-          value={job}
-          maxLength={JOB_MAX}
-          required
-          rows={7}
-          placeholder="Plan three dinners every Sunday evening from what's in season."
-          onChange={(e) => setJob(e.target.value)}
-        />
-        {job.length >= JOB_COUNT_FROM && (
-          <p className="kleio-count-line">
-            {job.length.toLocaleString()} / {JOB_MAX.toLocaleString()}
-          </p>
-        )}
-        {!blob && !job.trim() && (
-          <div className="kleio-examples" role="group" aria-label="Example jobs">
-            <span className="kleio-examples-label">Try</span>
-            {JOB_EXAMPLES.map((x) => (
-              <button
-                key={x.label}
-                type="button"
-                className="kleio-example"
-                onClick={() => setJob(x.job)}
-              >
-                {x.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </KleioPanel>
-    </div>
-  );
-
-  const side = (
-    <>
-      <KleioPanel title="Preview">
-        <div className="picker-item kleio-row kleio-preview" aria-hidden="true">
-          <AgentRowContent
-            name={name.trim() || "Your specialist"}
-            avatar={<BlobAvatar look={look} size={36} />}
-            sub={job.trim() || "Its job will show here."}
-            state={blob ? agentRowState(blob) : { text: "On call", tone: "plain" }}
-          />
-        </div>
-      </KleioPanel>
-
-      <KleioPanel title="Brain" description="The model that does the thinking for this specialist.">
-        <Dropdown
-          label="Brain"
-          options={modelOptions(models)}
-          value={model}
-          onChange={setModel}
-          disabled={models === null}
-          placeholder="Loading models…"
-        />
-        {chosen && (
-          <p className="kleio-brain-note">
-            {chosen.private ? (
-              <LockSimpleIcon size={13} weight="bold" aria-hidden="true" />
-            ) : (
-              <CloudIcon size={13} weight="bold" aria-hidden="true" />
-            )}
-            {whereItRuns(chosen)}.
-          </p>
-        )}
-      </KleioPanel>
-
-      <KleioPanel title="Scheduling">
-        <div className="kleio-setting">
-          <span className="kleio-setting-text">
-            <span className="kleio-setting-name">Read timing from the job</span>
-            <span className="kleio-setting-desc">
-              {blob
-                ? "When the job changes, “every weekday at 7:30” replaces its earlier automatic schedules. Ones you added yourself stay."
-                : "“Every weekday at 7:30” becomes a schedule you can change later."}
-            </span>
-          </span>
-          <label className="cl-switch kleio-switch">
-            <input
-              type="checkbox"
-              checked={readTiming}
-              onChange={(e) => setReadTiming(e.target.checked)}
-              aria-label="Read timing from the job"
-            />
-            <span />
-          </label>
-        </div>
-        <p className="kleio-setting-foot">Times are in {timezone}.</p>
-      </KleioPanel>
-    </>
-  );
-
-  return (
-    <div className="kleio-form-page">
-      <BlobFormHead form={form} formId={ids.form} onCancel={onCancel} />
-      <form
-        id={ids.form}
-        className="kleio-form-scroll"
-        aria-label={title}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-      >
-        <div className="kleio-form-grid">
-          {main}
-          <aside className="kleio-form-side" aria-label="Specialist settings">
-            {side}
-          </aside>
-        </div>
-      </form>
-    </div>
   );
 }

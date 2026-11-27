@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import themeCss from "./kleio-theme.css?raw";
 
-const transcript = "html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript";
+const transcript = "html:root .app.app-session > .transcript-frame > .transcript";
 
 describe("the plan review states' colours", () => {
   it("sets the approved row in the text colour, 15px, with a hanging verdigris tick and a muted state", () => {
@@ -16,7 +16,7 @@ describe("the plan review states' colours", () => {
 
   it("sets the waiting line as the activity line is: 40px, 14px, the second text colour", () => {
     const rule =
-      /html:not\(\.platform-ios\) \.app\.app-session > \.plan-review > \.plan-review-status \{[^}]+\}/.exec(
+      /html:root \.app\.app-session > \.plan-review > \.plan-review-status \{[^}]+\}/.exec(
         themeCss,
       )?.[0];
     expect(rule).toContain("height: 40px;");
@@ -25,7 +25,7 @@ describe("the plan review states' colours", () => {
     expect(rule).toContain("font-size: 14px;");
   });
 
-  it("gives the iPhone neither rule", () => {
+  it("gives the iPhone both rules, and none of its own", () => {
     expect(themeCss.match(/\.plan-done\b[^{]*\{/g)?.every((s) => !s.includes("platform-ios"))).toBe(
       true,
     );

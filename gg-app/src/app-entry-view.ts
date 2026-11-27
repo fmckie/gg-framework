@@ -6,7 +6,7 @@ export function initialEntryView(_isSecondaryWindow: boolean): EntryView {
   return "home";
 }
 
-/** Set once Setup has been seen on this device (SetupPage marks it on mount). */
+/** Set once Setup has been seen on this device (OverviewPage marks it on mount). */
 export const SETUP_SEEN_KEY = "kleio-setup-seen";
 
 type SeenStorage = Pick<Storage, "getItem">;

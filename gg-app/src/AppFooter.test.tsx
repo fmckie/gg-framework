@@ -17,7 +17,6 @@ function renderFooter(
   thinkingLevel: string | null,
   running = false,
   contextPct = 0,
-  phoneHeader = false,
   modelPanel?: Parameters<typeof AppFooter>[0]["modelPanel"],
   models: ModelOption[] = [],
 ) {
@@ -32,7 +31,6 @@ function renderFooter(
     <AppFooter
       workspaceMode="code"
       hydrated
-      phoneHeader={phoneHeader}
       state={state}
       runningTaskCount={0}
       tasks={[]}
@@ -72,10 +70,9 @@ describe("AppFooter thinking toggle", () => {
     expect(mark?.nextSibling?.textContent).toBe(`Thinking ${level}`);
   });
 
-  it("draws no effort bars for off, for Ultra, or on the iPhone", () => {
+  it("draws no effort bars for off or for Ultra", () => {
     expect(renderFooter(null).container.querySelector(".effort-mark")).toBeNull();
     expect(renderFooter("ultra").container.querySelector(".effort-mark")).toBeNull();
-    expect(renderFooter("high", false, 0, true).container.querySelector(".effort-mark")).toBeNull();
   });
 
   it("uses off when thinking is off", () => {
@@ -94,7 +91,7 @@ describe("AppFooter thinking toggle", () => {
 });
 
 describe("AppFooter context reading", () => {
-  it("is a Context button on the desktop, and reads 0% in an empty chat", () => {
+  it("is a Context button, and reads 0% in an empty chat", () => {
     const { container } = renderFooter("low");
     const button = container.querySelector<HTMLButtonElement>(".footer-right .ctx-button");
     expect(button?.tagName).toBe("BUTTON");
@@ -105,18 +102,6 @@ describe("AppFooter context reading", () => {
   it("carries the reading into the button", () => {
     const { container } = renderFooter("low", false, 42);
     expect(container.querySelector(".ctx-button")?.textContent).toBe("Context42%");
-  });
-
-  it("keeps the iPhone's plain reading, hidden at 0", () => {
-    expect(
-      renderFooter("low", false, 0, true).container.querySelector(".ctx-meter-pct"),
-    ).toBeNull();
-    cleanup();
-    const { container } = renderFooter("low", false, 42, true);
-    const reading = container.querySelector(".ctx-meter-pct");
-    expect(reading?.tagName).toBe("SPAN");
-    expect(reading?.textContent).toBe("42%");
-    expect(container.querySelector(".ctx-button")).toBeNull();
   });
 });
 
@@ -132,9 +117,9 @@ describe("AppFooter model control", () => {
     previewLevel,
   });
 
-  it("opens the Model panel from the Kleio control on the desktop, and keeps Helper's picker", () => {
+  it("opens the Model panel from the Kleio control, and keeps Helper's picker", () => {
     const modelPanel = panel(false);
-    const { container } = renderFooter("low", false, 0, false, modelPanel, MODELS);
+    const { container } = renderFooter("low", false, 0, modelPanel, MODELS);
     const anchors = container.querySelectorAll(".model-anchor");
     const trigger = anchors[0]!.querySelector<HTMLButtonElement>(".model-trigger")!;
     expect(trigger.tagName).toBe("BUTTON");
@@ -147,16 +132,8 @@ describe("AppFooter model control", () => {
     expect(anchors[1]!.querySelector("select, [aria-haspopup='menu']")).not.toBeNull();
   });
 
-  it("keeps today's model control on the iPhone", () => {
-    const { container } = renderFooter("low", false, 0, true, panel(false), MODELS);
-    expect(container.querySelector(".model-trigger")).toBeNull();
-    expect(
-      container.querySelectorAll(".model-anchor select, .model-anchor [aria-haspopup='menu']"),
-    ).toHaveLength(2);
-  });
-
   it("holds the lower thinking control on the level being tried while the panel is open", () => {
-    const { container } = renderFooter("low", false, 0, false, panel(true, "high"), MODELS);
+    const { container } = renderFooter("low", false, 0, panel(true, "high"), MODELS);
     const button = container.querySelector<HTMLButtonElement>(".thinking-toggle")!;
     expect(button.disabled).toBe(true);
     expect(button.dataset.level).toBe("high");
@@ -168,10 +145,34 @@ describe("AppFooter model control", () => {
   });
 
   it("leaves the lower thinking control cycling when the panel is closed", () => {
-    const { container } = renderFooter("low", false, 0, false, panel(false, "high"), MODELS);
+    const { container } = renderFooter("low", false, 0, panel(false, "high"), MODELS);
     const button = container.querySelector<HTMLButtonElement>(".thinking-toggle")!;
     expect(button.disabled).toBe(false);
     expect(button.dataset.level).toBe("low");
     expect(button.hasAttribute("data-preview")).toBe(false);
+  });
+});
+
+// One status row for both: the phone's old plain reading, bare label and
+// native pickers are gone, and kleio-phone.css wraps the row to its width.
+describe("AppFooter on the iPhone", () => {
+  it("is the desktop's status row: effort bars, the Context button and the Model trigger", () => {
+    document.documentElement.classList.add("platform-ios");
+    try {
+      const { container } = renderFooter(
+        "high",
+        false,
+        0,
+        { open: false, panelId: "model-panel", onToggle: vi.fn(), triggerRef: { current: null } },
+        [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", provider: "anthropic" }],
+      );
+      expect(container.querySelectorAll(".thinking-toggle > .effort-mark > i")).toHaveLength(3);
+      expect(container.querySelector(".ctx-button")?.textContent).toBe("Context0%");
+      expect(container.querySelector(".ctx-meter-pct")).toBeNull();
+      // The whole name: the phone's short form went with its picker.
+      expect(container.querySelector(".model-trigger")?.textContent).toBe("Claude Sonnet 4.6");
+    } finally {
+      document.documentElement.classList.remove("platform-ios");
+    }
   });
 });

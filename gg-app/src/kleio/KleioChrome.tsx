@@ -8,7 +8,6 @@
 import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
 import { NotePencilIcon, PlugsIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { BackButton } from "../BackButton";
-import { isPhone } from "../platform";
 import { RadioButton } from "../RadioButton";
 import { WindowLayoutButton } from "../WindowLayoutButton";
 
@@ -29,31 +28,20 @@ export function KleioHead({
   /** Before the title, e.g. the agent's blob. */
   leading?: React.ReactNode;
   title: string;
-  /** A chat's state. Beside the title on the desktop; under it on the iPhone,
-   *  so the header keeps to one row with its actions. */
+  /** A chat's state, beside the title. */
   subtitle?: React.ReactNode;
   /** Beside the title: count badges, state, search. */
   status?: React.ReactNode;
   /** Right-aligned, before the radio and window-layout buttons. */
   actions?: React.ReactNode;
 }): React.ReactElement {
-  const stacked = isPhone() && Boolean(subtitle);
   return (
     <div className="picker-head kleio-head" data-tauri-drag-region>
       <BackButton label={backLabel} onClick={onBack} />
       {tools && <span className="kleio-head-tools">{tools}</span>}
       {leading}
-      {stacked ? (
-        <div className="kleio-head-titles">
-          <h1 className="picker-title">{title}</h1>
-          <div className="kleio-head-sub">{subtitle}</div>
-        </div>
-      ) : (
-        <>
-          <h1 className="picker-title">{title}</h1>
-          {subtitle}
-        </>
-      )}
+      <h1 className="picker-title">{title}</h1>
+      {subtitle}
       {status}
       <span className="picker-head-actions">
         {actions}

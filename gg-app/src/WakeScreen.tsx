@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { isPhone } from "./platform";
 
 /**
  * The empty-state "wake" screen — the app addressing the user, Matrix-style.
@@ -251,8 +250,8 @@ export function WakeScreen({
         <span className="wake-line">{text}</span>
         <span className={`wake-cursor${done ? " wake-cursor-rest" : ""}`}>{"\u2588"}</span>
       </div>
-      {/* kleio: the approved empty chat's second line; the iPhone keeps one. */}
-      {chat && !isPhone() && <p className="wake-sub">A new conversation in this project.</p>}
+      {/* kleio: the approved empty chat's second line. */}
+      {chat && <p className="wake-sub">A new conversation in this project.</p>}
     </div>
   );
 }

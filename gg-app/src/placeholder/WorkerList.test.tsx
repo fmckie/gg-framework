@@ -67,7 +67,7 @@ describe("WorkerList", () => {
   });
 
   it("gives each agent a hairline row of a desktop session, its mark by its state", () => {
-    const view = "html:not(.platform-ios) .app.app-session > .goal-workers";
+    const view = "html:root .app.app-session > .goal-workers";
     const draw = (): void => {
       render(
         <div className="app app-session">
@@ -109,17 +109,17 @@ describe("WorkerList", () => {
       " .placeholder-dot {\n  box-sizing: border-box;\n  width: 9px;\n  height: 9px;\n  border: 1.5px solid var(--kleio-muted);\n  background: none;\n}",
     );
     expect(themeCss).toContain(
-      '  .placeholder-dot[data-tone="active"] {\n  border-color: var(--kleio-lapis);\n  background: var(--kleio-lapis);\n}',
+      ' .placeholder-dot[data-tone="active"] {\n  border-color: var(--kleio-lapis);\n  background: var(--kleio-lapis);\n}',
     );
     expect(themeCss).toContain(
       '  :is([data-tone="done"], [data-status="done"])\n  .placeholder-dot {\n  border-color: var(--kleio-done);\n  background: var(--kleio-done);\n}',
     );
 
-    // The iPhone keeps the plain list.
+    // The iPhone draws the same rows: the session's look is shared.
     cleanup();
     document.documentElement.classList.add("platform-ios");
     draw();
-    expect(screen.getByRole("region", { name: "Workers" }).matches(view)).toBe(false);
+    expect(screen.getByRole("region", { name: "Workers" }).matches(view)).toBe(true);
   });
 });
 
@@ -225,7 +225,7 @@ describe("the courtyard over the rows", () => {
     );
     expect(rows[0]!.querySelector("img")).toBeNull();
     expect(rows[1]!.querySelector(".goal-worker-hearth")).toBeNull();
-    const view = "html:not(.platform-ios) .app.app-session > .goal-workers";
+    const view = "html:root .app.app-session > .goal-workers";
     expect(themeCss).toContain(`${view} .oly-court {\n  margin-bottom: 18px;\n}`);
     expect(themeCss).toContain(
       `${view} .goal-worker-cameo {\n  flex: none;\n  align-self: center;\n  width: 24px;\n  height: 32px;\n  margin: -6px 2px -6px 0;\n}`,
@@ -321,9 +321,7 @@ describe("the finale: a finished stretch on the stage and its stele", () => {
     const scroll = screen.getByRole("region", { name: "Workers" }).firstElementChild!;
     expect([...scroll.children].map((el) => el.tagName)).toEqual(["DIV", "SECTION", "UL"]);
     const stele = screen.getByRole("region", { name: "Job done: each worker's account" });
-    expect(
-      stele.matches("html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele"),
-    ).toBe(true);
+    expect(stele.matches("html:root .app.app-session > .goal-workers .goal-stele")).toBe(true);
     // Not the worker from before the stretch, however much it did.
     const lines = within(stele).getAllByRole("row").slice(1);
     expect(lines.map((line) => line.getAttribute("data-key"))).toEqual(["12:a", "12:b", "12:c"]);
@@ -352,7 +350,7 @@ describe("the finale: a finished stretch on the stage and its stele", () => {
     );
 
     // A bounded panel of the session; its cap the stylobate's marble, in flat bands.
-    const view = "html:not(.platform-ios) .app.app-session > .goal-workers";
+    const view = "html:root .app.app-session > .goal-workers";
     expect(themeCss).toContain(
       `${view} .goal-stele {\n  margin-bottom: 18px;\n  overflow: hidden;\n  border: 1px solid var(--kleio-edge);\n  border-radius: 3px;\n  background: var(--kleio-surface);\n  font-variant-numeric: tabular-nums;\n}`,
     );

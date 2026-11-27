@@ -34,9 +34,9 @@ describe("the 48px title row", () => {
     );
   });
 
-  it("leaves the iPhone's first row as it was", () => {
+  it("keeps the 48px and the lights' gutter off the iPhone, whose strip is as tall as its wrapped lines", () => {
     expect(phoneCss).toContain(
-      "html.platform-ios .chat-head-strip {\n  height: auto;\n  min-height: 56px;\n  gap: 10px;\n  padding: 6px 16px 4px;\n}",
+      "html.platform-ios .app.app-session .chat-head-strip {\n  flex-wrap: wrap;\n  height: auto;\n  gap: 0 12px;\n  padding: 2px 16px;\n}",
     );
   });
 });

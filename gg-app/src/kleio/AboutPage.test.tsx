@@ -27,47 +27,6 @@ afterEach(() => {
 const flush = (): Promise<void> => act(async () => {});
 
 const TAGLINE = "Talk to your work: chat, code and specialists in one app.";
-/** Every line of text on the phone's card, in order. */
-const cardLines = (): string[] =>
-  [...document.querySelectorAll(".about-card p")].map((p) => p.textContent ?? "");
-
-describe("AboutPage on the phone", () => {
-  beforeEach(() => {
-    document.documentElement.classList.add("platform-ios");
-  });
-
-  it("shows the mark, the tagline and the version, and no credit line", async () => {
-    render(<AboutPage />);
-    expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
-    await flush();
-    expect(screen.getByText("Version 0.73.2")).toBeDefined();
-    expect(cardLines()).toEqual([TAGLINE, "Version 0.73.2"]);
-    expect(document.querySelector(".about-credit")).toBeNull();
-    // Kleio's voice moved to the Setup page.
-    expect(screen.queryByText("Talk to Kleio")).toBeNull();
-  });
-
-  it("keeps the tagline and drops the version when it can't be read", async () => {
-    vi.mocked(getVersion).mockRejectedValueOnce(new Error("not in the desktop app"));
-    render(<AboutPage />);
-    await flush();
-    expect(getVersion).toHaveBeenCalledOnce();
-    expect(screen.getByRole("img", { name: "Kleio" })).toBeDefined();
-    expect(screen.queryByText(/^Version/)).toBeNull();
-    expect(cardLines()).toEqual([TAGLINE]);
-  });
-
-  it("keeps its card, and none of the desktop's page", async () => {
-    render(<AboutPage />);
-    await flush();
-
-    expect(document.querySelector(".settings-card.about-card")).not.toBeNull();
-    expect(document.querySelector(".ab-page")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
-    expect(screen.queryByText("William McKie")).toBeNull();
-  });
-});
-
 const GITHUB = "https://github.com/fmckie";
 const COPY = [
   "KLEIO",
@@ -123,7 +82,7 @@ function endAnimation(animationName: string): void {
   }
 }
 
-describe("AboutPage on the desktop", () => {
+describe("AboutPage", () => {
   it("sets the copy, exactly and in order, ending on the version", async () => {
     render(<AboutPage />);
     await flush();
@@ -313,5 +272,31 @@ describe("AboutPage's signature", () => {
     endAnimation("something-else");
 
     expect(signing()).toBe(true);
+  });
+});
+
+// One page for both: the phone's card (mark, tagline, version) is gone.
+describe("AboutPage on the iPhone", () => {
+  beforeEach(() => {
+    document.documentElement.classList.add("platform-ios");
+  });
+
+  it("is the desktop's page: the same copy in the same order, ending on the version", async () => {
+    render(<AboutPage />);
+    await flush();
+
+    expect(copy()).toEqual([...COPY, "Version 0.73.2"]);
+    expect(screen.getByRole("region", { name: "About Kleio" })).toBeTruthy();
+    expect(document.querySelector(".ab-page")).not.toBeNull();
+    expect(document.querySelector(".about-card")).toBeNull();
+  });
+
+  it("drops the version when it can't be read", async () => {
+    vi.mocked(getVersion).mockRejectedValueOnce(new Error("not in the desktop app"));
+    render(<AboutPage />);
+    await flush();
+
+    expect(getVersion).toHaveBeenCalledOnce();
+    expect(copy()).toEqual(COPY);
   });
 });

@@ -1,4 +1,4 @@
-// Create / edit a group on the desktop, in the Cast's look: who is in it on the
+// Create / edit a group, in the Cast's look: who is in it on the
 // left (its members standing on a shelf, and its name), how it is made up on the
 // right (the specialists to tick, how a group chat works, and deleting it). It
 // holds and saves exactly what today's form does (useGroupForm), less the

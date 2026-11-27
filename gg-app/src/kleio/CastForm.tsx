@@ -1,7 +1,7 @@
-// Create / edit a specialist on the desktop, in the Cast's look: who it is on
+// Create / edit a specialist, in the Cast's look: who it is on
 // the left (the character on its shelf, its name, look and brain), what it does
 // on the right (the job, and its schedules once it exists). It holds and saves
-// exactly what today's form does (useBlobForm); the iPhone keeps that form.
+// what the form always did (useBlobForm).
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CloudIcon, LockSimpleIcon, ShuffleIcon } from "@phosphor-icons/react";

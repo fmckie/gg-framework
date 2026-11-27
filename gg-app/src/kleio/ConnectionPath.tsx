@@ -1,4 +1,4 @@
-// Settings → Connection on the desktop: the path from this Mac, by the way
+// Settings → Connection: the path from this device, by the way
 // through (Tailscale, or a relay or a direct line over Kleio's link), to the
 // host, and the one verdict line under it. Where the way breaks comes from the
 // checks the verdict reads: the failing node is dashed with a red ring, and Fix
@@ -6,13 +6,14 @@
 // reconnect is waiting, not a fault: lapis, and a quiet button. While Kleio is
 // connected one slow light crosses the path; nothing else on the page moves.
 // What was checked stays in words for a screen reader, so no state is said by
-// colour alone. The phone keeps its map and verdict card (ConnectionPage.tsx).
+// colour alone.
 
 import { useEffect, useId, useRef } from "react";
 import {
   ArrowClockwiseIcon,
   BroadcastIcon,
   DesktopIcon,
+  DeviceMobileIcon,
   HardDrivesIcon,
   ShareNetworkIcon,
 } from "@phosphor-icons/react";
@@ -109,6 +110,7 @@ type Mark = "is-up" | "is-down" | "is-wait" | "is-unknown";
 type LegKind = "up" | "unknown" | "break-start" | "break-middle" | "break-end";
 
 export function ConnectionPath({
+  device,
   selfDetail,
   hostLabel,
   replyTime,
@@ -120,7 +122,9 @@ export function ConnectionPath({
   onFix,
   arrivedToFix,
 }: {
-  /** This Mac's name on the network, or the app's. */
+  /** What this device is: the first node's name and picture. */
+  device: "Mac" | "iPhone";
+  /** This device's name on the network, or the app's. */
   selfDetail: string;
   hostLabel: string;
   /** How quickly the host answered ("40 ms"); `null` when it didn't. */
@@ -178,8 +182,14 @@ export function ConnectionPath({
     <section className={`cx-path is-${state}`} aria-label="Connection check">
       <div className="cx-route" role="group" aria-label="How your devices connect">
         <PathNode
-          icon={<DesktopIcon size={24} weight="light" aria-hidden="true" />}
-          name="This Mac"
+          icon={
+            device === "iPhone" ? (
+              <DeviceMobileIcon size={24} weight="light" aria-hidden="true" />
+            ) : (
+              <DesktopIcon size={24} weight="light" aria-hidden="true" />
+            )
+          }
+          name={`This ${device}`}
           detail={selfDetail}
           mark={unknown ? "is-unknown" : failAt === "device" ? failed : "is-up"}
         />

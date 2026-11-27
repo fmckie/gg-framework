@@ -279,7 +279,7 @@ describe("GoalPanel", () => {
   });
 });
 
-const PANEL = "html:not(.platform-ios) .app.app-session > .goal-panel";
+const PANEL = "html:root .app.app-session > .goal-panel";
 
 /** The stylesheet's section for a goal's session, up to the next one. */
 function goalCss(): string {
@@ -353,11 +353,14 @@ describe("GoalPanel in a desktop session", () => {
     );
     expect(css).not.toMatch(/border-radius: (?!2px;|3px;)/);
     expect(css).not.toMatch(/blur\(|gradient\(|var\(--warning\)|animation|transition/);
-    // Every rule is the desktop session's own.
+    // Every rule is the session's own, shared with the iPhone; only a hover
+    // keeps the desktop's scope.
     for (const rule of css.matchAll(/^(html[^{]*)\{/gm)) {
-      expect(rule[1]).toMatch(
-        /^html:not\(\.platform-ios\)\s+\.app\.app-session\s+> (\.goal-panel|\.goal-workers|:is\(\.goal-panel, \.goal-workers\))/,
+      const selector = rule[1] ?? "";
+      expect(selector).toMatch(
+        /^html:(root|not\(\.platform-ios\))\s+\.app\.app-session\s+> (\.goal-panel|\.goal-workers|:is\(\.goal-panel, \.goal-workers\))/,
       );
+      if (selector.startsWith("html:not")) expect(selector).toContain(":hover");
     }
   });
 
@@ -381,7 +384,7 @@ describe("GoalPanel in a desktop session", () => {
     expect(screen.getByRole("button", { name: "Answer in Chat" }).parentElement).toBe(ask);
     // Waiting on you is a lapis ring, never amber.
     expect(goalCss()).toContain(
-      '  .placeholder-dot[data-tone="warning"] {\n  border-color: var(--kleio-lapis);\n}',
+      ' .placeholder-dot[data-tone="warning"] {\n  border-color: var(--kleio-lapis);\n}',
     );
   });
 

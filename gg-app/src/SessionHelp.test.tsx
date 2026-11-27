@@ -30,12 +30,18 @@ describe("SessionHelp", () => {
     expect(screen.getByRole("dialog", { name: "How this screen works" })).toBeTruthy();
   });
 
-  it("collapses each topic into <details> on the iPhone", () => {
+  it("is the same dialog on the iPhone, every topic open, in a touch screen's words", () => {
     render(<SessionHelp mode="code" phone onClose={() => {}} />);
-    const dialog = screen.getByRole("dialog");
-    const topics = dialog.querySelectorAll("details");
-    expect(topics.length).toBeGreaterThan(0);
-    for (const topic of topics) expect(topic.open).toBe(false);
-    expect(dialog.querySelector("details summary")?.textContent).toContain("Message Kleio");
+    const dialog = screen.getByRole("dialog", { name: "How this screen works" });
+    expect(dialog.classList.contains("session-help")).toBe(true);
+    expect(dialog.classList.contains("session-help-sheet")).toBe(false);
+    expect(dialog.querySelector("details")).toBeNull();
+    expect(
+      dialog.querySelectorAll(".session-help-grid > .session-help-row").length,
+    ).toBeGreaterThan(4);
+    expect(
+      screen.getByText("Type in the box at the bottom and tap send. Return adds a new line."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/press Return to send/)).toBeNull();
   });
 });

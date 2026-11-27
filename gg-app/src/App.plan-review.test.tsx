@@ -298,19 +298,25 @@ describe("plan review states", () => {
     expect(screen.queryByRole("dialog", { name: "Review plan" })).toBeNull();
   });
 
-  it("the iPhone keeps its sentence and gets no waiting line", async () => {
+  it("the iPhone gets the waiting line and the approved row, as the desktop does", async () => {
     document.documentElement.classList.add("platform-ios");
     try {
       const { prompts, emit } = harness("ok");
       const { container } = render(<App />);
       const dialog = await openNamed(emit);
-      expect(dialog.querySelector(".plan-review-status")).toBeNull();
+      expect(dialog.querySelector(".plan-review-status")?.textContent).toBe(
+        "Waiting for your review",
+      );
 
       fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
       await waitFor(() => expect(prompts).toHaveBeenCalledTimes(1));
-      expect(container.querySelector(".plan-done")).toBeNull();
-      expect(screen.getByText("Plan accepted. Implementing it now.")).toBeTruthy();
+      await waitFor(() =>
+        expect(container.querySelector(".plan-done")?.textContent).toBe(
+          "\u2713Rate-limit failed logins \u00b7 Approved",
+        ),
+      );
+      expect(screen.queryByText(/Plan accepted/)).toBeNull();
     } finally {
       document.documentElement.classList.remove("platform-ios");
     }

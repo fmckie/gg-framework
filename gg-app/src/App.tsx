@@ -167,7 +167,7 @@ import { collapseSecurityRows, takeNewSecurityNotices } from "./security-notices
 import { INTRODUCE_LABEL, INTRODUCE_PROMPT } from "./kleio/introduce";
 import { playSound } from "./sounds";
 import { countPlanSteps, planTitle } from "./plan-steps";
-import { ArrowDownIcon, PlusIcon, QuestionIcon } from "@phosphor-icons/react";
+import { PlusIcon, QuestionIcon } from "@phosphor-icons/react";
 import type { UseDictation } from "./useDictation";
 import { toast } from "./toast";
 import { toWire, oversizedAttachmentsMessage } from "./attachments";
@@ -438,7 +438,7 @@ function App(): React.ReactElement {
   const [thinkingStartTs, setThinkingStartTs] = useState<number | null>(null);
   const [thinkingAccumMs, setThinkingAccumMs] = useState(0);
   const [models, setModels] = useState<ModelOption[]>([]);
-  // The desktop's Model panel, which takes the composer's place while open.
+  // The Model panel, which takes the composer's place while open.
   const [modelPanelOpen, setModelPanelOpen] = useState(false);
   const [thinkingPreview, setThinkingPreview] = useState<string | null | undefined>(undefined);
   const modelTriggerRef = useRef<HTMLButtonElement>(null);
@@ -570,12 +570,10 @@ function App(): React.ReactElement {
   const {
     stickToBottomRef,
     lastScrollTopRef,
-    jumpToLatestShown,
     maybeScrollToBottom,
     onTranscriptTouchStart,
     onTranscriptTouchMove,
     onTranscriptTouchEnd,
-    jumpToLatest,
     onTranscriptScroll,
     onTranscriptWheel,
   } = useTranscriptScroll({ scrollRef, readerMovedRef });
@@ -2370,8 +2368,8 @@ function App(): React.ReactElement {
       "The plan has been approved. Implement it now, following each step in order.",
       "accepted",
       undefined,
-      // The iPhone keeps its sentence; the desktop names the plan it approved.
-      isPhone() ? undefined : ((reviewed && planTitle(reviewed)) ?? "Plan"),
+      // The row names the plan it approved.
+      (reviewed && planTitle(reviewed)) ?? "Plan",
     );
   }
 
@@ -2800,10 +2798,6 @@ function App(): React.ReactElement {
     );
   }
 
-  // The iPhone lays the header out in two rows: back, the project's name and
-  // New on top, the session's tools under them (WorkspaceHeader). The desktop
-  // keeps back and New in its tools row.
-  const phoneHeader = isPhone();
   // A chat is titled by the first message typed into it. One sent as a chip
   // ("Introduce yourself") is passed over: its prompt is never shown.
   const firstUserItem = items.find(
@@ -2820,7 +2814,7 @@ function App(): React.ReactElement {
     modelTriggerRef.current?.focus({ preventScroll: true });
   };
   // More holds only what this session has: today the Code checklist.
-  const showMoreRow = !phoneHeader && workspaceMode === "code";
+  const showMoreRow = workspaceMode === "code";
   // The checklist takes the whole session, so More does not wait under it.
   if (showChecklist && morePanelOpen) setMorePanelOpen(false);
   const closeMorePanel = (): void => {
@@ -2853,14 +2847,12 @@ function App(): React.ReactElement {
     setBranchPanelOpen(true);
   };
   const activeRemote = kleioRemote.status?.active ?? null;
-  // The subscription usage bar. The iPhone's title row has no room for it, so
-  // there it sits at the right end of the activity row, by the tools chevron.
+  // The subscription usage bar, on the title row.
   const usageMeter = <TitleUsageMeter currentProvider={state?.provider ?? ""} />;
   // The activity row. A code session swaps it for Ken's own bar while Ken
   // answers an @Ken on his own; when both run, both bars show.
   const showTaskBar = workspaceMode !== "code" || running || autopilotReviewing || !kenRunning;
-  // Kleio Chat's one tool. On the iPhone it sits beside New on the title row,
-  // so the chat needs no tools row.
+  // Kleio Chat's one tool.
   const brainButton = workspaceMode === "chat" && (
     <button
       className="btn btn-sm btn-ghost"
@@ -2926,12 +2918,11 @@ function App(): React.ReactElement {
       </MetalButton>
     );
 
-  // The session guide. On the iPhone it is the back button's 36px circle
-  // (.btn-icon); the phone's header rule would pad a plain icon to a pill.
+  // The session guide.
   const helpButton = (
     <button
       type="button"
-      className={`btn btn-ghost btn-sm btn-nav-icon${phoneHeader ? " btn-icon" : ""}`}
+      className="btn btn-ghost btn-sm btn-nav-icon"
       aria-label="Help"
       title="Help"
       onClick={() => setShowSessionHelp(true)}
@@ -2955,9 +2946,7 @@ function App(): React.ReactElement {
       <WorkspaceHeader
         workspaceMode={workspaceMode}
         onOpenChats={
-          workspaceMode === "chat" && !phoneHeader
-            ? () => withViewTransition(() => setShowPicker(true))
-            : undefined
+          workspaceMode === "chat" ? () => withViewTransition(() => setShowPicker(true)) : undefined
         }
         sessionTitle={firstUserItem?.text}
         cwd={state?.cwd}
@@ -2975,17 +2964,6 @@ function App(): React.ReactElement {
             <KleioBadge active={activeRemote} onClick={() => setShowKleioRemote(true)} />
           )
         }
-        leading={phoneHeader && backButton}
-        trailing={
-          phoneHeader && (
-            <>
-              {newSessionButton}
-              {brainButton}
-              {helpButton}
-            </>
-          )
-        }
-        tools={!(phoneHeader && workspaceMode === "chat")}
         stripExtras={
           <>
             {activeRemote && (
@@ -2999,7 +2977,7 @@ function App(): React.ReactElement {
                 Specialists
               </button>
             )}
-            {!phoneHeader && usageMeter}
+            {usageMeter}
             {windowTotal > 1 && windowIndex !== null && (
               <span
                 className={`window-index${isThisFocused ? "" : " dim"}`}
@@ -3012,14 +2990,13 @@ function App(): React.ReactElement {
           </>
         }
       >
-        {!phoneHeader && backButton}
+        {backButton}
         <WorkspaceHeaderActions
           progress={progress}
           rankCelebrateNonce={rankCelebrateNonce}
           setShowScorecard={setShowScorecard}
           xpChips={xpChips}
           workspaceMode={workspaceMode}
-          phoneHeader={phoneHeader}
           newSessionButton={newSessionButton}
           brainButton={brainButton}
           helpButton={helpButton}
@@ -3240,7 +3217,7 @@ function App(): React.ReactElement {
           )}
           {items.length > 0 && (
             <TranscriptJump
-              away={!following && !isPhone()}
+              away={!following}
               hasNew={firstNewId !== null}
               askAt={askPlace === "above" || askPlace === "below" ? askPlace : null}
               onScrollToBottom={jumpToBottom}
@@ -3248,18 +3225,6 @@ function App(): React.ReactElement {
               onJumpToAsk={jumpToAsk}
             />
           )}
-          {/* iPhone: only ever a way back down — the top of a transcript is
-            history; the end is where the work is. */}
-          <button
-            type="button"
-            className={`jump-to-latest${jumpToLatestShown ? " visible" : ""}`}
-            aria-label="Jump to latest message"
-            aria-hidden={!jumpToLatestShown}
-            tabIndex={jumpToLatestShown ? 0 : -1}
-            onClick={jumpToLatest}
-          >
-            <ArrowDownIcon size={18} weight="bold" aria-hidden />
-          </button>
         </div>
 
         <div className="liveregion">
@@ -3278,11 +3243,10 @@ function App(): React.ReactElement {
               thinkingStartTs={kenThinkingStartTs}
               thinkingAccumMs={kenThinkingAccumMs}
               onCancel={() => void cancelKen()}
-              trailing={phoneHeader && !showTaskBar && usageMeter}
             />
           )}
           {!toolsHidden && <LiveToolPanel entries={liveToolFeed} />}
-          {/* Olympus: the subagents at work as gods, on the desktop. */}
+          {/* Olympus: the subagents at work as gods. */}
           <LaneMount items={items} />
           {/* Automatic review stays in the same task row; manual @Ken keeps its own bar. */}
           {showTaskBar && (
@@ -3293,9 +3257,7 @@ function App(): React.ReactElement {
               cancelling={cancelling}
               tokens={tokens}
               doneStatus={doneStatus}
-              idleLine={
-                !phoneHeader && items.length > 0 ? "Ready for your next message" : undefined
-              }
+              idleLine={items.length > 0 ? "Ready for your next message" : undefined}
               isThinking={isThinking}
               thinkingStartTs={thinkingStartTs}
               thinkingAccumMs={thinkingAccumMs}
@@ -3305,12 +3267,11 @@ function App(): React.ReactElement {
               toolsHidden={toolsHidden}
               hasToolFeed={liveToolFeed.length > 0}
               onToggleTools={toggleTools}
-              trailing={phoneHeader && usageMeter}
             />
           )}
         </div>
 
-        {modelPanelOpen && !phoneHeader && !running && (
+        {modelPanelOpen && !running && (
           <ModelPanel
             id="model-panel"
             models={models}
@@ -3441,7 +3402,6 @@ function App(): React.ReactElement {
         <AppFooter
           workspaceMode={workspaceMode}
           hydrated={hydrated}
-          phoneHeader={phoneHeader}
           state={state}
           runningTaskCount={runningTaskCount}
           tasks={tasks}

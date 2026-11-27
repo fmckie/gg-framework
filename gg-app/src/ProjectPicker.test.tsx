@@ -382,7 +382,7 @@ describe("ProjectPicker flat list", () => {
     return themeCss.slice(from, themeCss.indexOf("/* ── The Checklist ──", from));
   }
 
-  it("names a source with a dot and a quiet label on the desktop, not a tinted pill", async () => {
+  it("names a source with a dot and a quiet label, not a tinted pill", async () => {
     // The native store's own source, as the other fixture has it.
     await renderProjectList([{ ...PROJECT, sources: [...OTHER_PROJECT.sources, "folder"] }]);
 
@@ -391,23 +391,25 @@ describe("ProjectPicker flat list", () => {
     // The hue is the dot's alone: the label carries no inline tint.
     expect(tag.getAttribute("style")).toBeNull();
     expect(tag.querySelector("i.source-tag-dot")?.getAttribute("aria-hidden")).toBe("true");
-    expect(tag.matches("html:not(.platform-ios) .project-picker .source-tag")).toBe(true);
+    expect(tag.matches("html:root .project-picker .source-tag")).toBe(true);
     expect(screen.getByText("Folder").className).toBe("source-tag");
   });
 
-  it("keeps the iPhone's tinted pills and inline name colour", async () => {
+  it("names it the same way on the iPhone, and leaves the row's name to the stylesheet", async () => {
     document.documentElement.classList.add("platform-ios");
     await renderProjectList([{ ...PROJECT, sources: OTHER_PROJECT.sources }]);
 
-    expect(screen.getByText("Kleio").className).toBe("badge");
-    expect(document.querySelector(".source-tag")).toBeNull();
-    expect(screen.getByText("ui-test").getAttribute("style")).toContain("color");
+    const tag = screen.getByText("Kleio");
+    expect(tag.className).toBe("source-tag");
+    expect(tag.matches("html:root .project-picker .source-tag")).toBe(true);
+    expect(tag.querySelector("i.source-tag-dot")).not.toBeNull();
+    expect(screen.getByText("ui-test").getAttribute("style")).toBeNull();
   });
 
   it("draws rows flat in the session's palette, lit from the wrap so the X keeps them lit", async () => {
     await renderSessionList([NATIVE_SESSION, FOREIGN_SESSION]);
     const css = projectsCss();
-    const scope = "html:not(.platform-ios) .project-picker";
+    const scope = "html:root .project-picker";
 
     const used = new Set(css.match(/--kleio-[a-z0-9-]+/g));
     expect(used.size).toBeGreaterThan(5);
@@ -421,8 +423,12 @@ describe("ProjectPicker flat list", () => {
     expect(css).toContain(
       `${scope} .picker-item-wrap + .picker-item-wrap {\n  border-top: 1px solid var(--kleio-rule);\n}`,
     );
+    // The pointer's half is the desktop's alone: a tap leaves iOS's hover on.
+    const lit =
+      "{\n  border-color: transparent;\n  background: var(--kleio-raised);\n  box-shadow: none;\n  color: var(--kleio-lapis);\n}";
+    expect(css).toContain(`${scope} .picker-item:focus-visible ${lit}`);
     expect(css).toContain(
-      `${scope} .picker-item-wrap:hover > .picker-item:not(:disabled),\n${scope} .picker-item:focus-visible {\n  border-color: transparent;\n  background: var(--kleio-raised);\n  box-shadow: none;\n  color: var(--kleio-lapis);\n}`,
+      `html:not(.platform-ios) .project-picker .picker-item-wrap:hover > .picker-item:not(:disabled) ${lit}`,
     );
     expect(css).toContain(`${scope} .picker-name {\n  color: inherit;\n`);
   });

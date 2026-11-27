@@ -1,8 +1,8 @@
-// Specialists on the desktop, as a cast: everyone stands on a lit shelf. The
+// Specialists, as a cast: everyone stands on a lit shelf. The
 // one working bounces, the paused ones sleep, and whoever needs you says so in
 // a bubble. Clicking a character puts it in the spotlight and shows its profile
 // underneath; the profile opens its chat or its form, runs its schedule now or
-// turns its schedules back on. The iPhone keeps the list of rows (BlobsPage.tsx).
+// turns its schedules back on.
 
 import { useEffect, useRef, useState } from "react";
 import {

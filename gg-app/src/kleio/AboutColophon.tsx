@@ -1,8 +1,8 @@
-// Settings → About, on the desktop: the maker's page, set like a book's
+// Settings → About: the maker's page, set like a book's
 // colophon. Kleio's mark signs itself once: one pen stroke, masking the mark's
 // own PNG, draws it and then the rule the page hangs from. Then the maker, his
 // role, one line of intent and where to find his work; then what Kleio is made
-// with, and its version. The phone keeps AboutPage's card.
+// with, and its version.
 
 import { useEffect, useState } from "react";
 import { ArrowUpRightIcon } from "@phosphor-icons/react";

@@ -2,7 +2,6 @@ import { useId, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { createGoal, selectProject, type GoalSummary } from "../agent";
 import { Modal } from "../Modal";
-import { isPhone } from "../platform";
 import "./placeholder.css";
 
 /** Mirrors the sidecar's limits in `core/goals-store.ts`. */
@@ -194,25 +193,15 @@ export function GoalForm({
     }
   }
 
-  const phone = isPhone();
+  // The dialog closes on Escape itself.
   const form = (
     <form
-      className={phone ? "placeholder-form" : "goal-form"}
+      className="goal-form"
       aria-label="New goal"
       onSubmit={(event) => {
         event.preventDefault();
         void create();
       }}
-      // The desktop's dialog closes on Escape itself.
-      onKeyDown={
-        phone
-          ? (event) => {
-              if (event.key !== "Escape") return;
-              event.stopPropagation();
-              onCancel();
-            }
-          : undefined
-      }
     >
       <label htmlFor={nameId} className="goal-form-split">
         Name
@@ -265,9 +254,7 @@ export function GoalForm({
       </span>
     </form>
   );
-  return phone ? (
-    form
-  ) : (
+  return (
     <Modal title="New goal" className="goal-form-modal" onClose={onCancel}>
       {form}
     </Modal>

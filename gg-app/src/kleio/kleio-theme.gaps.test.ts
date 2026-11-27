@@ -4,7 +4,7 @@ import { PLATE_H, PLATE_W } from "./KleioPlate";
 
 describe("the desktop's small gaps", () => {
   it("lays Home's six plates out three, two, one, each on two half-columns", () => {
-    const actions = "html:not(.platform-ios) .kleio-home > .home-actions";
+    const actions = "html:root .kleio-home > .home-actions";
     expect(themeCss).toContain(
       "grid-template-columns: repeat(6, calc((124px * var(--plate-scale) - var(--plate-gap)) / 2));",
     );
@@ -43,14 +43,16 @@ describe("the desktop's small gaps", () => {
     );
   });
 
-  it("leaves the iPhone's off button at half opacity", () => {
+  it("outweighs the old half-opacity rule on the iPhone too, tapped or not", () => {
+    // (0,3,0) for the old rule and its hover; the shared rule adds the root: (0,3,1).
     expect(themeCss).toContain(
       "\n.kleio-cloisonne.is-dimmed,\n.kleio-cloisonne.is-dimmed:hover {\n  opacity: 0.5;\n",
     );
+    expect(themeCss).not.toMatch(/html\.platform-ios[^{]*\.kleio-cloisonne/);
   });
 
   it("steps the five effort bars from 2px to 10px in the mockup's blue", () => {
-    const bar = "html:not(.platform-ios) .app.app-session > .footer .effort-mark i:nth-child";
+    const bar = "html:root .app.app-session > .footer .effort-mark i:nth-child";
     [2, 4, 6, 8, 10].forEach((height, index) => {
       expect(themeCss).toContain(`${bar}(${index + 1}) {\n  height: ${height}px;\n}`);
     });

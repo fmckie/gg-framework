@@ -7,7 +7,6 @@ import {
   type GitHubCI,
 } from "./agent";
 import { CIIndicator } from "./CIIndicator";
-import { isPhone } from "./platform";
 import { projectAccent } from "./projectAccent";
 import { chatTitle } from "./session-title";
 import { formatWorkspaceTitle, pluralize } from "./workspace-title";
@@ -27,19 +26,10 @@ interface WorkspaceHeaderProps {
   additionalRoots?: string[];
   navHidden: boolean;
   onToggleNav: () => void;
-  /** The host connection pill. Beside the title on the desktop; on the iPhone,
-   *  first on the line under the project name. */
+  /** The host connection pill, beside the title. */
   connection?: ReactNode;
   stripExtras?: ReactNode;
-  /** Leads the title row (the iPhone puts the back button here). */
-  leading?: ReactNode;
-  /** Sits beside the hide toggle (the iPhone puts New here). */
-  trailing?: ReactNode;
-  /** False when the title row holds every control, so the session needs no
-   *  tools row and no toggle to hide one (Kleio Chat on the iPhone). */
-  tools?: boolean;
-  /** Set for a Chat on the desktop: the title reads "Chats / session title"
-   *  and Chats calls this. The iPhone keeps the project's name. */
+  /** Set for a Chat: the title reads "Chats / session title" and Chats calls this. */
   onOpenChats?: () => void;
   /** The chat's first message; none reads "Untitled chat". */
   sessionTitle?: string;
@@ -61,9 +51,6 @@ export function WorkspaceHeader({
   onToggleNav,
   connection,
   stripExtras,
-  leading,
-  trailing,
-  tools = true,
   onOpenChats,
   sessionTitle,
   children,
@@ -74,7 +61,6 @@ export function WorkspaceHeader({
   // identifiable at a glance. Published as a CSS variable (not just inlined on
   // the one rule that uses it) so descendants can opt in later.
   const accent = projectAccent(cwd);
-  const phone = isPhone();
 
   const issuesChip = gitHubIssues !== null && gitHubIssues > 0 && (
     <button
@@ -105,36 +91,7 @@ export function WorkspaceHeader({
       style={accent ? ({ "--project-accent": accent } as React.CSSProperties) : undefined}
     >
       <div className="chat-head-strip" data-tauri-drag-region>
-        {leading}
-        {phone ? (
-          // The iPhone's title: the project's name on its own line, and the
-          // status it has room for under it. The branch, uncommitted count and
-          // added roots stay off, as a narrow desktop window drops them; the
-          // separators are tidied in kleio-phone.css.
-          <div className="chat-head-titles">
-            <h1 className="chat-head-name">{directory ?? fallbackTitle}</h1>
-            <div className="chat-head-sub">
-              {connection}
-              {issuesChip && (
-                <>
-                  <span className="chat-head-sep" aria-hidden="true">
-                    {"│"}
-                  </span>
-                  {issuesChip}
-                </>
-              )}
-              {prsChip && (
-                <>
-                  <span className="chat-head-sep" aria-hidden="true">
-                    {"│"}
-                  </span>
-                  {prsChip}
-                </>
-              )}
-              <CIIndicator ci={gitHubCI} />
-            </div>
-          </div>
-        ) : onOpenChats ? (
+        {onOpenChats ? (
           <nav
             className="chat-head-title chat-head-identity"
             aria-label="Chat identity"
@@ -259,37 +216,34 @@ export function WorkspaceHeader({
             )}
           </span>
         )}
-        {!phone && connection}
+        {connection}
         {stripExtras}
-        {trailing}
-        {tools && (
-          <button
-            className="nav-toggle"
-            title={navHidden ? "Show nav buttons" : "Hide nav buttons"}
-            aria-label={navHidden ? "Show nav buttons" : "Hide nav buttons"}
-            aria-expanded={!navHidden}
-            aria-controls="workspace-nav"
-            onClick={onToggleNav}
+        <button
+          className="nav-toggle"
+          title={navHidden ? "Show nav buttons" : "Hide nav buttons"}
+          aria-label={navHidden ? "Show nav buttons" : "Hide nav buttons"}
+          aria-expanded={!navHidden}
+          aria-controls="workspace-nav"
+          onClick={onToggleNav}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ display: "block" }}
+            aria-hidden="true"
           >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ display: "block" }}
-              aria-hidden="true"
-            >
-              <polyline points={navHidden ? "6 9 12 15 18 9" : "6 15 12 9 18 15"} />
-            </svg>
-          </button>
-        )}
+            <polyline points={navHidden ? "6 9 12 15 18 9" : "6 15 12 9 18 15"} />
+          </svg>
+        </button>
       </div>
 
-      {tools && !navHidden && (
+      {!navHidden && (
         <div id="workspace-nav" className="chat-head-nav" data-tauri-drag-region>
           {children}
         </div>

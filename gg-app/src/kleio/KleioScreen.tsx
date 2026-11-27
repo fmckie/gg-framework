@@ -10,7 +10,6 @@
 
 import { useState } from "react";
 import { ChatsCircleIcon, CirclesThreeIcon } from "@phosphor-icons/react";
-import { isPhone } from "../platform";
 import { SettingsHeaderProvider } from "../settings-header";
 import { SettingsTabBar, type SettingsTab } from "../SettingsTabBar";
 import { BlobsPage } from "./BlobsPage";
@@ -46,8 +45,8 @@ function KleioApps({ onBack }: { onBack: () => void }): React.ReactElement {
         title="Apps"
         status={<span className="settings-head-status" ref={setStatusSlot} />}
       />
-      {/* The desktop's shelf is styled only inside `.settings-screen` (kleio-settings.css). */}
-      <div className={isPhone() ? "settings-scroll" : "settings-scroll settings-screen"}>
+      {/* The shelf is styled only inside `.settings-screen` (kleio-settings.css). */}
+      <div className="settings-scroll settings-screen">
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: null }}>
           <div className="settings-page is-entering">
             <AppsPage />
@@ -75,7 +74,7 @@ export function KleioScreen({ initialTab = "blobs", openId, onClose }: Props): R
   };
   const dock = atList && !apps;
   const tabs =
-    tab === "blobs" && count === 0 && !isPhone()
+    tab === "blobs" && count === 0
       ? TABS.map((t) => (t.id === "groups" ? { ...t, disabled: "Create a specialist first" } : t))
       : TABS;
   const openApps = (): void => setApps(true);

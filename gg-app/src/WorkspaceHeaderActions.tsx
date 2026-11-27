@@ -18,7 +18,6 @@ export function WorkspaceHeaderActions({
   setShowScorecard,
   xpChips,
   workspaceMode,
-  phoneHeader,
   newSessionButton,
   brainButton,
   helpButton,
@@ -45,7 +44,6 @@ export function WorkspaceHeaderActions({
   setShowScorecard: Dispatch<SetStateAction<boolean>>;
   xpChips: { id: string; label: string }[];
   workspaceMode: WorkspaceMode;
-  phoneHeader: boolean;
   newSessionButton: JSX.Element;
   brainButton: false | JSX.Element;
   helpButton: JSX.Element;
@@ -86,11 +84,11 @@ export function WorkspaceHeaderActions({
       </div>
       {workspaceMode !== "code" ? (
         <span className="picker-head-actions">
-          {!phoneHeader && newSessionButton}
-          {!phoneHeader && brainButton}
+          {newSessionButton}
+          {brainButton}
           <RadioButton />
           <WindowLayoutButton />
-          {!phoneHeader && helpButton}
+          {helpButton}
         </span>
       ) : (
         <>
@@ -104,7 +102,7 @@ export function WorkspaceHeaderActions({
                 setKenPowerBanner(next ? "on" : "off");
               }}
             />
-            {!phoneHeader && newSessionButton}
+            {newSessionButton}
             <button
               className="btn btn-sm btn-ghost"
               title="Open your notes for this project"
@@ -157,7 +155,7 @@ export function WorkspaceHeaderActions({
                 </MetalButton>
               )
             )}
-            {!phoneHeader && helpButton}
+            {helpButton}
           </span>
         </>
       )}

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { agentRowState } from "./AgentRow";
 import { BlobsPage } from "./BlobsPage";
-import type * as BlobFormModule from "./BlobForm";
 import { formatWhenShort, ranLate } from "./blobFormat";
 import type * as BlobSchedulesModule from "./BlobSchedules";
 import {
@@ -84,10 +83,6 @@ const formStub = vi.hoisted(
       </div>
     ),
 );
-vi.mock("./BlobForm", async (importOriginal) => ({
-  ...(await importOriginal<typeof BlobFormModule>()),
-  BlobForm: formStub("today"),
-}));
 vi.mock("./CastForm", () => ({ CastForm: formStub("cast") }));
 vi.mock("./kleioApi", async (importOriginal) => {
   const real = await importOriginal<typeof KleioApi>();
@@ -143,7 +138,7 @@ async function renderPage(onClose: () => void = () => undefined): Promise<void> 
   await act(async () => {});
 }
 
-/** On the desktop a click selects; the profile's button opens the chat. */
+/** A click selects; the profile's button opens the chat. */
 function openChat(name: string): void {
   fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${name}\\.`) }));
   fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
@@ -197,20 +192,15 @@ afterEach(async () => {
 });
 
 describe("BlobsPage", () => {
-  it("on the iPhone, lists every specialist as a row with its job and what it's doing", async () => {
+  it("on the iPhone, stands every specialist on the Cast's shelf, with search behind its button", async () => {
     await asPhone(async () => {
       await renderPage();
       expect(screen.getByRole("heading", { name: "Specialists" })).toBeTruthy();
-      const research = screen.getByRole("button", { name: /^Research\./ });
-      expect(within(research).getByText("Latest AI news every day")).toBeTruthy();
-      expect(within(research).getByText(/^Next /)).toBeTruthy();
-      const chef = screen.getByRole("button", { name: /^Chef\./ });
-      expect(within(chef).getByText("Working now")).toBeTruthy();
-      expect(chef.className).toContain("is-running");
-      expect(screen.getByText("1 working")).toBeTruthy();
-      // Its search field is there from the start, and nothing of the shelf is drawn.
-      expect(screen.getByRole("searchbox", { name: "Search specialists" })).toBeTruthy();
-      expect(document.querySelector(".cast-page, .cast-actor, .cast-profile")).toBeNull();
+      for (const name of ["Research", "Chef"])
+        expect(actor(name).matches(".cast-page .cast-actor")).toBe(true);
+      expect(document.querySelector(".picker-item.kleio-row")).toBeNull();
+      expect(screen.queryByRole("searchbox")).toBeNull();
+      expect(screen.getByRole("button", { name: "Search specialists" })).toBeTruthy();
     });
   });
 
@@ -250,21 +240,18 @@ describe("BlobsPage", () => {
     expect(screen.getByRole("button", { name: /^Research\./ })).toBeTruthy();
   });
 
-  it("on the iPhone, puts the specialist's state under its name, so Edit shares the row", async () => {
-    document.documentElement.classList.add("platform-ios");
-    try {
+  it("on the iPhone, sets the specialist's state beside its name in the bar, as the desktop does", async () => {
+    await asPhone(async () => {
       await renderPage();
-      fireEvent.click(screen.getByRole("button", { name: /^Research\./ }));
+      openChat("Research");
 
       const heading = screen.getByRole("heading", { name: "Research", level: 1 });
-      const titles = heading.parentElement as HTMLElement;
-      expect(titles.className).toBe("kleio-head-titles");
-      expect(within(titles).getByText(agentRowState(blob({})).text)).toBeTruthy();
-      const head = titles.closest(".kleio-head") as HTMLElement;
+      const head = heading.parentElement as HTMLElement;
+      expect(head.classList.contains("kleio-head")).toBe(true);
+      expect(within(head).getByText(agentRowState(blob({})).text)).toBeTruthy();
       expect(within(head).getByRole("button", { name: "Edit" })).toBeTruthy();
-    } finally {
-      document.documentElement.classList.remove("platform-ios");
-    }
+      expect(document.querySelector(".kleio-head-titles, .kleio-head-sub")).toBeNull();
+    });
   });
 
   it("shows an empty Assets panel until the specialist shares a file", async () => {
@@ -382,7 +369,7 @@ describe("BlobsPage", () => {
   });
 });
 
-// ─── the Cast shelf: Specialists on the desktop ───────────────────────────────
+// ─── the Cast shelf ───────────────────────────────────────────────────────────
 
 /** The page with the mockup's roster, on its Monday at 14:10. */
 async function renderCast(size: RosterSize | 0, extra: Blob[] = []): Promise<void> {
@@ -883,7 +870,7 @@ describe("the Cast shelf", () => {
     for (const sel of animated) expect(sel).toMatch(/^\.cast-/);
   });
 
-  it("opens the Cast's form on the desktop, and reads the specialists again when a schedule changes", async () => {
+  it("opens the Cast's form, and reads the specialists again when a schedule changes", async () => {
     await renderCast(7);
     await pick("Chef");
     fireEvent.click(within(profile("Chef")).getByRole("button", { name: "Edit" }));
@@ -904,59 +891,51 @@ describe("the Cast shelf", () => {
     ).toBe("cast");
   });
 
-  it("keeps today's form on the iPhone, for a new specialist and for an edit", async () => {
+  it("opens the Cast's form on the iPhone too, for a new specialist and for an edit", async () => {
     await asPhone(async () => {
       await renderCast(7);
       fireEvent.click(screen.getByRole("button", { name: "+ New specialist" }));
       const made = screen.getByText("new agent form").closest("[data-form]");
-      expect(made?.getAttribute("data-form")).toBe("today");
-      // Today's form takes no schedules: they stay in the chat's sidebar.
-      expect(screen.queryByRole("button", { name: "schedule changed" })).toBeNull();
+      expect(made?.getAttribute("data-form")).toBe("cast");
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
       await settle();
 
-      fireEvent.click(actor("Chef"));
-      expect(screen.getByText("schedules for Chef")).toBeTruthy();
-      fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0] as HTMLElement);
+      await pick("Chef");
+      fireEvent.click(within(profile("Chef")).getByRole("button", { name: "Edit" }));
       const edit = screen.getByText("editing Chef").closest("[data-form]");
-      expect(edit?.getAttribute("data-form")).toBe("today");
-      expect(document.querySelector('[data-form="cast"]')).toBeNull();
+      expect(edit?.getAttribute("data-form")).toBe("cast");
+      // Schedules are the form's, as on the desktop.
+      expect(screen.getByRole("button", { name: "schedule changed" })).toBeTruthy();
     });
   });
 
-  it("is never drawn on the iPhone, which keeps its rows and its own first run", async () => {
+  it("is drawn on the iPhone too: the shelf, a profile that opens the chat, and the first run's stage", async () => {
     await asPhone(async () => {
       await renderCast(7);
-      expect(document.querySelectorAll(".picker-item.kleio-row")).toHaveLength(7);
-      expect(document.querySelector('[class^="cast-"], [class*=" cast-"], .cast')).toBeNull();
-      expect(listModels).not.toHaveBeenCalled();
-      expect(getBlobActivity).not.toHaveBeenCalled();
-      // A tap opens the chat straight away, as before.
-      fireEvent.click(actor("Courier"));
+      expect(shelves()).toEqual([7]);
+      expect(document.querySelector(".picker-item.kleio-row")).toBeNull();
+      // A tap selects; the profile's button opens the chat.
+      await pick("Courier");
+      expect(screen.queryByText("chat with Courier")).toBeNull();
+      fireEvent.click(within(profile("Courier")).getByRole("button", { name: "Open chat" }));
       expect(screen.getByText("chat with Courier")).toBeTruthy();
       cleanup();
 
       await renderCast(0);
-      expect(document.querySelector(".kleio-first")).toBeTruthy();
-      expect(document.querySelector(".cast-first, .cast-stage")).toBeNull();
-      expect(screen.getByRole("button", { name: "+ New specialist" })).toBeTruthy();
+      expect(document.querySelector(".cast-first .cast-stage")).toBeTruthy();
+      expect(document.querySelector(".kleio-first")).toBeNull();
+      expect(screen.getByRole("button", { name: /Create your first specialist/ })).toBeTruthy();
     });
   });
 
-  it("offers the iPhone no example jobs and no run or schedule buttons on its list", async () => {
+  it("offers the iPhone the example jobs to start the first specialist from", async () => {
     await asPhone(async () => {
       await renderCast(0);
-      expect(screen.queryByRole("group", { name: "Example jobs" })).toBeNull();
-      expect(screen.queryByText("Or start from")).toBeNull();
-      fireEvent.click(screen.getByRole("button", { name: "+ Create your first specialist" }));
-      expect(screen.queryByText(/^starting job:/)).toBeNull();
-      cleanup();
-
-      await renderCast(7, [stuck()]);
-      for (const name of ["Run now", "Turn schedule on", "Turn schedules on"])
-        expect(screen.queryByRole("button", { name })).toBeNull();
-      expect(runScheduleNow).not.toHaveBeenCalled();
-      expect(updateSchedule).not.toHaveBeenCalled();
+      const examples = screen.getByRole("group", { name: "Example jobs" });
+      const [first] = within(examples).getAllByRole("button");
+      if (!first) throw new Error("no example job");
+      fireEvent.click(first);
+      expect(screen.getByText(`starting job: ${first.title}`)).toBeTruthy();
     });
   });
 });

@@ -6,8 +6,8 @@
 // - The verdict: in plain words, does it work, what was checked, and numbered
 //   steps to fix it when it doesn't (connectionDiagnosis.ts). Over the link
 //   it's diagnoseLink's, in the same words as the gate and the home screen.
-//   The phone shows it as a map and a card. The desktop shows the path
-//   (ConnectionPath.tsx) with one verdict line, and the steps behind Fix.
+//   It is the path (ConnectionPath.tsx) with one verdict line, and the steps
+//   behind Fix.
 // - Kleio's link (Rust: kleio/link.rs, macOS and iOS): that it's end-to-end
 //   encrypted and what isn't, which way it goes and through which relay, its
 //   numbers and path events under Details, and pairing by the host's address
@@ -27,34 +27,26 @@
 // - Devices: every paired device, with the ones paired this week marked New,
 //   and Revoke this device (admin).
 //
-// The desktop folds each section's later sentences behind "More" (never the
-// ones about encryption, Apple, or what is open to the internet), shows Always
-// on after Host, and ends with Remove: Forget host, and each other device's
-// Revoke. The phone keeps today's cards, with both inline.
+// Each section's later sentences fold behind "More" (never the ones about
+// encryption, Apple, or what is open to the internet). Always on comes after
+// Host, and the page ends with Remove: Forget host, and each other device's
+// Revoke. The Mac and the iPhone draw the same page.
 //
 // Replaces upstream's Telegram "Remote" page: the iPhone app is Kleio's remote.
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
-  ArrowClockwiseIcon,
   ArrowUpIcon,
   CaretRightIcon,
-  CheckCircleIcon,
   DesktopIcon,
   DeviceMobileIcon,
-  HardDrivesIcon,
-  LockSimpleIcon,
-  QuestionIcon,
   ShieldCheckIcon,
   TrashIcon,
-  WarningCircleIcon,
-  XCircleIcon,
 } from "@phosphor-icons/react";
 import { openUrl } from "../agent";
 import { Badge } from "../Badge";
 import { isPhone } from "../platform";
 import { SettingsCard } from "../settings-section";
-import { SettingsHeaderAction, SettingsHeaderStatus } from "../settings-header";
 import { theme } from "../theme";
 import { toast, type ToastTone } from "../toast";
 import { AlwaysOnSection } from "./AlwaysOn";
@@ -64,10 +56,8 @@ import {
   relayHost,
   unreachableReason,
   type Checked,
-  type Diagnosis,
   type HealthCheck,
   type LinkHealth,
-  type Tone,
 } from "./connectionDiagnosis";
 import { ConnectionPath, routeOf } from "./ConnectionPath";
 import { linkVerdict, REACH_TIMEOUT_MS, rememberedHostKind } from "./hostReach";
@@ -104,8 +94,7 @@ import { More } from "./More";
 import { relTime } from "./relTime";
 import { RemoveGroup, RemoveItem } from "./RemoveGroup";
 import { takeSettingsIntent } from "./settingsIntent";
-import { FixStepText } from "./FixSteps";
-import { ForgetHost, forgetHint, forgetHost } from "./ForgetHost";
+import { forgetHint, forgetHost } from "./ForgetHost";
 import { RestartNotice, UrlPairFields } from "./UrlPairing";
 import { useFollowLatest } from "./useFollowLatest";
 import {
@@ -140,12 +129,6 @@ interface Checks {
   net: Checked<TailscaleStatus> | null;
   online: boolean;
 }
-
-const TONE_COLOR: Record<Tone, string> = {
-  good: theme.success,
-  warn: theme.warning,
-  bad: theme.error,
-};
 
 export function shortName(host: string): string {
   return host.split(".")[0] ?? host;
@@ -304,7 +287,7 @@ export function ConnectionPage(): React.ReactElement {
 
   // What Overview asked this page to open on, if it did: read once, as the page opens.
   const [intent] = useState(takeSettingsIntent);
-  // The desktop's steps, behind Fix: closed until asked for (here, or by
+  // The steps, behind Fix: closed until asked for (here, or by
   // Overview's Fix), and closed again once there is nothing to fix.
   const [fixOpen, setFixOpen] = useState(intent === "connection-fix");
   const fixable = (verdict?.fix.length ?? 0) > 0;
@@ -312,10 +295,9 @@ export function ConnectionPage(): React.ReactElement {
     if (verdict && !fixable) setFixOpen(false);
   }, [verdict, fixable]);
 
-  // The desktop's Remove group: each other device's Revoke, once devices are shown.
+  // The Remove group: each other device's Revoke, once devices are shown.
   const selfId = active?.deviceId ?? null;
-  const revocable =
-    !phone && active?.admin ? deviceList.live.filter((d) => d.deviceId !== selfId) : [];
+  const revocable = active?.admin ? deviceList.live.filter((d) => d.deviceId !== selfId) : [];
   const revokes = useRef<HTMLDivElement>(null);
   const devicesTitle = useRef<HTMLHeadingElement>(null);
   // After a revoke, focus goes to the next device's item; with none, to Devices.
@@ -381,16 +363,14 @@ export function ConnectionPage(): React.ReactElement {
               {`Kleio keeps ${hostLabel} awake while a run is going. Closing the lid still sleeps it.`}
             </p>
           )}
-          {/* Forgotten in this launch: it applies on the next. The desktop's
-              Forget host waits under Remove, at the end of the page. */}
-          {paired
-            ? phone && <ForgetHost compact onForgot={refreshRemote} />
-            : active && <RestartNotice what="You just forgot the host." />}
+          {/* Forgotten in this launch: it applies on the next. Forget host
+              waits under Remove, at the end of the page. */}
+          {!paired && active && <RestartNotice what="You just forgot the host." />}
         </Section>
 
-        {/* On the desktop, whether the host stays on and how to keep it on: Overview's
-            Host row links here. The phone has it on Setup. */}
-        {!phone && active && (
+        {/* Whether the host stays on and how to keep it on: Overview's Host row
+            links here. */}
+        {active && (
           <AlwaysOnSection
             kind={hostAsked ? (hostInfo?.kind ?? null) : undefined}
             name={hostLabel}
@@ -435,46 +415,12 @@ export function ConnectionPage(): React.ReactElement {
     </div>
   );
 
-  if (phone) {
-    return (
-      <>
-        <SettingsHeaderStatus>
-          <Badge color={verdict ? TONE_COLOR[verdict.tone] : undefined}>
-            {verdict?.badge ?? "Checking…"}
-          </Badge>
-        </SettingsHeaderStatus>
-        <SettingsHeaderAction>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            disabled={checking}
-            onClick={() => void check()}
-          >
-            <ArrowClockwiseIcon size={14} weight="bold" aria-hidden="true" />
-            {checking ? "Checking…" : "Check again"}
-          </button>
-        </SettingsHeaderAction>
-
-        <ConnectionMap
-          device={device}
-          hostLabel={hostLabel}
-          health={health}
-          via={linkInUse ? "Kleio's link" : "Tailscale"}
-          {...leg}
-        />
-
-        <Verdict verdict={verdict} hostLabel={hostLabel} />
-
-        {cols}
-      </>
-    );
-  }
-
-  // The desktop says health once: the path and its verdict line. Overview's
+  // Health is said once: the path and its verdict line. Overview's
   // Host row is the summary that links here, from the same diagnosis.
   return (
     <div className="cx-page">
       <ConnectionPath
+        device={device}
         selfDetail={leg.selfDetail}
         hostLabel={hostLabel}
         replyTime={health?.state === "ok" ? formatLatency(health.value.latencyMs) : null}
@@ -493,7 +439,7 @@ export function ConnectionPage(): React.ReactElement {
         <RemoveGroup>
           {paired && (
             <RemoveItem
-              what={`This Mac's pairing with ${hostLabel}`}
+              what={`This ${device}'s pairing with ${hostLabel}`}
               ask="Forget host"
               confirm="Forget host"
               busyText="Forgetting…"
@@ -544,17 +490,10 @@ function Section({
   badge?: React.ReactNode;
   lead: string;
   more?: string;
-  /** The desktop's heading, for moving focus to it. */
+  /** The heading, for moving focus to it. */
   titleRef?: React.Ref<HTMLHeadingElement>;
   children?: React.ReactNode;
 }): React.ReactElement {
-  if (isPhone()) {
-    return (
-      <SettingsCard title={title} badge={badge} description={more ? `${lead} ${more}` : lead}>
-        {children}
-      </SettingsCard>
-    );
-  }
   const heading = (
     <h3 className="settings-section-title" ref={titleRef} tabIndex={-1}>
       {title}
@@ -579,79 +518,6 @@ function Section({
         )}
       </div>
       {children}
-    </section>
-  );
-}
-
-/** Prose the phone shows in full and the desktop folds behind its section's "More". */
-function Folded({
-  about,
-  children,
-}: {
-  about: string;
-  children: React.ReactNode;
-}): React.ReactNode {
-  return isPhone() ? children : <More about={about}>{children}</More>;
-}
-
-// ─── the verdict: does it work, what was checked, how to fix it ─────────────
-
-function ToneIcon({ tone, size }: { tone: Tone | "unknown"; size: number }): React.ReactElement {
-  if (tone === "good") return <CheckCircleIcon size={size} weight="fill" aria-hidden="true" />;
-  if (tone === "warn") return <WarningCircleIcon size={size} weight="fill" aria-hidden="true" />;
-  if (tone === "bad") return <XCircleIcon size={size} weight="fill" aria-hidden="true" />;
-  return <QuestionIcon size={size} weight="bold" aria-hidden="true" />;
-}
-
-function Verdict({
-  verdict,
-  hostLabel,
-}: {
-  /** `null` until the first check finishes. */
-  verdict: Diagnosis | null;
-  hostLabel: string;
-}): React.ReactElement {
-  if (!verdict) {
-    return (
-      <section className="conn-verdict" aria-label="Connection check">
-        <p className="conn-verdict-detail" role="status">
-          Checking the connection to {hostLabel}…
-        </p>
-      </section>
-    );
-  }
-  return (
-    <section className={`conn-verdict is-${verdict.tone}`} aria-label="Connection check">
-      <span className="conn-verdict-icon">
-        <ToneIcon tone={verdict.tone} size={22} />
-      </span>
-      <div className="conn-verdict-body">
-        <div role="status">
-          <h3 className="conn-verdict-title">{verdict.headline}</h3>
-          <p className="conn-verdict-detail">{verdict.detail}</p>
-        </div>
-        <ul className="conn-checks" aria-label="What was checked">
-          {verdict.checks.map((c) => (
-            <li key={c.label} className={`conn-check is-${c.tone}`}>
-              <ToneIcon tone={c.tone} size={15} />
-              <span className="conn-check-label">{c.label}</span>
-              <span className="conn-check-text">{c.text}</span>
-            </li>
-          ))}
-        </ul>
-        {verdict.fix.length > 0 && (
-          <div className="conn-fix">
-            <h4 className="conn-fix-title">How to fix it</h4>
-            <ol className="conn-steps">
-              {verdict.fix.map((step) => (
-                <li key={step.text}>
-                  <FixStepText step={step} />
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </div>
     </section>
   );
 }
@@ -707,105 +573,6 @@ function firstLeg(
     selfState: net ? (net.running ? "is-up" : "is-down") : reached ? "is-up" : "is-unknown",
     selfDetail: net?.self?.name ?? app,
   };
-}
-
-function ConnectionMap({
-  device,
-  hostLabel,
-  health,
-  via,
-  linkUp,
-  selfState,
-  selfDetail,
-}: {
-  device: Device;
-  hostLabel: string;
-  /** `null` until the first check finishes. */
-  health: HealthCheck | null;
-  /** How the devices reach the host: Kleio's link, or Tailscale. */
-  via: string;
-  linkUp: boolean;
-  selfState: NodeState;
-  selfDetail: string;
-}): React.ReactElement {
-  const hostKnown = health !== null;
-  const hostUp = health?.state === "ok" && health.value.sidecar === "up";
-  const phone = device === "iPhone";
-  const desktop = <DesktopIcon size={26} weight="duotone" aria-hidden="true" />;
-  const mobile = <DeviceMobileIcon size={26} weight="duotone" aria-hidden="true" />;
-  return (
-    <section className="conn-map" aria-label="How your devices connect">
-      <MapNode
-        icon={phone ? mobile : desktop}
-        name={`This ${device}`}
-        detail={selfDetail}
-        state={selfState}
-      />
-      <MapLink up={linkUp} known={hostKnown} label={via} />
-      <MapNode
-        icon={<HardDrivesIcon size={30} weight="duotone" aria-hidden="true" />}
-        name={hostLabel}
-        detail="Kleio host"
-        state={!hostKnown ? "is-unknown" : hostUp ? "is-up" : "is-down"}
-        hub
-      />
-      <MapLink up={hostUp} known={hostKnown} label={via} />
-      <MapNode
-        icon={phone ? desktop : mobile}
-        name={phone ? "Mac" : "iPhone"}
-        detail={phone ? "Kleio Desktop" : "Kleio app"}
-        state="is-idle"
-      />
-    </section>
-  );
-}
-
-function MapNode({
-  icon,
-  name,
-  detail,
-  state,
-  hub = false,
-}: {
-  icon: React.ReactNode;
-  name: string;
-  detail: string;
-  state: NodeState;
-  hub?: boolean;
-}): React.ReactElement {
-  return (
-    <div className={`conn-node ${state}${hub ? " is-hub" : ""}`}>
-      <span className="conn-node-icon">
-        {icon}
-        <span className="conn-node-dot" aria-hidden="true" />
-      </span>
-      <span className="conn-node-name">{name}</span>
-      <span className="conn-node-detail">{detail}</span>
-    </div>
-  );
-}
-
-function MapLink({
-  up,
-  known,
-  label,
-}: {
-  up: boolean;
-  known: boolean;
-  label: string;
-}): React.ReactElement {
-  return (
-    <div
-      className={`conn-link ${!known ? "is-unknown" : up ? "is-up" : "is-down"}`}
-      aria-hidden="true"
-    >
-      <span className="conn-link-line" />
-      <span className="conn-link-label">
-        <LockSimpleIcon size={11} weight="bold" />
-        {label}
-      </span>
-    </div>
-  );
 }
 
 // ─── Tailscale (Mac only: the iPhone app can't read the phone's Tailscale) ──
@@ -1265,9 +1032,9 @@ function LinkCard({
         </dl>
       )}
       {inUse && link.relayN0 && (
-        <Folded about="Kleio's link">
+        <More about="Kleio's link">
           <p className="settings-desc">{N0_RELAY_LINE}</p>
-        </Folded>
+        </More>
       )}
       {switchStatus && switchStatus.state !== "none" && (
         <SwitchCleanup
@@ -2102,21 +1869,11 @@ function DevicesCard({
   admin: boolean;
   selfId: string | null;
   list: DeviceList;
-  /** The desktop's heading: where focus goes once the last other device is revoked. */
+  /** The heading: where focus goes once the last other device is revoked. */
   titleRef: React.Ref<HTMLHeadingElement>;
 }): React.ReactElement {
   const { devices, live, readAt, error, busy, load } = list;
   const phone = isPhone();
-  const [confirm, setConfirm] = useState<string | null>(null);
-
-  async function revoke(device: PairedDevice): Promise<void> {
-    try {
-      await list.revoke(device);
-      setConfirm(null);
-    } catch (e) {
-      list.setError(explainError(e));
-    }
-  }
 
   return (
     <Section
@@ -2155,7 +1912,11 @@ function DevicesCard({
               <span className="conn-device-main">
                 <span className="conn-device-name">
                   {d.label}
-                  {d.deviceId === selfId && <Badge className="conn-inline-badge">This Mac</Badge>}
+                  {d.deviceId === selfId && (
+                    <Badge className="conn-inline-badge">
+                      {phone ? "This iPhone" : "This Mac"}
+                    </Badge>
+                  )}
                   {isNewDevice(d, selfId, readAt) && (
                     <Badge color={theme.info} className="conn-inline-badge">
                       New
@@ -2169,42 +1930,11 @@ function DevicesCard({
                 </span>
                 <span className="conn-device-sub">{deviceSeen(d)}</span>
               </span>
-              {/* The desktop's Revoke waits under Remove, at the end of the page. */}
-              {phone &&
-                d.deviceId !== selfId &&
-                (confirm === d.deviceId ? (
-                  <span className="conn-inline-confirm">
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => setConfirm(null)}
-                    >
-                      Keep
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      disabled={busy}
-                      onClick={() => void revoke(d)}
-                    >
-                      Revoke
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    aria-label={`Revoke this device: ${d.label}`}
-                    onClick={() => setConfirm(d.deviceId)}
-                  >
-                    Revoke this device
-                  </button>
-                ))}
             </li>
           ))}
         </ul>
       )}
-      {!phone && admin && live.some((d) => d.deviceId !== selfId) && (
+      {admin && live.some((d) => d.deviceId !== selfId) && (
         <p className="settings-desc cx-quiet">
           Revoke a device under Remove, at the end of this page.
         </p>
