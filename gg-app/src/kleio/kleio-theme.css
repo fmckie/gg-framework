@@ -4857,6 +4857,93 @@ html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache butto
   outline-offset: 2px;
 }
 
+/* ── A session's last glass ── what the session's rows and dock still drew as
+   glass: Motion's starting points, the buttons that jump down the transcript,
+   the slash and @ menus above the box, and the chips for attached and named
+   files. Bounded flat buttons, a flat panel and flat wells, lapis under the
+   pointer. !important on the menu: glass.css sets its fill that way and the
+   menu sets it inline. */
+html:not(.platform-ios) .app.app-session > .liveregion .motion-starter,
+html:not(.platform-ios) .app.app-session > .transcript-frame > .placeholder-jump > .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text-2);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .motion-starter:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .placeholder-jump
+  > .btn:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .motion-starter:focus-visible,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .placeholder-jump
+  > .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* The slash and @ menus: a command's name is lapis, the row in hand lifts. */
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-menu {
+  --primary: var(--kleio-lapis);
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-item {
+  border-radius: 3px;
+  box-shadow: none;
+  scale: none;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-item:is(.active, :hover) {
+  background: var(--kleio-raised);
+  box-shadow: none;
+}
+/* Chips: an attached file above the box, a named file, and both again in
+   the message they were sent with. */
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.attach-chip, .mention-chip),
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-file-chip {
+  --primary: var(--kleio-lapis);
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .attach-remove {
+  border-radius: 3px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  :is(.attach-remove, .mention-chip-remove):is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+
 /* ── The Checklist ── Code's project checklist (placeholder/ChecklistView.tsx)
    in the session's column and materials: a heading, each group under a small
    label with its count, and one check to a hairline row with a still mark for
