@@ -5367,6 +5367,434 @@ html:not(.platform-ios)
   background: var(--kleio-crimson-hi);
 }
 
+/* ── A goal's session ── the goal's own chrome under the session's two rows
+   (placeholder/GoalPanel.tsx) and its Workers view (WorkerList.tsx), in the
+   session's column and materials. Two lines over a hairline: the goal's name,
+   phase and tally with the Chat | Workers switch at the right, then what you
+   can do to it with the workers' model at the right. In a narrow window each
+   group drops under the one before it, at the left. In the Workers view, what
+   the coordinator is doing now, then one agent to a hairline row with a still
+   mark for its state: hollow while idle or waiting, lapis at work, verdigris
+   done. Nothing is amber. Goal settings is New goal's dialog (`.goal-form`,
+   above). The iPhone keeps the placeholder's look. */
+html:not(.platform-ios) .app.app-session > .goal-panel {
+  flex: none;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px var(--kleio-gutter) 12px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-name {
+  color: var(--kleio-ink);
+  font: 600 15px/22px var(--sans);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-phase {
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-tally {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* Chat | Workers: Brain's bounded tabs, the open one lifted. A question
+   waiting in the chat turns its tab lapis. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-views > button {
+  height: 22px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--kleio-muted);
+  font: 500 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-views
+  > button:is(:hover, :focus-visible, [data-waiting]) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-views
+  > button[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--kleio-ink);
+}
+/* The second line. Its two groups part to the edges; when they can't share
+   the line, each starts one of its own. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-bar-model, .goal-finish-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* Pause, settings, and a notice's own buttons: bounded and flat, lapis under
+   the pointer. A paused goal's Resume waits on you, so it is lapis already. */
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)
+  > button {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)
+  > button:is(:hover, :focus-visible) {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-actions
+  > button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, var(--kleio-edge));
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel :is(button, select):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* The workers' model: a muted label and a bounded field, its chevron drawn
+   over the right end. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-model > label {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 5px;
+  height: 5px;
+  margin-top: -4.5px;
+  border: solid var(--kleio-muted);
+  border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg;
+  pointer-events: none;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select > select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 240px;
+  height: 28px;
+  padding: 0 28px 0 10px;
+  appearance: none;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select:hover > select {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select > select > option {
+  background: #161213;
+  color: var(--kleio-ink);
+}
+
+/* What the coordinator is doing now: its mark, the moment in ink, and the
+   rest of the line quieter beside it. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status {
+  display: block;
+  padding: 18px var(--kleio-gutter) 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status > .placeholder-notice {
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-notice-headline {
+  color: var(--kleio-ink);
+  font: 500 15px/22px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-attention {
+  color: var(--kleio-text);
+}
+/* A hairline parts the step's timer from what follows it. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .goal-status-time + span {
+  margin-left: 8px;
+  padding-left: 5px;
+  border-left: 1px solid var(--kleio-rule-strong);
+}
+/* The marks, here and on each agent's row. */
+html:not(.platform-ios) .app.app-session > :is(.goal-panel, .goal-workers) .placeholder-dot {
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--kleio-muted);
+  background: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="warning"] {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="active"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="error"] {
+  border-color: var(--error);
+  background: var(--error);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  :is([data-tone="done"], [data-status="done"])
+  .placeholder-dot {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+
+/* A question the coordinator is blocked on, and a finished stretch's score:
+   a bounded panel on the session's surface, its colour on a leading rule. */
+html:not(.platform-ios) .app.app-session > .goal-panel > :is(.goal-ask, .goal-finish) {
+  margin: 16px var(--kleio-gutter) 0;
+  padding: 12px 14px 12px 17px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  box-shadow: inset 3px 0 0 var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-ask {
+  align-items: center;
+  gap: 10px 16px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-ask > .placeholder-notice-body {
+  flex: 1 1 280px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  > :is(.goal-ask, .goal-finish)
+  .placeholder-notice-headline {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  > :is(.goal-ask, .goal-finish)
+  .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish {
+  display: block;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish[data-outcome="done"] {
+  box-shadow: inset 3px 0 0 var(--kleio-done);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish[data-outcome="failed"] {
+  box-shadow: inset 3px 0 0 var(--error);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* The score: each figure under its small label. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 14px 0;
+  padding: 0;
+  font-size: 13px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dt {
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dd {
+  margin: 2px 0 0;
+  color: var(--kleio-ink);
+  font: 500 15px/22px var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The Workers view: the coordinator, then everyone it brought in. */
+html:not(.platform-ios) .app.app-session > .goal-workers > .placeholder-scroll {
+  padding: 14px var(--kleio-gutter) 22px;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers > .placeholder-scroll:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-list {
+  padding: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-size: 13px;
+  list-style: none;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row {
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* Who and in what state at the left; what it is doing at the right. */
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row > span:first-child {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 60%;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row .placeholder-dot {
+  flex: none;
+  margin-right: 4px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row strong {
+  min-width: 0;
+  color: var(--kleio-ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .placeholder-row
+  > span:first-child
+  > .placeholder-muted {
+  flex: none;
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row > span:last-child {
+  min-width: 0;
+  color: var(--kleio-text-2);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-scroll > p {
+  margin: 0;
+  padding-top: 14px;
+}
+/* The courtyard over the rows (olympus/CourtMount.tsx), with air under it: the
+   hearth is the coordinator and each worker a god, and the rows stay the
+   record. So a worker's row opens with its god's cameo, dimmed with a worker
+   that failed or was stopped, and the coordinator's with its hearth: lit while
+   it works, lapis while it waits on you. A row whose god the pointer is on is
+   marked, as a god's carved name is for its row. */
+html:not(.platform-ios) .app.app-session > .goal-workers .oly-court {
+  margin-bottom: 18px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-cameo {
+  flex: none;
+  align-self: center;
+  width: 24px;
+  height: 32px;
+  margin: -6px 2px -6px 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  [data-status="error"]
+  img.goal-worker-cameo {
+  filter: grayscale(0.6) brightness(0.58) contrast(0.92);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-bowl {
+  fill: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-flame {
+  fill: var(--kleio-track);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  [data-status="working"]
+  .goal-worker-flame {
+  fill: var(--kleio-crimson);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .placeholder-row:has(.placeholder-dot[data-tone="warning"])
+  :is(.goal-worker-bowl, .goal-worker-flame) {
+  fill: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row.is-marked strong {
+  color: var(--kleio-lapis);
+}
+
 /* ── A Chat's title ── "Chats / session title" in the window's title row, in
    place of the folder and branch. One line: the row keeps its height. */
 html:not(.platform-ios) .app.app-session .chat-head-identity {

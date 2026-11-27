@@ -37,9 +37,10 @@ export function GoalFinish({
   ];
   return (
     <section
-      className="placeholder-notice placeholder-bar"
+      className="placeholder-notice placeholder-bar goal-finish"
       role="status"
       aria-label={TITLE[finish.outcome]}
+      data-outcome={finish.outcome}
     >
       <div className="placeholder-notice-body">
         <p>
@@ -54,12 +55,14 @@ export function GoalFinish({
             </div>
           ))}
         </dl>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>{" "}
-        <button type="button" onClick={onShowChat}>
-          Read summary in Chat
-        </button>
+        <span className="goal-finish-actions">
+          <button type="button" onClick={onClose}>
+            Close
+          </button>{" "}
+          <button type="button" onClick={onShowChat}>
+            Read summary in Chat
+          </button>
+        </span>
       </div>
     </section>
   );

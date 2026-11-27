@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { updateGoal, type GoalStateInfo, type ModelOption } from "../agent";
 import type { Item } from "../transcript-item";
 import { GoalPanel } from "./GoalPanel";
+import themeCss from "../kleio/kleio-theme.css?raw";
 
 vi.mock("../agent", () => ({ updateGoal: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
@@ -34,6 +35,7 @@ const MODELS: ModelOption[] = [
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  document.documentElement.classList.remove("platform-ios");
 });
 
 const base = {
@@ -225,5 +227,164 @@ describe("GoalPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+});
+
+const PANEL = "html:not(.platform-ios) .app.app-session > .goal-panel";
+
+/** The stylesheet's section for a goal's session, up to the next one. */
+function goalCss(): string {
+  const from = themeCss.indexOf("/* ── A goal's session ──");
+  return themeCss.slice(from, themeCss.indexOf("/* ── A Chat's title ──", from));
+}
+
+describe("GoalPanel in a desktop session", () => {
+  it("sets the goal out in two lines of the session's column: what it is beside the view switch, then its controls", () => {
+    render(
+      <div className="app app-session">
+        <GoalPanel {...base} goal={GOAL} needsAnswer onPauseChange={vi.fn()} />
+      </div>,
+    );
+    const bar = screen.getByRole("group", { name: "Goal" });
+    expect(bar.matches(`${PANEL} > .goal-bar`)).toBe(true);
+    expect([...bar.children].map((el) => el.className)).toEqual([
+      "goal-bar-title",
+      "goal-bar-views",
+      "goal-bar-tools",
+    ]);
+
+    // The first line: name, phase and tally, and the switch.
+    const title = screen.getByText("API latency").parentElement;
+    expect(title?.matches(`${PANEL} .goal-bar-title`)).toBe(true);
+    expect(title?.contains(screen.getByText("Underway"))).toBe(true);
+    expect(title?.contains(screen.getByText("0 working · 0 done"))).toBe(true);
+    expect(screen.getByRole("group", { name: "Goal view" }).parentElement).toBe(bar);
+    // A question waiting in the chat marks its tab.
+    const chat = screen.getByRole("button", { name: "Chat (waiting for you)" });
+    expect(
+      chat.matches(`${PANEL} .goal-bar-views > button:is(:hover, :focus-visible, [data-waiting])`),
+    ).toBe(true);
+    expect(screen.getByRole("button", { name: "Workers" }).hasAttribute("data-waiting")).toBe(
+      false,
+    );
+
+    // The second: pause and settings together, the workers' model apart.
+    const actions = screen.getByRole("button", {
+      name: "Not running. Carry the goal on",
+    }).parentElement;
+    expect(actions?.className).toBe("goal-bar-actions");
+    expect(screen.getByRole("button", { name: "Goal settings" }).parentElement).toBe(actions);
+    const select = screen.getByLabelText("Workers' model");
+    expect(select.matches(`${PANEL} .goal-bar-select > select`)).toBe(true);
+    const model = select.closest(".goal-bar-model");
+    expect(model?.contains(screen.getByText("Workers' model"))).toBe(true);
+    expect([actions?.parentElement, model?.parentElement]).toEqual([
+      bar.lastElementChild,
+      bar.lastElementChild,
+    ]);
+
+    const css = goalCss();
+    expect(css).toContain(
+      `${PANEL} > .goal-bar {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  gap: 10px 16px;\n  padding: 14px var(--kleio-gutter) 12px;\n  border-bottom: 1px solid var(--kleio-rule);\n}`,
+    );
+    // A line that can't hold both groups starts each at the left.
+    expect(css).toContain(
+      `${PANEL} .goal-bar-tools {\n  grid-column: 1 / -1;\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;\n  justify-content: space-between;`,
+    );
+    expect(css).toContain(
+      `  > .goal-panel\n  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)\n  > button {\n  flex: none;\n  height: 28px;\n  padding: 0 12px;\n  border: 1px solid var(--kleio-edge);\n  border-radius: 3px;\n  background: transparent;`,
+    );
+  });
+
+  it("is flat: square corners, no glass, blur, gradient or amber", () => {
+    const css = goalCss();
+    expect(css.length).toBeGreaterThan(2000);
+    expect([...css.matchAll(/border-radius: ([^;]+);/g)].map((m) => m[1])).toEqual(
+      expect.arrayContaining(["3px", "2px"]),
+    );
+    expect(css).not.toMatch(/border-radius: (?!2px;|3px;)/);
+    expect(css).not.toMatch(/blur\(|gradient\(|var\(--warning\)|animation|transition/);
+    // Every rule is the desktop session's own.
+    for (const rule of css.matchAll(/^(html[^{]*)\{/gm)) {
+      expect(rule[1]).toMatch(
+        /^html:not\(\.platform-ios\)\s+\.app\.app-session\s+> (\.goal-panel|\.goal-workers|:is\(\.goal-panel, \.goal-workers\))/,
+      );
+    }
+  });
+
+  it("says what the coordinator is doing and what it is waiting on in the column's own rows", () => {
+    const items = [
+      {
+        kind: "ask",
+        id: 3,
+        prompt: { id: "ask-1", questions: [{ id: "q", kind: "confirm", question: "Ship it?" }] },
+      },
+    ] as unknown as Item[];
+    render(
+      <div className="app app-session">
+        <GoalPanel {...base} goal={GOAL} items={items} needsAnswer />
+      </div>,
+    );
+    const pill = screen.getByText("Waiting for you").closest('[role="status"]');
+    expect(pill?.parentElement?.matches(`${PANEL} > .goal-status`)).toBe(true);
+    const ask = screen.getByText("Ship it?").closest('[role="status"]');
+    expect(ask?.matches(`${PANEL} > .goal-ask`)).toBe(true);
+    expect(screen.getByRole("button", { name: "Answer in Chat" }).parentElement).toBe(ask);
+    // Waiting on you is a lapis ring, never amber.
+    expect(goalCss()).toContain(
+      '  .placeholder-dot[data-tone="warning"] {\n  border-color: var(--kleio-lapis);\n}',
+    );
+  });
+
+  it("opens the goal's settings as New goal's dialog", () => {
+    render(<GoalPanel {...base} goal={{ ...GOAL, instructions: "" }} />);
+    const button = screen.getByRole("button", { name: "Goal settings" });
+    expect(button.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(button.hasAttribute("aria-expanded")).toBe(false);
+    fireEvent.click(button);
+    const dialog = screen.getByRole("dialog", { name: "Goal settings" });
+    expect(dialog.classList.contains("goal-form-modal")).toBe(true);
+    const form = within(dialog).getByRole("form", { name: "Goal settings" });
+    expect(form.className).toBe("goal-form");
+    expect(within(form).getByRole("button", { name: "Save" }).parentElement?.className).toBe(
+      "goal-form-actions",
+    );
+    fireEvent.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("GoalPanel on the iPhone", () => {
+  it("keeps the plain bar, and the settings in the page", () => {
+    document.documentElement.classList.add("platform-ios");
+    render(
+      <div className="app app-session">
+        <GoalPanel {...base} goal={GOAL} onPauseChange={vi.fn()} />
+      </div>,
+    );
+    const bar = screen.getByRole("group", { name: "Goal" });
+    expect(bar.className).toBe("placeholder-bar");
+    expect(bar.parentElement?.className).toBe("");
+    expect([...bar.children].map((el) => el.tagName)).toEqual([
+      "STRONG",
+      "SPAN",
+      "SPAN",
+      "SPAN",
+      "BUTTON",
+      "BUTTON",
+      "LABEL",
+      "SELECT",
+    ]);
+    expect(bar.matches(`${PANEL} > *`)).toBe(false);
+
+    const settings = screen.getByRole("button", { name: "Goal settings" });
+    expect(settings.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(settings);
+    expect(settings.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("form", { name: "Goal settings" }).className).toBe("placeholder-form");
+    fireEvent.keyDown(screen.getByLabelText(/Instructions/), { key: "Escape" });
+    expect(screen.queryByRole("form")).toBeNull();
   });
 });
