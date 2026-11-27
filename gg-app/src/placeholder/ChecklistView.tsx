@@ -134,8 +134,10 @@ export function ChecklistView({
                   const checking = activeId === item.id;
                   const message = notice?.id === item.id ? notice.message : null;
                   const attention = item.result === "issues" || item.status === "due";
+                  // The desktop draws its mark from this (kleio-theme.css, "The Checklist").
+                  const state = checking ? "checking" : message ? "needs-work" : item.status;
                   return (
-                    <div className="placeholder-row" key={item.id}>
+                    <div className="placeholder-row" data-state={state} key={item.id}>
                       <div
                         role="group"
                         aria-label={item.title}

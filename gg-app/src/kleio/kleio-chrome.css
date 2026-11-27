@@ -1,0 +1,1234 @@
+/* The top bar outside a session, and the Internet Radio dialog, in the flat
+   materials the session's two top rows already have (kleio-theme.css, "Session
+   chrome"): square quiet controls, lapis on hover and keyboard focus, and no
+   glass, rim or blur.
+
+   The bar is `.picker-head`: Chats, Motion, Goals, Projects, AI Providers and
+   Kleio's own pages (KleioHead). Settings is left out, because
+   kleio-settings.css already draws its header flat. The radio dialog mounts on
+   <body>, so its rules follow it from every screen, a session included. So
+   do the guide a screen's ? opens, the scorecard its rank box opens and Code's
+   notes. At the foot of this sheet, what was still glass once those were
+   done: every other dialog, toasts, the update banner, the bar's status pills
+   and the lists' last glass buttons.
+
+   Loaded after kleio-settings.css (main.tsx) and scoped to the desktop: the
+   iPhone keeps kleio-phone.css's bar and has no radio. Nothing changes size or
+   place: only fills, edges, corners and colours. */
+
+/* ── The top bar ── every button: square, with no rim or blur. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn {
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+}
+/* Back, Radio, Windows and the other quiet ones: an icon or a label, no box. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn-ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+/* The bar's main action (New project, Save): bounded and flat, like Enhance. */
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn-primary {
+  border-color: var(--kleio-muted);
+  background: var(--kleio-raised);
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+/* Hover and keyboard focus: lapis. Disabled controls stay dimmed and still. */
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .btn-ghost:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  background: none;
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .btn-primary:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) :not(.settings-screen) > .picker-head .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* The window-layout select is invisible over its icon: the icon reacts for it. */
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .winlayout:has(.winlayout-select:not(:disabled)):is(:hover, :focus-within)
+  .winlayout-icon-btn {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  :not(.settings-screen)
+  > .picker-head
+  .winlayout:has(.winlayout-select:focus-visible)
+  .winlayout-icon-btn {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
+/* ── Internet Radio ── the dialog the bar's Radio button opens
+   (RadioButton.tsx): the New goal dialog's flat panel, a flat station field
+   and list, one filled button and a square slider.
+   !important: glass.css sets the dialog's and the list's fill and border that
+   way, and Modal.tsx sets the dialog's inline. */
+html:not(.platform-ios) .modal.radio-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .radio-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .radio-modal :is(button, input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* Station: a flat field; its edge turns lapis under the pointer, on keyboard
+   focus and while the list is open. */
+html:not(.platform-ios) .radio-modal .dropdown-trigger {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .radio-modal
+  .dropdown-trigger:is(:hover, :focus-visible, [aria-expanded="true"]):not(:disabled) {
+  border-color: var(--kleio-lapis);
+}
+/* The list: the panel's surface inside an edge. The row under the pointer or
+   the arrow keys lifts and turns lapis; the station that is set keeps its red. */
+html:not(.platform-ios) .radio-modal .dropdown-menu {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 3px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option.active {
+  background: var(--kleio-raised);
+  box-shadow: none;
+}
+html:not(.platform-ios) .radio-modal .dropdown-option.active:not([aria-selected="true"]) {
+  color: var(--kleio-lapis);
+}
+
+/* Play: the dialog's one filled button, crimson under a white label. */
+html:not(.platform-ios) .radio-modal .modal-btn.primary {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-color: transparent;
+  border-radius: 3px;
+  background: var(--kleio-crimson);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: #fff;
+  font-weight: 500;
+}
+html:not(.platform-ios) .radio-modal .modal-btn.primary:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+}
+
+/* Volume: a 4px track and a square thumb, lapis under the pointer and on
+   keyboard focus. The thumb keeps its 18px box (what the pointer can grab, and
+   what the range input centres): a clear border leaves 12px of it drawn. */
+html:not(.platform-ios) .radio-modal .radio-volume-track {
+  inset: 9px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--kleio-track);
+  box-shadow: none;
+}
+html:not(.platform-ios) .radio-modal .radio-volume-fill {
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+}
+/* The vendor-prefixed thumb stays in rules of its own: an unknown selector
+   would void a combined list. */
+html:not(.platform-ios) .radio-modal .radio-volume-input::-webkit-slider-thumb {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  border: 3px solid transparent;
+  border-radius: 0;
+  background: var(--kleio-ink);
+  background-clip: padding-box;
+  box-shadow: none;
+  scale: none;
+  transform: none;
+  transition: background-color var(--t-fast);
+}
+html:not(.platform-ios)
+  .radio-modal
+  .radio-volume-input:is(:hover, :focus-visible)::-webkit-slider-thumb {
+  background-color: var(--kleio-lapis);
+}
+/* Windows high-contrast mode: system colours, as glass.css gives the slider. */
+@media (forced-colors: active) {
+  html:not(.platform-ios) .radio-modal .radio-volume-track {
+    border: 1px solid CanvasText;
+  }
+  html:not(.platform-ios) .radio-modal .radio-volume-fill {
+    background: Highlight;
+  }
+}
+
+/* ── The guide ── "How this screen works", the dialog a session's ? opens
+   (SessionHelp.tsx), and Kleio Voice's (VoiceGuide.tsx). One box for every
+   screen: only its topics change, so these rules reach all of them. The radio
+   dialog's flat panel and close; each section sits under a small label, on a
+   hairline after the first, and a topic is its icon, its name and a sentence
+   in the session's ink. The iPhone keeps its sheet (session-help.css).
+   !important as for the radio dialog. */
+html:not(.platform-ios) .modal.session-help {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .session-help .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .session-help .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .session-help .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .session-help .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .session-help .session-help-section + .session-help-section {
+  padding-top: 20px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .session-help .session-help-heading {
+  margin-bottom: 12px;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .session-help .session-help-icon {
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .session-help .session-help-title {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .session-help .session-help-text {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .session-help .voice-guide-intro {
+  color: var(--kleio-text-2);
+}
+/* A long guide scrolls inside the box: the session's thin, trackless bar. */
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar {
+  width: 8px;
+}
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios) .session-help .session-help-body::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
+}
+
+/* ── The scorecard ── the dialog a session's rank box opens
+   (ScorecardModal.tsx): the same flat panel and close. The rank keeps the
+   colours it earned, set in a lighter weight; the level is lapis, as it is in
+   the rank box. Every meter is the title bar's usage meter: a 4px square
+   track with no glow, sheen or rim, the XP's filled in lapis and the four
+   stats' in muted ink. !important as for the radio dialog, and on the tracks
+   because glass.css sets their fill that way. */
+html:not(.platform-ios) .modal.scorecard-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .scorecard-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .scorecard-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .scorecard-modal .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-rank {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-tier {
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-num {
+  color: var(--kleio-lapis);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-row {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-level-row span:last-child {
+  color: var(--kleio-muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .scorecard-modal :is(.scorecard-bar, .scorecard-stat-bar) {
+  height: 4px;
+  border-radius: 0;
+  background: var(--kleio-track) !important;
+  box-shadow: none;
+}
+html:not(.platform-ios) .scorecard-modal :is(.scorecard-bar, .scorecard-stat-bar) > span {
+  border-radius: 0;
+  background: var(--kleio-muted);
+  box-shadow: none;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-bar > span {
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-divider {
+  background: var(--kleio-rule);
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat-label {
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat b {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-stat-goal,
+html:not(.platform-ios) .scorecard-modal .scorecard-footer span {
+  color: var(--kleio-muted);
+  font-weight: 400;
+}
+html:not(.platform-ios) .scorecard-modal .scorecard-footer b {
+  color: var(--kleio-text-2);
+  font-weight: 400;
+}
+
+/* ── Notes ── the notebook Code's Notes opens (NotesModal.tsx): the same flat
+   panel and close around one flat page, the goal form's field. The page is
+   focused for as long as the dialog is open, so focus is a quiet lapis edge
+   and not a ring. !important on the page's fill: glass.css has none here, but
+   NotesModal.tsx sets it inline. */
+html:not(.platform-ios) .modal.notes-modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .notes-modal .modal-title {
+  font: 500 16px var(--sans);
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .notes-modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .notes-modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .modal-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .notes-modal .notes-input {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18) !important;
+  box-shadow: none;
+  color: var(--kleio-ink);
+  caret-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .notes-input:focus {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .notes-modal .notes-input::selection {
+  background: color-mix(in srgb, var(--kleio-lapis) 35%, transparent);
+}
+/* Long notes scroll inside the page: the session's thin, trackless bar. */
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar {
+  width: 8px;
+}
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar-track {
+  background: none;
+}
+html:not(.platform-ios) .notes-modal .notes-input::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--kleio-rule-strong);
+}
+
+/* ── Every other dialog ── the shared Modal (Modal.tsx) wherever it opens:
+   confirms, New project, Tasks, Initialize Git, a host's folders, Kleio host,
+   Brain, a provider's sign-in, local models and the rest. One flat panel for
+   all of them, as the dialogs above have it: a square close, bounded buttons
+   with the one filled action in crimson, and flat fields. The dialogs above
+   keep their own rules; a page's embedded panel is not a `.modal`.
+   !important: glass.css sets the panel's and a field's fill that way, and
+   Modal.tsx and the fields set theirs inline. */
+html:not(.platform-ios) .modal {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .modal .modal-title {
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+html:not(.platform-ios) .modal .modal-close {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .modal .modal-close:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .modal
+  :is(button, a, select, summary, [role="tab"], .modal-input):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* Buttons: bounded and flat, lapis under the pointer. */
+html:not(.platform-ios) .modal :is(.modal-btn, .btn) {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .modal
+  :is(.modal-btn, .btn):is(:hover, :focus-visible):not(:disabled, [aria-disabled="true"]) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+/* The one filled action: crimson under a white label, like the radio's Play. */
+html:not(.platform-ios) .modal :is(.modal-btn.primary, .btn-primary) {
+  border-color: transparent;
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+html:not(.platform-ios)
+  .modal
+  :is(.modal-btn.primary, .btn-primary):is(:hover, :focus-visible):not(
+    :disabled,
+    [aria-disabled="true"]
+  ) {
+  border-color: transparent;
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+/* Fields: the goal form's. */
+html:not(.platform-ios) .modal .modal-input {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18) !important;
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .modal .modal-input::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .modal .modal-input:focus {
+  border-color: var(--kleio-edge);
+}
+
+/* A choice in a dialog (Initialize Git's privacy, a memory's category): a
+   square box or a round one on the field's fill, lapis when chosen. */
+html:not(.platform-ios) .modal .modal-radio input:is([type="checkbox"], [type="radio"]) {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background-color: rgb(0 0 0 / 0.18);
+  box-shadow: none;
+}
+html:not(.platform-ios) .modal .modal-radio input[type="radio"] {
+  border-radius: 50%;
+}
+html:not(.platform-ios)
+  .modal
+  .modal-radio
+  input:is([type="checkbox"], [type="radio"]):hover:not(:disabled, :checked) {
+  border-color: var(--kleio-lapis);
+  background-color: rgb(0 0 0 / 0.18);
+}
+html:not(.platform-ios) .modal .modal-radio input:is([type="checkbox"], [type="radio"]):checked {
+  border-color: var(--kleio-lapis);
+  background-color: var(--kleio-lapis);
+  box-shadow: none;
+}
+html:not(.platform-ios)
+  .modal
+  .modal-radio
+  input:is([type="checkbox"], [type="radio"]):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* What only one dialog has. A provider's sign-in: each way in is a hairline
+   box. A host's folders: a square row that lifts. Brain: its count is the
+   project list's well, its two tabs a bounded pair with the open one lifted,
+   and a memory's edit and delete are square. */
+html:not(.platform-ios) .modal .login-method-card {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .modal .host-folders-list {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .host-folder {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .host-folder:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .host-folder-icon {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .memory-modal-title > .badge {
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+  font: 12px/20px var(--mono);
+}
+html:not(.platform-ios) .modal .brain-tabs {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .modal .brain-tabs button {
+  border-radius: 2px;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  font-weight: 500;
+}
+html:not(.platform-ios) .modal .brain-tabs button:hover {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .brain-tabs button[aria-selected="true"] {
+  background: var(--kleio-raised);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .modal .memory-table-wrap {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .memory-category {
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .modal .memory-action {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .memory-action:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .memory-delete:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--error);
+}
+
+/* What a schedule's dialog adds (BlobSchedules.tsx), flat in any dialog that
+   has one. A list (Repeat's "Every hour"): the radio dialog's flat field and
+   list. */
+html:not(.platform-ios) .modal .dropdown-trigger {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(0 0 0 / 0.18);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios)
+  .modal
+  .dropdown-trigger:is(:hover, :focus-visible, [aria-expanded="true"]):not(:disabled) {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .dropdown-menu {
+  border-color: var(--kleio-edge) !important;
+  border-radius: 3px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .modal .dropdown-option {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .modal .dropdown-option.active {
+  background: var(--kleio-raised);
+  box-shadow: none;
+}
+html:not(.platform-ios) .modal .dropdown-option.active:not([aria-selected="true"]) {
+  color: var(--kleio-lapis);
+}
+/* Daily, Weekly, Repeat or Once: Brain's bounded tabs, the chosen one lifted. */
+html:not(.platform-ios) .modal .kleio-seg {
+  padding: 2px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .modal .kleio-seg button {
+  border-radius: 2px;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  font-weight: 500;
+}
+html:not(.platform-ios) .modal .kleio-seg button:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .kleio-seg button[aria-checked="true"] {
+  background: var(--kleio-raised);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+/* A weekday: a bounded chip. A chosen day lifts inside a lapis edge. */
+html:not(.platform-ios) .modal .kleio-day {
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--kleio-muted);
+  font-weight: 500;
+}
+html:not(.platform-ios) .modal .kleio-day:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .modal .kleio-day[aria-pressed="true"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+
+/* ── Toasts ── a flat slip on the dialogs' surface. The tones are the
+   session's: what informs or warns is lapis, done is verdigris, a fault stays
+   red. Toaster.tsx colours each mark inline from these tokens, so they are
+   re-pointed here. */
+html:not(.platform-ios) .toast {
+  --primary: var(--kleio-lapis);
+  --success: var(--kleio-done);
+  --warning: var(--kleio-lapis);
+  border-color: var(--kleio-edge);
+  border-radius: 6px;
+  background: var(--kleio-surface);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text);
+}
+html:not(.platform-ios) .toast .toast-icon {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .toast .toast-close {
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .toast .toast-close:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .toast .toast-close:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── The update banner ── under every screen (UpdateBanner.tsx): a quiet bar
+   on a hairline, with a still lapis mark and a bounded Install. No gradient,
+   sweep or pulse; installing, the bar fills in lapis behind the figure. */
+html:not(.platform-ios) .update-banner {
+  border-top: 1px solid var(--kleio-rule-strong);
+  background: var(--kleio-surface);
+  box-shadow: none;
+  color: var(--kleio-text);
+  font-weight: 500;
+  text-shadow: none;
+}
+html:not(.platform-ios) .update-banner::after {
+  display: none;
+}
+html:not(.platform-ios) .update-banner:is(:hover, :focus-visible):not(.update-banner-busy) {
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .update-banner:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .update-banner-busy {
+  filter: none;
+}
+html:not(.platform-ios) .update-banner .update-banner-dot {
+  background: var(--kleio-lapis);
+  box-shadow: none;
+  animation: none;
+}
+html:not(.platform-ios) .update-banner .badge {
+  padding: 1px 9px 2px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios) .update-banner .update-banner-fill {
+  background: color-mix(in srgb, var(--kleio-lapis) 28%, transparent);
+  box-shadow: 1px 0 0 var(--kleio-lapis);
+}
+
+/* ── The bar's status pills ── a count or a state beside a screen's name
+   (Specialists, Apps under Kleio's header): Settings' flat outline pill, in
+   the same words and tones: done is verdigris, and what waited in amber
+   waits in lapis. !important twice: a coloured badge sets its gradient and
+   its shadow inline (Badge.tsx). The project list's count keeps its square
+   well (kleio-theme.css). */
+html:not(.platform-ios)
+  :not(.settings-screen, .project-picker)
+  > .picker-head
+  :is(.badge, .settings-head-status .badge) {
+  --success: var(--kleio-done);
+  --warning: var(--kleio-lapis);
+  padding: 1px 9px 2px;
+  border-color: var(--kleio-rule-strong);
+  background: none !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── The lists' last glass ── a Chats or Motion row's delete, its confirm,
+   and the buttons an empty Chats, Motion or project list offers. The delete
+   is the project list's X; the rest are the browser's New button. */
+html:not(.platform-ios) .chat-browser .picker-hide {
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .chat-browser .picker-hide:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .chat-browser .picker-hide.picker-delete-confirm,
+html:not(.platform-ios)
+  .chat-browser
+  .picker-hide.picker-delete-confirm:is(:hover, :focus-visible) {
+  border: 1px solid color-mix(in srgb, var(--error) 45%, var(--kleio-edge));
+  background: var(--kleio-surface);
+  color: var(--error);
+}
+html:not(.platform-ios) .chat-browser .picker-hide:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) :is(.chat-browser, .project-picker) .picker-empty .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios)
+  :is(.chat-browser, .project-picker)
+  .picker-empty
+  .btn:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) :is(.chat-browser, .project-picker) .picker-empty .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── Switches ── every one on the desktop, in a dialog or on a page: Settings'
+   small square track and thumb (kleio-settings.css). No bead, no halo, no
+   swell. Settings and a session's header draw this same switch themselves. */
+html:not(.platform-ios) .cl-switch {
+  width: 26px;
+  height: 14px;
+  cursor: pointer;
+}
+html:not(.platform-ios) .cl-switch > input {
+  background: none;
+}
+html:not(.platform-ios) .cl-switch > input + span::before,
+html:not(.platform-ios) .cl-switch > input:active + span::before {
+  float: none;
+  display: block;
+  box-sizing: border-box;
+  width: 26px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .cl-switch > input + span::after,
+html:not(.platform-ios) .cl-switch:hover > input:not(:disabled) + span::after,
+html:not(.platform-ios) .cl-switch > input:active:not(:disabled) + span::after {
+  top: 3px;
+  right: auto;
+  left: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  scale: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .cl-switch > input:checked + span::before,
+html:not(.platform-ios) .cl-switch > input:checked:active + span::before {
+  border-color: var(--kleio-text-2);
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .cl-switch > input:checked + span::after,
+html:not(.platform-ios) .cl-switch:hover > input:checked:not(:disabled) + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios) .cl-switch:hover > input:not(:disabled) + span::before {
+  border-color: var(--kleio-lapis);
+}
+/* The checkbox is hidden, so keyboard focus rings its track. */
+html:not(.platform-ios) .cl-switch > input:focus-visible {
+  outline: none;
+}
+html:not(.platform-ios) .cl-switch > input:focus-visible + span::before {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+}
+/* A specialist's form has a switch of its own make (CastForm.tsx): the same
+   track and thumb. Its span is the track, inside whose edge the thumb sits. */
+html:not(.platform-ios) .cast-switch {
+  width: 26px;
+  height: 14px;
+}
+html:not(.platform-ios) .cast-switch input + span {
+  box-sizing: border-box;
+  border: 1px solid var(--kleio-muted);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html:not(.platform-ios) .cast-switch input + span::after {
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--kleio-text-2);
+  box-shadow: none;
+  transition: transform var(--t-fast);
+}
+html:not(.platform-ios) .cast-switch input:checked + span {
+  border-color: var(--kleio-text-2);
+  background: none;
+}
+html:not(.platform-ios) .cast-switch input:checked + span::after {
+  background: var(--kleio-ink);
+  transform: translateX(12px);
+}
+html:not(.platform-ios) .cast-switch:hover input:not(:disabled) + span {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .cast-switch input:focus-visible + span {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+/* Windows high-contrast mode: system colours, as glass.css gave its switch. */
+@media (forced-colors: active) {
+  html:not(.platform-ios) .cl-switch > input + span::before,
+  html:not(.platform-ios) .cl-switch > input:checked + span::before,
+  html:not(.platform-ios) .cast-switch input + span,
+  html:not(.platform-ios) .cast-switch input:checked + span {
+    border-color: CanvasText;
+  }
+  html:not(.platform-ios) .cl-switch > input + span::after,
+  html:not(.platform-ios) .cl-switch:hover > input:not(:disabled) + span::after,
+  html:not(.platform-ios) .cl-switch > input:active:not(:disabled) + span::after,
+  html:not(.platform-ios) .cast-switch input + span::after {
+    background: CanvasText;
+  }
+  html:not(.platform-ios) .cl-switch > input:checked + span::after,
+  html:not(.platform-ios) .cl-switch:hover > input:checked:not(:disabled) + span::after,
+  html:not(.platform-ios) .cast-switch input:checked + span::after {
+    background: Highlight;
+  }
+}
+
+/* ── Specialists and Groups ── the last glass on Kleio's own screen
+   (KleioScreen.tsx). A profile's actions, a first group's button and a
+   specialist's Delete: the dialogs' bounded button, the one that opens the
+   chat or makes the group in crimson. No metal sheen over any of them. */
+html:not(.platform-ios) .kleio-screen .cast-p-actions .btn,
+html:not(.platform-ios) .kleio-screen .cast-btn-lg,
+html:not(.platform-ios) .kleio-screen .kleio-danger-btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .cast-p-actions
+  .btn:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios) .kleio-screen .cast-btn-lg:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios) .kleio-screen .kleio-danger-btn:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .kleio-screen .kleio-danger-btn:is(:hover, :focus-visible):not(:disabled) {
+  color: var(--error);
+}
+html:not(.platform-ios) .kleio-screen .cast-p-actions .btn-primary,
+html:not(.platform-ios) .kleio-screen .btn-primary.cast-btn-lg {
+  border-color: transparent;
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .cast-p-actions
+  .btn-primary:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios)
+  .kleio-screen
+  .btn-primary.cast-btn-lg:is(:hover, :focus-visible):not(:disabled) {
+  border-color: transparent;
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+html:not(.platform-ios) .kleio-screen .cast-p-actions .btn:focus-visible,
+html:not(.platform-ios) .kleio-screen .cast-btn-lg:focus-visible,
+html:not(.platform-ios) .kleio-screen .kleio-danger-btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .kleio-screen .metal-button > .action-metal {
+  display: none;
+}
+/* The dock that swaps Specialists and Groups: Settings' flat tray. */
+html:not(.platform-ios) .kleio-screen .settings-tabs {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .kleio-screen .settings-tabs-pill {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: none;
+}
+html:not(.platform-ios) .kleio-screen .settings-tab {
+  border-radius: 7px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .kleio-screen .settings-tab:hover:not(.is-active) {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .kleio-screen .settings-tab.is-active {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .kleio-screen .settings-tab:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* A specialist's form: its weekdays and its shuffle are square, as a
+   schedule's dialog has its days. A chosen day lifts inside a lapis edge. */
+html:not(.platform-ios) .kleio-screen .cast-days button {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .kleio-screen .cast-days button:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .kleio-screen .cast-days button[aria-pressed="true"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-raised);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .kleio-screen .cast-shuffle {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .kleio-screen .cast-shuffle:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+/* A group's form: a member's tick is the dialogs' square box, lapis when in. */
+html:not(.platform-ios) .kleio-screen .kleio-check {
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--kleio-edge);
+  color: var(--kleio-surface);
+}
+html:not(.platform-ios) .kleio-screen .kleio-member-pick[aria-pressed="true"] .kleio-check {
+  background: var(--kleio-lapis);
+  box-shadow: none;
+}
+/* A specialist's own page (ThreadChat.tsx). Its side cards: a flat panel on a
+   hairline, no blur behind and no rim. */
+html:not(.platform-ios) .kleio-screen .kleio-panel {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* What you said there: the session's flat message, with one tight corner. */
+html:not(.platform-ios) .kleio-screen .kleio-transcript .user-msg {
+  border-color: var(--kleio-rule);
+  border-radius: 14px 14px 4px 14px;
+  background: var(--kleio-raised);
+  box-shadow: none;
+  color: var(--kleio-ink);
+}
+/* Its message box and the buttons in it: the session's. */
+html:not(.platform-ios) .kleio-screen .kleio-composer .inputwrap {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .kleio-screen .kleio-composer .inputwrap:focus-within {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .kleio-screen .kleio-composer .icon-circle {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .kleio-composer
+  .icon-circle:not(.icon-circle-primary, .is-recording) {
+  background: transparent;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .kleio-composer
+  .icon-circle:not(.icon-circle-primary, .is-recording):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .kleio-screen .kleio-composer .icon-circle-primary {
+  background: var(--kleio-crimson);
+  color: #fff;
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .kleio-composer
+  .icon-circle-primary:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+  color: #fff;
+}
+html:not(.platform-ios) .kleio-screen .kleio-composer .icon-circle:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* A group's room (CastRoom.tsx): its message box, the mic, Send and the
+   @mention chips are square like the session's. No pill, no blur. */
+html:not(.platform-ios) .kleio-screen .cast-input {
+  border-color: var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+}
+html:not(.platform-ios) .kleio-screen .cast-input:focus-within {
+  border-color: rgb(255 255 255 / 0.22);
+}
+html:not(.platform-ios) .kleio-screen .cast-input .dictate-btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  border-radius: 3px;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .kleio-screen .cast-input .dictate-btn:not(.is-recording) {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .kleio-screen
+  .cast-input
+  .dictate-btn:not(.is-recording):is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .kleio-screen .cast-send {
+  border-radius: 3px;
+}
+html:not(.platform-ios) .kleio-screen .cast-send:is(:hover, :focus-visible):not(:disabled) {
+  background: var(--kleio-crimson-hi);
+}
+html:not(.platform-ios) .kleio-screen .cast-mentions button {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+}
+html:not(.platform-ios) .kleio-screen .cast-mentions button:is(:hover, :focus-visible) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+/* A new specialist's three jobs to try: bounded chips, not pills. */
+html:not(.platform-ios) .kleio-screen .kleio-example {
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text-2);
+  font-weight: 500;
+}
+html:not(.platform-ios) .kleio-screen .kleio-example:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}

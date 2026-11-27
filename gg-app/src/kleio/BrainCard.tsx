@@ -36,7 +36,7 @@ export function brainCountText(memories: number, jiwa: number): string {
 }
 
 /**
- * Whether Kleio has a model to think with, decided as Home's Kleio button does
+ * Whether Kleio has a model to think with, decided as Home's Chat button does
  * (KleioHome.tsx): a signed-in provider, or a private model that's running.
  * Unknown (the host didn't answer) doesn't block; the chat explains.
  */

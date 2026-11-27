@@ -110,6 +110,7 @@ import { ExportChatButton } from "./ExportChatButton";
 import { earlierStartId, windowStartIndex } from "./transcript-window";
 import { createLiveTextStore, LiveTextContext } from "./live-text";
 import { TranscriptJump } from "./placeholder/TranscriptJump";
+import type { GoalFinish } from "./placeholder/goal-finish";
 import { PlanReviewModal } from "./PlanReviewModal";
 import { McpElicitModal } from "./McpElicitModal";
 import { windowShortcut } from "./window-shortcuts";
@@ -1091,6 +1092,8 @@ function App(): React.ReactElement {
   // Every run of a started goal, for its finish card. The event hook reports
   // each run as it ends; only a started goal's are kept (the newest 200).
   const [goalRuns, setGoalRuns] = useState<readonly (RunEnd & { readonly goalId: string })[]>([]);
+  // The finish the goal's bar is showing, for the Workers view's finale.
+  const [goalFinish, setGoalFinish] = useState<GoalFinish | null>(null);
   const goalRunTargetRef = useRef<string | null>(null);
   const recordGoalRun = useCallback((run: RunEnd) => {
     const goalId = goalRunTargetRef.current;
@@ -2654,7 +2657,7 @@ function App(): React.ReactElement {
       <div className="app" style={{ background: theme.background }}>
         {entryView === "home" ? (
           <KleioHome
-            // The Kleio button is upstream's Chat button: the general agent.
+            // Chat is upstream's Chat button: the general agent.
             onChat={() =>
               withViewTransition(() => {
                 setWorkspaceMode("chat");
@@ -3069,6 +3072,7 @@ function App(): React.ReactElement {
             liveTools={liveToolFeed}
             transcriptEpoch={transcriptEpoch}
             runs={goalRuns}
+            onFinish={setGoalFinish}
             onPauseChange={activeGoalId ? setGoalPaused : undefined}
             onSaved={(next) => {
               setState((s) => (s?.goal ? { ...s, goal: { ...s.goal, ...next } } : s));
@@ -3085,6 +3089,7 @@ function App(): React.ReactElement {
             running={running}
             liveTools={liveToolFeed}
             waitingOnUser={goalWaitingOnUser}
+            finish={goalFinish}
           />
         </Suspense>
       )}

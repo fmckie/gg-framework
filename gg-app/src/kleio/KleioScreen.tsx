@@ -46,7 +46,8 @@ function KleioApps({ onBack }: { onBack: () => void }): React.ReactElement {
         title="Apps"
         status={<span className="settings-head-status" ref={setStatusSlot} />}
       />
-      <div className="settings-scroll">
+      {/* The desktop's shelf is styled only inside `.settings-screen` (kleio-settings.css). */}
+      <div className={isPhone() ? "settings-scroll" : "settings-scroll settings-screen"}>
         <SettingsHeaderProvider slots={{ status: statusSlot, actions: null }}>
           <div className="settings-page is-entering">
             <AppsPage />

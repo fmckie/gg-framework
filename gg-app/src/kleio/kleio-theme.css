@@ -146,6 +146,13 @@ html:not(.platform-ios) {
   font-style: normal;
   font-display: swap;
 }
+/* The plates' face (KleioPlate.tsx): Alagard by Hewett Tsoi, free with credit
+   (assets/fonts/Alagard-CREDIT.txt). Drawn on a 16px grid: use it at 16px or a multiple. */
+@font-face {
+  font-family: "Alagard";
+  src: url("./assets/fonts/Alagard.ttf") format("truetype");
+  font-display: block;
+}
 
 /* ── The Kleio mark: the icon's column-K over a wide-tracked serif name ── */
 .kleio-mark {
@@ -196,6 +203,22 @@ html:not(.platform-ios) {
 .kleio-mark.is-small .kleio-wordmark {
   font-size: 39px;
 }
+/* Home and the connect screens: the name in the thin classical serif, as in 2.2.0, with no
+   shade layer. Settings keeps the Bungee wordmark above. */
+:is(.home, .kleio-gate) .kleio-mark .kleio-wordmark {
+  font-family: Didot, "Bodoni 72", "Bodoni MT", "Times New Roman", serif;
+  font-size: 60px;
+  letter-spacing: 0.32em;
+  margin-right: -0.32em;
+  color: #fff;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 0.5);
+}
+:is(.home, .kleio-gate) .kleio-mark .kleio-wordmark::after {
+  content: none;
+}
+:is(.home, .kleio-gate) .kleio-mark.is-small .kleio-wordmark {
+  font-size: 42px;
+}
 
 /* ── Home ── Ken's layout and entry animation (.home and friends), with a
    crimson wash over the dithered waves in place of his neutral grey. */
@@ -228,7 +251,7 @@ html:not(.platform-ios) {
   color: var(--text-secondary);
 }
 /* ── Cloisonné: crimson enamel, domed, in a polished rim ──
-   Home's ways in: Kleio, Code and Specialists, and Talk to Kleio as .is-small. Two layers: the
+   The iPhone's ways in (the desktop has plates, below), and Talk to Kleio as .is-small. Two layers: the
    rim, painted under the transparent border, and ::before, the enamel inside it. Nothing moves
    at rest. Labels: #f6f1f1 on #b31d30 is 5.99:1, on hover #c42638 5.10:1; #f7e6e8 5.56:1 and
    4.74:1. */
@@ -334,18 +357,6 @@ html:not(.platform-ios) {
   opacity: 0.5;
   filter: none;
 }
-/* Desktop: the approved "off" instead: a grey label, a flat rim and dark
-   enamel. Still clickable (it sends people to Settings). */
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed,
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed:hover {
-  opacity: 1;
-  color: #a19798;
-  background: linear-gradient(#3b3435, #3b3435) border-box;
-}
-html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
-  background-color: #1d1819;
-  box-shadow: none;
-}
 /* Small (Talk to Kleio): 32px tall, a 1.5px rim and 1.5px of press. */
 .kleio-cloisonne.is-small {
   height: 32px;
@@ -397,45 +408,110 @@ html:not(.platform-ios) .kleio-cloisonne.is-dimmed::before {
 .kleio-home > .home-quiet {
   margin-bottom: auto;
 }
-/* Five equal ways in: every button takes the widest one's width. Each spans two half-columns,
-   so a short last row can sit centred. */
-.kleio-home .home-actions {
-  display: inline-grid;
-  grid-template-columns: repeat(10, 1fr);
+/* ── Plates (KleioPlate.tsx): the desktop's ways in ──
+   Upstream's plate buttons in crimson on stone: three 124×46 pixel canvases (socket, plate, lip)
+   at --plate-scale, the word in Alagard on its 16px grid. Bone on the plate's #b31d30 is 5.6:1,
+   white while pointed at 6.7:1. */
+.kleio-plate {
+  --s: var(--plate-scale, 2);
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: calc(124px * var(--s));
+  height: calc(46px * var(--s));
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.kleio-home .home-actions > .home-action {
+.kleio-plate-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.kleio-plate-face {
+  position: absolute;
+  inset: 0;
+  translate: 0 calc(var(--plate-y, 0) * 1px * var(--s));
+  pointer-events: none;
+}
+.kleio-plate-word {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(7px * var(--s));
+  font-family: "Alagard", serif;
+  font-size: calc(16px * var(--s));
+  line-height: calc(16px * var(--s));
+  font-weight: 400;
+  -webkit-font-smoothing: none;
+  color: #f3e9e6;
+  text-align: center;
+  text-shadow: 0 calc(1px * var(--s)) 0 #5e101d;
+  white-space: nowrap;
+}
+.kleio-plate:hover:not(.is-dimmed) .kleio-plate-word {
+  color: #fff;
+}
+.kleio-plate:focus {
+  outline: none;
+}
+/* 2px at every scale: an art pixel is too thin a ring at 1×. */
+.kleio-plate:focus-visible {
+  outline: 2px solid #f6f1f1;
+  outline-offset: 2px;
+}
+/* Something is missing: sunk in its socket and dull, but still clickable (it sends people to
+   Settings). The dulling is the layers' own: App.css's .is-dimmed would fade the whole plate to
+   45% on top of it. */
+.kleio-plate.is-dimmed,
+.kleio-plate.is-dimmed:hover {
+  opacity: 1;
+  filter: none;
+}
+.kleio-plate.is-dimmed .kleio-plate-layer {
+  filter: saturate(0.45) brightness(0.7);
+}
+.kleio-plate.is-dimmed .kleio-plate-word {
+  color: #b9a9a6;
+  text-shadow: none;
+}
+
+/* Six plates in a reverse pyramid: three, two, one. Each spans two half-columns, so the shorter
+   rows sit centred. Gaps of 8 and 5 art pixels keep every plate's corner on a whole pixel at
+   both scales. */
+html:not(.platform-ios) .kleio-home > .home-actions {
+  /* A third smaller than the art's own 2×. */
+  --plate-scale: calc(4 / 3);
+  --plate-gap: calc(8px * var(--plate-scale));
+  display: grid;
+  grid-template-columns: repeat(6, calc((124px * var(--plate-scale) - var(--plate-gap)) / 2));
+  gap: calc(5px * var(--plate-scale)) var(--plate-gap);
+  margin-bottom: auto;
+}
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate {
   grid-column: span 2;
 }
-/* Five at Specialists' full width need about 1011px of window: below that, three and two. */
-@media (max-width: 1015px) {
-  .kleio-home .home-actions {
-    grid-template-columns: repeat(6, 1fr);
-  }
-  .kleio-home .home-actions > .home-action:nth-child(4) {
-    grid-column: 2 / span 2;
-  }
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate:nth-child(4) {
+  grid-column: 2 / span 2;
 }
-/* Three need about 621px: below that, two, two and one. */
-@media (max-width: 625px) {
-  .kleio-home .home-actions {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  .kleio-home .home-actions > .home-action:nth-child(4) {
-    grid-column: span 2;
-  }
-  .kleio-home .home-actions > .home-action:nth-child(5) {
-    grid-column: 2 / span 2;
-  }
+html:not(.platform-ios) .kleio-home > .home-actions > .kleio-plate:nth-child(6) {
+  grid-column: 3 / span 2;
 }
-/* Shortcuts that exist (window-shortcuts.ts); a phone has no keyboard for them. */
-.kleio-home .home-kbd {
-  margin-left: 2px;
-  font: 500 11px/1 var(--mono);
-  letter-spacing: 0.06em;
-  color: #f7e6e8;
-}
-html.platform-ios .kleio-home .home-kbd {
-  display: none;
+/* Three plates need about 565px of window and the column about 570px of height: below either,
+   1×, which fits the smallest window. */
+@media (max-width: 569px), (max-height: 579px) {
+  html:not(.platform-ios) .kleio-home > .home-actions {
+    --plate-scale: 1;
+  }
 }
 
 /* ── Home's quiet controls: the status pill and Settings ──
@@ -4611,6 +4687,487 @@ html:not(.platform-ios) .goal-browser-empty {
   font: 13px/1.5 var(--sans);
 }
 
+/* ── The Projects list ── Code's "Choose a project", and the sessions of the
+   project picked there (ProjectPicker.tsx): the Chats browser's flat rows on
+   hairlines, in the bar the pickers share. A row names where it comes from
+   with a dot in that source's colour and a quiet label, instead of a tinted
+   glass pill; the bar's count and search go flat with the rows. The iPhone
+   keeps the glass rows and the pills. */
+html:not(.platform-ios) .project-picker > .picker-head > .badge {
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--kleio-raised);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+  font: 12px/20px var(--mono);
+}
+html:not(.platform-ios) .project-picker .picker-search {
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .project-picker .picker-search::placeholder {
+  color: var(--kleio-muted);
+  opacity: 1;
+}
+html:not(.platform-ios) .project-picker .picker-search:focus-visible {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-surface);
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+/* The rows touch, so the hairline between two is all that parts them. */
+html:not(.platform-ios) .project-picker > .picker-list {
+  gap: 0;
+}
+html:not(.platform-ios) .project-picker .picker-item-wrap + .picker-item-wrap {
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .project-picker .picker-item {
+  gap: 8px;
+  padding: 14px 12px;
+  border-radius: 3px;
+  box-shadow: none;
+  color: var(--kleio-ink);
+  scale: none;
+}
+/* The wrap, not the row: the row stays lit while the pointer is on its X. */
+html:not(.platform-ios) .project-picker .picker-item-wrap:hover > .picker-item:not(:disabled),
+html:not(.platform-ios) .project-picker .picker-item:focus-visible {
+  border-color: transparent;
+  background: var(--kleio-raised);
+  box-shadow: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .project-picker :is(.picker-item, .picker-hide):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* A project's name is set in Medium; a session's first words read as a line. */
+html:not(.platform-ios) .project-picker .picker-name {
+  color: inherit;
+  font: 500 15px/1.5 var(--sans);
+}
+html:not(.platform-ios) .project-picker .picker-preview {
+  font-weight: 400;
+}
+/* The age, and a session's message count: plain muted figures. */
+html:not(.platform-ios) .project-picker :is(.picker-row, .picker-meta) > .badge {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+  font-weight: 400;
+  font-size: 12px;
+}
+html:not(.platform-ios) .project-picker .picker-meta {
+  gap: 12px;
+}
+/* The source: a well that reads on the row and on its raised hover alike. */
+html:not(.platform-ios) .project-picker .source-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 7px;
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.06);
+  color: var(--kleio-text-2);
+  font: 500 11px/20px var(--sans);
+  white-space: nowrap;
+}
+html:not(.platform-ios) .project-picker .source-tag-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+/* Hide: the drawn X with no bead, lapis under the pointer like the bar's. */
+html:not(.platform-ios) .project-picker .picker-hide {
+  border-radius: 3px;
+  background: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .project-picker .picker-hide:is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+
+/* ── The cold-cache notice ── above the draft once the provider's cache has
+   lapsed (placeholder/CacheExpiryNotice.tsx): the words at the left, evenly
+   broken when they take two lines, and the two choices together at the right,
+   over a hairline. In a narrow window the pair drops under the words as one. */
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 0 0 10px 6px;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-size: 13px;
+  line-height: 1.45;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  > .placeholder-cache-text {
+  flex: 1 1 260px;
+  min-width: 0;
+  text-wrap: balance;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  > .placeholder-cache-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  font: 500 12.5px/1 var(--sans);
+  color: var(--kleio-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  button:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache button:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
+/* ── A session's last glass ── what the session's rows and dock still drew as
+   glass: Motion's starting points, the buttons that jump down the transcript,
+   the slash and @ menus above the box, and the chips for attached and named
+   files. Bounded flat buttons, a flat panel and flat wells, lapis under the
+   pointer. !important on the menu: glass.css sets its fill that way and the
+   menu sets it inline. */
+html:not(.platform-ios) .app.app-session > .liveregion .motion-starter,
+html:not(.platform-ios) .app.app-session > .transcript-frame > .placeholder-jump > .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text-2);
+  font: 12px var(--sans);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .liveregion
+  .motion-starter:is(:hover, :focus-visible):not(:disabled),
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .placeholder-jump
+  > .btn:is(:hover, :focus-visible):not(:disabled) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .liveregion .motion-starter:focus-visible,
+html:not(.platform-ios)
+  .app.app-session
+  > .transcript-frame
+  > .placeholder-jump
+  > .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* The slash and @ menus: a command's name is lapis, the row in hand lifts. */
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-menu {
+  --primary: var(--kleio-lapis);
+  border-color: var(--kleio-edge) !important;
+  border-radius: 6px;
+  background: var(--kleio-surface) !important;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.5);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-item {
+  border-radius: 3px;
+  box-shadow: none;
+  scale: none;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .slash-item:is(.active, :hover) {
+  background: var(--kleio-raised);
+  box-shadow: none;
+}
+/* Chips: an attached file above the box, a named file, and both again in
+   the message they were sent with. */
+html:not(.platform-ios) .app.app-session > .inputwrap :is(.attach-chip, .mention-chip),
+html:not(.platform-ios) .app.app-session > .transcript-frame > .transcript .user-file-chip {
+  --primary: var(--kleio-lapis);
+  border-color: var(--kleio-edge);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  color: var(--kleio-text-2);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap .attach-remove {
+  border-radius: 3px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  :is(.attach-remove, .mention-chip-remove):is(:hover, :focus-visible) {
+  color: var(--kleio-lapis);
+}
+
+/* ── The Checklist ── Code's project checklist (placeholder/ChecklistView.tsx)
+   in the session's column and materials: a heading, each group under a small
+   label with its count, and one check to a hairline row with a still mark for
+   its state, its Check a flat bounded button. What waits on you is lapis and
+   what passed is verdigris; nothing is amber. The three views are Settings'
+   tab tray, in flow at the foot so no row scrolls beneath it. The iPhone
+   keeps the placeholder's look. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > h1 {
+  margin: 0;
+  padding: 22px var(--kleio-gutter) 4px;
+  color: var(--kleio-ink);
+  font: 500 20px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > .placeholder-scroll {
+  padding: 0 var(--kleio-gutter) 22px;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  > .placeholder-scroll:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+/* A group: its label and count share a line, and its rows take the full width. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 16px;
+  padding-top: 24px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section > h2 {
+  margin: 0 0 8px;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist section > p {
+  margin: 0;
+  color: var(--kleio-muted);
+  font: 12px/16px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-row {
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 16px;
+  padding: 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* A check: its mark, its name, and under the name where it stands. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"] {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 12px 0;
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"]:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"] > span {
+  grid-column: 2;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [role="group"]
+  > span:first-of-type {
+  color: var(--kleio-ink);
+  font-size: 15px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-muted {
+  color: var(--kleio-muted);
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .placeholder-attention,
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="checking"]
+  .placeholder-muted {
+  color: var(--kleio-lapis);
+  font-size: 12px;
+}
+/* The mark: a muted hollow ring until a check is run; a lapis ring while one
+   waits on you (review due, findings) or is running; verdigris filled when it
+   passed. On the name's line: half of what 22.5px leaves around 9px. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="group"]::before {
+  content: "";
+  grid-row: 1 / span 2;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  margin-top: 6.75px;
+  border: 1.5px solid var(--kleio-muted);
+  border-radius: 50%;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  :is([data-state="due"], [data-state="needs-work"], [data-state="checking"])
+  > [role="group"]::before {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="passed"]
+  > [role="group"]::before {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  [data-state="not-applicable"]
+  > [role="group"] {
+  opacity: 0.6;
+}
+/* Check, and an error's Try again: bounded and flat, lapis under the pointer. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn {
+  --glass-hover-scale: 1;
+  --glass-press-scale: 1;
+  flex: none;
+  min-width: 64px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  filter: none;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  scale: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  .btn:is(:hover, :focus-visible):not([aria-disabled="true"]) {
+  border-color: var(--kleio-edge);
+  background: var(--kleio-raised);
+  filter: none;
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Reading, nothing in this view, and what could not be read or inspected. */
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  > .placeholder-scroll
+  > :is(p, [role="alert"], details) {
+  margin: 0;
+  padding: 24px 0 0;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist [role="alert"] > p {
+  margin: 0 0 12px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist details > summary {
+  color: var(--kleio-lapis);
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist details > ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+/* The views: Settings' flat tray (kleio-settings.css), last in the column. */
+html:not(.platform-ios) .app.app-session > .placeholder-checklist > .settings-tab-dock {
+  position: static;
+  order: 1;
+  flex: none;
+  padding: 12px 0 16px;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tabs {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 12px;
+  background: var(--kleio-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tabs-pill {
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 0.07);
+  box-shadow: none;
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab {
+  border-radius: 7px;
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .placeholder-checklist
+  .settings-tab:hover:not(.is-active) {
+  background: rgb(255 255 255 / 0.04);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab.is-active {
+  color: var(--kleio-ink);
+}
+html:not(.platform-ios) .app.app-session > .placeholder-checklist .settings-tab:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 1px;
+}
+
 /* ── New goal ── the dialog the Goals browser opens (placeholder/GoalForm.tsx):
    a flat panel on the browser's surface, with no glass or blur. The form is
    one grid: a label and its aside (the name's count, Context's Add buttons)
@@ -4808,6 +5365,591 @@ html:not(.platform-ios)
   > .goal-form-actions
   > button[type="submit"]:is(:hover, :focus-visible):not(:disabled) {
   background: var(--kleio-crimson-hi);
+}
+
+/* ── A goal's session ── the goal's own chrome under the session's two rows
+   (placeholder/GoalPanel.tsx) and its Workers view (WorkerList.tsx), in the
+   session's column and materials. Two lines over a hairline: the goal's name,
+   phase and tally with the Chat | Workers switch at the right, then what you
+   can do to it with the workers' model at the right. In a narrow window each
+   group drops under the one before it, at the left. In the Workers view, what
+   the coordinator is doing now, then one agent to a hairline row with a still
+   mark for its state: hollow while idle or waiting, lapis at work, verdigris
+   done. Nothing is amber. Goal settings is New goal's dialog (`.goal-form`,
+   above). The iPhone keeps the placeholder's look. */
+html:not(.platform-ios) .app.app-session > .goal-panel {
+  flex: none;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 14px var(--kleio-gutter) 12px;
+  border-bottom: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-name {
+  color: var(--kleio-ink);
+  font: 600 15px/22px var(--sans);
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-phase {
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-tally {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* Chat | Workers: Brain's bounded tabs, the open one lifted. A question
+   waiting in the chat turns its tab lapis. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-views > button {
+  height: 22px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--kleio-muted);
+  font: 500 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-views
+  > button:is(:hover, :focus-visible, [data-waiting]) {
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-views
+  > button[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.07);
+  color: var(--kleio-ink);
+}
+/* The second line. Its two groups part to the edges; when they can't share
+   the line, each starts one of its own. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-bar-model, .goal-finish-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* Pause, settings, and a notice's own buttons: bounded and flat, lapis under
+   the pointer. A paused goal's Resume waits on you, so it is lapis already. */
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)
+  > button {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  :is(.goal-bar-actions, .goal-ask, .goal-finish-actions)
+  > button:is(:hover, :focus-visible) {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  .goal-bar-actions
+  > button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--kleio-lapis) 55%, var(--kleio-edge));
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel :is(button, select):focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+/* The workers' model: a muted label and a bounded field, its chevron drawn
+   over the right end. */
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-model > label {
+  color: var(--kleio-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  width: 5px;
+  height: 5px;
+  margin-top: -4.5px;
+  border: solid var(--kleio-muted);
+  border-width: 0 1.5px 1.5px 0;
+  rotate: 45deg;
+  pointer-events: none;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select > select {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 240px;
+  height: 28px;
+  padding: 0 28px 0 10px;
+  appearance: none;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px var(--sans);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select:hover > select {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel .goal-bar-select > select > option {
+  background: #161213;
+  color: var(--kleio-ink);
+}
+
+/* What the coordinator is doing now: its mark, the moment in ink, and the
+   rest of the line quieter beside it. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status {
+  display: block;
+  padding: 18px var(--kleio-gutter) 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status > .placeholder-notice {
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-notice-headline {
+  color: var(--kleio-ink);
+  font: 500 15px/22px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .placeholder-attention {
+  color: var(--kleio-text);
+}
+/* A hairline parts the step's timer from what follows it. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-status .goal-status-time + span {
+  margin-left: 8px;
+  padding-left: 5px;
+  border-left: 1px solid var(--kleio-rule-strong);
+}
+/* The marks, here and on each agent's row. */
+html:not(.platform-ios) .app.app-session > :is(.goal-panel, .goal-workers) .placeholder-dot {
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--kleio-muted);
+  background: none;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="warning"] {
+  border-color: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="active"] {
+  border-color: var(--kleio-lapis);
+  background: var(--kleio-lapis);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  .placeholder-dot[data-tone="error"] {
+  border-color: var(--error);
+  background: var(--error);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > :is(.goal-panel, .goal-workers)
+  :is([data-tone="done"], [data-status="done"])
+  .placeholder-dot {
+  border-color: var(--kleio-done);
+  background: var(--kleio-done);
+}
+
+/* A question the coordinator is blocked on, and a finished stretch's score:
+   a bounded panel on the session's surface, its colour on a leading rule. */
+html:not(.platform-ios) .app.app-session > .goal-panel > :is(.goal-ask, .goal-finish) {
+  margin: 16px var(--kleio-gutter) 0;
+  padding: 12px 14px 12px 17px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  box-shadow: inset 3px 0 0 var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-ask {
+  align-items: center;
+  gap: 10px 16px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-ask > .placeholder-notice-body {
+  flex: 1 1 280px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  > :is(.goal-ask, .goal-finish)
+  .placeholder-notice-headline {
+  color: var(--kleio-ink);
+  font-weight: 500;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-panel
+  > :is(.goal-ask, .goal-finish)
+  .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish {
+  display: block;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish[data-outcome="done"] {
+  box-shadow: inset 3px 0 0 var(--kleio-done);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish[data-outcome="failed"] {
+  box-shadow: inset 3px 0 0 var(--error);
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+/* The score: each figure under its small label. */
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 14px 0;
+  padding: 0;
+  font-size: 13px;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dt {
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-panel > .goal-finish dd {
+  margin: 2px 0 0;
+  color: var(--kleio-ink);
+  font: 500 15px/22px var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The Workers view: the coordinator, then everyone it brought in. */
+html:not(.platform-ios) .app.app-session > .goal-workers > .placeholder-scroll {
+  padding: 14px var(--kleio-gutter) 22px;
+  color: var(--kleio-text-2);
+  font: 13px/1.5 var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers > .placeholder-scroll:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: -2px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-list {
+  padding: 0;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-size: 13px;
+  list-style: none;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row {
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--kleio-rule);
+}
+/* Who and in what state at the left; what it is doing at the right. */
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row > span:first-child {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 60%;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row .placeholder-dot {
+  flex: none;
+  margin-right: 4px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row strong {
+  min-width: 0;
+  color: var(--kleio-ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-muted {
+  color: var(--kleio-muted);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .placeholder-row
+  > span:first-child
+  > .placeholder-muted {
+  flex: none;
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row > span:last-child {
+  min-width: 0;
+  color: var(--kleio-text-2);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-scroll > p {
+  margin: 0;
+  padding-top: 14px;
+}
+/* The courtyard over the rows (olympus/CourtMount.tsx), with air under it: the
+   hearth is the coordinator and each worker a god, and the rows stay the
+   record. So a worker's row opens with its god's cameo, dimmed with a worker
+   that failed or was stopped, and the coordinator's with its hearth: lit while
+   it works, lapis while it waits on you. A row whose god the pointer is on is
+   marked, as a god's carved name is for its row. */
+html:not(.platform-ios) .app.app-session > .goal-workers .oly-court {
+  margin-bottom: 18px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-cameo {
+  flex: none;
+  align-self: center;
+  width: 24px;
+  height: 32px;
+  margin: -6px 2px -6px 0;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  [data-status="error"]
+  img.goal-worker-cameo {
+  filter: grayscale(0.6) brightness(0.58) contrast(0.92);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-bowl {
+  fill: var(--kleio-muted);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-worker-flame {
+  fill: var(--kleio-track);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  [data-status="working"]
+  .goal-worker-flame {
+  fill: var(--kleio-crimson);
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .placeholder-row:has(.placeholder-dot[data-tone="warning"])
+  :is(.goal-worker-bowl, .goal-worker-flame) {
+  fill: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .placeholder-row.is-marked strong {
+  color: var(--kleio-lapis);
+}
+
+/* The stele (GoalStele.tsx), between the stage and the rows while a finish
+   stands: a finished stretch's account. A bounded panel under a cap of the
+   stylobate's marble (olympus-lane.css, its edge here in flat bands), the
+   outcome carved in its face as a god's name is. A line a worker, the one that
+   did most under a laurel in verdigris; a line carries its row's status, so
+   the rows' own rule (above) dims the cameo of a worker that failed or was
+   stopped. Last, the finish card's totals beside the way to copy the stele as
+   a picture. */
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele {
+  margin-bottom: 18px;
+  overflow: hidden;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: var(--kleio-surface);
+  font-variant-numeric: tabular-nums;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-cap {
+  padding: 13px 14px 9px;
+  background: #c3b9af;
+  box-shadow:
+    inset 0 1px 0 #e9e2da,
+    inset 0 3px 0 #d2c9bf,
+    inset 0 4px 0 #aca298,
+    inset 0 -1px 0 #8f857c;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-title {
+  margin: 0;
+  color: #3b3133;
+  font:
+    12px/1 "Bungee",
+    Didot,
+    "Bodoni 72",
+    "Bodoni MT",
+    "Times New Roman",
+    serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table :is(th, td) {
+  padding: 9px 14px 9px 0;
+  border-top: 1px solid var(--kleio-rule);
+  font-weight: 400;
+  text-align: left;
+  vertical-align: middle;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table :is(th, td):first-child {
+  padding-left: 14px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table thead th {
+  padding-block: 8px 7px;
+  border-top: 0;
+  color: var(--kleio-muted);
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* How it ended, its time and its tools each keep to one line; the tokens' readout wraps. */
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table td:not(:last-child) {
+  white-space: nowrap;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-table td:last-child {
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-worker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele .goal-worker-cameo {
+  margin: -2px 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-who {
+  display: grid;
+  min-width: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--kleio-ink);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-mark {
+  flex: none;
+  fill: var(--kleio-done);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-laurel {
+  color: var(--kleio-done);
+  font-size: 12px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-none {
+  margin: 0;
+  padding: 14px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--kleio-rule);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals dt {
+  font: 600 11px/16px var(--sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-totals dd {
+  margin: 0;
+  color: var(--kleio-ink);
+  font: 500 14px/20px var(--sans);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-copy {
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--kleio-text);
+  font: 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .goal-workers
+  .goal-stele-copy:is(:hover, :focus-visible) {
+  background: rgb(255 255 255 / 0.05);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .goal-workers .goal-stele-copy:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
 }
 
 /* ── A Chat's title ── "Chats / session title" in the window's title row, in

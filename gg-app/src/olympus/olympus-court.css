@@ -1,0 +1,217 @@
+/* Olympus, the courtyard: a goal's Workers view on the desktop. Olympus in
+   side view: three terraces, each the lane's own look (a mosaic floor over a
+   marble step), joined by two flights of steps; a hearth on the summit for the
+   coordinator; each worker a god, its name carved in the step under it. The
+   engine (courtyard.ts) builds all of it, puts each god where it is and says
+   which pose shows; the gods themselves are drawn by the lane's rules
+   (olympus-lane.css). Here is only how the stage and each state look.
+   Nothing here moves anything: every move is the engine's, frame by frame from
+   its own clock, the flame's flicker included (a cut from one shape to the
+   next). So no rule here runs over time, and none asks whether the reader
+   wants less motion: the engine asks that itself, and then moves nothing. */
+.oly-court {
+  --oly-tread: 22px;
+  position: relative;
+  box-sizing: content-box;
+  height: 378px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--kleio-rule-strong);
+  border-radius: 3px;
+  /* The mosaics' bed: bare until a floor is laid, and in its joints after. */
+  background: #0e0b0b;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
+}
+.oly-court-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* A terrace: its floor's canvas over its step. The one above it shades its floor. */
+.oly-terrace {
+  position: relative;
+  height: 126px;
+}
+.oly-court-floor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  width: 100%;
+  height: 104px;
+}
+.oly-terrace + .oly-terrace::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 8px;
+  background: linear-gradient(rgb(0 0 0 / 0.5), rgb(0 0 0 / 0));
+}
+
+/* The flights: the engine draws each from the plan, in the step's own marble.
+   A step's nosing is the stylobate's edge again; its course runs on, fainter,
+   across the pier under the landing. */
+.oly-court-stairs {
+  position: absolute;
+  z-index: 1; /* with the hearth and the names, over the shade a terrace casts on the floor under it */
+  left: 0;
+  top: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.oly-flight-body {
+  fill: #c3b9af;
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+.oly-flight-shade {
+  fill: rgb(40 28 26 / 0.16);
+}
+.oly-flight-nose-1 {
+  fill: #e9e2da;
+}
+.oly-flight-nose-2 {
+  fill: #d2c9bf;
+}
+.oly-flight-nose-3 {
+  fill: #aca298;
+}
+.oly-flight-course {
+  opacity: 0.4;
+}
+.oly-flight-riser {
+  fill: #8f857c;
+}
+
+/* The hearth, the coordinator's: a bronze bowl on a marble stand. Embers
+   while it is idle; a crimson flame while it works, in whichever of its
+   shapes the engine says (data-flame); a lapis rim while it waits on you;
+   and, a stretch of its work finished, the one upright flame, steady. */
+.oly-hearth {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  bottom: calc(252px + var(--oly-tread));
+  width: 44px;
+  height: 66px;
+}
+.oly-hearth svg {
+  display: block;
+  overflow: visible;
+}
+.oly-hearth-glow {
+  visibility: hidden;
+}
+.oly-hearth:is([data-state="working"], [data-state="finished"]) .oly-hearth-glow {
+  visibility: visible;
+}
+.oly-flame {
+  visibility: hidden;
+}
+.oly-hearth[data-state="working"][data-flame="0"] .oly-flame-0,
+.oly-hearth[data-state="working"][data-flame="1"] .oly-flame-1,
+.oly-hearth[data-state="working"][data-flame="2"] .oly-flame-2,
+.oly-hearth[data-state="finished"] .oly-flame-0 {
+  visibility: visible;
+}
+.oly-flame-out {
+  fill: #a81f2e;
+}
+.oly-flame-mid {
+  fill: #d53446;
+}
+.oly-flame-core {
+  fill: #f1c4ae;
+}
+.oly-hearth-ash {
+  fill: #2a1a1b;
+}
+.oly-hearth-ember {
+  fill: #7d2a32;
+}
+.oly-hearth:is([data-state="working"], [data-state="finished"]) .oly-hearth-ember {
+  fill: #d53446;
+}
+.oly-hearth-bowl {
+  fill: #2b2224;
+}
+.oly-hearth-rim {
+  fill: #54484a;
+}
+.oly-hearth[data-state="waiting"] .oly-hearth-rim {
+  fill: var(--kleio-lapis);
+}
+.oly-hearth-stone {
+  fill: #c3b9af;
+}
+.oly-hearth-light {
+  fill: #e9e2da;
+}
+.oly-hearth-dark {
+  fill: #8f857c;
+}
+
+/* The gods: the lane's cells, a walker in front of whoever it passes. A name
+   is carved under its god, cut short where its neighbours leave it less room;
+   the one a row is pointed at for is marked with the lane's cartouche. */
+.oly-court .oly-cell.is-walking {
+  z-index: 3;
+}
+.oly-court .oly-names {
+  z-index: 1;
+}
+.oly-court .oly-ins {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  padding-left: 0.12em;
+}
+.oly-court .oly-ins.is-marked {
+  outline: 2px solid #3b3133;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The laurel, on the head of the god that did most once a stretch is
+   finished: a spray in verdigris, which only the standing pose wears. Where
+   it sits on each head, when it comes down and its press are the engine's. It
+   turns with its god. */
+.oly-laurel {
+  position: absolute;
+  left: var(--oly-lx);
+  top: var(--oly-ly);
+  width: 16px;
+  height: 10px;
+  overflow: visible;
+  visibility: hidden;
+}
+.oly-cell.is-laureled[data-pose="stand"] .oly-laurel {
+  visibility: visible;
+}
+.oly-laurel-leaf {
+  fill: #6fb893;
+  stroke: #1f3d31;
+  stroke-width: 0.5;
+}
+.oly-laurel-tie {
+  fill: none;
+  stroke: #1f3d31;
+  stroke-width: 0.8;
+  stroke-linecap: round;
+}
+
+/* The herald at a finish: Nike at the summit's free end, her crown raised
+   toward the god that did most (the lane's own picture and rule, data-react).
+   She is no worker: no name is carved under her, and she takes no pointer. */
+.oly-court .oly-herald {
+  pointer-events: none;
+}

@@ -77,24 +77,32 @@ export function CacheExpiryNotice({
       : "This chat's cache expired";
 
   return (
-    <div role="status" aria-label="Prompt cache expired" style={{ color: "var(--text-muted)" }}>
-      <span>
+    <div
+      role="status"
+      aria-label="Prompt cache expired"
+      className="placeholder-cache"
+      style={{ color: "var(--text-muted)" }}
+    >
+      <span className="placeholder-cache-text">
         {lead} — your next message re-reads {formatTokens(expiry.prefixTokens)} tokens at full
         price.
       </span>{" "}
-      <button
-        type="button"
-        title="Summarize older history first, so the next message re-reads less"
-        onClick={() => {
-          dismiss();
-          onCompact();
-        }}
-      >
-        Compact first
-      </button>{" "}
-      <button type="button" title="Dismiss — send your next message as is" onClick={dismiss}>
-        Send anyway
-      </button>
+      {/* One group, so a narrow window never leaves one choice alone on a line. */}
+      <span className="placeholder-cache-actions">
+        <button
+          type="button"
+          title="Summarize older history first, so the next message re-reads less"
+          onClick={() => {
+            dismiss();
+            onCompact();
+          }}
+        >
+          Compact first
+        </button>{" "}
+        <button type="button" title="Dismiss — send your next message as is" onClick={dismiss}>
+          Send anyway
+        </button>
+      </span>
     </div>
   );
 }

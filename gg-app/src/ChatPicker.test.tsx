@@ -14,6 +14,7 @@ import {
 } from "./agent";
 import { ChatPicker } from "./ChatPicker";
 import themeCss from "./kleio/kleio-theme.css?raw";
+import chromeCss from "./kleio/kleio-chrome.css?raw";
 
 vi.mock("./agent", () => ({
   arrangeAllWindows: vi.fn(),
@@ -276,6 +277,31 @@ describe("the Chats browser", () => {
     waitForReadyMock.mockResolvedValue();
     listSessionsMock.mockResolvedValue(sessions);
   }
+
+  it("draws a row's delete, its confirm and the empty list's button flat", async () => {
+    const browser = "html:not(.platform-ios) .chat-browser";
+    ready([other]);
+    const view = render(<ChatPicker onChosen={vi.fn()} />);
+    const remove = await screen.findByRole("button", { name: /^Remove chat: / });
+    expect(remove.matches(`${browser} .picker-hide`)).toBe(true);
+    fireEvent.click(remove);
+    const confirm = screen.getByRole("button", { name: /^Delete chat permanently: / });
+    expect(confirm.matches(`${browser} .picker-hide.picker-delete-confirm`)).toBe(true);
+    expect(chromeCss).toContain(
+      `${browser} .picker-hide {\n  border-radius: 3px;\n  background: none;\n  box-shadow: none;`,
+    );
+    view.unmount();
+
+    ready([]);
+    render(<ChatPicker onChosen={vi.fn()} />);
+    await screen.findByText("No previous chats yet.");
+    const empty = document.querySelector(".picker-empty .btn");
+    expect(
+      empty?.matches(
+        "html:not(.platform-ios) :is(.chat-browser, .project-picker) .picker-empty .btn",
+      ),
+    ).toBe(true);
+  });
 
   it("heads the list with the count, and a row with its title, age and message count", async () => {
     ready([session, other]);

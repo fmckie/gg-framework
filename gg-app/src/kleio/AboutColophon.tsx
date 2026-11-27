@@ -22,7 +22,7 @@ const ABOUT = {
   },
   colophon: [
     "Made with Tauri 2, React 19, TypeScript and Rust.",
-    "The wordmark is set in Bungee, the statement in Mukta Malar, the rest in your system's typeface.",
+    "The wordmark is set in Bungee, Home's buttons in Alagard by Hewett Tsoi, the statement in Mukta Malar, the rest in your system's typeface.",
     "This page moves with CSS and SVG alone, no animation libraries.",
   ],
 } as const;

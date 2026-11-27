@@ -2,6 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { updateGoal, type GoalContextItem, type GoalStateInfo, type ModelOption } from "../agent";
 import type { LiveToolEntry } from "../LiveToolPanel";
 import type { Item } from "../transcript-item";
+import { Modal } from "../Modal";
+import { isPhone } from "../platform";
 import { GoalContextField, GoalInstructionsField, type ContextPick } from "./GoalForm";
 import { GoalFinish } from "./GoalFinish";
 import { StatusPill } from "./StatusPill";
@@ -39,13 +41,15 @@ const PAUSE_LABEL: Readonly<Record<GoalRunState, string>> = {
 
 /**
  * The goal's settings: standing instructions and attached folders and files.
- * The coordinator picks the change up on its next step. Placeholder for
- * upstream's GoalSettingsModal.
+ * The coordinator picks the change up on its next step. The fork's take on
+ * upstream's GoalSettingsModal: the desktop opens it as New goal's dialog
+ * (`.goal-form`, kleio-theme.css); the iPhone keeps the plain form in the page.
  */
 function GoalSettings({
   context: initialContext,
   instructions: initialInstructions,
   busy,
+  dialog,
   onClose,
   onSaved,
 }: {
@@ -53,6 +57,8 @@ function GoalSettings({
   instructions: string;
   /** The goal is working: changes wait until it's paused or idle. */
   busy: boolean;
+  /** Inside the desktop's dialog, which closes on Escape itself. */
+  dialog: boolean;
   onClose: () => void;
   onSaved: (next: { context: GoalContextItem[]; instructions: string }) => void;
 }): React.ReactElement {
@@ -85,17 +91,21 @@ function GoalSettings({
 
   return (
     <form
-      className="placeholder-form"
+      className={dialog ? "goal-form" : "placeholder-form"}
       aria-label="Goal settings"
       onSubmit={(event) => {
         event.preventDefault();
         void save();
       }}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
-        event.stopPropagation();
-        onClose();
-      }}
+      onKeyDown={
+        dialog
+          ? undefined
+          : (event) => {
+              if (event.key !== "Escape") return;
+              event.stopPropagation();
+              onClose();
+            }
+      }
     >
       <GoalInstructionsField
         placeholder="None yet. Add rules for the whole goal."
@@ -115,11 +125,11 @@ function GoalSettings({
           : "The coordinator picks up the change on its next step."}
       </span>
       {error && (
-        <p role="alert" className="placeholder-attention">
+        <p role="alert" className="placeholder-attention goal-form-error">
           {error}
         </p>
       )}
-      <span>
+      <span className="goal-form-actions">
         <button type="button" onClick={onClose}>
           Cancel
         </button>{" "}
@@ -132,10 +142,12 @@ function GoalSettings({
 }
 
 /**
- * Placeholder (the fork owns the desktop design) for upstream's goal chrome: the
- * goal's name and phase, the Chat | Workers switch and the workers' tally once
- * it has started, pause and resume, the question it's blocked on, the goal's
- * settings, and the model its workers run on (upstream's footer picker).
+ * The fork's take on upstream's goal chrome: the goal's name and phase, the
+ * Chat | Workers switch and the workers' tally once it has started, pause and
+ * resume, the question it's blocked on, the goal's settings, and the model its
+ * workers run on (upstream's footer picker). The desktop groups them into two
+ * lines in the session's column ("A goal's session", kleio-theme.css); the
+ * iPhone keeps the placeholder's one wrapping bar.
  */
 export function GoalPanel({
   goal,
@@ -152,6 +164,7 @@ export function GoalPanel({
   runs = [],
   onPauseChange,
   onSaved,
+  onFinish,
 }: {
   goal: GoalStateInfo;
   /** Null while the goal is still being briefed: there is no Workers view yet. */
@@ -176,6 +189,8 @@ export function GoalPanel({
   onPauseChange?: (paused: boolean) => void;
   /** After the settings were saved, with what the sidecar stored. */
   onSaved?: (next: { context: GoalContextItem[]; instructions: string }) => void;
+  /** The finish shown over the Workers view, and null when it comes down. */
+  onFinish?: (finish: GoalFinishScore | null) => void;
 }): React.ReactElement {
   const modelId = useId();
   const current = goal.critterModel ?? "";
@@ -286,80 +301,137 @@ export function GoalPanel({
 
   const shownFinish =
     view === "workers" && !askNotice && finish?.goalId === goal.id ? finish : null;
+  // The Workers view ends the stage on it and sets up its stele.
+  useEffect(() => {
+    if (!onFinish) return;
+    onFinish(shownFinish);
+    return () => onFinish(null);
+  }, [onFinish, shownFinish]);
+
+  const phone = isPhone();
+  const title = (
+    <>
+      <strong className="goal-bar-name">{goal.name}</strong>
+      <span className="placeholder-muted goal-bar-phase">{active ? "Underway" : "Briefing"}</span>
+    </>
+  );
+  const views = view && (
+    <span role="group" aria-label="Goal view" className="goal-bar-views">
+      <button
+        type="button"
+        aria-pressed={view === "chat"}
+        data-waiting={needsAnswer || undefined}
+        onClick={() => onViewChange("chat")}
+      >
+        {needsAnswer ? "Chat (waiting for you)" : "Chat"}
+      </button>{" "}
+      <button
+        type="button"
+        aria-pressed={view === "workers"}
+        onClick={() => onViewChange("workers")}
+      >
+        Workers
+      </button>
+    </span>
+  );
+  const tallyLine = active && (
+    <span role="status" className="placeholder-muted goal-bar-tally">
+      {describeTally(tally)}
+    </span>
+  );
+  const pause = active && onPauseChange && (
+    <button
+      type="button"
+      aria-pressed={runState === "paused"}
+      onClick={() => onPauseChange(runState === "running")}
+    >
+      {PAUSE_LABEL[runState]}
+    </button>
+  );
+  const settings = (
+    <button
+      type="button"
+      // The desktop's settings are a dialog; the iPhone's open in the page.
+      {...(phone ? { "aria-expanded": settingsOpen } : { "aria-haspopup": "dialog" as const })}
+      onClick={() => setSettingsOpen((open) => !open)}
+    >
+      Goal settings
+    </button>
+  );
+  const modelLabel = (
+    <label htmlFor={modelId} className="placeholder-muted">
+      Workers&apos; model
+    </label>
+  );
+  const modelSelect = (
+    <select
+      id={modelId}
+      value={current}
+      onChange={(event) => onSelectWorkerModel(event.target.value || null)}
+    >
+      <option value="">Same as the coordinator</option>
+      {current && !models.some((m) => m.id === current) && (
+        <option value={current}>{current}</option>
+      )}
+      {/* Workers run in parallel and unwatched: the sidecar refuses paid tiers. */}
+      {models
+        .filter((model) => model.billing?.paid !== true)
+        .map((model) => (
+          <option key={`${model.provider}:${model.id}`} value={model.id}>
+            {model.name}
+          </option>
+        ))}
+    </select>
+  );
+  const settingsForm = (
+    <GoalSettings
+      context={goal.context ?? []}
+      instructions={goal.instructions ?? ""}
+      busy={running}
+      dialog={!phone}
+      onClose={() => setSettingsOpen(false)}
+      onSaved={(next) => onSaved?.(next)}
+    />
+  );
 
   return (
-    <div>
-      <div className="placeholder-bar" role="group" aria-label="Goal">
-        <strong>{goal.name}</strong>
-        <span className="placeholder-muted">{active ? "Underway" : "Briefing"}</span>
-        {view && (
-          <span role="group" aria-label="Goal view">
-            <button
-              type="button"
-              aria-pressed={view === "chat"}
-              onClick={() => onViewChange("chat")}
-            >
-              {needsAnswer ? "Chat (waiting for you)" : "Chat"}
-            </button>{" "}
-            <button
-              type="button"
-              aria-pressed={view === "workers"}
-              onClick={() => onViewChange("workers")}
-            >
-              Workers
-            </button>
-          </span>
-        )}
-        {active && (
-          <span role="status" className="placeholder-muted">
-            {describeTally(tally)}
-          </span>
-        )}
-        {active && onPauseChange && (
-          <button
-            type="button"
-            aria-pressed={runState === "paused"}
-            onClick={() => onPauseChange(runState === "running")}
-          >
-            {PAUSE_LABEL[runState]}
-          </button>
-        )}
-        <button
-          type="button"
-          aria-expanded={settingsOpen}
-          onClick={() => setSettingsOpen((open) => !open)}
-        >
-          Goal settings
-        </button>
-        <label htmlFor={modelId} className="placeholder-muted">
-          Workers&apos; model
-        </label>
-        <select
-          id={modelId}
-          value={current}
-          onChange={(event) => onSelectWorkerModel(event.target.value || null)}
-        >
-          <option value="">Same as the coordinator</option>
-          {current && !models.some((m) => m.id === current) && (
-            <option value={current}>{current}</option>
-          )}
-          {/* Workers run in parallel and unwatched: the sidecar refuses paid tiers. */}
-          {models
-            .filter((model) => model.billing?.paid !== true)
-            .map((model) => (
-              <option key={`${model.provider}:${model.id}`} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-        </select>
-      </div>
+    <div className={phone ? undefined : "goal-panel"}>
+      {phone ? (
+        <div className="placeholder-bar" role="group" aria-label="Goal">
+          {title}
+          {views}
+          {tallyLine}
+          {pause}
+          {settings}
+          {modelLabel}
+          {modelSelect}
+        </div>
+      ) : (
+        <div className="goal-bar" role="group" aria-label="Goal">
+          <div className="goal-bar-title">
+            {title}
+            {tallyLine}
+          </div>
+          {views}
+          <div className="goal-bar-tools">
+            <span className="goal-bar-actions">
+              {pause}
+              {settings}
+            </span>
+            <span className="goal-bar-model">
+              {modelLabel}
+              <span className="goal-bar-select">{modelSelect}</span>
+            </span>
+          </div>
+        </div>
+      )}
       {status && view === "workers" && (
-        <div className="placeholder-bar">
+        <div className="placeholder-bar goal-status">
           <StatusPill status={status} />
         </div>
       )}
       {askNotice && (
-        <div className="placeholder-notice placeholder-bar" role="status">
+        <div className="placeholder-notice placeholder-bar goal-ask" role="status">
           <p className="placeholder-notice-body">
             <span className="placeholder-notice-headline">The coordinator needs you: </span>
             {askNotice.question}
@@ -383,17 +455,18 @@ export function GoalPanel({
           onClose={() => setFinish(null)}
         />
       )}
-      {settingsOpen && (
-        <div className="placeholder-bar">
-          <GoalSettings
-            context={goal.context ?? []}
-            instructions={goal.instructions ?? ""}
-            busy={running}
+      {settingsOpen &&
+        (phone ? (
+          <div className="placeholder-bar">{settingsForm}</div>
+        ) : (
+          <Modal
+            title="Goal settings"
+            className="goal-form-modal"
             onClose={() => setSettingsOpen(false)}
-            onSaved={(next) => onSaved?.(next)}
-          />
-        </div>
-      )}
+          >
+            {settingsForm}
+          </Modal>
+        ))}
     </div>
   );
 }

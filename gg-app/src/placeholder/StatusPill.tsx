@@ -47,7 +47,9 @@ export function StatusPill({ status }: { status: GoalStatus }): React.ReactEleme
       <StatusDot tone={DOT[status.tone]} label={status.headline} />
       <span className="placeholder-notice-body">
         <span className="placeholder-notice-headline">{status.headline}</span>
-        {status.timed && <span className="placeholder-muted"> {formatFor(now - since)}</span>}
+        {status.timed && (
+          <span className="placeholder-muted goal-status-time"> {formatFor(now - since)}</span>
+        )}
         {status.detail && (
           <span className={status.opens ? "placeholder-attention" : "placeholder-muted"}>
             {" "}

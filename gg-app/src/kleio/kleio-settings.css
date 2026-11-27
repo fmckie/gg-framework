@@ -5,7 +5,8 @@
 
    Loaded after kleio-pages.css, so it wins ties with the pages' own rules, and
    before kleio-phone.css. Everything is scoped to the desktop and to
-   `.settings-screen` (SettingsScreen.tsx), so the dialogs these pages open
+   `.settings-screen` (SettingsScreen.tsx, and the Apps page KleioScreen.tsx
+   opens under its own header), so the dialogs these pages open
    (they mount on <body>), the tray's Settings dialog, the two other screens
    that reuse the tab bar (KleioScreen, the Checklist) and the iPhone keep
    today's look. */
@@ -58,6 +59,12 @@ html:not(.platform-ios) .settings-screen {
   --secondary: var(--kleio-ink);
   /* Keyboard focus is the lapis outline below, never a glow. */
   --focus-ring: none;
+}
+
+/* Apps under Kleio's own header sits on that screen's surface, so what the
+   shelf cuts out of itself is the surface behind it, not Settings'. */
+html:not(.platform-ios) .kleio-page > .settings-screen {
+  --bg: inherit;
 }
 
 /* No glass anywhere in Settings: nothing blurs what is behind it. */

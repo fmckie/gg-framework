@@ -13,6 +13,8 @@ import "./kleio/kleio-theme.css";
 import "./kleio/kleio-pages.css";
 // Settings on the desktop, in the session's materials; after the pages so it wins ties.
 import "./kleio/kleio-settings.css";
+// The top bar outside a session and the radio dialog, flat like the session's rows.
+import "./kleio/kleio-chrome.css";
 // Last: the iPhone layout, scoped to html.platform-ios (inert on the desktop).
 import "./kleio/kleio-phone.css";
 import { ZoomController } from "./ZoomController";
