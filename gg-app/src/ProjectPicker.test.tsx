@@ -383,7 +383,8 @@ describe("ProjectPicker flat list", () => {
   }
 
   it("names a source with a dot and a quiet label on the desktop, not a tinted pill", async () => {
-    await renderProjectList([{ ...PROJECT, sources: ["ggcoder", "folder"] }]);
+    // The native store's own source, as the other fixture has it.
+    await renderProjectList([{ ...PROJECT, sources: [...OTHER_PROJECT.sources, "folder"] }]);
 
     const tag = screen.getByText("Kleio");
     expect(tag.className).toBe("source-tag");
@@ -396,7 +397,7 @@ describe("ProjectPicker flat list", () => {
 
   it("keeps the iPhone's tinted pills and inline name colour", async () => {
     document.documentElement.classList.add("platform-ios");
-    await renderProjectList([{ ...PROJECT, sources: ["ggcoder"] }]);
+    await renderProjectList([{ ...PROJECT, sources: OTHER_PROJECT.sources }]);
 
     expect(screen.getByText("Kleio").className).toBe("badge");
     expect(document.querySelector(".source-tag")).toBeNull();
