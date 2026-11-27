@@ -4801,6 +4801,62 @@ html:not(.platform-ios) .project-picker .picker-hide:is(:hover, :focus-visible) 
   color: var(--kleio-lapis);
 }
 
+/* ── The cold-cache notice ── above the draft once the provider's cache has
+   lapsed (placeholder/CacheExpiryNotice.tsx): the words at the left, evenly
+   broken when they take two lines, and the two choices together at the right,
+   over a hairline. In a narrow window the pair drops under the words as one. */
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 0 0 10px 6px;
+  border-bottom: 1px solid var(--kleio-rule);
+  font-size: 13px;
+  line-height: 1.45;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  > .placeholder-cache-text {
+  flex: 1 1 260px;
+  min-width: 0;
+  text-wrap: balance;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  > .placeholder-cache-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--kleio-edge);
+  border-radius: 3px;
+  background: transparent;
+  font: 500 12.5px/1 var(--sans);
+  color: var(--kleio-text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+html:not(.platform-ios)
+  .app.app-session
+  > .inputwrap
+  > .placeholder-cache
+  button:is(:hover, :focus-visible) {
+  background: var(--kleio-raised);
+  color: var(--kleio-lapis);
+}
+html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache button:focus-visible {
+  outline: 2px solid var(--kleio-lapis);
+  outline-offset: 2px;
+}
+
 /* ── The Checklist ── Code's project checklist (placeholder/ChecklistView.tsx)
    in the session's column and materials: a heading, each group under a small
    label with its count, and one check to a hairline row with a still mark for

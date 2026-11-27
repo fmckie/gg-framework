@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CacheExpiryStatus } from "../agent";
 import { CacheExpiryNotice, resetCacheExpiryNoticeDismissals } from "./CacheExpiryNotice";
+import themeCss from "../kleio/kleio-theme.css?raw";
 
 function status(extra: Partial<CacheExpiryStatus> = {}): CacheExpiryStatus {
   return {
@@ -29,6 +30,7 @@ beforeEach(() => resetCacheExpiryNoticeDismissals());
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  document.documentElement.classList.remove("platform-ios");
 });
 
 describe("CacheExpiryNotice", () => {
@@ -138,5 +140,44 @@ describe("CacheExpiryNotice", () => {
       />,
     );
     expect(screen.getByText(/cache may have expired/)).toBeTruthy();
+  });
+
+  it("keeps its two choices together beside the words in a desktop session, never one alone on a line", () => {
+    const notice = "html:not(.platform-ios) .app.app-session > .inputwrap > .placeholder-cache";
+    const draw = (): void => {
+      render(
+        <div className="app app-session">
+          <div className="inputwrap">
+            <CacheExpiryNotice expiry={status()} running={false} onCompact={vi.fn()} />
+          </div>
+        </div>,
+      );
+    };
+    draw();
+    const box = screen.getByRole("status", { name: "Prompt cache expired" });
+    expect(box.matches(notice)).toBe(true);
+    expect(screen.getByText(TEXT).matches(`${notice} > .placeholder-cache-text`)).toBe(true);
+    const pair = screen.getByRole("button", { name: "Compact first" }).parentElement;
+    expect(pair?.matches(`${notice} > .placeholder-cache-actions`)).toBe(true);
+    expect(screen.getByRole("button", { name: "Send anyway" }).parentElement).toBe(pair);
+
+    // The row wraps; the pair is one item that doesn't, and neither label breaks.
+    expect(themeCss).toContain(
+      `${notice} {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: center;`,
+    );
+    expect(themeCss).toContain(
+      "  > .placeholder-cache\n  > .placeholder-cache-actions {\n  display: flex;\n  flex: none;\n  gap: 6px;\n}",
+    );
+    expect(themeCss).toContain(
+      `${notice} button {\n  height: 26px;\n  padding: 0 10px;\n  border: 1px solid var(--kleio-edge);\n  border-radius: 3px;\n  background: transparent;\n  font: 500 12.5px/1 var(--sans);\n  color: var(--kleio-text);\n  white-space: nowrap;`,
+    );
+
+    // The iPhone keeps the plain line.
+    cleanup();
+    document.documentElement.classList.add("platform-ios");
+    draw();
+    expect(screen.getByRole("status", { name: "Prompt cache expired" }).matches(notice)).toBe(
+      false,
+    );
   });
 });
